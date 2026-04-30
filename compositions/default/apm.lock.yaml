@@ -1,0 +1,46 @@
+lockfile_version: '1'
+generated_at: '2026-04-30T04:39:48.121275+00:00'
+apm_version: 0.11.0
+dependencies:
+- repo_url: _local/browser-automation
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/browser-automation
+  source: local
+  local_path: ../../components/seed/browser-automation
+- repo_url: _local/http-gateway
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/http-gateway.md
+  deployed_file_hashes:
+    .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
+  source: local
+  local_path: ../../components/seed/http-gateway
+- repo_url: _local/loop-heartbeat
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/loop-heartbeat.md
+  deployed_file_hashes:
+    .claude/rules/loop-heartbeat.md: sha256:f7362ad4d0be0435a10b7e8ba4d165875fc2310cee90977c6558b4113cef7cac
+  source: local
+  local_path: ../../components/seed/loop-heartbeat
+- repo_url: _local/memory
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-memory
+  source: local
+  local_path: ../../components/seed/memory
+- repo_url: _local/tier-classifier
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/tier-classifier
+  source: local
+  local_path: ../../components/seed/tier-classifier
+- repo_url: _local/trello-data-source
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/trello-data-source.md
+  deployed_file_hashes:
+    .claude/rules/trello-data-source.md: sha256:51b7511223e3d3745245527f68bdd70c35fae7515d0559acaf95f915c3c74b74
+  source: local
+  local_path: ../../components/seed/trello-data-source

@@ -1,0 +1,28 @@
+name: garrison-tier-classifier
+version: 0.1.0
+description: Tier classifier seed for Agent Garrison.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  primitive: classifier
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: Tier 1-7 routing floor; T3+ forces plan-then-reclassify-then-route.
+  config_schema:
+    - key: tier_floor
+      type: integer
+      default: 3
+      description: Minimum tier this classifier raises every prompt to.
+    - key: plan_threshold
+      type: integer
+      default: 3
+      description: Tier at which the operative must plan before execution.
+  verify:
+    command: test -f .claude/skills/tier-classifier/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  ui:
+    extension: ./ui/ClassifierInspector.tsx

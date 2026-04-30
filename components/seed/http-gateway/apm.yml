@@ -1,0 +1,26 @@
+name: http-gateway
+version: 0.1.0
+description: HTTP gateway seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  primitive: gateway
+  cardinality_hint: single
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: Small local HTTP gateway for inbound jobs, channels, and session checks.
+  config_schema:
+    - key: port
+      type: integer
+      default: 4777
+      description: Local gateway port.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Local bind address.
+  verify:
+    command: test -f apm_modules/_local/http-gateway/scripts/gateway.mjs && echo ok
+    expect: ok
+    timeout_ms: 10000

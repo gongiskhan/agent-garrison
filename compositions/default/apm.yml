@@ -1,0 +1,60 @@
+name: dogfood-operative
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../components/seed/browser-automation
+    - path: ../../components/seed/http-gateway
+    - path: ../../components/seed/loop-heartbeat
+    - path: ../../components/seed/memory
+    - path: ../../components/seed/tier-classifier
+    - path: ../../components/seed/trello-data-source
+x-garrison:
+  composition:
+    id: default
+    name: Dogfood Operative
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 5
+        max_spend_per_day: 25
+        max_tool_calls_per_tick: 30
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      heartbeat:
+        - id: loop-heartbeat
+          config:
+            cadence_minutes: 40
+            gateway_url: http://127.0.0.1:4777/jobs
+      data-sources:
+        - id: trello-data-source
+          config:
+            tasks_truth_file: tasks/trello.md
+      automations:
+        - id: browser-automation
+          config:
+            browser: chromium
+            headless: false
+      memory:
+        - id: memory
+          config:
+            recency_window: 20
+            persistence_cadence: hourly
+            compiled_memory_path: memory/compiled.md
+      classifier:
+        - id: tier-classifier
+          config:
+            tier_floor: 3
+            plan_threshold: 3
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4777
+            bind_host: 127.0.0.1
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md
+      soul: .garrison/prompts/soul.md

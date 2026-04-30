@@ -1,0 +1,26 @@
+{
+  "tier-classifier": {
+    "global": 4.7,
+    "claude_code": 4.7
+  },
+  "memory": {
+    "global": 4.5,
+    "claude_code": 4.5
+  },
+  "loop-heartbeat": {
+    "global": 4.6,
+    "claude_code": 4.6
+  },
+  "http-gateway": {
+    "global": 4.4,
+    "claude_code": 4.4
+  },
+  "browser-automation": {
+    "global": 4.5,
+    "claude_code": 4.5
+  },
+  "trello-data-source": {
+    "global": 4.4,
+    "claude_code": 4.4
+  }
+}

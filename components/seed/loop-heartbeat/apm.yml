@@ -1,0 +1,26 @@
+name: loop-heartbeat
+version: 0.1.0
+description: Loop heartbeat seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  primitive: heartbeat
+  cardinality_hint: single
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: Scheduled loop that wakes the operative and dispatches through the gateway.
+  config_schema:
+    - key: cadence_minutes
+      type: integer
+      default: 40
+      description: Minutes between heartbeat ticks.
+    - key: gateway_url
+      type: string
+      default: http://127.0.0.1:4777/jobs
+      description: Gateway endpoint that receives heartbeat jobs.
+  verify:
+    command: test -f apm_modules/_local/loop-heartbeat/scripts/heartbeat.mjs && echo ok
+    expect: ok
+    timeout_ms: 10000

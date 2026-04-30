@@ -1,0 +1,15 @@
+.next/
+.playwright-cli/
+node_modules/
+coverage/
+dist/
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+data/vault.json
+compositions/*/.env
+compositions/*/.garrison/assembled-system-prompt.md
+compositions/*/apm_modules/
+compositions/*/.claude/

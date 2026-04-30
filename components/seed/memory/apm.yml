@@ -1,0 +1,30 @@
+name: garrison-memory
+version: 0.1.0
+description: Memory seed for Agent Garrison.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  primitive: memory
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: Within-session recall plus cross-session compiled memory persistence.
+  config_schema:
+    - key: recency_window
+      type: integer
+      default: 20
+      description: Number of recent events kept in immediate context.
+    - key: persistence_cadence
+      type: string
+      default: hourly
+      description: How often memory is compiled to disk.
+    - key: compiled_memory_path
+      type: path
+      default: memory/compiled.md
+      description: Where compiled memory is written.
+  verify:
+    command: test -f .claude/skills/garrison-memory/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000

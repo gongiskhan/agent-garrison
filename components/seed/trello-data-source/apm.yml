@@ -1,0 +1,29 @@
+name: trello-data-source
+version: 0.1.0
+description: Trello data source seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  primitive: data-sources
+  cardinality_hint: multi
+  component_shape: cli
+  platforms:
+    - claude-code
+  summary: One-way Trello fetch with Trello-backed derived Tasks.
+  config_schema:
+    - key: board_id
+      type: string
+      description: Trello board id to mirror.
+      required: true
+    - key: tasks_truth_file
+      type: path
+      default: tasks/trello.md
+      description: Markdown file synced from Trello.
+  tasks:
+    source: trello
+    truth_file: tasks/trello.md
+  verify:
+    command: test -f apm_modules/_local/trello-data-source/scripts/trello-sync.mjs && echo ok
+    expect: ok
+    timeout_ms: 10000

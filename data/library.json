@@ -1,0 +1,80 @@
+[
+  {
+    "id": "browser-automation",
+    "name": "Browser automation",
+    "repo": "local:components/seed/browser-automation",
+    "localPath": "components/seed/browser-automation",
+    "summary": "Playwright CLI plus a driving skill for browser automation.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-browser-automation",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "http-gateway",
+    "name": "HTTP gateway",
+    "repo": "local:components/seed/http-gateway",
+    "localPath": "components/seed/http-gateway",
+    "summary": "Small local HTTP gateway for inbound jobs, channels, and session checks.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-http-gateway",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "loop-heartbeat",
+    "name": "Loop heartbeat",
+    "repo": "local:components/seed/loop-heartbeat",
+    "localPath": "components/seed/loop-heartbeat",
+    "summary": "Scheduled loop that wakes the operative and dispatches through the gateway.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-loop-heartbeat",
+      "global": 4.6,
+      "claude_code": 4.6
+    }
+  },
+  {
+    "id": "memory",
+    "name": "Memory component",
+    "repo": "local:components/seed/memory",
+    "localPath": "components/seed/memory",
+    "summary": "Within-session recall plus cross-session compiled memory persistence.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-memory",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "tier-classifier",
+    "name": "Tier classifier",
+    "repo": "local:components/seed/tier-classifier",
+    "localPath": "components/seed/tier-classifier",
+    "summary": "Tier 1-7 routing floor; T3+ forces plan-then-reclassify-then-route.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-tier-classifier",
+      "global": 4.7,
+      "claude_code": 4.7
+    }
+  },
+  {
+    "id": "trello-data-source",
+    "name": "Trello data source",
+    "repo": "local:components/seed/trello-data-source",
+    "localPath": "components/seed/trello-data-source",
+    "summary": "One-way Trello fetch with Trello-backed derived Tasks.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-trello-data-source",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  }
+]
