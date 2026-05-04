@@ -20,6 +20,9 @@ x-garrison:
       type: string
       default: 127.0.0.1
       description: Local bind address.
+  consumes:
+    - kind: orchestrator
+      cardinality: one
   verify:
     command: test -f apm_modules/_local/http-gateway/scripts/gateway.mjs && echo ok
     expect: ok

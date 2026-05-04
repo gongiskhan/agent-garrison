@@ -20,6 +20,9 @@ x-garrison:
       type: integer
       default: 3
       description: Tier at which the operative must plan before execution.
+  provides:
+    - kind: agent-skill
+      name: tier-classifier
   verify:
     command: test -f .claude/skills/tier-classifier/SKILL.md && echo ok
     expect: ok

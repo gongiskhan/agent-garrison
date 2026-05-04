@@ -20,6 +20,9 @@ x-garrison:
       type: path
       default: tasks/trello.md
       description: Markdown file synced from Trello.
+  consumes:
+    - kind: vault
+      cardinality: optional-one
   tasks:
     source: trello
     truth_file: tasks/trello.md

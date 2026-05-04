@@ -20,6 +20,12 @@ x-garrison:
       type: string
       default: http://127.0.0.1:4777/jobs
       description: Gateway endpoint that receives heartbeat jobs.
+  provides:
+    - kind: automation-runner
+      name: loop-heartbeat
+  consumes:
+    - kind: orchestrator
+      cardinality: one
   verify:
     command: test -f apm_modules/_local/loop-heartbeat/scripts/heartbeat.mjs && echo ok
     expect: ok

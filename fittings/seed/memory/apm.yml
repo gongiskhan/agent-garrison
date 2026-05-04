@@ -24,6 +24,12 @@ x-garrison:
       type: path
       default: memory/compiled.md
       description: Where compiled memory is written.
+  provides:
+    - kind: memory-store
+      name: garrison-memory
+  consumes:
+    - kind: vault
+      cardinality: optional-one
   verify:
     command: test -f .claude/skills/garrison-memory/SKILL.md && echo ok
     expect: ok

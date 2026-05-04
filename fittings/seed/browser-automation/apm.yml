@@ -24,6 +24,9 @@ x-garrison:
       type: boolean
       default: false
       description: Whether browser runs headless.
+  consumes:
+    - kind: vault
+      cardinality: optional-one
   verify:
     command: test -f .claude/skills/browser-automation/SKILL.md && echo ok
     expect: ok
