@@ -13,4 +13,5 @@ compositions/*/.env
 compositions/*/.garrison/assembled-system-prompt.md
 compositions/*/apm_modules/
 compositions/*/.claude/
+compositions/*/logs/
 .idea
