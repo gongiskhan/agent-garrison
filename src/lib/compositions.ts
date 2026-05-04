@@ -4,7 +4,7 @@ import { COMPOSITIONS_DIR, ROOT_DIR } from "./paths";
 import { ensureDir, pathExists, slugify, toPosixPath } from "./fs-utils";
 import { readLibrary } from "./library";
 import { validateSelection } from "./metadata";
-import { primitiveIds, type ComponentSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type PrimitiveId, type SelectedComponent } from "./types";
+import { facultyIds, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
 
 const DEFAULT_COMPOSITION_ID = "default";
@@ -21,7 +21,7 @@ interface CompositionManifest {
       id?: string;
       name?: string;
       global_config?: GlobalConfig;
-      selections?: ComponentSelectionMap;
+      selections?: FittingSelectionMap;
       prompt_sources?: {
         orchestrator: string;
         soul: string;
@@ -75,7 +75,7 @@ export async function writeComposition(
   id: string,
   update: {
     name?: string;
-    selections?: ComponentSelectionMap;
+    selections?: FittingSelectionMap;
     globalConfig?: GlobalConfig;
   }
 ): Promise<Composition> {
@@ -144,7 +144,7 @@ export async function ensureComposition(id: string): Promise<void> {
         "# Agent Garrison Orchestrator",
         "",
         "You are the behavior spine for a local Agent Garrison operative.",
-        "Coordinate installed primitives, respect configured guardrails, report every meaningful action, and verify before claiming success.",
+        "Coordinate installed Faculties, respect configured guardrails, report every meaningful action, and verify before claiming success.",
         ""
       ].join("\n"),
       "utf8"
@@ -224,7 +224,7 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
   };
 }
 
-export async function selectedLibraryEntries(selections: ComponentSelectionMap): Promise<LibraryEntry[]> {
+export async function selectedLibraryEntries(selections: FittingSelectionMap): Promise<LibraryEntry[]> {
   const library = await readLibrary();
   const selectedIds = new Set(
     Object.values(selections)
@@ -234,30 +234,30 @@ export async function selectedLibraryEntries(selections: ComponentSelectionMap):
   return library.filter((entry) => selectedIds.has(entry.id));
 }
 
-export async function validateCompositionSelections(selections: ComponentSelectionMap): Promise<void> {
+export async function validateCompositionSelections(selections: FittingSelectionMap): Promise<void> {
   const library = await readLibrary();
   const byId = new Map(library.map((entry) => [entry.id, entry]));
-  for (const primitiveId of primitiveIds) {
-    const selected = selections[primitiveId] ?? [];
+  for (const facultyId of facultyIds) {
+    const selected = selections[facultyId] ?? [];
     const metadata = selected.map((item) => {
       const entry = byId.get(item.id);
       if (!entry) {
-        throw new Error(`Unknown component ${item.id}`);
+        throw new Error(`Unknown fitting ${item.id}`);
       }
       return entry.metadata;
     });
-    validateSelection(primitiveId, selected.length, metadata);
+    validateSelection(facultyId, selected.length, metadata);
   }
 }
 
-function normalizeSelections(selections: ComponentSelectionMap): ComponentSelectionMap {
-  const normalized: ComponentSelectionMap = {};
-  for (const primitiveId of primitiveIds) {
-    const items = selections[primitiveId];
+function normalizeSelections(selections: FittingSelectionMap): FittingSelectionMap {
+  const normalized: FittingSelectionMap = {};
+  for (const facultyId of facultyIds) {
+    const items = selections[facultyId];
     if (!items || items.length === 0) {
       continue;
     }
-    normalized[primitiveId] = items.map((item) => ({
+    normalized[facultyId] = items.map((item) => ({
       id: item.id,
       config: item.config ?? {}
     }));
@@ -266,7 +266,7 @@ function normalizeSelections(selections: ComponentSelectionMap): ComponentSelect
 }
 
 function deriveTasks(
-  selections: ComponentSelectionMap,
+  selections: FittingSelectionMap,
   entries: LibraryEntry[]
 ): Composition["derivedTasks"] {
   const dataSources = selections["data-sources"] ?? [];
@@ -276,14 +276,14 @@ function deriveTasks(
       return {
         source: entry.metadata.tasks.source,
         truthFile: entry.metadata.tasks.truth_file,
-        componentId: entry.id
+        fittingId: entry.id
       };
     }
   }
   return undefined;
 }
 
-export function defaultConfigForEntry(entry: LibraryEntry): SelectedComponent {
+export function defaultConfigForEntry(entry: LibraryEntry): SelectedFitting {
   return {
     id: entry.id,
     config: Object.fromEntries(

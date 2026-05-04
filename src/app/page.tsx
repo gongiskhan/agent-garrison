@@ -30,15 +30,15 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { ExtensionPane } from "@/components/ExtensionPane";
-import { primitives } from "@/lib/primitives";
+import { faculties } from "@/lib/faculties";
 import type {
-  ComponentSelectionMap,
+  FittingSelectionMap,
   ConfigSchemaField,
   GlobalConfig,
   LibraryEntry,
-  PrimitiveId,
+  FacultyId,
   RunnerState,
-  SelectedComponent,
+  SelectedFitting,
   VaultSecret,
   VerifyResult
 } from "@/lib/types";
@@ -56,12 +56,12 @@ interface CompositionView {
   name: string;
   directory: string;
   manifestPath: string;
-  selections: ComponentSelectionMap;
+  selections: FittingSelectionMap;
   globalConfig: GlobalConfig;
   derivedTasks?: {
     source: string;
     truthFile: string;
-    componentId: string;
+    fittingId: string;
   };
 }
 
@@ -74,14 +74,14 @@ const coreSeedIds = [
   "http-gateway"
 ];
 
-const primitiveGroups: Array<{ label: string; ids: PrimitiveId[] }> = [
+const facultyGroups: Array<{ label: string; ids: FacultyId[] }> = [
   { label: "Cadence", ids: ["heartbeat", "scheduler"] },
   { label: "Context", ids: ["data-sources", "knowledge-base", "memory"] },
   { label: "Action", ids: ["automations", "testing-framework", "gateway", "channels"] },
   { label: "Control", ids: ["classifier", "observability", "soul", "orchestrator"] }
 ];
 
-const primitiveRoleCopy: Record<PrimitiveId, { role: string; fit: string }> = {
+const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   heartbeat: {
     role: "Defines when the operative wakes up without a human prompt.",
     fit: "It triggers the gateway on a cadence, so routine work starts from the same entry point as inbound channel events."
@@ -104,15 +104,15 @@ const primitiveRoleCopy: Record<PrimitiveId, { role: string; fit: string }> = {
   },
   "testing-framework": {
     role: "Defines how the operative proves changes or workflows still work.",
-    fit: "Testing components supply verification habits, scripts, and E2E helpers the runner can expose during operation."
+    fit: "Testing Fittings supply verification habits, scripts, and E2E helpers the runner can expose during operation."
   },
   memory: {
     role: "Controls what the operative remembers within and across sessions.",
-    fit: "A single memory component owns recency, persistence cadence, and compiled memory output."
+    fit: "A single memory Fitting owns recency, persistence cadence, and compiled memory output."
   },
   classifier: {
     role: "Classifies each prompt before work starts.",
-    fit: "This is an operative component, not a separate app surface. It sets the routing floor and escalation behavior."
+    fit: "This is an operative Fitting, not a separate app surface. It sets the routing floor and escalation behavior."
   },
   gateway: {
     role: "Receives jobs from heartbeat, channels, and local test inputs.",
@@ -132,7 +132,7 @@ const primitiveRoleCopy: Record<PrimitiveId, { role: string; fit: string }> = {
   },
   orchestrator: {
     role: "Governs the operative's behavior.",
-    fit: "This is the capstone. It coordinates primitives, owns global config, and provides the behavioral spine."
+    fit: "This is the capstone. It coordinates Faculties, owns global config, and provides the behavioral spine."
   }
 };
 
@@ -297,7 +297,7 @@ export default function HomePage() {
     }
   }
 
-  async function openComponentSource(entry: LibraryEntry, kind: "local" | "repo") {
+  async function openFittingSource(entry: LibraryEntry, kind: "local" | "repo") {
     setError(null);
     try {
       const response = await fetch("/api/library/open", {
@@ -333,24 +333,24 @@ export default function HomePage() {
     }
   }
 
-  function selectedForPrimitive(primitiveId: PrimitiveId): SelectedComponent[] {
-    return composition?.selections[primitiveId] ?? [];
+  function selectedForFaculty(facultyId: FacultyId): SelectedFitting[] {
+    return composition?.selections[facultyId] ?? [];
   }
 
-  function entrySelection(entry: LibraryEntry): SelectedComponent | undefined {
-    return selectedForPrimitive(entry.primitive).find((selection) => selection.id === entry.id);
+  function entrySelection(entry: LibraryEntry): SelectedFitting | undefined {
+    return selectedForFaculty(entry.faculty).find((selection) => selection.id === entry.id);
   }
 
-  function setSingleSelection(primitiveId: PrimitiveId, componentId: string) {
+  function setSingleSelection(facultyId: FacultyId, fittingId: string) {
     if (!composition) {
       return;
     }
-    const entry = library.find((candidate) => candidate.id === componentId);
+    const entry = library.find((candidate) => candidate.id === fittingId);
     const selections = { ...composition.selections };
     if (!entry) {
-      delete selections[primitiveId];
+      delete selections[facultyId];
     } else {
-      selections[primitiveId] = [defaultSelection(entry)];
+      selections[facultyId] = [defaultSelection(entry)];
     }
     void saveComposition({ selections });
   }
@@ -359,14 +359,14 @@ export default function HomePage() {
     if (!composition) {
       return;
     }
-    const current = selectedForPrimitive(entry.primitive);
+    const current = selectedForFaculty(entry.faculty);
     const exists = current.some((selection) => selection.id === entry.id);
     const selections = { ...composition.selections };
-    selections[entry.primitive] = exists
+    selections[entry.faculty] = exists
       ? current.filter((selection) => selection.id !== entry.id)
       : [...current, defaultSelection(entry)];
-    if (selections[entry.primitive]?.length === 0) {
-      delete selections[entry.primitive];
+    if (selections[entry.faculty]?.length === 0) {
+      delete selections[entry.faculty];
     }
     void saveComposition({ selections });
   }
@@ -375,17 +375,17 @@ export default function HomePage() {
     if (!composition) {
       return;
     }
-    const selections: ComponentSelectionMap = { ...composition.selections };
+    const selections: FittingSelectionMap = { ...composition.selections };
     for (const id of coreSeedIds) {
       const entry = library.find((candidate) => candidate.id === id);
       if (!entry) {
         continue;
       }
-      const current = selections[entry.primitive] ?? [];
+      const current = selections[entry.faculty] ?? [];
       if (entry.metadata.cardinality_hint === "single") {
-        selections[entry.primitive] = [defaultSelection(entry)];
+        selections[entry.faculty] = [defaultSelection(entry)];
       } else if (!current.some((selection) => selection.id === entry.id)) {
-        selections[entry.primitive] = [...current, defaultSelection(entry)];
+        selections[entry.faculty] = [...current, defaultSelection(entry)];
       }
     }
     void saveComposition({ selections });
@@ -395,9 +395,9 @@ export default function HomePage() {
     if (!composition) {
       return;
     }
-    const current = selectedForPrimitive(entry.primitive);
+    const current = selectedForFaculty(entry.faculty);
     const selections = { ...composition.selections };
-    selections[entry.primitive] = current.map((selection) =>
+    selections[entry.faculty] = current.map((selection) =>
       selection.id === entry.id
         ? { ...selection, config: { ...selection.config, [key]: value } }
         : selection
@@ -451,7 +451,7 @@ export default function HomePage() {
               </div>
               <div className="grid gap-2 text-xs text-[#c8d0c6]">
                 <div className="flex items-center justify-between">
-                  <span>Components</span>
+                  <span>Fittings</span>
                   <strong className="text-[#f5f1e6]">{selectedCount}</strong>
                 </div>
                 <div className="flex items-center justify-between">
@@ -513,12 +513,12 @@ export default function HomePage() {
               selectedEntries={selectedEntries}
               vaultNeedsPassword={vaultNeedsPassword}
               busy={busy}
-              selectedForPrimitive={selectedForPrimitive}
+              selectedForFaculty={selectedForFaculty}
               entrySelection={entrySelection}
               setSingleSelection={setSingleSelection}
               toggleMultiSelection={toggleMultiSelection}
               updateConfig={updateConfig}
-              openComponentSource={openComponentSource}
+              openFittingSource={openFittingSource}
               saveComposition={saveComposition}
               loadSeedStack={loadSeedStack}
               openRun={() => setTab("run")}
@@ -562,12 +562,12 @@ function ComposeTab({
   selectedEntries,
   vaultNeedsPassword,
   busy,
-  selectedForPrimitive,
+  selectedForFaculty,
   entrySelection,
   setSingleSelection,
   toggleMultiSelection,
   updateConfig,
-  openComponentSource,
+  openFittingSource,
   saveComposition,
   loadSeedStack,
   openRun
@@ -578,12 +578,12 @@ function ComposeTab({
   selectedEntries: LibraryEntry[];
   vaultNeedsPassword: boolean;
   busy: string | null;
-  selectedForPrimitive: (primitiveId: PrimitiveId) => SelectedComponent[];
-  entrySelection: (entry: LibraryEntry) => SelectedComponent | undefined;
-  setSingleSelection: (primitiveId: PrimitiveId, componentId: string) => void;
+  selectedForFaculty: (facultyId: FacultyId) => SelectedFitting[];
+  entrySelection: (entry: LibraryEntry) => SelectedFitting | undefined;
+  setSingleSelection: (facultyId: FacultyId, fittingId: string) => void;
   toggleMultiSelection: (entry: LibraryEntry) => void;
   updateConfig: (entry: LibraryEntry, key: string, value: string | number | boolean) => void;
-  openComponentSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
+  openFittingSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
   saveComposition: (next: Partial<CompositionView>) => Promise<void>;
   loadSeedStack: () => void;
   openRun: () => void;
@@ -600,7 +600,7 @@ function ComposeTab({
               </span>
             </div>
             <p className="max-w-4xl text-sm leading-6 text-[#666b63]">
-              Pick components for each primitive. Garrison writes the choices into the composition manifest,
+              Pick a Fitting for each Faculty. Garrison writes the choices into the composition manifest,
               APM installs those packages, then the runner assembles the operative prompt and launches Claude Code.
             </p>
           </div>
@@ -696,19 +696,19 @@ function ComposeTab({
         ) : null}
 
         <div className="divide-y divide-[#d9d1c2]">
-          {primitiveGroups.map((group) => (
+          {facultyGroups.map((group) => (
             <div key={group.label}>
               <div className="bg-[#eee8dc] px-4 py-2 text-xs font-semibold uppercase text-[#6b6e68]">
                 {group.label}
               </div>
-              {group.ids.map((primitiveId) => {
-                const primitive = primitives.find((candidate) => candidate.id === primitiveId)!;
-                const entries = library.filter((entry) => entry.primitive === primitive.id);
-                const selected = selectedForPrimitive(primitive.id);
+              {group.ids.map((facultyId) => {
+                const faculty = faculties.find((candidate) => candidate.id === facultyId)!;
+                const entries = library.filter((entry) => entry.faculty === faculty.id);
+                const selected = selectedForFaculty(faculty.id);
                 return (
-                  <PrimitiveRow
-                    key={primitive.id}
-                    primitive={primitive}
+                  <FacultyRow
+                    key={faculty.id}
+                    faculty={faculty}
                     entries={entries}
                     selected={selected}
                     busy={busy}
@@ -716,7 +716,7 @@ function ComposeTab({
                     setSingleSelection={setSingleSelection}
                     toggleMultiSelection={toggleMultiSelection}
                     updateConfig={updateConfig}
-                    openComponentSource={openComponentSource}
+                    openFittingSource={openFittingSource}
                   />
                 );
               })}
@@ -728,8 +728,8 @@ function ComposeTab({
   );
 }
 
-function PrimitiveRow({
-  primitive,
+function FacultyRow({
+  faculty,
   entries,
   selected,
   busy,
@@ -737,32 +737,32 @@ function PrimitiveRow({
   setSingleSelection,
   toggleMultiSelection,
   updateConfig,
-  openComponentSource
+  openFittingSource
 }: {
-  primitive: (typeof primitives)[number];
+  faculty: (typeof faculties)[number];
   entries: LibraryEntry[];
-  selected: SelectedComponent[];
+  selected: SelectedFitting[];
   busy: string | null;
-  entrySelection: (entry: LibraryEntry) => SelectedComponent | undefined;
-  setSingleSelection: (primitiveId: PrimitiveId, componentId: string) => void;
+  entrySelection: (entry: LibraryEntry) => SelectedFitting | undefined;
+  setSingleSelection: (facultyId: FacultyId, fittingId: string) => void;
   toggleMultiSelection: (entry: LibraryEntry) => void;
   updateConfig: (entry: LibraryEntry, key: string, value: string | number | boolean) => void;
-  openComponentSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
+  openFittingSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
 }) {
-  const copy = primitiveRoleCopy[primitive.id];
+  const copy = facultyRoleCopy[faculty.id];
   return (
     <div className="grid gap-4 px-4 py-5 xl:grid-cols-[310px_1fr]">
       <div className="min-w-0">
         <div className="flex items-start gap-3">
           <span className={clsx("grid h-8 w-8 shrink-0 place-items-center border text-xs font-semibold", selected.length ? "border-[#18211c] bg-[#18211c] text-white" : "border-[#cfc6b8] bg-white text-[#6b6e68]")}>
-            {primitive.order}
+            {faculty.order}
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h4 className="truncate font-semibold">{primitive.name}</h4>
-              {primitive.governing ? <span className="border border-[#d9b860]/40 bg-[#fff5cf] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#80611b]">capstone</span> : null}
+              <h4 className="truncate font-semibold">{faculty.name}</h4>
+              {faculty.governing ? <span className="border border-[#d9b860]/40 bg-[#fff5cf] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#80611b]">capstone</span> : null}
             </div>
-            <p className="mt-1 text-xs text-[#6b6e68]">{primitive.cardinality} · {primitive.shapes.join(", ")}</p>
+            <p className="mt-1 text-xs text-[#6b6e68]">{faculty.cardinality} · {faculty.shapes.join(", ")}</p>
           </div>
         </div>
         <p className="mt-4 text-sm leading-6 text-[#343d36]">{copy.role}</p>
@@ -772,24 +772,24 @@ function PrimitiveRow({
       <div className="grid gap-3">
         {entries.length === 0 ? (
           <div className="border border-dashed border-[#cfc6b8] bg-[#f7f3ea] px-4 py-4 text-sm text-[#77736a]">
-            No component is curated for this primitive yet.
+            No Fitting is curated for this Faculty yet.
           </div>
         ) : (
           <div className={clsx("grid gap-3", entries.length > 1 && "lg:grid-cols-2")}>
             {entries.map((entry) => {
               const checked = selected.some((selection) => selection.id === entry.id);
               return (
-                <ComponentCard
+                <FittingCard
                   key={entry.id}
                   entry={entry}
                   selected={checked}
                   disabled={busy === "save"}
                   onSelect={() =>
-                    primitive.cardinality === "single"
-                      ? setSingleSelection(primitive.id, checked ? "" : entry.id)
+                    faculty.cardinality === "single"
+                      ? setSingleSelection(faculty.id, checked ? "" : entry.id)
                       : toggleMultiSelection(entry)
                   }
-                  openComponentSource={openComponentSource}
+                  openFittingSource={openFittingSource}
                 />
               );
             })}
@@ -799,7 +799,7 @@ function PrimitiveRow({
         {entries
           .filter((entry) => entrySelection(entry))
           .map((entry) => (
-            <ComponentConfig
+            <FittingConfig
               key={entry.id}
               entry={entry}
               selection={entrySelection(entry)!}
@@ -811,18 +811,18 @@ function PrimitiveRow({
   );
 }
 
-function ComponentCard({
+function FittingCard({
   entry,
   selected,
   disabled,
   onSelect,
-  openComponentSource
+  openFittingSource
 }: {
   entry: LibraryEntry;
   selected: boolean;
   disabled: boolean;
   onSelect: () => void;
-  openComponentSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
+  openFittingSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
 }) {
   return (
     <div
@@ -867,7 +867,7 @@ function ComponentCard({
         {entry.localPath ? (
           <button
             className="inline-flex h-9 items-center gap-2 border border-[#cfc6b8] bg-white px-3 text-xs font-medium hover:border-[#18211c]"
-            onClick={() => void openComponentSource(entry, "local")}
+            onClick={() => void openFittingSource(entry, "local")}
           >
             <FolderOpen size={14} />
             Open folder
@@ -875,7 +875,7 @@ function ComponentCard({
         ) : null}
         <button
           className="inline-flex h-9 items-center gap-2 border border-[#cfc6b8] bg-white px-3 text-xs font-medium hover:border-[#18211c]"
-          onClick={() => void openComponentSource(entry, "repo")}
+          onClick={() => void openFittingSource(entry, "repo")}
         >
           <ExternalLink size={14} />
           Open repo
@@ -885,13 +885,13 @@ function ComponentCard({
   );
 }
 
-function ComponentConfig({
+function FittingConfig({
   entry,
   selection,
   updateConfig
 }: {
   entry: LibraryEntry;
-  selection: SelectedComponent;
+  selection: SelectedFitting;
   updateConfig: (entry: LibraryEntry, key: string, value: string | number | boolean) => void;
 }) {
   if (entry.metadata.config_schema.length === 0) {
@@ -985,7 +985,7 @@ function RunTab({
           </div>
           <p className="mb-3 text-sm leading-6 text-[#666b63]">
             Send a direct test prompt to the running process. This is a runner probe, not a channel;
-            real user chat surfaces belong under the Channels primitive.
+            real user chat surfaces belong under the channels Faculty.
           </p>
           <textarea
             className="h-28 w-full resize-none border border-[#cfc6b8] bg-white p-3 text-sm outline-none focus:border-[#18211c]"
@@ -1012,8 +1012,8 @@ function RunTab({
           {verifyResults.length ? (
             <div className="grid gap-2 md:grid-cols-2">
               {verifyResults.map((result) => (
-                <div key={result.componentId} className="flex items-center justify-between gap-3 border border-[#d9d1c2] bg-white px-3 py-2 text-sm">
-                  <span className="truncate">{result.componentId}</span>
+                <div key={result.fittingId} className="flex items-center justify-between gap-3 border border-[#d9d1c2] bg-white px-3 py-2 text-sm">
+                  <span className="truncate">{result.fittingId}</span>
                   <span className={result.ok ? "font-medium text-[#2c6f63]" : "font-medium text-[#9b362d]"}>{result.ok ? "passed" : "failed"}</span>
                 </div>
               ))}
@@ -1310,7 +1310,7 @@ function PrimaryButton({
   );
 }
 
-function defaultSelection(entry: LibraryEntry): SelectedComponent {
+function defaultSelection(entry: LibraryEntry): SelectedFitting {
   return {
     id: entry.id,
     config: Object.fromEntries(
@@ -1335,7 +1335,7 @@ function computeReadiness(
   return [
     {
       label: "Seed stack",
-      detail: missing === 0 ? "six core components selected" : `${missing} core components missing`,
+      detail: missing === 0 ? "six core Fittings selected" : `${missing} core Fittings missing`,
       ok: missing === 0
     },
     {

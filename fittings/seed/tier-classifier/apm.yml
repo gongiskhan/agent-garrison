@@ -5,7 +5,7 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  primitive: classifier
+  faculty: classifier
   cardinality_hint: single
   component_shape: skill
   platforms:

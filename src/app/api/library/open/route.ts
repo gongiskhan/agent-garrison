@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const entry = await getLibraryEntry(String(body.id ?? ""));
     if (!entry) {
-      throw new Error("Unknown library component");
+      throw new Error("Unknown library fitting");
     }
 
     const kind = body.kind === "repo" ? "repo" : "local";

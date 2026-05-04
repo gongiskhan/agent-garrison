@@ -42,7 +42,7 @@ async function resolveLibraryEntry(entry: RawLibraryEntry): Promise<LibraryEntry
   const metadata = parseGarrisonMetadata(manifest?.["x-garrison"]);
   return {
     ...entry,
-    primitive: metadata.primitive,
+    faculty: metadata.faculty,
     platforms: entry.platforms,
     ratings: entry.ratings ?? {},
     metadata

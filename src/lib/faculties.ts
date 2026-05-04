@@ -1,6 +1,6 @@
-import type { PrimitiveDefinition, PrimitiveId } from "./types";
+import type { FacultyDefinition, FacultyId } from "./types";
 
-export const primitives: PrimitiveDefinition[] = [
+export const faculties: FacultyDefinition[] = [
   {
     id: "heartbeat",
     order: 1,
@@ -108,14 +108,14 @@ export const primitives: PrimitiveDefinition[] = [
   }
 ];
 
-export const primitiveById = new Map<PrimitiveId, PrimitiveDefinition>(
-  primitives.map((primitive) => [primitive.id, primitive])
+export const facultyById = new Map<FacultyId, FacultyDefinition>(
+  faculties.map((faculty) => [faculty.id, faculty])
 );
 
-export function getPrimitive(id: PrimitiveId): PrimitiveDefinition {
-  const primitive = primitiveById.get(id);
-  if (!primitive) {
-    throw new Error(`Unknown primitive: ${id}`);
+export function getFaculty(id: FacultyId): FacultyDefinition {
+  const faculty = facultyById.get(id);
+  if (!faculty) {
+    throw new Error(`Unknown faculty: ${id}`);
   }
-  return primitive;
+  return faculty;
 }

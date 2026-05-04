@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { LibraryEntry, SelectedComponent } from "@/lib/types";
+import type { LibraryEntry, SelectedFitting } from "@/lib/types";
 
 const TierClassifierInspector = dynamic(
   () => import("@/components/extensions/TierClassifierInspector"),
@@ -16,7 +16,7 @@ export function ExtensionPane({
   selection
 }: {
   entry: LibraryEntry;
-  selection: SelectedComponent;
+  selection: SelectedFitting;
 }) {
   if (entry.id === "tier-classifier") {
     return <TierClassifierInspector config={selection.config} />;

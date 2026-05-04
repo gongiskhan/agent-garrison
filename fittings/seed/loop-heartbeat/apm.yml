@@ -5,7 +5,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  primitive: heartbeat
+  faculty: heartbeat
   cardinality_hint: single
   component_shape: script
   platforms:

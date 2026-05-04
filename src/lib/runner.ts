@@ -76,7 +76,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     const verifyResults = await verify(compositionId);
     const failed = verifyResults.find((result) => !result.ok);
     if (failed) {
-      throw new Error(`Verify failed for ${failed.componentId}`);
+      throw new Error(`Verify failed for ${failed.fittingId}`);
     }
     const promptPath = await assembleSystemPrompt(compositionId);
     const child = spawnClaude(compositionId, composition.directory, promptPath);
@@ -126,7 +126,7 @@ export async function down(compositionId: string): Promise<RunnerState> {
 
 export async function verify(compositionId: string): Promise<VerifyResult[]> {
   updateState(compositionId, { status: "verifying" });
-  appendLog(compositionId, "runner", "Running component verify hooks");
+  appendLog(compositionId, "runner", "Running fitting verify hooks");
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
   const results: VerifyResult[] = [];
@@ -143,8 +143,8 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
     const stdout = result.stdout.trim();
     const ok = result.exitCode === 0 && stdout.includes(verifyInfo.expect);
     results.push({
-      componentId: entry.id,
-      primitive: entry.primitive,
+      fittingId: entry.id,
+      faculty: entry.faculty,
       command: verifyInfo.command,
       expect: verifyInfo.expect,
       ok,
@@ -197,7 +197,7 @@ async function startDevWatcher(compositionId: string): Promise<void> {
     .filter((value): value is string => Boolean(value))
     .map((localPath) => path.join(ROOT_DIR, localPath));
   if (watchPaths.length === 0) {
-    appendLog(compositionId, "runner", "Dev mode has no local-path components to watch");
+    appendLog(compositionId, "runner", "Dev mode has no local-path fittings to watch");
     return;
   }
   const watcher = chokidar.watch(watchPaths, {
@@ -205,26 +205,26 @@ async function startDevWatcher(compositionId: string): Promise<void> {
     ignored: ["**/.git/**", "**/node_modules/**"]
   });
   watcher.on("all", (_event, changedPath) => {
-    appendLog(compositionId, "runner", `Detected local component change: ${path.relative(ROOT_DIR, changedPath)}`);
+    appendLog(compositionId, "runner", `Detected local fitting change: ${path.relative(ROOT_DIR, changedPath)}`);
     if (record.restartTimer) {
       clearTimeout(record.restartTimer);
     }
     record.restartTimer = setTimeout(() => {
-      appendLog(compositionId, "runner", "Re-applying local component changes");
+      appendLog(compositionId, "runner", "Re-applying local fitting changes");
       up(compositionId, { devMode: true }).catch((error) => {
         appendLog(compositionId, "stderr", error instanceof Error ? error.message : String(error));
       });
     }, 750);
   });
   record.watcher = watcher;
-  appendLog(compositionId, "runner", `Dev mode watching ${watchPaths.length} local component path(s)`);
+  appendLog(compositionId, "runner", `Dev mode watching ${watchPaths.length} local fitting path(s)`);
 }
 
 async function assembleSystemPrompt(compositionId: string): Promise<string> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
-  const orchestrator = await readPromptForPrimitive(entries, "orchestrator");
-  const soul = await readPromptForPrimitive(entries, "soul");
+  const orchestrator = await readPromptForFaculty(entries, "orchestrator");
+  const soul = await readPromptForFaculty(entries, "soul");
   const fallbackOrchestrator = await fs.readFile(
     path.join(composition.directory, ".garrison", "prompts", "orchestrator.md"),
     "utf8"
@@ -244,11 +244,11 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
   return promptPath;
 }
 
-async function readPromptForPrimitive(
+async function readPromptForFaculty(
   entries: LibraryEntry[],
-  primitive: "orchestrator" | "soul"
+  faculty: "orchestrator" | "soul"
 ): Promise<string | undefined> {
-  const entry = entries.find((candidate) => candidate.primitive === primitive);
+  const entry = entries.find((candidate) => candidate.faculty === faculty);
   if (!entry?.localPath) {
     return undefined;
   }

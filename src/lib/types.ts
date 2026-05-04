@@ -1,4 +1,4 @@
-export const primitiveIds = [
+export const facultyIds = [
   "heartbeat",
   "scheduler",
   "data-sources",
@@ -14,11 +14,11 @@ export const primitiveIds = [
   "orchestrator"
 ] as const;
 
-export type PrimitiveId = (typeof primitiveIds)[number];
+export type FacultyId = (typeof facultyIds)[number];
 
 export type Cardinality = "single" | "multi";
 
-export const componentShapes = [
+export const fittingShapes = [
   "script",
   "agent-instructions",
   "manual-instructions",
@@ -31,16 +31,16 @@ export const componentShapes = [
   "mcp"
 ] as const;
 
-export type ComponentShape = (typeof componentShapes)[number];
+export type FittingShape = (typeof fittingShapes)[number];
 
 export type PlatformId = "all" | "claude-code" | "codex" | string;
 
-export interface PrimitiveDefinition {
-  id: PrimitiveId;
+export interface FacultyDefinition {
+  id: FacultyId;
   order: number;
   name: string;
   cardinality: Cardinality;
-  shapes: ComponentShape[];
+  shapes: FittingShape[];
   notes: string;
   governing?: boolean;
 }
@@ -55,9 +55,9 @@ export interface ConfigSchemaField {
 }
 
 export interface GarrisonMetadata {
-  primitive: PrimitiveId;
+  faculty: FacultyId;
   cardinality_hint: Cardinality;
-  component_shape: ComponentShape;
+  component_shape: FittingShape;
   platforms: PlatformId[];
   summary?: string;
   config_schema: ConfigSchemaField[];
@@ -85,7 +85,7 @@ export interface RatingInfo {
 export interface LibraryEntry {
   id: string;
   name: string;
-  primitive: PrimitiveId;
+  faculty: FacultyId;
   repo: string;
   localPath?: string;
   summary: string;
@@ -94,12 +94,12 @@ export interface LibraryEntry {
   metadata: GarrisonMetadata;
 }
 
-export interface SelectedComponent {
+export interface SelectedFitting {
   id: string;
   config: Record<string, string | number | boolean>;
 }
 
-export type ComponentSelectionMap = Partial<Record<PrimitiveId, SelectedComponent[]>>;
+export type FittingSelectionMap = Partial<Record<FacultyId, SelectedFitting[]>>;
 
 export interface GuardrailsConfig {
   max_tasks_per_tick: number;
@@ -122,7 +122,7 @@ export interface GlobalConfig {
 export interface DerivedTasks {
   source: string;
   truthFile: string;
-  componentId: string;
+  fittingId: string;
 }
 
 export interface Composition {
@@ -130,7 +130,7 @@ export interface Composition {
   name: string;
   directory: string;
   manifestPath: string;
-  selections: ComponentSelectionMap;
+  selections: FittingSelectionMap;
   globalConfig: GlobalConfig;
   derivedTasks?: DerivedTasks;
 }
@@ -141,8 +141,8 @@ export interface VaultSecret {
 }
 
 export interface VerifyResult {
-  componentId: string;
-  primitive: PrimitiveId;
+  fittingId: string;
+  faculty: FacultyId;
   command: string;
   expect: string;
   ok: boolean;

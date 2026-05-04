@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { componentShapes, primitiveIds, type GarrisonMetadata, type PrimitiveId } from "./types";
-import { getPrimitive } from "./primitives";
+import { facultyIds, fittingShapes, type FacultyId, type GarrisonMetadata } from "./types";
+import { getFaculty } from "./faculties";
 
 const configFieldSchema = z
   .object({
@@ -21,9 +21,9 @@ const configFieldSchema = z
   });
 
 export const garrisonMetadataSchema = z.object({
-  primitive: z.enum(primitiveIds),
+  faculty: z.enum(facultyIds),
   cardinality_hint: z.enum(["single", "multi"]),
-  component_shape: z.enum(componentShapes),
+  component_shape: z.enum(fittingShapes),
   platforms: z.array(z.string()).min(1),
   summary: z.string().optional(),
   config_schema: z.array(configFieldSchema).default([]),
@@ -46,44 +46,63 @@ export const garrisonMetadataSchema = z.object({
 });
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {
-  const metadata = garrisonMetadataSchema.parse(input);
-  validatePrimitiveCompatibility(metadata);
+  const normalized = normalizeFacultyKey(input);
+  const metadata = garrisonMetadataSchema.parse(normalized);
+  validateFacultyCompatibility(metadata);
   return metadata;
 }
 
-export function validatePrimitiveCompatibility(metadata: GarrisonMetadata): void {
-  const primitive = getPrimitive(metadata.primitive);
-  if (metadata.cardinality_hint !== primitive.cardinality) {
+function normalizeFacultyKey(input: unknown): unknown {
+  if (input == null || typeof input !== "object" || Array.isArray(input)) {
+    return input;
+  }
+  const record = input as Record<string, unknown>;
+  if ("faculty" in record) {
+    return record;
+  }
+  if ("primitive" in record) {
+    const { primitive, ...rest } = record;
+    console.warn(
+      "[garrison] x-garrison.primitive is deprecated; rename to x-garrison.faculty"
+    );
+    return { faculty: primitive, ...rest };
+  }
+  return record;
+}
+
+export function validateFacultyCompatibility(metadata: GarrisonMetadata): void {
+  const faculty = getFaculty(metadata.faculty);
+  if (metadata.cardinality_hint !== faculty.cardinality) {
     throw new Error(
-      `${metadata.primitive} declares ${metadata.cardinality_hint}, expected ${primitive.cardinality}`
+      `${metadata.faculty} declares ${metadata.cardinality_hint}, expected ${faculty.cardinality}`
     );
   }
-  if (!primitive.shapes.includes(metadata.component_shape)) {
+  if (!faculty.shapes.includes(metadata.component_shape)) {
     throw new Error(
-      `${metadata.component_shape} is not accepted by primitive ${metadata.primitive}`
+      `${metadata.component_shape} is not accepted by faculty ${metadata.faculty}`
     );
   }
-  if (metadata.tasks && metadata.primitive !== "data-sources") {
-    throw new Error("Only data source components may declare derived task backing");
+  if (metadata.tasks && metadata.faculty !== "data-sources") {
+    throw new Error("Only data source fittings may declare derived task backing");
   }
 }
 
 export function validateSelection(
-  primitiveId: PrimitiveId,
+  facultyId: FacultyId,
   selectedCount: number,
   metadata: GarrisonMetadata[]
 ): void {
-  const primitive = getPrimitive(primitiveId);
-  if (primitive.cardinality === "single" && selectedCount > 1) {
-    throw new Error(`${primitive.name} accepts one component`);
+  const faculty = getFaculty(facultyId);
+  if (faculty.cardinality === "single" && selectedCount > 1) {
+    throw new Error(`${faculty.name} accepts one fitting`);
   }
   for (const entry of metadata) {
-    if (entry.primitive !== primitiveId) {
-      throw new Error(`${entry.primitive} component cannot be selected for ${primitiveId}`);
+    if (entry.faculty !== facultyId) {
+      throw new Error(`${entry.faculty} fitting cannot be selected for ${facultyId}`);
     }
-    validatePrimitiveCompatibility(entry);
+    validateFacultyCompatibility(entry);
     if (!entry.platforms.includes("all") && !entry.platforms.includes("claude-code")) {
-      throw new Error(`${primitiveId} component does not support claude-code`);
+      throw new Error(`${facultyId} fitting does not support claude-code`);
     }
   }
 }

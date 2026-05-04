@@ -4,7 +4,7 @@ import { parseGarrisonMetadata, validateSelection } from "@/lib/metadata";
 describe("x-garrison metadata", () => {
   it("accepts a valid classifier package", () => {
     const metadata = parseGarrisonMetadata({
-      primitive: "classifier",
+      faculty: "classifier",
       cardinality_hint: "single",
       component_shape: "skill",
       platforms: ["claude-code"],
@@ -28,7 +28,7 @@ describe("x-garrison metadata", () => {
   it("rejects shape mismatches at compose time", () => {
     expect(() =>
       parseGarrisonMetadata({
-        primitive: "classifier",
+        faculty: "classifier",
         cardinality_hint: "single",
         component_shape: "script",
         platforms: ["claude-code"],
@@ -42,7 +42,7 @@ describe("x-garrison metadata", () => {
 
   it("rejects too many single-cardinality selections", () => {
     const metadata = parseGarrisonMetadata({
-      primitive: "memory",
+      faculty: "memory",
       cardinality_hint: "single",
       component_shape: "skill",
       platforms: ["claude-code"],
@@ -53,5 +53,27 @@ describe("x-garrison metadata", () => {
     });
 
     expect(() => validateSelection("memory", 2, [metadata, metadata])).toThrow(/accepts one/);
+  });
+
+  it("accepts the deprecated `primitive` alias and normalizes to `faculty`", () => {
+    const warn = console.warn;
+    const calls: unknown[] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      const metadata = parseGarrisonMetadata({
+        primitive: "classifier",
+        cardinality_hint: "single",
+        component_shape: "skill",
+        platforms: ["claude-code"],
+        verify: {
+          command: "echo ok",
+          expect: "ok"
+        }
+      });
+      expect(metadata.faculty).toBe("classifier");
+      expect(calls.length).toBeGreaterThan(0);
+    } finally {
+      console.warn = warn;
+    }
   });
 });

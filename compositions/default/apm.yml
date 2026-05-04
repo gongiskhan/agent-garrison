@@ -3,12 +3,12 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
-    - path: ../../components/seed/browser-automation
-    - path: ../../components/seed/http-gateway
-    - path: ../../components/seed/loop-heartbeat
-    - path: ../../components/seed/memory
-    - path: ../../components/seed/tier-classifier
-    - path: ../../components/seed/trello-data-source
+    - path: ../../fittings/seed/browser-automation
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/loop-heartbeat
+    - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/tier-classifier
+    - path: ../../fittings/seed/trello-data-source
 x-garrison:
   composition:
     id: default

@@ -5,7 +5,7 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  primitive: automations
+  faculty: automations
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:

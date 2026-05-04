@@ -5,7 +5,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  primitive: gateway
+  faculty: gateway
   cardinality_hint: single
   component_shape: script
   platforms:
