@@ -1,6 +1,11 @@
 # Agent Garrison Metadata
 
-`x-garrison` is Agent Garrison's metadata block inside an APM `apm.yml` manifest. APM owns dependency resolution, install, audit, pack, and lockfile pinning. Garrison reads this block to understand which primitive a package fills, how it should be configured, how it verifies itself, and whether it ships a trusted local UI extension.
+`x-garrison` is Agent Garrison's metadata block inside an APM `apm.yml`
+manifest. APM owns dependency resolution, install, audit, pack, and
+lockfile pinning. Garrison reads this block to understand which
+Faculty a Fitting fills, how it should be configured, what
+capabilities it provides and consumes, how it verifies itself, and
+whether it ships a trusted local UI extension.
 
 ## Placement
 
@@ -11,7 +16,7 @@ target: claude
 type: hybrid
 
 x-garrison:
-  primitive: classifier
+  faculty: classifier
   cardinality_hint: single
   component_shape: skill
   platforms: [claude-code]
@@ -20,6 +25,9 @@ x-garrison:
       type: integer
       default: 3
       description: Minimum tier this classifier raises every prompt to.
+  provides:
+    - kind: agent-skill
+      name: tier-classifier
   verify:
     command: test -f .claude/skills/tier-classifier/SKILL.md && echo ok
     expect: ok
@@ -33,23 +41,36 @@ Top-level `x-garrison` fields:
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `primitive` | enum | yes | One of the 13 explicit primitive ids. Tasks is derived and must not be declared by a package. |
-| `cardinality_hint` | enum | yes | `single` or `multi`. Validated against the primitive definition. |
-| `component_shape` | enum | yes | One of Garrison's closed component shapes. |
+| `faculty` | enum | yes | One of the 13 explicit Faculty ids. Tasks is derived and must not be declared by a Fitting. |
+| `cardinality_hint` | enum | yes | `single` or `multi`. Validated against the Faculty definition. |
+| `component_shape` | enum | yes | One of Garrison's closed Fitting shapes. (Field name retained from earlier naming for back-compat.) |
 | `platforms` | string array | yes | `all`, `claude-code`, `codex`, or future platform ids. v1 accepts only `all` and `claude-code` at compose time. |
-| `summary` | string | no | Human summary shown in the Library and picker. |
+| `summary` | string | no | Human summary shown in the Fittings Registry and picker. |
 | `config_schema` | array | no | UI-renderable config fields. Defaults to `[]`. |
+| `provides` | array | no | Capabilities this Fitting offers to others. Defaults to `[]`. See `CAPABILITIES.md`. |
+| `consumes` | array | no | Capabilities this Fitting requires from the composition. Defaults to `[]`. See `CAPABILITIES.md`. |
 | `verify` | object | yes | Runtime verification command and expected output. |
 | `ui` | object | no | Optional trusted React extension metadata. |
-| `tasks` | object | no | Optional declaration that this component backs the derived Tasks surface. |
+| `tasks` | object | no | Optional declaration that this Fitting backs the derived Tasks surface. |
 
-Primitive ids:
+### Back-compat aliases
 
-`heartbeat`, `scheduler`, `data-sources`, `knowledge-base`, `automations`, `testing-framework`, `memory`, `classifier`, `gateway`, `channels`, `observability`, `soul`, `orchestrator`.
+The parser accepts these deprecated forms for one minor version. Both
+emit a `console.warn`:
 
-Component shapes:
+- `primitive:` (rewritten to `faculty:`).
+- `faculty: testing-framework` (rewritten to `faculty: skills`).
 
-`script`, `agent-instructions`, `manual-instructions`, `plugin`, `skill`, `cli`, `hook`, `system-prompt`, `cli-skill`, `mcp`.
+Faculty ids:
+
+`heartbeat`, `scheduler`, `data-sources`, `knowledge-base`,
+`automations`, `skills`, `memory`, `classifier`, `gateway`, `channels`,
+`observability`, `soul`, `orchestrator`.
+
+Fitting shapes:
+
+`script`, `agent-instructions`, `manual-instructions`, `plugin`,
+`skill`, `cli`, `hook`, `system-prompt`, `cli-skill`, `mcp`.
 
 Config field schema:
 
@@ -61,6 +82,21 @@ Config field schema:
 | `description` | string | yes | Short UI label/help text. |
 | `required` | boolean | no | Defaults to `false`. |
 | `options` | string array | conditional | Required for `select`. |
+
+Capability provision schema (`provides[]`):
+
+| Field | Type | Required | Notes |
+|---|---:|---:|---|
+| `kind` | enum | yes | One of: `orchestrator`, `agent-skill`, `memory-store`, `automation-runner`, `vault`. |
+| `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
+
+Capability consumption schema (`consumes[]`):
+
+| Field | Type | Required | Notes |
+|---|---:|---:|---|
+| `kind` | enum | yes | One of the five capability kinds. |
+| `name` | string | no | Omit for kind-only matching; provide to require a specific named provider. |
+| `cardinality` | enum | no | `one` (default), `optional-one`, or `any`. Enforced by the resolver. |
 
 Verify schema:
 
@@ -74,7 +110,7 @@ UI schema:
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `extension` | string | yes | Path relative to the package root. Trusted, unsandboxed static React render in v1. |
+| `extension` | string | yes | Path relative to the Fitting root. Trusted, unsandboxed static React render in v1. |
 
 Tasks schema:
 
@@ -85,22 +121,30 @@ Tasks schema:
 
 ## Validation Rules
 
-- A package cannot declare `primitive: tasks`; Tasks is inferred from selected data sources.
-- `cardinality_hint` must match the central primitive table.
-- `component_shape` must be accepted by the target primitive.
-- v1 composition validation rejects components that do not support `all` or `claude-code`.
-- Single-cardinality primitives may have zero or one selected component; multi-cardinality primitives may have zero or more.
-- Every selected component must have a `verify` command. Missing verify metadata is a hard failure.
-- `ui.extension` is loaded only for selected components and only from local package paths in v1.
+- A Fitting cannot declare `faculty: tasks`; Tasks is inferred from selected data sources.
+- `cardinality_hint` must match the central Faculty table.
+- `component_shape` must be accepted by the target Faculty.
+- v1 composition validation rejects Fittings that do not support `all` or `claude-code`.
+- Single-cardinality Faculties may have zero or one selected Fitting; multi-cardinality Faculties may have zero or more.
+- Every selected Fitting must have a `verify` command. Missing verify metadata is a hard failure.
+- `ui.extension` is loaded only for selected Fittings and only from local Fitting paths in v1.
+- Capability `consumes` are resolved across the composition by the resolver in `src/lib/capabilities.ts`. See `CAPABILITIES.md`.
 
 ## Typed Validator Target
 
-The validator module should export:
+The validator module exports:
 
 ```ts
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata;
-export function validatePrimitiveCompatibility(metadata: GarrisonMetadata): void;
-export function validateSelection(primitiveId: PrimitiveId, selected: LibraryEntry[]): void;
+export function validateFacultyCompatibility(metadata: GarrisonMetadata): void;
+export function validateSelection(facultyId: FacultyId, selectedCount: number, metadata: GarrisonMetadata[]): void;
 ```
 
-Validation errors should be precise enough for the Compose tab to show the failing primitive and component.
+The resolver lives in `src/lib/capabilities.ts`:
+
+```ts
+export function resolveCapabilities(selected: ResolverInput[]): ResolverResult;
+```
+
+Validation errors are precise enough for the Compose tab to show the
+failing Faculty and Fitting.

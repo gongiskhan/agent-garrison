@@ -1,13 +1,18 @@
-# Agent Garrison Seed Components
+# Agent Garrison Seed Fittings
 
-v1 starts with six seed components as local APM packages under `components/seed/`. They are local-path dependencies during bootstrap and can be split into standalone git repos after the runner flow is proven.
+v1 starts with six seed Fittings as local APM packages under
+`fittings/seed/`. They are local-path dependencies during bootstrap
+and can be split into standalone git repos after the runner flow is
+proven. Capability wiring (`provides` / `consumes`) is summarised in
+`fittings/seed/README.md`.
 
 ## Tier Classifier
 
-- Primitive: `classifier`
+- Faculty: `classifier`
 - Shape: `skill`
-- Package: `components/seed/tier-classifier`
+- Package: `fittings/seed/tier-classifier`
 - Config schema: `tier_floor` integer, default `3`; `plan_threshold` integer, default `3`.
+- Provides: `agent-skill:tier-classifier`.
 - Verify example:
 
 ```yaml
@@ -16,12 +21,14 @@ verify:
   expect: ok
 ```
 
-## Memory Component
+## Memory
 
-- Primitive: `memory`
+- Faculty: `memory`
 - Shape: `skill`
-- Package: `components/seed/memory`
+- Package: `fittings/seed/memory`
 - Config schema: `recency_window` integer, default `20`; `persistence_cadence` string, default `hourly`; `compiled_memory_path` path, default `memory/compiled.md`.
+- Provides: `memory-store:garrison-memory`.
+- Consumes: `vault` (optional-one).
 - Verify example:
 
 ```yaml
@@ -32,10 +39,12 @@ verify:
 
 ## Loop Heartbeat
 
-- Primitive: `heartbeat`
+- Faculty: `heartbeat`
 - Shape: `script`
-- Package: `components/seed/loop-heartbeat`
+- Package: `fittings/seed/loop-heartbeat`
 - Config schema: `cadence_minutes` integer, default `40`; `gateway_url` string, default `http://127.0.0.1:4777/jobs`.
+- Provides: `automation-runner:loop-heartbeat`.
+- Consumes: `orchestrator` (one).
 - Verify example:
 
 ```yaml
@@ -46,10 +55,11 @@ verify:
 
 ## HTTP Gateway
 
-- Primitive: `gateway`
+- Faculty: `gateway`
 - Shape: `script`
-- Package: `components/seed/http-gateway`
+- Package: `fittings/seed/http-gateway`
 - Config schema: `port` integer, default `4777`; `bind_host` string, default `127.0.0.1`.
+- Consumes: `orchestrator` (one).
 - Verify example:
 
 ```yaml
@@ -60,10 +70,11 @@ verify:
 
 ## Browser Automation
 
-- Primitive: `automations`
+- Faculty: `automations`
 - Shape: `cli-skill`
-- Package: `components/seed/browser-automation`
+- Package: `fittings/seed/browser-automation`
 - Config schema: `browser` select, default `chromium`; `headless` boolean, default `false`.
+- Consumes: `vault` (optional-one).
 - Verify example:
 
 ```yaml
@@ -74,11 +85,12 @@ verify:
 
 ## Trello Data Source
 
-- Primitive: `data-sources`
+- Faculty: `data-sources`
 - Shape: `cli`
-- Package: `components/seed/trello-data-source`
+- Package: `fittings/seed/trello-data-source`
 - Config schema: `board_id` string; `tasks_truth_file` path, default `tasks/trello.md`.
 - Tasks: declares `source: trello` and `truth_file: tasks/trello.md`.
+- Consumes: `vault` (optional-one).
 - Verify example:
 
 ```yaml
@@ -89,10 +101,10 @@ verify:
 
 ## Package Shape
 
-Every seed package uses this minimum layout:
+Every seed Fitting uses this minimum layout:
 
 ```text
-components/seed/<id>/
+fittings/seed/<id>/
   apm.yml
   .apm/
     skills/<name>/SKILL.md
@@ -103,4 +115,6 @@ components/seed/<id>/
   ui/
 ```
 
-Only the files needed by each component are present. Verify hooks must prove installed output exists after `apm install`, not merely that the source package exists.
+Only the files needed by each Fitting are present. Verify hooks must
+prove installed output exists after `apm install`, not merely that the
+source package exists.

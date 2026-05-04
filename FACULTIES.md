@@ -1,6 +1,8 @@
-# Agent Garrison Primitives
+# Agent Garrison Faculties
 
-This document expands the primitive table from `AGENTS.md`. The list is a working draft for v1; do not optimize the primitive set before the Definition of Done is observable.
+This document expands the Faculty table from `AGENTS.md`. The list is a
+working draft for v1; do not optimize the Faculty set before the
+Definition of Done is observable.
 
 ## 1. Heartbeat
 
@@ -47,14 +49,15 @@ This document expands the primitive table from `AGENTS.md`. The list is a workin
 - Example: Playwright browser automation seed.
 - Failure modes: browser install missing, target UI changed, unsafe side effects.
 
-## 6. Testing Framework
+## 6. Skills
 
-- Purpose: test authoring and verification support.
+- Purpose: reusable agent skills the Operative can invoke during work — including but not limited to test authoring.
 - Cardinality: multi.
 - Shapes: `script`, `skill`.
-- Config: test command, coverage target, automation dependency.
-- Example: E2E writer skill using Playwright automation.
-- Failure modes: tests mutate user data, flaky automation, missing browser drivers.
+- Config: skill-specific (e.g., test command, coverage target, automation dependency for test-authoring skills).
+- Example: an E2E writer skill, a summarizer skill, or any procedure exposed as an APM skill the orchestrator can dispatch to.
+- Failure modes: skill mutates user data, side effects bleed across sessions, missing tool dependencies.
+- Renamed from `testing-framework` in v1; the parser still accepts the old value with a deprecation warning.
 
 ## 7. Memory
 
@@ -116,9 +119,12 @@ This document expands the primitive table from `AGENTS.md`. The list is a workin
 - Cardinality: single.
 - Shapes: `system-prompt`.
 - Config: projects root, platform, guardrails, permissions mode, observability config.
-- Example: v1 single-session orchestrator prompt.
-- Failure modes: missing global config, conflicting component instructions, too much hidden behavior.
+- Example: v1 single-session orchestrator prompt (no reference Fitting yet — see `fittings/seed/README.md`).
+- Failure modes: missing global config, conflicting Fitting instructions, too much hidden behavior.
 
 ## Derived: Tasks
 
-Tasks is never selected directly. When a data source declares task backing, the UI surfaces a derived Tasks status. For v1, selecting Trello makes Tasks Trello-backed and points at the data source's declared markdown truth file.
+Tasks is never selected directly. When a data source declares task
+backing, the UI surfaces a derived Tasks status. For v1, selecting
+Trello makes Tasks Trello-backed and points at the data source's
+declared markdown truth file.
