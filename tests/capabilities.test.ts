@@ -1,0 +1,171 @@
+import { describe, expect, it } from "vitest";
+import { resolveCapabilities, RUNTIME_FITTING_ID, type ResolverInput } from "@/lib/capabilities";
+import type {
+  CapabilityConsumption,
+  CapabilityProvision,
+  GarrisonMetadata
+} from "@/lib/types";
+
+function fitting(
+  id: string,
+  options: {
+    provides?: CapabilityProvision[];
+    consumes?: CapabilityConsumption[];
+  } = {}
+): ResolverInput {
+  const metadata: GarrisonMetadata = {
+    faculty: "memory",
+    cardinality_hint: "single",
+    component_shape: "skill",
+    platforms: ["claude-code"],
+    config_schema: [],
+    provides: options.provides ?? [],
+    consumes: options.consumes ?? [],
+    verify: { command: "echo ok", expect: "ok", timeout_ms: 10000 }
+  };
+  return { id, metadata };
+}
+
+describe("capability resolver", () => {
+  it("returns ok with an empty graph for an empty selection", () => {
+    const result = resolveCapabilities([]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.graph.consumers).toEqual([]);
+      // The synthetic vault provider is always indexed.
+      expect(result.graph.providers.has("vault")).toBe(true);
+    }
+  });
+
+  it("matches a single provider against a single consumer", () => {
+    const result = resolveCapabilities([
+      fitting("orch", { provides: [{ kind: "orchestrator", name: "default" }] }),
+      fitting("gateway", { consumes: [{ kind: "orchestrator" }] })
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("emits missing-required when the consumer has no provider", () => {
+    const result = resolveCapabilities([
+      fitting("gateway", { consumes: [{ kind: "orchestrator" }] })
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual([
+        expect.objectContaining({ fittingId: "gateway", code: "missing-required" })
+      ]);
+    }
+  });
+
+  it("emits ambiguous-singleton when two fittings provide a singleton", () => {
+    const result = resolveCapabilities([
+      fitting("orch-a", { provides: [{ kind: "orchestrator", name: "a" }] }),
+      fitting("orch-b", { provides: [{ kind: "orchestrator", name: "b" }] })
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const ambiguous = result.errors.filter((error) => error.code === "ambiguous-singleton");
+      expect(ambiguous.length).toBeGreaterThanOrEqual(1);
+      expect(ambiguous.map((error) => error.fittingId)).toContain("orch-b");
+      expect(ambiguous.map((error) => error.fittingId)).not.toContain("orch-a");
+    }
+  });
+
+  it("optional-one with zero providers is ok with empty matched", () => {
+    const result = resolveCapabilities([
+      fitting("memory", {
+        consumes: [{ kind: "automation-runner", cardinality: "optional-one" }]
+      })
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const consumer = result.graph.consumers.find((c) => c.fittingId === "memory");
+      expect(consumer?.matched).toEqual([]);
+    }
+  });
+
+  it("optional-one with one provider matches that provider", () => {
+    const result = resolveCapabilities([
+      fitting("heartbeat", {
+        provides: [{ kind: "automation-runner", name: "loop-heartbeat" }]
+      }),
+      fitting("memory", {
+        consumes: [{ kind: "automation-runner", cardinality: "optional-one" }]
+      })
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const consumer = result.graph.consumers.find((c) => c.fittingId === "memory");
+      expect(consumer?.matched).toHaveLength(1);
+      expect(consumer?.matched[0].fittingId).toBe("heartbeat");
+    }
+  });
+
+  it("optional-one with two providers emits too-many-for-optional", () => {
+    const result = resolveCapabilities([
+      fitting("a", { provides: [{ kind: "automation-runner", name: "a" }] }),
+      fitting("b", { provides: [{ kind: "automation-runner", name: "b" }] }),
+      fitting("memory", {
+        consumes: [{ kind: "automation-runner", cardinality: "optional-one" }]
+      })
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toContainEqual(
+        expect.objectContaining({ fittingId: "memory", code: "too-many-for-optional" })
+      );
+    }
+  });
+
+  it("any cardinality never errors regardless of provider count", () => {
+    const zero = resolveCapabilities([
+      fitting("k", { consumes: [{ kind: "agent-skill", cardinality: "any" }] })
+    ]);
+    expect(zero.ok).toBe(true);
+
+    const many = resolveCapabilities([
+      fitting("a", { provides: [{ kind: "agent-skill", name: "a" }] }),
+      fitting("b", { provides: [{ kind: "agent-skill", name: "b" }] }),
+      fitting("c", { provides: [{ kind: "agent-skill", name: "c" }] }),
+      fitting("k", { consumes: [{ kind: "agent-skill", cardinality: "any" }] })
+    ]);
+    expect(many.ok).toBe(true);
+    if (many.ok) {
+      const consumer = many.graph.consumers.find((c) => c.fittingId === "k");
+      expect(consumer?.matched).toHaveLength(3);
+    }
+  });
+
+  it("kind-only consumption matches any provision of that kind", () => {
+    const result = resolveCapabilities([
+      fitting("p", { provides: [{ kind: "agent-skill", name: "tier-classifier" }] }),
+      fitting("c", { consumes: [{ kind: "agent-skill" }] })
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("named consumption matches only same-name provisions", () => {
+    const result = resolveCapabilities([
+      fitting("p", { provides: [{ kind: "agent-skill", name: "tier-classifier" }] }),
+      fitting("c", { consumes: [{ kind: "agent-skill", name: "summarizer" }] })
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toContainEqual(
+        expect.objectContaining({ fittingId: "c", code: "missing-required" })
+      );
+    }
+  });
+
+  it("vault is always available even if no fitting provides it", () => {
+    const result = resolveCapabilities([
+      fitting("memory", { consumes: [{ kind: "vault", cardinality: "optional-one" }] })
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const consumer = result.graph.consumers.find((c) => c.fittingId === "memory");
+      expect(consumer?.matched).toHaveLength(1);
+      expect(consumer?.matched[0].fittingId).toBe(RUNTIME_FITTING_ID);
+    }
+  });
+});
