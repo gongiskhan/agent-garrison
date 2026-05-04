@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-30T04:39:48.121275+00:00'
+generated_at: '2026-05-04T15:18:10.322361+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/browser-automation
@@ -41,6 +41,6 @@ dependencies:
   deployed_files:
   - .claude/rules/trello-data-source.md
   deployed_file_hashes:
-    .claude/rules/trello-data-source.md: sha256:51b7511223e3d3745245527f68bdd70c35fae7515d0559acaf95f915c3c74b74
+    .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local
   local_path: ../../fittings/seed/trello-data-source

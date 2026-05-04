@@ -1,0 +1,14 @@
+{
+  "name": "garrison-http-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent Garrison HTTP gateway (Agent SDK in-process).",
+  "main": "scripts/gateway.mjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.0"
+  }
+}
