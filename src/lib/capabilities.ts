@@ -1,6 +1,7 @@
 import {
   singletonCapabilityKinds,
   type CapabilityConsumption,
+  type CapabilityKind,
   type CapabilityProvision,
   type GarrisonMetadata
 } from "./types";
@@ -31,6 +32,8 @@ export interface ResolverError {
   fittingId: string;
   code: ResolverErrorCode;
   message: string;
+  kind: CapabilityKind;
+  name?: string;
 }
 
 export type ResolverResult =
@@ -72,6 +75,8 @@ export function resolveCapabilities(selected: ResolverInput[]): ResolverResult {
       errors.push({
         fittingId: extra.fittingId,
         code: "ambiguous-singleton",
+        kind,
+        name: extra.provision.name,
         message: `more than one provider for singleton capability ${kind}`
       });
     }
@@ -90,12 +95,16 @@ export function resolveCapabilities(selected: ResolverInput[]): ResolverResult {
           errors.push({
             fittingId: fitting.id,
             code: "missing-required",
+            kind: consumption.kind,
+            name: consumption.name,
             message: `capability ${label} is required by ${fitting.id} but no provider is in the composition`
           });
         } else if (matched.length > 1) {
           errors.push({
             fittingId: fitting.id,
             code: "ambiguous-singleton",
+            kind: consumption.kind,
+            name: consumption.name,
             message: `capability ${label} consumed by ${fitting.id} matched ${matched.length} providers; expected one`
           });
         }
@@ -104,6 +113,8 @@ export function resolveCapabilities(selected: ResolverInput[]): ResolverResult {
           errors.push({
             fittingId: fitting.id,
             code: "too-many-for-optional",
+            kind: consumption.kind,
+            name: consumption.name,
             message: `capability ${label} consumed by ${fitting.id} matched ${matched.length} providers; expected zero or one`
           });
         }

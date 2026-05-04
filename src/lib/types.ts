@@ -155,6 +155,14 @@ export interface DerivedTasks {
   fittingId: string;
 }
 
+export interface CapabilityIssue {
+  fittingId: string;
+  code: "missing-required" | "ambiguous-singleton" | "too-many-for-optional" | "unknown-kind";
+  kind: CapabilityKind;
+  name?: string;
+  message: string;
+}
+
 export interface Composition {
   id: string;
   name: string;
@@ -163,6 +171,7 @@ export interface Composition {
   selections: FittingSelectionMap;
   globalConfig: GlobalConfig;
   derivedTasks?: DerivedTasks;
+  capabilityIssues: CapabilityIssue[];
 }
 
 export interface VaultSecret {

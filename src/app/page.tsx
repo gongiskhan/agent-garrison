@@ -51,6 +51,14 @@ interface LogEvent {
   message: string;
 }
 
+interface CapabilityIssueView {
+  fittingId: string;
+  code: "missing-required" | "ambiguous-singleton" | "too-many-for-optional" | "unknown-kind";
+  kind: string;
+  name?: string;
+  message: string;
+}
+
 interface CompositionView {
   id: string;
   name: string;
@@ -63,6 +71,7 @@ interface CompositionView {
     truthFile: string;
     fittingId: string;
   };
+  capabilityIssues: CapabilityIssueView[];
 }
 
 const coreSeedIds = [
@@ -631,6 +640,42 @@ function ComposeTab({
             </div>
           ))}
         </div>
+
+        {selectedEntries.length > 0 ? (
+          <div className="mt-4">
+            <div className="mb-2 text-xs font-semibold uppercase text-[#6b6e68]">
+              Capability checks
+            </div>
+            {composition.capabilityIssues.length === 0 ? (
+              <div className="flex items-center justify-between border border-[#d9d1c2] bg-white px-3 py-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase text-[#6b6e68]">All capabilities</div>
+                  <div className="mt-1 text-xs text-[#18211c]">satisfied across selected Fittings</div>
+                </div>
+                <Check size={16} className="text-[#2c6f63]" />
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {composition.capabilityIssues.map((issue, index) => (
+                  <div
+                    key={`${issue.fittingId}-${issue.code}-${issue.kind}-${issue.name ?? ""}-${index}`}
+                    className="flex items-center justify-between gap-3 border border-[#d9d1c2] bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold uppercase text-[#6b6e68]">
+                        Capability {issue.kind}{issue.name ? `:${issue.name}` : ""}
+                      </div>
+                      <div className="mt-1 text-xs text-[#18211c]">
+                        {capabilityIssueDetail(issue)}
+                      </div>
+                    </div>
+                    <Circle size={16} className="shrink-0 text-[#8b6a22]" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section className="border border-[#cfc6b8] bg-[#fbfaf5] shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
@@ -1363,6 +1408,19 @@ function computeReadiness(
 
 function sourceLabel(entry: LibraryEntry): string {
   return entry.localPath ?? entry.repo;
+}
+
+function capabilityIssueDetail(issue: CapabilityIssueView): string {
+  switch (issue.code) {
+    case "missing-required":
+      return `required by ${issue.fittingId}: no provider in composition`;
+    case "ambiguous-singleton":
+      return `consumed by ${issue.fittingId}: more than one provider`;
+    case "too-many-for-optional":
+      return `consumed by ${issue.fittingId}: more than one provider for optional-one`;
+    case "unknown-kind":
+      return `declared by ${issue.fittingId}: unknown capability kind`;
+  }
 }
 
 function logTone(stream: LogEvent["stream"]): string {
