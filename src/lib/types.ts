@@ -4,7 +4,7 @@ export const facultyIds = [
   "data-sources",
   "knowledge-base",
   "automations",
-  "testing-framework",
+  "skills",
   "memory",
   "classifier",
   "gateway",

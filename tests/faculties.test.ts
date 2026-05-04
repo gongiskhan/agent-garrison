@@ -9,7 +9,7 @@ describe("faculty definitions", () => {
       "data-sources",
       "knowledge-base",
       "automations",
-      "testing-framework",
+      "skills",
       "memory",
       "classifier",
       "gateway",

@@ -62,6 +62,44 @@ describe("x-garrison metadata", () => {
       console.warn = warn;
     }
   });
+
+  it("accepts the deprecated `testing-framework` faculty and normalizes to `skills`", () => {
+    const warn = console.warn;
+    const calls: unknown[] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      const metadata = parseGarrisonMetadata({
+        faculty: "testing-framework",
+        cardinality_hint: "multi",
+        component_shape: "skill",
+        platforms: ["claude-code"],
+        verify: { command: "echo ok", expect: "ok" }
+      });
+      expect(metadata.faculty).toBe("skills");
+      expect(calls.length).toBeGreaterThan(0);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it("warns about both deprecations when a manifest uses primitive: testing-framework", () => {
+    const warn = console.warn;
+    const calls: unknown[] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      const metadata = parseGarrisonMetadata({
+        primitive: "testing-framework",
+        cardinality_hint: "multi",
+        component_shape: "skill",
+        platforms: ["claude-code"],
+        verify: { command: "echo ok", expect: "ok" }
+      });
+      expect(metadata.faculty).toBe("skills");
+      expect(calls.length).toBe(2);
+    } finally {
+      console.warn = warn;
+    }
+  });
 });
 
 describe("capability provides/consumes", () => {

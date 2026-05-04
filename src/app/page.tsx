@@ -77,7 +77,7 @@ const coreSeedIds = [
 const facultyGroups: Array<{ label: string; ids: FacultyId[] }> = [
   { label: "Cadence", ids: ["heartbeat", "scheduler"] },
   { label: "Context", ids: ["data-sources", "knowledge-base", "memory"] },
-  { label: "Action", ids: ["automations", "testing-framework", "gateway", "channels"] },
+  { label: "Action", ids: ["automations", "skills", "gateway", "channels"] },
   { label: "Control", ids: ["classifier", "observability", "soul", "orchestrator"] }
 ];
 
@@ -102,9 +102,9 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
     role: "Gives the operative tools that can act in the world.",
     fit: "Browser, desktop, or scripted UI control belongs here; testing can reuse these when it needs to drive an interface."
   },
-  "testing-framework": {
-    role: "Defines how the operative proves changes or workflows still work.",
-    fit: "Testing Fittings supply verification habits, scripts, and E2E helpers the runner can expose during operation."
+  skills: {
+    role: "Reusable capabilities the Operative can invoke during work.",
+    fit: "A Fitting here exposes a skill — a procedure, helper, or test author — that the Orchestrator can call as a sub-agent or tool."
   },
   memory: {
     role: "Controls what the operative remembers within and across sessions.",

@@ -71,27 +71,33 @@ export const garrisonMetadataSchema = z.object({
 });
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {
-  const normalized = normalizeFacultyKey(input);
+  const normalized = normalizeDeprecations(input);
   const metadata = garrisonMetadataSchema.parse(normalized);
   validateFacultyCompatibility(metadata);
   return metadata;
 }
 
-function normalizeFacultyKey(input: unknown): unknown {
+function normalizeDeprecations(input: unknown): unknown {
   if (input == null || typeof input !== "object" || Array.isArray(input)) {
     return input;
   }
-  const record = input as Record<string, unknown>;
-  if ("faculty" in record) {
-    return record;
-  }
-  if ("primitive" in record) {
+  let record = { ...(input as Record<string, unknown>) };
+
+  if (!("faculty" in record) && "primitive" in record) {
     const { primitive, ...rest } = record;
     console.warn(
       "[garrison] x-garrison.primitive is deprecated; rename to x-garrison.faculty"
     );
-    return { faculty: primitive, ...rest };
+    record = { faculty: primitive, ...rest };
   }
+
+  if (record.faculty === "testing-framework") {
+    console.warn(
+      "[garrison] faculty \"testing-framework\" is deprecated; rename to \"skills\""
+    );
+    record = { ...record, faculty: "skills" };
+  }
+
   return record;
 }
 

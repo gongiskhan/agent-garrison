@@ -42,12 +42,12 @@ export const faculties: FacultyDefinition[] = [
     notes: "Actions the operative can take in the world."
   },
   {
-    id: "testing-framework",
+    id: "skills",
     order: 6,
-    name: "Testing framework",
+    name: "Skills",
     cardinality: "multi",
     shapes: ["script", "skill"],
-    notes: "Test writers and verification helpers."
+    notes: "Reusable agent skills the Operative can invoke — including but not limited to test authoring."
   },
   {
     id: "memory",
