@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { facultyIds, fittingShapes, type FacultyId, type GarrisonMetadata } from "./types";
+import {
+  capabilityKinds,
+  facultyIds,
+  fittingShapes,
+  type FacultyId,
+  type GarrisonMetadata
+} from "./types";
 import { getFaculty } from "./faculties";
 
 const configFieldSchema = z
@@ -20,6 +26,23 @@ const configFieldSchema = z
     }
   });
 
+const capabilityKindSchema = z.enum(capabilityKinds, {
+  errorMap: (_issue, context) => ({
+    message: `unknown capability kind ${JSON.stringify(context.data)}; expected one of ${capabilityKinds.join(", ")}`
+  })
+});
+
+const provisionSchema = z.object({
+  kind: capabilityKindSchema,
+  name: z.string().min(1, "capability provision name is required")
+});
+
+const consumptionSchema = z.object({
+  kind: capabilityKindSchema,
+  name: z.string().min(1).optional(),
+  cardinality: z.enum(["one", "optional-one", "any"]).optional()
+});
+
 export const garrisonMetadataSchema = z.object({
   faculty: z.enum(facultyIds),
   cardinality_hint: z.enum(["single", "multi"]),
@@ -27,6 +50,8 @@ export const garrisonMetadataSchema = z.object({
   platforms: z.array(z.string()).min(1),
   summary: z.string().optional(),
   config_schema: z.array(configFieldSchema).default([]),
+  provides: z.array(provisionSchema).default([]),
+  consumes: z.array(consumptionSchema).default([]),
   verify: z.object({
     command: z.string().min(1),
     expect: z.string().min(1),

@@ -33,6 +33,34 @@ export const fittingShapes = [
 
 export type FittingShape = (typeof fittingShapes)[number];
 
+export const capabilityKinds = [
+  "orchestrator",
+  "agent-skill",
+  "memory-store",
+  "automation-runner",
+  "vault"
+] as const;
+
+export type CapabilityKind = (typeof capabilityKinds)[number];
+
+export type ConsumeCardinality = "one" | "optional-one" | "any";
+
+export interface CapabilityProvision {
+  kind: CapabilityKind;
+  name: string;
+}
+
+export interface CapabilityConsumption {
+  kind: CapabilityKind;
+  name?: string;
+  cardinality?: ConsumeCardinality;
+}
+
+export const singletonCapabilityKinds: readonly CapabilityKind[] = [
+  "orchestrator",
+  "vault"
+];
+
 export type PlatformId = "all" | "claude-code" | "codex" | string;
 
 export interface FacultyDefinition {
@@ -61,6 +89,8 @@ export interface GarrisonMetadata {
   platforms: PlatformId[];
   summary?: string;
   config_schema: ConfigSchemaField[];
+  provides: CapabilityProvision[];
+  consumes: CapabilityConsumption[];
   verify: {
     command: string;
     expect: string;
