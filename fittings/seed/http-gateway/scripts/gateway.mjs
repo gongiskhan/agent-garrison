@@ -27,6 +27,7 @@
 
 import http from "node:http";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
@@ -77,8 +78,11 @@ async function loadSystemPrompt() {
 /**
  * Run one turn against the agent. Returns the assembled assistant text reply
  * and updates the module-level sessionId so subsequent turns resume it.
+ *
+ * If `onEvent` is provided, it is called for incremental events (text chunks,
+ * tool uses, completion). The callback shape is { type, ...payload }.
  */
-async function runTurn(message) {
+async function runTurn(message, onEvent) {
   const options = {
     model: MODEL,
     permissionMode: PERMISSION_MODE,
@@ -118,12 +122,14 @@ async function runTurn(message) {
         if (block.type === "text" && block.text) {
           assistantText += block.text;
           logEvent("stdout", { kind: "assistant-text", text: block.text });
+          if (onEvent) onEvent({ type: "chunk", text: block.text });
         } else if (block.type === "tool_use") {
           logEvent("stdout", {
             kind: "tool-use",
             name: block.name,
             input: block.input
           });
+          if (onEvent) onEvent({ type: "tool", name: block.name, input: block.input });
         }
       }
     } else if (event.type === "result") {
@@ -146,7 +152,11 @@ async function runTurn(message) {
     throw new Error(`Agent turn ended with subtype="${resultSubtype}"`);
   }
 
-  return { reply: assistantText.trim(), session_id: sessionId };
+  return {
+    reply: assistantText.trim(),
+    session_id: sessionId,
+    cost_usd: totalCost
+  };
 }
 
 /**
@@ -154,11 +164,66 @@ async function runTurn(message) {
  * concurrent turns against the same session — they would race the underlying
  * transcript. Queue them.
  */
-function enqueueTurn(message) {
+function enqueueTurn(message, onEvent) {
   const previous = inflight ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(() => runTurn(message));
+  const next = previous.catch(() => {}).then(() => runTurn(message, onEvent));
   inflight = next;
   return next;
+}
+
+const UPLOADS_DIR = path.join(COMPOSITION_DIR, ".garrison", "uploads");
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+
+async function readJsonBodyWithLimit(request, limit) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let received = 0;
+    request.on("data", (chunk) => {
+      received += chunk.length;
+      if (received > limit) {
+        request.destroy();
+        reject(new Error(`request body exceeds ${limit} bytes`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf8");
+      if (!raw) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+function safeFilename(input) {
+  const base = path.basename(String(input ?? "file"));
+  return base.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "file";
+}
+
+async function saveAttachment(filename, contentBase64) {
+  await fs.mkdir(UPLOADS_DIR, { recursive: true });
+  const safe = safeFilename(filename);
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const target = path.join(UPLOADS_DIR, `${stamp}-${safe}`);
+  const buffer = Buffer.from(contentBase64, "base64");
+  if (buffer.length > MAX_UPLOAD_BYTES) {
+    throw new Error(`attachment exceeds ${MAX_UPLOAD_BYTES} bytes`);
+  }
+  await fs.writeFile(target, buffer);
+  return { path: target, bytes: buffer.length };
+}
+
+function sseWrite(response, event, payload) {
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 async function readJsonBody(request) {
@@ -211,6 +276,57 @@ const server = http.createServer(async (request, response) => {
       const result = await enqueueTurn(message);
       logEvent("stdout", { kind: "chat-out", reply: result.reply });
       sendJson(response, 200, result);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/chat/stream") {
+      const body = await readJsonBody(request);
+      const message = String(body.message ?? "").trim();
+      if (!message) {
+        sendJson(response, 400, { error: "message is required" });
+        return;
+      }
+      logEvent("stdout", { kind: "chat-stream-in", message });
+
+      response.statusCode = 200;
+      response.setHeader("content-type", "text/event-stream");
+      response.setHeader("cache-control", "no-cache, no-transform");
+      response.setHeader("connection", "keep-alive");
+      response.setHeader("x-accel-buffering", "no");
+      response.flushHeaders?.();
+
+      sseWrite(response, "open", { ts: Date.now() });
+      const heartbeat = setInterval(() => {
+        try { response.write(": keepalive\n\n"); } catch {}
+      }, 15_000);
+
+      try {
+        const result = await enqueueTurn(message, (chunk) => {
+          try { sseWrite(response, chunk.type, chunk); } catch {}
+        });
+        sseWrite(response, "done", result);
+        logEvent("stdout", { kind: "chat-stream-out", reply: result.reply });
+      } catch (error) {
+        sseWrite(response, "error", { error: error.message });
+        logEvent("stderr", { kind: "chat-stream-failed", error: error.message });
+      } finally {
+        clearInterval(heartbeat);
+        response.end();
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/attachments") {
+      const body = await readJsonBodyWithLimit(request, MAX_UPLOAD_BYTES + 256_000);
+      const filename = String(body.filename ?? "").trim();
+      const contentBase64 = String(body.content_base64 ?? "");
+      if (!filename || !contentBase64) {
+        sendJson(response, 400, { error: "filename and content_base64 are required" });
+        return;
+      }
+      const saved = await saveAttachment(filename, contentBase64);
+      logEvent("stdout", { kind: "attachment-saved", path: saved.path, bytes: saved.bytes });
+      sendJson(response, 200, saved);
       return;
     }
 

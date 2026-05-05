@@ -11,7 +11,9 @@ dist/
 data/vault.json
 compositions/*/.env
 compositions/*/.garrison/assembled-system-prompt.md
+compositions/*/.garrison/uploads/
 compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/
 .idea
+run-tab-fixed.png

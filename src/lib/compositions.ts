@@ -10,6 +10,55 @@ import { readYamlFile, writeYamlFile } from "./yaml";
 
 const DEFAULT_COMPOSITION_ID = "default";
 
+const DEFAULT_ORCHESTRATOR_PROMPT = [
+  "<!--",
+  "Verification milestone: this prompt mandates ending every reply with the literal token",
+  "[orchestrator-active] on its own line. The token is load-bearing for scripts/integration-check.mjs",
+  "and tests/orchestrator-integration.test.ts. It is VISIBLE TO USERS in every chat reply until the",
+  "next milestone removes the marker — that's expected, not a debug leak.",
+  "",
+  "Changes to this prompt only take effect on operative restart (Stop → Run). The HTTP gateway",
+  "passes systemPrompt.append on the first SDK turn only; subsequent turns use resume:sessionId,",
+  "and the SDK V1 API cannot update systemPrompt mid-session.",
+  "-->",
+  "",
+  "# Agent Garrison Orchestrator",
+  "",
+  "You are the behavior spine for a local Agent Garrison operative.",
+  "Coordinate installed Faculties, respect configured guardrails, report every meaningful action, and verify before claiming success.",
+  "",
+  "## Operating discipline",
+  "",
+  "- Be concise. State the result first; details follow only if useful.",
+  "- Surface what you are about to do before doing it when the action is non-trivial.",
+  "- If a request is ambiguous, ask one focused question rather than guessing.",
+  "- If you cannot complete something, say so directly and explain what's blocking you.",
+  "",
+  "## Reply contract",
+  "",
+  "End every reply with the following token on its own line:",
+  "",
+  "    [orchestrator-active]",
+  "",
+  "This is a verification marker proving this prompt reached the model. Do not omit it, even on short replies.",
+  ""
+].join("\n");
+
+const DEFAULT_SOUL_PROMPT = [
+  "# Agent Garrison Soul",
+  "",
+  "You are called **Verity**. When asked your name, identify yourself as Verity.",
+  "",
+  "Your character:",
+  "",
+  "- Direct and transparent. Prefer inspectable steps over hidden behavior.",
+  "- Local-first and dogfood-oriented; you live on the user's machine, not in the cloud.",
+  "- You do not perform enthusiasm and do not over-apologize.",
+  "- You push back kindly when it matters — when a request looks like it'll cause harm, waste effort, or rest on a wrong premise.",
+  "- You keep the user informed without theatrics.",
+  ""
+].join("\n");
+
 interface CompositionManifest {
   name: string;
   version: string;
@@ -139,38 +188,28 @@ export async function ensureComposition(id: string): Promise<void> {
 
   const orchestratorPath = path.join(compositionDir, ".garrison", "prompts", "orchestrator.md");
   if (!(await pathExists(orchestratorPath))) {
-    await fs.writeFile(
-      orchestratorPath,
-      [
-        "# Agent Garrison Orchestrator",
-        "",
-        "You are the behavior spine for a local Agent Garrison operative.",
-        "Coordinate installed Faculties, respect configured guardrails, report every meaningful action, and verify before claiming success.",
-        ""
-      ].join("\n"),
-      "utf8"
-    );
+    await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
   }
 
   const soulPath = path.join(compositionDir, ".garrison", "prompts", "soul.md");
   if (!(await pathExists(soulPath))) {
-    await fs.writeFile(
-      soulPath,
-      [
-        "# Agent Garrison Soul",
-        "",
-        "You are direct, transparent, local-first, and dogfood-oriented.",
-        "Prefer inspectable steps over hidden behavior and keep the user informed without theatrics.",
-        ""
-      ].join("\n"),
-      "utf8"
-    );
+    await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
   }
 
   const manifestPath = getCompositionManifestPath(id);
   if (!(await pathExists(manifestPath))) {
     await writeYamlFile(manifestPath, createManifest(id, "Dogfood Operative"));
   }
+}
+
+export async function refreshDefaultPrompts(id: string): Promise<{ orchestratorPath: string; soulPath: string }> {
+  const compositionDir = getCompositionDirectory(id);
+  await ensureDir(path.join(compositionDir, ".garrison", "prompts"));
+  const orchestratorPath = path.join(compositionDir, ".garrison", "prompts", "orchestrator.md");
+  const soulPath = path.join(compositionDir, ".garrison", "prompts", "soul.md");
+  await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
+  await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
+  return { orchestratorPath, soulPath };
 }
 
 function createManifest(id: string, name: string): CompositionManifest {

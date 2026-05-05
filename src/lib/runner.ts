@@ -197,6 +197,14 @@ export async function dev(compositionId: string): Promise<RunnerState> {
   return up(compositionId, { devMode: true });
 }
 
+export function getGatewayBaseUrl(compositionId: string): string | null {
+  const record = getRecord(compositionId);
+  if (!record.gateway || record.state.status !== "running") {
+    return null;
+  }
+  return record.gateway.baseUrl;
+}
+
 export async function sendTestMessage(compositionId: string, message: string): Promise<RunnerState> {
   const trimmed = message.trim();
   if (!trimmed) {
