@@ -15,6 +15,8 @@ import {
   Loader2,
   Lock,
   MessageSquare,
+  Paperclip,
+  Pencil,
   Play,
   Plus,
   RadioTower,
@@ -24,12 +26,14 @@ import {
   Square,
   Star,
   Terminal,
+  Trash2,
   Unlock,
   Wrench,
   X
 } from "lucide-react";
 import clsx from "clsx";
 import { ExtensionPane } from "@/components/ExtensionPane";
+import { FittingEditor } from "@/components/FittingEditor";
 import { faculties } from "@/lib/faculties";
 import type {
   FittingSelectionMap,
@@ -43,7 +47,24 @@ import type {
   VerifyResult
 } from "@/lib/types";
 
-type Tab = "compose" | "run" | "vault";
+type Tab = "compose" | "run" | "chat" | "vault";
+
+interface ChatAttachment {
+  filename: string;
+  path: string;
+  bytes: number;
+}
+
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  attachments?: ChatAttachment[];
+  toolCalls?: { name: string; input?: unknown }[];
+  status?: "pending" | "streaming" | "complete" | "error";
+  costUsd?: number | null;
+  errorText?: string;
+}
 
 interface LogEvent {
   ts: string;
@@ -156,9 +177,9 @@ export default function HomePage() {
   const [vaultNeedsPassword, setVaultNeedsPassword] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [secrets, setSecrets] = useState<VaultSecret[]>([]);
-  const [testMessage, setTestMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingFitting, setEditingFitting] = useState<LibraryEntry | null>(null);
   const compositionId = composition?.id;
 
   useEffect(() => {
@@ -320,28 +341,6 @@ export default function HomePage() {
     }
   }
 
-  async function sendTestPrompt() {
-    if (!composition) {
-      return;
-    }
-    setBusy("test");
-    setError(null);
-    try {
-      const response = await fetch(`/api/runner/${composition.id}/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: testMessage })
-      });
-      const data = await readJson(response);
-      setRunnerState(data.state);
-      setTestMessage("");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : String(requestError));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   function selectedForFaculty(facultyId: FacultyId): SelectedFitting[] {
     return composition?.selections[facultyId] ?? [];
   }
@@ -450,6 +449,7 @@ export default function HomePage() {
             <nav className="flex min-w-0 gap-1 overflow-x-auto p-2 md:grid md:gap-1 md:p-3">
               <TabButton active={tab === "compose"} icon={<Boxes size={17} />} label="Compose" onClick={() => setTab("compose")} />
               <TabButton active={tab === "run"} icon={<Terminal size={17} />} label="Run" onClick={() => setTab("run")} />
+              <TabButton active={tab === "chat"} icon={<MessageSquare size={17} />} label="Chat" onClick={() => setTab("chat")} />
               <TabButton active={tab === "vault"} icon={<KeyRound size={17} />} label="Vault" onClick={() => setTab("vault")} />
             </nav>
 
@@ -528,6 +528,7 @@ export default function HomePage() {
               toggleMultiSelection={toggleMultiSelection}
               updateConfig={updateConfig}
               openFittingSource={openFittingSource}
+              onEditFitting={setEditingFitting}
               saveComposition={saveComposition}
               loadSeedStack={loadSeedStack}
               openRun={() => setTab("run")}
@@ -539,11 +540,11 @@ export default function HomePage() {
               logs={logs}
               verifyResults={verifyResults.length ? verifyResults : runnerState?.verifyResults ?? []}
               busy={busy}
-              testMessage={testMessage}
-              setTestMessage={setTestMessage}
               onAction={runAction}
-              sendTestPrompt={sendTestPrompt}
             />
+          ) : null}
+          {tab === "chat" ? (
+            <ChatTab compositionId={composition.id} isRunning={runnerState?.status === "running"} />
           ) : null}
           {tab === "vault" ? (
             <VaultTab
@@ -560,6 +561,9 @@ export default function HomePage() {
           ) : null}
         </section>
       </div>
+      {editingFitting ? (
+        <FittingEditor entry={editingFitting} onClose={() => setEditingFitting(null)} />
+      ) : null}
     </main>
   );
 }
@@ -577,6 +581,7 @@ function ComposeTab({
   toggleMultiSelection,
   updateConfig,
   openFittingSource,
+  onEditFitting,
   saveComposition,
   loadSeedStack,
   openRun
@@ -593,6 +598,7 @@ function ComposeTab({
   toggleMultiSelection: (entry: LibraryEntry) => void;
   updateConfig: (entry: LibraryEntry, key: string, value: string | number | boolean) => void;
   openFittingSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
+  onEditFitting: (entry: LibraryEntry) => void;
   saveComposition: (next: Partial<CompositionView>) => Promise<void>;
   loadSeedStack: () => void;
   openRun: () => void;
@@ -762,6 +768,7 @@ function ComposeTab({
                     toggleMultiSelection={toggleMultiSelection}
                     updateConfig={updateConfig}
                     openFittingSource={openFittingSource}
+                    onEditFitting={onEditFitting}
                   />
                 );
               })}
@@ -782,7 +789,8 @@ function FacultyRow({
   setSingleSelection,
   toggleMultiSelection,
   updateConfig,
-  openFittingSource
+  openFittingSource,
+  onEditFitting
 }: {
   faculty: (typeof faculties)[number];
   entries: LibraryEntry[];
@@ -793,6 +801,7 @@ function FacultyRow({
   toggleMultiSelection: (entry: LibraryEntry) => void;
   updateConfig: (entry: LibraryEntry, key: string, value: string | number | boolean) => void;
   openFittingSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
+  onEditFitting: (entry: LibraryEntry) => void;
 }) {
   const copy = facultyRoleCopy[faculty.id];
   return (
@@ -835,6 +844,7 @@ function FacultyRow({
                       : toggleMultiSelection(entry)
                   }
                   openFittingSource={openFittingSource}
+                  onEditFitting={onEditFitting}
                 />
               );
             })}
@@ -861,13 +871,15 @@ function FittingCard({
   selected,
   disabled,
   onSelect,
-  openFittingSource
+  openFittingSource,
+  onEditFitting
 }: {
   entry: LibraryEntry;
   selected: boolean;
   disabled: boolean;
   onSelect: () => void;
   openFittingSource: (entry: LibraryEntry, kind: "local" | "repo") => Promise<void>;
+  onEditFitting: (entry: LibraryEntry) => void;
 }) {
   return (
     <div
@@ -910,13 +922,22 @@ function FittingCard({
 
       <div className="flex flex-wrap gap-2">
         {entry.localPath ? (
-          <button
-            className="inline-flex h-9 items-center gap-2 border border-[#cfc6b8] bg-white px-3 text-xs font-medium hover:border-[#18211c]"
-            onClick={() => void openFittingSource(entry, "local")}
-          >
-            <FolderOpen size={14} />
-            Open folder
-          </button>
+          <>
+            <button
+              className="inline-flex h-9 items-center gap-2 border border-[#cfc6b8] bg-white px-3 text-xs font-medium hover:border-[#18211c]"
+              onClick={() => void openFittingSource(entry, "local")}
+            >
+              <FolderOpen size={14} />
+              Open folder
+            </button>
+            <button
+              className="inline-flex h-9 items-center gap-2 border border-[#cfc6b8] bg-white px-3 text-xs font-medium hover:border-[#18211c]"
+              onClick={() => onEditFitting(entry)}
+            >
+              <Pencil size={14} />
+              Edit files
+            </button>
+          </>
         ) : null}
         <button
           className="inline-flex h-9 items-center gap-2 border border-[#cfc6b8] bg-white px-3 text-xs font-medium hover:border-[#18211c]"
@@ -975,19 +996,13 @@ function RunTab({
   logs,
   verifyResults,
   busy,
-  testMessage,
-  setTestMessage,
-  onAction,
-  sendTestPrompt
+  onAction
 }: {
   state: RunnerState | null;
   logs: LogEvent[];
   verifyResults: VerifyResult[];
   busy: string | null;
-  testMessage: string;
-  setTestMessage: (value: string) => void;
   onAction: (action: "up" | "down" | "verify" | "dev") => Promise<void>;
-  sendTestPrompt: () => Promise<void>;
 }) {
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -996,8 +1011,8 @@ function RunTab({
   }, [logs.length]);
 
   return (
-    <div className="grid gap-4">
-      <section className="grid gap-4 xl:grid-cols-[360px_1fr]">
+    <div className="grid min-w-0 gap-4">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="border border-[#cfc6b8] bg-[#fbfaf5] p-4 shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
@@ -1022,34 +1037,8 @@ function RunTab({
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[420px_1fr]">
-        <div className="border border-[#cfc6b8] bg-[#fbfaf5] p-4 shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
-          <div className="mb-3 flex items-center gap-2">
-            <MessageSquare size={18} />
-            <h3 className="font-semibold">Operative test</h3>
-          </div>
-          <p className="mb-3 text-sm leading-6 text-[#666b63]">
-            Send a direct test prompt to the running process. This is a runner probe, not a channel;
-            real user chat surfaces belong under the channels Faculty.
-          </p>
-          <textarea
-            className="h-28 w-full resize-none border border-[#cfc6b8] bg-white p-3 text-sm outline-none focus:border-[#18211c]"
-            value={testMessage}
-            placeholder="Ask the operative a short diagnostic question..."
-            onChange={(event) => setTestMessage(event.target.value)}
-          />
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <span className="text-xs text-[#6b6e68]">{state?.status === "running" ? "Ready to send" : "Start the operative first"}</span>
-            <PrimaryButton
-              icon={<Send size={16} />}
-              label="Send test"
-              disabled={busy === "test" || state?.status !== "running" || testMessage.trim().length === 0}
-              onClick={sendTestPrompt}
-            />
-          </div>
-        </div>
-
-        <div className="border border-[#cfc6b8] bg-[#fbfaf5] p-4 shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
+      <section className="min-w-0">
+        <div className="min-w-0 border border-[#cfc6b8] bg-[#fbfaf5] p-4 shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="font-semibold">Verify hooks</h3>
             <span className="text-sm text-[#6b6e68]">{verifyResults.filter((result) => result.ok).length}/{verifyResults.length}</span>
@@ -1071,7 +1060,7 @@ function RunTab({
         </div>
       </section>
 
-      <section className="border border-[#27362d] bg-[#0d1511] font-mono text-xs text-[#d7e3dc] shadow-[0_18px_70px_rgba(24,33,28,0.24)]">
+      <section className="min-w-0 border border-[#27362d] bg-[#0d1511] font-mono text-xs text-[#d7e3dc] shadow-[0_18px_70px_rgba(24,33,28,0.24)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d7e3dc]/10 px-4 py-3 text-[#9fb7aa]">
           <div className="flex items-center gap-2">
             <Terminal size={14} />
@@ -1084,10 +1073,10 @@ function RunTab({
             <div className="text-[#7f9188]">No log lines yet.</div>
           ) : (
             logs.map((event, index) => (
-              <div key={`${event.ts}-${index}`} className="grid gap-2 border-b border-[#d7e3dc]/5 py-1 sm:grid-cols-[108px_74px_1fr]">
+              <div key={`${event.ts}-${index}`} className="grid gap-2 border-b border-[#d7e3dc]/5 py-1 sm:grid-cols-[108px_74px_minmax(0,1fr)]">
                 <span className="text-[#718378]">{event.ts.split("T")[1]?.replace("Z", "")}</span>
                 <span className={clsx("font-semibold uppercase", logTone(event.stream))}>{event.stream}</span>
-                <span className={clsx("whitespace-pre-wrap", event.stream === "stderr" && "text-[#ffb7a8]")}>{event.message}</span>
+                <span className={clsx("min-w-0 whitespace-pre-wrap break-words", event.stream === "stderr" && "text-[#ffb7a8]")}>{event.message}</span>
               </div>
             ))
           )}
@@ -1096,6 +1085,429 @@ function RunTab({
       </section>
     </div>
   );
+}
+
+function ChatTab({
+  compositionId,
+  isRunning
+}: {
+  compositionId: string;
+  isRunning: boolean;
+}) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [sending, setSending] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [draft]);
+
+  const canSend = isRunning && draft.trim().length > 0 && !sending;
+
+  async function handleAttach(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    if (!isRunning) {
+      setError("Start the operative first to attach files.");
+      return;
+    }
+    setAttaching(true);
+    setError(null);
+    try {
+      for (const file of Array.from(files)) {
+        const bytes = await file.arrayBuffer();
+        const base64 = bufferToBase64(bytes);
+        const response = await fetch(`/api/runner/${compositionId}/attachments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_base64: base64 })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error ?? `attach failed: ${response.status}`);
+        }
+        setPendingAttachments((prev) => [
+          ...prev,
+          { filename: file.name, path: data.path, bytes: data.bytes }
+        ]);
+      }
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : String(uploadError));
+    } finally {
+      setAttaching(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function removeAttachment(path: string) {
+    setPendingAttachments((prev) => prev.filter((item) => item.path !== path));
+  }
+
+  function clearChat() {
+    if (sending) return;
+    setMessages([]);
+    setError(null);
+  }
+
+  async function send() {
+    if (!canSend) return;
+    const trimmed = draft.trim();
+    const attachments = pendingAttachments;
+    const composedMessage = attachments.length
+      ? `${trimmed}\n\nAttached files:\n${attachments.map((a) => `- ${a.path}`).join("\n")}`
+      : trimmed;
+
+    const userMessage: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      text: trimmed,
+      attachments,
+      status: "complete"
+    };
+    const assistantId = `a-${Date.now()}`;
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      text: "",
+      status: "streaming"
+    };
+
+    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+    setDraft("");
+    setPendingAttachments([]);
+    setSending(true);
+    setError(null);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const response = await fetch(`/api/runner/${compositionId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: composedMessage }),
+        signal: controller.signal
+      });
+      if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        throw new Error(`chat failed: ${response.status} ${errorText}`);
+      }
+      await readSseStream(response.body, (event, data) => {
+        const payload = (data ?? {}) as Record<string, unknown>;
+        if (event === "chunk") {
+          const text = String(payload.text ?? "");
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantId ? { ...m, text: m.text + text } : m))
+          );
+        } else if (event === "tool") {
+          const tool = { name: String(payload.name ?? "?"), input: payload.input };
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, toolCalls: [...(m.toolCalls ?? []), tool] }
+                : m
+            )
+          );
+        } else if (event === "done") {
+          const finalReply = String(payload.reply ?? "");
+          const cost = typeof payload.cost_usd === "number" ? payload.cost_usd : null;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    text: finalReply || m.text,
+                    status: "complete",
+                    costUsd: cost
+                  }
+                : m
+            )
+          );
+        } else if (event === "error") {
+          const errText = String(payload.error ?? "stream error");
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, status: "error", errorText: errText } : m
+            )
+          );
+        }
+      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId && m.status === "streaming" ? { ...m, status: "complete" } : m
+        )
+      );
+    } catch (sendError) {
+      const messageText = sendError instanceof Error ? sendError.message : String(sendError);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId ? { ...m, status: "error", errorText: messageText } : m
+        )
+      );
+      setError(messageText);
+    } finally {
+      setSending(false);
+      abortRef.current = null;
+    }
+  }
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void send();
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border border-[#cfc6b8] bg-[#fbfaf5] px-4 py-3 shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold">Chat</h2>
+          <p className="text-xs text-[#6b6e68]">
+            {isRunning
+              ? "Talking to the running operative through the gateway. Enter to send, Shift+Enter for newline."
+              : "Operative is not running — start it from the Run tab to chat."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#6b6e68]">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
+          <CommandButton
+            icon={<Trash2 size={14} />}
+            label="Clear"
+            disabled={messages.length === 0 || sending}
+            onClick={clearChat}
+          />
+        </div>
+      </header>
+
+      <section className="min-w-0 border border-[#cfc6b8] bg-[#fbfaf5] shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
+        <div ref={scrollRef} className="h-[calc(100vh-360px)] min-h-[420px] overflow-auto px-4 py-5">
+          {messages.length === 0 ? (
+            <div className="grid h-full place-items-center text-center text-sm text-[#77736a]">
+              <div>
+                <MessageSquare size={32} className="mx-auto mb-3 text-[#cfc6b8]" />
+                <div>No messages yet.</div>
+                <div className="mt-1 text-xs">Type below and press Enter to send.</div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {messages.map((message) => (
+                <ChatBubble key={message.id} message={message} />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {error ? (
+        <div className="border border-[#b44a3f]/30 bg-[#fae9e5] px-4 py-2 text-sm text-[#9b362d]">{error}</div>
+      ) : null}
+
+      <section className="min-w-0 border border-[#cfc6b8] bg-[#fbfaf5] p-3 shadow-[0_12px_40px_rgba(24,33,28,0.08)]">
+        {pendingAttachments.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {pendingAttachments.map((attachment) => (
+              <div
+                key={attachment.path}
+                className="flex items-center gap-2 border border-[#d9d1c2] bg-white px-2 py-1 text-xs"
+              >
+                <Paperclip size={12} />
+                <span className="max-w-[200px] truncate">{attachment.filename}</span>
+                <span className="text-[#9a958b]">{formatBytes(attachment.bytes)}</span>
+                <button
+                  type="button"
+                  className="text-[#9a958b] hover:text-[#9b362d]"
+                  onClick={() => removeAttachment(attachment.path)}
+                  aria-label={`Remove ${attachment.filename}`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="grid gap-2 md:grid-cols-[auto_1fr_auto] md:items-end">
+          <button
+            type="button"
+            className="flex h-10 items-center gap-2 border border-[#cfc6b8] bg-white px-3 text-sm hover:border-[#18211c] disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attaching || !isRunning}
+          >
+            {attaching ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
+            <span className="hidden md:inline">Attach</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => handleAttach(event.target.files)}
+          />
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={isRunning ? "Message Verity..." : "Operative offline."}
+            disabled={!isRunning}
+            rows={1}
+            className="min-h-[40px] w-full resize-none border border-[#cfc6b8] bg-white px-3 py-2 text-sm outline-none focus:border-[#18211c] disabled:cursor-not-allowed disabled:bg-[#f3eee2]"
+          />
+          <PrimaryButton
+            icon={sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            label={sending ? "Sending" : "Send"}
+            disabled={!canSend}
+            onClick={() => void send()}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ChatBubble({ message }: { message: ChatMessage }) {
+  const isUser = message.role === "user";
+  return (
+    <div className={clsx("flex min-w-0 gap-3", isUser ? "justify-end" : "justify-start")}>
+      <div
+        className={clsx(
+          "max-w-[85%] min-w-0 border px-4 py-3 shadow-[0_4px_14px_rgba(24,33,28,0.05)]",
+          isUser
+            ? "border-[#18211c] bg-[#18211c] text-[#f5f1e6]"
+            : "border-[#d9d1c2] bg-white text-[#18211c]"
+        )}
+      >
+        <div className="mb-1 flex items-center gap-2 text-xs uppercase tracking-wide opacity-70">
+          {isUser ? "You" : "Verity"}
+          {message.status === "streaming" ? (
+            <span className="inline-flex items-center gap-1">
+              <Loader2 size={11} className="animate-spin" />
+              streaming
+            </span>
+          ) : null}
+          {message.status === "error" ? <span className="text-[#ffb7a8]">error</span> : null}
+        </div>
+        {message.toolCalls && message.toolCalls.length > 0 ? (
+          <div className="mb-2 grid gap-1">
+            {message.toolCalls.map((tool, index) => (
+              <div
+                key={`${tool.name}-${index}`}
+                className={clsx(
+                  "flex items-center gap-2 border px-2 py-1 text-xs",
+                  isUser
+                    ? "border-[#3a4640] bg-[#0f1612] text-[#a8b8af]"
+                    : "border-[#e1dccd] bg-[#f7f3ea] text-[#6b6e68]"
+                )}
+              >
+                <Wrench size={11} />
+                <span className="font-mono">{tool.name}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="whitespace-pre-wrap break-words text-sm leading-6">
+          {message.text}
+          {message.status === "streaming" && !message.text ? (
+            <span className="text-[#a8b8af]">Thinking…</span>
+          ) : null}
+          {message.status === "streaming" ? (
+            <span className="ml-1 inline-block h-3 w-1.5 animate-pulse bg-current align-middle opacity-60" />
+          ) : null}
+        </div>
+        {message.errorText ? (
+          <div className="mt-2 text-xs text-[#ffb7a8]">{message.errorText}</div>
+        ) : null}
+        {message.attachments && message.attachments.length > 0 ? (
+          <div className="mt-2 grid gap-1 text-xs opacity-80">
+            {message.attachments.map((attachment) => (
+              <div key={attachment.path} className="flex items-center gap-2">
+                <Paperclip size={11} />
+                <span className="truncate">{attachment.filename}</span>
+                <span className="opacity-70">{formatBytes(attachment.bytes)}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {typeof message.costUsd === "number" ? (
+          <div className="mt-2 text-[10px] uppercase tracking-wide opacity-50">
+            cost ${message.costUsd.toFixed(4)}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function bufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunkSize))
+    );
+  }
+  return btoa(binary);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: string, data: unknown) => void
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      if (!block.trim()) continue;
+      let event = "message";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) {
+          event = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          data += (data ? "\n" : "") + line.slice(5).trimStart();
+        }
+      }
+      if (event === "open") continue;
+      let parsed: unknown = null;
+      if (data) {
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          parsed = { raw: data };
+        }
+      }
+      onEvent(event, parsed);
+    }
+  }
 }
 
 function VaultTab({
