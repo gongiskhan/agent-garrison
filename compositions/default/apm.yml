@@ -7,6 +7,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/personal-operative
     - path: ../../fittings/seed/tier-classifier
     - path: ../../fittings/seed/trello-data-source
 x-garrison:
@@ -34,6 +35,7 @@ x-garrison:
         - id: trello-data-source
           config:
             tasks_truth_file: tasks/trello.md
+            board_id: vl1Z8KFH
       automations:
         - id: browser-automation
           config:
@@ -55,6 +57,14 @@ x-garrison:
           config:
             port: 4777
             bind_host: 127.0.0.1
+      orchestrator:
+        - id: personal-operative
+          config:
+            tone: terse
+            idle_behavior: passive
+            priority_label: priority
+            silent_when_no_work: true
+            report_channel: ""
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

@@ -39,6 +39,19 @@
     }
   },
   {
+    "id": "personal-operative",
+    "name": "Personal operative",
+    "repo": "local:fittings/seed/personal-operative",
+    "localPath": "fittings/seed/personal-operative",
+    "summary": "Default Orchestrator. Heartbeat-driven loop: triage inbox/scheduled/tasks, route through the classifier, persist context across sessions.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-personal-operative",
+      "global": 4.5,
+      "claude_code": 4.6
+    }
+  },
+  {
     "id": "memory",
     "name": "Memory fitting",
     "repo": "local:fittings/seed/memory",

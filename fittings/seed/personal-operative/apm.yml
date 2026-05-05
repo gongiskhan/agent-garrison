@@ -1,0 +1,49 @@
+name: personal-operative
+version: 0.1.0
+description: Default Orchestrator seed for Agent Garrison — a personal autonomous operative.
+target: claude
+type: prompt
+includes: auto
+x-garrison:
+  faculty: orchestrator
+  cardinality_hint: single
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: Heartbeat-driven personal operative — wakes on cadence, triages inbox/scheduled/tasks, dispatches through the gateway, persists context across sessions.
+  config_schema:
+    - key: tone
+      type: select
+      default: terse
+      description: How the operative writes. Terse states results first; conversational softens the edges; formal is for shared/business contexts.
+      options:
+        - terse
+        - conversational
+        - formal
+    - key: idle_behavior
+      type: select
+      default: passive
+      description: What the operative does when there is no work. Passive sleeps until next heartbeat; proactive scans for opportunities (sweep stale tasks, summarise context, propose next move).
+      options:
+        - passive
+        - proactive
+    - key: priority_label
+      type: string
+      default: priority
+      description: Label name that, when present on a task, raises it to the top of the queue regardless of due date.
+    - key: silent_when_no_work
+      type: boolean
+      default: true
+      description: When true, the operative does not post "nothing to do" updates to channels. When false, every heartbeat tick produces a status line.
+    - key: report_channel
+      type: string
+      default: ""
+      description: Optional Channels Fitting id to receive end-of-day summaries and escalations. Leave empty to keep reports in the runtime log only.
+  provides:
+    - kind: orchestrator
+      name: personal-operative
+  consumes: []
+  verify:
+    command: test -f .claude/prompts/personal-operative.prompt.md && echo ok
+    expect: ok
+    timeout_ms: 10000

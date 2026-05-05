@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseGarrisonMetadata } from "@/lib/metadata";
@@ -13,7 +12,8 @@ const seedIds = [
   "memory",
   "http-gateway",
   "browser-automation",
-  "trello-data-source"
+  "trello-data-source",
+  "personal-operative"
 ] as const;
 
 interface RawManifest {
@@ -59,23 +59,27 @@ describe("seed Fittings", () => {
     });
   });
 
-  it("the full seed stack reports the expected orchestrator gap and nothing else", async () => {
+  it("personal-operative provides the orchestrator capability", async () => {
+    const metadata = await loadSeed("personal-operative");
+    expect(metadata.faculty).toBe("orchestrator");
+    expect(metadata.component_shape).toBe("system-prompt");
+    expect(metadata.provides).toContainEqual({
+      kind: "orchestrator",
+      name: "personal-operative"
+    });
+    expect(metadata.consumes).toEqual([]);
+  });
+
+  it("the full seed stack resolves capabilities cleanly", async () => {
     const metadatas = await Promise.all(
       seedIds.map(async (id) => ({ id, metadata: await loadSeed(id) }))
     );
     const result = resolveCapabilities(metadatas);
-    expect(result.ok).toBe(false);
     if (!result.ok) {
-      const missingOrchestrator = result.errors.filter(
-        (error) => error.code === "missing-required" && error.kind === "orchestrator"
+      throw new Error(
+        `expected seed stack to resolve cleanly; got: ${JSON.stringify(result.errors, null, 2)}`
       );
-      expect(missingOrchestrator.map((error) => error.fittingId).sort()).toEqual(
-        ["http-gateway", "loop-heartbeat"].sort()
-      );
-      const otherErrors = result.errors.filter(
-        (error) => !(error.code === "missing-required" && error.kind === "orchestrator")
-      );
-      expect(otherErrors).toEqual([]);
     }
+    expect(result.ok).toBe(true);
   });
 });
