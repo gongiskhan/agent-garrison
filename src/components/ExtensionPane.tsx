@@ -7,7 +7,9 @@ const TierClassifierInspector = dynamic(
   () => import("@/components/extensions/TierClassifierInspector"),
   {
     ssr: false,
-    loading: () => <div className="text-sm text-ink/60">Loading extension...</div>
+    loading: () => (
+      <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading extension…</div>
+    )
   }
 );
 
@@ -22,7 +24,15 @@ export function ExtensionPane({
     return <TierClassifierInspector config={selection.config} />;
   }
   return (
-    <div className="border border-[#d9d1c2] bg-white p-4 text-sm text-[#666b63]">
+    <div
+      style={{
+        border: "1px solid var(--rule)",
+        background: "white",
+        padding: 16,
+        fontSize: 13,
+        color: "var(--mute)"
+      }}
+    >
       {entry.name} declares a UI extension at {entry.metadata.ui?.extension}, but no host loader has been
       registered for it yet.
     </div>

@@ -17,3 +17,6 @@ compositions/*/.claude/
 compositions/*/logs/
 .idea
 run-tab-fixed.png
+.DS_Store
+**/.DS_Store
+_design-redesign/
