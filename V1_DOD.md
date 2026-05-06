@@ -10,6 +10,7 @@ Each item is observable. If it cannot be pointed at, it does not count.
 - [ ] Hitting **Run** on a configured composition calls `apm install` and reports each step in the live log.
 - [ ] Hitting **Run** materialises `.env` from vault into the composition directory.
 - [ ] Hitting **Run** assembles orchestrator+soul system prompt and starts a Claude Code session with it.
+- [ ] Fittings that declare an `x-garrison.setup` command have it executed before verify on every **Run**; a non-zero setup exit aborts the run with the failing Fitting's stderr in the log.
 - [ ] Hitting **Run** executes every Fitting's `x-garrison.verify` hook and every hook passes.
 - [ ] Logs stream live to the Run tab.
 - [ ] Closing the browser tab and reopening shows the operative still running with log scrollback.

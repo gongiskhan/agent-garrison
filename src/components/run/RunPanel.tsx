@@ -205,64 +205,100 @@ export function RunPanel() {
                   Press Verify to run all installed Fitting hooks.
                 </div>
               ) : (
-                verifyResults.map((result) => (
-                  <div
-                    key={result.fittingId}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "14px 1fr auto auto",
-                      gap: 12,
-                      padding: "9px 18px",
-                      borderBottom: "1px solid var(--rule)",
-                      alignItems: "center",
-                      fontSize: 12.5
-                    }}
-                  >
-                    <span
-                      className="font-mono"
-                      style={{ color: result.ok ? "var(--sage)" : "var(--alarm)", fontWeight: 700 }}
+                verifyResults.map((result) => {
+                  const failureDetail = !result.ok
+                    ? [
+                        result.error
+                          ? `error: ${result.error}`
+                          : `exit ${result.exitCode ?? "null"}, expected stdout to contain "${result.expect}"`,
+                        result.stderr.trim() && `stderr: ${result.stderr.trim()}`,
+                        result.stdout.trim() && !result.stdout.includes(result.expect) && `stdout: ${result.stdout.trim()}`
+                      ]
+                        .filter(Boolean)
+                        .join("\n")
+                    : "";
+                  return (
+                    <div
+                      key={result.fittingId}
+                      style={{
+                        borderBottom: "1px solid var(--rule)",
+                        padding: "9px 18px",
+                        fontSize: 12.5
+                      }}
                     >
-                      {result.ok ? "•" : "!"}
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 500 }}>{result.fittingId}</div>
                       <div
-                        className="font-mono"
                         style={{
-                          fontSize: 11,
-                          color: "var(--mute)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap"
+                          display: "grid",
+                          gridTemplateColumns: "14px 1fr auto auto",
+                          gap: 12,
+                          alignItems: "center"
                         }}
                       >
-                        {result.command}
+                        <span
+                          className="font-mono"
+                          style={{ color: result.ok ? "var(--sage)" : "var(--alarm)", fontWeight: 700 }}
+                        >
+                          {result.ok ? "•" : "!"}
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 500 }}>{result.fittingId}</div>
+                          <div
+                            className="font-mono"
+                            style={{
+                              fontSize: 11,
+                              color: "var(--mute)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap"
+                            }}
+                          >
+                            {result.command}
+                          </div>
+                        </div>
+                        <span
+                          className="font-mono"
+                          style={{
+                            fontSize: 10.5,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            color: result.ok ? "var(--sage)" : "var(--alarm)"
+                          }}
+                        >
+                          {result.ok ? "passed" : "failed"}
+                        </span>
+                        <span
+                          className="font-mono"
+                          style={{
+                            fontSize: 10.5,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            color: "var(--mute)"
+                          }}
+                        >
+                          {result.durationMs}ms
+                        </span>
                       </div>
+                      {failureDetail && (
+                        <pre
+                          className="font-mono"
+                          style={{
+                            margin: "8px 0 0 26px",
+                            padding: "8px 10px",
+                            background: "rgba(180, 60, 60, 0.06)",
+                            border: "1px solid rgba(180, 60, 60, 0.18)",
+                            color: "var(--alarm)",
+                            fontSize: 11,
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            borderRadius: 2
+                          }}
+                        >
+                          {failureDetail}
+                        </pre>
+                      )}
                     </div>
-                    <span
-                      className="font-mono"
-                      style={{
-                        fontSize: 10.5,
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        color: result.ok ? "var(--sage)" : "var(--alarm)"
-                      }}
-                    >
-                      {result.ok ? "passed" : "failed"}
-                    </span>
-                    <span
-                      className="font-mono"
-                      style={{
-                        fontSize: 10.5,
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        color: "var(--mute)"
-                      }}
-                    >
-                      {result.durationMs}ms
-                    </span>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </section>

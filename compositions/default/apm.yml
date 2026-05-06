@@ -8,6 +8,8 @@ dependencies:
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
     - path: ../../fittings/seed/personal-operative
+    - path: ../../fittings/seed/slack-channel
+    - path: ../../fittings/seed/soul
     - path: ../../fittings/seed/tier-classifier
     - path: ../../fittings/seed/trello-data-source
 x-garrison:
@@ -57,6 +59,15 @@ x-garrison:
           config:
             port: 4777
             bind_host: 127.0.0.1
+      channels:
+        - id: slack-channel
+          config:
+            slack_port: 9512
+            gateway_url: http://127.0.0.1:4777
+            chat_timeout_ms: 600000
+      soul:
+        - id: soul
+          config: {}
       orchestrator:
         - id: personal-operative
           config:
@@ -64,7 +75,7 @@ x-garrison:
             idle_behavior: passive
             priority_label: priority
             silent_when_no_work: true
-            report_channel: ""
+            report_channel: ''
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

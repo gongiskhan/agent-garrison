@@ -2,7 +2,7 @@ name: personal-operative
 version: 0.1.0
 description: Default Orchestrator seed for Agent Garrison — a personal autonomous operative.
 target: claude
-type: prompt
+type: prompts
 includes: auto
 x-garrison:
   faculty: orchestrator
@@ -42,8 +42,22 @@ x-garrison:
   provides:
     - kind: orchestrator
       name: personal-operative
-  consumes: []
+  consumes:
+    - kind: soul
+      cardinality: one
+    - kind: agent-skill
+      cardinality: any
+    - kind: memory-store
+      cardinality: any
+    - kind: automation-runner
+      cardinality: any
+    - kind: data-source
+      cardinality: any
+    - kind: channel
+      cardinality: any
+    - kind: vault
+      cardinality: optional-one
   verify:
-    command: test -f .claude/prompts/personal-operative.prompt.md && echo ok
+    command: test -f apm_modules/_local/personal-operative/.apm/prompts/personal-operative.prompt.md && echo ok
     expect: ok
     timeout_ms: 10000

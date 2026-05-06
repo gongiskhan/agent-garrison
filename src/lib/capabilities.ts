@@ -118,6 +118,8 @@ export function resolveCapabilities(selected: ResolverInput[]): ResolverResult {
             message: `capability ${label} consumed by ${fitting.id} matched ${matched.length} providers; expected zero or one`
           });
         }
+      } else if (cardinality === "any") {
+        // any: zero-or-more providers accepted; matched array carries them all.
       }
     }
   }

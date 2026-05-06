@@ -1,0 +1,22 @@
+name: soul
+version: 0.1.0
+description: Soul prompt seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: soul
+  cardinality_hint: single
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: PM / Software Architect / PA persona for the personal Operative.
+  config_schema: []
+  provides:
+    - kind: soul
+      name: personal-operative-soul
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/soul/.apm/prompts/soul.prompt.md && echo ok
+    expect: ok
+    timeout_ms: 10000

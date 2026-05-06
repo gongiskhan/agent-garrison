@@ -49,6 +49,7 @@ Top-level `x-garrison` fields:
 | `config_schema` | array | no | UI-renderable config fields. Defaults to `[]`. |
 | `provides` | array | no | Capabilities this Fitting offers to others. Defaults to `[]`. See `CAPABILITIES.md`. |
 | `consumes` | array | no | Capabilities this Fitting requires from the composition. Defaults to `[]`. See `CAPABILITIES.md`. |
+| `setup` | object | no | Optional one-shot install/repair command run by the runner before `verify` on every `up`. See setup schema below. |
 | `verify` | object | yes | Runtime verification command and expected output. |
 | `ui` | object | no | Optional trusted React extension metadata. |
 | `tasks` | object | no | Optional declaration that this Fitting backs the derived Tasks surface. |
@@ -87,7 +88,7 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `agent-skill`, `memory-store`, `automation-runner`, `vault`. |
+| `kind` | enum | yes | One of: `orchestrator`, `soul`, `agent-skill`, `memory-store`, `automation-runner`, `data-source`, `channel`, `vault`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):
@@ -97,6 +98,16 @@ Capability consumption schema (`consumes[]`):
 | `kind` | enum | yes | One of the five capability kinds. |
 | `name` | string | no | Omit for kind-only matching; provide to require a specific named provider. |
 | `cardinality` | enum | no | `one` (default), `optional-one`, or `any`. Enforced by the resolver. |
+
+Setup schema:
+
+| Field | Type | Required | Notes |
+|---|---:|---:|---|
+| `command` | string | yes | Shell command run from the Fitting's installed directory (`apm_modules/_local/<id>/`) on every `up`, before `verify`. |
+| `idempotent` | boolean | yes | Author asserts the command is safe to run repeatedly. The runner runs it on every `up` regardless; the flag is informational. |
+| `timeout_ms` | integer | no | Defaults to 60000. |
+
+Setup runs after `apm install` and `materializeEnv`, and before `verify`. A non-zero exit aborts `up`; downstream verify and operative spawn do not run. Setup is the right place for clones, dependency installs, and one-shot host-config writes (see Memory Fitting and Slack Fitting for examples).
 
 Verify schema:
 

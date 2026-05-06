@@ -7,7 +7,10 @@ import { commandExists } from "./preflight";
 import { readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
-import type { LibraryEntry, RunnerState, VerifyResult } from "./types";
+import { resolveCapabilities } from "./capabilities";
+import type { GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
+
+const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
 
 interface LogEvent {
   ts: string;
@@ -84,6 +87,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     await runProcess(compositionId, "apm", ["install"], composition.directory);
     const envPath = await materializeEnv(composition.directory);
     appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
+    await runSetupHooks(compositionId);
     const verifyResults = await verify(compositionId);
     const failed = verifyResults.find((result) => !result.ok);
     if (failed) {
@@ -153,10 +157,82 @@ export async function down(compositionId: string): Promise<RunnerState> {
   return getRunnerState(compositionId);
 }
 
+export interface SetupResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  error?: string;
+}
+
+export async function runFittingSetup(
+  entry: { id: string; metadata: GarrisonMetadata },
+  compositionDir: string
+): Promise<SetupResult> {
+  const setup = entry.metadata.setup;
+  if (!setup) {
+    return { ok: true, stdout: "", stderr: "", exitCode: 0 };
+  }
+  const fittingDir = path.join(compositionDir, "apm_modules", "_local", entry.id);
+  const result = await runShellCommand(
+    fittingDir,
+    setup.command,
+    setup.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS
+  );
+  return { ...result, ok: result.exitCode === 0 };
+}
+
+async function runSetupHooks(compositionId: string): Promise<void> {
+  const composition = await readCompositionWithDerivedTasks(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+  for (const entry of entries) {
+    const setup = entry.metadata.setup;
+    if (!setup) {
+      continue;
+    }
+    appendLog(compositionId, "runner", `setup ${entry.id}: ${setup.command}`);
+    const result = await runFittingSetup(entry, composition.directory);
+    if (result.stdout) {
+      appendLog(compositionId, "stdout", result.stdout);
+    }
+    if (!result.ok) {
+      if (result.stderr) {
+        appendLog(compositionId, "stderr", result.stderr);
+      }
+      const detail = result.error ? `: ${result.error}` : "";
+      throw new Error(
+        `setup failed for ${entry.id}: exit ${result.exitCode ?? "null"}${detail}`
+      );
+    }
+    appendLog(compositionId, "runner", `${entry.id} setup ok`);
+  }
+}
+
 export async function verify(compositionId: string): Promise<VerifyResult[]> {
   updateState(compositionId, { status: "verifying" });
   appendLog(compositionId, "runner", "Running fitting verify hooks");
   const composition = await readCompositionWithDerivedTasks(compositionId);
+
+  // Materialize the vault if unlocked, so verify hooks that read API keys
+  // can see them. If the vault is locked, log a clear actionable message
+  // rather than silently letting hooks fail with cryptic errors.
+  try {
+    const envPath = await materializeEnv(composition.directory);
+    appendLog(
+      compositionId,
+      "runner",
+      `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)} (verify will source them)`
+    );
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    appendLog(compositionId, "stderr", `Vault not materialised: ${msg}`);
+    appendLog(
+      compositionId,
+      "stderr",
+      "Verify hooks that need vault-resolved credentials may fail. Unlock the Vault tab and re-verify."
+    );
+  }
+
   const entries = await selectedLibraryEntries(composition.selections);
   const results: VerifyResult[] = [];
 
@@ -164,7 +240,7 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
     const started = Date.now();
     const verifyInfo = entry.metadata.verify;
     appendLog(compositionId, "runner", `verify ${entry.id}: ${verifyInfo.command}`);
-    const result = await runVerifyCommand(
+    const result = await runShellCommand(
       composition.directory,
       verifyInfo.command,
       verifyInfo.timeout_ms
@@ -183,7 +259,30 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
       durationMs: Date.now() - started,
       error: result.error
     });
-    appendLog(compositionId, ok ? "runner" : "stderr", `${entry.id} verify ${ok ? "passed" : "failed"}`);
+    if (ok) {
+      appendLog(compositionId, "runner", `${entry.id} verify passed`);
+    } else {
+      // Surface WHY: exit code, stderr, and any stdout the user didn't expect.
+      // The single most common failure mode is a hook returning useful detail
+      // on stderr that we used to swallow.
+      appendLog(compositionId, "stderr", `${entry.id} verify failed`);
+      const reason = result.error
+        ? `error: ${result.error}`
+        : `exit ${result.exitCode ?? "null"}, expected stdout to contain "${verifyInfo.expect}"`;
+      appendLog(compositionId, "stderr", `  ${entry.id}: ${reason}`);
+      const trimmedStderr = result.stderr.trim();
+      if (trimmedStderr) {
+        for (const line of trimmedStderr.split(/\r?\n/)) {
+          appendLog(compositionId, "stderr", `  ${entry.id} stderr | ${line}`);
+        }
+      }
+      const trimmedStdout = result.stdout.trim();
+      if (trimmedStdout && !trimmedStdout.includes(verifyInfo.expect)) {
+        for (const line of trimmedStdout.split(/\r?\n/)) {
+          appendLog(compositionId, "stderr", `  ${entry.id} stdout | ${line}`);
+        }
+      }
+    }
   }
 
   updateState(compositionId, {
@@ -292,7 +391,7 @@ async function startDevWatcher(compositionId: string): Promise<void> {
 async function assembleSystemPrompt(compositionId: string): Promise<string> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
-  const orchestrator = await readPromptForFaculty(entries, "orchestrator");
+  const orchestratorRaw = await readPromptForFaculty(entries, "orchestrator");
   const soul = await readPromptForFaculty(entries, "soul");
   const fallbackOrchestrator = await fs.readFile(
     path.join(composition.directory, ".garrison", "prompts", "orchestrator.md"),
@@ -302,15 +401,56 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
     path.join(composition.directory, ".garrison", "prompts", "soul.md"),
     "utf8"
   );
-  const prompt = [
-    orchestrator ?? fallbackOrchestrator,
-    "",
-    soul ?? fallbackSoul
-  ].join("\n");
+  const orchestrator = substituteCapabilitiesPlaceholder(
+    orchestratorRaw ?? fallbackOrchestrator,
+    entries
+  );
+  // Soul (identity) first, Orchestrator (behavior) second. Identity at the
+  // top of the append makes the override land before the long behavior
+  // section buries it; otherwise Claude Code's preset ("You are Claude")
+  // wins on identity questions.
+  const prompt = [soul ?? fallbackSoul, "", orchestrator].join("\n");
   const promptPath = path.join(composition.directory, ".garrison", "assembled-system-prompt.md");
   await fs.writeFile(promptPath, prompt, "utf8");
-  appendLog(compositionId, "runner", `Assembled orchestrator+soul prompt at ${path.relative(ROOT_DIR, promptPath)}`);
+  appendLog(compositionId, "runner", `Assembled soul+orchestrator prompt at ${path.relative(ROOT_DIR, promptPath)}`);
   return promptPath;
+}
+
+export function substituteCapabilitiesPlaceholder(
+  prompt: string,
+  entries: LibraryEntry[]
+): string {
+  return prompt.replace(/{{capabilities}}/g, renderCapabilitiesBlock(entries));
+}
+
+export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {
+  const inputs = entries.map((entry) => ({ id: entry.id, metadata: entry.metadata }));
+  const result = resolveCapabilities(inputs);
+  const providerEntries: Array<{ kind: string; name: string; summary: string }> = [];
+  for (const entry of entries) {
+    for (const provision of entry.metadata.provides) {
+      providerEntries.push({
+        kind: provision.kind,
+        name: provision.name,
+        summary: entry.metadata.summary?.trim() || entry.summary || entry.id
+      });
+    }
+  }
+  if (!result.ok) {
+    if (providerEntries.length === 0) {
+      return "_no Faculties currently installed in this Composition._";
+    }
+  }
+  if (providerEntries.length === 0) {
+    return "_no Faculties currently installed in this Composition._";
+  }
+  providerEntries.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+    return a.name.localeCompare(b.name);
+  });
+  return providerEntries
+    .map((entry) => `- ${entry.kind}:${entry.name} — ${entry.summary}`)
+    .join("\n");
 }
 
 async function readPromptForFaculty(
@@ -572,15 +712,71 @@ async function runProcess(
   });
 }
 
-async function runVerifyCommand(
+function parseDotenv(text: string): Record<string, string> {
+  const parsed: Record<string, string> = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    parsed[key] = value;
+  }
+  return parsed;
+}
+
+function loadDotenvFromCwd(cwd: string): Record<string, string> {
+  // Walk up from cwd looking for a `.env`. Setup hooks run in
+  // apm_modules/_local/<id>/, but materializeEnv writes to the
+  // composition root — so the env file the setup needs is several
+  // levels above cwd. Walk up to 5 levels. Stop early at the repo
+  // root (marked by package.json) to avoid leaking unrelated env
+  // files from $HOME.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fsSync = require("node:fs") as typeof import("node:fs");
+    let dir = cwd;
+    for (let i = 0; i < 5; i++) {
+      const envFile = path.join(dir, ".env");
+      if (fsSync.existsSync(envFile)) {
+        return parseDotenv(fsSync.readFileSync(envFile, "utf8"));
+      }
+      // Stop if we reach a package.json — we hit the repo root and
+      // walking above it would pick up arbitrary user env files.
+      if (fsSync.existsSync(path.join(dir, "package.json"))) {
+        return {};
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+async function runShellCommand(
   cwd: string,
   command: string,
   timeoutMs: number
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null; error?: string }> {
+  // Note: listens on `close` rather than `exit` so stdio is fully drained
+  // before resolving — `exit` can fire while data buffers still hold output.
+  // Also merges any .env in cwd into the subprocess env so verify/setup hooks
+  // see vault-resolved credentials without each Fitting needing to source it.
   return new Promise((resolve) => {
+    const dotenvVars = loadDotenvFromCwd(cwd);
     const child = spawn(command, {
       cwd,
-      env: process.env,
+      env: { ...process.env, ...dotenvVars },
       shell: true
     });
     let stdout = "";
@@ -599,7 +795,7 @@ async function runVerifyCommand(
       clearTimeout(timer);
       resolve({ stdout, stderr, exitCode: null, error: error.message });
     });
-    child.on("exit", (code) => {
+    child.on("close", (code) => {
       clearTimeout(timer);
       resolve({ stdout, stderr, exitCode: code });
     });

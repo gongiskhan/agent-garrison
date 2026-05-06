@@ -13,6 +13,8 @@ const seedIds = [
   "http-gateway",
   "browser-automation",
   "trello-data-source",
+  "slack-channel",
+  "soul",
   "personal-operative"
 ] as const;
 
@@ -59,7 +61,7 @@ describe("seed Fittings", () => {
     });
   });
 
-  it("personal-operative provides the orchestrator capability", async () => {
+  it("personal-operative provides the orchestrator capability and consumes soul + composition Faculties", async () => {
     const metadata = await loadSeed("personal-operative");
     expect(metadata.faculty).toBe("orchestrator");
     expect(metadata.component_shape).toBe("system-prompt");
@@ -67,7 +69,10 @@ describe("seed Fittings", () => {
       kind: "orchestrator",
       name: "personal-operative"
     });
-    expect(metadata.consumes).toEqual([]);
+    expect(metadata.consumes).toContainEqual({ kind: "soul", cardinality: "one" });
+    expect(metadata.consumes).toContainEqual({ kind: "agent-skill", cardinality: "any" });
+    expect(metadata.consumes).toContainEqual({ kind: "channel", cardinality: "any" });
+    expect(metadata.consumes).toContainEqual({ kind: "data-source", cardinality: "any" });
   });
 
   it("the full seed stack resolves capabilities cleanly", async () => {

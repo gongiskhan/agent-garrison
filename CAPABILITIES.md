@@ -5,6 +5,26 @@ their `x-garrison` block. Cardinality is enforced by the resolver
 (`src/lib/capabilities.ts`); see [GOVERNANCE.md](./GOVERNANCE.md) and
 [FITTINGS.md](./FITTINGS.md) for context.
 
+## Cardinality literals
+
+Consumption blocks accept an explicit `cardinality` value. The three
+literal tokens the resolver understands are:
+
+- `one` (default if omitted) — exactly one provider must match. The
+  resolver raises an error if zero or more than one is present.
+- `optional-one` — zero or one provider may match. The resolver
+  raises an error only if more than one is present.
+- `any` — zero or more providers may match. The resolver accepts
+  every match silently; the consumer Fitting can iterate the
+  `matched` list at runtime.
+
+Example:
+
+```yaml
+consumes:
+  - { kind: agent-skill, cardinality: any }
+```
+
 > **Interface stubs are TBD — runtime SDK milestone.** Each section
 > below describes what each kind is for and what its interface will
 > need to expose. The actual TypeScript signatures are intentionally
@@ -29,6 +49,21 @@ exactly one orchestrator per composition.
   prompt, dispatch to `agent-skill` consumers, observe lifecycle
   events from `automation-runner` providers, persist via
   `memory-store`, and read secrets from `vault`.
+
+## soul
+
+The persona prompt that gives the Operative its identity, voice,
+tone, and boundaries. The Orchestrator concatenates the Soul prompt
+with its own at assembly time so the Operative reads as one coherent
+character.
+
+- **Cardinality:** singleton (the resolver enforces only one Soul
+  per composition).
+- **Typically provides:** a Fitting in the `soul` Faculty.
+- **Typically consumes:** nothing.
+- **Interface (TBD — runtime SDK milestone):** the runner reads the
+  provider's `.apm/prompts/*.prompt.md` file at assembly time and
+  prepends it to the Orchestrator prompt.
 
 ## agent-skill
 
@@ -72,6 +107,36 @@ direct user prompt. The heartbeat is the canonical example.
 - **Interface (TBD — runtime SDK milestone):** must dispatch a
   job-like payload to the orchestrator's input boundary and surface
   outcomes the observability layer can record.
+
+## data-source
+
+A read or read/write surface against an external system the
+operative needs to inspect — Trello boards, Calendar events, GitHub
+issues, etc.
+
+- **Cardinality:** any number; a composition can pull from many
+  sources.
+- **Typically provides:** Fittings in the `data-sources` Faculty.
+- **Typically consumes:** `vault` for the relevant API credentials.
+- **Interface (TBD — runtime SDK milestone):** must expose a
+  read API the orchestrator can call directly or via a CLI/skill;
+  optionally a write API for sources that support mutation.
+
+## channel
+
+An inbound/outbound message surface the operative uses to talk to
+the principal — Slack, iMessage, email, etc. The channel pushes
+messages into the gateway and surfaces operative replies back.
+
+- **Cardinality:** any number; a composition may host the operative
+  on multiple channels simultaneously.
+- **Typically provides:** Fittings in the `channels` Faculty.
+- **Typically consumes:** `vault` for channel credentials, and the
+  gateway endpoint the runtime exposes.
+- **Interface (TBD — runtime SDK milestone):** must accept inbound
+  messages from the external channel, post them to the gateway, and
+  relay the reply back. FIFO ordering is preserved by the gateway
+  when used.
 
 ## vault
 

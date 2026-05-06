@@ -52,6 +52,13 @@ export const garrisonMetadataSchema = z.object({
   config_schema: z.array(configFieldSchema).default([]),
   provides: z.array(provisionSchema).default([]),
   consumes: z.array(consumptionSchema).default([]),
+  setup: z
+    .object({
+      command: z.string().min(1),
+      idempotent: z.boolean(),
+      timeout_ms: z.number().int().positive().optional()
+    })
+    .optional(),
   verify: z.object({
     command: z.string().min(1),
     expect: z.string().min(1),

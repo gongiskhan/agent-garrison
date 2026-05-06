@@ -1,6 +1,6 @@
 # Seed Fittings
 
-These seven Fittings ship inside the Garrison repo as the bootstrap stack.
+These nine Fittings ship inside the Garrison repo as the bootstrap stack.
 They are functional reference implementations and the targets of every
 test in the codebase.
 
@@ -12,6 +12,8 @@ test in the codebase.
 | gateway       | http-gateway         |
 | automations   | browser-automation   |
 | data-sources  | trello-data-source   |
+| channels      | slack-channel        |
+| soul          | soul                 |
 | orchestrator  | personal-operative   |
 
 ## Capability wiring
@@ -27,8 +29,10 @@ Fittings and refuses to mark Compose ready until the wiring resolves.
 | memory              | memory-store:garrison-memory          | vault (optional-one)                              |
 | http-gateway        | —                                     | orchestrator (one)                                |
 | browser-automation  | —                                     | vault (optional-one)                              |
-| trello-data-source  | —                                     | vault (optional-one)                              |
-| personal-operative  | orchestrator:personal-operative       | —                                                 |
+| trello-data-source  | data-source:trello                    | vault (one)                                       |
+| slack-channel       | channel:slack                         | vault (one)                                       |
+| soul                | soul:personal-operative-soul          | —                                                 |
+| personal-operative  | orchestrator:personal-operative       | soul (one), agent-skill (any), memory-store (any), automation-runner (any), data-source (any), channel (any), vault (optional-one) |
 
 The vault capability is satisfied by the runtime-synthetic provider
 (`__runtime__`) so `optional-one` consumers always resolve.

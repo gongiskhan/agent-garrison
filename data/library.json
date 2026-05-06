@@ -89,5 +89,31 @@
       "global": 4.4,
       "claude_code": 4.4
     }
+  },
+  {
+    "id": "soul",
+    "name": "Soul",
+    "repo": "local:fittings/seed/soul",
+    "localPath": "fittings/seed/soul",
+    "summary": "PM / Software Architect / PA persona for the personal Operative.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-soul",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "slack-channel",
+    "name": "Slack channel",
+    "repo": "local:fittings/seed/slack-channel",
+    "localPath": "fittings/seed/slack-channel",
+    "summary": "Receives Slack app_mention and DM events, round-trips via the gateway's /chat.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-slack-channel",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
   }
 ]

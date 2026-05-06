@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-05-04T15:18:10.322361+00:00'
-apm_version: 0.11.0
+generated_at: '2026-05-06T17:45:51.330778+00:00'
+apm_version: 0.10.0
 dependencies:
 - repo_url: _local/browser-automation
   package_type: apm_package
@@ -30,6 +30,26 @@ dependencies:
   - .claude/skills/garrison-memory
   source: local
   local_path: ../../fittings/seed/memory
+- repo_url: _local/personal-operative
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/personal-operative.md
+  deployed_file_hashes:
+    .claude/commands/personal-operative.md: sha256:aa60311a9e0dc601d7a41e1a54affcfe0866cf08588573c7211d19b168d462f2
+  source: local
+  local_path: ../../fittings/seed/personal-operative
+- repo_url: _local/slack-channel
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/slack-channel
+- repo_url: _local/soul
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/soul.md
+  deployed_file_hashes:
+    .claude/commands/soul.md: sha256:30257ed594ad8fec83f5e6143dfe4defcb88d58a246853d5d49ccfdc3fc3684e
+  source: local
+  local_path: ../../fittings/seed/soul
 - repo_url: _local/tier-classifier
   package_type: apm_package
   deployed_files:
@@ -40,6 +60,7 @@ dependencies:
   package_type: apm_package
   deployed_files:
   - .claude/rules/trello-data-source.md
+  - .claude/skills/trello
   deployed_file_hashes:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local

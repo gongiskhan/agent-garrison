@@ -1,0 +1,40 @@
+name: slack-channel
+version: 0.1.0
+description: Slack Events API channel for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: channels
+  cardinality_hint: multi
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: Receives Slack app_mention/im events and round-trips replies through the gateway's /chat.
+  config_schema:
+    - key: slack_port
+      type: integer
+      default: 9512
+      description: Local port the Slack webhook receiver binds to.
+    - key: gateway_url
+      type: string
+      default: http://127.0.0.1:4777
+      description: Garrison HTTP gateway base URL.
+    - key: chat_timeout_ms
+      type: integer
+      default: 600000
+      description: Max time to wait for the gateway's /chat reply before posting a fallback message.
+  provides:
+    - kind: channel
+      name: slack
+  consumes:
+    - kind: vault
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: test -f apm_modules/_local/slack-channel/scripts/slack-adapter.js && echo ok
+    expect: ok
+    timeout_ms: 10000

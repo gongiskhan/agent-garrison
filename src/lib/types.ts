@@ -35,9 +35,12 @@ export type FittingShape = (typeof fittingShapes)[number];
 
 export const capabilityKinds = [
   "orchestrator",
+  "soul",
   "agent-skill",
   "memory-store",
   "automation-runner",
+  "data-source",
+  "channel",
   "vault"
 ] as const;
 
@@ -58,6 +61,7 @@ export interface CapabilityConsumption {
 
 export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "orchestrator",
+  "soul",
   "vault"
 ];
 
@@ -82,6 +86,12 @@ export interface ConfigSchemaField {
   options?: string[];
 }
 
+export interface SetupStep {
+  command: string;
+  idempotent: boolean;
+  timeout_ms?: number;
+}
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -91,6 +101,7 @@ export interface GarrisonMetadata {
   config_schema: ConfigSchemaField[];
   provides: CapabilityProvision[];
   consumes: CapabilityConsumption[];
+  setup?: SetupStep;
   verify: {
     command: string;
     expect: string;

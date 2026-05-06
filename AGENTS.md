@@ -172,7 +172,7 @@ Caveat for any hot-reloading dev server: long-lived child processes don't surviv
 
 The runner is the most important new piece. Its responsibilities:
 
-- `up(composition)` — `apm install`, materialise `.env` from vault, assemble orchestrator+soul system prompt, spawn the agent CLI with that prompt, start heartbeat / gateway / channels.
+- `up(composition)` — `apm install`, materialise `.env` from vault, run each Fitting's `x-garrison.setup` command (if present) before verify, assemble orchestrator+soul system prompt, spawn the agent CLI with that prompt, start heartbeat / gateway / channels.
 - `down(composition)` — stop processes, run teardown hooks, wipe materialised `.env`.
 - `verify(composition)` — walk every Fitting's `x-garrison.verify`, run it, report pass/fail.
 - `dev(composition)` — `up` plus a file watcher on local-path deps; on change, `apm install` + restart the Operative.
@@ -182,6 +182,8 @@ Two principles bake in:
 
 1. **Process survives tab close.** Closing the browser does not kill running Operatives. Reopening shows scrollback (ring buffer per Operative, ~10 MB or 5000 lines, whichever first).
 2. **Verify-step discipline at runtime.** Every Fitting declares a verify hook in its `x-garrison` block. The runner executes these on `up` and on demand. If verify fails, the runner reports broken state — never silent success. This is the single most important discipline in the system.
+
+Setup-step discipline: a Fitting that declares an `x-garrison.setup` command has it run by the runner on every `up`, before verify, in the Fitting's installed directory (`apm_modules/_local/<id>/`). A non-zero exit aborts `up` — downstream verify and operative spawn do not run. Authors mark a setup `idempotent: true` to assert it is safe to re-run; the runner runs it on every `up` regardless, treating the flag as documentation rather than a gate.
 
 Orchestrator+soul prompt assembly: read both system-prompt files from the installed APM packages, concatenate orchestrator-then-soul, pass to the agent CLI via its system-prompt flag. This is the one place Garrison adds runtime logic APM doesn't cover.
 

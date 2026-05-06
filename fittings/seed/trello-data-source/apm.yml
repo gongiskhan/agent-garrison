@@ -10,7 +10,7 @@ x-garrison:
   component_shape: cli
   platforms:
     - claude-code
-  summary: One-way Trello fetch with Trello-backed derived Tasks.
+  summary: Trello board access (cards, lists, labels) plus Trello-backed derived Tasks.
   config_schema:
     - key: board_id
       type: string
@@ -20,13 +20,20 @@ x-garrison:
       type: path
       default: tasks/trello.md
       description: Markdown file synced from Trello.
+  provides:
+    - kind: data-source
+      name: trello
   consumes:
     - kind: vault
-      cardinality: optional-one
+      cardinality: one
   tasks:
     source: trello
     truth_file: tasks/trello.md
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
   verify:
-    command: test -f apm_modules/_local/trello-data-source/scripts/trello-sync.mjs && echo ok
-    expect: ok
-    timeout_ms: 10000
+    command: python3 apm_modules/_local/trello-data-source/scripts/trello.py --probe
+    expect: boardOk
+    timeout_ms: 15000

@@ -92,13 +92,20 @@ async function runTurn(message, onEvent) {
 
   if (sessionId) {
     options.resume = sessionId;
-  } else if (systemPrompt) {
-    // First turn only: append the assembled prompt to Claude Code's preset.
-    options.systemPrompt = {
-      type: "preset",
-      preset: "claude_code",
-      append: systemPrompt
-    };
+  }
+  if (systemPrompt) {
+    // Pass the assembled prompt on EVERY turn, including resumes. The
+    // SDK's session resume does not fully preserve a custom-string
+    // system prompt across turns — identity claims like "You are
+    // Verity" land on turn 1 but get overridden by Claude's intrinsic
+    // training on turn 2 unless the prompt is re-applied. Re-applying
+    // is cheap and idempotent.
+    //
+    // We pass as a custom string (not preset.append) so Claude Code's
+    // "You are Claude Code" preset doesn't fight our Soul. Tools
+    // (Read, Edit, Bash, etc.) come from the SDK runtime, not the
+    // preset prompt, so capabilities are preserved.
+    options.systemPrompt = systemPrompt;
   }
 
   let assistantText = "";
