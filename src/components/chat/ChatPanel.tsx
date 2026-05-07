@@ -506,21 +506,38 @@ function ChatRow({ message }: { message: ChatMessage }) {
       <div style={{ fontSize: 14, lineHeight: 1.6, maxWidth: 720, minWidth: 0 }}>
         {message.toolCalls && message.toolCalls.length > 0 ? (
           <div style={{ marginBottom: 6, display: "grid", gap: 4 }}>
-            {message.toolCalls.map((t, i) => (
-              <div
-                key={`${t.name}-${i}`}
-                className="font-mono"
-                style={{
-                  fontSize: 11.5,
-                  color: "var(--mute)",
-                  background: "var(--paper-2)",
-                  border: "1px solid var(--rule)",
-                  padding: "6px 10px"
-                }}
-              >
-                <b style={{ color: "var(--ink)" }}>tool · {t.name}</b>
-              </div>
-            ))}
+            {message.toolCalls.map((t, i) => {
+              const summary = summarizeToolInput(t.name, t.input);
+              return (
+                <div
+                  key={`${t.name}-${i}`}
+                  className="font-mono"
+                  style={{
+                    fontSize: 11.5,
+                    color: "var(--mute)",
+                    background: "var(--paper-2)",
+                    border: "1px solid var(--rule)",
+                    padding: "6px 10px",
+                    display: "grid",
+                    gap: 2
+                  }}
+                >
+                  <b style={{ color: "var(--ink)" }}>tool · {formatToolName(t.name)}</b>
+                  {summary ? (
+                    <span
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        color: "var(--mute)",
+                        fontSize: 11
+                      }}
+                    >
+                      {summary}
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : null}
         <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -584,5 +601,77 @@ function ChatRow({ message }: { message: ChatMessage }) {
       </div>
     </article>
   );
+}
+
+const TOOL_INPUT_MAX = 240;
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function formatToolName(name: string): string {
+  if (name.startsWith("mcp__claude_ai_")) {
+    const rest = name.slice("mcp__claude_ai_".length);
+    const sep = rest.indexOf("__");
+    if (sep > 0) {
+      return `mcp:${rest.slice(0, sep)} / ${rest.slice(sep + 2)}`;
+    }
+  }
+  return name;
+}
+
+function summarizeToolInput(name: string, input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const i = input as Record<string, unknown>;
+
+  // Bash: prefer description (it's a one-liner the agent wrote about
+  // intent) plus the actual command. Both are useful — description tells
+  // you why, command tells you what.
+  if (typeof i.command === "string") {
+    const desc = typeof i.description === "string" ? i.description : "";
+    const cmd = `$ ${truncate(i.command.replace(/\s+/g, " "), TOOL_INPUT_MAX)}`;
+    return desc ? `${desc}\n${cmd}` : cmd;
+  }
+
+  // Read / Edit / Write: file path is the headline.
+  if (typeof i.file_path === "string") return i.file_path;
+  if (typeof i.path === "string") return i.path;
+
+  // Skill invocation by name.
+  if (typeof i.skill === "string") return `skill: ${i.skill}`;
+  if (typeof i.name === "string" && Object.keys(i).length <= 2) return `name: ${i.name}`;
+
+  // Search / query patterns (ToolSearch, MCP search variants).
+  if (typeof i.query === "string") {
+    return `query: ${truncate(i.query, TOOL_INPUT_MAX)}`;
+  }
+
+  // Calendar list_events shape.
+  if (typeof i.startTime === "string" && typeof i.endTime === "string") {
+    return `${i.startTime} → ${i.endTime}`;
+  }
+
+  // Slack send: channel + first chunk of text.
+  if (typeof i.channel === "string") {
+    const text =
+      typeof i.text === "string"
+        ? truncate(i.text.replace(/\s+/g, " "), TOOL_INPUT_MAX - 40)
+        : "";
+    return text ? `#${i.channel} · ${text}` : `#${i.channel}`;
+  }
+
+  // URL-shaped tools (WebFetch, etc).
+  if (typeof i.url === "string") return i.url;
+  if (typeof i.urls === "object" && Array.isArray(i.urls)) {
+    return (i.urls as string[]).slice(0, 3).join(", ");
+  }
+
+  // Generic fallback: first non-empty string field.
+  for (const [key, value] of Object.entries(i)) {
+    if (typeof value === "string" && value.length > 0) {
+      return `${key}: ${truncate(value, TOOL_INPUT_MAX)}`;
+    }
+  }
+  return null;
 }
 

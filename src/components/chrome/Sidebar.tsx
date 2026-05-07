@@ -1,8 +1,17 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
+import {
+  Home,
+  Layers,
+  Library,
+  Play,
+  MessageSquare,
+  Lock
+} from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { faculties } from "@/lib/faculties";
 import type { FacultyId, FacultyDefinition } from "@/lib/types";
@@ -48,11 +57,11 @@ export function Sidebar() {
       </Link>
 
       <nav className="tabs">
-        <NavLink href="/" pathname={pathname} icon="~" label="Garrison" />
+        <NavLink href="/" pathname={pathname} icon={<Home aria-hidden />} label="Garrison" />
         <NavLink
           href="/compose"
           pathname={pathname}
-          icon="+"
+          icon={<Layers aria-hidden />}
           label="Compose"
           ct={`${stationedCount}/${totalFaculties}`}
           active={isCompose}
@@ -84,19 +93,19 @@ export function Sidebar() {
         <NavLink
           href="/armory"
           pathname={pathname}
-          icon="¶"
+          icon={<Library aria-hidden />}
           label="Armory"
           ct={armoryCount > 0 ? String(armoryCount) : undefined}
         />
         <NavLink
           href="/run"
           pathname={pathname}
-          icon=">"
+          icon={<Play aria-hidden />}
           label="Run"
           ct={isRunning ? "live" : undefined}
         />
-        <NavLink href="/chat" pathname={pathname} icon="□" label="Chat" />
-        <NavLink href="/vault" pathname={pathname} icon="◊" label="Vault" />
+        <NavLink href="/chat" pathname={pathname} icon={<MessageSquare aria-hidden />} label="Chat" />
+        <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
       </nav>
 
       <div className="side-foot">
@@ -134,7 +143,7 @@ function NavLink({
 }: {
   href: string;
   pathname: string;
-  icon: string;
+  icon: ReactNode;
   label: string;
   ct?: string;
   active?: boolean;

@@ -112,13 +112,16 @@ nav.tabs .item {
 nav.tabs .item:hover:not(.active) { background: var(--paper-2); }
 nav.tabs .item.active { background: var(--ink); color: var(--paper); }
 nav.tabs .item .ic {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  opacity: 0.6;
+  opacity: 0.7;
   margin-right: 9px;
-  display: inline-block;
-  width: 14px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
 }
+nav.tabs .item .ic svg { width: 15px; height: 15px; stroke-width: 1.75; }
 nav.tabs .item.active .ic { opacity: 1; color: var(--brass-2); }
 nav.tabs .item .ct {
   font-family: var(--font-mono), 'JetBrains Mono', monospace;
