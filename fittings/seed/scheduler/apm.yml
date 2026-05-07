@@ -1,0 +1,33 @@
+name: scheduler
+version: 0.1.0
+description: Scheduler seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: scheduler
+  cardinality_hint: single
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: Cron-style job scheduler. Reads jobs.json, runs due jobs, persists last_run. CLI exposes add/remove/list/run-now plus tick (one-shot) and daemon (long-running) modes.
+  config_schema:
+    - key: jobs_file
+      type: path
+      default: data/scheduler-jobs.json
+      description: Path (relative to composition dir) where job definitions are persisted.
+    - key: log_file
+      type: path
+      default: data/scheduler.log
+      description: Path (relative to composition dir) where job execution output is appended.
+  provides:
+    - kind: automation-runner
+      name: scheduler
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/scheduler/scripts/scheduler.mjs --probe
+    expect: ok
+    timeout_ms: 10000

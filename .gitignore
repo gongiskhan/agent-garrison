@@ -15,6 +15,7 @@ compositions/*/.garrison/uploads/
 compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/
+compositions/*/data/
 .idea
 run-tab-fixed.png
 .DS_Store

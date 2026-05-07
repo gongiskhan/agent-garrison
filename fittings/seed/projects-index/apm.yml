@@ -1,0 +1,29 @@
+name: projects-index
+version: 0.1.0
+description: Project index seed for Agent Garrison.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: knowledge-base
+  cardinality_hint: multi
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: Lists, describes, and reads files from local projects under a configurable root (defaults to ~/Projects/). Lazy filesystem walk; no persistent index.
+  config_schema:
+    - key: projects_root
+      type: path
+      default: ~/Projects
+      description: Directory scanned for projects. Each immediate subdirectory becomes a project.
+  provides:
+    - kind: agent-skill
+      name: projects-index
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: bash apm_modules/_local/projects-index/scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000

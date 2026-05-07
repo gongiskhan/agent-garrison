@@ -27,6 +27,6 @@ x-garrison:
     - kind: orchestrator
       cardinality: one
   verify:
-    command: test -f apm_modules/_local/loop-heartbeat/scripts/heartbeat.mjs && echo ok
+    command: node apm_modules/_local/loop-heartbeat/scripts/heartbeat.mjs --probe
     expect: ok
     timeout_ms: 10000

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-06T17:45:51.330778+00:00'
+generated_at: '2026-05-07T06:11:14.466450+00:00'
 apm_version: 0.10.0
 dependencies:
 - repo_url: _local/browser-automation
@@ -35,9 +35,21 @@ dependencies:
   deployed_files:
   - .claude/commands/personal-operative.md
   deployed_file_hashes:
-    .claude/commands/personal-operative.md: sha256:aa60311a9e0dc601d7a41e1a54affcfe0866cf08588573c7211d19b168d462f2
+    .claude/commands/personal-operative.md: sha256:c0b4c6a73034af7a9ee42eab1dc5017fbb6b8df73ba5795e9f1a087426a20547
   source: local
   local_path: ../../fittings/seed/personal-operative
+- repo_url: _local/projects-index
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/projects-index
+  source: local
+  local_path: ../../fittings/seed/projects-index
+- repo_url: _local/scheduler
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/scheduler
+  source: local
+  local_path: ../../fittings/seed/scheduler
 - repo_url: _local/slack-channel
   package_type: invalid
   source: local

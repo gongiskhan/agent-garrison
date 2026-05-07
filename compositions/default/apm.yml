@@ -8,6 +8,8 @@ dependencies:
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
     - path: ../../fittings/seed/personal-operative
+    - path: ../../fittings/seed/projects-index
+    - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/soul
     - path: ../../fittings/seed/tier-classifier
@@ -43,6 +45,15 @@ x-garrison:
           config:
             browser: chromium
             headless: false
+      knowledge-base:
+        - id: projects-index
+          config:
+            projects_root: ~/Projects
+      scheduler:
+        - id: scheduler
+          config:
+            jobs_file: data/scheduler-jobs.json
+            log_file: data/scheduler.log
       memory:
         - id: memory
           config:

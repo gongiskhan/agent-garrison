@@ -39,6 +39,32 @@
     }
   },
   {
+    "id": "scheduler",
+    "name": "Scheduler",
+    "repo": "local:fittings/seed/scheduler",
+    "localPath": "fittings/seed/scheduler",
+    "summary": "Cron-style job scheduler. Add/remove/list/run-now via CLI; tick processes due jobs; daemon mode runs the loop.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-scheduler",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "projects-index",
+    "name": "Projects index",
+    "repo": "local:fittings/seed/projects-index",
+    "localPath": "fittings/seed/projects-index",
+    "summary": "Lists, describes, and reads files from local projects under a configurable root (default ~/Projects). Lazy filesystem walk; no persistent index.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-projects-index",
+      "global": 4.2,
+      "claude_code": 4.2
+    }
+  },
+  {
     "id": "personal-operative",
     "name": "Personal operative",
     "repo": "local:fittings/seed/personal-operative",
