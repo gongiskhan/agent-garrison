@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
-import { ExtensionPane } from "@/components/ExtensionPane";
+import { FittingView } from "@/components/fitting-views/FittingView";
+import { matchView } from "@/lib/fitting-views";
 import { faculties } from "@/lib/faculties";
 import type {
   ConfigSchemaField,
@@ -663,7 +664,13 @@ function FittingConfigSection({
   selection: SelectedFitting;
   updateConfig: (entry: LibraryEntry, key: string, value: string | number | boolean) => void;
 }) {
-  if (entry.metadata.config_schema.length === 0 && !entry.metadata.ui?.extension) return null;
+  // Faculty-tab views are the v2 equivalent of v1's ui.extension. v1 manifests
+  // are normalized into a single { id: "main", placement: "faculty-tab" } view
+  // by parseGarrisonMetadata, so this resolver path covers both.
+  const facultyTabView = entry.metadata.ui
+    ? matchView(entry.metadata.ui.views, "/", "faculty-tab")?.view ?? null
+    : null;
+  if (entry.metadata.config_schema.length === 0 && !facultyTabView) return null;
   return (
     <>
       {entry.metadata.config_schema.length > 0 ? (
@@ -688,7 +695,7 @@ function FittingConfigSection({
         </>
       ) : null}
 
-      {entry.metadata.ui?.extension ? (
+      {facultyTabView ? (
         <>
           <div className="lab">Extension · {entry.name}</div>
           <div
@@ -706,9 +713,9 @@ function FittingConfigSection({
                 marginBottom: 10
               }}
             >
-              x-garrison.ui.extension · {entry.metadata.ui.extension}
+              x-garrison.ui.views[{facultyTabView.id}] · {facultyTabView.entry}
             </div>
-            <ExtensionPane entry={entry} selection={selection} />
+            <FittingView entry={entry} selection={selection} view={facultyTabView} />
           </div>
         </>
       ) : null}

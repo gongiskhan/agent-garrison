@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { readSseStream } from "@/lib/sse";
 import { bufferToBase64, formatBytes } from "@/lib/format";
+import { garrisonRoutePath, parseMessageBody } from "@/lib/message-body";
 
 interface ChatAttachment {
   filename: string;
@@ -541,7 +542,7 @@ function ChatRow({ message }: { message: ChatMessage }) {
           </div>
         ) : null}
         <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {message.text}
+          <MessageBodyText text={message.text} />
           {message.status === "streaming" && !message.text ? (
             <span style={{ color: "var(--mute)" }}>Thinking…</span>
           ) : null}
@@ -600,6 +601,45 @@ function ChatRow({ message }: { message: ChatMessage }) {
         ) : null}
       </div>
     </article>
+  );
+}
+
+function MessageBodyText({ text }: { text: string }) {
+  const segments = parseMessageBody(text);
+  if (segments.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      {segments.map((segment, index) => {
+        if (segment.type === "garrison") {
+          return (
+            <Link
+              key={index}
+              href={garrisonRoutePath(segment.fittingId, segment.rest)}
+              className="garrison-link"
+              style={{ color: "var(--sage)", textDecoration: "underline" }}
+            >
+              {segment.value}
+            </Link>
+          );
+        }
+        if (segment.type === "external") {
+          return (
+            <a
+              key={index}
+              href={segment.href}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "var(--ink)", textDecoration: "underline" }}
+            >
+              {segment.value}
+            </a>
+          );
+        }
+        return <span key={index}>{segment.value}</span>;
+      })}
+    </>
   );
 }
 

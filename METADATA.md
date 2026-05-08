@@ -118,11 +118,37 @@ Verify schema:
 | `expect` | string | yes | Trimmed stdout must include this value. |
 | `timeout_ms` | integer | no | Defaults to 10000. |
 
-UI schema:
+UI schema (contract v2):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `extension` | string | yes | Path relative to the Fitting root. Trusted, unsandboxed static React render in v1. |
+| `views` | array | yes | One or more view declarations. See the view schema below. |
+
+View schema:
+
+| Field | Type | Required | Notes |
+|---|---:|---:|---|
+| `id` | string | yes | Stable view id, slug-shaped (`^[a-zA-Z][a-zA-Z0-9_-]*$`). Combined with the Fitting id to form the registry key the host app loads. |
+| `placement` | enum | yes | `faculty-tab` (renders inline on the Compose pane next to the Fitting's config form) or `sidebar-surface` (gets its own page under `/fitting/<fitting-id>/...` and a left-nav entry). |
+| `entry` | string | yes | Path relative to the Fitting root. Authoritative declaration; the host app does NOT load from disk in v2 (see AGENTS.md §9). |
+| `route` | string | yes | Path fragment under the Fitting's prefix (`/<fitting-id>`). Supports react-router-style params (`/:id`, `/:id/edit`). The view resolver matches sub-paths against this template; first-match wins. |
+
+### v1 → v2 normalization
+
+The deprecated form `ui: { extension: "./ui/X.tsx" }` is rewritten by
+`parseGarrisonMetadata` into a single-view v2 manifest:
+
+```yaml
+ui:
+  views:
+    - id: main
+      placement: faculty-tab
+      entry: ./ui/X.tsx
+      route: /
+```
+
+A `console.warn` is emitted on rewrite. v1 manifests keep working
+unchanged at the rendering layer.
 
 Tasks schema:
 

@@ -3,6 +3,7 @@ import {
   capabilityKinds,
   facultyIds,
   fittingShapes,
+  uiPlacements,
   type FacultyId,
   type GarrisonMetadata
 } from "./types";
@@ -78,7 +79,19 @@ export const garrisonMetadataSchema = z.object({
   }),
   ui: z
     .object({
-      extension: z.string().min(1)
+      views: z
+        .array(
+          z.object({
+            id: z
+              .string()
+              .min(1)
+              .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, "view id must be alphanumeric/-/_"),
+            placement: z.enum(uiPlacements),
+            entry: z.string().min(1),
+            route: z.string().min(1)
+          })
+        )
+        .min(1, "ui.views must contain at least one view")
     })
     .optional(),
   tasks: z
@@ -115,6 +128,31 @@ function normalizeDeprecations(input: unknown): unknown {
       "[garrison] faculty \"testing-framework\" is deprecated; rename to \"skills\""
     );
     record = { ...record, faculty: "skills" };
+  }
+
+  // UI contract v1 → v2: rewrite { ui: { extension } } into a single
+  // faculty-tab view so every consumer downstream sees only the v2 shape.
+  // Same pattern as the primitive/testing-framework rewrites above.
+  if (record.ui && typeof record.ui === "object" && !Array.isArray(record.ui)) {
+    const ui = record.ui as Record<string, unknown>;
+    if (typeof ui.extension === "string" && !("views" in ui)) {
+      console.warn(
+        "[garrison] x-garrison.ui.extension is deprecated; declare x-garrison.ui.views instead"
+      );
+      record = {
+        ...record,
+        ui: {
+          views: [
+            {
+              id: "main",
+              placement: "faculty-tab",
+              entry: ui.extension,
+              route: "/"
+            }
+          ]
+        }
+      };
+    }
   }
 
   return record;

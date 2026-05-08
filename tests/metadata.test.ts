@@ -102,6 +102,82 @@ describe("x-garrison metadata", () => {
   });
 });
 
+describe("ui contract v2 — views[]", () => {
+  it("parses a v2 manifest with multiple views and placements", () => {
+    const metadata = parseGarrisonMetadata({
+      ...baseMetadata,
+      ui: {
+        views: [
+          { id: "list", placement: "faculty-tab", entry: "./ui/list.tsx", route: "/" },
+          { id: "read", placement: "sidebar-surface", entry: "./ui/read.tsx", route: "/:id" }
+        ]
+      }
+    });
+    expect(metadata.ui?.views).toHaveLength(2);
+    expect(metadata.ui?.views[0]).toEqual({
+      id: "list",
+      placement: "faculty-tab",
+      entry: "./ui/list.tsx",
+      route: "/"
+    });
+  });
+
+  it("normalizes the deprecated ui.extension into a single faculty-tab view", () => {
+    const warn = console.warn;
+    const calls: unknown[] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      const metadata = parseGarrisonMetadata({
+        ...baseMetadata,
+        ui: { extension: "./ui/Inspector.tsx" }
+      });
+      expect(metadata.ui?.views).toEqual([
+        {
+          id: "main",
+          placement: "faculty-tab",
+          entry: "./ui/Inspector.tsx",
+          route: "/"
+        }
+      ]);
+      expect(calls.length).toBe(1);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it("rejects an unknown placement value", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...baseMetadata,
+        ui: {
+          views: [
+            { id: "x", placement: "modal", entry: "./ui/x.tsx", route: "/" }
+          ]
+        }
+      })
+    ).toThrow();
+  });
+
+  it("rejects an empty views array", () => {
+    expect(() =>
+      parseGarrisonMetadata({ ...baseMetadata, ui: { views: [] } })
+    ).toThrow(/at least one view/);
+  });
+
+  it("rejects view ids that do not match the slug pattern", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...baseMetadata,
+        ui: {
+          views: [
+            { id: "1bad", placement: "faculty-tab", entry: "./ui/x.tsx", route: "/" }
+          ]
+        }
+      })
+    ).toThrow();
+  });
+});
+
 describe("for_consumers field", () => {
   it("parses when a Fitting ships a for_consumers block", () => {
     const metadata = parseGarrisonMetadata({

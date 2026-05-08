@@ -28,4 +28,8 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   ui:
-    extension: ./ui/ClassifierInspector.tsx
+    views:
+      - id: main
+        placement: faculty-tab
+        entry: ./ui/ClassifierInspector.tsx
+        route: /

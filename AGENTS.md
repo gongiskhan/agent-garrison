@@ -253,9 +253,20 @@ The list is suggestive, not prescriptive. The Definition of Done in §10 is what
 
 ## 9. UI extensions
 
-Fittings can ship optional React UI extensions via `x-garrison.ui.extension`. Garrison lazy-imports the path and mounts the component inside the relevant Faculty's tab.
+Fittings declare React UI surfaces via `x-garrison.ui.views[]`. Each view names a stable id, a `placement`, an `entry` path relative to the Fitting root, and a `route` under the Fitting's prefix.
 
-Hosting model for v1: **static render, no sandbox.** The Fitting author is trusted at v1 scale (single user, curated Registry). Extensions run in the host app's process. Move to iframe + postMessage when third-party authors start contributing — v1.1 concern.
+Two placements ship in v2:
+
+- **`faculty-tab`** — renders inline on the Compose pane next to the Fitting's config form. This is the v1 equivalent: most existing Fittings opt into this single view.
+- **`sidebar-surface`** — gets its own page at `/fitting/<fitting-id>/...` and a dynamic entry in the left nav. Intended for browsers, editors, and other surfaces the user lingers in (Documents, Artifact Store).
+
+The route field uses a small react-router-style syntax: a segment beginning with `:` captures one path segment into route params (`/:id`, `/:id/edit`). The view resolver in `src/lib/fitting-views.ts` is a pure function that matches a sub-path against an ordered list of views; the first matching view wins. Tests cover the resolver directly.
+
+Cross-Fitting linking uses a uniform URL scheme: `garrison://<fitting-id>/<rest>` in chat or message bodies translates to `/fitting/<fitting-id>/<rest>` in the app. The chat renderer parses these out of plain text and renders them as Next.js `<Link>` elements; external `https://` URLs keep opening in new tabs.
+
+**Loader is a static registry, not disk-loaded.** UI contract v2 declares the views in metadata but the host app maintains a static map of `(fitting-id, view-id)` to React component (in `src/components/fitting-views/registry.tsx`). Authors of new Fittings that ship UI add their entry to that registry. v3 may revisit dynamic loading from disk; for v2 the static registry keeps Next.js bundling honest and avoids a separate Fitting build pipeline. Out-of-scope for v2: iframe sandboxing, hot-reload of Fitting UI changes, mobile/responsive design.
+
+The deprecated v1 form (`ui: { extension }`) is normalized in the parser into a single `placement: faculty-tab` view. v1 Fittings keep working without edits.
 
 A small UI kit (design tokens + a handful of Tailwind-based React primitives) gets published as its own APM package so community extensions stay visually coherent. Optional — extensions can ship vanilla Tailwind if they prefer.
 

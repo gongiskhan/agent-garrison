@@ -92,6 +92,16 @@ export interface SetupStep {
   timeout_ms?: number;
 }
 
+export const uiPlacements = ["faculty-tab", "sidebar-surface"] as const;
+export type UiPlacement = (typeof uiPlacements)[number];
+
+export interface UiView {
+  id: string;
+  placement: UiPlacement;
+  entry: string;
+  route: string;
+}
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -109,7 +119,7 @@ export interface GarrisonMetadata {
     timeout_ms: number;
   };
   ui?: {
-    extension: string;
+    views: UiView[];
   };
   tasks?: {
     source: string;

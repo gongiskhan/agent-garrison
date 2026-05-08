@@ -1,10 +1,9 @@
 import { Gauge, Route } from "lucide-react";
+import type { FittingViewProps } from "@/components/fitting-views/registry";
 
 export default function TierClassifierInspector({
   config
-}: {
-  config: Record<string, string | number | boolean>;
-}) {
+}: FittingViewProps) {
   return (
     <div
       style={{

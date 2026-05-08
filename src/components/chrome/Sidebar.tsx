@@ -10,11 +10,17 @@ import {
   Library,
   Play,
   MessageSquare,
-  Lock
+  Lock,
+  Component
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { faculties } from "@/lib/faculties";
-import type { FacultyId, FacultyDefinition } from "@/lib/types";
+import type {
+  FacultyId,
+  FacultyDefinition,
+  Composition,
+  LibraryEntry
+} from "@/lib/types";
 
 const facultyGroups: Array<{ label: string; ids: FacultyId[] }> = [
   { label: "Cadence", ids: ["heartbeat", "scheduler"] },
@@ -106,6 +112,12 @@ export function Sidebar() {
         />
         <NavLink href="/chat" pathname={pathname} icon={<MessageSquare aria-hidden />} label="Chat" />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
+
+        <FittingSurfaceLinks
+          composition={composition}
+          library={library}
+          pathname={pathname}
+        />
       </nav>
 
       <div className="side-foot">
@@ -130,6 +142,58 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+  );
+}
+
+function FittingSurfaceLinks({
+  composition,
+  library,
+  pathname
+}: {
+  composition: Composition | null;
+  library: LibraryEntry[];
+  pathname: string;
+}) {
+  if (!composition) return null;
+  const selectedIds = new Set<string>();
+  for (const selections of Object.values(composition.selections)) {
+    for (const selection of selections ?? []) {
+      selectedIds.add(selection.id);
+    }
+  }
+  // A Fitting earns a sidebar entry when it is stationed in the composition
+  // AND ships at least one sidebar-surface view. Faculty-tab views render
+  // inline on the Compose pane; they do not get their own nav row.
+  const entries = library
+    .filter((entry) => selectedIds.has(entry.id))
+    .filter((entry) =>
+      (entry.metadata.ui?.views ?? []).some(
+        (view) => view.placement === "sidebar-surface"
+      )
+    )
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (entries.length === 0) return null;
+  return (
+    <div className="nested" style={{ marginTop: 12 }}>
+      <div className="group-h">Surfaces</div>
+      {entries.map((entry) => {
+        const href = `/fitting/${entry.id}`;
+        const isActive =
+          pathname === href || pathname.startsWith(`${href}/`);
+        return (
+          <Link
+            key={entry.id}
+            href={href}
+            className={clsx("leaf", "verified", isActive && "active")}
+          >
+            <span className="glyph">
+              <Component size={14} aria-hidden />
+            </span>
+            <span>{entry.name}</span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 
