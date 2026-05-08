@@ -122,6 +122,15 @@ Definition of Done is observable.
 - Example: v1 single-session orchestrator prompt (no reference Fitting yet — see `fittings/seed/README.md`).
 - Failure modes: missing global config, conflicting Fitting instructions, too much hidden behavior.
 
+## 14. Artifact Store
+
+- Purpose: filesystem-backed storage for files the Operative or its Fittings produce — markdown documents, screen recordings, voice audio, generated images.
+- Cardinality: single.
+- Shapes: `cli-skill`.
+- Config: storage root path, optional retention policy hints (v1 has none).
+- Example: filesystem artifact store seed under `<composition-dir>/artifacts/` with `documents/`, `automations/`, `voice/` namespaces.
+- Failure modes: namespace collision, sidecar drift (file present without `.meta.json`), permissions issues on the storage root, unbounded growth from automation recordings.
+
 ## Derived: Tasks
 
 Tasks is never selected directly. When a data source declares task

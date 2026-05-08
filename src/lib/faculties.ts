@@ -105,6 +105,15 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["system-prompt"],
     notes: "The governing behavior spine and global config owner.",
     governing: true
+  },
+  {
+    id: "artifact-store",
+    order: 14,
+    name: "Artifact store",
+    cardinality: "single",
+    shapes: ["cli-skill"],
+    notes:
+      "Filesystem-backed storage for files the Operative or its Fittings produce — documents, recordings, audio."
   }
 ];
 

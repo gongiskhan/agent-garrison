@@ -24,7 +24,7 @@ import type {
 
 const facultyGroups: Array<{ label: string; ids: FacultyId[] }> = [
   { label: "Cadence", ids: ["heartbeat", "scheduler"] },
-  { label: "Context", ids: ["data-sources", "knowledge-base", "memory"] },
+  { label: "Context", ids: ["data-sources", "knowledge-base", "memory", "artifact-store"] },
   { label: "Action", ids: ["automations", "skills", "gateway", "channels"] },
   { label: "Control", ids: ["classifier", "observability", "soul", "orchestrator"] }
 ];

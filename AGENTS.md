@@ -26,7 +26,7 @@ Agent Garrison is a local web app that lets you compose an autonomous Claude Cod
 
 ---
 
-## 2. Faculties (13 + derived)
+## 2. Faculties (14 + derived)
 
 Each Faculty has a **cardinality** (single / multi) and a closed set of accepted **Fitting shapes**. Tasks is *derived*. Workspace is reserved for v1.1 (see §11).
 
@@ -45,6 +45,7 @@ Each Faculty has a **cardinality** (single / multi) and a closed set of accepted
 | 11 | Observability | multi | hook, script | How the loop reports health, errors, no-ops. Outputs to a Channel or a log sink. |
 | 12 | Soul | single | system prompt | Identity, tone, voice, boundaries. Composes with the orchestrator at prompt-assembly time. **Orchestrator = how it behaves; Soul = who it is.** |
 | 13 | Orchestrator | single, **governing** | system prompt | The behaviour spine. Coordinates all other Faculties and owns global config. Rendered in the UI as the capstone, not just another row. |
+| 14 | Artifact store | single | CLI+skill | Filesystem-backed storage for files the Operative or its Fittings produce — documents, recordings, audio. The Documents Faculty layers on top of this; future Faculties (Automations recordings, Voice synthesis) will too. |
 
 **Tasks** — derived. Not user-selected. The orchestrator infers it from data sources (e.g. when a Trello data source is present, tasks flow through Trello). Source of truth for tasks = a markdown file synced to whatever system the data source declares.
 

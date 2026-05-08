@@ -16,6 +16,7 @@ compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/
 compositions/*/data/
+compositions/*/artifacts/
 .idea
 run-tab-fixed.png
 .DS_Store

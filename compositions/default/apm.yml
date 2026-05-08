@@ -3,6 +3,7 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
+    - path: ../../fittings/seed/artifact-store
     - path: ../../fittings/seed/browser-automation
     - path: ../../fittings/seed/google-calendar
     - path: ../../fittings/seed/http-gateway
@@ -32,6 +33,10 @@ x-garrison:
       observability_config:
         log_sink: runner
     selections:
+      artifact-store:
+        - id: artifact-store
+          config:
+            storage_root: artifacts
       heartbeat:
         - id: loop-heartbeat
           config:

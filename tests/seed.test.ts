@@ -18,7 +18,8 @@ const seedIds = [
   "trello-data-source",
   "slack-channel",
   "soul",
-  "personal-operative"
+  "personal-operative",
+  "artifact-store"
 ] as const;
 
 interface RawManifest {

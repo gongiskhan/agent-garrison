@@ -1,0 +1,59 @@
+name: artifact-store
+version: 0.1.0
+description: Filesystem-backed artifact storage for Agent Garrison.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: artifact-store
+  cardinality_hint: single
+  component_shape: cli-skill
+  platforms:
+    - claude-code
+  summary: Filesystem-backed artifact store. Stores documents, recordings, and other files producer Fittings emit; surfaces them in a sidebar browser.
+  for_consumers: |
+    Use the Artifact Store to surface any file you produce that the user
+    might want to view, browse, or download. Pattern:
+    1. Write the file via:
+         echo "<content>" | python3 apm_modules/_local/artifact-store/scripts/artifacts.py write <namespace> <filename> [--title "..."] [--mime "..."] [--producer "<your-fitting-id>"]
+    2. The CLI prints the artifact id on stdout. Capture it.
+    3. Reply with garrison://artifacts/<id> so the user can click through.
+
+    Standard namespaces: `documents/` (user-facing markdown), `automations/`
+    (screen recordings, Playwright videos), `voice/` (synthesized audio).
+    Add a new namespace by passing it to `write`; the directory is created
+    on demand.
+
+    Don't write to the artifact store for ephemeral or internal state — only
+    files the user may want to see.
+  config_schema:
+    - key: storage_root
+      type: path
+      default: artifacts
+      description: Storage root relative to the composition directory. Override at runtime via GARRISON_ARTIFACTS_ROOT.
+  provides:
+    - kind: artifact-store
+      name: fs-store
+  consumes: []
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 30000
+  verify:
+    command: bash apm_modules/_local/artifact-store/scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000
+  ui:
+    views:
+      - id: list
+        placement: sidebar-surface
+        entry: ./ui/ArtifactList.tsx
+        route: /
+      - id: view
+        placement: sidebar-surface
+        entry: ./ui/ArtifactView.tsx
+        route: /:id
+      - id: delete
+        placement: sidebar-surface
+        entry: ./ui/ArtifactDeleteConfirm.tsx
+        route: /:id/delete

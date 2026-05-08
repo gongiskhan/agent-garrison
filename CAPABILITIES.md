@@ -154,6 +154,26 @@ messages into the gateway and surfaces operative replies back.
   relay the reply back. FIFO ordering is preserved by the gateway
   when used.
 
+## artifact-store
+
+Host-provided filesystem storage for files the Operative or its
+Fittings produce — markdown documents, recordings, audio, images.
+Producer Fittings (Documents, Automations, Voice) layer their own
+schemas on top.
+
+- **Cardinality:** singleton per composition; the resolver expects
+  exactly one provider when a Fitting consumes it.
+- **Typically provides:** the Fitting in the `artifact-store`
+  Faculty.
+- **Typically consumes:** nothing in v1. Future versions may
+  consume `vault` if encrypted artifacts ship.
+- **Interface (TBD — runtime SDK milestone):** must support write,
+  read, list (filtered by namespace, producer, time), and delete,
+  plus a stable URL form (`garrison://artifacts/<id>`) the host app
+  can route on. Filesystem is the v1 backend; later versions can
+  swap in cloud or content-addressable storage without changing
+  the consumer surface.
+
 ## vault
 
 Encrypted secret storage the runtime always provides synthetically.

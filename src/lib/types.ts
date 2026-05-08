@@ -11,7 +11,8 @@ export const facultyIds = [
   "channels",
   "observability",
   "soul",
-  "orchestrator"
+  "orchestrator",
+  "artifact-store"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -41,7 +42,8 @@ export const capabilityKinds = [
   "automation-runner",
   "data-source",
   "channel",
-  "vault"
+  "vault",
+  "artifact-store"
 ] as const;
 
 export type CapabilityKind = (typeof capabilityKinds)[number];

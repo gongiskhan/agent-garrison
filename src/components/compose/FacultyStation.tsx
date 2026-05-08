@@ -68,6 +68,10 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   orchestrator: {
     role: "Governs the operative's behavior.",
     fit: "This is the capstone. It coordinates Faculties, owns global config, and provides the behavioral spine."
+  },
+  "artifact-store": {
+    role: "Stores files the Operative or its Fittings produce — documents, recordings, audio.",
+    fit: "Other Fittings (Documents next, Automations recordings later) layer their own schemas on top of this single shared backing store."
   }
 };
 
@@ -77,6 +81,7 @@ const facultyGroup: Record<FacultyId, string> = {
   "data-sources": "Context",
   "knowledge-base": "Context",
   memory: "Context",
+  "artifact-store": "Context",
   automations: "Action",
   skills: "Action",
   gateway: "Action",

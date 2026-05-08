@@ -14,6 +14,7 @@ const groupForFaculty: Record<FacultyId, string> = {
   "data-sources": "Context",
   "knowledge-base": "Context",
   memory: "Context",
+  "artifact-store": "Context",
   automations: "Action",
   skills: "Action",
   gateway: "Action",

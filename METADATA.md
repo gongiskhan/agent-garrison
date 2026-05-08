@@ -41,7 +41,7 @@ Top-level `x-garrison` fields:
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `faculty` | enum | yes | One of the 13 explicit Faculty ids. Tasks is derived and must not be declared by a Fitting. |
+| `faculty` | enum | yes | One of the 14 explicit Faculty ids. Tasks is derived and must not be declared by a Fitting. |
 | `cardinality_hint` | enum | yes | `single` or `multi`. Validated against the Faculty definition. |
 | `component_shape` | enum | yes | One of Garrison's closed Fitting shapes. (Field name retained from earlier naming for back-compat.) |
 | `platforms` | string array | yes | `all`, `claude-code`, `codex`, or future platform ids. v1 accepts only `all` and `claude-code` at compose time. |
