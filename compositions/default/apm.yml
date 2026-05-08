@@ -5,6 +5,7 @@ dependencies:
   apm:
     - path: ../../fittings/seed/artifact-store
     - path: ../../fittings/seed/browser-automation
+    - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/documents
     - path: ../../fittings/seed/google-calendar
     - path: ../../fittings/seed/http-gateway
@@ -75,6 +76,13 @@ x-garrison:
           config:
             tier_floor: 3
             plan_threshold: 3
+      skills:
+        - id: coding-subagent
+          config:
+            subagent_model: opus
+            subagent_permission_mode: bypassPermissions
+            max_plan_turns: 30
+            max_execute_turns: 200
       gateway:
         - id: http-gateway
           config:

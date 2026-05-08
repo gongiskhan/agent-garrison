@@ -10,12 +10,41 @@ interface LogEvent {
   message: string;
 }
 
+interface SubAgentExecution {
+  id: string;
+  kind: "plan" | "execute";
+  project: string;
+  goal?: string;
+  plan_id?: string;
+  started_at: string;
+  ended_at: string | null;
+  status: "running" | "done" | "failed" | "killed";
+  log_path: string;
+  error?: string;
+}
+
+interface SubAgentLogLine {
+  ts?: string;
+  kind?: string;
+  text?: string;
+  name?: string;
+  input?: unknown;
+  raw?: string;
+  [key: string]: unknown;
+}
+
 export function RunPanel() {
   const { composition, runnerState, runAction, busy, setError } = useAppShell();
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [testInput, setTestInput] = useState("");
   const [sending, setSending] = useState(false);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  const [subAgentExecution, setSubAgentExecution] = useState<SubAgentExecution | null>(null);
+  const [subAgentLog, setSubAgentLog] = useState<SubAgentLogLine[]>([]);
+  const [subAgentExpanded, setSubAgentExpanded] = useState(true);
+  const [killingId, setKillingId] = useState<string | null>(null);
+  const subAgentEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!composition?.id) return;
@@ -30,6 +59,92 @@ export function RunPanel() {
     };
     return () => source.close();
   }, [composition?.id]);
+
+  useEffect(() => {
+    if (!composition?.id) return;
+    const source = new EventSource(`/api/runner/${composition.id}/subagent-logs`);
+
+    source.addEventListener("init", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as {
+          execution: SubAgentExecution | null;
+        };
+        setSubAgentExecution(data.execution);
+        setSubAgentLog([]);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    source.addEventListener("log", (event) => {
+      try {
+        const line = JSON.parse((event as MessageEvent).data) as SubAgentLogLine;
+        setSubAgentLog((prev) => [...prev.slice(-900), line]);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    source.addEventListener("execution-changed", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as {
+          execution: SubAgentExecution;
+        };
+        setSubAgentExecution(data.execution);
+        setSubAgentLog([]);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    source.addEventListener("execution-status", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as {
+          id: string;
+          status: SubAgentExecution["status"];
+          ended_at: string | null;
+          error?: string;
+        };
+        setSubAgentExecution((prev) =>
+          prev && prev.id === data.id
+            ? { ...prev, status: data.status, ended_at: data.ended_at, error: data.error }
+            : prev
+        );
+        setKillingId((prev) => (prev === data.id ? null : prev));
+      } catch {
+        /* ignore */
+      }
+    });
+
+    return () => source.close();
+  }, [composition?.id]);
+
+  useEffect(() => {
+    subAgentEndRef.current?.scrollIntoView({ block: "end" });
+  }, [subAgentLog.length]);
+
+  async function killSubAgent() {
+    if (!composition || !subAgentExecution) return;
+    if (subAgentExecution.status !== "running") return;
+    setKillingId(subAgentExecution.id);
+    try {
+      const res = await fetch(
+        `/api/runner/${composition.id}/subagent-kill`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ execution_id: subAgentExecution.id })
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `kill failed: ${res.status}`);
+      }
+    } catch (err) {
+      setKillingId(null);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: "end" });
@@ -327,6 +442,16 @@ export function RunPanel() {
           </div>
         </section>
 
+        <SubAgentPane
+          execution={subAgentExecution}
+          log={subAgentLog}
+          expanded={subAgentExpanded}
+          onToggleExpanded={() => setSubAgentExpanded((v) => !v)}
+          killing={killingId === subAgentExecution?.id}
+          onKill={killSubAgent}
+          endRef={subAgentEndRef}
+        />
+
         <section style={{ border: "1px solid var(--rule)", background: "white", padding: "16px 18px 18px" }}>
           <h3 className="font-display" style={{ fontWeight: 600, fontSize: 16, margin: "0 0 4px" }}>
             Operative test box
@@ -382,6 +507,155 @@ export function RunPanel() {
       </div>
     </main>
   );
+}
+
+function SubAgentPane({
+  execution,
+  log,
+  expanded,
+  onToggleExpanded,
+  killing,
+  onKill,
+  endRef
+}: {
+  execution: SubAgentExecution | null;
+  log: SubAgentLogLine[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  killing: boolean;
+  onKill: () => void;
+  endRef: React.RefObject<HTMLDivElement>;
+}) {
+  const status = execution?.status;
+  const isRunning = status === "running";
+  const statusTone =
+    status === "running"
+      ? "var(--sage)"
+      : status === "failed"
+      ? "var(--alarm)"
+      : status === "killed"
+      ? "var(--alarm)"
+      : "var(--mute)";
+
+  return (
+    <section
+      className="term"
+      style={{ marginBottom: 18, borderColor: isRunning ? "var(--sage)" : undefined }}
+    >
+      <div className="hd" style={{ cursor: "pointer" }} onClick={onToggleExpanded}>
+        <span>
+          <span style={{ color: statusTone }}>•</span> Sub-agent
+          {execution ? (
+            <>
+              {" · "}
+              <span style={{ color: "#9fb1a8" }}>
+                {execution.kind} · {execution.project}
+              </span>
+              {execution.goal ? (
+                <>
+                  {" · "}
+                  <span style={{ color: "#7f9188" }}>
+                    {execution.goal.length > 80
+                      ? `${execution.goal.slice(0, 80)}…`
+                      : execution.goal}
+                  </span>
+                </>
+              ) : null}
+              {" · "}
+              <span style={{ color: statusTone, fontWeight: 600 }}>
+                {execution.status}
+              </span>
+            </>
+          ) : (
+            <span style={{ color: "#7f9188" }}> · idle</span>
+          )}
+        </span>
+        <span>
+          {execution ? (
+            <span style={{ marginRight: 12 }}>{log.length} lines</span>
+          ) : null}
+          {isRunning ? (
+            <button
+              className="btn danger"
+              style={{
+                padding: "2px 10px",
+                fontSize: 11,
+                marginRight: 8
+              }}
+              disabled={killing}
+              onClick={(event) => {
+                event.stopPropagation();
+                onKill();
+              }}
+            >
+              {killing ? "Stopping…" : "Stop"}
+            </button>
+          ) : null}
+          <span style={{ color: "#7f9188" }}>{expanded ? "▾" : "▸"}</span>
+        </span>
+      </div>
+      {expanded ? (
+        <div className="body">
+          {!execution ? (
+            <div style={{ color: "#7f9188" }}>
+              No sub-agent run yet. The Operative will spawn one when it
+              calls coding-subagent plan or execute.
+            </div>
+          ) : log.length === 0 ? (
+            <div style={{ color: "#7f9188" }}>
+              {isRunning ? "Sub-agent starting…" : "Log is empty."}
+            </div>
+          ) : (
+            log.map((line, i) => <SubAgentLogRow key={`${line.ts ?? i}`} line={line} />)
+          )}
+          <div ref={endRef} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function SubAgentLogRow({ line }: { line: SubAgentLogLine }) {
+  const ts =
+    typeof line.ts === "string" ? line.ts.split("T")[1]?.replace("Z", "") ?? "" : "";
+  const kind = line.kind ?? "raw";
+  const tag = kind === "tool-use" ? `tool:${line.name ?? "?"}` : kind;
+  const body =
+    typeof line.text === "string"
+      ? line.text
+      : kind === "tool-use" && line.input
+      ? truncateInput(line.input)
+      : line.raw ?? "";
+  return (
+    <div className="row">
+      <span className="ts">{ts}</span>
+      <span
+        className="stream"
+        style={{
+          color:
+            kind === "tool-use"
+              ? "var(--sage)"
+              : kind === "subagent-end" || kind === "subagent-start"
+              ? "var(--ink)"
+              : kind === "killed-by-signal"
+              ? "var(--alarm)"
+              : "#7f9188"
+        }}
+      >
+        {tag}
+      </span>
+      <span style={{ wordBreak: "break-word" }}>{body}</span>
+    </div>
+  );
+}
+
+function truncateInput(input: unknown): string {
+  try {
+    const text = typeof input === "string" ? input : JSON.stringify(input);
+    return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+  } catch {
+    return "[unserializable input]";
+  }
 }
 
 function Cell({

@@ -20,7 +20,9 @@ const seedIds = [
   "soul",
   "personal-operative",
   "artifact-store",
-  "documents"
+  "documents",
+  "projects-index",
+  "coding-subagent"
 ] as const;
 
 interface RawManifest {
@@ -119,6 +121,32 @@ describe("seed Fittings", () => {
       name: "google-calendar",
       cardinality: "optional-one"
     });
+  });
+
+  it("coding-subagent provides agent-skill:coding-subagent and consumes projects-index + documents + artifact-store", async () => {
+    const metadata = await loadSeed("coding-subagent");
+    expect(metadata.faculty).toBe("skills");
+    expect(metadata.component_shape).toBe("skill");
+    expect(metadata.provides).toContainEqual({
+      kind: "agent-skill",
+      name: "coding-subagent"
+    });
+    expect(metadata.consumes).toContainEqual({
+      kind: "agent-skill",
+      name: "projects-index",
+      cardinality: "one"
+    });
+    expect(metadata.consumes).toContainEqual({
+      kind: "agent-skill",
+      name: "project-documents",
+      cardinality: "one"
+    });
+    expect(metadata.consumes).toContainEqual({
+      kind: "artifact-store",
+      cardinality: "one"
+    });
+    expect(metadata.for_consumers).toBeTruthy();
+    expect(metadata.for_consumers!).toContain("coding-subagent");
   });
 
   it("the full seed stack resolves capabilities cleanly", async () => {

@@ -1,0 +1,94 @@
+name: coding-subagent
+version: 0.1.0
+description: Spawn a coding sub-agent against a project on disk. Plan and execute substantial coding work without polluting the conversational session.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: skills
+  cardinality_hint: multi
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: Plan-then-execute coding sub-agent. The Operative produces a plan against a project, captures it as a Document, and on user approval spawns an execution sub-agent in the project folder.
+  for_consumers: |
+    Use coding-subagent to plan and execute substantial coding work on
+    real projects under ~/Projects/.
+
+    Trigger conditions:
+    - The user describes a feature, fix, or refactor and asks you to
+      "plan it", "do it", "build X", or similar.
+    - The work involves more than ~20 lines of code, more than one file,
+      or any non-trivial reasoning about a codebase.
+
+    Pattern (chat flow):
+      1. Resolve the project name. Use `projects-index` `list` /
+         `describe` if the user said something ambiguous. If still
+         ambiguous, ask which project.
+      2. Run `plan`. Show the resulting plan markdown to the user.
+         Surface the `garrison://documents/<id>` URL — the user may
+         click through and edit the plan in Documents before
+         approving.
+      3. Wait for the user's reply: approve / reject / change request.
+         On approval, run `execute --plan-id <id>`. On change request,
+         re-run `plan` with the updated goal.
+
+    CLI:
+        # Plan (read-only; produces plan + Documents id)
+        node apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
+            plan --project <name> --goal "<one-sentence-goal>"
+
+        # Execute (writes files; pass the plan's document id)
+        node apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
+            execute --plan-id <document-id> --project <name>
+
+        # Kill a running execution (rare; user clicks Stop in Run tab)
+        node apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
+            kill --execution-id <id>
+
+    On `execute`, always re-read the plan via the document id — never
+    pass the in-context plan text. This way any user edits to the
+    Document flow through transparently.
+
+    Do NOT use coding-subagent for trivial tasks: single-file rename,
+    typo fix, one-line change, file read to answer a question. Use
+    your normal Edit / Read / Bash tools directly. Rule of thumb: if
+    you can describe the change in one sentence and execute it in
+    under 30 seconds, do it directly.
+  config_schema:
+    - key: subagent_model
+      type: string
+      default: opus
+      description: Model alias for sub-agent invocations. "opus" / "sonnet" / "haiku" or a full model id.
+    - key: subagent_permission_mode
+      type: string
+      default: bypassPermissions
+      description: Permission mode passed to the sub-agent. "default" prompts; "acceptEdits" auto-accepts file edits; "bypassPermissions" auto-accepts everything (parity with the parent gateway).
+    - key: max_plan_turns
+      type: integer
+      default: 30
+      description: Max turns for the planning sub-agent. Plans should be short.
+    - key: max_execute_turns
+      type: integer
+      default: 200
+      description: Max turns for the execution sub-agent. Real work needs headroom.
+  provides:
+    - kind: agent-skill
+      name: coding-subagent
+  consumes:
+    - kind: agent-skill
+      name: projects-index
+      cardinality: one
+    - kind: agent-skill
+      name: project-documents
+      cardinality: one
+    - kind: artifact-store
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: bash apm_modules/_local/coding-subagent/scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000

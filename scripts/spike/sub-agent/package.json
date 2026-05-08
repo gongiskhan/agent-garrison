@@ -1,0 +1,11 @@
+{
+  "name": "garrison-spike-sub-agent",
+  "private": true,
+  "type": "module",
+  "description": "Phase 4 T1 spike. Disposable. Delete after T2 ships.",
+  "scripts": {
+    "variant-a": "node variant-a-cli-shape.mjs",
+    "variant-b": "node variant-b-external-claude.mjs",
+    "variant-c": "node variant-c-gateway-internal.mjs"
+  }
+}

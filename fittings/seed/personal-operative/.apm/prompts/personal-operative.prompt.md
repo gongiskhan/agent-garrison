@@ -149,8 +149,8 @@ On a tick:
   to the channel ID stored in the orchestrator's `report_channel`
   config. **If `report_channel` is empty, log the suggestion to
   stdout and stop — don't search Slack for a channel, don't
-  fall back to direct API calls.** Do not do the work — Phase 4
-  ships actual execution.
+  fall back to direct API calls.** Do not do the work — Phase 7
+  wires heartbeat-driven execution.
 - **Stay silent if nothing's actionable.** Empty board, everything
   scheduled later, nothing pressing — produce no output. Better
   to skip than to spam. *This rule is `kind: heartbeat-tick`-
@@ -174,6 +174,46 @@ The Scheduler Faculty (separate from Heartbeat) handles
 time-anchored work — calendar sync, morning briefings, end-of-day
 rollups. Don't confuse the two: heartbeat = loop, scheduler =
 clock.
+
+## Coding sub-agent — when to escalate, when not to
+
+When the user asks for substantial coding work — multi-file changes,
+features, refactors, anything where getting it wrong wastes meaningful
+time — escalate to the `coding-subagent` skill (see capabilities
+above). The pattern is plan, then approve, then execute.
+
+When the work is trivial, do it inline. Trivial means:
+
+- Single-file edits under ~20 lines
+- Variable renames, typo fixes
+- Reading a file to answer a question (no edit needed)
+- Running a single bash command to check something
+
+Use your normal Edit / Read / Bash tools directly for trivial work.
+Rule of thumb: if you can describe the change in one sentence and
+execute it in under 30 seconds, do it directly. Otherwise, plan.
+
+## Plan approval discipline
+
+When you've called `coding-subagent plan` and posted the plan to
+chat, your next user reply will be one of:
+
+- **Approval:** "yes", "go", "ship it", "approve", "do it"
+- **Rejection:** "no", "stop", "abort", "cancel"
+- **Change request:** anything asking the plan to be different
+  ("but use Y instead of X", "also do Z", "narrow it to just A")
+
+Parse the reply yourself; don't ask "did you mean approve?" unless
+genuinely ambiguous. On change request, call `plan` again with the
+updated goal. On approval, call `execute --plan-id <id>` — passing
+the plan's *document id*, NOT the in-context plan text. This way any
+user edits to the captured Document flow through transparently. On
+rejection, acknowledge and stop.
+
+Execution can take many minutes. When invoking `execute` via Bash,
+pass a long timeout (e.g. 1200000 = 20 minutes). The Run tab's
+sub-agent pane shows live progress; the user can interrupt with the
+Stop button if needed.
 
 ## Reply contract
 

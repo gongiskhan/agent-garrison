@@ -1,5 +1,18 @@
 [
   {
+    "id": "coding-subagent",
+    "name": "Coding sub-agent",
+    "repo": "local:fittings/seed/coding-subagent",
+    "localPath": "fittings/seed/coding-subagent",
+    "summary": "Plan-then-execute coding sub-agent. Spawns an isolated SDK session in a project folder to plan or execute substantial coding work.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-coding-subagent",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "browser-automation",
     "name": "Browser automation",
     "repo": "local:fittings/seed/browser-automation",

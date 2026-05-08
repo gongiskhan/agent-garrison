@@ -1,13 +1,37 @@
 lockfile_version: '1'
-generated_at: '2026-05-07T06:11:14.466450+00:00'
+generated_at: '2026-05-08T17:46:01.246592+00:00'
 apm_version: 0.10.0
 dependencies:
+- repo_url: _local/artifact-store
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/artifact-store
+  source: local
+  local_path: ../../fittings/seed/artifact-store
 - repo_url: _local/browser-automation
   package_type: apm_package
   deployed_files:
   - .claude/skills/browser-automation
   source: local
   local_path: ../../fittings/seed/browser-automation
+- repo_url: _local/coding-subagent
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/coding-subagent
+  source: local
+  local_path: ../../fittings/seed/coding-subagent
+- repo_url: _local/documents
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/documents
+  source: local
+  local_path: ../../fittings/seed/documents
+- repo_url: _local/google-calendar
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/google-calendar
+  source: local
+  local_path: ../../fittings/seed/google-calendar
 - repo_url: _local/http-gateway
   package_type: apm_package
   deployed_files:
@@ -30,6 +54,12 @@ dependencies:
   - .claude/skills/garrison-memory
   source: local
   local_path: ../../fittings/seed/memory
+- repo_url: _local/morning-briefing
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/morning-briefing
+  source: local
+  local_path: ../../fittings/seed/morning-briefing
 - repo_url: _local/personal-operative
   package_type: apm_package
   deployed_files:
