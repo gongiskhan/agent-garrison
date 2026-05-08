@@ -43,12 +43,24 @@ const consumptionSchema = z.object({
   cardinality: z.enum(["one", "optional-one", "any"]).optional()
 });
 
+// for_consumers is injected verbatim into the assembled system prompt at
+// runtime. The 8 KB cap keeps a single Fitting from drowning the
+// Orchestrator's context window with usage docs.
+const FOR_CONSUMERS_MAX_BYTES = 8 * 1024;
+
 export const garrisonMetadataSchema = z.object({
   faculty: z.enum(facultyIds),
   cardinality_hint: z.enum(["single", "multi"]),
   component_shape: z.enum(fittingShapes),
   platforms: z.array(z.string()).min(1),
   summary: z.string().optional(),
+  for_consumers: z
+    .string()
+    .refine(
+      (value) => Buffer.byteLength(value, "utf8") <= FOR_CONSUMERS_MAX_BYTES,
+      { message: `for_consumers exceeds ${FOR_CONSUMERS_MAX_BYTES} byte cap` }
+    )
+    .optional(),
   config_schema: z.array(configFieldSchema).default([]),
   provides: z.array(provisionSchema).default([]),
   consumes: z.array(consumptionSchema).default([]),

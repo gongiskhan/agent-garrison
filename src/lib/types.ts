@@ -98,6 +98,7 @@ export interface GarrisonMetadata {
   component_shape: FittingShape;
   platforms: PlatformId[];
   summary?: string;
+  for_consumers?: string;
   config_schema: ConfigSchemaField[];
   provides: CapabilityProvision[];
   consumes: CapabilityConsumption[];

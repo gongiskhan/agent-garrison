@@ -426,13 +426,21 @@ export function substituteCapabilitiesPlaceholder(
 export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {
   const inputs = entries.map((entry) => ({ id: entry.id, metadata: entry.metadata }));
   const result = resolveCapabilities(inputs);
-  const providerEntries: Array<{ kind: string; name: string; summary: string }> = [];
+  const providerEntries: Array<{
+    kind: string;
+    name: string;
+    summary: string;
+    forConsumers?: string;
+  }> = [];
   for (const entry of entries) {
+    const summary = entry.metadata.summary?.trim() || entry.summary || entry.id;
+    const forConsumers = entry.metadata.for_consumers?.trim() || undefined;
     for (const provision of entry.metadata.provides) {
       providerEntries.push({
         kind: provision.kind,
         name: provision.name,
-        summary: entry.metadata.summary?.trim() || entry.summary || entry.id
+        summary,
+        forConsumers
       });
     }
   }
@@ -448,9 +456,24 @@ export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {
     if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
     return a.name.localeCompare(b.name);
   });
+  // If any provider ships a for_consumers block we render multi-line entries
+  // separated by blank lines so the indented bodies don't run together. When
+  // every provider falls back to summary we keep the legacy single-line form.
+  const anyForConsumers = providerEntries.some((entry) => entry.forConsumers);
+  const separator = anyForConsumers ? "\n\n" : "\n";
   return providerEntries
-    .map((entry) => `- ${entry.kind}:${entry.name} — ${entry.summary}`)
-    .join("\n");
+    .map((entry) => {
+      const header = `- ${entry.kind}:${entry.name} — ${entry.summary}`;
+      if (!entry.forConsumers) {
+        return header;
+      }
+      const indented = entry.forConsumers
+        .split(/\r?\n/)
+        .map((line) => (line.length > 0 ? `  ${line}` : line))
+        .join("\n");
+      return `${header}\n${indented}`;
+    })
+    .join(separator);
 }
 
 async function readPromptForFaculty(

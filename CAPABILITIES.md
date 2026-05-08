@@ -32,6 +32,22 @@ consumes:
 > against real implementation pressure rather than inheriting
 > speculative shapes.
 
+## Provider-side usage guidance (`for_consumers`)
+
+A provider Fitting SHOULD ship a `for_consumers` block in its
+`x-garrison` metadata for any non-obvious usage. The block is
+free-form markdown describing when and how the Operative ought to
+reach for the capability — trigger conditions, calling pattern,
+anti-patterns. Consumer-side code does not interpret this field; the
+runner injects it verbatim under the provider's line in the
+Orchestrator's capabilities block at assembly time. Locality
+principle: a Fitting that ships a capability also ships the doc on
+how to use it.
+
+The field is optional. When absent, the runner falls back to the
+provider's `summary`. See `METADATA.md` for the schema row and the
+8 KB byte cap.
+
 ---
 
 ## orchestrator

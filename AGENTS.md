@@ -187,6 +187,8 @@ Setup-step discipline: a Fitting that declares an `x-garrison.setup` command has
 
 Orchestrator+soul prompt assembly: read both system-prompt files from the installed APM packages, concatenate orchestrator-then-soul, pass to the agent CLI via its system-prompt flag. This is the one place Garrison adds runtime logic APM doesn't cover.
 
+The Orchestrator prompt declares a `{{capabilities}}` placeholder. At assembly time the runner substitutes it with one bullet per provider Fitting (`kind:name — summary`). When a provider ships an `x-garrison.for_consumers` block, that block is rendered indented underneath the bullet so the Operative sees the usage guidance alongside the capability. Locality principle: providers ship the doc on how to use them, and the runner is the only consumer of `for_consumers` — it does not flow into any other system.
+
 The runner does not yet *use* the capability graph at runtime — only the composer validates against it. Wiring the graph into runtime dispatch (Pattern A: orchestrator → agent-skill sub-agent) is a runtime SDK milestone concern.
 
 ---

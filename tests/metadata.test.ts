@@ -102,6 +102,28 @@ describe("x-garrison metadata", () => {
   });
 });
 
+describe("for_consumers field", () => {
+  it("parses when a Fitting ships a for_consumers block", () => {
+    const metadata = parseGarrisonMetadata({
+      ...baseMetadata,
+      for_consumers: "Use this Faculty when in PM hat."
+    });
+    expect(metadata.for_consumers).toBe("Use this Faculty when in PM hat.");
+  });
+
+  it("is optional", () => {
+    const metadata = parseGarrisonMetadata({ ...baseMetadata });
+    expect(metadata.for_consumers).toBeUndefined();
+  });
+
+  it("rejects values that exceed the 8 KB byte cap", () => {
+    const oversized = "x".repeat(8 * 1024 + 1);
+    expect(() =>
+      parseGarrisonMetadata({ ...baseMetadata, for_consumers: oversized })
+    ).toThrow(/for_consumers exceeds/);
+  });
+});
+
 describe("capability provides/consumes", () => {
   it("defaults provides and consumes to empty arrays when absent", () => {
     const metadata = parseGarrisonMetadata({ ...baseMetadata });

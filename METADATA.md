@@ -46,6 +46,7 @@ Top-level `x-garrison` fields:
 | `component_shape` | enum | yes | One of Garrison's closed Fitting shapes. (Field name retained from earlier naming for back-compat.) |
 | `platforms` | string array | yes | `all`, `claude-code`, `codex`, or future platform ids. v1 accepts only `all` and `claude-code` at compose time. |
 | `summary` | string | no | Human summary shown in the Fittings Registry and picker. |
+| `for_consumers` | string | no | Free-form markdown the runner injects under this Fitting's line in the Orchestrator's capabilities block. Use it to ship usage guidance the consumer-side prompt should see. 8 KB byte cap. |
 | `config_schema` | array | no | UI-renderable config fields. Defaults to `[]`. |
 | `provides` | array | no | Capabilities this Fitting offers to others. Defaults to `[]`. See `CAPABILITIES.md`. |
 | `consumes` | array | no | Capabilities this Fitting requires from the composition. Defaults to `[]`. See `CAPABILITIES.md`. |
