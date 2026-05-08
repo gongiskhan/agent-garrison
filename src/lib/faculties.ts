@@ -30,8 +30,9 @@ export const faculties: FacultyDefinition[] = [
     order: 4,
     name: "Knowledge base",
     cardinality: "multi",
-    shapes: ["skill", "mcp", "script"],
-    notes: "Docs, codebases, and references the operative can read."
+    shapes: ["skill", "mcp", "script", "cli-skill"],
+    notes:
+      "Docs, codebases, and references the operative can read. cli-skill is allowed for Fittings that pair a CLI surface for the Operative with a UI surface for the user (e.g. Documents)."
   },
   {
     id: "automations",

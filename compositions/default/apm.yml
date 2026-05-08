@@ -5,6 +5,7 @@ dependencies:
   apm:
     - path: ../../fittings/seed/artifact-store
     - path: ../../fittings/seed/browser-automation
+    - path: ../../fittings/seed/documents
     - path: ../../fittings/seed/google-calendar
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
@@ -56,6 +57,8 @@ x-garrison:
         - id: projects-index
           config:
             projects_root: ~/Projects
+        - id: documents
+          config: {}
       scheduler:
         - id: scheduler
           config:

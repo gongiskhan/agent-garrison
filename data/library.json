@@ -154,5 +154,18 @@
       "global": 4.5,
       "claude_code": 4.5
     }
+  },
+  {
+    "id": "documents",
+    "name": "Documents",
+    "repo": "local:fittings/seed/documents",
+    "localPath": "fittings/seed/documents",
+    "summary": "Markdown documents workspace layered on the artifact store. Operative captures decisions and plans; user reads and edits in the sidebar.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-documents",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
   }
 ]

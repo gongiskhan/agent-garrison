@@ -35,10 +35,15 @@ Definition of Done is observable.
 
 - Purpose: readable reference material such as docs, codebases, and static notes.
 - Cardinality: multi.
-- Shapes: `skill`, `mcp`, `script`.
+- Shapes: `skill`, `mcp`, `script`, `cli-skill`.
 - Config: index path, refresh cadence, read filters.
-- Example: local docs skill or MCP-backed docs search.
+- Example: local docs skill, MCP-backed docs search, or the Documents Fitting layered on the Artifact Store.
 - Failure modes: stale index, inaccessible path, noisy retrieval.
+
+`cli-skill` is allowed here for Fittings that pair a CLI surface (the
+Operative invokes write/read/update commands) with a UI surface (the
+user opens documents in a side panel). The Documents Fitting is the
+canonical example.
 
 ## 5. Automations
 

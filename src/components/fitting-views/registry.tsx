@@ -51,6 +51,24 @@ const REGISTRY: Record<string, FittingViewComponent> = {
         <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
       )
     }
+  ),
+  "documents:read": dynamic(
+    () => import("../../../fittings/seed/documents/ui/DocumentRead"),
+    {
+      ssr: false,
+      loading: () => (
+        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
+      )
+    }
+  ),
+  "documents:edit": dynamic(
+    () => import("../../../fittings/seed/documents/ui/DocumentEdit"),
+    {
+      ssr: false,
+      loading: () => (
+        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
+      )
+    }
   )
 };
 

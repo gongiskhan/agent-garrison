@@ -1,0 +1,65 @@
+name: documents
+version: 0.1.0
+description: Markdown documents workspace for Agent Garrison, layered on the artifact store.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: knowledge-base
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - claude-code
+  summary: Markdown documents workspace. The Operative captures decisions, plans, and specs here; the user reads and edits them in the sidebar.
+  for_consumers: |
+    Use the Documents Faculty to capture decisions, plans, and specs that
+    emerge from conversations. Trigger conditions:
+    - In PM or Software Architect hat, when a discussion has converged on
+      something worth keeping.
+    - When the user explicitly asks you to write something down.
+    - When you would write a long structured response and the content is
+      reusable beyond this turn.
+
+    Pattern: prefer updating an existing document over creating a new one for
+    the same project/feature. Use `list` first; if a relevant doc exists,
+    `update <id> < /tmp/new.md`. Otherwise `create --title "..." < /tmp/new.md`.
+
+    CLI:
+        # Create
+        echo "## Spec" | python3 apm_modules/_local/documents/scripts/documents.py create --title "Feature X spec"
+        # Update
+        echo "..." | python3 apm_modules/_local/documents/scripts/documents.py update <id>
+        # List / Read / Link
+        python3 apm_modules/_local/documents/scripts/documents.py list
+        python3 apm_modules/_local/documents/scripts/documents.py read <id>
+        python3 apm_modules/_local/documents/scripts/documents.py link <id>
+
+    Always reply with `garrison://documents/<id>` so the user can click
+    through. Don't paste the full document content into chat — link only.
+    Don't create documents for trivial single-turn answers, acknowledgements,
+    or questions.
+  config_schema: []
+  provides:
+    - kind: agent-skill
+      name: project-documents
+  consumes:
+    - kind: artifact-store
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 30000
+  verify:
+    command: bash apm_modules/_local/documents/scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000
+  ui:
+    views:
+      - id: read
+        placement: sidebar-surface
+        entry: ./ui/DocumentRead.tsx
+        route: /:id
+      - id: edit
+        placement: sidebar-surface
+        entry: ./ui/DocumentEdit.tsx
+        route: /:id/edit

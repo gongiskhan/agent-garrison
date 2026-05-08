@@ -19,7 +19,8 @@ const seedIds = [
   "slack-channel",
   "soul",
   "personal-operative",
-  "artifact-store"
+  "artifact-store",
+  "documents"
 ] as const;
 
 interface RawManifest {
