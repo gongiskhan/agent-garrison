@@ -1,0 +1,44 @@
+name: morning-briefing
+version: 0.1.0
+description: Daily morning briefing trigger for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: automations
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - claude-code
+  summary: Schedules a daily synthetic prompt that asks the Operative to compose a morning briefing (Trello + Calendar) and post it to Slack via the orchestrator's report_channel.
+  config_schema:
+    - key: briefing_time
+      type: string
+      default: "08:00"
+      description: Local time the briefing fires (HH:MM, 24h). Override at runtime via GARRISON_BRIEFING_TIME.
+    - key: weekdays_only
+      type: boolean
+      default: true
+      description: If true, fires Mon–Fri only. Override at runtime via GARRISON_BRIEFING_WEEKDAYS_ONLY (true|false).
+  provides: []
+  consumes:
+    - kind: automation-runner
+      name: scheduler
+      cardinality: one
+    - kind: channel
+      name: slack
+      cardinality: one
+    - kind: data-source
+      name: trello
+      cardinality: optional-one
+    - kind: automation-runner
+      name: google-calendar
+      cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 30000
+  verify:
+    command: bash apm_modules/_local/morning-briefing/scripts/verify.sh
+    expect: ok
+    timeout_ms: 15000

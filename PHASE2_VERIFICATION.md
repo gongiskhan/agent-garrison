@@ -653,69 +653,141 @@ the user opts the Fitting into their composition):**
 
 ## T7 — Daily morning briefing
 
-**Status: shipped as a recipe in the Scheduler SKILL.md, not
-a separate Fitting.**
+**Status: PASS (offline). Promoted from a scheduler-cookbook
+recipe to a first-class Fitting at
+`fittings/seed/morning-briefing/`. Runtime re-verification
+pending the next `garrison up` with the Fitting opted in.**
 
-**Why a recipe and not a Fitting:** I attempted a separate
-`morning-briefing` Fitting first. The Faculty model in v1 has
-no clean slot for a "scheduled-prompt recipe" — `scheduler` is
-single and already filled by T5; `automations` doesn't accept
-shape `script` and its purpose is "actions the operative takes
-in external systems," not "scheduled triggers"; `heartbeat` is
-single and already filled. Forcing it into a wrong Faculty
-created more confusion than it resolved.
+**Reversal of the prior decision.** The earlier iteration of
+this section shipped the briefing as a *recipe* in
+`fittings/seed/scheduler/.apm/skills/scheduler/SKILL.md` on the
+grounds that the Faculty model had no clean slot for a
+"scheduled-prompt recipe." That worked end-to-end on
+2026-05-07 (the runtime block below preserves the live capture)
+but had three weaknesses:
 
-The morning-briefing is fundamentally one cron expression + one
-prompt payload. Both are configured by adding a single
-scheduler job. That's a recipe, not a Fitting.
+- **Two paths to the same job id.** A user copy-pasting the
+  cookbook curl AND any future Fitting both register
+  `morning-briefing` with `scheduler.mjs add`; the second
+  silently replaces the first.
+- **No config knob.** Time and weekdays-only were fixed in the
+  recipe text. Changing them meant editing a markdown file and
+  re-running the curl by hand.
+- **No verify hook.** A recipe can't be checked by `garrison
+  up`'s setup loop, so a missing job wasn't visible until the
+  briefing failed to fire.
+
+The Fitting closes those gaps. Faculty is `automations` with
+shape `cli-skill` — a known semantic stretch (the Fitting's
+"CLI" is the wrapper script the scheduler invokes, not an
+operative-facing tool surface) that a future Faculty refactor
+can clean up. The cookbook entry in the scheduler SKILL.md is
+now a one-liner pointing at the Fitting (single registration
+path, no double-add risk).
 
 **What ships:**
 
-A cookbook entry in
-`fittings/seed/scheduler/.apm/skills/scheduler/SKILL.md` under
-"Cookbook: morning briefing". It's the exact `scheduler.mjs add
-...` command the user runs once per composition to register the
-briefing job.
+- New `fittings/seed/morning-briefing/`:
+  - `apm.yml` — faculty `automations`, shape `cli-skill`,
+    `provides: []` (sink, not source), consumes
+    `automation-runner:scheduler:one`,
+    `channel:slack:one`,
+    `data-source:trello:optional-one`,
+    `automation-runner:google-calendar:optional-one`.
+  - `pyproject.toml`-free; `briefing.py` is stdlib-only.
+  - `scripts/setup.sh` — locates the scheduler in the
+    composition, reads `GARRISON_BRIEFING_TIME` (default
+    `08:00`) and `GARRISON_BRIEFING_WEEKDAYS_ONLY` (default
+    `true`), computes the cron via `briefing.py --cron`, calls
+    `scheduler.mjs add morning-briefing <cron> "bash
+    <fitting-dir>/scripts/briefing.sh"`. Re-runs replace the
+    job by id.
+  - `scripts/verify.sh` — scheduler lists the job; wrapper is
+    executable; gateway `/health` is reachable.
+  - `scripts/briefing.sh` — bash shim with absolute path so
+    the scheduler.command string is stable across re-installs.
+  - `scripts/briefing.py` — POSTs `{kind, date, day_of_week,
+    instructions}` to `${GARRISON_GATEWAY_URL or default}/jobs`.
+    Exposes `--cron`, `--render-prompt`, `fire`. Preserves the
+    proven prompt from the prior recipe (empty-`report_channel`
+    log-and-stop rule, both-empty acknowledgement rule).
+  - `.apm/skills/morning-briefing/SKILL.md` — operative
+    contract (synthetic prompt, post via Slack MCP to
+    `report_channel`, "quiet day" preferred, no autonomous
+    work offered here).
+  - `instructions.md` — opt-in selection snippet, env-var
+    overrides, manual-trigger one-liner.
+- `compositions/default/apm.yml` — added to `dependencies.apm`,
+  **not** to `selections.automations` (opt-in same as T6).
+- `fittings/seed/scheduler/.apm/skills/scheduler/SKILL.md` —
+  cookbook section replaced with a pointer at the Fitting plus
+  a generic "POST `{kind, instructions}` to `/jobs`" recipe for
+  unrelated scheduled-prompt patterns.
+- `tests/seed.test.ts` — added `morning-briefing` to `seedIds`
+  and a focused `it()` block.
+- `tests/morning-briefing-fitting.test.ts` — apm.yml shape,
+  scripts executable, prompt template renders with date/weekday
+  substitution.
+- `tests/morning-briefing-cron-translation.test.ts` — pure
+  function tests for `briefing.py --cron` covering 08:00+true,
+  09:30+false, midnight, 23:59, truthy aliases, and rejection
+  of malformed input.
 
-Key parts of the recipe:
+**Verification (offline — passing now):**
 
-- Cron `0 8 * * 1-5` (8am weekdays).
-- POSTs `{"kind":"morning-briefing","instructions":"..."}` to
-  the gateway `/jobs` endpoint.
-- The Operative's prompt rules already know to handle a
-  `Heartbeat job:` prefix; the briefing payload is a flavoured
-  tick.
-- Briefing instructions explicitly include the *exception* to
-  the silent-when-empty rule: a briefing always posts at 8am,
-  even if there's nothing to say (one-line acknowledgement).
-  Fixed-cadence work behaves differently from heartbeat
-  suggestions.
+```
+npx vitest run                                              # 15 files / 88 tests / 1 skipped
+npx tsx scripts/validate-fitting.ts fittings/seed/morning-briefing
+# Overall: PASS (architecture / security / prompt-injection / quality)
+```
 
-**Verified offline (2026-05-07T01:12Z):**
+**Verification (runtime — requires the Operative running):**
 
-- Recipe added to `scheduler/.apm/skills/scheduler/SKILL.md`.
-- `npx tsx scripts/validate-fitting.ts fittings/seed/scheduler`
-  → **PASS** on all 4 checks (recipe is just markdown).
-- `npx vitest run` → **12 files / 70 passed / 1 skipped** —
-  no regressions.
+1. Add `morning-briefing` to `selections.automations` per the
+   Fitting's `instructions.md`.
+2. `garrison up` — setup registers the job; `scheduler.mjs list`
+   shows `"morning-briefing"`.
+3. `node apm_modules/_local/scheduler/scripts/scheduler.mjs
+   run-now morning-briefing` — Operative composes the briefing
+   and either posts to Slack (if `report_channel` is set) or
+   logs to gateway stdout (if empty).
+4. Empty-state test: archive all "A Fazer" cards and delete
+   today's calendar events; re-fire — expect a one-line
+   acknowledgement, not silence.
+5. Time-change test: `export GARRISON_BRIEFING_TIME=07:30 &&
+   garrison up` — `scheduler.mjs list` should show the job
+   with cron `30 7 * * 1-5`.
 
-**Needs runtime check (procedure):**
+### Memory cadence (T1) — runtime artefact of the briefing
 
-This step depends on T5's runtime composition wiring; do that
-first.
+The briefing is the first scheduled work in Phase 2 that drives
+a full session through the gateway, so it doubles as the live
+exercise for T1's memory-hook check:
 
-1. With scheduler installed in the composition and the runner
-   up, copy-paste the `scheduler.mjs add morning-briefing ...`
-   command from the Scheduler SKILL.md cookbook entry.
-2. To smoke-test without waiting until tomorrow 8am, register
-   a one-off variant with a near-future cron like `*/2 * * * *`
-   (every 2 min). Watch Slack for one tick of the briefing,
-   then `scheduler.mjs remove morning-briefing` and re-register
-   with the real `0 8 * * 1-5`.
-3. Verify the briefing acknowledges-not-silent on an empty
-   board: temporarily archive all "A Fazer" cards, fire the
-   briefing manually via `scheduler.mjs run-now
-   morning-briefing`, confirm a one-line Slack post.
+- After a real briefing fires, look at
+  `~/Projects/ekus/obsidian-vault/Compiled/`. Expect new
+  daily-log entries dated today reflecting the session that
+  produced the briefing.
+- Also check `~/.claude/memory-compiler/daily/YYYY-MM-DD.md`
+  for an appended block from the SessionEnd hook.
+- If both are empty after a successful briefing, the memory
+  compiler's hooks aren't firing under the gateway's spawn
+  path (they live in `~/.claude/settings.json` and are bound
+  to interactive Claude Code sessions, not SDK-spawned ones).
+  Record the observation here and follow up in a separate
+  ticket — T7 verifies, doesn't fix.
+
+### Prior runtime capture (recipe path, 2026-05-07T06:14–06:15Z)
+
+Preserved verbatim — it's still valid evidence that the gateway
+→ Operative → response loop works for `kind: morning-briefing`.
+The Fitting's setup.sh produces a `scheduler.mjs add` call with
+the same id (`morning-briefing`) and the same cron (`0 8 * * 1-5`
+by default); the stored command string is the wrapper
+(`bash <fitting-dir>/scripts/briefing.sh`) instead of an inline
+curl, but the resulting POST to `/jobs` carries the same `kind`
+and equivalent `instructions`, so the Operative-side path is
+identical.
 
 **Verified at runtime (2026-05-07T06:14–06:15Z):**
 

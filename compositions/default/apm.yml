@@ -8,6 +8,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/morning-briefing
     - path: ../../fittings/seed/personal-operative
     - path: ../../fittings/seed/projects-index
     - path: ../../fittings/seed/scheduler

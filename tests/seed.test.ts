@@ -13,6 +13,7 @@ const seedIds = [
   "http-gateway",
   "browser-automation",
   "google-calendar",
+  "morning-briefing",
   "scheduler",
   "trello-data-source",
   "slack-channel",
@@ -88,6 +89,32 @@ describe("seed Fittings", () => {
     expect(metadata.consumes).toContainEqual({
       kind: "automation-runner",
       name: "scheduler",
+      cardinality: "optional-one"
+    });
+  });
+
+  it("morning-briefing provides nothing and consumes scheduler+slack required, trello+google-calendar optional", async () => {
+    const metadata = await loadSeed("morning-briefing");
+    expect(metadata.faculty).toBe("automations");
+    expect(metadata.provides).toEqual([]);
+    expect(metadata.consumes).toContainEqual({
+      kind: "automation-runner",
+      name: "scheduler",
+      cardinality: "one"
+    });
+    expect(metadata.consumes).toContainEqual({
+      kind: "channel",
+      name: "slack",
+      cardinality: "one"
+    });
+    expect(metadata.consumes).toContainEqual({
+      kind: "data-source",
+      name: "trello",
+      cardinality: "optional-one"
+    });
+    expect(metadata.consumes).toContainEqual({
+      kind: "automation-runner",
+      name: "google-calendar",
       cardinality: "optional-one"
     });
   });

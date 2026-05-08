@@ -95,27 +95,19 @@ spawned, so a crash mid-run doesn't double-fire on restart.
 
 ## Cookbook: morning briefing
 
-A daily 8am-weekdays briefing combining Trello tasks + Calendar
-events, posted to Slack:
+The daily morning briefing now ships as its own Fitting —
+`fittings/seed/morning-briefing/`. Add it to your composition's
+`selections.automations` block and `garrison up` registers the
+scheduler job for you. See that Fitting's `instructions.md` for
+configuration knobs (`briefing_time`, `weekdays_only`,
+`GARRISON_BRIEFING_TIME` / `GARRISON_BRIEFING_WEEKDAYS_ONLY` env
+overrides).
 
-```bash
-# Run from the composition directory.
-node apm_modules/_local/scheduler/scripts/scheduler.mjs add \
-  morning-briefing \
-  "0 8 * * 1-5" \
-  "curl -fsS -X POST http://127.0.0.1:4777/jobs -H 'content-type: application/json' -d '{\"kind\":\"morning-briefing\",\"instructions\":\"Compose my morning briefing. Combine my open Trello tasks (A Fazer list) with today calendar events. Post via mcp__claude_ai_Slack__slack_send_message to the orchestrator report_channel — if report_channel is empty, log to stdout and stop, don\\u2019t search Slack. Format: events in chronological order, two task suggestions with reasons, anything blocking. If both inputs are empty, post a one-line acknowledgement instead of staying silent — briefings have a fixed cadence and the principal expects proof-of-life at 8am.\"}'"
-```
-
-The Operative's prompt rules know to handle a `Heartbeat job:`
-prefix; the briefing payload is just a flavoured tick. If you
-want the briefing to fire more often or on weekends, change the
-cron expression. Remove with `scheduler.mjs remove
-morning-briefing`.
-
-This is intentionally a recipe, not a separate Fitting — the
-morning-briefing is one cron expression + one prompt payload,
-and the Faculty model doesn't have a "scheduled-prompt recipe"
-slot in v1.
+If you want a different scheduled-prompt recipe (e.g. an end-of-day
+rollup), follow the morning-briefing Fitting's setup.sh as a
+template — POST `{kind, instructions}` to
+`http://$GARRISON_GATEWAY_HOST:$GARRISON_GATEWAY_PORT/jobs` and the
+gateway will dispatch it to the Operative as a synthetic prompt.
 
 ## How the daemon mode is wired
 
