@@ -61,6 +61,11 @@ export default function ArtifactView({ params }: FittingViewProps) {
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 12 }}>
+          {meta.mime === "text/markdown" && meta.namespace === "documents" ? (
+            <Link href={`/fitting/documents/${meta.id}`} style={linkStyle}>
+              open in Documents
+            </Link>
+          ) : null}
           <a href={downloadUrl} download={meta.filename} style={linkStyle}>
             download
           </a>
