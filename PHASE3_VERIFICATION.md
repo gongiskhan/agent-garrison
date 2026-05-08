@@ -238,7 +238,23 @@ link verified in §6, and that path is `next/link`-based.
 
 ## Phase 3 sign-off
 
-All seven done-when items pass via offline tests + browser smoke.
-No items deferred. The Phase 3 outcome stated in the roadmap —
-`for_consumers` field, Artifact Store Faculty, Documents Fitting,
-UI contract v2 — is observable.
+All seven done-when items have either passed offline or have a
+runtime-check procedure documented for the user to run against a
+live operative. Items 1 and 7 require the operative running for
+end-to-end confirmation; their mechanics are verified by component
+tests and the §6 cross-Fitting click smoke (same `next/link`
+mechanism).
+
+**Known gap on item 5:** the plan asked for "a test Fitting
+shipping multiple views with both placements." The property is
+proven by the resolver test fixture (4 views, 2 placements, pure
+function) and by individual production Fittings demonstrating each
+placement (`tier-classifier` → faculty-tab,
+`artifact-store`/`documents` → sidebar-surface). No single
+production Fitting ships both placement types simultaneously; that
+combination is mechanically supported but not yet exercised
+end-to-end with a real Fitting.
+
+The Phase 3 outcome stated in the roadmap — `for_consumers` field,
+Artifact Store Faculty, Documents Fitting, UI contract v2 — is
+observable.
