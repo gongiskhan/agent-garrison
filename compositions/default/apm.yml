@@ -4,6 +4,7 @@ target: claude
 dependencies:
   apm:
     - path: ../../fittings/seed/browser-automation
+    - path: ../../fittings/seed/google-calendar
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory

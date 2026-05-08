@@ -1,0 +1,39 @@
+name: google-calendar
+version: 0.1.0
+description: Google Calendar Fitting for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: automations
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - claude-code
+  summary: Google Calendar read+write via OAuth-backed Python CLI. Periodic sync to data/calendar.md when scheduler is present; on-demand list/create/update/delete otherwise.
+  config_schema:
+    - key: calendar_file
+      type: path
+      default: data/calendar.md
+      description: Path (relative to composition dir) where synced calendar markdown is written. Overridable via GARRISON_CALENDAR_FILE.
+    - key: sync_cron
+      type: string
+      default: "*/5 * * * *"
+      description: Cron expression for the calendar-sync scheduler job (only registered if scheduler is present).
+  provides:
+    - kind: automation-runner
+      name: google-calendar
+  consumes:
+    - kind: vault
+      cardinality: one
+    - kind: automation-runner
+      name: scheduler
+      cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: bash apm_modules/_local/google-calendar/scripts/verify.sh
+    expect: ok
+    timeout_ms: 15000

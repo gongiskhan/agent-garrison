@@ -12,6 +12,8 @@ const seedIds = [
   "memory",
   "http-gateway",
   "browser-automation",
+  "google-calendar",
+  "scheduler",
   "trello-data-source",
   "slack-channel",
   "soul",
@@ -73,6 +75,21 @@ describe("seed Fittings", () => {
     expect(metadata.consumes).toContainEqual({ kind: "agent-skill", cardinality: "any" });
     expect(metadata.consumes).toContainEqual({ kind: "channel", cardinality: "any" });
     expect(metadata.consumes).toContainEqual({ kind: "data-source", cardinality: "any" });
+  });
+
+  it("google-calendar provides automation-runner:google-calendar and consumes vault + scheduler", async () => {
+    const metadata = await loadSeed("google-calendar");
+    expect(metadata.faculty).toBe("automations");
+    expect(metadata.provides).toContainEqual({
+      kind: "automation-runner",
+      name: "google-calendar"
+    });
+    expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
+    expect(metadata.consumes).toContainEqual({
+      kind: "automation-runner",
+      name: "scheduler",
+      cardinality: "optional-one"
+    });
   });
 
   it("the full seed stack resolves capabilities cleanly", async () => {

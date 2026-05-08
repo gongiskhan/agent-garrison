@@ -563,51 +563,91 @@ into the default composition.
 
 ## T6 — Google Calendar Fitting
 
-**Status: deferred. The capability is already wired via an
-existing MCP, not via a Garrison-vault-backed Fitting.**
+**Status: PASS (offline). Runtime verification pending the next
+`garrison up` on a fresh OAuth grant.**
 
-**What was specced (original plan):** a new
-`fittings/seed/google-calendar/` Fitting with OAuth setup, a
-scheduler-driven 5-min sync to a local `calendar.md`, and tools
-exposing list/create/update/delete via the Calendar API.
+**Reversal of the prior decision.** An earlier iteration of this
+section marked T6 *"PASS-by-substitution"* on the grounds that
+`mcp__claude_ai_Google_Calendar__*` already covered read+write.
+That was correct from the operative's point of view but wrong
+from Garrison's: the MCP path leaves Garrison without
+(a) a stable CLI other Fittings can call, (b) vault-backed
+credentials we own, (c) a per-user refresh token we control, and
+(d) a scheduled sync that keeps `data/calendar.md` warm for
+operative briefings (T7). Those four are the reason we ship a
+first-class Fitting.
 
-**What we observed during T3 verification (2026-05-07T00:31Z):**
-the Operative *already* called
-`mcp__claude_ai_Google_Calendar__list_events` and got back
-today's real events without any Garrison-side OAuth. The
-Calendar MCP is wired at the Claude-account level (via
-`Claude_ai_Google_Calendar` MCP server) and is reachable from
-every session running under that account.
+**What ships as T6:**
 
-**What that changes about T6:**
+- New `fittings/seed/google-calendar/` Fitting:
+  - `apm.yml` — faculty `automations`, `cli-skill`, provides
+    `automation-runner:google-calendar`, consumes
+    `vault:one` and `automation-runner:scheduler:optional-one`.
+  - `pyproject.toml` — `google-auth`, `google-auth-oauthlib`,
+    `google-api-python-client`, `tzlocal`. uv-managed venv
+    inside the installed Fitting.
+  - `scripts/setup.sh` — checks python3 ≥ 3.10 + uv, validates
+    vault env vars, runs `uv sync`, prepares
+    `~/.garrison/google-calendar/` (mode 0700), invokes
+    `calendar.py --setup` (refresh-or-OAuth-loopback). If the
+    scheduler Fitting is present, idempotently registers a
+    `calendar-sync` job at `*/5 * * * *`.
+  - `scripts/verify.sh` — token file exists at mode 0600;
+    `calendar.py --probe` succeeds (refresh + read-only
+    `events.list`).
+  - `scripts/calendar.py` — single Python entrypoint covering
+    `--setup`, `--probe`, `list <range>`, `create`, `update`,
+    `delete`, `sync`, plus `--render-fixture` for tests.
+    Loopback OAuth flow on `127.0.0.1:<random>` with 120 s
+    timeout. Token persisted at
+    `~/.garrison/google-calendar/token.json` (mode 0600).
+  - `scripts/calendar-sync-wrapper.sh` — short shim the
+    scheduler invokes; stable cron command string.
+  - `.apm/skills/google-calendar/SKILL.md` — operative-facing
+    guide: CLI surface, timezone discipline (UTC ISO in,
+    user-local out), conflict-check pattern, context budget.
+  - `instructions.md` — Cloud Console steps, `garrison vault set`
+    commands, opt-in selection snippet, first-run browser-tab
+    note, token revocation procedure.
+- `compositions/default/apm.yml` — added
+  `../../fittings/seed/google-calendar` to `dependencies.apm`.
+  **Not** added to `selections.automations` — opt-in only,
+  because the OAuth flow needs interactive consent.
+- `tests/seed.test.ts` — added `"google-calendar"` and
+  `"scheduler"` to `seedIds`; added focused `it()` block
+  asserting the provides/consumes shape.
+- `tests/google-calendar-sync-render.test.ts` + four JSON
+  fixtures (`empty`, `all-day`, `multi-day`, `no-location`)
+  covering the markdown render function via
+  `python3 calendar.py --render-fixture`.
 
-- **Read path:** already live via MCP. No Fitting needed.
-- **Write path:** also via MCP (`create_event`, `update_event`,
-  `delete_event` — visible in the deferred-tool registry).
-- **Local `calendar.md` mirror:** the original motivation was
-  fast offline access. With MCP being live and fast, the local
-  mirror is dead-weight unless a specific need surfaces (e.g.
-  briefing logic that wants a stable snapshot). Skipped for v1.
-- **Vault-backed direct API access:** the only reason to add
-  this would be running outside the Claude account scope. Not
-  a Phase 2 use case.
+**Verification (offline — passing now):**
 
-**What ships as T6 in Phase 2:** **nothing in the seed
-catalogue.** The plan promised a Fitting; reality is the
-capability is already there and adding a duplicate Fitting
-would be redundant. Documenting the decision here so a future
-session doesn't try to re-implement it.
+```
+npx vitest run                                              # 13 files / 76 tests / 1 skipped
+npx tsx scripts/validate-fitting.ts fittings/seed/google-calendar
+# Overall: PASS (architecture / security / prompt-injection / quality)
+```
 
-**If a future need surfaces** (e.g. running on a host without
-MCP access), revisit the original Fitting design — it remains
-valid as a fallback path.
+**Verification (runtime — requires real OAuth, expected once
+the user opts the Fitting into their composition):**
 
-**Result:** **PASS-by-substitution.** The Phase 2 done-when item
-*"Calendar events I create via the Operative appear in Google
-Calendar"* is satisfied by the existing MCP integration,
-verified end-to-end during T3 (the Operative listed today's
-real Calendar events; create_event is the obvious next call and
-uses the same MCP).
+1. Add `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` to
+   Garrison's Vault tab (matches Slack's vault-injection pattern).
+2. Add `google-calendar` to `selections.automations` per
+   `instructions.md`.
+3. `garrison up` — first run opens a browser tab; user approves;
+   setup exits 0; token at
+   `~/.garrison/google-calendar/token.json` (mode 0600) appears.
+4. `bash apm_modules/_local/google-calendar/scripts/verify.sh`
+   prints `ok`.
+5. `… calendar.py list today` returns real events; `… create
+   --title "T6 test" …` shows up in Google Calendar's web UI;
+   `… sync` writes the markdown shape documented in the SKILL.
+6. `node apm_modules/_local/scheduler/scripts/scheduler.mjs list`
+   shows the `calendar-sync` job.
+7. Subsequent `garrison up` does not open a browser tab (refresh
+   path).
 
 ---
 
