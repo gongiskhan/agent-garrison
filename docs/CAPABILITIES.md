@@ -1,9 +1,18 @@
 # Capabilities
 
-The five capability kinds Fittings can `provides` or `consumes` in
-their `x-garrison` block. Cardinality is enforced by the resolver
+The capability kinds Fittings can `provides` or `consumes` in their
+`x-garrison` block. Cardinality is enforced by the resolver
 (`src/lib/capabilities.ts`); see [GOVERNANCE.md](./GOVERNANCE.md) and
 [FITTINGS.md](./FITTINGS.md) for context.
+
+The set started at five at the 2026-05-04 v1 reset and grew as
+Phases 1–3 landed: `soul`, `data-source`, `channel`, and
+`artifact-store` were each added on Claude-Code-justified evidence
+(see [DECISIONS.md](./DECISIONS.md) and
+[GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md)). The full list, as
+enforced by `src/lib/metadata.ts`: `orchestrator`, `soul`,
+`agent-skill`, `memory-store`, `automation-runner`, `data-source`,
+`channel`, `artifact-store`, `vault`.
 
 ## Cardinality literals
 

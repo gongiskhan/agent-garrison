@@ -29,7 +29,12 @@ The capability vocabulary is `orchestrator`, `agent-skill`,
 `memory-store`, `automation-runner`, `vault`. The earlier 15-kind
 sketch is shelved.
 **Source:** consolidated v1 plan §13 (capability vocabulary slimming),
-[CAPABILITIES.md](./CAPABILITIES.md). **Status:** Settled.
+[CAPABILITIES.md](./CAPABILITIES.md). **Status:** Reconsidering —
+the five grew to nine across Phases 1–3 (`soul`, `data-source`,
+`channel`, `artifact-store` each added on Claude-Code-justified
+evidence). The "no premature 15-kind menu" intent stands; new kinds
+are only added when a real Fitting needs one. Full current list in
+[CAPABILITIES.md](./CAPABILITIES.md).
 
 ## 2026-05-04 · `x-garrison` manifest block name retained
 

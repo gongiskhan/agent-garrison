@@ -1,8 +1,8 @@
 # Agent Garrison Faculties
 
-This document expands the Faculty table from `AGENTS.md`. The list is a
-working draft for v1; do not optimize the Faculty set before the
-Definition of Done is observable.
+This document expands the Faculty table from [SPEC.md](./SPEC.md) §2.
+The list is a working draft for v1; do not optimize the Faculty set
+before the Definition of Done is observable.
 
 ## 1. Heartbeat
 

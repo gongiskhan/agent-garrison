@@ -1,10 +1,17 @@
 # Agent Garrison Seed Fittings
 
-v1 starts with six seed Fittings as local APM packages under
+v1 started with six seed Fittings as local APM packages under
 `fittings/seed/`. They are local-path dependencies during bootstrap
 and can be split into standalone git repos after the runner flow is
 proven. Capability wiring (`provides` / `consumes`) is summarised in
 `fittings/seed/README.md`.
+
+Phases 1–4 added more seeds to fill out the personal-assistant
+shape. The original six are catalogued below in detail; the
+additions are inventoried at the end of this file under "Phase 1+
+additions" with a short purpose line each. See
+[GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md) for the per-phase
+context.
 
 ## Tier Classifier
 
@@ -118,3 +125,43 @@ fittings/seed/<id>/
 Only the files needed by each Fitting are present. Verify hooks must
 prove installed output exists after `apm install`, not merely that the
 source package exists.
+
+## Phase 1+ additions
+
+Inventoried, not yet specced at the same depth as the original six.
+Each one lives at `fittings/seed/<id>/` with an `apm.yml`,
+`x-garrison` block, and verify hook. Inspect the manifest for the
+config schema, `provides`/`consumes` wiring, and `for_consumers`
+text where applicable.
+
+- `personal-operative` (Phase 1) — orchestrator Fitting that owns
+  global config (`projects_root`, `personas`, hat-detection rules,
+  memory usage discipline). Composition-aware via
+  `cardinality: any` consumes on every capability kind.
+- `soul` (Phase 1) — the real PM-plus-Architect-plus-PA persona,
+  replacing the dogfood placeholder.
+- `slack-channel` (Phase 1) — webhook-based inbound channel ported
+  from `~/Projects/awc-gateway-slack/`. Provides
+  `channel:slack`.
+- `morning-briefing` (Phase 2) — scheduled cron Fitting that posts
+  the day's plan to the report channel. Wrapper-script shape
+  (validator exception: `automations + cli-skill`).
+- `google-calendar` (Phase 2) — bidirectional calendar sync.
+  Provides `data-source:google-calendar`.
+- `projects-index` (Phase 2) — shallow index of `projects_root`
+  for dev-hat context. Skill shape.
+- `scheduler` (Phase 2) — cron Faculty Fitting that hosts
+  `morning-briefing` and future scheduled work.
+- `artifact-store` (Phase 3) — filesystem-backed artifact storage
+  with namespaces (`documents/`, `automations/`, `voice/`).
+  Provides `artifact-store:filesystem`.
+- `documents` (Phase 3) — markdown Documents workspace layered on
+  Artifact Store, with sidebar-surface UI (read + edit views,
+  textarea editor for v1, tiptap deferred).
+- `coding-subagent` (Phase 4) — Variant A sub-agent Fitting that
+  the Orchestrator dispatches coding work to. CLI-shape so it
+  looks like every other Fitting from outside.
+
+The Phase 5 (Armory) Sequoias decomposition is in flight and will
+add `worktree-management:sequoias`, `session-view:sequoias`, and
+`terminal:armory-default` when it lands.

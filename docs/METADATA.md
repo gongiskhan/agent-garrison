@@ -130,7 +130,7 @@ View schema:
 |---|---:|---:|---|
 | `id` | string | yes | Stable view id, slug-shaped (`^[a-zA-Z][a-zA-Z0-9_-]*$`). Combined with the Fitting id to form the registry key the host app loads. |
 | `placement` | enum | yes | `faculty-tab` (renders inline on the Compose pane next to the Fitting's config form) or `sidebar-surface` (gets its own page under `/fitting/<fitting-id>/...` and a left-nav entry). |
-| `entry` | string | yes | Path relative to the Fitting root. Authoritative declaration; the host app does NOT load from disk in v2 (see AGENTS.md §9). |
+| `entry` | string | yes | Path relative to the Fitting root. Authoritative declaration; the host app does NOT load from disk in v2 (see [SPEC.md](./SPEC.md) §9). |
 | `route` | string | yes | Path fragment under the Fitting's prefix (`/<fitting-id>`). Supports react-router-style params (`/:id`, `/:id/edit`). The view resolver matches sub-paths against this template; first-match wins. |
 
 ### v1 → v2 normalization
