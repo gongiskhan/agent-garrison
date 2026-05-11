@@ -151,6 +151,15 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["plugin"],
     family: "workbench",
     notes: "Claude Code session status dashboard across git worktrees."
+  },
+  {
+    id: "outposts",
+    order: 19,
+    name: "Outposts",
+    cardinality: "multi",
+    shapes: ["plugin"],
+    family: "workbench",
+    notes: "Remote Mac bridges connected over Garrison Outpost Protocol v1 — spawn processes, watch files, manage git worktrees on remote machines."
   }
 ];
 

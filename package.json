@@ -4,8 +4,8 @@
   "private": true,
   "description": "Local-first composer and runner for autonomous agent setups.",
   "scripts": {
-    "start": "concurrently --names next,ws --kill-others-on-fail \"next dev -H 127.0.0.1 -p 3000\" \"node scripts/trenches-ws.mjs\"",
-    "dev": "concurrently --names next,ws --kill-others-on-fail \"next dev -H 127.0.0.1 -p 3000\" \"node scripts/trenches-ws.mjs\"",
+    "start": "concurrently --names next,ws,outpost --kill-others-on-fail \"next dev -H 127.0.0.1 -p 3000\" \"node scripts/trenches-ws.mjs\" \"node scripts/outpost-host.mjs\"",
+    "dev": "concurrently --names next,ws,outpost --kill-others-on-fail \"next dev -H 127.0.0.1 -p 3000\" \"node scripts/trenches-ws.mjs\" \"node scripts/outpost-host.mjs\"",
     "dev:next": "next dev -H 127.0.0.1 -p 3000",
     "dev:ws": "node scripts/trenches-ws.mjs",
     "build": "next build",

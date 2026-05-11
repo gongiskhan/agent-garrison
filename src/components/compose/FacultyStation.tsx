@@ -88,6 +88,10 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   "session-view": {
     role: "Shows Claude Code session status across git worktrees.",
     fit: "Badges reflect live session health (idle/working/waiting/errored) driven by Claude Code hooks."
+  },
+  outposts: {
+    role: "Connects remote Macs as managed outposts over Garrison Outpost Protocol v1.",
+    fit: "Each Outpost Fitting represents one remote machine. Spawn processes, watch files, and manage git worktrees remotely from the Workbench."
   }
 };
 
@@ -109,7 +113,8 @@ const facultyGroup: Record<FacultyId, string> = {
   terminal: "Workbench",
   "screen-share": "Workbench",
   "worktree-management": "Workbench",
-  "session-view": "Workbench"
+  "session-view": "Workbench",
+  outposts: "Workbench"
 };
 
 export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {

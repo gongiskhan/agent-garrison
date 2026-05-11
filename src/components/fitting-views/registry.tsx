@@ -105,6 +105,15 @@ const REGISTRY: Record<string, FittingViewComponent> = {
         <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
       )
     }
+  ),
+  "outpost-tailscale-host:main": dynamic(
+    () => import("../../../fittings/seed/outpost-tailscale-host/ui/OutpostView"),
+    {
+      ssr: false,
+      loading: () => (
+        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading outposts…</div>
+      )
+    }
   )
 };
 

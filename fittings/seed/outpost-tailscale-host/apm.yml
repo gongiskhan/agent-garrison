@@ -1,0 +1,39 @@
+name: outpost-tailscale-host
+version: 0.1.0
+description: Garrison Outpost — remote Mac bridge. Connects a remote Mac (running garrison-outpost-bridge) to the Garrison host over Garrison Outpost Protocol v1. Manage remote processes, files, and git worktrees from the Workbench.
+target: claude
+type: plugin
+includes: auto
+x-garrison:
+  faculty: outposts
+  cardinality_hint: multi
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Garrison Outpost bridge for a Tailscale-connected remote Mac. Spawn processes, read files, and manage git worktrees on the remote machine.
+  for_consumers: |
+    Remote Macs registered as Outposts can run processes, read and write files, and manage git worktrees via the Garrison Outpost Protocol v1.
+    Use the Workbench Outposts tab to view connected machines and send RPC calls.
+    API: GET /api/workbench/outposts to list all registered outposts and their connection status.
+    API: POST /api/workbench/outposts { name, token } to register a new outpost.
+    API: POST /api/workbench/outposts/:name { type, payload } to issue a blocking RPC call.
+    API: DELETE /api/workbench/outposts/:name to unregister an outpost.
+    The bridge daemon (garrison-outpost-bridge) must be installed and running on the remote Mac.
+  config_schema: []
+  provides:
+    - kind: outpost
+      name: outpost-tailscale-host
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: bash scripts/verify.sh
+    expect: ok
+    timeout_ms: 5000
+  ui:
+    views:
+      - id: main
+        placement: faculty-tab
+        entry: ./ui/OutpostView.tsx
+        route: /

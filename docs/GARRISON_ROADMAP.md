@@ -37,14 +37,20 @@ A single Operative running locally that:
 7. Plans features via Claude Code's planning tool, asks me to approve,
    then executes them in the right project folder, in the right
    session shape.
-8. Gives me a tooling surface (the Armory) where worktrees,
+8. Gives me a tooling surface (the Workbench) where worktrees,
    sessions, terminals, screen sharing, and other tools compose
    the same way agentic primitives do — Faculties and Fittings,
    wired by provides/consumes. The Sequoias worktree-manager
-   becomes three Armory Fittings rather than a separate app.
-9. Runs and self-improves browser automations (Playwright-based, ported
-   from EKOA) with a UI surface where I can fix, replay, and feedback.
-10. Treats the Kanban board as a control plane: I add a card,
+   becomes three Workbench Fittings rather than a separate app.
+9. Reaches across all my Macs via the Outposts Faculty: I sit
+   at any machine, Garrison runs on the always-on host, the
+   Operative orchestrates work on whichever machine the work
+   actually lives on. Worktrees, terminals, file operations,
+   vault sync — all flow through a small bridge per remote
+   machine, no second Garrison instance needed.
+10. Runs and self-improves browser automations (Playwright-based, ported
+    from EKOA) with a UI surface where I can fix, replay, and feedback.
+11. Treats the Kanban board as a control plane: I add a card,
     the Operative picks it up; I drag a card, the Operative reacts.
     Foundation for genuinely autonomous workflows where one operator
     runs a software project — or a small business — through their
@@ -78,17 +84,28 @@ These are not phase items, just things to keep in mind across the work.
     extracts atomic articles via the Anthropic API into the Obsidian
     vault at `~/Projects/ekus/obsidian-vault/Compiled/`. This is
     what the Memory Fitting wraps. Already alive on this machine.
-  - **EKOA** (`~/Projects/ekoa-dev/`) — Phase 6 only. Has *two*
+  - **EKOA** (`~/Projects/ekoa-dev/`) — Phase 7 only. Has *two*
     automation engines: `cortex/` (Playwright in-process) and
-    `automato/` (raw CDP via chrome-remote-interface). Phase 6 has
+    `automato/` (raw CDP via chrome-remote-interface). Phase 7 has
     to pick before porting. UI is Next.js 16 + React 19 at
     `ekoa/app/(dashboard)/automations/`.
   - **Sequoias** (sibling project on this machine) — Phase 5
     primary reference. Standalone Next.js worktree-manager app.
-    Decomposes into three Armory Fittings (`worktree-management`,
+    Decomposes into three Workbench Fittings (`worktree-management`,
     `session-view`, `terminal`) under the Sequoias decomposition
-    verification milestone. Once the Armory composition works,
+    verification milestone. Once the Workbench composition works,
     Sequoias is retired in favor of those three Fittings.
+    **Sequoias also has multi-machine support** (its own bridge
+    pattern) which Phase 5's Workbench port intentionally left out;
+    Phase 6 (Outposts) restores that capability as a proper
+    Faculty rather than a Sequoias-specific feature.
+  - **Three Macs on Tailscale:** the **automation machine** (Mac
+    Mini M4, 16 GB, always on — hosts Garrison + Operative), the
+    **development machine** (MacBook Pro M1 Max, 32 GB, always on
+    — primary code work), and the **portable machine** (MacBook
+    Air M4, 16 GB, intermittent uptime — carried around). Phase 6
+    Outposts wires these together; before Phase 6, Garrison is
+    single-machine.
   - **Harmonika** (sibling project on this machine) — Phase 5
     secondary reference. Source of the screen-share
     implementation and any terminal/PTY plumbing not already
@@ -238,7 +255,7 @@ Don't build speculatively. Build when one or more of:
 ### Tracked as
 
 A future phase, exact number TBD. Likely lands sometime after
-Phase 6, when the Fitting registry has enough breadth that
+Phase 7, when the Fitting registry has enough breadth that
 composition complexity is real.
 
 ---
@@ -604,21 +621,21 @@ share a UI surface, a release window, and several spec changes:
    prompting.
 3. **UI extension contract v2** (multi-view Fittings, placement,
    in-Fitting routing, cross-tab linking via `garrison://`) — the
-   contract redesign that was scheduled for Phase 6 (Automations).
+   contract redesign that was scheduled for Phase 7 (Automations).
    The Artifact Store browser + Documents editor are the two
    forcing functions, brought together here.
 
-### Why now (not Phase 6, not Garrison-core)
+### Why now (not Phase 7, not Garrison-core)
 
 - **Not Garrison-core:** documents are a specific use case, not
   every Operative needs them. Putting documents in core would
   bloat Garrison and assume too much about how people use their
   Operatives. Fitting keeps it optional.
-- **Not Phase 6:** waiting to build documents until Automations
+- **Not Phase 7:** waiting to build documents until Automations
   forces the UI redesign is artificial. The need is real now.
 - **Bringing the UI contract redesign forward is a calendar
   shift, not a scope addition.** That work was already going to
-  happen at Phase 6. Documents drives the requirements concretely
+  happen at Phase 7. Documents drives the requirements concretely
   instead of speculatively.
 
 ### Scope
@@ -678,7 +695,7 @@ share a UI surface, a release window, and several spec changes:
      - **Placement:** `faculty-tab` (renders inside the Faculty's
        pane, today's behavior) or `sidebar-surface` (renders as a
        full Garrison surface in the left nav, alongside Run /
-       Components / Armory). Documents will use
+       Components / Workbench). Documents will use
        `sidebar-surface` since it's a workspace, not a Faculty
        inspector.
      - **In-Fitting routing.** Garrison's router exposes a path
@@ -688,7 +705,7 @@ share a UI surface, a release window, and several spec changes:
        views. Other parts of Garrison (chat, etc.) can link via
        these.
      - **Event bus** for Fitting → Operative talkback (deferred,
-       Phase 6 still adds this; v2 only does views + routing +
+       Phase 7 still adds this; v2 only does views + routing +
        linking).
    - `AGENTS.md` §9 updated to spec the v2 contract.
    - `METADATA.md` updated for the new `x-garrison.ui` shape.
@@ -726,7 +743,7 @@ share a UI surface, a release window, and several spec changes:
        (`garrison://documents/<id>` resolves through Artifact Store
        metadata).
      - For video: routes to a built-in video player view (or the
-       Automations Fitting's player view, when Phase 6 lands).
+       Automations Fitting's player view, when Phase 7 lands).
      - For audio: built-in audio player.
      - Otherwise: download link.
    - **`for_consumers` text:** generic — "to surface a file you've
@@ -854,7 +871,7 @@ share a UI surface, a release window, and several spec changes:
   the "open in editor" affordance, the latter is the "open in
   whatever default viewer" affordance. Document the convention.
 - **Event bus for Fitting → Operative talkback** — deferred to
-  Phase 6 with the rest of the original UI contract redesign.
+  Phase 7 with the rest of the original UI contract redesign.
   Documents/Artifact Store v1 don't need it; the editor saves a
   file, the Operative reads the file the next time it consults
   the Fitting.
@@ -876,7 +893,7 @@ share a UI surface, a release window, and several spec changes:
   the deferred part.
 - Per-project document scoping. v1 = flat per composition.
 - Artifact retention/pruning policies. v1 = nothing is ever
-  pruned. Phase 6+ when video artifacts make storage growth real.
+  pruned. Phase 7+ when video artifacts make storage growth real.
 
 ---
 
@@ -985,7 +1002,7 @@ me to approve, then executes the work in the right project folder.
 
 ---
 
-## Phase 5 — Workbench: a family of Faculties for tools
+## Phase 5 — Workbench: a family of Faculties for tools — **DONE (2026-05-11)**
 
 **Status (2026-05-11):** Shell + seeds + Sequoias parity all shipped.
 4 Workbench Faculties (`terminal`, `screen-share`,
@@ -1028,65 +1045,65 @@ identifies Workbench Faculties.
   Garrison-core. That was a category error — the platform thesis
   is "Faculties + Fittings compose; Garrison's shell renders what's
   installed." The moment we built a separate area, we'd be saying
-  "but actually some things don't follow the rules." Armory keeps
+  "but actually some things don't follow the rules." Workbench keeps
   the rules: tools are just Fittings under a family of Faculties.
 - The first user is technical and the seed Faculties reflect that
   bias (terminals, worktrees). The architecture is open: users can
-  declare ad-hoc Armory Faculties in their composition for one-off
+  declare ad-hoc Workbench Faculties in their composition for one-off
   needs, and over time other tool categories (non-development) can
-  ship as Armory Faculties without architectural change.
+  ship as Workbench Faculties without architectural change.
 
 ### Naming
 
-- **Armory** — the shell area that groups Faculties whose Fittings
+- **Workbench** — the shell area that groups Faculties whose Fittings
   provide tools. "Where the gear lives," pairs naturally with
   Operatives, single-word noun, fits the Garrison metaphor.
-- **Armory Faculty** — a Faculty whose Fittings render in the
-  Armory area of the shell. The current seed set:
+- **Workbench Faculty** — a Faculty whose Fittings render in the
+  Workbench area of the shell. The current seed set:
   `worktree-management`, `session-view`, `terminal`,
   `screen-share`, `browser`.
 
 ### Scope
 
-1. **Armory section in the Garrison shell.**
+1. **Workbench section in the Garrison shell.**
    - The shell reads the active composition's `x-garrison` block,
      identifies all installed Fittings whose declared Faculty is
-     an Armory Faculty, and renders each in the Armory area.
-   - **No special-cased UI.** The Armory uses the same UI Fitting
+     an Workbench Faculty, and renders each in the Workbench area.
+   - **No special-cased UI.** The Workbench uses the same UI Fitting
      mechanism as the existing chat surface and Phase 3's
      contract-v2 sidebar surfaces. If APM's existing UI Fitting
-     support doesn't cover what the Armory needs, the gap is in
+     support doesn't cover what the Workbench needs, the gap is in
      the broader UI Fitting mechanism — fix benefits both.
-   - Layout: left rail showing installed Armory Fittings as
+   - Layout: left rail showing installed Workbench Fittings as
      entries, main pane rendering the active Fitting's view.
      Multiple Fittings can be open at once (split / tabbed —
      decide during T0 analysis).
 
-2. **Seed Armory Faculties (well-known with stable contracts):**
+2. **Seed Workbench Faculties (well-known with stable contracts):**
    - `worktree-management` — manages git worktrees: list, create
      with port allocation and startup commands, delete.
    - `session-view` — surfaces session state across the rest of
-     the Armory: which terminals are running, which worktrees are
+     the Workbench: which terminals are running, which worktrees are
      idle/busy, status indicators.
    - `terminal` — embedded terminal (xterm.js + PTY backend).
      Multi-session, busy/idle indicators, host selector.
    - `screen-share` — capture-and-relay of the user's primary
      display. Watch from a phone or another machine.
    - `browser` — embedded browser surface for web tools the user
-     wants alongside their other Armory tools (Excel-for-web,
+     wants alongside their other Workbench tools (Excel-for-web,
      dashboards, etc.). Lower priority for v1 — see T-list.
 
-3. **Action contract for Armory Fittings.**
-   - Armory Fittings that expose actions (create worktree, kill
+3. **Action contract for Workbench Fittings.**
+   - Workbench Fittings that expose actions (create worktree, kill
      session, launch shell at path) declare them via the existing
      `provides`/`consumes` contract — same wiring as Operatives.
    - **Operative bridge is design-now-cost-zero.** An agent-skill
-     Operative can invoke Armory tool actions via the same wiring
+     Operative can invoke Workbench tool actions via the same wiring
      graph. v1 doesn't ship a working bridge; the contract just
      accommodates it without rework.
 
 4. **Sequoias decomposition (verification target).**
-   - Three Fittings, each filling one Armory Faculty:
+   - Three Fittings, each filling one Workbench Faculty:
      - `worktree-management:sequoias` Fitting — provides the
        current worktree set; exposes create-worktree action.
      - `session-view:sequoias` Fitting — consumes worktree stream;
@@ -1112,7 +1129,7 @@ identifies Workbench Faculties.
    - User-managed host list at `~/.garrison/hosts.json` (per-user
      global, *not* per-composition — hosts follow the human, not
      the Operative).
-   - Host selector on `terminal` Fittings (and any other Armory
+   - Host selector on `terminal` Fittings (and any other Workbench
      Fitting that wants it). Local is implicit and always
      available.
    - Remote launches wrap commands in `ssh -t <user>@<address>
@@ -1120,34 +1137,34 @@ identifies Workbench Faculties.
    - Operative-aware actions (Open Orchestrator) are local-only;
      disabled when a remote host is selected.
 
-7. **Ad-hoc Armory Faculties (extensibility).**
-   - Users declare ad-hoc Armory Faculties in their composition's
+7. **Ad-hoc Workbench Faculties (extensibility).**
+   - Users declare ad-hoc Workbench Faculties in their composition's
      `x-garrison` block when they need something one-off (a custom
      dashboard, a specialized tool).
    - Ad-hoc faculties don't get the well-known-contract guarantees
      — they wire and render, but other Fittings can't depend on
      contracts that aren't published.
-   - This is the extensibility seam that lets the Armory grow
+   - This is the extensibility seam that lets the Workbench grow
      beyond the seed set without core changes.
 
 ### Deferred (acknowledged, not done in Phase 5)
 
 - **Operative bridge (working, end-to-end).** Action contract
   designed for it; v1 doesn't ship the bridge invocation path.
-  Phase 6 or later.
+  Phase 7 or later.
 - **Persistent sessions across Garrison restarts.** v1 sessions
-  die on restart. Phase 6+ if needed.
+  die on restart. Phase 7+ if needed.
 - **Server-side file-explorer dialog** for path picking. Free-text
   path is fine for v1.
 - **Auth/security around remote hosts beyond SSH key auth.** v1
   trusts Tailscale + SSH config.
 - **Cross-platform screen share.** v1 is macOS-first per Sequoias/
   Harmonika prior art.
-- **Public discovery / curated lists / marketplace for Armory
+- **Public discovery / curated lists / marketplace for Workbench
   Fittings.** Downstream concern; Garrison must first be useful
   for a single user.
-- **Multi-domain Armory Faculties** (marketing, finance, ops,
-  etc.). Belong to Ekoa for now. Armory is scoped to the
+- **Multi-domain Workbench Faculties** (marketing, finance, ops,
+  etc.). Belong to Ekoa for now. Workbench is scoped to the
   agentic-development workflow.
 
 ### Phase 5 done when
@@ -1232,26 +1249,304 @@ allocator probe/wrap), `tests/worktree-env-rewriter.test.ts`
 
 - **Analysis session at phase start (T0)** — pre-agreed. Walk the
   Sequoias and Harmonika code, confirm exact files/components to
-  lift, settle the Armory shell layout, settle the
+  lift, settle the Workbench shell layout, settle the
   screenshot-vs-streaming choice for screen-share, settle terminal
   busy-detection heuristic.
 - **Default Claude Code flags** — `--dangerously-skip-permissions`
   is implied; settle the rest at T0.
-- **Layout in the Armory pane** — single-fitting-active vs
+- **Layout in the Workbench pane** — single-fitting-active vs
   tabbed-multi-fitting vs split-grid. Decide at T0 based on what
   Sequoias decomposition makes natural.
 - **Browser Faculty scope for v1** — full Fitting or deferred?
   Lower priority than terminal/worktree/session/screen-share;
   likely deferred. Confirm at T0.
 - **APM UI Fitting parity** — does the existing UI Fitting
-  mechanism cover what Armory needs (action declarations,
+  mechanism cover what Workbench needs (action declarations,
   provides/consumes wiring through to UI)? Gap-find at T0;
   if there's a hole, fix it as Garrison-core work that lives
-  outside the Armory but unblocks it.
+  outside the Workbench but unblocks it.
 
 ---
 
-## Phase 6 — Automations Faculty as a real EKOA port
+## Phase 6 — Outposts: multi-machine reach via a local bridge
+
+**Outcome:** Garrison gains an `outposts` Faculty. Each Outpost
+Fitting represents one remote Mac (or other host) running a small
+**bridge** process. From a single Operative on the host machine,
+Garrison can spawn worktrees, run terminals, execute commands,
+watch files, and (over time) carry the full Operative action
+surface across N machines connected via Tailscale.
+
+The phase is the foundation for "I sit at any Mac; my Garrison
+runs on the always-on Mac; everything I do feels local."
+
+### Why this phase, why now
+
+The user runs three Macs on Tailscale: the **automation machine**
+(Mac Mini M4, 16 GB, always on — hosts Garrison + Operative), the
+**development machine** (MacBook Pro M1 Max, 32 GB, always on —
+primary code work), and the **portable machine** (MacBook Air M4,
+16 GB, intermittent uptime — carried around).
+
+Today Garrison is single-machine: one Operative on one host, with
+everything (Trello, Calendar, Slack, Memory, Documents, Artifacts,
+Workbench) bound to that machine's filesystem and processes. To
+use Garrison from a second Mac, the user has to either
+remote-desktop into the first Mac or run a second Garrison
+instance — neither composes with the single-Operative model.
+
+Phase 5 (Workbench) shipped Sequoias-decomposed Fittings that
+handle worktrees + sessions + terminals locally. Sequoias-the-app
+*already* supports multi-machine via a similar bridge pattern; the
+Workbench port lost that capability. Phase 6 restores it as a
+proper Faculty rather than a Sequoias-specific feature.
+
+This is also the phase that begins to repay the architectural
+investment: the bridge is generic — Operative actions, vault sync,
+filesystem operations, command execution — all reuse it. Phase 7
+Automations and Phase 8 Tasks will both benefit.
+
+### The bridge architecture
+
+**Host machine** (automation machine) runs Garrison + the
+Operative as today.
+
+**Each remote Mac** runs a small `garrison-outpost-bridge` process
+that:
+
+- Authenticates to the host (Tailscale already provides network
+  trust; the bridge adds a Garrison-issued token for identity).
+- Holds a persistent WebSocket connection to the host.
+- Exposes RPC-like operations: spawn-process, watch-file,
+  list-files, list-worktrees, run-command, etc.
+- Streams events back to the host: process output, file changes,
+  process exit, status changes.
+- Sleeps when idle (no resource cost beyond the socket).
+
+**The host's Outposts Faculty:**
+
+- `provides: { kind: outpost, cardinality: many }` — one Fitting
+  per remote Mac.
+- Each Fitting maintains the WebSocket connection to its bridge.
+- Exposes uniform RPC + event subscription as a capability that
+  other Fittings (Workbench's worktree-management, terminal,
+  session-view, etc.) consume.
+
+**The transport:** WebSocket over Tailscale (no public exposure;
+Tailscale handles routing and encryption). Message framing: JSON
+for v1 (simple, debuggable). Switch to msgpack or protobuf only
+if the wire overhead bites — unlikely for the message volumes
+this phase deals with.
+
+**Why not SSH:** SSH alone handles fire-and-forget commands but
+doesn't carry long-lived state, bidirectional streams, filesystem
+watching, or reverse calls cleanly. Building those on top of SSH
+means reinventing framing per feature; the bridge does it once.
+
+### What the bridge does NOT do
+
+- **Run an Operative.** v1 keeps one Operative on one host
+  machine. The bridge gives the Operative *hands* on other
+  machines, not *brains*. Splitting the Operative across machines
+  is explicitly out of scope.
+- **Hold its own memory or state.** The bridge is dumb;
+  orchestration logic lives on the host.
+- **Cache or persist anything meaningful.** Restart safety = host
+  reconnects, bridge re-presents current machine state.
+
+### Scope
+
+1. **`outposts` Faculty + bridge protocol.**
+   - New Faculty kind: `outpost`, cardinality `many` per
+     composition.
+   - **Protocol** documented in `PHASE_6_PROTOCOL.md`:
+     - WebSocket over Tailscale.
+     - JSON message framing with typed `{version, type, id, payload}` shape.
+     - Bidirectional: host sends RPC requests, bridge sends
+       responses + unsolicited events.
+     - Operations grouped into namespaces: `process.*`, `fs.*`,
+       `git.*`, `exec.*`.
+     - Versioned at connect time; mismatches fail loudly.
+   - **Auth:** host issues a token per outpost. Bridge presents
+     it on connect. Token rotation: manual reissue + bridge
+     restart for v1. Stored on the bridge side in
+     `~/.garrison-outpost/config.json`.
+
+2. **`garrison-outpost-bridge` (the remote-side process).**
+   - New repo / package: `garrison-outpost-bridge` (its own
+     GitHub repo, like memory-compiler). Cloned by setup to
+     `~/.garrison-outpost/` on each remote Mac.
+   - Stdlib-leaning Node 20+ (matching Garrison's other Node
+     pieces). One persistent connection, one process.
+   - Manifest + version, so the host can detect protocol-version
+     mismatches and refuse to connect cleanly.
+   - launchd plist installed to keep it running across reboots
+     (macOS-first; user uses the bridge on Macs only for v1).
+   - Logs to `~/.garrison-outpost/logs/` with daily rotation.
+
+3. **`outpost:tailscale-host` Fitting (host side).**
+   - Seed Fitting at `fittings/seed/outpost-tailscale-host/`.
+   - Configured with: machine name, Tailscale address, optional
+     SSH user (for the *bootstrap* — see T-ticket later).
+   - `provides: { kind: outpost, name: <machine-name> }`.
+   - Holds the WebSocket connection. Reconnects automatically
+     with exponential backoff on disconnect.
+   - Exposes the protocol operations as a uniform capability
+     surface other Fittings consume.
+
+4. **Bootstrap: getting the bridge onto a remote Mac.**
+   - First-run setup on each remote Mac:
+     - Host generates a token + invitation script.
+     - User runs the script on the remote Mac (SCP'd from host
+       or curl-pipe-bash for v2).
+     - Script clones `garrison-outpost-bridge`, installs deps,
+       writes token, installs the launchd plist, starts the
+       daemon.
+     - Host sees the bridge connect, displays it in the Outposts
+       Faculty's UI as "connected — `development`".
+   - SSH used *only* for the bootstrap. Once the bridge is up,
+     all subsequent traffic is via WebSocket through the bridge.
+
+5. **Workbench integration (the headline use case).**
+   - The Workbench Fittings from Phase 5 grow an "outpost selector":
+     - `worktree-management:sequoias` — when an Outpost is
+       selected, worktrees are managed on that machine via the
+       bridge's `git.*` operations.
+     - `terminal:armory-default` — when an Outpost is selected,
+       PTY is spawned via the bridge's `process.spawn` and
+       streamed back through `process.io` events.
+     - `session-view:sequoias` — status data flows from the
+       remote machine's processes via bridge events.
+   - **The user experience:** I'm on the development machine,
+     open Garrison's web UI pointing at the automation machine,
+     click "New Worktree" with Outpost = development selected.
+     The worktree is created on the development machine's disk.
+     The terminal opens on the development machine. I see all of
+     it through the automation machine's Garrison UI.
+   - This is the deliverable that makes the phase real for the
+     user's workflow.
+
+6. **Operative-side bridge usage.**
+   - The Operative gains access to bridge operations through a
+     new agent-skill Fitting (`outpost-actions` or similar) that
+     exposes:
+     - `run_on(machine, command)` — execute a command on a
+       remote Mac.
+     - `read_file_on(machine, path)`, `write_file_on(...)`,
+       `list_files_on(...)`.
+     - `spawn_on(machine, command)` — start a long-running
+       process and get streaming output.
+   - This is the design-now-cost-zero part: the bridge already
+     supports these operations because the Workbench needs them;
+     wiring them to an Operative-callable skill is a small
+     additional Fitting.
+   - **For consumers (Operative):** when does it use this? The
+     `for_consumers` text guides — "when the user mentions a
+     machine by name, or when a task is naturally local to a
+     specific machine, route through outpost-actions; otherwise,
+     act locally."
+
+7. **Vault sync as the first bridge-driven service.**
+   - The user's Obsidian vault (`~/Projects/ekus/obsidian-vault/`)
+     today lives on the host machine. Git syncs it to a remote,
+     but the remotes get out of date.
+   - New seed Fitting: `vault-sync` (Faculty TBD — likely a new
+     `sync` Faculty, since this isn't really an automation).
+   - `consumes: outpost:many` (one per machine that wants the
+     vault).
+   - Periodically (or on file-change events from the bridge's
+     `fs.watch`) mirrors the host's vault directory to each
+     selected outpost.
+   - Bidirectional in v1 is hard; **start unidirectional**
+     (host → outposts). The host machine is the authority. Edits
+     on remotes are pushed back through git as today (manual
+     flow). Full bidirectional sync deferred to a later phase.
+
+### Phase 6 done when
+
+- I run the bootstrap script (or whatever the one-liner is) on
+  the development machine. Within a minute, that Mac appears in
+  the host's Outposts Faculty as connected.
+- I create a worktree on the Mac I'm sitting at, even though
+  Garrison is running on the automation machine. The worktree
+  appears on the correct machine's filesystem.
+- I open a terminal in an Outpost-managed worktree from
+  Garrison's web UI. Commands run on the remote machine. Output
+  streams back live.
+- I ask the Operative "run `ls ~/Projects` on development" — it
+  invokes `outpost-actions` and returns the result.
+- The vault on the development machine stays in sync with the
+  automation machine's vault within a few seconds of changes
+  (host → remote direction).
+- Bridge reconnects cleanly after the portable machine sleeps
+  and wakes.
+
+### Open questions for Phase 6
+
+- **Protocol choice for v1: JSON over WebSocket (lean) vs gRPC
+  vs custom binary.** JSON is debuggable and good enough for the
+  message volumes Phase 6 generates. Revisit if profiling shows
+  framing overhead matters.
+- **Auth model details.** Token-on-handshake is the v1 plan.
+  Whether to add per-operation signing, rotation policy, or
+  short-lived refresh tokens is open. v1 = static token,
+  manual rotation.
+- **Bridge update mechanism.** When the protocol version on the
+  host bumps, how do remote bridges learn and update? v1 =
+  manual ("user re-runs the bootstrap"); v2 could include a
+  self-update path.
+- **Filesystem semantics across machines.** Path conventions:
+  do `read_file_on("development", "~/Projects/x")` and
+  `read_file_on("host", "~/Projects/x")` resolve sensibly when
+  home dirs differ? v1 expects callers to use absolute paths
+  most of the time; tilde expansion happens on the remote side.
+- **Connection multiplexing.** Multiple Fittings consuming the
+  same outpost — do they share one WebSocket or open separate
+  ones? Sharing is more efficient; concurrent operation safety
+  is the cost. Lean: share, with operation IDs for response
+  routing.
+- **Failure modes.** What does the UI show when an outpost
+  disconnects mid-operation? Worktree creation fails? Terminal
+  hangs? Need explicit error surfacing per operation type.
+- **Host-side WebSocket server location.** The HTTP gateway is
+  the natural home (long-lived, already handling other
+  connections), but it currently does HTTP only. Adding a
+  WebSocket route is small; confirm the gateway can host both
+  cleanly during T0/T2.
+
+### Phase 6 ticket status
+
+- **T0 — Protocol spec.** **Done (2026-05-11).** `docs/phases/PHASE_6_PROTOCOL.md` committed (41cbbdd).
+- **T1 — `garrison-outpost-bridge` daemon.** **Done (2026-05-11).** Standalone repo at `github.com/gongiskhan/garrison-outpost-bridge`. All 24 protocol operations implemented. 10/10 smoke test. Initial commit 2be13cb.
+- **T2 — Host-side Fitting + WS endpoint.** **Done (2026-05-11).** `scripts/outpost-host.mjs` (port 3702, 0.0.0.0), `outposts` Faculty (19th, `family: "workbench"`, `cardinality: "multi"`), `outpost` capability kind, `fittings/seed/outpost-tailscale-host/`, `src/app/api/workbench/outposts/` routes, `OutpostView.tsx` (3s polling). Registry at `~/.garrison/outpost-registry.json`. All tests pass; typecheck clean.
+- **T3 — Bootstrap script.** Not started.
+- **T4–T8.** Not started.
+
+### Out of scope for Phase 6 (deferred)
+
+- **Multi-Operative.** Still one Operative on the host. No
+  Operative shards on remote machines.
+- **Cross-platform bridges.** macOS only for v1. Linux/Windows
+  later if the platform thesis pulls beyond Macs.
+- **Bidirectional vault sync.** Host → outposts only. Two-way
+  merge is hard; defer until there's a clear pattern.
+- **Bridge auto-discovery.** Manual bootstrap per remote Mac.
+  `tailscale status` parsing for auto-suggest is a nice future
+  feature, not v1.
+- **Resource limits on remote operations.** No "this bridge
+  caps at N concurrent processes" — first user pain triggers
+  the limit work.
+- **Cross-outpost operations.** v1 = host orchestrates each
+  outpost independently. "Copy file from outpost A to outpost B
+  directly" routes through the host. Direct bridge-to-bridge is
+  later.
+- **Ekoa parity.** Garrison's bridge intentionally diverges
+  where it makes sense. Convergence with Ekoa's similar work
+  is a separate effort.
+
+---
+
+## Phase 7 — Automations Faculty as a real EKOA port
 
 **Outcome:** Garrison has an Automations Fitting that does what
 EKOA's automations system does today — Playwright-based browser
@@ -1276,7 +1571,7 @@ into Memory and the Orchestrator.
      replay, edit selectors, see screenshots, mark a step as broken,
      give feedback that the agent can act on.
    - Re-evaluate whether the existing UI extension model is rich
-     enough or whether Phase 6 needs a more general "Fitting UI"
+     enough or whether Phase 7 needs a more general "Fitting UI"
      concept (probably the latter — see "UI surfaces" below).
 3. **Memory integration.**
    - Automations remember their last successful run, common failure
@@ -1291,7 +1586,7 @@ into Memory and the Orchestrator.
    - The Classifier may need a new tier behavior: "this looks like
      an automation, route to the automation runner."
 
-### Phase 6 done when
+### Phase 7 done when
 
 - I can author an automation in the Garrison UI (or import from
   EKOA), run it, see it fail, fix the broken step interactively, and
@@ -1299,7 +1594,7 @@ into Memory and the Orchestrator.
 - The Orchestrator can invoke automations as tools during
   conversation.
 
-### Open questions for Phase 6
+### Open questions for Phase 7
 
 - **Engine choice (must resolve before any porting):** EKOA has two.
   `cortex/` uses Playwright API in-process (`browser-pool.ts`,
@@ -1307,14 +1602,14 @@ into Memory and the Orchestrator.
   via `chrome-remote-interface`. Which one do we lift? Cortex is
   more ergonomic; automato is closer to the metal.
 - **UI hosting:** still trusted React in-process per the v1 model, or
-  does Phase 6 push us toward iframe-sandboxed UI (v1.1 concern in
+  does Phase 7 push us toward iframe-sandboxed UI (v1.1 concern in
   the original plan)?
 - **Memory namespacing:** new Memory Faculty config, or per-Fitting
   scoped writes that the compiler aggregates?
 
 ---
 
-## Phase 7 — Tasks Faculty (Kanban-as-control-plane)
+## Phase 8 — Tasks Faculty (Kanban-as-control-plane)
 
 **Outcome:** A first-party `tasks` Faculty that owns task management
 end-to-end — file-system-backed, with a Kanban UI surface — replacing
@@ -1396,7 +1691,7 @@ That's a deeper integration than Phase 1's Trello-data-source.
      for tasks the Operative judges higher-tier, it produces a
      plan via Phase 4's planning tool, asks the user to approve
      via Slack/chat, then moves the task forward only on approval.
-   - **Automation integration (depends on Phase 6):** a task
+   - **Automation integration (depends on Phase 7):** a task
      marked "needs browser automation" can be linked to a saved
      automation; running the automation ticks the task.
    - **Action history per task:** the task body grows over time
@@ -1415,10 +1710,10 @@ That's a deeper integration than Phase 1's Trello-data-source.
      "Done" ↔ `done`.
    - **Phase 1's `trello-data-source` Fitting becomes deprecated**
      by this. Migration path: ship both for one phase, drop
-     `trello-data-source` after Phase 7 ships and users have
+     `trello-data-source` after Phase 8 ships and users have
      migrated.
 
-### Phase 7 done when
+### Phase 8 done when
 
 - I can create a task in chat ("remind me to do X"). It appears
   in the Kanban board's `todo` column within seconds.
@@ -1434,7 +1729,7 @@ That's a deeper integration than Phase 1's Trello-data-source.
   board into the local Tasks store and propagates local changes
   back to Trello.
 
-### Open questions for Phase 7
+### Open questions for Phase 8
 
 - **Trello-sync Faculty:** new kind (`data-sync`?) vs reuse
   `data-sources` vs reuse `automation-runner`. Likely a new kind
@@ -1457,7 +1752,7 @@ That's a deeper integration than Phase 1's Trello-data-source.
   has edge cases. Last-write-wins by `updated` timestamp for v1;
   surface conflicts to the user when they're unresolvable.
 
-### Out of scope for Phase 7 (deferred)
+### Out of scope for Phase 8 (deferred)
 
 - Multi-user / multi-Operative shared boards.
 - Automation-style "run this task on a button click" — separate
@@ -1484,13 +1779,13 @@ evolves in two steps.
   `sidebar-surface`), in-Fitting routing, cross-tab linking via
   `garrison://<fitting>/<view>` URLs. Phase 1 v1-style Fittings
   keep working unchanged (additive contract).
-- **Contract v3** (Phase 6 — Automations forces it): adds the event
+- **Contract v3** (Phase 7 — Automations forces it): adds the event
   bus for Fitting → Operative talkback (e.g. "this selector is
   wrong, use this instead"). Stateful UI feedback loops.
 
-**Phase 5 (Armory) uses contract v2 fully.** Armory Fittings ship
+**Phase 5 (Workbench) uses contract v2 fully.** Workbench Fittings ship
 their UIs as multi-view contract-v2 declarations — same mechanism
-Documents and the Artifact Store browser already use. The Armory
+Documents and the Artifact Store browser already use. The Workbench
 shell area renders Fittings dynamically based on their declared
 faculty (one of `worktree-management`, `session-view`, `terminal`,
 `screen-share`, `browser`, or ad-hoc). This is the architectural
@@ -1501,7 +1796,7 @@ entry.
 **Phase 1 Fittings (Slack, Memory) ship with constrained v1
 single-pane UIs.** They keep working under v2 unchanged. They get
 retrofitted *opportunistically* — when one of them needs a richer
-UI it migrates to v2. Phase 6's contract v3 work doesn't break v2
+UI it migrates to v2. Phase 7's contract v3 work doesn't break v2
 either.
 
 **v2 contract shape (driven by Documents):**
@@ -1515,7 +1810,7 @@ either.
 - `garrison://<fitting>/<view>` URLs resolve across the app — chat
   can link to Documents, Documents can link to other Fittings.
 
-**v3 contract additions (Phase 6):**
+**v3 contract additions (Phase 7):**
 
 - Event bus: Fitting views can dispatch structured events the
   Orchestrator listens on.
@@ -1524,7 +1819,7 @@ either.
   breaking changes (event bus is opt-in).
 
 This is closer to what the deferred Workspace Faculty wants for
-panes in v1.1. Treat Phase 6's UI work as the *de facto* prototype
+panes in v1.1. Treat Phase 7's UI work as the *de facto* prototype
 of Workspace.
 
 ### Retrofit consequences (acknowledged)
@@ -1534,7 +1829,7 @@ of Workspace.
   v2 only when one of them needs richer UI than v1 can carry.
 - Phase 3 Documents and any later Fittings ship as v2 from day
   one, then migrate to v3's event bus opportunistically when
-  Phase 6 lands.
+  Phase 7 lands.
 - The compounding retrofit cost (v1 → v3 in two hops) is accepted
   for the Phase 1 Fittings since their UIs are minimal and a
   one-time migration is cheap.
@@ -1553,13 +1848,13 @@ the doc.
   Phase 3 to reflect that it's foundational and roughly Phase-1-
   sized. Subsequent phases shift up by one: old Phase 3 → 4 (plan-
   then-execute), old Phase 4 → 5 (Trenches), old Phase 5 → 6
-  (Automations). New Phase 7 added: Tasks Faculty (Kanban-as-
+  (Automations). New Phase 8 added: Tasks Faculty (Kanban-as-
   control-plane). Older decision-log entries updated to use the
   new numbers for readability.
 - **2026-05-05** — Phased plan adopted: Phase 1 (PA-shaped seed),
   Phase 2 (real PA functionality), and what at the time were
   Phases 3–4 (plan-then-execute and Automations). Now: Phase 4
-  and Phase 6 respectively, post-renumber.
+  and Phase 7 respectively, post-renumber.
 - **2026-05-06** — Phase 5 added: **Trenches** (tooling surface
   for hands-on work — embedded terminal, screen sharing, Open
   Orchestrator/Open Claude Code launchers, multi-host via Tailscale +
@@ -1569,11 +1864,11 @@ the doc.
   the `knowledge-base` Faculty (claude.ai-style document workspace
   with markdown view + edit). Built as a Fitting, not Garrison-core,
   to keep the platform thesis (composable, optional). Brings the UI
-  extension contract redesign forward from Phase 6 — Documents is
+  extension contract redesign forward from Phase 7 — Documents is
   the forcing function instead of Automations.
 - **2026-05-06** — UI contract evolution split into three steps:
   v1 (today, single pane), v2 (Phase 3 — multi-view, placement,
-  routing, cross-tab linking), v3 (Phase 6 — event bus for
+  routing, cross-tab linking), v3 (Phase 7 — event bus for
   Operative talkback). v1 stays additive under v2/v3; v2 stays
   additive under v3. Phase 1 Fittings migrate opportunistically.
 - **2026-05-06** — Documents Fitting scope explicitly excludes
@@ -1611,14 +1906,14 @@ the doc.
   into one Faculty's `for_consumers` block. Cross-tab links
   resolve through both `garrison://documents/<id>` and
   `garrison://artifacts/<id>`.
-- **2026-05-06** — Phase 7 added: **Tasks Faculty
+- **2026-05-06** — Phase 8 added: **Tasks Faculty
   (Kanban-as-control-plane).** First-party file-system-backed
   task store with a Kanban UI, replacing Trello as source of
   truth. Trello becomes optional via a Trello-sync Fitting that
   consumes the local Tasks store. Foundation for autonomous
   workflows — heartbeat picks up tasks, plan-then-execute on
   higher-tier ones, automation runs tick tasks. Phase 1's
-  `trello-data-source` Fitting deprecated by Phase 7's
+  `trello-data-source` Fitting deprecated by Phase 8's
   `trello-sync` Fitting; both ship for one phase to allow
   migration.
 - **2026-05-08** — Phase 2 implementation observations from T6/T7:
@@ -1669,6 +1964,20 @@ the doc.
   to capabilityKinds. Naming: Workbench (tool area) vs Armory
   (Fitting registry browser at /armory) — resolved collision.
   T8 (Sequoias retirement) deferred — 3-day daily-use gate.
+- **2026-05-11** — **Phase 6 added: Outposts (multi-machine
+  bridge).** New Faculty (`outpost`, cardinality many) with a
+  small bridge process running on each remote Mac. Host machine
+  runs Garrison + the Operative; bridges expose RPC + event
+  streams over WebSocket-via-Tailscale for `process.*`, `fs.*`,
+  `git.*`, `exec.*` operations. Workbench Fittings (worktree,
+  terminal, session-view) gain outpost-selector to operate on any
+  connected machine. Operative gains an `outpost-actions` skill
+  that exposes the same operations as agent-callable tools. Vault
+  sync is the first bridge-driven service (host → outposts
+  unidirectional v1). One Operative on one host; bridge gives it
+  hands, not brains. SSH used only for the one-time bootstrap.
+  Bumped: Automations Phase 7, Tasks Phase 8. Driven by the
+  user's three-Mac workflow (automation/development/portable).
 - **2026-05-08** — **Phase 5 reframed: Trenches → Workbench (then
   called Armory).** Earlier Phase 5 specced a "Trenches" tab as
   Garrison-core (a separate top-level area). That was a category
@@ -1685,9 +1994,9 @@ the doc.
 - **2026-05-05** — Slack Channel is ported from **Ekus** (not EKOA),
   webhook-based.
 - **2026-05-05** — Reference projects clarified: Ekus = Slack,
-  Trello, channels in general. EKOA = Automations only (Phase 6).
+  Trello, channels in general. EKOA = Automations only (Phase 7).
 - **2026-05-05** — UI extension contract stays per-tab-single-pane
-  through Phase 5. Extended at Phase 6 when Automations forces the
+  through Phase 5. Extended at Phase 7 when Automations forces the
   redesign. Phase 1/2 Fittings accept the retrofit cost.
   *(Superseded 2026-05-08: Phase 3's contract v2 brought the
   redesign forward, and Phase 5's Armory reframe means Armory
@@ -1740,8 +2049,8 @@ the doc.
   4-line stub. Real port: `mac-mini/gateway/heartbeat/trello.py`
   from Ekus + the Ekus Trello skill prompt.
 - **2026-05-05** (post-investigation) — EKOA has *two* automation
-  engines (`cortex/` Playwright, `automato/` raw CDP). Phase 6 must
-  pick before porting. Captured for Phase 6.
+  engines (`cortex/` Playwright, `automato/` raw CDP). Phase 7 must
+  pick before porting. Captured for Phase 7.
 - **2026-05-05** — New `setup` Fitting lifecycle stage adopted.
   Runs before `verify` on every `up`. For prerequisites APM can't
   satisfy: clone repos, run `uv sync`, write to host config, install
@@ -1800,34 +2109,54 @@ Anything raised in conversation but not yet resolved.
   `--dangerously-skip-permissions` plus what else?
 - (Phase 5) Hosts file location: `~/.garrison/hosts.json` (per-user
   global) vs per-composition (leaning per-user global, since
-  hosts follow the human, not the Operative).
-- (Phase 5) Screen share: periodic-screenshots vs full streaming
-  (decide at T0 analysis session).
+  hosts follow the human, not the Operative). *(Mostly superseded
+  by Phase 6 Outposts — hosts list moves into the Outposts
+  Faculty config.)*
+- (Phase 5) Screen share: periodic-screenshots vs full streaming.
 - (Phase 5) Terminal busy-detection heuristic — output-in-last-2s
   vs prompt-string redraw detection (lean simple for v1).
-- (Phase 5) Armory pane layout — single-active vs tabbed-multi vs
-  split-grid. Decide at T0 based on Sequoias decomposition shape.
+- (Phase 5) Workbench pane layout — single-active vs tabbed-multi
+  vs split-grid. Resolved at impl: tabbed per the Phase 5.5
+  shipped UI.
 - (Phase 5) Browser Faculty scope for v1 — full Fitting or
   deferred? Lower priority than terminal/worktree/session/
-  screen-share. Confirm at T0.
+  screen-share. Deferred at Phase 5 ship.
 - (Phase 5) APM UI Fitting parity gap-find — does the existing
-  UI Fitting mechanism cover what Armory needs (action
-  declarations, provides/consumes wiring through to UI)? T0 finds
-  any gap; if there's one, fix it as Garrison-core work outside
-  the Armory but unblocks it.
-- (Phase 6) Pick automation engine: EKOA `cortex/` Playwright
+  UI Fitting mechanism cover what Workbench needs (action
+  declarations, provides/consumes wiring through to UI)? Resolved
+  at Phase 5 ship via the contract v2 work from Phase 3.
+- (Phase 6) Protocol choice for v1: JSON over WebSocket (leaning)
+  vs gRPC vs custom binary. Revisit if framing overhead bites.
+- (Phase 6) Auth details: token-on-handshake confirmed for v1;
+  rotation policy and refresh-token semantics open.
+- (Phase 6) Bridge update mechanism for protocol version
+  bumps. v1 = manual re-bootstrap; v2 = self-update path.
+- (Phase 6) Filesystem path semantics across machines (tilde
+  expansion, home-dir differences). v1 = absolute paths, tilde
+  expansion on the remote side.
+- (Phase 6) Connection multiplexing: share one WebSocket per
+  outpost (leaning) vs separate per consumer. Share requires
+  operation IDs for routing.
+- (Phase 6) Failure UI: how to surface bridge disconnects
+  mid-operation (worktree create fails, terminal hangs, etc.).
+- (Phase 6) Host-side WebSocket server location — HTTP gateway
+  (lean) vs a separate process. Confirm gateway can host both
+  HTTP and WS routes during T0/T2.
+- (Phase 6) Vault-sync direction: host → outposts v1; full
+  bidirectional deferred.
+- (Phase 7) Pick automation engine: EKOA `cortex/` Playwright
   in-process vs `automato/` raw CDP. Resolve before porting.
-- (Phase 7) Trello-sync Faculty kind: new `data-sync` kind vs
+- (Phase 8) Trello-sync Faculty kind: new `data-sync` kind vs
   reuse `data-sources` vs reuse `automation-runner` (leaning new
   kind if more bidirectional syncs follow).
-- (Phase 7) Autonomy floor configuration: tier ≤ N runs autonomously,
+- (Phase 8) Autonomy floor configuration: tier ≤ N runs autonomously,
   tier > N requires plan-then-approve. Per-user, possibly per-task-
   label override.
-- (Phase 7) Multi-board / per-project task scoping when Phase 2
+- (Phase 8) Multi-board / per-project task scoping when Phase 2
   project index is solid.
-- (Phase 7) Real-time UI push: polling for v1, SSE/websocket if
+- (Phase 8) Real-time UI push: polling for v1, SSE/websocket if
   load justifies it.
-- (Phase 7) Trello-sync conflict resolution: last-write-wins by
+- (Phase 8) Trello-sync conflict resolution: last-write-wins by
   `updated` timestamp for v1; surface unresolvables to user.
 - (Future / un-phased) Garrison-as-AI-composer (advisory/validation
   flavor) — build when composition complexity warrants it.
@@ -1858,7 +2187,7 @@ Anything raised in conversation but not yet resolved.
   components (compile-time). When third-party Fittings start
   shipping their own views, dynamic imports become necessary;
   until then, static is simpler and faster.
-- (Future / un-phased) Memory Fitting UI surface — likely Phase 6
+- (Future / un-phased) Memory Fitting UI surface — likely Phase 7
   or later. Structurally similar to Documents UI, separate Fitting,
   separate scope.
 - (Future / un-phased) **Testing & Validation Faculty.** For

@@ -228,5 +228,17 @@
       "global": 4.3,
       "claude_code": 4.3
     }
+  },
+  {
+    "id": "outpost-tailscale-host",
+    "name": "Outpost",
+    "repo": "local:fittings/seed/outpost-tailscale-host",
+    "localPath": "fittings/seed/outpost-tailscale-host",
+    "summary": "Garrison Outpost bridge for a Tailscale-connected remote Mac. Spawn processes, read files, and manage git worktrees on the remote machine via Garrison Outpost Protocol v1.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
   }
 ]
