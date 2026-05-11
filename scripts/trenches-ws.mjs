@@ -22,8 +22,10 @@ import { existsSync } from "node:fs";
 import { spawn as childSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import pty from "node-pty";
+
+const OUTPOST_HOST_URL = `ws://127.0.0.1:${process.env.GARRISON_OUTPOST_PORT || "3702"}`;
 
 const PORT = parseInt(process.env.GARRISON_TRENCHES_PORT || "3601", 10);
 const HOST = process.env.GARRISON_TRENCHES_HOST || "127.0.0.1";
@@ -35,13 +37,91 @@ const MAX_SESSIONS = 100;
 // Map<sessionId, Session>
 //   Session = {
 //     id, name, type ("terminal"),
+//     source: "local" | "ssh" | "outpost",
+//     outpost: string | null,            (outpost name; outpost source only)
+//     remoteHandle: string | null,       (bridge PTY handle; outpost source only)
 //     cwd, shell, host (null | { user, address }),
-//     pty, ws, lastActivity, createdAt,
+//     pty,                               (node-pty IPty or OutpostPtyShim)
+//     ws, lastActivity, createdAt,
 //     buffer (recent stdout for reconnection),
 //     detachTimeout (Timeout | null),
+//     bridgeOffline: boolean,            (outpost source only)
+//     deadTimer: Timeout | null,         (outpost source only)
 //   }
 const sessions = new Map();
 let counter = 0;
+
+// ---------------------------------------------------------------------------
+// openOutpostPty — connects to outpost-host broker, spawns remote PTY,
+// returns a shim that matches the node-pty interface used by createSession.
+// ---------------------------------------------------------------------------
+function openOutpostPty({ outpostName, command, args, cwd, env, cols, rows }) {
+  const url = `${OUTPOST_HOST_URL}/outposts/${encodeURIComponent(outpostName)}/io`;
+  const ws = new WebSocket(url);
+
+  const dataCbs = [];
+  const exitCbs = [];
+  const statusCbs = [];
+
+  let readyResolve, readyReject;
+  const ready = new Promise((res, rej) => { readyResolve = res; readyReject = rej; });
+  let spawned = false;
+
+  ws.on("open", () => {
+    ws.send(JSON.stringify({ type: "spawn", command: command || "/bin/zsh", args: args ?? [],
+      cwd: cwd ?? undefined, env: env ?? {}, cols, rows }));
+  });
+
+  ws.on("message", (data, isBinary) => {
+    if (!spawned) {
+      let msg;
+      try { msg = JSON.parse(data.toString("utf8")); } catch {
+        readyReject(new Error("invalid spawn response from outpost-host")); ws.close(); return;
+      }
+      if (msg.type === "spawn_ok" && msg.handle) {
+        spawned = true; readyResolve({ handle: msg.handle });
+      } else if (msg.type === "spawn_error") {
+        readyReject(new Error(`${msg.code ?? "operation_failed"}: ${msg.message ?? "spawn failed"}`));
+        ws.close();
+      } else {
+        readyReject(new Error(`unexpected pre-spawn frame: ${msg.type}`)); ws.close();
+      }
+      return;
+    }
+
+    let frame;
+    try { frame = JSON.parse((isBinary ? data : data).toString("utf8")); } catch { return; }
+
+    if (frame.type === "process.output" && frame.payload?.data) {
+      const str = Buffer.from(frame.payload.data, "base64").toString("utf8");
+      for (const cb of dataCbs) cb(str);
+    } else if (frame.type === "process.exit") {
+      const exitCode = frame.payload?.exit_code ?? null;
+      const signal = frame.payload?.signal ?? null;
+      for (const cb of exitCbs) cb({ exitCode, signal });
+      ws.close();
+    } else if (frame.type === "bridge_disconnected") {
+      for (const cb of statusCbs) cb("offline");
+    } else if (frame.type === "bridge_reconnected") {
+      for (const cb of statusCbs) cb("online");
+    }
+  });
+
+  ws.on("close", (_code, reason) => {
+    if (!spawned) readyReject(new Error(`outpost-host closed before spawn_ok: ${reason?.toString() ?? ""}`));
+  });
+  ws.on("error", (err) => { if (!spawned) readyReject(err); });
+
+  return {
+    ready,
+    write(data) { if (ws.readyState === 1) ws.send(Buffer.from(data, "utf8")); },
+    resize(c, r) { if (ws.readyState === 1) ws.send(JSON.stringify({ type: "resize", cols: c, rows: r })); },
+    kill() { if (ws.readyState === 1) { ws.send(JSON.stringify({ type: "kill" })); ws.close(); } },
+    onData(cb) { dataCbs.push(cb); },
+    onExit(cb) { exitCbs.push(cb); },
+    onBridgeStatus(cb) { statusCbs.push(cb); },
+  };
+}
 
 function expandTilde(value) {
   if (typeof value !== "string") return value;
@@ -86,7 +166,7 @@ function spawnPty({ cwd, shell, host, sshUser, sshAddress, env, cols = 80, rows 
   });
 }
 
-function createSession({ name, cwd, shell, host, sshUser, sshAddress, initialCommand }) {
+async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outpost, initialCommand }) {
   if (sessions.size >= MAX_SESSIONS) {
     throw new Error("trenches at session capacity");
   }
@@ -94,12 +174,38 @@ function createSession({ name, cwd, shell, host, sshUser, sshAddress, initialCom
   counter += 1;
   const sessionName = name || `terminal-${counter}`;
 
-  const ptyProcess = spawnPty({ cwd, shell, host, sshUser, sshAddress });
+  let ptyProcess, source, remoteHandle = null;
+
+  if (outpost) {
+    source = "outpost";
+    const shim = openOutpostPty({
+      outpostName: outpost,
+      command: shell || "/bin/zsh",
+      args: [],
+      cwd: cwd ?? undefined,
+      env: { TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "garrison-trenches" },
+      cols: 80,
+      rows: 24,
+    });
+    // Await spawn confirmation; throws on spawn_error or connection failure
+    const { handle } = await shim.ready;
+    remoteHandle = handle;
+    ptyProcess = shim;
+  } else if (host && host !== "local") {
+    source = "ssh";
+    ptyProcess = spawnPty({ cwd, shell, host, sshUser, sshAddress });
+  } else {
+    source = "local";
+    ptyProcess = spawnPty({ cwd, shell, host, sshUser, sshAddress });
+  }
 
   const session = {
     id,
     name: sessionName,
     type: "terminal",
+    source,
+    outpost: outpost || null,
+    remoteHandle,
     cwd: cwd || homedir(),
     host: host && host !== "local" ? { user: sshUser, address: sshAddress } : null,
     pty: ptyProcess,
@@ -108,9 +214,28 @@ function createSession({ name, cwd, shell, host, sshUser, sshAddress, initialCom
     lastActivity: Date.now(),
     buffer: "",
     detachTimeout: null,
+    bridgeOffline: false,
+    deadTimer: null,
     initialCommand: initialCommand || null,
     initialCommandSent: false,
   };
+
+  if (source === "outpost") {
+    ptyProcess.onBridgeStatus((status) => {
+      session.bridgeOffline = (status === "offline");
+      const msg = status === "offline" ? "bridge_offline" : "bridge_online";
+      if (session.ws?.readyState === 1) session.ws.send(JSON.stringify({ type: msg }));
+      if (status === "offline") {
+        session.deadTimer = setTimeout(() => {
+          if (session.ws?.readyState === 1) session.ws.send(JSON.stringify({ type: "session_dead" }));
+          killSession(session.id);
+        }, PTY_DETACHED_TIMEOUT_MS);
+      } else {
+        clearTimeout(session.deadTimer);
+        session.deadTimer = null;
+      }
+    });
+  }
 
   ptyProcess.onData((data) => {
     session.lastActivity = Date.now();
@@ -153,7 +278,7 @@ function createSession({ name, cwd, shell, host, sshUser, sshAddress, initialCom
     }, 200);
   }
 
-  console.log(`[trenches-ws] created session ${id} (${sessionName})`);
+  console.log(`[trenches-ws] created session ${id} (${sessionName}, source=${source}${outpost ? `, outpost=${outpost}` : ""})`);
   return summarize(session);
 }
 
@@ -163,6 +288,8 @@ function summarize(session) {
     id: session.id,
     name: session.name,
     type: session.type,
+    source: session.source,
+    outpost: session.outpost,
     cwd: session.cwd,
     host: session.host,
     busy: now - session.lastActivity < BUSY_WINDOW_MS,
@@ -178,6 +305,10 @@ function killSession(id) {
   if (session.detachTimeout) {
     clearTimeout(session.detachTimeout);
     session.detachTimeout = null;
+  }
+  if (session.deadTimer) {
+    clearTimeout(session.deadTimer);
+    session.deadTimer = null;
   }
   try {
     session.pty.kill();
@@ -243,7 +374,7 @@ const httpServer = createServer(async (req, res) => {
     if (req.method === "POST" && url === "/terminals") {
       const body = await readJsonBody(req);
       try {
-        const summary = createSession(body || {});
+        const summary = await createSession(body || {});
         sendJson(res, 201, summary);
       } catch (err) {
         sendJson(res, 400, { error: err.message });
@@ -309,6 +440,10 @@ wss.on("connection", (ws, req) => {
         }));
         if (session.buffer) {
           ws.send(Buffer.from(session.buffer, "utf8"), { binary: true });
+        }
+        // Replay current bridge status so reattaching browser sees the banner
+        if (session.bridgeOffline) {
+          ws.send(JSON.stringify({ type: "bridge_offline" }));
         }
       } catch (err) {
         ws.close(4001, "Invalid init JSON");

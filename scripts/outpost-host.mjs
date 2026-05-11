@@ -36,6 +36,10 @@ const connections = new Map();
 // Map<name, {type, payload, receivedAt}[]>
 const eventHistory = new Map();
 
+// Per-handle subscriber WS connections — persists across bridge disconnect
+// Map<outpostName, Map<handle, Set<ws>>>
+const outpostSubscribers = new Map();
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -163,6 +167,16 @@ function handleBridgeConnection(ws) {
 
       if (isReconnect) {
         pushEvent(connName, { type: "connection.reconnected", payload: {} });
+        // Notify process subscribers that the bridge is back online
+        const subsByHandle = outpostSubscribers.get(connName);
+        if (subsByHandle) {
+          const msg = JSON.stringify({ type: "bridge_reconnected" });
+          for (const subs of subsByHandle.values()) {
+            for (const sub of subs) {
+              if (sub.readyState === 1) sub.send(msg);
+            }
+          }
+        }
       }
       console.log(`[outpost-host] authenticated: ${connName}${isReconnect ? " (reconnect)" : ""}`);
       return;
@@ -185,6 +199,21 @@ function handleBridgeConnection(ws) {
       return;
     }
 
+    // Fan out process.output / process.exit to per-handle subscribers
+    if (frame.payload?.handle &&
+        (frame.type === "process.output" || frame.type === "process.exit")) {
+      const subsByHandle = outpostSubscribers.get(connName);
+      const subs = subsByHandle?.get(frame.payload.handle);
+      if (subs && subs.size > 0) {
+        const msg = JSON.stringify(frame);
+        for (const sub of subs) {
+          if (sub.readyState === 1) sub.send(msg);
+        }
+        if (frame.type === "process.exit") subsByHandle.delete(frame.payload.handle);
+        return;
+      }
+    }
+
     pushEvent(connName, frame);
   });
 
@@ -200,11 +229,155 @@ function handleBridgeConnection(ws) {
         rpc.reject(new Error("bridge disconnected"));
       }
       connections.delete(connName);
+      // Notify process subscribers that the bridge is offline
+      const subsByHandle = outpostSubscribers.get(connName);
+      if (subsByHandle) {
+        const msg = JSON.stringify({ type: "bridge_disconnected" });
+        for (const subs of subsByHandle.values()) {
+          for (const sub of subs) {
+            if (sub.readyState === 1) sub.send(msg);
+          }
+        }
+      }
     }
   });
 
   ws.on("error", (err) => {
     console.error(`[outpost-host] ws error (${connName ?? "unauthed"}):`, err.message);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Subscriber connection handler — ws://host:3702/outposts/:name/io
+// Spawns a PTY on the named outpost and brokers I/O between the subscriber
+// and the bridge. Each subscriber WS maps to exactly one process handle.
+// ---------------------------------------------------------------------------
+
+function handleSubscriberConnection(ws, outpostName) {
+  let handle = null;
+  let spawned = false;
+
+  const send = (obj) => {
+    if (ws.readyState === 1) ws.send(JSON.stringify(obj));
+  };
+
+  const registerSub = () => {
+    if (!outpostSubscribers.has(outpostName)) outpostSubscribers.set(outpostName, new Map());
+    const byHandle = outpostSubscribers.get(outpostName);
+    if (!byHandle.has(handle)) byHandle.set(handle, new Set());
+    byHandle.get(handle).add(ws);
+  };
+
+  const unregisterSub = () => {
+    if (!handle) return;
+    const byHandle = outpostSubscribers.get(outpostName);
+    if (!byHandle) return;
+    const subs = byHandle.get(handle);
+    if (subs) {
+      subs.delete(ws);
+      if (subs.size === 0) byHandle.delete(handle);
+    }
+  };
+
+  ws.on("message", async (data, isBinary) => {
+    if (!spawned) {
+      // First frame: spawn request JSON
+      let req;
+      try {
+        req = JSON.parse(data.toString("utf8"));
+      } catch {
+        send({ type: "spawn_error", code: "invalid_payload", message: "expected JSON spawn frame" });
+        ws.close();
+        return;
+      }
+
+      if (req.type !== "spawn") {
+        send({ type: "spawn_error", code: "invalid_payload", message: `expected type=spawn, got ${req.type}` });
+        ws.close();
+        return;
+      }
+
+      const conn = connections.get(outpostName);
+      if (!conn || conn.ws.readyState !== 1) {
+        send({ type: "spawn_error", code: "not_connected", message: `outpost '${outpostName}' not connected` });
+        ws.close();
+        return;
+      }
+
+      let result;
+      try {
+        result = await callRpc(outpostName, "process.spawn", {
+          command: req.command || "/bin/zsh",
+          args: req.args ?? [],
+          cwd: req.cwd ?? undefined,
+          env: req.env ?? {},
+          pty: true,
+          cols: req.cols ?? 80,
+          rows: req.rows ?? 24,
+        });
+      } catch (err) {
+        send({ type: "spawn_error", code: "operation_failed", message: err.message });
+        ws.close();
+        return;
+      }
+
+      // Bridge uses type "process.spawn.ok" (not in spec, but is the actual wire format)
+      if (result.type === "error" || result.payload?.code) {
+        send({ type: "spawn_error", code: result.payload?.code ?? "operation_failed", message: result.payload?.message ?? "spawn failed" });
+        ws.close();
+        return;
+      }
+
+      handle = result.payload?.handle;
+      if (!handle) {
+        send({ type: "spawn_error", code: "operation_failed", message: "bridge returned no handle" });
+        ws.close();
+        return;
+      }
+
+      spawned = true;
+      registerSub();
+      send({ type: "spawn_ok", handle });
+      console.log(`[outpost-host] subscriber spawned handle=${handle} on outpost=${outpostName}`);
+      return;
+    }
+
+    // Post-spawn: binary = stdin bytes, JSON = control frames
+    if (!handle) return;
+
+    if (isBinary) {
+      // Raw bytes from the terminal — base64-encode for the bridge
+      const b64 = data.toString("base64");
+      callRpc(outpostName, "process.send_input", { handle, data: b64 }).catch((err) => {
+        console.error(`[outpost-host] send_input error (${handle}):`, err.message);
+      });
+      return;
+    }
+
+    let msg;
+    try {
+      msg = JSON.parse(data.toString("utf8"));
+    } catch {
+      return;
+    }
+
+    if (msg.type === "resize") {
+      callRpc(outpostName, "process.resize", { handle, cols: msg.cols, rows: msg.rows }).catch((err) => {
+        console.error(`[outpost-host] resize error (${handle}):`, err.message);
+      });
+    } else if (msg.type === "kill") {
+      callRpc(outpostName, "process.kill", { handle, signal: msg.signal ?? "SIGTERM" }).catch(() => {});
+    }
+  });
+
+  ws.on("close", () => {
+    unregisterSub();
+    // Do not kill the remote PTY on subscriber disconnect — trenches-ws owns reaping policy.
+    if (handle) console.log(`[outpost-host] subscriber detached handle=${handle}`);
+  });
+
+  ws.on("error", (err) => {
+    console.error(`[outpost-host] subscriber ws error (${outpostName}/${handle ?? "unspawned"}):`, err.message);
   });
 }
 
@@ -319,15 +492,28 @@ const httpServer = createServer(async (req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 
+const ioPathRe = /^\/outposts\/(.+)\/io$/;
+
 httpServer.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
-  if (url.pathname !== "/bridge") {
-    socket.destroy();
+
+  if (url.pathname === "/bridge") {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      handleBridgeConnection(ws);
+    });
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    handleBridgeConnection(ws);
-  });
+
+  const ioMatch = url.pathname.match(ioPathRe);
+  if (ioMatch) {
+    const outpostName = decodeURIComponent(ioMatch[1]);
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      handleSubscriberConnection(ws, outpostName);
+    });
+    return;
+  }
+
+  socket.destroy();
 });
 
 httpServer.listen(PORT, BIND, () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
@@ -12,6 +12,8 @@ interface TerminalProps {
 export function TerminalView({ sessionId, wsUrl, onClose }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const [bridgeStatus, setBridgeStatus] = useState<"online" | "offline">("online");
+  const [sessionDead, setSessionDead] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,10 +70,11 @@ export function TerminalView({ sessionId, wsUrl, onClose }: TerminalProps) {
       socket.addEventListener("message", (event) => {
         if (typeof event.data === "string") {
           try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === "init_ack") {
-              return;
-            }
+            const msg = JSON.parse(event.data) as { type: string };
+            if (msg.type === "init_ack") return;
+            if (msg.type === "bridge_offline") { setBridgeStatus("offline"); return; }
+            if (msg.type === "bridge_online")  { setBridgeStatus("online");  return; }
+            if (msg.type === "session_dead")   { setSessionDead(true);       return; }
           } catch {
             // ignore
           }
@@ -135,21 +138,51 @@ export function TerminalView({ sessionId, wsUrl, onClose }: TerminalProps) {
   }, [sessionId, wsUrl]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        flex: 1,
-        background: "#0e0e0e",
-        padding: 6,
-        height: "100%",
-        minHeight: 0,
-      }}
-      onClick={() => {
-        // xterm.js focuses on click via its own logic; nothing extra needed.
-        if (onClose) {
-          // suppress unused-onClose warning while leaving the API open for T2 cleanup wiring
-        }
-      }}
-    />
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, height: "100%" }}>
+      {bridgeStatus === "offline" && !sessionDead ? (
+        <div
+          role="status"
+          style={{
+            background: "#f3e4c6",
+            color: "#3a2a00",
+            padding: "4px 12px",
+            fontSize: 12,
+            borderBottom: "1px solid #d4b88a",
+            flexShrink: 0,
+          }}
+        >
+          Bridge disconnected, output paused. Reconnecting...
+        </div>
+      ) : null}
+      {sessionDead ? (
+        <div
+          role="status"
+          style={{
+            background: "#f5c8c8",
+            color: "#400",
+            padding: "4px 12px",
+            fontSize: 12,
+            borderBottom: "1px solid #d4a0a0",
+            flexShrink: 0,
+          }}
+        >
+          Outpost unreachable for over 5 minutes. Session marked dead.
+        </div>
+      ) : null}
+      <div
+        ref={containerRef}
+        style={{
+          flex: 1,
+          background: "#0e0e0e",
+          padding: 6,
+          minHeight: 0,
+        }}
+        onClick={() => {
+          if (onClose) {
+            // suppress unused-onClose warning while leaving the API open for T2 cleanup wiring
+          }
+        }}
+      />
+    </div>
   );
 }

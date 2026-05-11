@@ -11,6 +11,8 @@ interface TrenchesSession {
   id: string;
   name: string;
   type: "terminal" | "screen-share";
+  source?: "local" | "ssh" | "outpost";
+  outpost?: string | null;
   cwd?: string;
   host?: { user: string; address: string } | null;
   busy: boolean;
@@ -27,7 +29,11 @@ interface ManagedHost {
   user: string;
 }
 
-const HOST_LOCAL = "local";
+interface OutpostStatus {
+  name: string;
+  connected: boolean;
+  lastHeartbeat: string | null;
+}
 
 const ORCHESTRATOR_BANNER = [
   "[garrison] This terminal is a separate session from the chat tab.",
@@ -58,8 +64,9 @@ export function TrenchesPanel() {
   const { composition, runnerState, setError: setShellError } = useAppShell();
   const [sessions, setSessions] = useState<TrenchesSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [host, setHost] = useState<string>(HOST_LOCAL);
+  const [target, setTarget] = useState<string>("local");
   const [hosts, setHosts] = useState<ManagedHost[]>([]);
+  const [outposts, setOutposts] = useState<OutpostStatus[]>([]);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,8 +74,23 @@ export function TrenchesPanel() {
   const [claudePath, setClaudePath] = useState("");
   const [hostsModal, setHostsModal] = useState(false);
 
-  const isRemote = host !== HOST_LOCAL;
-  const selectedHost = useMemo(() => hosts.find((h) => h.name === host) ?? null, [host, hosts]);
+  const parsedTarget = useMemo(() => {
+    if (target === "local") return { kind: "local" as const };
+    if (target.startsWith("ssh:")) {
+      const n = target.slice(4);
+      return { kind: "ssh" as const, host: hosts.find((h) => h.name === n) ?? null };
+    }
+    if (target.startsWith("outpost:")) {
+      const n = target.slice(8);
+      return { kind: "outpost" as const, name: n, status: outposts.find((o) => o.name === n) ?? null };
+    }
+    return { kind: "local" as const };
+  }, [target, hosts, outposts]);
+
+  const isOutpost = parsedTarget.kind === "outpost";
+  const isSshHost = parsedTarget.kind === "ssh";
+  const isRemote = isOutpost || isSshHost;
+  const selectedHost = parsedTarget.kind === "ssh" ? parsedTarget.host : null;
   const isRunning = runnerState?.status === "running";
   const projectsRoot = composition?.globalConfig.projects_root ?? "~";
   const compositionDir = composition?.directory ?? null;
@@ -92,6 +114,27 @@ export function TrenchesPanel() {
     void loadHosts();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/workbench/outposts", { cache: "no-store" });
+        if (res.ok) {
+          const json = (await res.json()) as { outposts?: OutpostStatus[] };
+          if (!cancelled) setOutposts(json.outposts ?? []);
+        }
+      } catch {
+        // ignore — outpost-host may not be running
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
     };
   }, []);
 
@@ -127,13 +170,16 @@ export function TrenchesPanel() {
       setCreating(true);
       setError(null);
       try {
-        const remoteFields = selectedHost
-          ? { host: selectedHost.name, sshUser: selectedHost.user, sshAddress: selectedHost.address }
-          : {};
+        const transportFields =
+          parsedTarget.kind === "ssh" && parsedTarget.host
+            ? { host: parsedTarget.host.name, sshUser: parsedTarget.host.user, sshAddress: parsedTarget.host.address }
+            : parsedTarget.kind === "outpost"
+              ? { outpost: parsedTarget.name }
+              : {};
         const res = await fetch("/api/trenches/terminals", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, ...remoteFields }),
+          body: JSON.stringify({ ...body, ...transportFields }),
         });
         const json = (await res.json()) as CreateTerminalResponse | { error: string };
         if (!res.ok || "error" in json) {
@@ -155,12 +201,12 @@ export function TrenchesPanel() {
         setCreating(false);
       }
     },
-    [creating, selectedHost, setShellError]
+    [creating, parsedTarget, setShellError]
   );
 
   const newTerminal = useCallback(() => {
-    void launchTerminal(selectedHost ? {} : { cwd: projectsRoot });
-  }, [launchTerminal, projectsRoot, selectedHost]);
+    void launchTerminal(parsedTarget.kind === "local" ? { cwd: projectsRoot } : {});
+  }, [launchTerminal, projectsRoot, parsedTarget]);
 
   const openOrchestrator = useCallback(() => {
     if (!compositionDir || !isRunning || isRemote) return;
@@ -181,9 +227,14 @@ export function TrenchesPanel() {
     if (!trimmed) return;
     setClaudeModal(false);
     const projectName = trimmed.split("/").filter(Boolean).pop() ?? "claude";
-    if (selectedHost) {
+    if (parsedTarget.kind === "ssh" && parsedTarget.host) {
       void launchTerminal({
-        name: `claude-${selectedHost.name}-${projectName}`,
+        name: `claude-${parsedTarget.host.name}-${projectName}`,
+        initialCommand: buildClaudeCodeCommand(trimmed),
+      });
+    } else if (parsedTarget.kind === "outpost") {
+      void launchTerminal({
+        name: `claude-${parsedTarget.name}-${projectName}`,
         initialCommand: buildClaudeCodeCommand(trimmed),
       });
     } else {
@@ -193,7 +244,7 @@ export function TrenchesPanel() {
         initialCommand: buildClaudeCodeCommand(null),
       });
     }
-  }, [claudePath, launchTerminal, selectedHost]);
+  }, [claudePath, launchTerminal, parsedTarget]);
 
   const closeSession = useCallback(
     async (id: string, type: TrenchesSession["type"] = "terminal") => {
@@ -242,13 +293,19 @@ export function TrenchesPanel() {
       ? "No composition is running — start one from the Run tab first."
       : "Open the Operative in this terminal";
 
-  const handleHostChange = (value: string) => {
+  const handleTargetChange = (value: string) => {
     if (value === "__manage__") {
       setHostsModal(true);
       return;
     }
-    setHost(value);
+    setTarget(value);
   };
+
+  const newTerminalTitle = parsedTarget.kind === "outpost"
+    ? `New terminal on outpost ${parsedTarget.name}`
+    : parsedTarget.kind === "ssh" && parsedTarget.host
+      ? `New SSH terminal on ${parsedTarget.host.name}`
+      : "New terminal";
 
   return (
     <main>
@@ -306,7 +363,7 @@ export function TrenchesPanel() {
               className="btn primary"
               disabled={creating}
               onClick={() => newTerminal()}
-              title={isRemote ? `New SSH terminal on ${selectedHost?.name ?? host}` : "New terminal"}
+              title={newTerminalTitle}
             >
               <span className="ic">
                 <Plus size={14} aria-hidden />
@@ -340,7 +397,7 @@ export function TrenchesPanel() {
               className="btn ghost"
               disabled={creating}
               onClick={() => openClaudeCode()}
-              title={isRemote ? `Open Claude Code on ${selectedHost?.name ?? host}` : "Open Claude Code at a project path"}
+              title={isRemote ? `Open Claude Code on ${parsedTarget.kind === "outpost" ? parsedTarget.name : (selectedHost?.name ?? target)}` : "Open Claude Code at a project path"}
             >
               <span className="ic">
                 <TerminalIcon size={14} aria-hidden />
@@ -349,22 +406,40 @@ export function TrenchesPanel() {
             </button>
             <select
               className="font-mono"
-              value={host}
-              onChange={(e) => handleHostChange(e.target.value)}
+              value={target}
+              onChange={(e) => handleTargetChange(e.target.value)}
               style={{
                 padding: "6px 8px",
                 fontSize: 12,
                 border: "1px solid var(--rule)",
                 background: "white",
               }}
-              title="Host (Tailscale or SSH)"
+              title="Where to run this terminal"
             >
-              <option value={HOST_LOCAL}>local</option>
-              {hosts.map((h) => (
-                <option key={h.name} value={h.name}>
-                  {h.name} · {h.address}
-                </option>
-              ))}
+              <option value="local">local</option>
+              {hosts.length > 0 && (
+                <optgroup label="SSH hosts">
+                  {hosts.map((h) => (
+                    <option key={`ssh:${h.name}`} value={`ssh:${h.name}`}>
+                      {h.name} · {h.address}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {outposts.length > 0 && (
+                <optgroup label="Outposts">
+                  {outposts.map((o) => (
+                    <option
+                      key={`outpost:${o.name}`}
+                      value={`outpost:${o.name}`}
+                      disabled={!o.connected}
+                      title={o.connected ? o.name : `${o.name} — disconnected`}
+                    >
+                      {o.name}{o.connected ? "" : " (disconnected)"}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
               <option value="__manage__">Manage hosts…</option>
             </select>
           </div>
@@ -421,7 +496,14 @@ export function TrenchesPanel() {
                           <Monitor size={14} aria-hidden />
                         )}
                       </span>
-                      <span style={{ flex: 1 }}>{s.name}</span>
+                      <span style={{ flex: 1 }}>
+                        {s.name}
+                        {s.outpost ? (
+                          <span style={{ marginLeft: 4, color: "var(--mute)", fontSize: 11 }}>
+                            @{s.outpost}
+                          </span>
+                        ) : null}
+                      </span>
                       <span
                         title={s.busy ? "busy" : "idle"}
                         style={{
@@ -507,12 +589,14 @@ export function TrenchesPanel() {
             }}
           >
             <h3 className="font-display" style={{ margin: "0 0 6px", fontSize: 18 }}>
-              Open Claude Code{selectedHost ? ` on ${selectedHost.name}` : ""}
+              Open Claude Code{parsedTarget.kind === "outpost" ? ` on ${parsedTarget.name}` : parsedTarget.kind === "ssh" && parsedTarget.host ? ` on ${parsedTarget.host.name}` : ""}
             </h3>
             <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--mute)" }}>
-              {selectedHost
-                ? <>Path on <b>{selectedHost.name}</b>. SSH connects, then runs <code>claude --dangerously-skip-permissions</code>.</>
-                : <>Path on this machine. A new terminal opens at this directory and runs <code>claude --dangerously-skip-permissions</code>.</>}
+              {parsedTarget.kind === "outpost"
+                ? <>Path on outpost <b>{parsedTarget.name}</b>. Runs <code>claude --dangerously-skip-permissions</code> on the remote machine.</>
+                : parsedTarget.kind === "ssh" && parsedTarget.host
+                  ? <>Path on <b>{parsedTarget.host.name}</b>. SSH connects, then runs <code>claude --dangerously-skip-permissions</code>.</>
+                  : <>Path on this machine. A new terminal opens at this directory and runs <code>claude --dangerously-skip-permissions</code>.</>}
             </p>
             <input
               autoFocus

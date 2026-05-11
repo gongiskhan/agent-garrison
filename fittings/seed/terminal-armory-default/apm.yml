@@ -14,6 +14,9 @@ x-garrison:
   provides:
     - kind: terminal-session
       name: terminal-armory-default
+  consumes:
+    - kind: outpost
+      cardinality: any
   setup:
     command: bash scripts/setup.sh
     idempotent: true
