@@ -55,7 +55,11 @@ function buildOrchestratorCommand(compositionDir: string): string {
 function buildClaudeCodeCommand(remotePath: string | null): string {
   const claude = "claude --dangerously-skip-permissions";
   if (remotePath) {
-    return `cd ${shellEscape(remotePath)} && ${claude}`;
+    // ~/foo must not be fully single-quoted — tilde doesn't expand inside single quotes
+    const escapedPath = remotePath.startsWith("~/")
+      ? `~/${shellEscape(remotePath.slice(2))}`
+      : shellEscape(remotePath);
+    return `cd ${escapedPath} && ${claude}`;
   }
   return claude;
 }

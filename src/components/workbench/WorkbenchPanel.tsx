@@ -88,7 +88,7 @@ export function WorkbenchPanel() {
             role="tab"
             aria-selected={tab.key === currentKey}
             title={`Open ${tab.label}`}
-            className={clsx("btn", "small", "ghost", tab.key === currentKey && "primary")}
+            className={clsx("btn", "small", tab.key === currentKey ? "primary" : "ghost")}
             onClick={() => setActiveKey(tab.key)}
             style={{ marginRight: 4 }}
           >
