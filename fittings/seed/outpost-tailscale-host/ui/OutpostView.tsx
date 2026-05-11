@@ -24,11 +24,13 @@ export default function OutpostView(_props: FittingViewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [addName, setAddName] = useState("");
-  const [addToken, setAddToken] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardName, setWizardName] = useState("");
+  const [wizardHost, setWizardHost] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [generatedCommand, setGeneratedCommand] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const failRef = useRef(0);
 
@@ -69,33 +71,39 @@ export default function OutpostView(_props: FittingViewProps) {
     };
   }, [refresh]);
 
-  const handleAdd = async () => {
-    if (!addName.trim() || !addToken.trim()) {
-      setAddError("Name and token are required.");
+  const handleGenerate = async () => {
+    if (!wizardName.trim() || !wizardHost.trim()) {
+      setGenError("Machine name and Garrison host are required.");
       return;
     }
-    setAdding(true);
-    setAddError(null);
+    setGenerating(true);
+    setGenError(null);
+    setGeneratedCommand(null);
     try {
-      const res = await fetch("/api/workbench/outposts", {
+      const res = await fetch("/api/workbench/outposts/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: addName.trim(), token: addToken.trim() }),
+        body: JSON.stringify({ name: wizardName.trim(), garrison_host: wizardHost.trim() }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as { ok?: boolean; command?: string; error?: string };
       if (!res.ok || !data.ok) {
-        setAddError(data.error ?? `HTTP ${res.status}`);
+        setGenError(data.error ?? `HTTP ${res.status}`);
       } else {
-        setAddName("");
-        setAddToken("");
-        setShowAdd(false);
+        setGeneratedCommand(data.command ?? "");
         await refresh();
       }
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : String(err));
+      setGenError(err instanceof Error ? err.message : String(err));
     } finally {
-      setAdding(false);
+      setGenerating(false);
     }
+  };
+
+  const handleCopy = () => {
+    if (!generatedCommand) return;
+    void navigator.clipboard.writeText(generatedCommand);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleRemove = async (name: string) => {
@@ -107,13 +115,22 @@ export default function OutpostView(_props: FittingViewProps) {
     }
   };
 
+  const closeWizard = () => {
+    setShowWizard(false);
+    setWizardName("");
+    setWizardHost("");
+    setGenError(null);
+    setGeneratedCommand(null);
+    setCopied(false);
+  };
+
   return (
     <div style={{ padding: "16px", fontFamily: "var(--font-mono, monospace)", fontSize: 13 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <span style={{ fontWeight: 600, fontSize: 14 }}>Outposts</span>
         {loading && <span style={{ color: "var(--mute, #888)" }}>refreshing…</span>}
         <button
-          onClick={() => setShowAdd((v) => !v)}
+          onClick={() => (showWizard ? closeWizard() : setShowWizard(true))}
           style={{
             marginLeft: "auto",
             padding: "4px 10px",
@@ -125,7 +142,7 @@ export default function OutpostView(_props: FittingViewProps) {
             fontSize: 12,
           }}
         >
-          {showAdd ? "Cancel" : "Add outpost"}
+          {showWizard ? "Cancel" : "Add outpost"}
         </button>
       </div>
 
@@ -135,64 +152,119 @@ export default function OutpostView(_props: FittingViewProps) {
         </div>
       )}
 
-      {showAdd && (
+      {showWizard && (
         <div
           style={{
             background: "var(--panel, #1e1e1e)",
             border: "1px solid var(--border, #333)",
             borderRadius: 6,
-            padding: 12,
+            padding: 14,
             marginBottom: 16,
           }}
         >
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>Register outpost</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <input
-              placeholder="Machine name (e.g. mac-studio)"
-              value={addName}
-              onChange={(e) => setAddName(e.target.value)}
-              style={{
-                background: "var(--bg, #111)",
-                border: "1px solid var(--border, #333)",
-                color: "var(--fg, #ccc)",
-                padding: "6px 8px",
-                borderRadius: 4,
-                fontSize: 13,
-              }}
-            />
-            <input
-              type="password"
-              placeholder="Shared token"
-              value={addToken}
-              onChange={(e) => setAddToken(e.target.value)}
-              style={{
-                background: "var(--bg, #111)",
-                border: "1px solid var(--border, #333)",
-                color: "var(--fg, #ccc)",
-                padding: "6px 8px",
-                borderRadius: 4,
-                fontSize: 13,
-              }}
-            />
-            {addError && <div style={{ color: "var(--alarm, #f44)", fontSize: 12 }}>{addError}</div>}
-            <button
-              onClick={handleAdd}
-              disabled={adding}
-              style={{
-                padding: "6px 12px",
-                background: "var(--sage, #4a8)",
-                border: "none",
-                color: "#000",
-                borderRadius: 4,
-                cursor: adding ? "not-allowed" : "pointer",
-                fontWeight: 600,
-                fontSize: 13,
-                alignSelf: "flex-start",
-              }}
-            >
-              {adding ? "Registering…" : "Register"}
-            </button>
-          </div>
+          {generatedCommand ? (
+            <>
+              <div style={{ marginBottom: 8, fontWeight: 600 }}>Bootstrap command</div>
+              <div style={{ fontSize: 11, color: "var(--mute, #888)", marginBottom: 8 }}>
+                Run this on the remote Mac. The outpost will appear connected within 60s.
+              </div>
+              <div
+                style={{
+                  background: "var(--bg, #111)",
+                  border: "1px solid var(--border, #333)",
+                  borderRadius: 4,
+                  padding: "8px 10px",
+                  fontSize: 11,
+                  wordBreak: "break-all",
+                  marginBottom: 10,
+                  lineHeight: 1.5,
+                }}
+              >
+                {generatedCommand}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleCopy}
+                  style={{
+                    padding: "5px 12px",
+                    background: copied ? "var(--sage, #4a8)" : "var(--panel, #1e1e1e)",
+                    border: "1px solid var(--border, #333)",
+                    color: copied ? "#000" : "var(--fg, #ccc)",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+                <button
+                  onClick={closeWizard}
+                  style={{
+                    padding: "5px 12px",
+                    background: "transparent",
+                    border: "1px solid var(--border, #333)",
+                    color: "var(--mute, #888)",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom: 8, fontWeight: 600 }}>Generate bootstrap command</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <input
+                  placeholder="Machine name (e.g. mac-studio)"
+                  value={wizardName}
+                  onChange={(e) => setWizardName(e.target.value)}
+                  style={{
+                    background: "var(--bg, #111)",
+                    border: "1px solid var(--border, #333)",
+                    color: "var(--fg, #ccc)",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    fontSize: 13,
+                  }}
+                />
+                <input
+                  placeholder="Garrison host (Tailscale IP or hostname)"
+                  value={wizardHost}
+                  onChange={(e) => setWizardHost(e.target.value)}
+                  style={{
+                    background: "var(--bg, #111)",
+                    border: "1px solid var(--border, #333)",
+                    color: "var(--fg, #ccc)",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    fontSize: 13,
+                  }}
+                />
+                {genError && <div style={{ color: "var(--alarm, #f44)", fontSize: 12 }}>{genError}</div>}
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  style={{
+                    padding: "6px 12px",
+                    background: "var(--sage, #4a8)",
+                    border: "none",
+                    color: "#000",
+                    borderRadius: 4,
+                    cursor: generating ? "not-allowed" : "pointer",
+                    fontWeight: 600,
+                    fontSize: 13,
+                    alignSelf: "flex-start",
+                  }}
+                >
+                  {generating ? "Generating…" : "Generate"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -229,7 +301,7 @@ export default function OutpostView(_props: FittingViewProps) {
                 {o.connected ? "connected" : "disconnected"}
               </span>
               <button
-                onClick={() => handleRemove(o.name)}
+                onClick={() => void handleRemove(o.name)}
                 style={{
                   padding: "2px 8px",
                   background: "transparent",

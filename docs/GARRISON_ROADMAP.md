@@ -1519,7 +1519,7 @@ means reinventing framing per feature; the bridge does it once.
 - **T0 — Protocol spec.** **Done (2026-05-11).** `docs/phases/PHASE_6_PROTOCOL.md` committed (41cbbdd).
 - **T1 — `garrison-outpost-bridge` daemon.** **Done (2026-05-11).** Standalone repo at `github.com/gongiskhan/garrison-outpost-bridge`. All 24 protocol operations implemented. 10/10 smoke test. Initial commit 2be13cb.
 - **T2 — Host-side Fitting + WS endpoint.** **Done (2026-05-11).** `scripts/outpost-host.mjs` (port 3702, 0.0.0.0), `outposts` Faculty (19th, `family: "workbench"`, `cardinality: "multi"`), `outpost` capability kind, `fittings/seed/outpost-tailscale-host/`, `src/app/api/workbench/outposts/` routes, `OutpostView.tsx` (3s polling). Registry at `~/.garrison/outpost-registry.json`. All tests pass; typecheck clean.
-- **T3 — Bootstrap script.** Not started.
+- **T3 — Bootstrap script.** **Done (2026-05-11).** `scripts/bootstrap-outpost.sh` (curl-pipe-bash, node≥20 + git check, Tailscale warn, clone/pull bridge, npm install + build, writes config.json, sed-fills launchd plist, bootstraps with launchctl, polls log for `[connection] ready` up to 60s). `src/app/api/workbench/outposts/bootstrap-outpost/route.ts` serves the script as text/plain. `src/app/api/workbench/outposts/generate/route.ts` generates 32-byte token, registers with outpost-host, returns one-liner command. `OutpostView.tsx` updated with "Generate bootstrap command" wizard (machine name + Garrison host → command display with Copy button). All tests pass; typecheck clean.
 - **T4–T8.** Not started.
 
 ### Out of scope for Phase 6 (deferred)
