@@ -1,6 +1,6 @@
 name: worktree-management-sequoias
-version: 0.1.0
-description: Git worktree lifecycle manager — create, list, and delete worktrees with per-branch isolation. Derived from Sequoias.
+version: 0.2.0
+description: Git worktree lifecycle manager — create, list, and delete worktrees across any project on any connected machine. Derived from Sequoias.
 target: claude
 type: plugin
 includes: auto
@@ -10,22 +10,33 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Sequoias-derived worktree manager. Create and manage isolated git worktrees for parallel branch work.
+  summary: Sequoias-derived worktree manager. Create and manage isolated git worktrees for parallel branch work, across any project in the dev folder and on any connected outpost.
   for_consumers: |
     Use worktrees when you need to work on a different branch without disturbing the current checkout.
     Worktrees are created at ~/.worktrees/<repo-name>/<branch-slug>.
-    Use the Workbench tab to list, create, and remove worktrees interactively.
-    API: GET /api/workbench/worktrees?repoPath=<path> to list.
-    API: POST /api/workbench/worktrees { repoPath, branch, baseBranch } to create.
-    API: DELETE /api/workbench/worktrees { repoPath, worktreePath } to remove.
+    The Workbench tab has a machine selector (local or outpost) and a project selector (lists directories
+    from the dev folder of the selected machine). The last selected project per machine is remembered.
+
+    API: GET /api/workbench/worktrees?repoPath=<path>&target=<local|outpost:name> to list.
+    API: POST /api/workbench/worktrees { target, repoPath, branch, baseBranch } to create.
+    API: DELETE /api/workbench/worktrees { target, repoPath, worktreePath } to remove.
+    API: GET /api/workbench/projects?target=<local|outpost:name>&devRoot=<path> to list projects.
+    API: GET /api/workbench/prefs to read machine/project preferences.
+    API: PATCH /api/workbench/prefs { worktrees: { lastTarget, lastProjectByTarget, devRootByTarget } } to update.
+
+    Preferences are stored in ~/.garrison/workbench-prefs.json.
+    Remote operations use the outpost bridge's git.* and fs.list RPCs — outpost must be connected.
   config_schema:
     - key: repo_path
       type: path
-      description: Absolute path (or ~/...) to the git repository to manage worktrees for.
-      required: true
+      description: Optional. Initial local project path (~/...) used as a seed on first launch if no preference is saved yet.
+      required: false
   provides:
     - kind: worktree
       name: worktree-management-sequoias
+  consumes:
+    - kind: outpost
+      cardinality: any
   setup:
     command: bash scripts/setup.sh
     idempotent: true
