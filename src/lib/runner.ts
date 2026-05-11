@@ -763,7 +763,6 @@ function loadDotenvFromCwd(cwd: string): Record<string, string> {
   // root (marked by package.json) to avoid leaking unrelated env
   // files from $HOME.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fsSync = require("node:fs") as typeof import("node:fs");
     let dir = cwd;
     for (let i = 0; i < 5; i++) {

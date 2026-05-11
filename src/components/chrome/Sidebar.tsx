@@ -11,7 +11,8 @@ import {
   Play,
   MessageSquare,
   Lock,
-  Component
+  Component,
+  Terminal
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { faculties } from "@/lib/faculties";
@@ -111,6 +112,7 @@ export function Sidebar() {
           ct={isRunning ? "live" : undefined}
         />
         <NavLink href="/chat" pathname={pathname} icon={<MessageSquare aria-hidden />} label="Chat" />
+        <NavLink href="/trenches" pathname={pathname} icon={<Terminal aria-hidden />} label="Trenches" />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
 
         <FittingSurfaceLinks
