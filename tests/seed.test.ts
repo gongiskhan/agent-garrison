@@ -22,7 +22,11 @@ const seedIds = [
   "artifact-store",
   "documents",
   "projects-index",
-  "coding-subagent"
+  "coding-subagent",
+  "terminal-armory-default",
+  "screen-share-default",
+  "worktree-management-sequoias",
+  "session-view-sequoias"
 ] as const;
 
 interface RawManifest {

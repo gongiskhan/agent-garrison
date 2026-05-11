@@ -1,0 +1,30 @@
+name: terminal-armory-default
+version: 0.1.0
+description: PTY-backed terminal sessions with SSH host support and Claude Code launch presets.
+target: claude
+type: plugin
+includes: auto
+x-garrison:
+  faculty: terminal
+  cardinality_hint: single
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Multi-session terminal panel — local PTY and SSH hosts, Open Orchestrator, Open Claude Code.
+  provides:
+    - kind: terminal-session
+      name: terminal-armory-default
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 30000
+  verify:
+    command: bash scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000
+  ui:
+    views:
+      - id: main
+        placement: faculty-tab
+        entry: ./ui/TerminalView.tsx
+        route: /

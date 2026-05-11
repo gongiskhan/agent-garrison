@@ -115,6 +115,42 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["cli-skill"],
     notes:
       "Filesystem-backed storage for files the Operative or its Fittings produce — documents, recordings, audio."
+  },
+  {
+    id: "terminal",
+    order: 15,
+    name: "Terminal",
+    cardinality: "single",
+    shapes: ["plugin", "script"],
+    family: "workbench",
+    notes: "PTY-backed terminal sessions with SSH host support and Claude Code launch presets."
+  },
+  {
+    id: "screen-share",
+    order: 16,
+    name: "Screen share",
+    cardinality: "single",
+    shapes: ["plugin", "script"],
+    family: "workbench",
+    notes: "macOS screenshot capture viewer (~2fps JPEG polling) for phone/remote access."
+  },
+  {
+    id: "worktree-management",
+    order: 17,
+    name: "Worktree management",
+    cardinality: "single",
+    shapes: ["plugin", "script"],
+    family: "workbench",
+    notes: "Git worktree lifecycle — create, list, and delete worktrees with per-branch env port rewriting."
+  },
+  {
+    id: "session-view",
+    order: 18,
+    name: "Session view",
+    cardinality: "single",
+    shapes: ["plugin"],
+    family: "workbench",
+    notes: "Claude Code session status dashboard across git worktrees."
   }
 ];
 

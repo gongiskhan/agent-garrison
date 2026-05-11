@@ -19,6 +19,10 @@ dependencies:
     - path: ../../fittings/seed/soul
     - path: ../../fittings/seed/tier-classifier
     - path: ../../fittings/seed/trello-data-source
+    - path: ../../fittings/seed/terminal-armory-default
+    - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/worktree-management-sequoias
+    - path: ../../fittings/seed/session-view-sequoias
 x-garrison:
   composition:
     id: default
@@ -105,6 +109,19 @@ x-garrison:
             priority_label: priority
             silent_when_no_work: true
             report_channel: ''
+      terminal:
+        - id: terminal-armory-default
+          config: {}
+      screen-share:
+        - id: screen-share-default
+          config: {}
+      worktree-management:
+        - id: worktree-management-sequoias
+          config:
+            repo_path: ~/Projects/agent-garrison
+      session-view:
+        - id: session-view-sequoias
+          config: {}
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

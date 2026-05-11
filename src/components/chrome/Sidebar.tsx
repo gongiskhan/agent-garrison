@@ -12,7 +12,8 @@ import {
   MessageSquare,
   Lock,
   Component,
-  Terminal
+  Terminal,
+  Wrench
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { faculties } from "@/lib/faculties";
@@ -112,6 +113,7 @@ export function Sidebar() {
           ct={isRunning ? "live" : undefined}
         />
         <NavLink href="/chat" pathname={pathname} icon={<MessageSquare aria-hidden />} label="Chat" />
+        <NavLink href="/workbench" pathname={pathname} icon={<Wrench aria-hidden />} label="Workbench" />
         <NavLink href="/trenches" pathname={pathname} icon={<Terminal aria-hidden />} label="Trenches" />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
 

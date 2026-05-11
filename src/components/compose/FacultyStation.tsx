@@ -72,6 +72,22 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   "artifact-store": {
     role: "Stores files the Operative or its Fittings produce — documents, recordings, audio.",
     fit: "Other Fittings (Documents next, Automations recordings later) layer their own schemas on top of this single shared backing store."
+  },
+  terminal: {
+    role: "Provides PTY-backed terminal sessions accessible from the Workbench.",
+    fit: "Includes SSH host support and Claude Code launch presets (Open Orchestrator, Open Claude Code)."
+  },
+  "screen-share": {
+    role: "Captures the macOS display and streams JPEG frames to the Workbench viewer.",
+    fit: "Useful for monitoring or reviewing the desktop from a phone via the Tailscale URL."
+  },
+  "worktree-management": {
+    role: "Manages git worktrees for parallel branch work.",
+    fit: "Creates isolated worktrees with per-branch env port rewriting so multiple Claude Code sessions don't collide."
+  },
+  "session-view": {
+    role: "Shows Claude Code session status across git worktrees.",
+    fit: "Badges reflect live session health (idle/working/waiting/errored) driven by Claude Code hooks."
   }
 };
 
@@ -89,7 +105,11 @@ const facultyGroup: Record<FacultyId, string> = {
   classifier: "Control",
   observability: "Control",
   soul: "Control",
-  orchestrator: "Control"
+  orchestrator: "Control",
+  terminal: "Workbench",
+  "screen-share": "Workbench",
+  "worktree-management": "Workbench",
+  "session-view": "Workbench"
 };
 
 export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {

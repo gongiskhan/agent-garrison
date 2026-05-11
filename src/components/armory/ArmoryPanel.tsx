@@ -22,7 +22,11 @@ const groupForFaculty: Record<FacultyId, string> = {
   classifier: "Control",
   observability: "Control",
   soul: "Control",
-  orchestrator: "Control"
+  orchestrator: "Control",
+  terminal: "Workbench",
+  "screen-share": "Workbench",
+  "worktree-management": "Workbench",
+  "session-view": "Workbench"
 };
 
 export function ArmoryPanel() {

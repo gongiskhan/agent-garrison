@@ -985,20 +985,36 @@ me to approve, then executes the work in the right project folder.
 
 ---
 
-## Phase 5 — Armory: a family of Faculties for tools
+## Phase 5 — Workbench: a family of Faculties for tools
 
-**Outcome:** Garrison gains an "Armory" area in the shell — a family
+**Status (2026-05-11):** Shell + seeds + Sequoias parity all shipped.
+4 Workbench Faculties (`terminal`, `screen-share`,
+`worktree-management`, `session-view`) and 4 seed Fittings ship.
+Phase 5.5 (port allocation engine, env rewriting,
+`package.json` patching, Claude Code hook wiring) landed same-day
+after an audit caught the original Phase 5 had stopped at the
+shell. T8 (retire Sequoias) deferred only by the 3-day daily-use
+gate.
+
+**Outcome:** Garrison gains a "Workbench" area in the shell — a family
 of Faculties (each with stable contracts) hosting Fittings that
 provide non-agentic tools the user works with directly. The phase
-delivers a seed set of Armory Faculties (`worktree-management`,
-`session-view`, `terminal`, `screen-share`, `browser`) and the
-Fittings that fill them.
+delivers a seed set of Workbench Faculties (`worktree-management`,
+`session-view`, `terminal`, `screen-share`) and the Fittings that
+fill them.
 
 The verification milestone for the phase is the **Sequoias
 decomposition**: replacing the standalone Sequoias worktree-manager
-app with three Armory Fittings (`worktree-management`,
+app with three Workbench Fittings (`worktree-management`,
 `session-view`, `terminal`). Once Sequoias can be retired in favor
-of the Armory composition, the pattern is proven.
+of the Workbench composition, the pattern is proven.
+
+**Naming note:** Early planning used "Armory" for both the Fitting
+registry browser (`/armory`) and the tool area. The 2026-05-11
+implementation resolved the collision: the tool area is **Workbench**
+(`/workbench`); the Fitting registry browser stays **Armory**
+(`/armory`). The `family: "workbench"` field on FacultyDefinition
+identifies Workbench Faculties.
 
 ### Why this phase exists, and where it sits
 
@@ -1136,20 +1152,81 @@ of the Armory composition, the pattern is proven.
 
 ### Phase 5 done when
 
-- I open Garrison, the Armory area shows three Sequoias-derived
-  Fittings (`worktree-management:sequoias`, `session-view:sequoias`,
-  `terminal:armory-default`) under the active composition.
+- I open Garrison, the Workbench area shows four Fittings
+  (`worktree-management-sequoias`, `session-view-sequoias`,
+  `terminal-armory-default`, `screen-share-default`) under the
+  active composition. **[Done 2026-05-11]**
 - I create a worktree from the worktree-management Fitting;
   it appears in session-view, and clicking on it opens a
-  terminal in that worktree's directory.
+  terminal in that worktree's directory. **[Done — Phase 5.5
+  wires `createWorktree` to allocate ports, copy + rewrite env
+  files, patch frontend dev scripts, and upsert a Session row
+  visible to session-view.]**
 - I open three terminals as separate sessions, run things in each
   independently, see at a glance which is busy via session-view.
+  **[Done — Phase 5.5 installs Claude Code hooks that POST to
+  Garrison's hook endpoint, driving working/waiting/idle/dead
+  badges from real session activity.]**
 - I SSH-launch a terminal on another Tailscale host from the
-  terminal Fitting's host selector.
+  terminal Fitting's host selector. **[Done — Trenches SSH re-homed]**
 - I open the Garrison UI on my phone and watch the screen-share
-  Fitting show what's happening on my desktop.
-- Sequoias the standalone app is retired in favor of the Armory
-  composition (the verification milestone).
+  Fitting show what's happening on my desktop. **[Wired; macOS
+  Screen Recording permission required — see PHASE5_VERIFICATION.md §4]**
+- Sequoias the standalone app is retired in favor of the Workbench
+  composition. **[Deferred — 3-day daily-use gate not yet met; T8.
+  Phase 5.5 closed the parity blocker.]**
+
+### Phase 5.5 — Sequoias parity port (closed 2026-05-11)
+
+A 2026-05-11 audit caught that the original Phase 5 had shipped the
+Workbench shell + four Fittings + state-file *reader* but not the
+engine pieces that make Sequoias load-bearing. Phase 5.5 ported the
+missing pieces the same day:
+
+1. **Deterministic port allocation — shipped.** `src/lib/worktree/ports.ts`
+   exposes `allocatePort(branch, service)` (FNV-1a → 50000–54999 with
+   linear probe + wrap). Called from `createWorktree`.
+2. **Env-file rewriting and `package.json` patching — shipped.**
+   `src/lib/worktree/env-rewriter.ts` does the full Sequoias env
+   pipeline (discoverEnvFiles → readMainPortMap → rewriteEnvFiles →
+   ensureWorkspacePortFiles). `src/lib/worktree/package-json-patcher.ts`
+   ports `patchFrontendDevScripts`; marker renamed to
+   `GARRISON_FRONTEND_PORT`.
+3. **Claude Code hook wiring — shipped.** `src/lib/claude-hooks.ts`
+   merges 4 hook groups (UserPromptSubmit/Stop/Notification/
+   PostToolUse) into `~/.claude/settings.json` non-destructively,
+   marked `_garrison: true`. Snapshot lives at
+   `~/.garrison/hooks-snapshot.bytes`. Hook URL is derived at install
+   time from the running Garrison's request origin (via
+   `POST /api/workbench/sessions/install-hooks`). The receiver at
+   `/api/workbench/sessions/hook` calls `findSessionByCwd` and
+   `setSessionStatus` to update `~/.garrison/sessions/state.json`.
+   The session-view reader merges `~/.garrison/sessions/state.json`
+   with `~/.sequoias/state.json` during the migration window.
+4. **State-path drift — partially addressed.** Session state moved
+   to Garrison-owned `~/.garrison/sessions/state.json`. Worktree
+   directories stay at `~/.worktrees/<repo>/<slug>` (intentional —
+   matches Sequoias so the two tools coexist while T8 plays out).
+
+**Live status pipeline:**
+
+```
+Claude Code in /wt/<branch>
+  → settings.json hook fires curl POST {event, cwd}
+  → POST /api/workbench/sessions/hook
+  → findSessionByCwd(cwd) → {projectPath, branch}
+  → setSessionStatus(...) writes ~/.garrison/sessions/state.json
+  → SessionView next 5s poll re-renders
+```
+
+**Tests landed:** `tests/worktree-ports.test.ts` (port determinism,
+allocator probe/wrap), `tests/worktree-env-rewriter.test.ts`
+(discover/parse/rewrite/inject), `tests/claude-hooks.test.ts`
+(install/restore/idempotency), `tests/garrison-sessions.test.ts`
+(store CRUD + cwd lookup + merge fallback).
+
+**Blocker on T8 removed.** Sequoias retirement is now only gated on
+3 consecutive days of daily-use validation.
 
 ### Open questions for Phase 5
 
@@ -1579,20 +1656,29 @@ the doc.
   (`runner.ts:87-90`), so the SDK symlink coding-subagent depends
   on is auto-restored. Means setup hooks are safe places to
   establish runtime invariants; they don't drift between ups.
-- **2026-05-08** — **Phase 5 reframed: Trenches → Armory.**
-  Earlier Phase 5 specced a "Trenches" tab as Garrison-core (a
-  separate top-level area). That was a category error against the
-  platform thesis ("Faculties + Fittings compose; the shell
-  renders what's installed"). Reframed: tools are a *family of
-  Faculties* (Armory) — `worktree-management`, `session-view`,
-  `terminal`, `screen-share`, `browser` — with Fittings filling
-  them. The Armory area in the shell renders dynamically based on
-  installed Fittings, the same way chat and other Faculty
-  surfaces do. No new architectural concept; reuses Faculty/
-  Fitting wiring. Verification milestone: decompose Sequoias
-  (standalone worktree-manager app) into three Armory Fittings.
-  Operative-bridge to Armory tool actions is design-now-cost-zero
-  via `provides`/`consumes` but not built in v1.
+- **2026-05-11** — **Phase 5 implemented: Workbench shell area + 4
+  seed Fittings.** Added `terminal`, `screen-share`,
+  `worktree-management`, `session-view` Faculties (order 15–18,
+  `family: "workbench"`). Workbench shell at `/workbench` renders
+  installed Workbench Fittings as tabs. 4 seed Fittings:
+  `terminal-armory-default` (re-homes Trenches TrenchesPanel + WS
+  server), `screen-share-default` (re-homes screencapture capture
+  loop), `worktree-management-sequoias` (basic git worktree CRUD
+  derived from Sequoias), `session-view-sequoias` (reads
+  ~/.sequoias/state.json for session badges). `screen-share` added
+  to capabilityKinds. Naming: Workbench (tool area) vs Armory
+  (Fitting registry browser at /armory) — resolved collision.
+  T8 (Sequoias retirement) deferred — 3-day daily-use gate.
+- **2026-05-08** — **Phase 5 reframed: Trenches → Workbench (then
+  called Armory).** Earlier Phase 5 specced a "Trenches" tab as
+  Garrison-core (a separate top-level area). That was a category
+  error against the platform thesis ("Faculties + Fittings compose;
+  the shell renders what's installed"). Reframed: tools are a *family
+  of Faculties* (Workbench) — `worktree-management`, `session-view`,
+  `terminal`, `screen-share` — with Fittings filling them. The
+  Workbench area in the shell renders dynamically based on installed
+  Fittings. Verification milestone: decompose Sequoias (standalone
+  worktree-manager app) into Workbench Fittings.
 - **2026-05-05** — Memory Fitting is the Claude-Code-native
   `memory-compiler` hook + Claude Code's own memory mechanism. Not
   ported from EKOA.

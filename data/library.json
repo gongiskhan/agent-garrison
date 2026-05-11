@@ -180,5 +180,53 @@
       "global": 4.5,
       "claude_code": 4.5
     }
+  },
+  {
+    "id": "terminal-armory-default",
+    "name": "Terminal",
+    "repo": "local:fittings/seed/terminal-armory-default",
+    "localPath": "fittings/seed/terminal-armory-default",
+    "summary": "PTY-backed terminal sessions with SSH host support and Claude Code launch presets.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "screen-share-default",
+    "name": "Screen share",
+    "repo": "local:fittings/seed/screen-share-default",
+    "localPath": "fittings/seed/screen-share-default",
+    "summary": "macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.2,
+      "claude_code": 4.2
+    }
+  },
+  {
+    "id": "worktree-management-sequoias",
+    "name": "Worktrees",
+    "repo": "local:fittings/seed/worktree-management-sequoias",
+    "localPath": "fittings/seed/worktree-management-sequoias",
+    "summary": "Git worktree lifecycle manager — create, list, and delete worktrees with per-branch isolation. Derived from Sequoias.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "session-view-sequoias",
+    "name": "Session view",
+    "repo": "local:fittings/seed/session-view-sequoias",
+    "localPath": "fittings/seed/session-view-sequoias",
+    "summary": "Claude Code session status dashboard across git worktrees.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
   }
 ]

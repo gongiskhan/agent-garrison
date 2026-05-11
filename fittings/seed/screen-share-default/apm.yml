@@ -1,0 +1,30 @@
+name: screen-share-default
+version: 0.1.0
+description: macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.
+target: claude
+type: plugin
+includes: auto
+x-garrison:
+  faculty: screen-share
+  cardinality_hint: single
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Periodic screencapture via macOS screencapture -x. Serves rolling JPEG at /api/trenches/screen-share/frame. Requires Screen Recording permission for the process that starts Garrison.
+  provides:
+    - kind: screen-share
+      name: screen-share-default
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: bash scripts/verify.sh
+    expect: ok
+    timeout_ms: 5000
+  ui:
+    views:
+      - id: main
+        placement: faculty-tab
+        entry: ./ui/ScreenShareView.tsx
+        route: /

@@ -1,0 +1,39 @@
+name: session-view-sequoias
+version: 0.1.0
+description: Claude Code session status dashboard across git worktrees. Reads from Sequoias state.
+target: claude
+type: plugin
+includes: auto
+x-garrison:
+  faculty: session-view
+  cardinality_hint: single
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Per-worktree session status view — idle/working/waiting/errored badges read from ~/.sequoias/state.json.
+  for_consumers: |
+    Use GET /api/workbench/sessions to read current Claude Code session statuses across worktrees.
+    Statuses are: working, waiting, idle, errored, dead.
+    Data is sourced from ~/.sequoias/state.json updated by Sequoias's Claude Code hooks.
+  provides:
+    - kind: session-view
+      name: session-view-sequoias
+  consumes:
+    - kind: worktree
+      cardinality: optional-one
+    - kind: terminal-session
+      cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 5000
+  verify:
+    command: bash scripts/verify.sh
+    expect: ok
+    timeout_ms: 5000
+  ui:
+    views:
+      - id: main
+        placement: faculty-tab
+        entry: ./ui/SessionView.tsx
+        route: /

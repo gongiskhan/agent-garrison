@@ -16,6 +16,42 @@ type FittingViewComponent = ComponentType<FittingViewProps>;
 // that ship a UI add their entry here. v3 may revisit dynamic loading from
 // disk — see AGENTS.md §9.
 const REGISTRY: Record<string, FittingViewComponent> = {
+  "terminal-armory-default:main": dynamic(
+    () => import("@/components/trenches/TerminalView"),
+    {
+      ssr: false,
+      loading: () => (
+        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading terminal…</div>
+      )
+    }
+  ),
+  "screen-share-default:main": dynamic(
+    () => import("@/components/trenches/ScreenShareView"),
+    {
+      ssr: false,
+      loading: () => (
+        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading screen share…</div>
+      )
+    }
+  ),
+  "worktree-management-sequoias:main": dynamic(
+    () => import("@/components/workbench/WorktreeView"),
+    {
+      ssr: false,
+      loading: () => (
+        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading worktrees…</div>
+      )
+    }
+  ),
+  "session-view-sequoias:main": dynamic(
+    () => import("@/components/workbench/SessionView"),
+    {
+      ssr: false,
+      loading: () => (
+        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading sessions…</div>
+      )
+    }
+  ),
   "tier-classifier:main": dynamic(
     () => import("@/components/extensions/TierClassifierInspector"),
     {
