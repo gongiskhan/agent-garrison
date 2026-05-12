@@ -1,0 +1,59 @@
+name: vault-sync
+version: 0.1.0
+description: Periodic host→outpost mirror for a local directory (Obsidian vault and similar).
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: sync
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - claude-code
+  summary: Mirrors a host-side directory to one or more outposts on a scheduler tick.
+  for_consumers: |
+    Don't drive vault-sync directly from the Operative — it runs on the scheduler.
+    To force an immediate sync: `python3 apm_modules/_local/vault-sync/scripts/sync.py once`.
+    Read `~/.garrison/vault-sync-status.json` for last-sync timestamps and transfer counts per outpost.
+  config_schema:
+    - key: source_dir
+      type: path
+      required: true
+      description: Host-side directory to mirror (typically the Obsidian vault root).
+    - key: target_outposts
+      type: string
+      required: true
+      description: Comma-separated list of outpost machine names to mirror to.
+    - key: target_dir_on_outpost
+      type: string
+      default: ""
+      description: Remote target directory. Defaults to source_dir (with ~ expansion on the outpost).
+    - key: interval_seconds
+      type: integer
+      default: 60
+      description: Sync cadence in seconds. Must be >= 60 (scheduler minimum granularity is 1 min).
+    - key: ignore_patterns
+      type: string
+      default: ".git/**,.obsidian/workspace*,*.tmp"
+      description: Comma-separated glob patterns to skip.
+  provides: []
+  consumes:
+    - kind: outpost
+      cardinality: any
+    - kind: automation-runner
+      name: scheduler
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: bash scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000
+  ui:
+    views:
+      - id: status
+        placement: sidebar-surface
+        entry: ./ui/VaultSyncStatus.tsx
+        route: /

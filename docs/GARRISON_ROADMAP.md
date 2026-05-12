@@ -1268,7 +1268,7 @@ allocator probe/wrap), `tests/worktree-env-rewriter.test.ts`
 
 ---
 
-## Phase 6 — Outposts: multi-machine reach via a local bridge
+## Phase 6 — Outposts: multi-machine reach via a local bridge — **DONE (2026-05-11)**
 
 **Outcome:** Garrison gains an `outposts` Faculty. Each Outpost
 Fitting represents one remote Mac (or other host) running a small
@@ -1522,7 +1522,10 @@ means reinventing framing per feature; the bridge does it once.
 - **T3 — Bootstrap script.** **Done (2026-05-11).** `scripts/bootstrap-outpost.sh` (curl-pipe-bash, node≥20 + git check, Tailscale warn, clone/pull bridge, npm install + build, writes config.json, sed-fills launchd plist, bootstraps with launchctl, polls log for `[connection] ready` up to 60s). `src/app/api/workbench/outposts/bootstrap-outpost/route.ts` serves the script as text/plain. `src/app/api/workbench/outposts/generate/route.ts` generates 32-byte token, registers with outpost-host, returns one-liner command. `OutpostView.tsx` updated with "Generate bootstrap command" wizard (machine name + Garrison host → command display with Copy button). All tests pass; typecheck clean.
 - **T4 — Terminal with outpost selector.** **Done (2026-05-11).** `TrenchesPanel.tsx` outpost `<optgroup>` dropdown (`local` / `ssh:<name>` / `outpost:<name>`); 3s polling of `/api/workbench/outposts`; spawns PTY via `callRpc process.spawn` routed through `outpost-host.mjs`.
 - **T5 — Worktrees multi-project + multi-machine.** **Done (2026-05-11).** `WorktreeView.tsx` rebuilt with machine selector + project selector (lists all dirs under dev folder of the selected target). Prefs store at `~/.garrison/workbench-prefs.json` via `src/lib/workbench-prefs.ts`; `PATCH /api/workbench/prefs` persists last-selected machine and project per machine. `/api/workbench/projects` lists directories locally (`fsp.readdir`) or via `fs.list` RPC for outposts. `/api/workbench/worktrees` accepts `?target=local|outpost:<name>` and routes to local lib or bridge `git.*` RPCs. Fitting metadata updated: `consumes outpost`, `repo_path` now optional (first-launch seed). Fitting validation PASS.
-- **T6–T8.** Not started.
+- **T6 — Session view outpost aggregation.** **Done (2026-05-11).** `session-view-sequoias` v0.2.0: now consumes `outpost any`. `/api/workbench/sessions` replaced with a multi-machine aggregator: reads local `~/.garrison/sessions/state.json` + remote copies via `fs.read` RPC per connected outpost. Offline outpost rows served from `~/.garrison/sessions/outpost-cache.json`. `SessionView.tsx` now shows Machine column, greyed offline rows, 3s polling, and outpost-routed Open Terminal + Kill Session. T6 status model: hook-driven `lastStatus` from `state.json` per machine (no terminal-busy fallback in v1). `parseStateJson()` factored out of `garrison-sessions.ts`. `src/lib/outpost-rpc.ts` extracted from the two duplicated route helpers.
+- **T7 — outpost-actions agent-skill Fitting.** **Done (2026-05-11).** `fittings/seed/outpost-actions/` — `faculty: skills`, `component_shape: skill`. Python stdlib CLI (`outpost.py`): `list_outposts`, `run_on` (blocking, `exec.run` with `--timeout-ms`), `read_file_on`, `write_file_on`, `list_files_on`. Structured exit codes (2=unknown, 3=offline, 4=bridge error, 5=host unreachable). Scope decision: `spawn_on`/`wait_for_completion`/`kill_running` deferred — `process.status` carries no stdout buffer and Python stdlib has no WS client; `run_on` covers all brief's done-when invocations.
+- **T8 — vault-sync Fitting + `sync` Faculty.** **Done (2026-05-11).** `sync` Faculty registered as order 20 (`shapes: ["script", "cli-skill"]`, no `family`). `fittings/seed/vault-sync/` — scheduler-driven host→outpost mirror. Diff algorithm: size+mtime heuristic; remote manifest built via `exec.run find` (not recursive `fs.list` — one round-trip). Status written to `~/.garrison/vault-sync-status.json`. `VaultSyncStatus.tsx` sidebar view + `/api/vault-sync/status` read endpoint.
+- **T9 — Phase 6 verification doc.** **Done (2026-05-11).** `docs/phases/PHASE6_VERIFICATION.md` — 6 done-when items with offline evidence + runtime procedures. Items 5 (vault sync) and 6 (sleep/wake reconnect) labelled runtime-pending with multi-day expectation.
 
 ### Out of scope for Phase 6 (deferred)
 
@@ -1966,6 +1969,24 @@ the doc.
   to capabilityKinds. Naming: Workbench (tool area) vs Armory
   (Fitting registry browser at /armory) — resolved collision.
   T8 (Sequoias retirement) deferred — 3-day daily-use gate.
+- **2026-05-11** — **Phase 6 T6–T9 closed: outpost aggregation,
+  Operative remote actions, vault sync, verification doc.** Four
+  key decisions made during implementation: (1) `outpost-rpc.ts`
+  helper extraction — `parseTarget`/`outpostRpc`/`expandHome` were
+  duplicated in two routes; extracted to a shared module with
+  `listOutposts()` for clean T6/T7/T8 reuse. (2) T6 status model:
+  hook-driven `lastStatus` from `~/.garrison/sessions/state.json`
+  per machine (read via `fs.read` RPC per protocol §10) was chosen
+  over the brief's terminal-busy heuristic — richer signal, same
+  mechanism already proven locally. (3) T7 scope reduction: dropped
+  `spawn_on`/`wait_for_completion` from v1 because `process.status`
+  carries no stdout buffer and Python stdlib has no WebSocket client.
+  `run_on` (blocking `exec.run`) covers all brief's done-when
+  invocations. (4) T8 remote manifest: uses `exec.run find` (one
+  round-trip) instead of recursive `fs.list` (O(directories) chatty)
+  — the protocol's `fs.list` is non-recursive; `find` is the honest
+  path. `sync` Faculty introduced at order 20, no `family` (background
+  service, not a Workbench tab). Phase 6 fully done.
 - **2026-05-11** — **Phase 6 added: Outposts (multi-machine
   bridge).** New Faculty (`outpost`, cardinality many) with a
   small bridge process running on each remote Mac. Host machine

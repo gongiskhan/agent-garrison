@@ -149,6 +149,31 @@ async function writeStateFile(filePath: string, state: State): Promise<void> {
   await fsp.rename(tmp, filePath);
 }
 
+export function parseStateJson(raw: string): WorktreeSession[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const result = StateSchema.safeParse(parsed);
+  if (!result.success) return [];
+  const out: WorktreeSession[] = [];
+  for (const project of Object.values(result.data.projects ?? {})) {
+    for (const [branchKey, session] of Object.entries(project.sessions ?? {})) {
+      out.push({
+        branch: session.branch ?? branchKey,
+        worktreePath: session.worktreePath ?? "",
+        lastStatus: session.lastStatus ?? "idle",
+        lastStatusAt: session.lastStatusAt ?? "",
+        projectName: project.name ?? path.basename(project.path ?? branchKey),
+        projectPath: project.path ?? branchKey,
+      });
+    }
+  }
+  return out;
+}
+
 export interface LoadSessionsOptions {
   garrisonStatePath?: string;
   sequoiasStatePath?: string;

@@ -17,7 +17,8 @@ export const facultyIds = [
   "screen-share",
   "worktree-management",
   "session-view",
-  "outposts"
+  "outposts",
+  "sync"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];

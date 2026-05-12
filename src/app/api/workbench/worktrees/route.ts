@@ -1,41 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { listWorktrees, createWorktree, removeWorktree, InvalidArgumentError } from "@/lib/worktrees";
-import { homedir } from "node:os";
-import path from "node:path";
+import { expandHome, parseTarget, outpostRpc } from "@/lib/outpost-rpc";
 
 export const runtime = "nodejs";
 
-const OUTPOST_HOST = "http://127.0.0.1:3702";
-
-function expandHome(p: string): string {
-  if (p.startsWith("~/") || p === "~") return path.join(homedir(), p.slice(2));
-  return p;
-}
-
-function parseTarget(raw: string | null): { kind: "local" } | { kind: "outpost"; name: string } {
-  if (!raw || raw === "local") return { kind: "local" };
-  const m = raw.match(/^outpost:(.+)$/);
-  if (m) return { kind: "outpost", name: m[1] };
-  return { kind: "local" };
-}
-
-async function outpostRpc(name: string, type: string, payload: unknown) {
-  const res = await fetch(
-    `${OUTPOST_HOST}/outposts/${encodeURIComponent(name)}/rpc`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, payload }),
-    }
-  );
-  if (!res.ok) throw new Error(`outpost RPC ${type} failed: HTTP ${res.status}`);
-  const data = (await res.json()) as { ok: boolean; result?: { payload?: unknown }; error?: string };
-  if (!data.ok) throw new Error(data.error ?? `outpost RPC ${type} failed`);
-  return data.result?.payload;
-}
-
 interface BridgeWorktree {
-  worktree_path: string;
+  path: string;
   branch: string;
   commit: string;
   is_main: boolean;
@@ -63,7 +33,7 @@ export async function GET(request: NextRequest) {
     })) as { worktrees?: BridgeWorktree[] } | undefined;
 
     const worktrees = (payload?.worktrees ?? []).map((wt) => ({
-      worktreePath: wt.worktree_path,
+      worktreePath: wt.path,
       branch: wt.branch,
       commit: wt.commit,
       isMain: wt.is_main,

@@ -27,7 +27,8 @@ const groupForFaculty: Record<FacultyId, string> = {
   "screen-share": "Workbench",
   "worktree-management": "Workbench",
   "session-view": "Workbench",
-  outposts: "Workbench"
+  outposts: "Workbench",
+  sync: "Integration"
 };
 
 export function ArmoryPanel() {

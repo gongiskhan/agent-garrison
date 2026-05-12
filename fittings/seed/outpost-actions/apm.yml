@@ -1,0 +1,90 @@
+name: outpost-actions
+version: 0.1.0
+description: Agent skill for invoking operations on remote outpost machines.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: skills
+  cardinality_hint: multi
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: Remote machine operations (run, read, write, list) over the Garrison Outpost bridge.
+  for_consumers: |
+    Use `outpost.py` to interact with remote machines connected as outposts.
+
+    Always start with `list_outposts` to confirm which machines are available and connected
+    before attempting any remote operation. Never guess machine names.
+
+    ## CLI (run from the composition root)
+
+    ```
+    python3 apm_modules/_local/outpost-actions/scripts/outpost.py list_outposts
+    python3 apm_modules/_local/outpost-actions/scripts/outpost.py run_on <machine> <cmd...> [--timeout-ms N]
+    python3 apm_modules/_local/outpost-actions/scripts/outpost.py read_file_on <machine> <path>
+    python3 apm_modules/_local/outpost-actions/scripts/outpost.py write_file_on <machine> <path>   # content on stdin
+    python3 apm_modules/_local/outpost-actions/scripts/outpost.py list_files_on <machine> <path>
+    ```
+
+    ## Output
+
+    All subcommands print JSON to stdout on success.
+    - `list_outposts` → `{"outposts": [{"name": "...", "connected": true, "lastHeartbeat": ...}]}`
+    - `run_on` → `{"stdout": "...", "stderr": "...", "exit_code": 0}`
+    - `read_file_on` → `{"content": "..."}`
+    - `write_file_on` → `{"ok": true}`
+    - `list_files_on` → `{"entries": [{"name": "...", "type": "file|directory|symlink"}]}`
+
+    ## Exit codes
+
+    | Code | Meaning |
+    |------|---------|
+    | 0 | success |
+    | 2 | unknown outpost — machine not in registry |
+    | 3 | outpost offline — machine known but not connected |
+    | 4 | bridge RPC error — command ran but the bridge returned an error |
+    | 5 | outpost-host unreachable — 127.0.0.1:3702 not responding |
+
+    ## Examples
+
+    ```
+    # Discover connected machines
+    python3 .../outpost.py list_outposts
+
+    # Run a command on the development machine
+    python3 .../outpost.py run_on development uname -a
+
+    # Read a remote file
+    python3 .../outpost.py read_file_on development ~/Projects/myapp/README.md
+
+    # Write a file (pipe content)
+    echo "hello" | python3 .../outpost.py write_file_on development /tmp/test.txt
+
+    # List a remote directory
+    python3 .../outpost.py list_files_on development ~/Projects
+    ```
+
+    ## Operating principles
+
+    - Always call `list_outposts` first to verify machine names before any remote operation.
+    - `run_on` is blocking — it waits for the command to complete. Use `--timeout-ms` for
+      long-running commands (default: 30000 ms).
+    - For large file transfers, warn the principal that binary files may be slow over the WS link.
+    - If exit code is 2: tell the principal which machines are available (from `list_outposts`).
+    - If exit code is 3: tell the principal the machine is offline and try again later.
+    - If exit code is 5: the outpost-host may not be running. Tell the principal to start it.
+  provides:
+    - kind: agent-skill
+      name: outpost-actions
+  consumes:
+    - kind: outpost
+      cardinality: any
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 5000
+  verify:
+    command: bash scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000

@@ -1,6 +1,6 @@
 name: session-view-sequoias
-version: 0.1.0
-description: Claude Code session status dashboard across git worktrees. Reads from Sequoias state.
+version: 0.2.0
+description: Claude Code session status dashboard across git worktrees — local and remote outpost machines.
 target: claude
 type: plugin
 includes: auto
@@ -10,11 +10,14 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Per-worktree session status view — idle/working/waiting/errored badges read from ~/.sequoias/state.json.
+  summary: Per-worktree session status view — idle/working/waiting/errored badges aggregated from local and outpost machines.
   for_consumers: |
     Use GET /api/workbench/sessions to read current Claude Code session statuses across worktrees.
     Statuses are: working, waiting, idle, errored, dead.
-    Data is sourced from ~/.sequoias/state.json updated by Sequoias's Claude Code hooks.
+    Response shape: { sessions: AggregatedSession[], outposts: [{ name, online, lastSyncedAt }] }.
+    Each session has a `machine` field ("local" or outpost name) and `online` boolean.
+    Data is sourced from ~/.garrison/sessions/state.json (local) and the equivalent file on each
+    connected outpost via fs.read RPC.
   provides:
     - kind: session-view
       name: session-view-sequoias
@@ -23,6 +26,8 @@ x-garrison:
       cardinality: optional-one
     - kind: terminal-session
       cardinality: optional-one
+    - kind: outpost
+      cardinality: any
   setup:
     command: bash scripts/setup.sh
     idempotent: true

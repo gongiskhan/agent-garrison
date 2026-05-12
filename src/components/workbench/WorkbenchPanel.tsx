@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { faculties } from "@/lib/faculties";
 import { lookupFittingView } from "@/components/fitting-views/registry";
+import { onLaunchClaude } from "@/lib/workbench-bus";
 import type { FacultyId } from "@/lib/types";
 
 const WORKBENCH_FACULTY_IDS = new Set<FacultyId>(
@@ -44,6 +45,16 @@ export function WorkbenchPanel() {
     }
     return result;
   }, [composition, library]);
+
+  // Switch to terminal tab when a worktree "Open Claude" button is clicked
+  useEffect(() => {
+    return onLaunchClaude(() => {
+      const terminalTab = tabs.find((t) =>
+        library.some((e) => e.faculty === "terminal" && e.id === t.fittingId)
+      );
+      if (terminalTab) setActiveKey(terminalTab.key);
+    });
+  }, [tabs, library]);
 
   if (tabs.length === 0) {
     return (

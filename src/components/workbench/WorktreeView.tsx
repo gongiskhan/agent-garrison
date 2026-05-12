@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAppShell } from "@/components/chrome/AppShell";
+import { dispatchLaunchClaude } from "@/lib/workbench-bus";
 import type { FittingViewProps } from "@/components/fitting-views/registry";
 
 interface Worktree {
@@ -19,6 +21,13 @@ const DEFAULT_DEV_ROOT = "~/dev";
 
 export default function WorktreeView({ config }: FittingViewProps) {
   const seedProject = (config.repo_path as string | undefined) ?? "";
+  const { composition, library } = useAppShell();
+
+  const terminalInstalled = library.some(
+    (e) =>
+      e.faculty === "terminal" &&
+      (composition?.selections[e.faculty] ?? []).some((s) => s.id === e.id)
+  );
 
   // ── Machine selector ──────────────────────────────────────────────────────
   const [target, setTarget] = useState<string>("local");
@@ -374,16 +383,31 @@ export default function WorktreeView({ config }: FittingViewProps) {
                 <td className="mono" style={{ fontSize: 11 }}>{wt.worktreePath}</td>
                 <td className="mono">{wt.commit}</td>
                 <td>
-                  {!wt.isMain ? (
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                     <button
                       type="button"
-                      className="btn small danger"
-                      onClick={() => { void handleDelete(wt.worktreePath); }}
-                      disabled={deleting === wt.worktreePath}
+                      className="btn small ghost"
+                      disabled={!terminalInstalled}
+                      title={
+                        terminalInstalled
+                          ? `Open Claude Code at ${wt.worktreePath}${target !== "local" ? ` on ${target.replace("outpost:", "")}` : ""}`
+                          : "Add a terminal Fitting to your composition first"
+                      }
+                      onClick={() => dispatchLaunchClaude(wt.worktreePath, target)}
                     >
-                      {deleting === wt.worktreePath ? "Removing…" : "Remove"}
+                      Claude Code
                     </button>
-                  ) : null}
+                    {!wt.isMain ? (
+                      <button
+                        type="button"
+                        className="btn small danger"
+                        onClick={() => { void handleDelete(wt.worktreePath); }}
+                        disabled={deleting === wt.worktreePath}
+                      >
+                        {deleting === wt.worktreePath ? "Removing…" : "Remove"}
+                      </button>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ))}

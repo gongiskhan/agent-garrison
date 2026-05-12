@@ -25,7 +25,6 @@
  *   tracks active runs for the kill subcommand and survives crashes.
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -216,6 +215,15 @@ async function runSubAgent({
   maxTurns,
   logStream
 }) {
+  let query;
+  try {
+    ({ query } = await import("@anthropic-ai/claude-agent-sdk"));
+  } catch {
+    throw new Error(
+      "coding-subagent requires @anthropic-ai/claude-agent-sdk — " +
+      "run `npm install @anthropic-ai/claude-agent-sdk` in the composition directory"
+    );
+  }
   const start = Date.now();
   let assistantText = "";
   let resultSubtype = null;

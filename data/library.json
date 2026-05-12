@@ -240,5 +240,29 @@
       "global": 4.3,
       "claude_code": 4.3
     }
+  },
+  {
+    "id": "outpost-actions",
+    "name": "Outpost actions",
+    "repo": "local:fittings/seed/outpost-actions",
+    "localPath": "fittings/seed/outpost-actions",
+    "summary": "Agent skill for invoking operations on remote outpost machines — run commands, read/write files, list directories via Python stdlib CLI.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "vault-sync",
+    "name": "Vault sync",
+    "repo": "local:fittings/seed/vault-sync",
+    "localPath": "fittings/seed/vault-sync",
+    "summary": "Periodic host→outpost directory mirror (Obsidian vault and similar). Size+mtime diff, parallel outpost sync, scheduler-driven.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.2,
+      "claude_code": 4.2
+    }
   }
 ]

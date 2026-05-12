@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Terminal as TerminalIcon, Monitor, Plus, X, Settings } from "lucide-react";
 import { TerminalView } from "./Terminal";
 import { ScreenShare } from "./ScreenShare";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { consumePendingLaunch, onLaunchClaude } from "@/lib/workbench-bus";
 
 interface TrenchesSession {
   id: string;
@@ -207,6 +208,91 @@ export function TrenchesPanel() {
     },
     [creating, parsedTarget, setShellError]
   );
+
+  // Direct launch that bypasses parsedTarget state timing — used for
+  // worktree "Claude Code" button which supplies target explicitly.
+  const handleLaunchClaude = useCallback(
+    async (path: string, rawTarget: string) => {
+      if (!path || !rawTarget) return;
+      const projectName = path.split("/").filter(Boolean).pop() ?? "claude";
+      const isOutpost = rawTarget.startsWith("outpost:");
+      const outpostName = isOutpost ? rawTarget.slice(8) : null;
+      const isSsh = rawTarget.startsWith("ssh:");
+      const sshName = isSsh ? rawTarget.slice(4) : null;
+      const sshHost = sshName ? hosts.find((h) => h.name === sshName) ?? null : null;
+
+      setTarget(rawTarget);
+
+      const body: Record<string, unknown> = outpostName
+        ? {
+            name: `claude-${outpostName}-${projectName}`,
+            initialCommand: buildClaudeCodeCommand(path),
+            outpost: outpostName,
+          }
+        : sshHost
+          ? {
+              name: `claude-${sshName}-${projectName}`,
+              initialCommand: buildClaudeCodeCommand(path),
+              host: sshHost.name,
+              sshUser: sshHost.user,
+              sshAddress: sshHost.address,
+            }
+          : {
+              name: `claude-${projectName}`,
+              cwd: path,
+              initialCommand: buildClaudeCodeCommand(null),
+            };
+
+      if (creating) return;
+      setCreating(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/trenches/terminals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const json = (await res.json()) as CreateTerminalResponse | { error: string };
+        if (!res.ok || "error" in json) {
+          const msg = "error" in json ? json.error : `HTTP ${res.status}`;
+          setError(msg);
+          setShellError?.(msg);
+          return;
+        }
+        const session = json as CreateTerminalResponse;
+        setWsUrl(session.wsUrl);
+        setSessions((prev) =>
+          prev.some((s) => s.id === session.id) ? prev : [...prev, session]
+        );
+        setActiveId(session.id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCreating(false);
+      }
+    },
+    [creating, hosts, setShellError]
+  );
+
+  // Keep a stable ref so the mount-only effect always calls the latest version.
+  const handleLaunchClaudeRef = useRef(handleLaunchClaude);
+  useEffect(() => { handleLaunchClaudeRef.current = handleLaunchClaude; });
+
+  // On mount: consume a pending launch queued before this tab was active.
+  useEffect(() => {
+    const p = consumePendingLaunch();
+    if (p?.path) void handleLaunchClaudeRef.current(p.path, p.target);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Already mounted: react to live launch events. Uses ref so re-subscription
+  // is unnecessary — a stable listener with [] deps avoids the cleanup gap
+  // that occurs when [handleLaunchClaude] deps cause churn.
+  useEffect(() => {
+    return onLaunchClaude((p) => {
+      consumePendingLaunch(); // clear slot so remount doesn't double-fire
+      if (p?.path) void handleLaunchClaudeRef.current(p.path, p.target);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const newTerminal = useCallback(() => {
     void launchTerminal(parsedTarget.kind === "local" ? { cwd: projectsRoot } : {});

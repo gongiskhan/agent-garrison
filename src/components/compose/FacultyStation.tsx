@@ -92,6 +92,10 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   outposts: {
     role: "Connects remote Macs as managed outposts over Garrison Outpost Protocol v1.",
     fit: "Each Outpost Fitting represents one remote machine. Spawn processes, watch files, and manage git worktrees remotely from the Workbench."
+  },
+  sync: {
+    role: "Periodically mirrors files between the host and remote outpost machines.",
+    fit: "v1 is host→outpost unidirectional. Use for Obsidian vaults, dotfiles, or any directory you want to keep in sync across your machines."
   }
 };
 
@@ -114,7 +118,8 @@ const facultyGroup: Record<FacultyId, string> = {
   "screen-share": "Workbench",
   "worktree-management": "Workbench",
   "session-view": "Workbench",
-  outposts: "Workbench"
+  outposts: "Workbench",
+  sync: "Integration"
 };
 
 export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {

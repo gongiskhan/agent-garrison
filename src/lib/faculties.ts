@@ -160,6 +160,14 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["plugin"],
     family: "workbench",
     notes: "Remote Mac bridges connected over Garrison Outpost Protocol v1 — spawn processes, watch files, manage git worktrees on remote machines."
+  },
+  {
+    id: "sync",
+    order: 20,
+    name: "Sync",
+    cardinality: "multi",
+    shapes: ["script", "cli-skill"],
+    notes: "Periodic mirroring between the host and external surfaces (filesystems, vaults). v1 = host→outpost unidirectional."
   }
 ];
 

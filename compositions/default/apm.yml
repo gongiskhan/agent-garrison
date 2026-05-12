@@ -23,6 +23,8 @@ dependencies:
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/worktree-management-sequoias
     - path: ../../fittings/seed/session-view-sequoias
+    - path: ../../fittings/seed/outpost-actions
+    - path: ../../fittings/seed/vault-sync
 x-garrison:
   composition:
     id: default
