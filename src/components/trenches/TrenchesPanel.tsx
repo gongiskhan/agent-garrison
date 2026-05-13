@@ -232,6 +232,7 @@ export function TrenchesPanel() {
             name: `claude-${outpostName}-${projectName}`,
             initialCommand: buildClaudeCodeCommand(path, continueSession),
             outpost: outpostName,
+            ...(compositionDir ? { compositionDir } : {}),
           }
         : sshHost
           ? {
@@ -240,11 +241,13 @@ export function TrenchesPanel() {
               host: sshHost.name,
               sshUser: sshHost.user,
               sshAddress: sshHost.address,
+              ...(compositionDir ? { compositionDir } : {}),
             }
           : {
               name: `claude-${projectName}`,
               cwd: path,
               initialCommand: buildClaudeCodeCommand(null, continueSession),
+              ...(compositionDir ? { compositionDir } : {}),
             };
 
       if (creating) return;

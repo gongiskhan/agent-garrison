@@ -264,5 +264,29 @@
       "global": 4.2,
       "claude_code": 4.2
     }
+  },
+  {
+    "id": "mcp-gateway",
+    "name": "MCP gateway",
+    "repo": "local:fittings/seed/mcp-gateway",
+    "localPath": "fittings/seed/mcp-gateway",
+    "summary": "Exposes installed Faculties as MCP tools to workbench-launched Claude Code sessions. Supports stdio (same-machine) and HTTP (remote outpost) transports.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "testing",
+    "name": "Testing",
+    "repo": "local:fittings/seed/testing",
+    "localPath": "fittings/seed/testing",
+    "summary": "Project-aware test runner. Auto-detects npm/pytest/cargo/go test and runs the worktree project's native test command.",
+    "platforms": ["claude-code"],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
   }
 ]

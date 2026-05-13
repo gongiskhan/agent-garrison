@@ -23,10 +23,20 @@ x-garrison:
   provides:
     - kind: agent-skill
       name: tier-classifier
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
   verify:
-    command: test -f .claude/skills/tier-classifier/SKILL.md && echo ok
+    command: node apm_modules/_local/tier-classifier/scripts/classify_tier.mjs --probe
     expect: ok
     timeout_ms: 10000
+  for_consumers: |
+    Invoke via the `classify_tier` MCP tool exposed by `mcp-gateway`.
+    Input: { prompt: string }
+    Output: { tier: integer (1-7), reason: string }
+    tier_floor (default 3) is the minimum returned tier. plan_threshold (default 3)
+    is documented for the model; enforcement is the Operative's responsibility.
+    Backed by @anthropic-ai/claude-agent-sdk; uses user's Max auth — no API key needed.
   ui:
     views:
       - id: main

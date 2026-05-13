@@ -1,0 +1,28 @@
+name: garrison-testing
+version: 0.1.0
+description: Project-aware test runner Fitting for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: skills
+  cardinality_hint: multi
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: Runs the worktree project's native test command (npm/pytest/cargo/go test).
+  provides:
+    - kind: agent-skill
+      name: testing
+  verify:
+    command: node apm_modules/_local/testing/scripts/run_tests.mjs --probe
+    expect: ok
+    timeout_ms: 5000
+  for_consumers: |
+    Invoke via the `run_tests` MCP tool exposed by `mcp-gateway`.
+    Input: { cwd: string, pattern?: string }
+    Output: { project_type, command, exit_code, stdout, stderr, duration_ms }
+    Auto-detects npm (package.json), pytest (pyproject.toml / pytest.ini),
+    cargo (Cargo.toml), and go test (go.mod). Returns non-zero exit_code on
+    test failure — that is not a tool error. Tool errors are reserved for
+    "could not detect project type" and timeout (5 minutes).

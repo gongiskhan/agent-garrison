@@ -54,7 +54,8 @@ export const capabilityKinds = [
   "worktree",
   "session-view",
   "screen-share",
-  "outpost"
+  "outpost",
+  "mcp-gateway"
 ] as const;
 
 export type CapabilityKind = (typeof capabilityKinds)[number];

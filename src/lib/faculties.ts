@@ -70,9 +70,9 @@ export const faculties: FacultyDefinition[] = [
     id: "gateway",
     order: 9,
     name: "Gateway",
-    cardinality: "single",
+    cardinality: "multi",
     shapes: ["script", "manual-instructions"],
-    notes: "The MCP-speaking entry point."
+    notes: "The MCP-speaking entry point. Multi-cardinality: http-gateway (chat operative) and mcp-gateway (workbench tool bridge) can coexist."
   },
   {
     id: "channels",

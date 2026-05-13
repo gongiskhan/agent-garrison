@@ -1,0 +1,14 @@
+{
+  "name": "garrison-mcp-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP gateway Fitting for Agent Garrison workbench sessions.",
+  "main": "scripts/gateway.mjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0"
+  }
+}

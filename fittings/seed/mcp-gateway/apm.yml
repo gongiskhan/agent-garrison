@@ -1,0 +1,39 @@
+name: garrison-mcp-gateway
+version: 0.1.0
+description: MCP gateway Fitting for Agent Garrison workbench-launched sessions.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: gateway
+  cardinality_hint: multi
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: Exposes installed Faculties as MCP tools to workbench-launched Claude Code sessions.
+  config_schema:
+    - key: bind_host
+      type: string
+      default: "0.0.0.0"
+      description: HTTP transport bind host (must be Tailscale-reachable for remote outposts).
+  provides:
+    - kind: mcp-gateway
+      name: mcp-gateway
+  consumes:
+    - kind: agent-skill
+      name: tier-classifier
+      cardinality: optional-one
+    - kind: agent-skill
+      name: testing
+      cardinality: optional-one
+  verify:
+    command: node apm_modules/_local/mcp-gateway/scripts/gateway.mjs --probe
+    expect: ok
+    timeout_ms: 8000
+  for_consumers: |
+    This Fitting is workbench infrastructure — it is not invoked by the Operative.
+    It runs as a companion to Claude Code sessions launched from the Garrison workbench.
+    Same-machine sessions use stdio MCP (Claude Code spawns it as a child process).
+    Remote outpost sessions use HTTP MCP (gateway runs on the workbench host, Claude
+    Code on the remote machine connects to it over Tailscale).
+    Tools: classify_tier, run_tests (present only when the corresponding Fitting is installed).

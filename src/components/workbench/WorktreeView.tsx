@@ -36,6 +36,13 @@ export default function WorktreeView({ config }: FittingViewProps) {
       (composition?.selections[e.faculty] ?? []).some((s) => s.id === e.id)
   );
 
+  const mcpGatewayInstalled = library.some(
+    (e) =>
+      e.faculty === "gateway" &&
+      e.id === "mcp-gateway" &&
+      (composition?.selections[e.faculty] ?? []).some((s) => s.id === e.id)
+  );
+
   // ── Machine selector ──────────────────────────────────────────────────────
   const [target, setTarget] = useState<string>("local");
   const [outposts, setOutposts] = useState<OutpostStatus[]>([]);
@@ -450,13 +457,29 @@ export default function WorktreeView({ config }: FittingViewProps) {
                 <td className="mono">{wt.commit}</td>
                 <td>
                   <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
+                    {mcpGatewayInstalled ? (
+                      <span
+                        title={`MCP tools: classify_tier, run_tests (${target.startsWith("outpost:") ? "http" : "stdio"})`}
+                        style={{
+                          fontSize: 10,
+                          padding: "1px 5px",
+                          borderRadius: 3,
+                          background: "var(--accent, #2563eb)",
+                          color: "#fff",
+                          letterSpacing: "0.04em",
+                          userSelect: "none"
+                        }}
+                      >
+                        MCP
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       className="btn small ghost"
                       disabled={!terminalInstalled}
                       title={
                         terminalInstalled
-                          ? `Open Claude Code at ${wt.worktreePath}${target !== "local" ? ` on ${target.replace("outpost:", "")}` : ""}`
+                          ? `Open Claude Code at ${wt.worktreePath}${target !== "local" ? ` on ${target.replace("outpost:", "")}` : ""}${mcpGatewayInstalled ? " (with MCP tools)" : ""}`
                           : "Add a terminal Fitting to your composition first"
                       }
                       onClick={() => dispatchLaunchClaude(wt.worktreePath, target)}
@@ -469,7 +492,7 @@ export default function WorktreeView({ config }: FittingViewProps) {
                       disabled={!terminalInstalled}
                       title={
                         terminalInstalled
-                          ? `Continue last Claude Code session at ${wt.worktreePath}${target !== "local" ? ` on ${target.replace("outpost:", "")}` : ""}`
+                          ? `Continue last Claude Code session at ${wt.worktreePath}${target !== "local" ? ` on ${target.replace("outpost:", "")}` : ""}${mcpGatewayInstalled ? " (with MCP tools)" : ""}`
                           : "Add a terminal Fitting to your composition first"
                       }
                       onClick={() => dispatchLaunchClaude(wt.worktreePath, target, true)}

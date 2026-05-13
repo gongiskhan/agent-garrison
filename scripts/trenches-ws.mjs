@@ -166,7 +166,20 @@ function spawnPty({ cwd, shell, host, sshUser, sshAddress, env, cols = 80, rows 
   });
 }
 
-async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outpost, initialCommand }) {
+async function notifyMcpTeardown(mcpSessionId, outpostName, remoteMcpConfigPath) {
+  const origin = process.env.GARRISON_NEXT_ORIGIN || "http://127.0.0.1:3000";
+  try {
+    await fetch(`${origin}/api/workbench/mcp-gateway/teardown`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: mcpSessionId, outpostName, remoteMcpConfigPath }),
+    });
+  } catch (err) {
+    console.warn(`[trenches-ws] mcp teardown notify failed: ${err.message}`);
+  }
+}
+
+async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outpost, initialCommand, mcpSessionId, remoteMcpConfigPath }) {
   if (sessions.size >= MAX_SESSIONS) {
     throw new Error("trenches at session capacity");
   }
@@ -218,6 +231,8 @@ async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outp
     deadTimer: null,
     initialCommand: initialCommand || null,
     initialCommandSent: false,
+    mcpSessionId: mcpSessionId || null,
+    remoteMcpConfigPath: remoteMcpConfigPath || null,
   };
 
   if (source === "outpost") {
@@ -251,6 +266,9 @@ async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outp
   ptyProcess.onExit(({ exitCode, signal }) => {
     console.log(`[trenches-ws] PTY ${id} exited (code=${exitCode} signal=${signal})`);
     const live = sessions.get(id);
+    if (live?.mcpSessionId) {
+      void notifyMcpTeardown(live.mcpSessionId, live.outpost, live.remoteMcpConfigPath);
+    }
     if (live?.ws && live.ws.readyState === 1) {
       try {
         live.ws.close(1000, "PTY exited");

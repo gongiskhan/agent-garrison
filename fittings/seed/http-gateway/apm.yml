@@ -6,7 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: gateway
-  cardinality_hint: single
+  cardinality_hint: multi
   component_shape: script
   platforms:
     - claude-code

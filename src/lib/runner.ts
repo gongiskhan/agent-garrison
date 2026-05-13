@@ -505,40 +505,46 @@ async function resolveGatewayFitting(
   if (gatewaySelections.length === 0) {
     return null;
   }
-  const selection = gatewaySelections[0];
   const entries = await selectedLibraryEntries(composition.selections);
-  const entry = entries.find((candidate) => candidate.id === selection.id);
-  if (!entry) {
-    return null;
+
+  for (const selection of gatewaySelections) {
+    const entry = entries.find((candidate) => candidate.id === selection.id);
+    if (!entry) continue;
+
+    // Skip mcp-gateway — it is workbench infrastructure and is not spawned
+    // by the runner as the operative's HTTP chat gateway.
+    if (entry.metadata?.provides?.some((p) => p.kind === "mcp-gateway")) continue;
+
+    const fittingDir = path.join(
+      composition.directory,
+      "apm_modules",
+      "_local",
+      entry.id
+    );
+    const scriptPath = path.join(fittingDir, "scripts", "gateway.mjs");
+
+    try {
+      await fs.access(scriptPath);
+    } catch {
+      continue;
+    }
+
+    const config = (selection.config ?? {}) as Record<string, unknown>;
+    const host = String(config.bind_host ?? "127.0.0.1");
+    const port = Number(config.port ?? 4777);
+
+    return {
+      fittingId: entry.id,
+      fittingDir,
+      scriptPath,
+      host,
+      port,
+      baseUrl: `http://${host}:${port}`,
+      config
+    };
   }
 
-  const fittingDir = path.join(
-    composition.directory,
-    "apm_modules",
-    "_local",
-    entry.id
-  );
-  const scriptPath = path.join(fittingDir, "scripts", "gateway.mjs");
-
-  try {
-    await fs.access(scriptPath);
-  } catch {
-    return null;
-  }
-
-  const config = (selection.config ?? {}) as Record<string, unknown>;
-  const host = String(config.bind_host ?? "127.0.0.1");
-  const port = Number(config.port ?? 4777);
-
-  return {
-    fittingId: entry.id,
-    fittingDir,
-    scriptPath,
-    host,
-    port,
-    baseUrl: `http://${host}:${port}`,
-    config
-  };
+  return null;
 }
 
 async function spawnGateway(
