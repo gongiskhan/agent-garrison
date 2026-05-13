@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import os from "node:os";
 
@@ -102,6 +102,12 @@ function getWorkbenchHostname(): string {
       if (data?.hostname) return data.hostname;
     } catch { /* fall through */ }
   }
+  // Try Tailscale CLI — gives a routable IP for cross-machine HTTP (unlike .local mDNS)
+  try {
+    const result = spawnSync("tailscale", ["ip", "--4"], { encoding: "utf8", timeout: 2000 });
+    const ip = result.stdout?.trim();
+    if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip;
+  } catch { /* fall through */ }
   return os.hostname();
 }
 

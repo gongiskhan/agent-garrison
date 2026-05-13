@@ -25,6 +25,8 @@ dependencies:
     - path: ../../fittings/seed/session-view-sequoias
     - path: ../../fittings/seed/outpost-actions
     - path: ../../fittings/seed/vault-sync
+    - path: ../../fittings/seed/mcp-gateway
+    - path: ../../fittings/seed/testing
 x-garrison:
   composition:
     id: default
