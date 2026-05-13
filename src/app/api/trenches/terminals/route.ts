@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
         if (worktreePath) {
           const [promptPath, settingsPath] = await Promise.all([
             writeSystemPromptFile(sessionId),
-            writeSessionSettings(sessionId),
+            writeSessionSettings(sessionId, compositionDir),
             writeMcpConfig(worktreePath, compositionDir),
           ]);
           forwardBody = {
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
           }),
           outpostRpc(outpostName, "fs.write", {
             path: remoteSettingsPath,
-            content: JSON.stringify(buildSessionSettings(shortSid), null, 2),
+            content: JSON.stringify(buildSessionSettings(shortSid, undefined), null, 2),
           }).catch((err: Error) => {
             console.warn(`[mcp-gateway] fs.write settings failed on outpost ${outpostName}: ${err.message}`);
           }),

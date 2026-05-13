@@ -100,25 +100,31 @@ export function settingsFilePath(sessionId: string): string {
   return path.join(os.tmpdir(), `garrison-settings-${sessionId}.txt`);
 }
 
-export function buildSessionSettings(shortSid: string): object {
+const CLASSIFY_TIER_REL = path.join("apm_modules", "_local", "tier-classifier", "scripts", "classify_tier.mjs");
+
+export function buildSessionSettings(shortSid: string, compositionDir?: string): object {
   const flag = tierFlagPath(shortSid);
+  // If compositionDir is known, guard the block on the classify_tier script existing.
+  // This prevents a deadlock when the MCP gateway failed to connect: hooks stay active
+  // but writes are not blocked when the tool is genuinely unavailable.
+  const scriptCheck = compositionDir
+    ? `! test -f ${path.join(compositionDir, CLASSIFY_TIER_REL)} || `
+    : "";
   return {
     hooks: {
-      // Set the flag when classify_tier is called successfully
       PostToolUse: [
         {
           matcher: "mcp__garrison__classify_tier",
           hooks: [{ type: "command", command: `touch ${flag}` }],
         },
       ],
-      // Block write/edit tools until classify_tier has been called
       PreToolUse: [
         {
           matcher: "Write|Edit|MultiEdit",
           hooks: [
             {
               type: "command",
-              command: `test -f ${flag} || { echo "Garrison: call classify_tier({\\\"prompt\\\": \\\"<the user request>\\\"}) before making any changes."; exit 2; }`,
+              command: `${scriptCheck}test -f ${flag} || { echo "Garrison: call classify_tier({\\\"prompt\\\": \\\"<the user request>\\\"}) before making any changes."; exit 2; }`,
             },
           ],
         },
@@ -127,9 +133,9 @@ export function buildSessionSettings(shortSid: string): object {
   };
 }
 
-export async function writeSessionSettings(sessionId: string): Promise<string> {
+export async function writeSessionSettings(sessionId: string, compositionDir?: string): Promise<string> {
   const filePath = settingsFilePath(sessionId);
-  await fs.writeFile(filePath, JSON.stringify(buildSessionSettings(sessionId.slice(0, 8)), null, 2), "utf8");
+  await fs.writeFile(filePath, JSON.stringify(buildSessionSettings(sessionId.slice(0, 8), compositionDir), null, 2), "utf8");
   return filePath;
 }
 
