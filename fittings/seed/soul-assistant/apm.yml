@@ -1,0 +1,45 @@
+name: soul-assistant
+version: 0.1.0
+description: Personal Assistant Soul for Agent Garrison — personal life logistics specialist sub-session.
+target: claude
+type: prompts
+includes: auto
+x-garrison:
+  faculty: skills
+  cardinality_hint: multi
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: Personal life logistics Soul. Reads context.md, manages todos, meal planning, family scheduling. No web access.
+  config_schema:
+    - key: base_path
+      type: path
+      default: "~/.garrison/assistant"
+      description: "Working directory for the assistant Soul. Contains context.md, dishes.md, todos.md and other persistent context files."
+  provides:
+    - kind: agent-skill
+      name: soul.assistant
+  consumes:
+    - kind: mcp-gateway
+      cardinality: optional-one
+  spawn:
+    preset: none
+    allowed_tools:
+      - Read
+      - Glob
+      - Write
+      - Edit
+    disallowed_tools:
+      - Bash
+      - WebSearch
+      - WebFetch
+    exclude_dynamic_sections: true
+    base_path: "~/.garrison/assistant"
+  verify:
+    command: test -f apm_modules/_local/soul-assistant/.apm/prompts/soul-assistant.prompt.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Personal Assistant Soul — spawned by the Orchestrator for personal life logistics.
+    Uses preset:none. No web access; reads/writes files in ~/.garrison/assistant/.
+    Pre-populated with context.md, dishes.md, todos.md on first install.

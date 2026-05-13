@@ -1,0 +1,46 @@
+name: soul-researcher
+version: 0.1.0
+description: Researcher Soul for Agent Garrison — information gathering and synthesis specialist sub-session.
+target: claude
+type: prompts
+includes: auto
+x-garrison:
+  faculty: skills
+  cardinality_hint: multi
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: Research specialist Soul. Web search and fetch; produces cited markdown research notes.
+  config_schema:
+    - key: base_path
+      type: path
+      default: "~/.garrison/research"
+      description: "Working directory where research notes are saved."
+  provides:
+    - kind: agent-skill
+      name: soul.researcher
+  consumes:
+    - kind: mcp-gateway
+      cardinality: optional-one
+  spawn:
+    preset: none
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Write
+      - Edit
+      - WebSearch
+      - WebFetch
+    disallowed_tools:
+      - Bash
+    exclude_dynamic_sections: true
+    base_path: "~/.garrison/research"
+  verify:
+    command: test -f apm_modules/_local/soul-researcher/.apm/prompts/soul-researcher.prompt.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Researcher Soul — spawned by the Orchestrator for deep research tasks.
+    Uses preset:none. Has web search and fetch; produces cited markdown notes in ~/.garrison/research/.
+    No Bash access.

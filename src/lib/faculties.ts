@@ -47,8 +47,8 @@ export const faculties: FacultyDefinition[] = [
     order: 6,
     name: "Skills",
     cardinality: "multi",
-    shapes: ["script", "skill"],
-    notes: "Reusable agent skills the Operative can invoke — including but not limited to test authoring."
+    shapes: ["script", "skill", "system-prompt"],
+    notes: "Reusable agent skills the Operative can invoke — including but not limited to test authoring and Soul sub-sessions."
   },
   {
     id: "memory",

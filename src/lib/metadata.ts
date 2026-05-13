@@ -49,6 +49,15 @@ const consumptionSchema = z.object({
 // Orchestrator's context window with usage docs.
 const FOR_CONSUMERS_MAX_BYTES = 8 * 1024;
 
+const spawnConfigSchema = z.object({
+  preset: z.enum(["claude_code", "none"]).default("claude_code"),
+  allowed_tools: z.array(z.string()).optional(),
+  disallowed_tools: z.array(z.string()).optional(),
+  exclude_dynamic_sections: z.boolean().default(false),
+  base_path: z.string().optional(),
+  mcp: z.array(z.string()).optional()
+});
+
 export const garrisonMetadataSchema = z.object({
   faculty: z.enum(facultyIds),
   cardinality_hint: z.enum(["single", "multi"]),
@@ -99,7 +108,8 @@ export const garrisonMetadataSchema = z.object({
       source: z.string().min(1),
       truth_file: z.string().min(1)
     })
-    .optional()
+    .optional(),
+  spawn: spawnConfigSchema.optional()
 });
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {

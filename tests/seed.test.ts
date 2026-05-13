@@ -26,7 +26,15 @@ const seedIds = [
   "terminal-armory-default",
   "screen-share-default",
   "worktree-management-sequoias",
-  "session-view-sequoias"
+  "session-view-sequoias",
+  "mcp-gateway",
+  "testing",
+  "soul-engineer",
+  "soul-architect",
+  "soul-assistant",
+  "soul-researcher",
+  "soul-companion",
+  "garrison-orchestrator"
 ] as const;
 
 interface RawManifest {
@@ -154,8 +162,11 @@ describe("seed Fittings", () => {
   });
 
   it("the full seed stack resolves capabilities cleanly", async () => {
+    // garrison-orchestrator is an alternative orchestrator — it cannot coexist with
+    // personal-operative in the same stack. Exclude it from the combined resolution test.
+    const resolutionIds = seedIds.filter((id) => id !== "garrison-orchestrator");
     const metadatas = await Promise.all(
-      seedIds.map(async (id) => ({ id, metadata: await loadSeed(id) }))
+      resolutionIds.map(async (id) => ({ id, metadata: await loadSeed(id) }))
     );
     const result = resolveCapabilities(metadatas);
     if (!result.ok) {
@@ -164,5 +175,34 @@ describe("seed Fittings", () => {
       );
     }
     expect(result.ok).toBe(true);
+  });
+
+  it("soul fittings parse correctly with spawn configs", async () => {
+    const souls = [
+      { id: "soul-engineer",    soulName: "engineer"    },
+      { id: "soul-architect",   soulName: "architect"   },
+      { id: "soul-assistant",   soulName: "assistant"   },
+      { id: "soul-researcher",  soulName: "researcher"  },
+      { id: "soul-companion",   soulName: "companion"   }
+    ];
+    for (const { id, soulName } of souls) {
+      const metadata = await loadSeed(id);
+      expect(metadata.faculty).toBe("skills");
+      expect(metadata.component_shape).toBe("system-prompt");
+      expect(metadata.provides).toContainEqual({ kind: "agent-skill", name: `soul.${soulName}` });
+      expect(metadata.spawn).toBeDefined();
+      expect(["claude_code", "none"]).toContain(metadata.spawn!.preset);
+    }
+  });
+
+  it("garrison-orchestrator provides orchestrator capability with spawn=none", async () => {
+    const metadata = await loadSeed("garrison-orchestrator");
+    expect(metadata.faculty).toBe("orchestrator");
+    expect(metadata.component_shape).toBe("system-prompt");
+    expect(metadata.provides).toContainEqual({ kind: "orchestrator", name: "garrison-orchestrator" });
+    expect(metadata.spawn).toBeDefined();
+    expect(metadata.spawn!.preset).toBe("none");
+    expect(metadata.spawn!.allowed_tools).toEqual([]);
+    expect(metadata.spawn!.mcp).toContain("garrison-control");
   });
 });

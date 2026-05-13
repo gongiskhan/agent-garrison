@@ -121,6 +121,15 @@ export interface UiView {
   route: string;
 }
 
+export interface SpawnConfig {
+  preset: "claude_code" | "none";
+  allowed_tools?: string[];
+  disallowed_tools?: string[];
+  exclude_dynamic_sections?: boolean;
+  base_path?: string;
+  mcp?: string[];
+}
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -144,6 +153,7 @@ export interface GarrisonMetadata {
     source: string;
     truth_file: string;
   };
+  spawn?: SpawnConfig;
 }
 
 export interface RatingInfo {

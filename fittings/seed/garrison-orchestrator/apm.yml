@@ -1,0 +1,38 @@
+name: garrison-orchestrator
+version: 0.1.0
+description: Delegating Orchestrator for Agent Garrison — routes requests to Soul sub-sessions via garrison-control MCP tools.
+target: claude
+type: prompts
+includes: auto
+x-garrison:
+  faculty: orchestrator
+  cardinality_hint: single
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: Thin routing Orchestrator that delegates to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.
+  config_schema: []
+  provides:
+    - kind: orchestrator
+      name: garrison-orchestrator
+  consumes:
+    - kind: agent-skill
+      cardinality: any
+    - kind: mcp-gateway
+      cardinality: optional-one
+  spawn:
+    preset: none
+    allowed_tools: []
+    exclude_dynamic_sections: true
+    base_path: "~/.garrison/orchestrator"
+    mcp:
+      - garrison-control
+  verify:
+    command: test -f apm_modules/_local/garrison-orchestrator/.apm/prompts/garrison-orchestrator.prompt.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    This is the Garrison Orchestrator. It routes user requests to Soul sub-sessions via the
+    garrison-control MCP tools (talk_to, wait_for, list_active_sessions, end_session, list_workdirs).
+    It does not perform work directly — it delegates to engineer, architect, assistant, researcher,
+    or companion Souls and reports back to the user.

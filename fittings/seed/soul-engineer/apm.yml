@@ -1,0 +1,36 @@
+name: soul-engineer
+version: 0.1.0
+description: Engineer Soul for Agent Garrison — coding specialist sub-session.
+target: claude
+type: prompts
+includes: auto
+x-garrison:
+  faculty: skills
+  cardinality_hint: multi
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: Coding specialist Soul. Full filesystem and shell access in the projects folder.
+  config_schema:
+    - key: base_path
+      type: path
+      default: "~/code"
+      description: "Base directory for project work. The Orchestrator picks a subdirectory within this path for each task."
+  provides:
+    - kind: agent-skill
+      name: soul.engineer
+  consumes:
+    - kind: mcp-gateway
+      cardinality: optional-one
+  spawn:
+    preset: claude_code
+    exclude_dynamic_sections: false
+    base_path: "~/code"
+  verify:
+    command: test -f apm_modules/_local/soul-engineer/.apm/prompts/soul-engineer.prompt.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Engineer Soul — spawned by the Orchestrator for coding tasks. Uses claude_code preset
+    (full file and shell access). base_path defaults to ~/code; the Orchestrator uses
+    list_workdirs to enumerate projects and pick the cwd for each task.
