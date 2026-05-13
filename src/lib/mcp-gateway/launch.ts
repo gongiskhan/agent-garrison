@@ -46,14 +46,33 @@ export async function writeMcpConfig(worktreePath: string, compositionDir: strin
 }
 
 // System prompt fragment injected into every workbench-launched Claude Code session.
-export const GARRISON_SYSTEM_PROMPT = `## Garrison MCP tools
+export const GARRISON_SYSTEM_PROMPT = `## REQUIRED: Garrison workflow — follow exactly, no exceptions
 
-Two MCP tools are available in this session:
+### Step 1 — classify every request (MANDATORY, do this first)
 
-- \`classify_tier\` — classify the user request into tier 1–7 before committing to a plan. T3+ requires plan-then-reclassify-then-route.
-- \`run_tests\` — run the worktree project's native test command (npm/pytest/cargo/go). Call this to verify work before declaring it done.
+Before responding to ANY user request that involves making a change, writing code, editing files, running commands, or producing any output beyond a direct clarifying question, you MUST call:
 
-Call these tools; do not synthesise the answers yourself. If a tool is absent from the tool list, the corresponding Faculty is not installed.`;
+  classify_tier({"prompt": "<the user's exact request>"})
+
+Do not paraphrase it yourself. Do not skip this step for "simple" tasks. Small changes are still T1 and take two seconds to classify.
+
+### Step 2 — act on the tier
+
+- **T1–T2**: State the tier, then proceed immediately.
+- **T3–T4**: State the tier. Write a concise plan (bullets). Wait for user approval before executing.
+- **T5–T7**: State the tier. Write a detailed plan. Re-classify the plan summary. Wait for explicit approval.
+
+### Step 3 — verify (after any code change)
+
+After making code changes, call:
+
+  run_tests({"cwd": "<absolute path to the project>"})
+
+Report the result before declaring the work done.
+
+---
+
+If a tool is absent from the tool list, the corresponding Faculty is not installed — skip that step and note it.`;
 
 export function systemPromptFilePath(sessionId: string): string {
   return path.join(os.tmpdir(), `garrison-prompt-${sessionId}.txt`);
@@ -69,6 +88,54 @@ export async function removeSystemPromptFile(sessionId: string): Promise<void> {
   try {
     await fs.unlink(systemPromptFilePath(sessionId));
   } catch { /* ignore */ }
+}
+
+// ─────────────────────────────────────────── Per-session hook enforcement
+
+function tierFlagPath(shortSid: string): string {
+  return `/tmp/garrison-tier-done-${shortSid}`;
+}
+
+export function settingsFilePath(sessionId: string): string {
+  return path.join(os.tmpdir(), `garrison-settings-${sessionId}.txt`);
+}
+
+export function buildSessionSettings(shortSid: string): object {
+  const flag = tierFlagPath(shortSid);
+  return {
+    hooks: {
+      // Set the flag when classify_tier is called successfully
+      PostToolUse: [
+        {
+          matcher: "mcp__garrison__classify_tier",
+          hooks: [{ type: "command", command: `touch ${flag}` }],
+        },
+      ],
+      // Block write/edit tools until classify_tier has been called
+      PreToolUse: [
+        {
+          matcher: "Write|Edit|MultiEdit",
+          hooks: [
+            {
+              type: "command",
+              command: `test -f ${flag} || { echo "Garrison: call classify_tier({\\\"prompt\\\": \\\"<the user request>\\\"}) before making any changes."; exit 2; }`,
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+export async function writeSessionSettings(sessionId: string): Promise<string> {
+  const filePath = settingsFilePath(sessionId);
+  await fs.writeFile(filePath, JSON.stringify(buildSessionSettings(sessionId.slice(0, 8)), null, 2), "utf8");
+  return filePath;
+}
+
+export async function removeSessionSettings(sessionId: string): Promise<void> {
+  try { await fs.unlink(settingsFilePath(sessionId)); } catch { /* ignore */ }
+  try { await fs.unlink(tierFlagPath(sessionId.slice(0, 8))); } catch { /* ignore */ }
 }
 
 // ─────────────────────────────────────────── HTTP gateway lifecycle

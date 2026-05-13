@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       "exec.run",
       {
         command: "sh",
-        args: ["-c", `cd ${shellQuote(expandHome(worktreePath))} && gh pr list --head ${shellQuote(branch)} --state all --json number,url,title,state,createdAt`],
+        args: ["-c", `export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; cd ${shellQuote(expandHome(worktreePath))} && gh pr list --head ${shellQuote(branch)} --state all --json number,url,title,state,createdAt`],
         timeout_ms: 15000,
       }
     ));
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       "exec.run",
       {
         command: "sh",
-        args: ["-c", `cd ${shellQuote(expandHome(worktreePath))} && gh pr create --fill --head ${shellQuote(branch)}`],
+        args: ["-c", `export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; cd ${shellQuote(expandHome(worktreePath))} && gh pr create --fill --head ${shellQuote(branch)}`],
         timeout_ms: 30000,
       }
     ));

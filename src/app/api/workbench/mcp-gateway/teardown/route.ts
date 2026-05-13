@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { stopHttpGateway, hasHttpGateway, removeSystemPromptFile } from "@/lib/mcp-gateway/launch";
+import { stopHttpGateway, hasHttpGateway, removeSystemPromptFile, removeSessionSettings } from "@/lib/mcp-gateway/launch";
 import { outpostRpc } from "@/lib/outpost-rpc";
 
 export const runtime = "nodejs";
@@ -12,9 +12,10 @@ export async function POST(request: NextRequest) {
       outpostName?: string;
       remoteMcpConfigPath?: string;
       remotePromptFilePath?: string;
+      remoteSettingsPath?: string;
     };
 
-    const { sessionId, outpostName, remoteMcpConfigPath, remotePromptFilePath } = body;
+    const { sessionId, outpostName, remoteMcpConfigPath, remotePromptFilePath, remoteSettingsPath } = body;
     if (!sessionId) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 });
     }
@@ -25,14 +26,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (outpostName) {
-      // Remote: delete both temp files on the outpost (best-effort)
-      const paths = [remoteMcpConfigPath, remotePromptFilePath].filter(Boolean) as string[];
+      // Remote: delete all three temp files on the outpost (best-effort)
+      const paths = [remoteMcpConfigPath, remotePromptFilePath, remoteSettingsPath].filter(Boolean) as string[];
       for (const p of paths) {
         outpostRpc(outpostName, "fs.delete", { path: p }).catch(() => { /* non-fatal */ });
       }
     } else {
-      // Local: delete the system prompt temp file
+      // Local: delete prompt and settings temp files
       void removeSystemPromptFile(sessionId);
+      void removeSessionSettings(sessionId);
     }
 
     return NextResponse.json({ ok: true });

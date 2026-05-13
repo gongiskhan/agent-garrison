@@ -4,7 +4,9 @@ import {
   isMcpGatewayInstalled,
   writeMcpConfig,
   buildRemoteMcpConfig,
+  buildSessionSettings,
   writeSystemPromptFile,
+  writeSessionSettings,
   GARRISON_SYSTEM_PROMPT,
   startHttpGateway,
 } from "@/lib/mcp-gateway/launch";
@@ -33,30 +35,33 @@ export async function POST(request: NextRequest) {
       forwardBody = { ...forwardBody, mcpSessionId: sessionId };
 
       if (!outpostName) {
-        // Same-machine: write .mcp.json, write local prompt file, append flag to command
+        // Same-machine: write .mcp.json, prompt file, settings file; append all flags
         const worktreePath = typeof body.cwd === "string" ? body.cwd : null;
         if (worktreePath) {
-          const [promptPath] = await Promise.all([
+          const [promptPath, settingsPath] = await Promise.all([
             writeSystemPromptFile(sessionId),
+            writeSessionSettings(sessionId),
             writeMcpConfig(worktreePath, compositionDir),
           ]);
           forwardBody = {
             ...forwardBody,
             initialCommand: appendClaudeFlags(
               body.initialCommand as string,
-              `--append-system-prompt-file ${promptPath}`
+              `--append-system-prompt-file ${promptPath} --settings ${settingsPath}`
             ),
           };
         }
       } else {
-        // Remote outpost: start HTTP gateway on workbench host, write configs on remote
+        // Remote outpost: start HTTP gateway on workbench host, write all configs on remote
         const { url, token } = await startHttpGateway(sessionId, compositionDir);
-        const remoteMcpConfigPath = `/tmp/garrison-mcp-${sessionId.slice(0, 8)}.json`;
-        const remotePromptFilePath = `/tmp/garrison-prompt-${sessionId.slice(0, 8)}.txt`;
+        const shortSid = sessionId.slice(0, 8);
+        const remoteMcpConfigPath = `/tmp/garrison-mcp-${shortSid}.json`;
+        const remotePromptFilePath = `/tmp/garrison-prompt-${shortSid}.txt`;
+        const remoteSettingsPath = `/tmp/garrison-settings-${shortSid}.json`;
         const remoteMcpConfig = buildRemoteMcpConfig(url, token);
-        forwardBody = { ...forwardBody, remoteMcpConfigPath, remotePromptFilePath };
+        forwardBody = { ...forwardBody, remoteMcpConfigPath, remotePromptFilePath, remoteSettingsPath };
 
-        // Write MCP config and system prompt on remote (best-effort)
+        // Write MCP config, system prompt, and hook settings on remote (best-effort)
         await Promise.all([
           outpostRpc(outpostName, "fs.write", {
             path: remoteMcpConfigPath,
@@ -70,13 +75,19 @@ export async function POST(request: NextRequest) {
           }).catch((err: Error) => {
             console.warn(`[mcp-gateway] fs.write prompt failed on outpost ${outpostName}: ${err.message}`);
           }),
+          outpostRpc(outpostName, "fs.write", {
+            path: remoteSettingsPath,
+            content: JSON.stringify(buildSessionSettings(shortSid), null, 2),
+          }).catch((err: Error) => {
+            console.warn(`[mcp-gateway] fs.write settings failed on outpost ${outpostName}: ${err.message}`);
+          }),
         ]);
 
         forwardBody = {
           ...forwardBody,
           initialCommand: appendClaudeFlags(
             body.initialCommand as string,
-            `--mcp-config ${remoteMcpConfigPath} --append-system-prompt-file ${remotePromptFilePath}`
+            `--mcp-config ${remoteMcpConfigPath} --append-system-prompt-file ${remotePromptFilePath} --settings ${remoteSettingsPath}`
           ),
         };
       }
@@ -111,4 +122,3 @@ function appendClaudeFlags(command: string, flags: string): string {
     `$1 ${flags}`
   );
 }
-
