@@ -166,20 +166,20 @@ function spawnPty({ cwd, shell, host, sshUser, sshAddress, env, cols = 80, rows 
   });
 }
 
-async function notifyMcpTeardown(mcpSessionId, outpostName, remoteMcpConfigPath) {
+async function notifyMcpTeardown(mcpSessionId, outpostName, remoteMcpConfigPath, remotePromptFilePath) {
   const origin = process.env.GARRISON_NEXT_ORIGIN || "http://127.0.0.1:3000";
   try {
     await fetch(`${origin}/api/workbench/mcp-gateway/teardown`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: mcpSessionId, outpostName, remoteMcpConfigPath }),
+      body: JSON.stringify({ sessionId: mcpSessionId, outpostName, remoteMcpConfigPath, remotePromptFilePath }),
     });
   } catch (err) {
     console.warn(`[trenches-ws] mcp teardown notify failed: ${err.message}`);
   }
 }
 
-async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outpost, initialCommand, mcpSessionId, remoteMcpConfigPath }) {
+async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outpost, initialCommand, mcpSessionId, remoteMcpConfigPath, remotePromptFilePath }) {
   if (sessions.size >= MAX_SESSIONS) {
     throw new Error("trenches at session capacity");
   }
@@ -233,6 +233,7 @@ async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outp
     initialCommandSent: false,
     mcpSessionId: mcpSessionId || null,
     remoteMcpConfigPath: remoteMcpConfigPath || null,
+    remotePromptFilePath: remotePromptFilePath || null,
   };
 
   if (source === "outpost") {
@@ -267,7 +268,7 @@ async function createSession({ name, cwd, shell, host, sshUser, sshAddress, outp
     console.log(`[trenches-ws] PTY ${id} exited (code=${exitCode} signal=${signal})`);
     const live = sessions.get(id);
     if (live?.mcpSessionId) {
-      void notifyMcpTeardown(live.mcpSessionId, live.outpost, live.remoteMcpConfigPath);
+      void notifyMcpTeardown(live.mcpSessionId, live.outpost, live.remoteMcpConfigPath, live.remotePromptFilePath);
     }
     if (live?.ws && live.ws.readyState === 1) {
       try {

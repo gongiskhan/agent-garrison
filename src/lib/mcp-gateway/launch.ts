@@ -45,52 +45,30 @@ export async function writeMcpConfig(worktreePath: string, compositionDir: strin
   await fs.writeFile(path.join(worktreePath, ".mcp.json"), JSON.stringify(config, null, 2), "utf8");
 }
 
-// Garrison MCP CLAUDE.md fragment — injected at session launch.
-const MCP_CLAUDE_MD_FRAGMENT = `
-<!-- garrison-mcp-tools:begin -->
-## Garrison MCP tools
+// System prompt fragment injected into every workbench-launched Claude Code session.
+export const GARRISON_SYSTEM_PROMPT = `## Garrison MCP tools
 
-Two MCP tools are wired into this session by Agent Garrison:
+Two MCP tools are available in this session:
 
-- \`classify_tier\` — classify the user's request into tier 1-7. Use
-  before committing to a plan. T3+ requires plan-then-reclassify-then-route.
-- \`run_tests\` — run the worktree project's native test command
-  (npm/pytest/cargo/go). Use to verify work before declaring it done.
+- \`classify_tier\` — classify the user request into tier 1–7 before committing to a plan. T3+ requires plan-then-reclassify-then-route.
+- \`run_tests\` — run the worktree project's native test command (npm/pytest/cargo/go). Call this to verify work before declaring it done.
 
-Call these tools instead of synthesising the answer. If a tool is
-absent from the tool list, the corresponding Faculty is not installed.
-<!-- garrison-mcp-tools:end -->
-`.trimStart();
+Call these tools; do not synthesise the answers yourself. If a tool is absent from the tool list, the corresponding Faculty is not installed.`;
 
-export async function injectClaudeMd(worktreePath: string): Promise<void> {
-  const filePath = path.join(worktreePath, "CLAUDE.md");
-  const marker = "<!-- garrison-mcp-tools:begin -->";
-  let existing = "";
-  try {
-    existing = await fs.readFile(filePath, "utf8");
-  } catch {
-    // file doesn't exist — will create
-  }
-  if (existing.includes(marker)) return; // already injected
-  const updated = existing ? existing + "\n" + MCP_CLAUDE_MD_FRAGMENT : MCP_CLAUDE_MD_FRAGMENT;
-  await fs.writeFile(filePath, updated, "utf8");
+export function systemPromptFilePath(sessionId: string): string {
+  return path.join(os.tmpdir(), `garrison-prompt-${sessionId}.txt`);
 }
 
-export async function removeClaudeMd(worktreePath: string): Promise<void> {
-  const filePath = path.join(worktreePath, "CLAUDE.md");
+export async function writeSystemPromptFile(sessionId: string): Promise<string> {
+  const filePath = systemPromptFilePath(sessionId);
+  await fs.writeFile(filePath, GARRISON_SYSTEM_PROMPT, "utf8");
+  return filePath;
+}
+
+export async function removeSystemPromptFile(sessionId: string): Promise<void> {
   try {
-    const existing = await fs.readFile(filePath, "utf8");
-    const cleaned = existing
-      .replace(/\n?<!-- garrison-mcp-tools:begin -->[\s\S]*?<!-- garrison-mcp-tools:end -->\n?/g, "")
-      .trimEnd();
-    if (cleaned) {
-      await fs.writeFile(filePath, cleaned + "\n", "utf8");
-    } else {
-      await fs.unlink(filePath).catch(() => { /* ignore */ });
-    }
-  } catch {
-    // file missing — nothing to do
-  }
+    await fs.unlink(systemPromptFilePath(sessionId));
+  } catch { /* ignore */ }
 }
 
 // ─────────────────────────────────────────── HTTP gateway lifecycle
