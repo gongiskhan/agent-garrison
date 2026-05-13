@@ -5,17 +5,18 @@
 export interface LaunchClaudePayload {
   path: string;
   target: string; // "local" | "outpost:<name>" | "ssh:<name>"
+  continueSession?: boolean;
 }
 
 const GARRISON_LAUNCH_CLAUDE = "garrison:launch-claude";
 
 let pendingLaunch: LaunchClaudePayload | null = null;
 
-export function dispatchLaunchClaude(path: string, target: string): void {
-  pendingLaunch = { path, target };
+export function dispatchLaunchClaude(path: string, target: string, continueSession?: boolean): void {
+  pendingLaunch = { path, target, continueSession };
   if (typeof window !== "undefined") {
     window.dispatchEvent(
-      new CustomEvent(GARRISON_LAUNCH_CLAUDE, { detail: { path, target } })
+      new CustomEvent(GARRISON_LAUNCH_CLAUDE, { detail: { path, target, continueSession } })
     );
   }
 }

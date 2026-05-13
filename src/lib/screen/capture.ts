@@ -35,6 +35,9 @@ const state: CaptureState = {
   lastCaptureAt: null,
 };
 
+// Remove any stale lock from a previous Garrison process.
+removeRunningLock();
+
 function createRunningLock(): void {
   try {
     writeFileSync(RUNNING_LOCK_PATH, Date.now().toString(), "utf8");
@@ -78,7 +81,6 @@ function captureMacOS(): Promise<{ success: boolean; error?: string }> {
         state.lastCaptureAt = Date.now();
         state.permissionGranted = true;
         state.lastError = null;
-        createRunningLock();
         resolve({ success: true });
         return;
       }
@@ -132,7 +134,6 @@ function captureLinux(): Promise<{ success: boolean; error?: string }> {
         state.lastCaptureAt = Date.now();
         state.permissionGranted = true;
         state.lastError = null;
-        createRunningLock();
         resolve({ success: true });
         return;
       }
@@ -162,6 +163,7 @@ export async function startCapture(): Promise<{ success: boolean; error?: string
   createRunningLock();
   captureInterval = setInterval(() => {
     if (state.running) {
+      createRunningLock();
       void captureOnce();
     }
   }, CAPTURE_INTERVAL_MS);
@@ -186,8 +188,7 @@ export async function stopCapture(): Promise<void> {
 }
 
 export function getCaptureState(): CaptureState {
-  const inferredRunning = state.running || isRunningFromLock();
-  return { ...state, running: inferredRunning };
+  return { ...state };
 }
 
 export function getScreenshotPath(): string {

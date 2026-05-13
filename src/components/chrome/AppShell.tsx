@@ -45,6 +45,9 @@ export interface AppShellState {
   setSecrets: (secrets: VaultSecret[]) => void;
   saveSecrets: () => Promise<void>;
   setError: (err: string | null) => void;
+  // sidebar
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
   // editor modal
   editingFitting: LibraryEntry | null;
   openFittingEditor: (entry: LibraryEntry) => void;
@@ -69,6 +72,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingFitting, setEditingFitting] = useState<LibraryEntry | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("garrison.sidebar.collapsed") === "1";
+  });
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("garrison.sidebar.collapsed", next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   const refreshAll = useCallback(async () => {
     setError(null);
@@ -225,6 +239,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       setSecrets,
       saveSecrets,
       setError,
+      sidebarCollapsed,
+      toggleSidebar,
       editingFitting,
       openFittingEditor: setEditingFitting,
       closeFittingEditor: () => setEditingFitting(null)
@@ -244,13 +260,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       runAction,
       unlockVault,
       saveSecrets,
+      sidebarCollapsed,
+      toggleSidebar,
       editingFitting
     ]
   );
 
   return (
     <Ctx.Provider value={value}>
-      <div className="app-shell">
+      <div
+        className="app-shell"
+        style={{ gridTemplateColumns: sidebarCollapsed ? "48px 1fr" : "244px 1fr" }}
+      >
         <Sidebar />
         {children}
       </div>

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import clsx from "clsx";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { faculties } from "@/lib/faculties";
 import { lookupFittingView } from "@/components/fitting-views/registry";
@@ -13,8 +14,10 @@ const WORKBENCH_FACULTY_IDS = new Set<FacultyId>(
 );
 
 export function WorkbenchPanel() {
-  const { composition, library } = useAppShell();
+  const { composition, library, sidebarCollapsed } = useAppShell();
+  const sidebarW = sidebarCollapsed ? 48 : 244;
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [maximized, setMaximized] = useState(false);
 
   const tabs = useMemo(() => {
     const result: Array<{
@@ -56,6 +59,13 @@ export function WorkbenchPanel() {
     });
   }, [tabs, library]);
 
+  useEffect(() => {
+    if (!maximized) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMaximized(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [maximized]);
+
   if (tabs.length === 0) {
     return (
       <main>
@@ -85,10 +95,24 @@ export function WorkbenchPanel() {
   const ActiveComponent = lookupFittingView(activeTab.fittingId, activeTab.viewId);
 
   return (
-    <main style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <main style={maximized ? {
+      position: "fixed",
+      left: sidebarW,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 100,
+      background: "var(--paper, white)",
+      display: "flex",
+      flexDirection: "column",
+    } : {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+    }}>
       <div
         className="strip"
-        style={{ padding: "0 20px", borderBottom: "1px solid var(--rule)", flexShrink: 0 }}
+        style={{ padding: "0 20px", borderBottom: "1px solid var(--rule)", flexShrink: 0, marginBottom: 0 }}
         role="tablist"
         aria-label="Workbench Fittings"
       >
@@ -106,6 +130,18 @@ export function WorkbenchPanel() {
             {tab.label}
           </button>
         ))}
+        <span style={{ marginLeft: "auto" }} />
+        <button
+          type="button"
+          className="btn ghost small"
+          onClick={() => setMaximized((m) => !m)}
+          title={maximized ? "Exit fullscreen (Esc)" : "Maximize"}
+          style={{ marginLeft: 4 }}
+        >
+          <span className="ic">
+            {maximized ? <Minimize2 size={13} aria-hidden /> : <Maximize2 size={13} aria-hidden />}
+          </span>
+        </button>
       </div>
       <div style={{ flex: 1, overflow: "hidden" }}>
         {ActiveComponent ? (

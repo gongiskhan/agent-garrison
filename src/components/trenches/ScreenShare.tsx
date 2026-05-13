@@ -5,7 +5,11 @@ import { useEffect, useState } from "react";
 const FRAME_URL = "/api/trenches/screen-share/frame";
 const POLL_INTERVAL_MS = 500;
 
-export function ScreenShare() {
+interface Props {
+  outpost?: string | null;
+}
+
+export function ScreenShare({ outpost }: Props) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +21,10 @@ export function ScreenShare() {
     async function tick() {
       if (cancelled) return;
       try {
-        const res = await fetch(`${FRAME_URL}?t=${Date.now()}`, { cache: "no-store" });
+        const base = outpost
+          ? `${FRAME_URL}?outpost=${encodeURIComponent(outpost)}&t=${Date.now()}`
+          : `${FRAME_URL}?t=${Date.now()}`;
+        const res = await fetch(base, { cache: "no-store" });
         if (!res.ok) {
           if (res.status !== 404) {
             setError(`frame ${res.status}`);
@@ -44,7 +51,7 @@ export function ScreenShare() {
       if (timer) clearTimeout(timer);
       if (prevUrl) URL.revokeObjectURL(prevUrl);
     };
-  }, []);
+  }, [outpost]);
 
   return (
     <div

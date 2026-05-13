@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { dispatchLaunchClaude } from "@/lib/workbench-bus";
 import type { FittingViewProps } from "@/components/fitting-views/registry";
@@ -15,6 +15,13 @@ interface Worktree {
 interface OutpostStatus {
   name: string;
   connected: boolean;
+}
+
+interface PrEntry {
+  number: number;
+  url: string;
+  title: string;
+  state: string;
 }
 
 const DEFAULT_DEV_ROOT = "~/dev";
@@ -49,6 +56,11 @@ export default function WorktreeView({ config }: FittingViewProps) {
   const [baseBranch, setBaseBranch] = useState("main");
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [creatingPr, setCreatingPr] = useState<string | null>(null);
+  const [prPopover, setPrPopover] = useState<string | null>(null);
+  const [prList, setPrList] = useState<PrEntry[]>([]);
+  const [prLoading, setPrLoading] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
@@ -198,6 +210,17 @@ export default function WorktreeView({ config }: FittingViewProps) {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!prPopover) return;
+    function handleClick(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setPrPopover(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [prPopover]);
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!branch.trim() || !repoPath) return;
@@ -242,6 +265,49 @@ export default function WorktreeView({ config }: FittingViewProps) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function handleCreatePr(wt: Worktree) {
+    setCreatingPr(wt.worktreePath);
+    setError(null);
+    try {
+      const res = await fetch("/api/workbench/worktrees/prs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target, worktreePath: wt.worktreePath, branch: wt.branch }),
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        setError(data.error ?? "PR creation failed");
+      } else {
+        window.open(data.url, "_blank", "noopener");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingPr(null);
+    }
+  }
+
+  async function handleOpenPrPopover(wt: Worktree) {
+    if (prPopover === wt.worktreePath) {
+      setPrPopover(null);
+      return;
+    }
+    setPrPopover(wt.worktreePath);
+    setPrList([]);
+    setPrLoading(true);
+    try {
+      const params = new URLSearchParams({ target, worktreePath: wt.worktreePath, branch: wt.branch });
+      const res = await fetch(`/api/workbench/worktrees/prs?${params.toString()}`);
+      const data = (await res.json()) as { prs?: PrEntry[]; error?: string };
+      if (res.ok) setPrList(data.prs ?? []);
+      else setError(data.error ?? "Could not fetch PRs");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPrLoading(false);
     }
   }
 
@@ -383,7 +449,7 @@ export default function WorktreeView({ config }: FittingViewProps) {
                 <td className="mono" style={{ fontSize: 11 }}>{wt.worktreePath}</td>
                 <td className="mono">{wt.commit}</td>
                 <td>
-                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
                     <button
                       type="button"
                       className="btn small ghost"
@@ -397,6 +463,101 @@ export default function WorktreeView({ config }: FittingViewProps) {
                     >
                       Claude Code
                     </button>
+                    <button
+                      type="button"
+                      className="btn small ghost"
+                      disabled={!terminalInstalled}
+                      title={
+                        terminalInstalled
+                          ? `Continue last Claude Code session at ${wt.worktreePath}${target !== "local" ? ` on ${target.replace("outpost:", "")}` : ""}`
+                          : "Add a terminal Fitting to your composition first"
+                      }
+                      onClick={() => dispatchLaunchClaude(wt.worktreePath, target, true)}
+                    >
+                      Continue
+                    </button>
+                    {!wt.isMain ? (
+                      <button
+                        type="button"
+                        className="btn small ghost"
+                        disabled={creatingPr === wt.worktreePath}
+                        title="Create a pull request for this branch"
+                        onClick={() => { void handleCreatePr(wt); }}
+                      >
+                        {creatingPr === wt.worktreePath ? "Creating PR…" : "Create PR"}
+                      </button>
+                    ) : null}
+                    {!wt.isMain ? (
+                      <div style={{ position: "relative" }}>
+                        <button
+                          type="button"
+                          className="btn small ghost"
+                          title="View pull requests for this branch"
+                          onClick={() => { void handleOpenPrPopover(wt); }}
+                        >
+                          PRs
+                        </button>
+                        {prPopover === wt.worktreePath && (
+                          <div
+                            ref={popoverRef}
+                            style={{
+                              position: "absolute",
+                              right: 0,
+                              top: "calc(100% + 4px)",
+                              zIndex: 50,
+                              background: "white",
+                              border: "1px solid var(--rule)",
+                              minWidth: 280,
+                              maxWidth: 400,
+                              boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                              fontSize: 12,
+                            }}
+                          >
+                            {prLoading ? (
+                              <div style={{ padding: "10px 14px", color: "var(--mute)" }}>Loading…</div>
+                            ) : prList.length === 0 ? (
+                              <div style={{ padding: "10px 14px", color: "var(--mute)" }}>
+                                No PRs for this branch yet.
+                              </div>
+                            ) : (
+                              prList.map((pr) => (
+                                <a
+                                  key={pr.number}
+                                  href={pr.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "8px 14px",
+                                    borderBottom: "1px solid var(--rule)",
+                                    textDecoration: "none",
+                                    color: "var(--ink)",
+                                  }}
+                                  onClick={() => setPrPopover(null)}
+                                >
+                                  <span style={{ color: "var(--mute)", flexShrink: 0 }}>#{pr.number}</span>
+                                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {pr.title}
+                                  </span>
+                                  <span
+                                    className="pill"
+                                    style={{
+                                      fontSize: 10,
+                                      flexShrink: 0,
+                                      color: pr.state === "OPEN" ? "var(--sage)" : pr.state === "MERGED" ? "#6f42c1" : "var(--mute)",
+                                    }}
+                                  >
+                                    {pr.state.toLowerCase()}
+                                  </span>
+                                </a>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                     {!wt.isMain ? (
                       <button
                         type="button"

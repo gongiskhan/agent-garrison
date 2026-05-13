@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { Terminal as TerminalIcon, Monitor, Plus, X, Settings } from "lucide-react";
+import { Terminal as TerminalIcon, Maximize2, Minimize2, Monitor, Plus, X, Settings } from "lucide-react";
 import { TerminalView } from "./Terminal";
 import { ScreenShare } from "./ScreenShare";
 import { useAppShell } from "@/components/chrome/AppShell";
@@ -53,8 +53,9 @@ function buildOrchestratorCommand(compositionDir: string): string {
   return `${bannerLines}; claude --dangerously-skip-permissions --append-system-prompt-file ${shellEscape(promptPath)}`;
 }
 
-function buildClaudeCodeCommand(remotePath: string | null): string {
-  const claude = "claude --dangerously-skip-permissions";
+function buildClaudeCodeCommand(remotePath: string | null, continueSession?: boolean): string {
+  const flags = continueSession ? "--dangerously-skip-permissions --continue" : "--dangerously-skip-permissions";
+  const claude = `claude ${flags}`;
   if (remotePath) {
     // ~/foo must not be fully single-quoted — tilde doesn't expand inside single quotes
     const escapedPath = remotePath.startsWith("~/")
@@ -66,7 +67,8 @@ function buildClaudeCodeCommand(remotePath: string | null): string {
 }
 
 export function TrenchesPanel() {
-  const { composition, runnerState, setError: setShellError } = useAppShell();
+  const { composition, runnerState, setError: setShellError, sidebarCollapsed } = useAppShell();
+  const sidebarW = sidebarCollapsed ? 48 : 244;
   const [sessions, setSessions] = useState<TrenchesSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [target, setTarget] = useState<string>("local");
@@ -77,7 +79,9 @@ export function TrenchesPanel() {
   const [error, setError] = useState<string | null>(null);
   const [claudeModal, setClaudeModal] = useState(false);
   const [claudePath, setClaudePath] = useState("");
+  const [claudeContinueMode, setClaudeContinueMode] = useState(false);
   const [hostsModal, setHostsModal] = useState(false);
+  const [maximized, setMaximized] = useState(false);
 
   const parsedTarget = useMemo(() => {
     if (target === "local") return { kind: "local" as const };
@@ -212,7 +216,7 @@ export function TrenchesPanel() {
   // Direct launch that bypasses parsedTarget state timing — used for
   // worktree "Claude Code" button which supplies target explicitly.
   const handleLaunchClaude = useCallback(
-    async (path: string, rawTarget: string) => {
+    async (path: string, rawTarget: string, continueSession?: boolean) => {
       if (!path || !rawTarget) return;
       const projectName = path.split("/").filter(Boolean).pop() ?? "claude";
       const isOutpost = rawTarget.startsWith("outpost:");
@@ -226,13 +230,13 @@ export function TrenchesPanel() {
       const body: Record<string, unknown> = outpostName
         ? {
             name: `claude-${outpostName}-${projectName}`,
-            initialCommand: buildClaudeCodeCommand(path),
+            initialCommand: buildClaudeCodeCommand(path, continueSession),
             outpost: outpostName,
           }
         : sshHost
           ? {
               name: `claude-${sshName}-${projectName}`,
-              initialCommand: buildClaudeCodeCommand(path),
+              initialCommand: buildClaudeCodeCommand(path, continueSession),
               host: sshHost.name,
               sshUser: sshHost.user,
               sshAddress: sshHost.address,
@@ -240,7 +244,7 @@ export function TrenchesPanel() {
           : {
               name: `claude-${projectName}`,
               cwd: path,
-              initialCommand: buildClaudeCodeCommand(null),
+              initialCommand: buildClaudeCodeCommand(null, continueSession),
             };
 
       if (creating) return;
@@ -281,7 +285,7 @@ export function TrenchesPanel() {
   // On mount: consume a pending launch queued before this tab was active.
   useEffect(() => {
     const p = consumePendingLaunch();
-    if (p?.path) void handleLaunchClaudeRef.current(p.path, p.target);
+    if (p?.path) void handleLaunchClaudeRef.current(p.path, p.target, p.continueSession);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Already mounted: react to live launch events. Uses ref so re-subscription
@@ -290,7 +294,7 @@ export function TrenchesPanel() {
   useEffect(() => {
     return onLaunchClaude((p) => {
       consumePendingLaunch(); // clear slot so remount doesn't double-fire
-      if (p?.path) void handleLaunchClaudeRef.current(p.path, p.target);
+      if (p?.path) void handleLaunchClaudeRef.current(p.path, p.target, p.continueSession);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -307,12 +311,13 @@ export function TrenchesPanel() {
     });
   }, [compositionDir, isRunning, isRemote, launchTerminal, projectsRoot]);
 
-  const openClaudeCode = useCallback(() => {
+  const openClaudeCode = useCallback((continueMode?: boolean) => {
     setClaudePath((current) => (current ? current : `${projectsRoot}/`));
+    setClaudeContinueMode(continueMode ?? false);
     setClaudeModal(true);
   }, [projectsRoot]);
 
-  const submitClaudeCode = useCallback(() => {
+  const submitClaudeCode = useCallback((continueSession?: boolean) => {
     const trimmed = claudePath.trim();
     if (!trimmed) return;
     setClaudeModal(false);
@@ -320,27 +325,30 @@ export function TrenchesPanel() {
     if (parsedTarget.kind === "ssh" && parsedTarget.host) {
       void launchTerminal({
         name: `claude-${parsedTarget.host.name}-${projectName}`,
-        initialCommand: buildClaudeCodeCommand(trimmed),
+        initialCommand: buildClaudeCodeCommand(trimmed, continueSession),
       });
     } else if (parsedTarget.kind === "outpost") {
       void launchTerminal({
         name: `claude-${parsedTarget.name}-${projectName}`,
-        initialCommand: buildClaudeCodeCommand(trimmed),
+        initialCommand: buildClaudeCodeCommand(trimmed, continueSession),
       });
     } else {
       void launchTerminal({
         name: `claude-${projectName}`,
         cwd: trimmed,
-        initialCommand: buildClaudeCodeCommand(null),
+        initialCommand: buildClaudeCodeCommand(null, continueSession),
       });
     }
   }, [claudePath, launchTerminal, parsedTarget]);
 
   const closeSession = useCallback(
-    async (id: string, type: TrenchesSession["type"] = "terminal") => {
+    async (id: string, type: TrenchesSession["type"] = "terminal", outpost?: string | null) => {
       try {
         if (type === "screen-share") {
-          await fetch("/api/trenches/screen-share", { method: "DELETE" });
+          const url = outpost
+            ? `/api/trenches/screen-share?outpost=${encodeURIComponent(outpost)}`
+            : "/api/trenches/screen-share";
+          await fetch(url, { method: "DELETE" });
         } else {
           await fetch(`/api/trenches/terminals/${encodeURIComponent(id)}`, {
             method: "DELETE",
@@ -360,7 +368,10 @@ export function TrenchesPanel() {
     setCreating(true);
     setError(null);
     try {
-      const res = await fetch("/api/trenches/screen-share", { method: "POST" });
+      const url = isOutpost
+        ? `/api/trenches/screen-share?outpost=${encodeURIComponent(parsedTarget.kind === "outpost" ? parsedTarget.name : "")}`
+        : "/api/trenches/screen-share";
+      const res = await fetch(url, { method: "POST" });
       const json = await res.json();
       if (!res.ok) {
         setError(json.error ?? `HTTP ${res.status}`);
@@ -373,7 +384,7 @@ export function TrenchesPanel() {
     } finally {
       setCreating(false);
     }
-  }, [creating, refresh]);
+  }, [creating, isOutpost, parsedTarget, refresh]);
 
   const active = useMemo(() => sessions.find((s) => s.id === activeId) ?? null, [sessions, activeId]);
 
@@ -390,6 +401,13 @@ export function TrenchesPanel() {
     }
     setTarget(value);
   };
+
+  useEffect(() => {
+    if (!maximized) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMaximized(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [maximized]);
 
   const newTerminalTitle = parsedTarget.kind === "outpost"
     ? `New terminal on outpost ${parsedTarget.name}`
@@ -431,7 +449,17 @@ export function TrenchesPanel() {
         ) : null}
 
         <section
-          style={{
+          style={maximized ? {
+            position: "fixed",
+            left: sidebarW,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 100,
+            background: "white",
+            display: "grid",
+            gridTemplateRows: "auto 1fr",
+          } : {
             border: "1px solid var(--rule)",
             background: "white",
             display: "grid",
@@ -462,9 +490,9 @@ export function TrenchesPanel() {
             </button>
             <button
               className="btn ghost"
-              disabled={creating || isRemote}
+              disabled={creating}
               onClick={() => void startScreenShare()}
-              title={isRemote ? "Screen share is local-only" : "Start screen share"}
+              title="Start screen share"
             >
               <span className="ic">
                 <Monitor size={14} aria-hidden />
@@ -493,6 +521,17 @@ export function TrenchesPanel() {
                 <TerminalIcon size={14} aria-hidden />
               </span>
               Open Claude Code
+            </button>
+            <button
+              className="btn ghost"
+              disabled={creating}
+              onClick={() => openClaudeCode(true)}
+              title={isRemote ? `Continue last Claude Code session on ${parsedTarget.kind === "outpost" ? parsedTarget.name : (selectedHost?.name ?? target)}` : "Continue last Claude Code session at a project path"}
+            >
+              <span className="ic">
+                <TerminalIcon size={14} aria-hidden />
+              </span>
+              Continue Claude Code
             </button>
             <select
               className="font-mono"
@@ -532,6 +571,16 @@ export function TrenchesPanel() {
               )}
               <option value="__manage__">Manage hosts…</option>
             </select>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setMaximized((m) => !m)}
+              title={maximized ? "Exit fullscreen (Esc)" : "Maximize"}
+            >
+              <span className="ic">
+                {maximized ? <Minimize2 size={14} aria-hidden /> : <Maximize2 size={14} aria-hidden />}
+              </span>
+            </button>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", minHeight: 0 }}>
@@ -607,7 +656,7 @@ export function TrenchesPanel() {
                     <button
                       type="button"
                       title="Close session"
-                      onClick={() => void closeSession(s.id, s.type)}
+                      onClick={() => void closeSession(s.id, s.type, s.outpost)}
                       style={{
                         background: "transparent",
                         border: "none",
@@ -627,7 +676,7 @@ export function TrenchesPanel() {
               {active && active.type === "terminal" && wsUrl ? (
                 <TerminalView sessionId={active.id} wsUrl={wsUrl} />
               ) : active && active.type === "screen-share" ? (
-                <ScreenShare />
+                <ScreenShare outpost={active.outpost} />
               ) : active ? (
                 <div style={{ padding: 24, color: "var(--mute)", fontSize: 13 }}>
                   Session <code className="font-mono">{active.id}</code> — unknown type.
@@ -679,14 +728,14 @@ export function TrenchesPanel() {
             }}
           >
             <h3 className="font-display" style={{ margin: "0 0 6px", fontSize: 18 }}>
-              Open Claude Code{parsedTarget.kind === "outpost" ? ` on ${parsedTarget.name}` : parsedTarget.kind === "ssh" && parsedTarget.host ? ` on ${parsedTarget.host.name}` : ""}
+              {claudeContinueMode ? "Continue" : "Open"} Claude Code{parsedTarget.kind === "outpost" ? ` on ${parsedTarget.name}` : parsedTarget.kind === "ssh" && parsedTarget.host ? ` on ${parsedTarget.host.name}` : ""}
             </h3>
             <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--mute)" }}>
               {parsedTarget.kind === "outpost"
-                ? <>Path on outpost <b>{parsedTarget.name}</b>. Runs <code>claude --dangerously-skip-permissions</code> on the remote machine.</>
+                ? <>Path on outpost <b>{parsedTarget.name}</b>. Runs <code>claude --dangerously-skip-permissions{claudeContinueMode ? " --continue" : ""}</code> on the remote machine.</>
                 : parsedTarget.kind === "ssh" && parsedTarget.host
-                  ? <>Path on <b>{parsedTarget.host.name}</b>. SSH connects, then runs <code>claude --dangerously-skip-permissions</code>.</>
-                  : <>Path on this machine. A new terminal opens at this directory and runs <code>claude --dangerously-skip-permissions</code>.</>}
+                  ? <>Path on <b>{parsedTarget.host.name}</b>. SSH connects, then runs <code>claude --dangerously-skip-permissions{claudeContinueMode ? " --continue" : ""}</code>.</>
+                  : <>Path on this machine. A new terminal opens at this directory and runs <code>claude --dangerously-skip-permissions{claudeContinueMode ? " --continue" : ""}</code>.</>}
             </p>
             <input
               autoFocus
@@ -694,7 +743,7 @@ export function TrenchesPanel() {
               value={claudePath}
               onChange={(e) => setClaudePath(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") submitClaudeCode();
+                if (e.key === "Enter") submitClaudeCode(claudeContinueMode);
                 if (e.key === "Escape") setClaudeModal(false);
               }}
               className="font-mono"
@@ -711,8 +760,8 @@ export function TrenchesPanel() {
               <button className="btn ghost" onClick={() => setClaudeModal(false)}>
                 Cancel
               </button>
-              <button className="btn primary" onClick={submitClaudeCode} disabled={!claudePath.trim()}>
-                Open
+              <button className="btn primary" onClick={() => submitClaudeCode(claudeContinueMode)} disabled={!claudePath.trim()}>
+                {claudeContinueMode ? "Continue" : "Open"}
               </button>
             </div>
           </div>

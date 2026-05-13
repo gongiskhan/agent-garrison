@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import {
+  ChevronLeft,
+  ChevronRight,
   Home,
   Layers,
   Library,
@@ -12,7 +14,6 @@ import {
   MessageSquare,
   Lock,
   Component,
-  Terminal,
   Wrench
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
@@ -33,7 +34,7 @@ const facultyGroups: Array<{ label: string; ids: FacultyId[] }> = [
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
-  const { composition, library, runnerState } = useAppShell();
+  const { composition, library, runnerState, sidebarCollapsed, toggleSidebar } = useAppShell();
 
   const stationedCount = countStationed(composition);
   const totalFaculties = faculties.length;
@@ -46,23 +47,80 @@ export function Sidebar() {
 
   const isCompose = pathname === "/compose" || pathname.startsWith("/compose/");
 
-  return (
-    <aside className="side">
-      <Link className="brand" href="/">
-        <span className="brand-mark" aria-hidden>
-          <svg viewBox="0 0 80 80" fill="none" width={32} height={32}>
+  if (sidebarCollapsed) {
+    return (
+      <aside
+        className="side"
+        style={{ padding: "10px 4px", alignItems: "center", overflow: "hidden" }}
+      >
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title="Expand sidebar"
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--mute)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 6,
+            width: "100%",
+          }}
+        >
+          <ChevronRight size={16} aria-hidden />
+        </button>
+        <Link href="/" title="Agent Garrison" style={{ display: "block", marginTop: 8, lineHeight: 0 }}>
+          <svg viewBox="0 0 80 80" fill="none" width={32} height={32} aria-hidden>
             <path
               d="M14 24 L19 18 L24 24 L24 64 L14 64 Z M28 20 L33 14 L38 20 L38 64 L28 64 Z M42 24 L47 18 L52 24 L52 64 L42 64 Z M56 20 L61 14 L66 20 L66 64 L56 64 Z"
               fill="#18211c"
             />
             <rect x="10" y="40" width="60" height="3" fill="#b4862a" />
           </svg>
-        </span>
-        <span className="brand-text">
-          <span className="name">Agent Garrison</span>
-          <span className="sub">v1 · localhost</span>
-        </span>
-      </Link>
+        </Link>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="side">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 2 }}>
+        <Link className="brand" href="/" style={{ flex: 1, paddingBottom: 0, borderBottom: "none", marginBottom: 0 }}>
+          <span className="brand-mark" aria-hidden>
+            <svg viewBox="0 0 80 80" fill="none" width={32} height={32}>
+              <path
+                d="M14 24 L19 18 L24 24 L24 64 L14 64 Z M28 20 L33 14 L38 20 L38 64 L28 64 Z M42 24 L47 18 L52 24 L52 64 L42 64 Z M56 20 L61 14 L66 20 L66 64 L56 64 Z"
+                fill="#18211c"
+              />
+              <rect x="10" y="40" width="60" height="3" fill="#b4862a" />
+            </svg>
+          </span>
+          <span className="brand-text">
+            <span className="name">Agent Garrison</span>
+            <span className="sub">v1 · localhost</span>
+          </span>
+        </Link>
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title="Collapse sidebar"
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--mute)",
+            display: "flex",
+            alignItems: "center",
+            padding: 4,
+            flexShrink: 0,
+          }}
+        >
+          <ChevronLeft size={14} aria-hidden />
+        </button>
+      </div>
+      <div style={{ borderBottom: "1px solid var(--rule)", marginBottom: 0 }} />
 
       <nav className="tabs">
         <NavLink href="/" pathname={pathname} icon={<Home aria-hidden />} label="Garrison" />
@@ -114,7 +172,6 @@ export function Sidebar() {
         />
         <NavLink href="/chat" pathname={pathname} icon={<MessageSquare aria-hidden />} label="Chat" />
         <NavLink href="/workbench" pathname={pathname} icon={<Wrench aria-hidden />} label="Workbench" />
-        <NavLink href="/trenches" pathname={pathname} icon={<Terminal aria-hidden />} label="Trenches" />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
 
         <FittingSurfaceLinks
