@@ -99,13 +99,16 @@ These are not phase items, just things to keep in mind across the work.
     pattern) which Phase 5's Workbench port intentionally left out;
     Phase 6 (Outposts) restores that capability as a proper
     Faculty rather than a Sequoias-specific feature.
-  - **Three Macs on Tailscale:** the **automation machine** (Mac
+  - **Four Macs on Tailscale:** the **automation machine** (Mac
     Mini M4, 16 GB, always on — hosts Garrison + Operative), the
     **development machine** (MacBook Pro M1 Max, 32 GB, always on
-    — primary code work), and the **portable machine** (MacBook
-    Air M4, 16 GB, intermittent uptime — carried around). Phase 6
-    Outposts wires these together; before Phase 6, Garrison is
-    single-machine.
+    — primary code work), the **portable machine** (MacBook Air
+    M4, 16 GB, intermittent uptime — carried around), and the
+    **office machine** (at the user's office; details added when
+    relevant). Phase 6 (Outposts) wires these together; before
+    Phase 6, Garrison is single-machine. The user's goal is to
+    stop using Jump Desktop and instead sit at any machine,
+    work locally, and have Garrison absorb the work.
   - **Harmonika** (sibling project on this machine) — Phase 5
     secondary reference. Source of the screen-share
     implementation and any terminal/PTY plumbing not already
@@ -1268,7 +1271,7 @@ allocator probe/wrap), `tests/worktree-env-rewriter.test.ts`
 
 ---
 
-## Phase 6 — Outposts: multi-machine reach via a local bridge — **DONE (2026-05-11)**
+## Phase 6 — Outposts: multi-machine reach via a local bridge
 
 **Outcome:** Garrison gains an `outposts` Faculty. Each Outpost
 Fitting represents one remote Mac (or other host) running a small
@@ -1514,19 +1517,6 @@ means reinventing framing per feature; the bridge does it once.
   WebSocket route is small; confirm the gateway can host both
   cleanly during T0/T2.
 
-### Phase 6 ticket status
-
-- **T0 — Protocol spec.** **Done (2026-05-11).** `docs/phases/PHASE_6_PROTOCOL.md` committed (41cbbdd).
-- **T1 — `garrison-outpost-bridge` daemon.** **Done (2026-05-11).** Standalone repo at `github.com/gongiskhan/garrison-outpost-bridge`. All 24 protocol operations implemented. 10/10 smoke test. Initial commit 2be13cb.
-- **T2 — Host-side Fitting + WS endpoint.** **Done (2026-05-11).** `scripts/outpost-host.mjs` (port 3702, 0.0.0.0), `outposts` Faculty (19th, `family: "workbench"`, `cardinality: "multi"`), `outpost` capability kind, `fittings/seed/outpost-tailscale-host/`, `src/app/api/workbench/outposts/` routes, `OutpostView.tsx` (3s polling). Registry at `~/.garrison/outpost-registry.json`. All tests pass; typecheck clean.
-- **T3 — Bootstrap script.** **Done (2026-05-11).** `scripts/bootstrap-outpost.sh` (curl-pipe-bash, node≥20 + git check, Tailscale warn, clone/pull bridge, npm install + build, writes config.json, sed-fills launchd plist, bootstraps with launchctl, polls log for `[connection] ready` up to 60s). `src/app/api/workbench/outposts/bootstrap-outpost/route.ts` serves the script as text/plain. `src/app/api/workbench/outposts/generate/route.ts` generates 32-byte token, registers with outpost-host, returns one-liner command. `OutpostView.tsx` updated with "Generate bootstrap command" wizard (machine name + Garrison host → command display with Copy button). All tests pass; typecheck clean.
-- **T4 — Terminal with outpost selector.** **Done (2026-05-11).** `TrenchesPanel.tsx` outpost `<optgroup>` dropdown (`local` / `ssh:<name>` / `outpost:<name>`); 3s polling of `/api/workbench/outposts`; spawns PTY via `callRpc process.spawn` routed through `outpost-host.mjs`.
-- **T5 — Worktrees multi-project + multi-machine.** **Done (2026-05-11).** `WorktreeView.tsx` rebuilt with machine selector + project selector (lists all dirs under dev folder of the selected target). Prefs store at `~/.garrison/workbench-prefs.json` via `src/lib/workbench-prefs.ts`; `PATCH /api/workbench/prefs` persists last-selected machine and project per machine. `/api/workbench/projects` lists directories locally (`fsp.readdir`) or via `fs.list` RPC for outposts. `/api/workbench/worktrees` accepts `?target=local|outpost:<name>` and routes to local lib or bridge `git.*` RPCs. Fitting metadata updated: `consumes outpost`, `repo_path` now optional (first-launch seed). Fitting validation PASS.
-- **T6 — Session view outpost aggregation.** **Done (2026-05-11).** `session-view-sequoias` v0.2.0: now consumes `outpost any`. `/api/workbench/sessions` replaced with a multi-machine aggregator: reads local `~/.garrison/sessions/state.json` + remote copies via `fs.read` RPC per connected outpost. Offline outpost rows served from `~/.garrison/sessions/outpost-cache.json`. `SessionView.tsx` now shows Machine column, greyed offline rows, 3s polling, and outpost-routed Open Terminal + Kill Session. T6 status model: hook-driven `lastStatus` from `state.json` per machine (no terminal-busy fallback in v1). `parseStateJson()` factored out of `garrison-sessions.ts`. `src/lib/outpost-rpc.ts` extracted from the two duplicated route helpers.
-- **T7 — outpost-actions agent-skill Fitting.** **Done (2026-05-11).** `fittings/seed/outpost-actions/` — `faculty: skills`, `component_shape: skill`. Python stdlib CLI (`outpost.py`): `list_outposts`, `run_on` (blocking, `exec.run` with `--timeout-ms`), `read_file_on`, `write_file_on`, `list_files_on`. Structured exit codes (2=unknown, 3=offline, 4=bridge error, 5=host unreachable). Scope decision: `spawn_on`/`wait_for_completion`/`kill_running` deferred — `process.status` carries no stdout buffer and Python stdlib has no WS client; `run_on` covers all brief's done-when invocations.
-- **T8 — vault-sync Fitting + `sync` Faculty.** **Done (2026-05-11).** `sync` Faculty registered as order 20 (`shapes: ["script", "cli-skill"]`, no `family`). `fittings/seed/vault-sync/` — scheduler-driven host→outpost mirror. Diff algorithm: size+mtime heuristic; remote manifest built via `exec.run find` (not recursive `fs.list` — one round-trip). Status written to `~/.garrison/vault-sync-status.json`. `VaultSyncStatus.tsx` sidebar view + `/api/vault-sync/status` read endpoint.
-- **T9 — Phase 6 verification doc.** **Done (2026-05-11).** `docs/phases/PHASE6_VERIFICATION.md` — 6 done-when items with offline evidence + runtime procedures. Items 5 (vault sync) and 6 (sleep/wake reconnect) labelled runtime-pending with multi-day expectation.
-
 ### Out of scope for Phase 6 (deferred)
 
 - **Multi-Operative.** Still one Operative on the host. No
@@ -1770,6 +1760,454 @@ That's a deeper integration than Phase 1's Trello-data-source.
 
 ---
 
+## Phase 9 — Knowledge & Self-Improvement (placeholder)
+
+**This is a placeholder, not a worked spec.** Detailed planning
+waits until Phase 8 (Tasks Faculty) is closer to shipping —
+Phase 8 provides the outcome signals (task completion, redo
+events) that Phase 9 needs. Premature detail would lock in
+assumptions we can't validate yet.
+
+### Why this phase exists
+
+The user works across four Macs (automation, development,
+portable, office). Today switching machines means Jump Desktop;
+the goal is to sit at any machine, work locally, and have
+Garrison absorb whatever was learned there. Phase 6 (Outposts)
+solves the *transport* — spawning sessions, file ops, exec on
+any connected machine. Phase 9 solves the *learning*:
+
+- When the Operative runs a session on the development machine
+  (via the bridge or via direct Claude Code), where do its
+  SessionEnd hooks write? Compiled memory should land in the
+  host-canonical store, not in machine-local memory.
+- When a skill gets refined on one machine, how does that
+  refinement reach the Operative when it runs on another
+  machine the next time?
+- Credentials live where the user logs in; the host doesn't see
+  them. How does the Operative access services that need
+  authentication when work happens on a remote machine?
+- Should skills, automations, and `for_consumers` blocks
+  *self-improve* over time? Other agentic systems (Hermes,
+  Voyager among others) treat these as evolving artifacts the
+  agent updates based on outcomes. Garrison's are static today
+  (humans edit them). Should they evolve? Under what review
+  discipline?
+
+### Architecture: four pillars
+
+Phase 9 spans four architecturally distinct concerns:
+
+- **A — Knowledge layer.** Memory consolidation across machines.
+- **B — Self-improving skills, automations, and `for_consumers`
+  blocks.** The prompts the Operative reads to decide what
+  to do — they evolve from outcomes, with a review discipline.
+  Distinct from Artifact Store contents (documents, recordings,
+  reports) which don't self-evolve.
+- **C — Operative identity across machines.** Wrapping vs
+  tagging for sessions originating from different paths.
+- **D — Lessons-learned feedback loop.** The agent actively
+  consulting its own past mistakes.
+
+#### Pillar A — Knowledge layer (memory)
+
+A single canonical knowledge surface that any Operative session
+on any machine reads from and writes back to.
+
+- **Capture discipline: configure, not sync.** Install the
+  memory-compiler hooks on every Mac that runs Claude Code,
+  including direct Claude Code sessions outside Garrison's
+  control. SessionEnd hooks fire wherever the session ran;
+  output flows through the bridge back to the host's canonical
+  store.
+- **Hooks at the user level, not the project level**
+  (confirmed 2026-05-11). The user has one canonical Claude
+  Code settings (`~/.claude/settings.json`) reused across all
+  machines. Hooks install there once per machine; every
+  Claude Code session on that machine flows through them
+  regardless of project. No per-project hook installation
+  needed. Setup discipline: when adding a new outpost,
+  bootstrap script verifies the hooks are present and prompts
+  the user to install if missing.
+- **Why not nightly walker?** Reconstructing what hooks already
+  capture cleanly is more fragile, and a walker has to handle
+  partial reads, in-progress sessions, log-format drift. Hooks
+  capture per-session as it happens. Bridge sync moves the
+  compiled output.
+- **Canonical store location:** TBD. Likely the existing vault
+  on the automation machine; possibly a new dedicated Faculty
+  on top of it.
+- **Memory scoping (global vs project).** Some memory is
+  personal (preferences, communication style). Some is
+  project-specific (Ekoa architectural decisions). Some is
+  cross-project (developer patterns). Phase 9 needs to settle
+  the scoping model. Lean: skills and memory exist globally
+  by default; project-scoped overrides live in project-local
+  files (`CLAUDE.md`, `.garrison/skills/<name>.md`) and take
+  precedence when the Operative is operating inside that
+  project's context. Phase 2's project-index Fitting is the
+  natural place to detect "we're in project X" and pull in
+  the right overrides.
+- **Volume is not a concern for v1.** Even with four machines,
+  it's one person producing content. Daily session volume is
+  the same as a one-machine setup. Tiered memory / compaction
+  / partitioning would matter only when agents work
+  autonomously and volume genuinely grows — defer until then.
+- **Credential question:** does the Operative ever *use* a
+  credential that lives on a remote machine, or does it always
+  *tell the remote machine to do the credential-needing thing
+  locally*? Lean: the latter (simpler, no credential transport).
+  Pillar A may still need a credential-discovery mechanism (the
+  Operative knows "to do X on development machine, you need
+  Indie auth there") but not a credential-extraction mechanism.
+
+#### Pillar B — Self-improving skills, automations, and `for_consumers` blocks
+
+Three things the Operative reads to decide what to do: skills
+(SKILL.md content + CLI tool docs), automations (Phase 7
+step definitions), and `for_consumers` blocks on Fittings.
+All static today; humans edit them. Phase 9 makes them evolve
+based on real outcomes.
+
+**What's NOT being evolved** — the outputs of the Operative's
+work (documents, screen recordings, automation results,
+research reports). Those live in the Artifact Store from Phase
+3 and don't self-modify; they're records of work, not
+guidance. What evolves is *the guidance the Operative reads
+to do the work next time.*
+
+**Scoping (v1 = refinement only).** Prior-art systems like
+Hermes do *both* refinement of existing skills *and*
+auto-generation of new skills from observed successful
+patterns. Phase 9 v1 scopes to refinement only — the Operative
+proposes updates to *existing* skills, automations, and
+`for_consumers` blocks. Auto-creating new skills from observed
+patterns is a meaningful additional capability and likely
+belongs in a later phase. Reason: refinement has a clearer
+review-gate (compare to known-good baseline); generation
+requires deciding "is this novel-thing worth being a skill at
+all" which is a harder review problem.
+
+- **Skills (skill-agents).** Today static (humans edit
+  `for_consumers`, the skill prompt, the tool list). After
+  Phase 9 they evolve based on outcomes: the Operative
+  proposes updates; a review gate decides what lands.
+- **Automations** (Phase 7). Already designed with
+  feedback-driven improvement and manual edit gates. Phase 9
+  unifies the discipline so automations and skills share the
+  same evolution machinery rather than reinventing it.
+- **`for_consumers` blocks.** Currently human-edited.
+  Architecturally the same pattern — prompts the Operative
+  consults, evolved based on outcomes. Includes *negative
+  learning* — "for context X, skill Y is the wrong choice"
+  (the Hermes-style discipline cares about this).
+- **Provenance and conflict resolution.** If a skill is
+  updated on Monday based on outcomes from the development
+  machine and on Tuesday based on outcomes from the office
+  machine, and both updates touch the same item, what
+  happens? Lean: **update proposals, not direct updates.**
+  Every learning event proposes a change; a periodic review
+  pass batches and reconciles. Aligns naturally with the
+  review-gate question — the review *is* where reconciliation
+  happens. Alternatives (linear timestamped last-write-wins,
+  three-way merge) lose learning or get too complex.
+  Confirm in detailed planning.
+
+#### Pillar C — Operative identity across machines
+
+When the Operative spawns a session on a remote machine via
+the bridge, whose session is it? Today (after Phase 6) the
+bridge produces a plain Claude Code session running as the
+user on that machine, with no Operative identity wrapping it.
+Memory it generates compiles, but the resulting compiled
+output is just "stuff the user did" — not linked back to the
+Operative that orchestrated it.
+
+This matters for self-improvement: the outcome signal (Phase
+8 Tasks) and the work that produced it (Phase 4 coding-subagent
++ Phase 6 outpost-actions) need to be linkable. A skill update
+proposal needs to know *which Operative's skill* and *which
+session's outcomes*.
+
+**Approach: both wrapping and tagging.**
+
+- **Garrison-spawned sessions get Operative-wrapped.** When
+  the user opens a terminal via the Workbench or the
+  Operative invokes `outpost-actions.spawn_on`, the spawn
+  includes Operative-flavored system prompt material
+  (similar to Phase 5's launch-orchestrator banner, but
+  richer). Compiled memory from these sessions carries a
+  metadata header tagging them as Operative-extended.
+- **Direct Claude Code sessions get tagged but not wrapped.**
+  When the user opens plain `claude` outside Garrison, the
+  hooks fire as today, but the compiled output carries
+  metadata noting "this came from a direct session on
+  machine X." The Operative can see this work happened and
+  reference it, but treats it as user-driven not
+  Operative-driven.
+
+This is the minimum needed to make outcome → artifact-update
+attribution work cleanly.
+
+#### Pillar D — Lessons-learned feedback loop
+
+The most powerful self-improvement signal is *the agent
+actively reflecting on its own past mistakes.* Hermes and
+similar systems do this: after a task completes (succeeded
+or failed), generate a "lessons learned" entry that the
+agent reads on its next similar task.
+
+Today's Operative reads the compiled memory at SessionStart
+(Phase 1 hook). It doesn't have a "and here are the lessons
+learned from your three most recent similar tasks" surface.
+The compiled memory is *reference material*; the lessons-
+learned layer is *feedback*.
+
+**This is the learning loop closure** — without it, the
+agent gathers experience but doesn't actively consult it.
+Phase 9 needs:
+
+- **A mechanism for generating lessons-learned entries.**
+  Tied to Phase 8 task completion: when a task closes
+  (success or redo), the Operative generates a short
+  "what I learned" entry. Lives in a dedicated subsection
+  of the canonical store (`Compiled/lessons-learned/` or
+  similar).
+- **A mechanism for retrieving relevant lessons.** When
+  starting a session or picking up a task, the Operative
+  queries lessons relevant to the current task. Naive: by
+  keyword / topic match. Smarter: by task similarity. Start
+  naive.
+- **A pruning discipline.** Lessons that haven't been
+  consulted in N months get archived. Without pruning, the
+  lessons-learned layer becomes another noise corpus.
+
+This is the pillar with the most direct user-visible payoff:
+"the agent actually got better at this kind of task over
+time."
+
+### What's IN Phase 9
+
+1. **Memory consolidation across machines** (Pillar A).
+2. **Hook installation discipline on every Mac** at the user
+   level (`~/.claude/settings.json`). Including direct-Claude-
+   Code sessions outside Garrison.
+3. **Bridge sync of compiled memory** back to the canonical
+   store. Built on Phase 6's transport.
+4. **Memory scoping** — global vs project-scoped overrides.
+5. **Self-improving skills, automations, and `for_consumers`**
+   (Pillar B) — the unified review discipline across all three.
+6. **Update-proposal model** — proposals batched, reviewed,
+   reconciled (vs direct writes).
+7. **Outcome capture from Tasks** (Phase 8) feeding into
+   skill / automation / `for_consumers` evolution.
+8. **Tier rubric evolution.** The Classifier itself doesn't
+   self-improve; the tier rubric that informs the Classifier
+   evolves based on misclassification outcomes. Same review
+   discipline as the rest of Pillar B.
+9. **Operative identity model** (Pillar C) — wrap Garrison-
+   spawned sessions, tag direct sessions.
+10. **Lessons-learned feedback loop** (Pillar D) — generation,
+    retrieval, pruning.
+
+
+### What's explicitly OUT of Phase 9
+
+- **Soul / Orchestrator prompt self-improvement.** These are
+  the agent's stable self and routing logic. Letting them
+  self-edit is exactly the path to drift. Phase 9 excludes
+  them deliberately; a future phase could revisit, but not
+  Phase 9.
+- **Composition choices.** "Which Fittings should this
+  Operative have?" is currently human-decided. Letting the
+  Operative redesign its own composition is a different beast
+  ("agent designs its own Operative") and not Phase 9.
+- **Skill *invocation patterns*** — workflow-level learning
+  ("I almost always call A → B → C; should that be one
+  composed call?"). Borderline. Mention as future direction;
+  not Phase 9.
+- **Project context (`CLAUDE.md` files per repo).** Already
+  version-controlled via git; sync works. Question of *how
+  Operative learnings land into them* is open but probably
+  resolved by "the canonical store points at project-local
+  CLAUDE.md as authoritative for project specifics" — confirm
+  during detailed planning.
+- **Real-time skill evolution.** Updates land on a slower
+  cadence (review-gated). No "the agent improves itself
+  mid-session" pattern.
+
+### Dependencies
+
+- **Phase 6 (Outposts)** for the bridge transport. Memory
+  consolidation needs the bridge to move SessionEnd output
+  back to the host.
+- **Phase 7 (Automations)** ships its own
+  feedback-and-improvement loop. Phase 9 unifies its
+  discipline with skill evolution so they share the same
+  evolution machinery rather than reinventing it.
+- **Phase 8 (Tasks)** for outcome signals. "Did this work?
+  Did the user have to redo it?" is the ground truth Pillar B
+  depends on; the Kanban board is where those signals live.
+
+### A real constraint: we don't have clean success signals
+
+Prior-art systems that ship working self-improvement (Voyager
+especially) lean heavily on environments where success is
+binary and unambiguous — Minecraft's "you either have a
+diamond pickaxe or you don't." Every failed skill attempt
+produces a clean execution trace with a structured error
+message. Self-verification works because the sandbox provides
+ground truth.
+
+**Garrison doesn't have that.** Most of the Operative's work
+— research, code review, email drafting, planning, browser
+automation against a moving target — has fuzzy success
+criteria at best. "Was this code change good?" lacks a
+reliable signal. "Did this email get the response the user
+wanted?" requires waiting and interpreting.
+
+**Consequence for Phase 9:**
+
+- The self-improvement loop will be **slower-cadence and
+  fewer-examples** than the published research suggests.
+  Don't promise Voyager-like rapid skill compounding.
+- Phase 8 task outcomes (completed / redone / abandoned)
+  are the closest thing to ground truth and become the
+  primary signal. Lean hard on these.
+- Some skill categories (automations against deterministic
+  systems, code that compiles or doesn't, file operations
+  that succeed or fail) *do* have clean signals. Start the
+  evolution discipline there; expand to fuzzier domains
+  only after the clean cases work.
+- Acknowledge that "the agent gets better at this kind of
+  task" is a goal measured in months of usage, not days of
+  iteration.
+
+### Candidate library: DSPy + GEPA
+
+Hermes uses DSPy + GEPA (Genetic-Pareto Prompt Evolution) as
+the actual evolution mechanism. MIT-licensed, open-source,
+ICLR 2026 Oral. GEPA reads execution traces to understand
+*why* something failed, then proposes targeted improvements
+to prompts and skills. Works with as few as 3 examples. No
+GPU training — all API calls.
+
+Phase 9 detailed planning should evaluate whether to use DSPy
+as the substrate or build Garrison-specific tooling. Using
+DSPy avoids reinventing the evaluation loop, but adds a
+dependency on a Python framework (Garrison is TypeScript).
+Trade-off worth real consideration; not a settle-it-now
+decision.
+
+### Open questions to settle during detailed planning
+
+1. **Canonical knowledge store location.** Vault on automation
+   machine vs new dedicated Faculty vs hybrid.
+2. **Credential model.** Local-only (Operative tells remote
+   machine to do the auth-needing thing) vs proxying vs
+   discovery-only. Lean local-only.
+3. **Review-gate model for skill / automation /
+   `for_consumers` updates.** Prior art (Hermes/GEPA, Voyager)
+   converges on **empirical review**: the proposed update runs
+   against real past examples mined from session history, and
+   only ships if it scores higher than the current version.
+   This is the established discipline; not one of three rough
+   options. Phase 9 should default to empirical with human
+   review as an *escalation* path for high-impact updates or
+   ambiguous cases (e.g. tier rubric changes, Operative-facing
+   `for_consumers` blocks). Agent self-review (second agent
+   reviews) is out — inherits the same blind spots as the
+   original. Open: what counts as a "high-impact" update
+   warranting human review; how the empirical evaluation
+   dataset gets built and refreshed.
+4. **Outcome granularity.** Task completion (Phase 8 gives us
+   this directly) vs finer (per-tool-call, per-step). Finer is
+   more signal but harder to capture and easier to overfit.
+5. **Drift / sabotage protection.** Versioning? Rollback?
+   "Lock" specific artifacts as non-evolving? Diff review
+   before adoption?
+6. **Multi-machine evolution propagation.** When a skill is
+   improved by work on the development machine, the new
+   version lands in the host's canonical store. How does it
+   propagate to future bridge sessions on other machines? At
+   session start, the host injects latest versions into the
+   spawned session — but the protocol for "what counts as
+   latest" needs care.
+7. **Direct-Claude-Code session capture.** Hooks installed at
+   user level (`~/.claude/settings.json`) is the discipline;
+   what happens when the user forgets to install hooks on a
+   new machine? Outpost bootstrap script verifies and prompts.
+8. **Negative learning shape.** "Skill Y is the wrong choice
+   in context X" — how is this represented? As a `for_consumers`
+   block update? As a separate "anti-pattern" registry the
+   Operative consults?
+9. **Memory scoping mechanism.** Global skills + project-local
+   overrides (`.garrison/skills/` per repo) — how do overrides
+   compose with globals? Replace entirely, or merge sections?
+10. **Lessons-learned retrieval mechanism.** Naive keyword/
+    topic match vs task-similarity matching. Lean naive for
+    v1; upgrade when retrieval quality bites.
+11. **Lessons-learned pruning policy.** When do old lessons
+    archive? After N months unconsulted? After being
+    contradicted by newer outcomes?
+12. **Operative wrapping mechanism.** When a Garrison-spawned
+    session opens on a remote machine, what's the actual
+    plumbing for injecting Operative system-prompt material?
+    `--append-system-prompt` flag (Phase 5 launch-orchestrator
+    pattern), or env vars the hooks read, or something else?
+13. **Provenance for self-improvement attribution.** Skill
+    updates need to be traceable back to which outcomes
+    produced them, so problematic updates can be rolled back
+    by reverting to "what was learned before event X." Simple
+    git-style versioning of artifacts probably suffices; check
+    in detailed planning.
+
+
+### Prior art (researched 2026-05-11)
+
+- **Hermes Agent (NousResearch)** — *researched.* Four-part
+  learning loop (skill creation, skill improvement,
+  session search with summarization, user modeling).
+  Curator process autonomously evaluates skills, grades by
+  success metrics, prunes underperformers, consolidates
+  related skills. Companion repo `hermes-agent-self-evolution`
+  uses DSPy + GEPA for the actual evolution. GEPA reads
+  execution traces to understand *why* failures happen and
+  proposes targeted fixes; works with as few as 3 examples.
+  Empirical-review discipline (proposed update evaluated
+  against real session examples) is their core pattern.
+- **Voyager (MineDojo)** — *researched.* Three components:
+  automatic curriculum, ever-growing skill library of
+  executable code, iterative prompting with environment
+  feedback + execution errors + self-verification. Skills are
+  code, not prompts. Key caveat: works because Minecraft has
+  binary/unambiguous success and clean reset; **does not
+  transfer cleanly to Garrison's fuzzy domains.** Reinforces
+  the "lean on Phase 8 Tasks as primary signal" conclusion.
+- **Anthropic's Skills evolution direction** — *not yet
+  researched.* Defer to detailed planning.
+- **Karpathy's memory-layered improvements** — *not yet
+  researched.* User mentioned a ChatGPT pass was unhelpful;
+  unclear whether the concept exists as named. Skeptical;
+  treat as low-priority research item.
+- **RLAIF / Constitutional AI** — *not yet researched.*
+  Defer to detailed planning.
+
+### What's explicitly NOT in this phase placeholder
+
+- Concrete tickets, T-list, scope items beyond the questions
+  above.
+- Naming for the canonical store, the review gate, or the
+  evolution mechanism.
+- Whether Phase 9 should be one phase or two.
+- Whether the self-improving discipline applies only to skills
+  or also to `for_consumers` blocks, Orchestrator prompts, or
+  Soul declarations.
+
+These all wait until detailed planning happens.
+
+---
+
 ## Cross-cutting: UI surfaces
 
 **Decided 2026-05-05, revised 2026-05-06:** UI extension contract
@@ -1848,6 +2286,31 @@ throughout reflect *current* numbering — when phases are renumbered,
 older entries are updated to keep the numbering consistent across
 the doc.
 
+- **2026-05-16** — Consolidation pass landed:
+  - **Monitor Faculty (NEW)** — `monitor` capability kind + Faculty +
+    `fittings/seed/monitor-default/` default Fitting (React UI on its
+    own port, 7077 default). Read-only observability over Garrison-
+    spawned PIDs via `ps`/`lsof`; logs captured via a new shared
+    `spawnTracked` helper at `src/lib/spawn.ts` that tees stdout/stderr
+    to `~/.garrison/logs/<pid>/`. Chat UI consumes optionally via
+    `/api/monitor/discover` + a "Monitor ↗" link that appears/hides
+    on a 15s reachability poll. Canonical per-Fitting-own-UI-on-own-port
+    pattern documented in `docs/UI-FITTINGS.md`.
+  - **Worktree brief gaps** — port-pool config (env vars + project
+    `port_pool` + `~/.garrison/config.yml`); `startupCommands` execution
+    on `createWorktree` with `startupCommandsStatus` lifecycle; project
+    `envTemplate` substitution (`${ports.X}`/`${urls.X}` → resolved
+    values, per-file scope preserved). The brief's origin-prefix and
+    JSONL-watcher items confirmed already shipped under Phase 9I.
+  - **`mcp-gateway --probe --strict`** opt-in flag; lenient default
+    unchanged.
+  - **DECISIONS.md** entries dated 2026-05-16: Monitor Faculty added,
+    shared spawn helper, UI-Fitting port convention, worktree pool stays
+    50000–54999 (exposed via config), mcp-gateway lenient-by-default
+    + strict opt-in, Tailscale URLs stay `http://` for v1.
+  - Plan + verification record: `/Users/ggomes/.claude/plans/we-have-been-working-federated-deer.md`
+    (private to the author); spike notes under `docs/phases/spike-*.md`
+    and `docs/phases/monitor-feasibility.md`.
 - **2026-05-06** — Phase 1 marked complete. Phases renumbered: the
   former Phase 2.5 (Documents + Artifact Store + UI v2) becomes
   Phase 3 to reflect that it's foundational and roughly Phase-1-
@@ -1969,24 +2432,6 @@ the doc.
   to capabilityKinds. Naming: Workbench (tool area) vs Armory
   (Fitting registry browser at /armory) — resolved collision.
   T8 (Sequoias retirement) deferred — 3-day daily-use gate.
-- **2026-05-11** — **Phase 6 T6–T9 closed: outpost aggregation,
-  Operative remote actions, vault sync, verification doc.** Four
-  key decisions made during implementation: (1) `outpost-rpc.ts`
-  helper extraction — `parseTarget`/`outpostRpc`/`expandHome` were
-  duplicated in two routes; extracted to a shared module with
-  `listOutposts()` for clean T6/T7/T8 reuse. (2) T6 status model:
-  hook-driven `lastStatus` from `~/.garrison/sessions/state.json`
-  per machine (read via `fs.read` RPC per protocol §10) was chosen
-  over the brief's terminal-busy heuristic — richer signal, same
-  mechanism already proven locally. (3) T7 scope reduction: dropped
-  `spawn_on`/`wait_for_completion` from v1 because `process.status`
-  carries no stdout buffer and Python stdlib has no WebSocket client.
-  `run_on` (blocking `exec.run`) covers all brief's done-when
-  invocations. (4) T8 remote manifest: uses `exec.run find` (one
-  round-trip) instead of recursive `fs.list` (O(directories) chatty)
-  — the protocol's `fs.list` is non-recursive; `find` is the honest
-  path. `sync` Faculty introduced at order 20, no `family` (background
-  service, not a Workbench tab). Phase 6 fully done.
 - **2026-05-11** — **Phase 6 added: Outposts (multi-machine
   bridge).** New Faculty (`outpost`, cardinality many) with a
   small bridge process running on each remote Mac. Host machine
@@ -2001,6 +2446,69 @@ the doc.
   hands, not brains. SSH used only for the one-time bootstrap.
   Bumped: Automations Phase 7, Tasks Phase 8. Driven by the
   user's three-Mac workflow (automation/development/portable).
+- **2026-05-11** — **Phase 9 added as placeholder: Knowledge &
+  Self-Improvement.** Two architectural pillars: (a) **Knowledge
+  layer** — single canonical memory store; SessionEnd hooks on
+  every Mac (including direct-Claude-Code sessions outside
+  Garrison) capture per-session and bridge-sync to the host;
+  configure-not-walker discipline. (b) **Evolvable artifacts
+  layer** — skills, automations, and `for_consumers` blocks are
+  three flavors of the same pattern (evolvable artifacts with a
+  review discipline); Phase 9 defines the pattern, the three are
+  concrete instances. Soul and Orchestrator prompts explicitly
+  excluded from self-improvement (drift risk). Depends on Phase 6
+  (transport), Phase 7 (automations and their feedback loop),
+  Phase 8 (outcome signals from Tasks). Driven by user's
+  four-machine workflow (automation/development/portable/office —
+  the office machine was added to the canonical machine list
+  during the Phase 9 framing conversation). Detailed planning
+  deferred to when Phase 8 is in flight; prior-art research
+  (Hermes, Voyager, Karpathy memory layers, RLAIF) parked as
+  a precondition.
+- **2026-05-11** — **Phase 9 placeholder: Hermes and Voyager
+  prior-art researched.** Four corrections to the placeholder:
+  (a) review-gate model — empirical review (Hermes/GEPA-style)
+  is the established discipline, not one of three rough
+  options; placeholder now defaults to empirical with human
+  review as escalation. Agent self-review dropped (inherits
+  the same blind spots). (b) Scoping — v1 = refinement of
+  existing skills only; auto-generation of new skills from
+  patterns deferred to a later phase. (c) Binary-signal
+  honesty — Voyager works because Minecraft has clean ground
+  truth; Garrison doesn't. Placeholder now explicitly
+  acknowledges slower-cadence/fewer-examples constraint and
+  leans on Phase 8 Tasks as primary signal. (d) Candidate
+  library — DSPy + GEPA (MIT-licensed, ICLR 2026 Oral) noted
+  as evaluation target for detailed planning. Remaining items
+  (Anthropic Skills direction, Karpathy memory layers, RLAIF)
+  still deferred.
+- **2026-05-11** — **Phase 9 placeholder: Pillar B framing
+  simplified.** Previous "evolvable artifacts" name collided
+  with Phase 3's Artifact Store (documents, recordings,
+  reports). Pillar B renamed to its concrete contents:
+  *self-improving skills, automations, and `for_consumers`
+  blocks.* These are the prompts the Operative reads to
+  decide what to do; they evolve from outcomes. The outputs
+  in the Artifact Store don't self-evolve — they're records
+  of work, not guidance. Also removed the memory-volume open
+  question: with one user on N machines, volume is the same
+  as one machine; revisit if autonomous agents start
+  generating their own session traffic.
+- **2026-05-11** — **Phase 9 placeholder expanded from two to
+  four pillars.** Pillar A (knowledge layer) gained explicit
+  hooks-at-user-level discipline confirmation
+  (`~/.claude/settings.json`, not per-project), memory scoping
+  (global + project-local overrides), and parked volume
+  management as a future concern. Pillar B (evolvable artifacts)
+  gained an update-proposal-with-review model (vs direct
+  writes) for cross-machine conflict resolution. New Pillar C
+  (Operative identity across machines): Garrison-spawned
+  sessions get Operative-wrapped, direct Claude Code sessions
+  get tagged-only. New Pillar D (lessons-learned feedback loop):
+  the agent generates and consults lessons from completed
+  tasks — the actual learning loop closure that makes
+  self-improvement user-visible. Open questions expanded from
+  8 to 14. Detailed planning still deferred to Phase 8 era.
 - **2026-05-08** — **Phase 5 reframed: Trenches → Workbench (then
   called Armory).** Earlier Phase 5 specced a "Trenches" tab as
   Garrison-core (a separate top-level area). That was a category
@@ -2245,3 +2753,21 @@ Anything raised in conversation but not yet resolved.
     that complexity in until the standalone problem is solved.
   - Reuses the Artifact Store layer rather than implementing its
     own storage.
+- (Phase 9) **Prior-art research before detailed planning.**
+  Before scoping Phase 9 (Knowledge & Self-Improvement) into
+  tickets, do a web-search pass on the self-improving-agent
+  literature. Targets:
+  - **Hermes** (mentioned by user) — current discipline for
+    skill evolution.
+  - **Voyager** (Minecraft generative-skill agent) — the
+    canonical "agent writes its own skills" reference.
+  - **Anthropic's Skills framework evolution** — the public
+    direction on how SKILL.md files are meant to grow.
+  - **RLAIF / Constitutional AI** — Anthropic's broader
+    research on outcome-driven model updates.
+  - **CAMEL, AutoGPT, BabyAGI, Devin** — for variation in
+    learning-loop shapes (most are shallow; useful for
+    "what not to do").
+  Output: a short summary in `docs/research/` informing the
+  Phase 9 review-gate decision (human / agent / empirical /
+  hybrid). Premature now — wait until Phase 8 is in flight.
