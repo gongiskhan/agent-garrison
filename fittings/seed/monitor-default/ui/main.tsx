@@ -72,8 +72,8 @@ function ProcessCard({ entity, onOpen }: { entity: Entity; onOpen: (pid: number)
         <span className="mono">MEM {entity.pmem.toFixed(1)}%</span>
         {ports.length > 0 && (
           <span className="ports">
-            ports:{" "}
-            {ports.map((p, i) => (
+            <span className="ports-label">ports:</span>
+            {ports.slice(0, 8).map((p, i) => (
               <a
                 key={`${i}-${p}`}
                 href={`http://localhost:${p}`}
@@ -85,6 +85,9 @@ function ProcessCard({ entity, onOpen }: { entity: Entity; onOpen: (pid: number)
                 {p}
               </a>
             ))}
+            {ports.length > 8 && (
+              <span className="more mono">+{ports.length - 8} more</span>
+            )}
           </span>
         )}
         {entity.spawnSite && <span className="tag">{entity.spawnSite}</span>}

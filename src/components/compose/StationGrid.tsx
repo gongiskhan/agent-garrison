@@ -173,9 +173,10 @@ export function StationGrid() {
         ) : null}
 
         <div
+          className="compose-station-grid"
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
             gap: 10
           }}
         >

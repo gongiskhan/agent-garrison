@@ -23,4 +23,4 @@ run-tab-fixed.png
 **/.DS_Store
 _design-redesign/
 recordings
-public/phase-1-demo/
+public/phase-1-demo/.playwright-artifacts/

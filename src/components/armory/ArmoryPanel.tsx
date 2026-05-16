@@ -235,7 +235,14 @@ export function ArmoryPanel() {
             No Fittings match these filters.
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
+          <div
+            className="armory-grid"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))",
+              gap: 14
+            }}
+          >
             {filtered.map((entry) => (
               <FittingArmoryCard
                 key={entry.id}

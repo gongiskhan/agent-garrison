@@ -203,7 +203,7 @@ export function RunPanel() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
             gap: 18,
             marginBottom: 18
           }}

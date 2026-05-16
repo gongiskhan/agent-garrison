@@ -292,6 +292,7 @@ export function ChatPanel() {
   return (
     <main style={{ height: "100vh", display: "grid", gridTemplateRows: "auto auto 1fr auto", minHeight: 0 }}>
       <div
+        className="chat-header"
         style={{
           padding: "18px 56px 14px",
           borderBottom: "1px solid var(--rule)"
@@ -316,10 +317,12 @@ export function ChatPanel() {
       </div>
 
       <div
+        className="chat-metabar"
         style={{
           display: "flex",
           gap: 18,
           alignItems: "center",
+          flexWrap: "wrap",
           padding: "10px 56px",
           background: "var(--paper-2)",
           borderBottom: "1px solid var(--rule)",
@@ -386,6 +389,7 @@ export function ChatPanel() {
 
       <div
         ref={scrollRef}
+        className="chat-scroll"
         style={{
           overflowY: "auto",
           padding: "24px 56px 8px"
@@ -471,6 +475,7 @@ export function ChatPanel() {
 
       {localError ? (
         <div
+          className="chat-error"
           style={{
             padding: "10px 56px",
             background: "var(--alarm-soft)",
@@ -484,6 +489,7 @@ export function ChatPanel() {
       ) : null}
 
       <div
+        className="chat-input-bar"
         style={{
           borderTop: "1px solid var(--rule)",
           padding: "14px 56px 16px",

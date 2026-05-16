@@ -113,6 +113,10 @@ body {
   padding: 10px 12px;
   cursor: pointer;
   transition: border-color 0.12s, transform 0.08s;
+  /* Allow grid items to shrink below their intrinsic content size so a
+   * single card with very long content doesn't blow out the grid track. */
+  min-width: 0;
+  overflow: hidden;
 }
 
 .card:hover {
@@ -181,14 +185,32 @@ body {
   letter-spacing: 0.05em;
 }
 
+.ports {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  flex-basis: 100%;
+  min-width: 0;
+}
+
 .ports a {
   color: var(--info);
-  margin: 0 3px;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .ports a:hover {
   text-decoration: underline;
+}
+
+.ports .more {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.card-meta > * {
+  min-width: 0;
 }
 
 .tag {
