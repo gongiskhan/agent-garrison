@@ -28,7 +28,8 @@ const groupForFaculty: Record<FacultyId, string> = {
   "worktree-management": "Workbench",
   "session-view": "Workbench",
   outposts: "Workbench",
-  sync: "Integration"
+  sync: "Integration",
+  monitor: "Control"
 };
 
 export function ArmoryPanel() {

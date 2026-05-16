@@ -158,3 +158,83 @@ invocation are deferred. Capability stubs in
 milestone."
 **Source:** consolidated v1 plan §13. **Status:** Deferred (target:
 runtime SDK milestone).
+
+## 2026-05-16 · Monitor Faculty added; capability vocabulary grows again
+
+A new `monitor` Faculty and `monitor` capability kind are registered
+in [`src/lib/faculties.ts`](../src/lib/faculties.ts) and
+[`src/lib/types.ts`](../src/lib/types.ts). The Faculty owns
+read-only observability of every entity Garrison spawns (PIDs,
+status, ports, network, cwd, redacted env, captured logs). The
+default Fitting (`fittings/seed/monitor-default/`) serves its own
+React UI on its own port and is consumed via URL link rather than
+component sharing or state passing.
+**Source:** [`docs/monitor-faculty-brief.md`](./monitor-faculty-brief.md);
+phase-1 audit at
+[`docs/phases/monitor-feasibility.md`](./phases/monitor-feasibility.md).
+**Status:** Settled.
+
+## 2026-05-16 · Shared spawn helper at `src/lib/spawn.ts`
+
+Garrison-controlled spawn sites in `src/lib/runner.ts`
+(`spawnMcpGatewayHttp`, `spawnGateway`, `spawnClaude`,
+`runShellCommand`, nested `runProcess`) are wrapped by a single
+`spawnTracked` helper that tees stdout/stderr to
+`~/.garrison/logs/<pid>/{stdout.log,stderr.log,meta.json}`.
+`meta.json` redacts env keys matching
+`/(_TOKEN|_KEY|_SECRET|_PASSWORD|^TOKEN$|^SECRET$|^PASSWORD$)/i`.
+`node-pty` terminal sessions are NOT wrapped (separate pipeline;
+the user owns their terminal). Log retention is 24 h after PID
+death; the Monitor backend handles cleanup.
+**Source:** [`docs/phases/monitor-feasibility.md`](./phases/monitor-feasibility.md) §2.
+**Status:** Settled.
+
+## 2026-05-16 · UI-Fitting port convention
+
+Each UI-bearing Fitting declares a default port in
+`x-garrison.ui.port`. At start time the Fitting tries to bind that
+default; if the port is taken, it falls back via `findFreePort` and
+publishes the chosen port at
+`~/.garrison/ui-fittings/<fitting-id>.json` for consumers to
+discover. Consumers read the status file, then `GET <url>/health`
+before linking. No component sharing, no state passing — link by
+URL only. Monitor default port: `7077`. Documented in
+[`docs/UI-FITTINGS.md`](./UI-FITTINGS.md).
+**Source:** [`docs/phases/monitor-feasibility.md`](./phases/monitor-feasibility.md) §3.
+**Status:** Settled.
+
+## 2026-05-16 · Worktree port pool stays 50000–54999, exposed via config
+
+The brief illustrated a 3000–3100 pool; the codebase chose
+50000–54999 (deliberate, avoids collisions with system services and
+common dev servers). The default stays; the range is now config-driven
+via env vars (`GARRISON_PORT_RANGE_START`/`GARRISON_PORT_RANGE_END`,
+already present) and per-project `port_pool: {start, end}` in
+`~/.garrison/projects/<id>.yml`. Treat the brief's `3000–3100` as
+illustrative.
+**Source:** [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md) §"Port allocation"; user review 2026-05-16.
+**Status:** Settled.
+
+## 2026-05-16 · `mcp-gateway --probe` stays lenient by default; `--strict` opt-in
+
+The brief's §3 Health says `mcp-gateway --probe` must exit non-zero
+if either underlying Faculty probe fails. The current implementation
+exits 0 to support graceful degradation when one of
+`tier-classifier` / `testing` is absent. The implementation keeps
+its lenient default; a new `--probe --strict` flag exits non-zero
+when either underlying probe fails. Workbench launcher can opt into
+strict mode via `requireFullMcpSurface` when partial-install
+ergonomics are not desired.
+**Source:** [`docs/mcp-gateway-fitting-brief.md`](./mcp-gateway-fitting-brief.md) §3; user review 2026-05-16.
+**Status:** Settled.
+
+## 2026-05-16 · Tailscale URLs stay `http://` for v1
+
+The worktree brief specified `https://<host>:<port>`. HTTPS on
+MagicDNS requires per-service cert wiring the project does not
+enforce; switching to `https://` without it would silently break
+reachability from mobile. The locked decision is to surface
+`http://<host>:<port>` URLs for v1 and revisit when a Garrison-wide
+TLS termination story exists.
+**Source:** [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md) §"Tailscale URL resolution"; user review 2026-05-16.
+**Status:** Settled.

@@ -168,6 +168,15 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["script", "cli-skill"],
     notes: "Periodic mirroring between the host and external surfaces (filesystems, vaults). v1 = host→outpost unidirectional."
+  },
+  {
+    id: "monitor",
+    order: 21,
+    name: "Monitor",
+    cardinality: "single",
+    shapes: ["plugin", "script"],
+    notes:
+      "Read-only visibility into everything Garrison spawns — PIDs, status, ports, logs. Default Fitting serves its own UI on its own port; consumers link by URL."
   }
 ];
 

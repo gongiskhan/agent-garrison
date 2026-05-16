@@ -165,3 +165,11 @@ text where applicable.
 The Phase 5 (Armory) Sequoias decomposition is in flight and will
 add `worktree-management:sequoias`, `session-view:sequoias`, and
 `terminal:armory-default` when it lands.
+
+The Monitor Faculty (2026-05-16) adds `monitor-default`, which is the
+first Fitting to ship with its own React UI on its own port (default
+`7077`). The pattern that governs UI-bearing Fittings — own server,
+own port, status file at `~/.garrison/ui-fittings/<id>.json`,
+consumed by URL link with a health check — is documented in
+[UI-FITTINGS.md](./UI-FITTINGS.md) and is canonical for every future
+UI Fitting.

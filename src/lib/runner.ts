@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawnTracked } from "./spawn";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -626,7 +627,7 @@ async function spawnMcpGatewayHttp(
     `Starting mcp-gateway HTTP mode on 127.0.0.1:${port}`
   );
 
-  const child = spawn(
+  const { child } = spawnTracked(
     "node",
     [mode.mcpGatewayScript, "http", "--port", String(port), "--token", token, "--host", "127.0.0.1"],
     {
@@ -637,7 +638,8 @@ async function spawnMcpGatewayHttp(
         GARRISON_HTTP_GATEWAY_BASE_URL: `http://127.0.0.1:${4777}` // overwritten at http-gateway spawn time anyway; mcp-gateway resolves lazily
       },
       stdio: ["pipe", "pipe", "pipe"]
-    }
+    },
+    { spawnSite: "runner:spawnMcpGatewayHttp", description: `mcp-gateway http :${port}` }
   );
 
   child.stdout.on("data", (chunk) =>
@@ -747,7 +749,15 @@ async function spawnGateway(
     ...(extraEnv ?? {})
   };
 
-  const child = spawn("node", [gateway.scriptPath], { cwd, env });
+  const { child } = spawnTracked(
+    "node",
+    [gateway.scriptPath],
+    { cwd, env },
+    {
+      spawnSite: "runner:spawnGateway",
+      description: `${gateway.fittingId} on ${gateway.baseUrl}`
+    }
+  );
 
   child.stdout.on("data", (chunk) => appendLog(compositionId, "stdout", chunk.toString()));
   child.stderr.on("data", (chunk) => appendLog(compositionId, "stderr", chunk.toString()));
@@ -815,10 +825,15 @@ function spawnClaude(compositionId: string, cwd: string, promptPath: string): Ch
     "runner",
     `Fallback: claude ${args.join(" ")} (no gateway fitting selected)`
   );
-  const child = spawn("claude", args, {
-    cwd,
-    env: { ...process.env, AGENT_GARRISON_COMPOSITION: compositionId }
-  });
+  const { child } = spawnTracked(
+    "claude",
+    args,
+    {
+      cwd,
+      env: { ...process.env, AGENT_GARRISON_COMPOSITION: compositionId }
+    },
+    { spawnSite: "runner:spawnClaude", description: `fallback claude (${compositionName})` }
+  );
 
   let stdoutBuffer = "";
   child.stdout.on("data", (chunk) => {
@@ -903,7 +918,15 @@ async function runProcess(
 ): Promise<void> {
   appendLog(compositionId, "runner", `${command} ${args.join(" ")}`);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: process.env });
+    const { child } = spawnTracked(
+      command,
+      args,
+      { cwd, env: process.env },
+      {
+        spawnSite: "runner:runProcess",
+        description: `${command} ${args.join(" ")}`
+      }
+    );
     child.stdout.on("data", (chunk) => appendLog(compositionId, "stdout", chunk.toString()));
     child.stderr.on("data", (chunk) => appendLog(compositionId, "stderr", chunk.toString()));
     child.on("error", reject);
@@ -978,11 +1001,15 @@ async function runShellCommand(
   // see vault-resolved credentials without each Fitting needing to source it.
   return new Promise((resolve) => {
     const dotenvVars = loadDotenvFromCwd(cwd);
-    const child = spawn(command, {
-      cwd,
-      env: { ...process.env, ...dotenvVars },
-      shell: true
-    });
+    const { child } = spawnTracked(
+      command,
+      {
+        cwd,
+        env: { ...process.env, ...dotenvVars },
+        shell: true
+      },
+      { spawnSite: "runner:runShellCommand", description: command.slice(0, 80) }
+    );
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {

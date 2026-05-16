@@ -1,0 +1,56 @@
+name: monitor-default
+version: 0.1.0
+description: Default Monitor Fitting for Agent Garrison — read-only visibility into every entity Garrison spawns.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: monitor
+  cardinality_hint: single
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Walks the Garrison process tree, captures stdout/stderr from spawn-helper-wrapped children, and serves a React UI on its own port (default 7077). Read-only; never kills, signals, or pauses processes.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7077
+      description: HTTP port the Monitor server binds to. Falls back to next free port when in use.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: poll_interval_ms
+      type: integer
+      default: 1000
+      description: How often the entity walker rescans the process tree.
+    - key: log_retention_hours
+      type: integer
+      default: 24
+      description: Hours after a PID is observed dead before its ~/.garrison/logs/<pid>/ directory is cleaned up.
+  provides:
+    - kind: monitor
+      name: monitor
+  consumes: []
+  setup:
+    command: node apm_modules/_local/monitor-default/ui/build.mjs
+    idempotent: true
+    timeout_ms: 60000
+  verify:
+    command: node apm_modules/_local/monitor-default/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Consumer Fittings (web-channel, http-gateway chat UI, future Workbench panels)
+    discover the Monitor at runtime by reading:
+      ~/.garrison/ui-fittings/monitor.json
+    The file (written when the server binds) carries:
+      { fittingId, port, url, pid, startedAt }
+    Then `GET <url>/health` to confirm reachability before linking.
+    Endpoints:
+      GET  /health                            → {ok: true, port, pid}
+      GET  /api/entities                      → list of all Garrison-spawned entities
+      GET  /api/entities/:pid                 → single entity detail (with redacted env)
+      GET  /api/entities/:pid/logs?stream=…   → captured stdout/stderr (paged + SSE tail)
+      GET  /api/entities/stream               → SSE snapshot tick (default 1 Hz)
+    No mutation endpoints; observation only.

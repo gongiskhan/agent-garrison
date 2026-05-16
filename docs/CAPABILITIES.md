@@ -6,13 +6,19 @@ The capability kinds Fittings can `provides` or `consumes` in their
 [FITTINGS.md](./FITTINGS.md) for context.
 
 The set started at five at the 2026-05-04 v1 reset and grew as
-Phases 1–3 landed: `soul`, `data-source`, `channel`, and
-`artifact-store` were each added on Claude-Code-justified evidence
-(see [DECISIONS.md](./DECISIONS.md) and
-[GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md)). The full list, as
-enforced by `src/lib/metadata.ts`: `orchestrator`, `soul`,
-`agent-skill`, `memory-store`, `automation-runner`, `data-source`,
-`channel`, `artifact-store`, `vault`.
+Phases 1–5 landed: `soul`, `data-source`, `channel`,
+`artifact-store`, the four Workbench Faculty kinds
+(`terminal-session`, `worktree`, `session-view`, `screen-share`),
+`outpost`, `mcp-gateway`, and most recently `monitor`. Each was
+added on Claude-Code-justified evidence (see
+[DECISIONS.md](./DECISIONS.md) and
+[GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md)). The current full
+list, as enforced by `src/lib/metadata.ts` via the
+`capabilityKinds` array in `src/lib/types.ts`: `orchestrator`,
+`soul`, `agent-skill`, `memory-store`, `automation-runner`,
+`data-source`, `channel`, `vault`, `artifact-store`,
+`terminal-session`, `worktree`, `session-view`, `screen-share`,
+`outpost`, `mcp-gateway`, `monitor`.
 
 ## Cardinality literals
 
@@ -182,6 +188,28 @@ schemas on top.
   can route on. Filesystem is the v1 backend; later versions can
   swap in cloud or content-addressable storage without changing
   the consumer surface.
+
+## monitor
+
+Read-only observability into every entity Garrison spawns — PIDs,
+status, ports, network connections, working directory, redacted
+env, captured stdout/stderr. Discovery is parent-PID walk plus
+`ps` + `lsof`; log capture is via a shared spawn helper (see
+[DECISIONS.md](./DECISIONS.md)).
+
+- **Cardinality:** singleton per composition; the resolver expects
+  exactly one provider when a Fitting consumes it.
+- **Typically provides:** the `monitor-default` Fitting under the
+  `monitor` Faculty.
+- **Typically consumes:** nothing in v1 (read-only over local PID
+  observables).
+- **Interface (TBD — runtime SDK milestone):** must support `list
+  entities`, `get entity by PID`, `subscribe to live updates`
+  (SSE), and `fetch logs` (paged + tailed). The default Fitting
+  also serves its own React UI on its own port; consumers link by
+  URL after a `GET /health` availability check rather than sharing
+  components or state. See [UI-FITTINGS.md](./UI-FITTINGS.md) for
+  the per-Fitting-own-port pattern.
 
 ## vault
 

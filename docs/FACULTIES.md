@@ -136,6 +136,19 @@ canonical example.
 - Example: filesystem artifact store seed under `<composition-dir>/artifacts/` with `documents/`, `automations/`, `voice/` namespaces.
 - Failure modes: namespace collision, sidecar drift (file present without `.meta.json`), permissions issues on the storage root, unbounded growth from automation recordings.
 
+## 15. Monitor
+
+- Purpose: read-only visibility into everything Garrison spawns — PIDs, status, ports, network connections, working directory, redacted env, captured stdout/stderr.
+- Cardinality: single.
+- Shapes: `plugin`, `script`.
+- Config: bind port (default `7077`), log retention (default 24 h after PID death), redaction patterns for env keys.
+- Discovery: parent-PID descendant walk via `ps -ax`; per-PID details via `ps -o ...` and `lsof -i -P -n`. macOS-first; Linux adapter deferred.
+- Log capture: shared spawn helper at `src/lib/spawn.ts` tees stdout/stderr to `~/.garrison/logs/<pid>/`. Processes Garrison did not spawn appear in the card grid via PID observation but have no captured log content.
+- Example: `monitor-default` Fitting under `fittings/seed/monitor-default/`, serving its own React UI on port 7077.
+- Failure modes: port conflict on the default (Fitting falls back via `findFreePort`), nested-spawn log loss for processes outside the shared helper, stale `~/.garrison/logs/<pid>/` directories.
+
+The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary (orchestrator, agent-skill, memory-store, automation-runner, vault). The expansion is recorded in [DECISIONS.md](./DECISIONS.md) (2026-05-16 entry). See [UI-FITTINGS.md](./UI-FITTINGS.md) for the per-Fitting-own-UI-on-own-port pattern the Monitor's default Fitting follows.
+
 ## Derived: Tasks
 
 Tasks is never selected directly. When a data source declares task

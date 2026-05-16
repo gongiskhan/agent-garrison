@@ -43,6 +43,7 @@ export function ChatPanel() {
   const [sending, setSending] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [monitorUrl, setMonitorUrl] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -51,6 +52,27 @@ export function ChatPanel() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch("/api/monitor/discover", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { available?: boolean; url?: string | null };
+        if (cancelled) return;
+        setMonitorUrl(data.available && data.url ? data.url : null);
+      } catch {
+        if (!cancelled) setMonitorUrl(null);
+      }
+    };
+    check();
+    const handle = setInterval(check, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -316,7 +338,18 @@ export function ChatPanel() {
             {pendingAttachments.length}
           </b>
         </span>
-        <span style={{ marginLeft: "auto" }}>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, alignItems: "center" }}>
+          {monitorUrl && (
+            <a
+              href={monitorUrl}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="chat-monitor-link"
+              style={{ color: "var(--ink)", textDecoration: "underline" }}
+            >
+              Monitor ↗
+            </a>
+          )}
           {isRunning ? (
             <Link
               href="/run"

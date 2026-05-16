@@ -96,6 +96,10 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   sync: {
     role: "Periodically mirrors files between the host and remote outpost machines.",
     fit: "v1 is host→outpost unidirectional. Use for Obsidian vaults, dotfiles, or any directory you want to keep in sync across your machines."
+  },
+  monitor: {
+    role: "Read-only visibility into every entity Garrison spawns.",
+    fit: "The default Fitting serves its own UI on its own port and walks Garrison's PID tree to surface PIDs, ports, network connections, and tee'd stdout/stderr."
   }
 };
 
@@ -119,7 +123,8 @@ const facultyGroup: Record<FacultyId, string> = {
   "worktree-management": "Workbench",
   "session-view": "Workbench",
   outposts: "Workbench",
-  sync: "Integration"
+  sync: "Integration",
+  monitor: "Control"
 };
 
 export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
