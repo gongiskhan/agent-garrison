@@ -424,5 +424,20 @@
       "global": 4.5,
       "claude_code": 4.5
     }
+  },
+  {
+    "id": "monitor-default",
+    "name": "Monitor (default)",
+    "repo": "local:fittings/seed/monitor-default",
+    "localPath": "fittings/seed/monitor-default",
+    "summary": "Read-only visibility into every entity Garrison spawns — PIDs, status, ports, logs. Serves its own React UI on its own port (default 7077).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-monitor-default",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
   }
 ]

@@ -46,6 +46,7 @@ import {
 } from "./lib/spawn-soul.mjs";
 import { WorktreesProxy } from "./lib/worktrees-passthrough.mjs";
 import { buildOrchestratorTurn } from "./lib/orchestrator-prefix.mjs";
+import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -238,7 +239,7 @@ async function spawnSoulSession(opts) {
   const existing = registry.bySoul(soul);
   if (existing && existing.status === "running") {
     // Tier mismatch → respawn. Otherwise pipe the new message in.
-    if (tier && existing.tier && existing.tier.model !== tier.model) {
+    if (shouldRespawnForTier(existing.tier, tier)) {
       return await respawnExisting(existing, { tier, tierFlags, message, soul, spawnConfig });
     }
     if (message) writeUserTurn(existing.child, message);
