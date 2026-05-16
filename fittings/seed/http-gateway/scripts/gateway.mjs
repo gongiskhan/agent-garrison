@@ -119,19 +119,27 @@ async function loadSoulsConfig() {
 }
 
 async function writeSharedMcpConfig() {
-  if (!MCP_GATEWAY_BASE_URL) {
-    logEvent("stderr", { kind: "no-mcp-gateway-url", message: "skipping .mcp.json write" });
-    return null;
-  }
+  // Claude Code's HTTP MCP transport assumes OAuth and doesn't always honour
+  // raw Bearer headers; stdio is the proven-good transport (workbench uses
+  // it). Spawn mcp-gateway as a child so the orchestrator + souls get a
+  // local pipe-based MCP connection. Same set of tools as the HTTP sidecar.
+  const gatewayScriptPath = path.join(COMPOSITION_DIR, "apm_modules", "_local", "mcp-gateway", "scripts", "gateway.mjs");
   const dir = path.join(COMPOSITION_DIR, ".garrison");
   await fs.mkdir(dir, { recursive: true });
   const filePath = path.join(dir, "mcp.json");
   const cfg = {
     mcpServers: {
       garrison: {
-        type: "http",
-        url: MCP_GATEWAY_BASE_URL,
-        headers: { Authorization: `Bearer ${MCP_GATEWAY_TOKEN}` }
+        command: "node",
+        args: [gatewayScriptPath, "stdio"],
+        env: {
+          GARRISON_COMPOSITION_DIR: COMPOSITION_DIR,
+          // mcp-gateway falls back to discovering tools from the composition
+          // when this URL is set; keep it pointed at the http-gateway so
+          // talk_to / create_worktree / list_worktrees etc. can dispatch
+          // back through us.
+          GARRISON_HTTP_GATEWAY_BASE_URL: `http://${HOST}:${PORT}`
+        }
       }
     }
   };
@@ -253,7 +261,19 @@ async function spawnSoulSession(opts) {
   }
 
   const sessionUuid = providedUuid ?? randomUUID();
-  const resolvedCwd = cwd ?? spawnConfig.resolvedBasePath;
+  // Resolve cwd in priority: explicit cwd → worktree path lookup → base_path.
+  // Without this, a soul bound to a worktree would spawn in its base_path
+  // (e.g. ~/code) and write changes in the wrong place.
+  let resolvedCwd = cwd;
+  if (!resolvedCwd && worktreeId) {
+    try {
+      const wt = await worktrees.getById(worktreeId);
+      if (wt?.worktreePath) resolvedCwd = wt.worktreePath;
+    } catch (err) {
+      logEvent("stderr", { kind: "worktree-cwd-lookup-failed", worktree_id: worktreeId, error: err?.message });
+    }
+  }
+  if (!resolvedCwd) resolvedCwd = spawnConfig.resolvedBasePath;
   const promptTempPath = await writePromptTempFile(sessionUuid, spawnConfig.promptPath);
 
   const state = registry.register({

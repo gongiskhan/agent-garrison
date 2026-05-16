@@ -118,9 +118,27 @@ export function AppShell({ children }: { children: ReactNode }) {
         compositionRes.json(),
         vaultRes.json()
       ]);
-      const next = compositionData.compositions[0] as Composition;
+      const allCompositions = (compositionData.compositions ?? []) as Composition[];
+      // Prefer a running composition over the alphabetical-first one so the
+      // chat surface lands on whatever the user actually has booted.
+      const states = await Promise.all(
+        allCompositions.map(async (c) => {
+          try {
+            const r = await fetch(`/api/runner/${c.id}/state`);
+            const j = await r.json();
+            return { id: c.id, status: j?.state?.status ?? "idle" };
+          } catch {
+            return { id: c.id, status: "idle" };
+          }
+        })
+      );
+      const running = states.find((s) => s.status === "running" || s.status === "starting");
+      const next =
+        (running && allCompositions.find((c) => c.id === running.id)) ??
+        (allCompositions[0] as Composition | undefined) ??
+        null;
       setLibrary(libraryData.library ?? []);
-      setComposition(next);
+      setComposition(next ?? null);
       setVaultUnlocked(Boolean(vaultData.unlocked));
       setVaultNeedsPassword(Boolean(vaultData.needsPassword));
       setSecrets(vaultData.secrets ?? []);

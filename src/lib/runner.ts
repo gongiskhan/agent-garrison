@@ -104,7 +104,13 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
   try {
     await requireCommand(compositionId, "apm");
     const composition = await readCompositionWithDerivedTasks(compositionId);
-    await runProcess(compositionId, "apm", ["install"], composition.directory);
+    // `--force` so apm's "critical hidden characters" warnings on third-party
+    // node_modules (zod locales etc.) don't abort install. The composition's
+    // own fittings are reviewed via the four-check pipeline; the diagnostic
+    // surfaces on transitive deps the user can't realistically audit line-by-
+    // line. apm continues to PRINT the warnings, which the user can see in
+    // the runner log.
+    await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
     const envPath = await materializeEnv(composition.directory);
     appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
     await runSetupHooks(compositionId);

@@ -1,0 +1,114 @@
+lockfile_version: '1'
+generated_at: '2026-05-16T17:26:53.389352+00:00'
+apm_version: 0.11.0
+dependencies:
+- repo_url: _local/artifact-store
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/artifact-store
+  source: local
+  local_path: ../../fittings/seed/artifact-store
+- repo_url: _local/coding-subagent
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/coding-subagent
+  source: local
+  local_path: ../../fittings/seed/coding-subagent
+- repo_url: _local/documents
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/documents
+  source: local
+  local_path: ../../fittings/seed/documents
+- repo_url: _local/garrison-orchestrator
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/garrison-orchestrator.md
+  deployed_file_hashes:
+    .claude/commands/garrison-orchestrator.md: sha256:0e0c055a85e11d37257096a1225eaca0f6ce5c6612b13ce928843e2ca7dce0ef
+  source: local
+  local_path: ../../fittings/seed/garrison-orchestrator
+- repo_url: _local/http-gateway
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/http-gateway.md
+  deployed_file_hashes:
+    .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
+  source: local
+  local_path: ../../fittings/seed/http-gateway
+- repo_url: _local/loop-heartbeat
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/loop-heartbeat.md
+  deployed_file_hashes:
+    .claude/rules/loop-heartbeat.md: sha256:f7362ad4d0be0435a10b7e8ba4d165875fc2310cee90977c6558b4113cef7cac
+  source: local
+  local_path: ../../fittings/seed/loop-heartbeat
+- repo_url: _local/mcp-gateway
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/mcp-gateway
+- repo_url: _local/memory
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-memory
+  source: local
+  local_path: ../../fittings/seed/memory
+- repo_url: _local/monitor-default
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/projects-index
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/projects-index
+  source: local
+  local_path: ../../fittings/seed/projects-index
+- repo_url: _local/scheduler
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/scheduler
+  source: local
+  local_path: ../../fittings/seed/scheduler
+- repo_url: _local/screen-share-default
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/screen-share-default
+- repo_url: _local/session-view-sequoias
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/session-view-sequoias
+- repo_url: _local/soul-architect
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/soul-architect.md
+  deployed_file_hashes:
+    .claude/commands/soul-architect.md: sha256:ac51a882d1299af89c8850f389add0ee765d716fb3e1eeb2dad3809007d37fe3
+  source: local
+  local_path: ../../fittings/seed/soul-architect
+- repo_url: _local/soul-engineer
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/soul-engineer.md
+  deployed_file_hashes:
+    .claude/commands/soul-engineer.md: sha256:58dbcdabc0b0a14d16670b7709dd5f5eac3de8a9b7bc2829c88cb327d6157e0b
+  source: local
+  local_path: ../../fittings/seed/soul-engineer
+- repo_url: _local/terminal-armory-default
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/terminal-armory-default
+- repo_url: _local/testing
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/testing
+- repo_url: _local/tier-classifier
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/tier-classifier
+  source: local
+  local_path: ../../fittings/seed/tier-classifier
+- repo_url: _local/worktree-management-sequoias
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/worktree-management-sequoias

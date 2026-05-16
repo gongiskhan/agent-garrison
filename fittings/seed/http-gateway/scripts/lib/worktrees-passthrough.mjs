@@ -28,18 +28,26 @@ export class WorktreesProxy {
     return await r.json();
   }
 
-  async create({ project, repoPath, branch, baseBranch, taskTitle }) {
+  async create(input = {}) {
     if (!this.base) throw new Error("worktrees proxy disabled");
+    // Accept BOTH naming conventions — mcp-gateway sends snake_case
+    // (task_title/branch_name/base_branch) while older Workbench-UI clients
+    // use camelCase. Normalise to the shape Next.js's POST /api/workbench/
+    // worktrees expects (it also accepts both).
+    const payload = {
+      project: input.project,
+      repoPath: input.repoPath ?? input.repo_path,
+      branch: input.branch ?? input.branch_name,
+      branch_name: input.branch_name ?? input.branch,
+      baseBranch: input.baseBranch ?? input.base_branch,
+      base_branch: input.base_branch ?? input.baseBranch,
+      taskTitle: input.taskTitle ?? input.task_title,
+      task_title: input.task_title ?? input.taskTitle
+    };
     const r = await fetch(new URL("/api/workbench/worktrees", this.base), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        project,
-        repoPath,
-        branch,
-        baseBranch,
-        taskTitle
-      })
+      body: JSON.stringify(payload)
     });
     if (!r.ok) throw new Error(`create worktree ${r.status}: ${await r.text()}`);
     return await r.json();

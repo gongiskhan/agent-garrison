@@ -1,0 +1,128 @@
+name: dogfood-orch-operative
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../fittings/seed/artifact-store
+    - path: ../../fittings/seed/coding-subagent
+    - path: ../../fittings/seed/documents
+    - path: ../../fittings/seed/garrison-orchestrator
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/loop-heartbeat
+    - path: ../../fittings/seed/mcp-gateway
+    - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/projects-index
+    - path: ../../fittings/seed/scheduler
+    - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/session-view-sequoias
+    - path: ../../fittings/seed/soul-architect
+    - path: ../../fittings/seed/soul-engineer
+    - path: ../../fittings/seed/terminal-armory-default
+    - path: ../../fittings/seed/testing
+    - path: ../../fittings/seed/tier-classifier
+    - path: ../../fittings/seed/worktree-management-sequoias
+x-garrison:
+  composition:
+    id: dogfood-orch
+    name: Dogfood Orchestrator
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 5
+        max_spend_per_day: 50
+        max_tool_calls_per_tick: 40
+      permissions_mode: full-auto
+      observability_config:
+        log_sink: runner
+    selections:
+      heartbeat:
+        - id: loop-heartbeat
+          config:
+            cadence_minutes: 40
+            gateway_url: http://127.0.0.1:4777/jobs
+      scheduler:
+        - id: scheduler
+          config:
+            jobs_file: data/scheduler-jobs.json
+            log_file: data/scheduler.log
+      data-sources: []
+      knowledge-base:
+        - id: projects-index
+          config:
+            projects_root: ~/dev
+        - id: documents
+          config: {}
+      automations: []
+      skills:
+        - id: coding-subagent
+          config:
+            subagent_model: opus
+            subagent_permission_mode: bypassPermissions
+            max_plan_turns: 30
+            max_execute_turns: 200
+        - id: soul-engineer
+          config:
+            base_path: ~/dev
+        - id: soul-architect
+          config:
+            base_path: ~/dev
+        - id: testing
+          config: {}
+        - id: tier-classifier
+          config:
+            tier_floor: 3
+            plan_threshold: 3
+      memory:
+        - id: memory
+          config:
+            recency_window: 20
+            persistence_cadence: hourly
+            compiled_memory_dir: ~/Projects/ekus/obsidian-vault/Compiled
+            compiler_repo_url: https://github.com/coleam00/claude-memory-compiler
+      classifier:
+        - id: tier-classifier
+          config:
+            tier_floor: 3
+            plan_threshold: 3
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4777
+            bind_host: 127.0.0.1
+            model: opus
+            permission_mode: bypassPermissions
+        - id: mcp-gateway
+          config: {}
+      channels: []
+      observability: []
+      soul: []
+      orchestrator:
+        - id: garrison-orchestrator
+          config: {}
+      artifact-store:
+        - id: artifact-store
+          config:
+            storage_root: artifacts
+      terminal:
+        - id: terminal-armory-default
+          config: {}
+      screen-share:
+        - id: screen-share-default
+          config: {}
+      worktree-management:
+        - id: worktree-management-sequoias
+          config:
+            repo_path: ~/dev/garrison
+      session-view:
+        - id: session-view-sequoias
+          config: {}
+      monitor:
+        - id: monitor-default
+          config:
+            port: 7077
+            bind_host: 127.0.0.1
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md

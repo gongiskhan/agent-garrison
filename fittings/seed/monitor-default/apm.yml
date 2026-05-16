@@ -33,7 +33,7 @@ x-garrison:
       name: monitor
   consumes: []
   setup:
-    command: node apm_modules/_local/monitor-default/ui/build.mjs
+    command: node ui/build.mjs
     idempotent: true
     timeout_ms: 60000
   verify:
