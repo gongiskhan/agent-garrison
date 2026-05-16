@@ -12,6 +12,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:all": "npm test && npm run test:e2e",
     "check:integration": "node scripts/integration-check.mjs",
     "refresh:prompts": "tsx scripts/refresh-default-prompts.ts",
     "test:integration": "GARRISON_INTEGRATION=1 vitest run tests/orchestrator-integration.test.ts",
@@ -34,6 +36,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.17.0",
     "@types/react": "^18.3.12",

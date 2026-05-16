@@ -1,6 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
+import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
@@ -8,6 +11,7 @@ import { readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compo
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
+import { buildSoulsConfigBlob } from "./soul-spawn-config";
 import type { GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
@@ -28,12 +32,27 @@ interface GatewayInfo {
   config: Record<string, unknown>;
 }
 
+interface OrchestratorModeInfo {
+  orchestratorFittingId: string;
+  mcpGatewayDir: string;
+  mcpGatewayScript: string;
+  soulFittingIds: string[];
+}
+
+interface McpGatewayHandle {
+  process: ChildProcessWithoutNullStreams;
+  port: number;
+  token: string;
+  baseUrl: string;
+}
+
 interface RunnerRecord {
   state: RunnerState;
   logs: LogEvent[];
   logBytes: number;
   subscribers: Set<(event: LogEvent) => void>;
   process?: ChildProcessWithoutNullStreams;
+  mcpGateway?: McpGatewayHandle;
   watcher?: FSWatcher;
   restartTimer?: NodeJS.Timeout;
   gateway?: GatewayInfo;
@@ -104,7 +123,47 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         ["install", "--no-audit", "--no-fund", "--silent"],
         gateway.fittingDir
       );
-      child = await spawnGateway(compositionId, composition.directory, promptPath, gateway);
+
+      // Detect orchestrator+souls mode. When the composition selects a
+      // garrison-orchestrator-style Fitting that consumes mcp-gateway and
+      // mcp-gateway is installed, boot mcp-gateway HTTP as a sidecar so the
+      // orchestrator's MCP tools can dispatch back through http-gateway.
+      const orchMode = await resolveOrchestratorMode(compositionId);
+      let orchEnv: Record<string, string> | undefined;
+      if (orchMode) {
+        appendLog(
+          compositionId,
+          "runner",
+          `Orchestrator mode detected: ${orchMode.orchestratorFittingId} + ${orchMode.soulFittingIds.length} souls`
+        );
+        record.mcpGateway = await spawnMcpGatewayHttp(
+          compositionId,
+          composition.directory,
+          orchMode
+        );
+        const soulsBlob = await buildSoulsConfigBlob(
+          composition.directory,
+          orchMode.orchestratorFittingId,
+          orchMode.soulFittingIds
+        );
+        const nextPort = process.env.PORT ?? "3000";
+        orchEnv = {
+          GARRISON_MCP_GATEWAY_BASE_URL: record.mcpGateway.baseUrl,
+          GARRISON_MCP_GATEWAY_TOKEN: record.mcpGateway.token,
+          GARRISON_ORCHESTRATOR_FITTING_ID: orchMode.orchestratorFittingId,
+          GARRISON_SOULS_CONFIG: JSON.stringify(soulsBlob),
+          GARRISON_NEXT_BASE_URL:
+            process.env.GARRISON_NEXT_BASE_URL ?? `http://127.0.0.1:${nextPort}`
+        };
+      }
+
+      child = await spawnGateway(
+        compositionId,
+        composition.directory,
+        promptPath,
+        gateway,
+        orchEnv
+      );
       record.gateway = gateway;
     } else {
       await requireCommand(compositionId, "claude");
@@ -148,6 +207,11 @@ export async function down(compositionId: string): Promise<RunnerState> {
   if (record.process) {
     await stopChild(record.process);
     record.process = undefined;
+  }
+  if (record.mcpGateway) {
+    appendLog(compositionId, "runner", "Stopping mcp-gateway sidecar");
+    try { record.mcpGateway.process.kill("SIGTERM"); } catch { /* ignore */ }
+    record.mcpGateway = undefined;
   }
   record.gateway = undefined;
   const composition = await readCompositionWithDerivedTasks(compositionId);
@@ -497,6 +561,116 @@ async function readPromptForFaculty(
   }
 }
 
+async function resolveOrchestratorMode(
+  compositionId: string
+): Promise<OrchestratorModeInfo | null> {
+  const composition = await readCompositionWithDerivedTasks(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+
+  const orchestrator = entries.find(
+    (entry) =>
+      entry.metadata?.provides?.some((p) => p.kind === "orchestrator") &&
+      entry.metadata?.consumes?.some((c) => c.kind === "mcp-gateway") &&
+      entry.metadata?.spawn
+  );
+  if (!orchestrator) return null;
+
+  const mcpGatewayDir = path.join(
+    composition.directory,
+    "apm_modules",
+    "_local",
+    "mcp-gateway"
+  );
+  const mcpGatewayScript = path.join(mcpGatewayDir, "scripts", "gateway.mjs");
+  if (!existsSync(mcpGatewayScript)) return null;
+
+  const soulFittingIds = entries
+    .filter((entry) =>
+      entry.metadata?.provides?.some(
+        (p) => p.kind === "agent-skill" && typeof p.name === "string" && p.name.startsWith("soul.")
+      )
+    )
+    .map((entry) => entry.id);
+
+  return {
+    orchestratorFittingId: orchestrator.id,
+    mcpGatewayDir,
+    mcpGatewayScript,
+    soulFittingIds
+  };
+}
+
+async function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      server.close(() => resolve(port));
+    });
+    server.on("error", reject);
+  });
+}
+
+async function spawnMcpGatewayHttp(
+  compositionId: string,
+  compositionDir: string,
+  mode: OrchestratorModeInfo
+): Promise<McpGatewayHandle> {
+  const port = await findFreePort();
+  const token = randomBytes(32).toString("hex");
+
+  appendLog(
+    compositionId,
+    "runner",
+    `Starting mcp-gateway HTTP mode on 127.0.0.1:${port}`
+  );
+
+  const child = spawn(
+    "node",
+    [mode.mcpGatewayScript, "http", "--port", String(port), "--token", token, "--host", "127.0.0.1"],
+    {
+      cwd: compositionDir,
+      env: {
+        ...process.env,
+        GARRISON_COMPOSITION_DIR: compositionDir,
+        GARRISON_HTTP_GATEWAY_BASE_URL: `http://127.0.0.1:${4777}` // overwritten at http-gateway spawn time anyway; mcp-gateway resolves lazily
+      },
+      stdio: ["pipe", "pipe", "pipe"]
+    }
+  );
+
+  child.stdout.on("data", (chunk) =>
+    appendLog(compositionId, "stdout", `[mcp-gw] ${chunk.toString()}`)
+  );
+  child.stderr.on("data", (chunk) =>
+    appendLog(compositionId, "stderr", `[mcp-gw] ${chunk.toString()}`)
+  );
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`mcp-gateway exited before becoming ready (code=${child.exitCode})`);
+    }
+    try {
+      const response = await fetch(`${baseUrl}/healthz`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(1000)
+      });
+      if (response.ok) {
+        appendLog(compositionId, "runner", `mcp-gateway ready on ${baseUrl}`);
+        return { process: child, port, token, baseUrl };
+      }
+    } catch {
+      // not ready yet
+    }
+    await delay(250);
+  }
+
+  throw new Error(`mcp-gateway did not become ready within 10s on ${baseUrl}`);
+}
+
 async function resolveGatewayFitting(
   compositionId: string
 ): Promise<GatewayInfo | null> {
@@ -551,12 +725,13 @@ async function spawnGateway(
   compositionId: string,
   cwd: string,
   promptPath: string,
-  gateway: GatewayInfo
+  gateway: GatewayInfo,
+  extraEnv?: Record<string, string>
 ): Promise<ChildProcessWithoutNullStreams> {
   appendLog(
     compositionId,
     "runner",
-    `Starting gateway fitting ${gateway.fittingId} on ${gateway.baseUrl}`
+    `Starting gateway fitting ${gateway.fittingId} on ${gateway.baseUrl}${extraEnv ? " (orchestrator mode)" : ""}`
   );
 
   const env: NodeJS.ProcessEnv = {
@@ -568,7 +743,8 @@ async function spawnGateway(
     GARRISON_COMPOSITION_DIR: cwd,
     GARRISON_PERMISSION_MODE:
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
-    GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus"
+    GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
+    ...(extraEnv ?? {})
   };
 
   const child = spawn("node", [gateway.scriptPath], { cwd, env });

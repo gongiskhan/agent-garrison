@@ -1,5 +1,5 @@
 name: http-gateway
-version: 0.1.0
+version: 0.2.0
 description: HTTP gateway seed for Agent Garrison.
 target: claude
 type: hybrid
@@ -10,7 +10,7 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Small local HTTP gateway for inbound jobs, channels, and session checks.
+  summary: Local HTTP gateway. Orchestrator+souls mode spawns Claude CLI subprocesses with stream-JSON I/O, channels, worktree passthroughs. Falls back to in-process Agent SDK when GARRISON_SOULS_CONFIG is absent.
   config_schema:
     - key: port
       type: integer
@@ -27,3 +27,17 @@ x-garrison:
     command: test -f apm_modules/_local/http-gateway/scripts/gateway.mjs && echo ok
     expect: ok
     timeout_ms: 10000
+  for_consumers: |
+    Endpoints (orchestrator+souls mode, set GARRISON_SOULS_CONFIG to enable):
+      POST /chat, /chat/stream           — user message → Orchestrator stdin (X-Garrison-Origin: workbench|channel header sets prefix)
+      POST /jobs                          — heartbeat dispatch → Orchestrator
+      POST /sessions/spawn                — spawn a Soul subprocess (headless or workbench mode)
+      POST /sessions/:id/wait             — block until result (chunked timeout, default 30s)
+      POST /sessions/by-soul/:soul/end    — kill a Soul's active subprocess
+      GET  /sessions                      — list active sessions (filters: parent, worktree_id, mode, soul)
+      GET  /channels/:id/stream           — SSE multiplex; replays last 100 events on connect, then live
+      GET  /workdirs?soul=<name>          — list directories under the Soul's base_path
+      GET  /worktrees?[project|id]        — proxy to Garrison Next.js worktree CRUD
+      POST /worktrees                     — create worktree (project, task_title, branch_name?, base_branch?)
+      POST /worktrees/:id/close           — merge|discard|leave_open via gh pr create
+    Legacy single-Operative mode (no GARRISON_SOULS_CONFIG): only POST /chat, /chat/stream, /jobs, /attachments are supported (in-process Agent SDK).

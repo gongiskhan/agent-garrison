@@ -6,7 +6,7 @@ import { Maximize2, Minimize2 } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { faculties } from "@/lib/faculties";
 import { lookupFittingView } from "@/components/fitting-views/registry";
-import { onLaunchClaude } from "@/lib/workbench-bus";
+import { onLaunchClaude, dispatchSoulTab, type SoulTabEvent } from "@/lib/workbench-bus";
 import type { FacultyId } from "@/lib/types";
 
 const WORKBENCH_FACULTY_IDS = new Set<FacultyId>(
@@ -57,6 +57,31 @@ export function WorkbenchPanel() {
       );
       if (terminalTab) setActiveKey(terminalTab.key);
     });
+  }, [tabs, library]);
+
+  // Phase 9E — subscribe to the server-side launch-stream SSE and re-dispatch
+  // soul-tab events on the client bus. TrenchesPanel will consume them in
+  // Phase 9H to actually open the terminal tab + type the initial prompt.
+  useEffect(() => {
+    const source = new EventSource("/api/workbench/launch-stream");
+    const onSoulTabLaunch = (e: MessageEvent) => {
+      try {
+        const payload = JSON.parse(e.data) as SoulTabEvent;
+        dispatchSoulTab(payload);
+        const terminalTab = tabs.find((t) =>
+          library.some((entry) => entry.faculty === "terminal" && entry.id === t.fittingId)
+        );
+        if (terminalTab) setActiveKey(terminalTab.key);
+      } catch { /* ignore malformed events */ }
+    };
+    source.addEventListener("soul-tab-launch", onSoulTabLaunch);
+    source.addEventListener("soul-tab-respawn", onSoulTabLaunch);
+    source.onerror = () => { /* EventSource auto-reconnects */ };
+    return () => {
+      source.removeEventListener("soul-tab-launch", onSoulTabLaunch);
+      source.removeEventListener("soul-tab-respawn", onSoulTabLaunch);
+      source.close();
+    };
   }, [tabs, library]);
 
   useEffect(() => {

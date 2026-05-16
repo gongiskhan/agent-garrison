@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -12,6 +13,8 @@ import {
 } from "./worktree/env-rewriter";
 import { patchFrontendDevScripts } from "./worktree/package-json-patcher";
 import { removeSession, upsertSession } from "./garrison-sessions";
+import { computeUrls } from "./tailscale";
+import type { ProjectConfig } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,6 +29,15 @@ export interface CreateWorktreeResult {
   worktreePath: string;
   envFiles: string[];
   ports: Record<string, number>;
+  urls: Record<string, string>;
+  id: string;
+  title?: string;
+  baseBranch: string;
+}
+
+export interface CreateWorktreeOpts {
+  title?: string;
+  projectConfig?: ProjectConfig;
 }
 
 export class InvalidArgumentError extends Error {
@@ -46,17 +58,24 @@ export async function listWorktrees(repoPath: string): Promise<Worktree[]> {
 export async function createWorktree(
   repoPath: string,
   branch: string,
-  baseBranch?: string
+  baseBranch?: string,
+  opts: CreateWorktreeOpts = {}
 ): Promise<CreateWorktreeResult> {
   assertValidBranchName(branch);
-  const baseRef = (baseBranch ?? "main").trim();
+  const cfg = opts.projectConfig;
+  const baseRef = (baseBranch ?? cfg?.defaultBaseBranch ?? "main").trim();
   assertValidRef(baseRef);
   const slug = slugifyBranch(branch);
   if (!slug) throw new InvalidArgumentError("invalid branch name");
   const repo = expandHome(repoPath);
-  const worktreesRoot = path.join(homedir(), ".worktrees");
   const repoName = path.basename(repo);
-  const worktreePath = path.join(worktreesRoot, repoName, slug);
+  const worktreesRoot = cfg?.worktreeBase
+    ? path.dirname(expandHome(cfg.worktreeBase))
+    : path.join(homedir(), ".worktrees");
+  const worktreeParentDir = cfg?.worktreeBase
+    ? expandHome(cfg.worktreeBase)
+    : path.join(worktreesRoot, repoName);
+  const worktreePath = path.join(worktreeParentDir, slug);
 
   if (fs.existsSync(worktreePath)) {
     throw new Error(`worktree already exists at ${worktreePath}`);
@@ -107,13 +126,20 @@ export async function createWorktree(
   await patchFrontendDevScripts(worktreePath);
 
   const now = new Date().toISOString();
+  const worktreeId = randomUUID();
+  const urls = computeUrls(ports);
+
   await fsp.writeFile(
     path.join(worktreePath, ".garrison-meta.json"),
     JSON.stringify(
       {
+        id: worktreeId,
         branch,
+        baseBranch: baseRef,
+        title: opts.title,
         repo: repoName,
         ports,
+        urls,
         envFiles: worktreeEnvFiles,
         createdAt: now
       },
@@ -131,10 +157,24 @@ export async function createWorktree(
     envFiles: worktreeEnvFiles,
     createdAt: now,
     lastStatus: "starting",
-    lastStatusAt: now
+    lastStatusAt: now,
+    id: worktreeId,
+    title: opts.title,
+    baseBranch: baseRef,
+    status: "active",
+    urls,
+    bindings: []
   });
 
-  return { worktreePath, envFiles: worktreeEnvFiles, ports };
+  return {
+    worktreePath,
+    envFiles: worktreeEnvFiles,
+    ports,
+    urls,
+    id: worktreeId,
+    title: opts.title,
+    baseBranch: baseRef
+  };
 }
 
 export async function removeWorktree(

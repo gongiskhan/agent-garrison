@@ -3,7 +3,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 const GARRISON_DIR = path.join(homedir(), ".garrison");
-const PREFS_PATH = path.join(GARRISON_DIR, "workbench-prefs.json");
+// GARRISON_WORKBENCH_PREFS_PATH lets tests redirect prefs away from the real
+// file so they don't trample user state. Mirrors GARRISON_STATE_PATH.
+const PREFS_PATH =
+  process.env.GARRISON_WORKBENCH_PREFS_PATH && process.env.GARRISON_WORKBENCH_PREFS_PATH.trim().length > 0
+    ? process.env.GARRISON_WORKBENCH_PREFS_PATH
+    : path.join(GARRISON_DIR, "workbench-prefs.json");
 
 export interface WorktreePrefs {
   lastTarget: string;

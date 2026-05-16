@@ -10,6 +10,19 @@ interface Worktree {
   branch: string;
   commit: string;
   isMain: boolean;
+  // Phase 9A — enriched fields from ~/.garrison/sessions/state.json
+  id?: string;
+  title?: string;
+  baseBranch?: string;
+  status?: "active" | "merged" | "discarded";
+  ports?: Record<string, number>;
+  urls?: Record<string, string>;
+  bindings?: Array<{
+    soul: string;
+    sessionId: string;
+    mode: "headless" | "workbench";
+    tier?: { model: string };
+  }>;
 }
 
 interface OutpostStatus {
@@ -433,7 +446,8 @@ export default function WorktreeView({ config }: FittingViewProps) {
       ) : null}
 
       {worktrees.length > 0 ? (
-        <table className="simple" style={{ marginBottom: 24 }}>
+        <div style={{ overflowX: "auto", marginBottom: 24 }}>
+        <table className="simple" style={{ minWidth: 600 }}>
           <thead>
             <tr>
               <th>Branch</th>
@@ -451,6 +465,67 @@ export default function WorktreeView({ config }: FittingViewProps) {
                     <span style={{ marginLeft: 6, fontSize: 10, color: "var(--mute)", textTransform: "uppercase" }}>
                       main
                     </span>
+                  ) : null}
+                  {wt.status && wt.status !== "active" ? (
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 10,
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        background: wt.status === "merged" ? "var(--ok-soft, #6b9e3f)" : "var(--mute, #888)",
+                        color: "#fff",
+                        textTransform: "uppercase"
+                      }}
+                    >
+                      {wt.status}
+                    </span>
+                  ) : null}
+                  {wt.title ? (
+                    <div style={{ fontSize: 11, color: "var(--mute)", marginTop: 2 }}>
+                      {wt.title}
+                    </div>
+                  ) : null}
+                  {wt.urls && Object.keys(wt.urls).length > 0 ? (
+                    <div style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 3, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      {Object.entries(wt.urls).map(([name, url]) => {
+                        const port = url.match(/:(\d+)(?:\/|$)/)?.[1];
+                        return (
+                          <a
+                            key={name}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={url}
+                            style={{
+                              color: "var(--accent, #2563eb)",
+                              textDecoration: "none",
+                              whiteSpace: "nowrap"
+                            }}
+                          >
+                            {name}{port ? ` :${port}` : ""}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {wt.bindings && wt.bindings.length > 0 ? (
+                    <div style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 3, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {wt.bindings.map((b) => {
+                        // Shorten model name for display: claude-haiku-4-5 → haiku-4-5, claude-sonnet-4-6 → sonnet-4-6
+                        const shortModel = b.tier?.model?.replace(/^claude-/, "") ?? "";
+                        return (
+                          <span
+                            key={b.sessionId}
+                            title={`${b.soul} · ${b.mode}${b.tier?.model ? ` · ${b.tier.model}` : ""} (${b.sessionId.slice(0, 8)})`}
+                            style={{ whiteSpace: "nowrap" }}
+                          >
+                            <strong style={{ color: "var(--ink, inherit)" }}>{b.soul}</strong>
+                            <span style={{ opacity: 0.7 }}> · {b.mode}{shortModel ? ` · ${shortModel}` : ""}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
                   ) : null}
                 </td>
                 <td className="mono" style={{ fontSize: 11 }}>{wt.worktreePath}</td>
@@ -597,6 +672,7 @@ export default function WorktreeView({ config }: FittingViewProps) {
             ))}
           </tbody>
         </table>
+        </div>
       ) : !loading && repoPath ? (
         <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 24 }}>
           No worktrees found. Create one below.

@@ -2,7 +2,7 @@ name: screen-share-default
 version: 0.1.0
 description: macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.
 target: claude
-type: plugin
+type: hybrid
 includes: auto
 x-garrison:
   faculty: screen-share
@@ -19,7 +19,7 @@ x-garrison:
     idempotent: true
     timeout_ms: 10000
   verify:
-    command: bash scripts/verify.sh
+    command: bash apm_modules/_local/screen-share-default/scripts/verify.sh
     expect: ok
     timeout_ms: 5000
   ui:

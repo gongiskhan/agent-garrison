@@ -72,14 +72,35 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingFitting, setEditingFitting] = useState<LibraryEntry | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("garrison.sidebar.collapsed") === "1";
-  });
+  // Auto-collapse sidebar on narrow viewports — at < 720px the 244px sidebar
+  // dominates the available content area. Initial state matches the server
+  // render (false) and we apply the narrow-viewport collapse in a
+  // post-hydration effect to avoid hydration mismatches. Re-evaluated on
+  // window resize.
+  const NARROW_BREAKPOINT = 720;
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function applyForViewport() {
+      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      if (narrow) {
+        setSidebarCollapsed(true);
+      } else {
+        setSidebarCollapsed(localStorage.getItem("garrison.sidebar.collapsed") === "1");
+      }
+    }
+    applyForViewport();
+    window.addEventListener("resize", applyForViewport);
+    return () => window.removeEventListener("resize", applyForViewport);
+  }, []);
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
-      localStorage.setItem("garrison.sidebar.collapsed", next ? "1" : "0");
+      // Only persist the preference at desktop widths — at narrow widths,
+      // the user toggling open is treated as a one-off overlay, not a saved pref.
+      if (typeof window !== "undefined" && window.innerWidth >= NARROW_BREAKPOINT) {
+        localStorage.setItem("garrison.sidebar.collapsed", next ? "1" : "0");
+      }
       return next;
     });
   }, []);

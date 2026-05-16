@@ -7,26 +7,20 @@ dependencies:
     - path: ../../fittings/seed/browser-automation
     - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/documents
-    - path: ../../fittings/seed/google-calendar
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
-    - path: ../../fittings/seed/morning-briefing
     - path: ../../fittings/seed/personal-operative
     - path: ../../fittings/seed/projects-index
     - path: ../../fittings/seed/scheduler
+    - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/session-view-sequoias
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/soul
+    - path: ../../fittings/seed/terminal-armory-default
     - path: ../../fittings/seed/tier-classifier
     - path: ../../fittings/seed/trello-data-source
-    - path: ../../fittings/seed/terminal-armory-default
-    - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/worktree-management-sequoias
-    - path: ../../fittings/seed/session-view-sequoias
-    - path: ../../fittings/seed/outpost-actions
-    - path: ../../fittings/seed/vault-sync
-    - path: ../../fittings/seed/mcp-gateway
-    - path: ../../fittings/seed/testing
 x-garrison:
   composition:
     id: default
@@ -43,47 +37,32 @@ x-garrison:
       observability_config:
         log_sink: runner
     selections:
-      artifact-store:
-        - id: artifact-store
-          config:
-            storage_root: artifacts
       heartbeat:
         - id: loop-heartbeat
           config:
             cadence_minutes: 40
             gateway_url: http://127.0.0.1:4777/jobs
+      scheduler:
+        - id: scheduler
+          config:
+            jobs_file: data/scheduler-jobs.json
+            log_file: data/scheduler.log
       data-sources:
         - id: trello-data-source
           config:
             tasks_truth_file: tasks/trello.md
             board_id: vl1Z8KFH
-      automations:
-        - id: browser-automation
-          config:
-            browser: chromium
-            headless: false
       knowledge-base:
         - id: projects-index
           config:
             projects_root: ~/Projects
         - id: documents
           config: {}
-      scheduler:
-        - id: scheduler
+      automations:
+        - id: browser-automation
           config:
-            jobs_file: data/scheduler-jobs.json
-            log_file: data/scheduler.log
-      memory:
-        - id: memory
-          config:
-            recency_window: 20
-            persistence_cadence: hourly
-            compiled_memory_path: memory/compiled.md
-      classifier:
-        - id: tier-classifier
-          config:
-            tier_floor: 3
-            plan_threshold: 3
+            browser: chromium
+            headless: false
       skills:
         - id: coding-subagent
           config:
@@ -91,6 +70,18 @@ x-garrison:
             subagent_permission_mode: bypassPermissions
             max_plan_turns: 30
             max_execute_turns: 200
+      memory:
+        - id: memory
+          config:
+            recency_window: 20
+            persistence_cadence: hourly
+            compiled_memory_dir: ~/Projects/ekus/obsidian-vault/Compiled
+            compiler_repo_url: https://github.com/coleam00/claude-memory-compiler
+      classifier:
+        - id: tier-classifier
+          config:
+            tier_floor: 3
+            plan_threshold: 3
       gateway:
         - id: http-gateway
           config:
@@ -113,6 +104,10 @@ x-garrison:
             priority_label: priority
             silent_when_no_work: true
             report_channel: ''
+      artifact-store:
+        - id: artifact-store
+          config:
+            storage_root: artifacts
       terminal:
         - id: terminal-armory-default
           config: {}

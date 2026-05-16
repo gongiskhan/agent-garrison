@@ -1,5 +1,5 @@
 name: garrison-mcp-gateway
-version: 0.1.0
+version: 0.2.0
 description: MCP gateway Fitting for Agent Garrison workbench-launched sessions.
 target: claude
 type: hybrid
@@ -10,7 +10,7 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Exposes installed Faculties as MCP tools to workbench-launched Claude Code sessions.
+  summary: Exposes installed Faculties as MCP tools to workbench-launched Claude Code sessions. Hosts the garrison-control tool set (talk_to, wait_for, …) when GARRISON_HTTP_GATEWAY_BASE_URL is set.
   config_schema:
     - key: bind_host
       type: string
@@ -26,14 +26,21 @@ x-garrison:
     - kind: agent-skill
       name: testing
       cardinality: optional-one
+    - kind: orchestrator
+      cardinality: optional-one
   verify:
     command: node apm_modules/_local/mcp-gateway/scripts/gateway.mjs --probe
     expect: ok
     timeout_ms: 8000
   for_consumers: |
-    This Fitting is workbench infrastructure — it is not invoked by the Operative.
-    It runs as a companion to Claude Code sessions launched from the Garrison workbench.
-    Same-machine sessions use stdio MCP (Claude Code spawns it as a child process).
-    Remote outpost sessions use HTTP MCP (gateway runs on the workbench host, Claude
-    Code on the remote machine connects to it over Tailscale).
-    Tools: classify_tier, run_tests (present only when the corresponding Fitting is installed).
+    Workbench infrastructure — not invoked directly by the Operative.
+    Runs as a companion to Claude Code sessions. Same-machine sessions use stdio MCP
+    (Claude Code spawns it as a child process). Remote outpost sessions use HTTP MCP
+    (gateway runs on the workbench host, Claude Code on the remote machine connects
+    over Tailscale).
+
+    Tools:
+      - classify_tier, run_tests (present when corresponding Fitting is installed)
+      - garrison-control set (present when GARRISON_HTTP_GATEWAY_BASE_URL is set):
+        talk_to, wait_for, list_active_sessions, end_session, list_workdirs,
+        list_worktrees, create_worktree, get_worktree, close_worktree

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-08T17:46:01.246592+00:00'
+generated_at: '2026-05-15T06:17:03.003019+00:00'
 apm_version: 0.10.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -26,12 +26,6 @@ dependencies:
   - .claude/skills/documents
   source: local
   local_path: ../../fittings/seed/documents
-- repo_url: _local/google-calendar
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/google-calendar
-  source: local
-  local_path: ../../fittings/seed/google-calendar
 - repo_url: _local/http-gateway
   package_type: apm_package
   deployed_files:
@@ -54,18 +48,12 @@ dependencies:
   - .claude/skills/garrison-memory
   source: local
   local_path: ../../fittings/seed/memory
-- repo_url: _local/morning-briefing
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/morning-briefing
-  source: local
-  local_path: ../../fittings/seed/morning-briefing
 - repo_url: _local/personal-operative
   package_type: apm_package
   deployed_files:
   - .claude/commands/personal-operative.md
   deployed_file_hashes:
-    .claude/commands/personal-operative.md: sha256:c0b4c6a73034af7a9ee42eab1dc5017fbb6b8df73ba5795e9f1a087426a20547
+    .claude/commands/personal-operative.md: sha256:9e293e2337166e0cb0a336293b19a385d67066dac0800e0d246f7019f49ef7f9
   source: local
   local_path: ../../fittings/seed/personal-operative
 - repo_url: _local/projects-index
@@ -80,6 +68,14 @@ dependencies:
   - .claude/skills/scheduler
   source: local
   local_path: ../../fittings/seed/scheduler
+- repo_url: _local/screen-share-default
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/screen-share-default
+- repo_url: _local/session-view-sequoias
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/session-view-sequoias
 - repo_url: _local/slack-channel
   package_type: invalid
   source: local
@@ -92,6 +88,10 @@ dependencies:
     .claude/commands/soul.md: sha256:30257ed594ad8fec83f5e6143dfe4defcb88d58a246853d5d49ccfdc3fc3684e
   source: local
   local_path: ../../fittings/seed/soul
+- repo_url: _local/terminal-armory-default
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/terminal-armory-default
 - repo_url: _local/tier-classifier
   package_type: apm_package
   deployed_files:
@@ -107,3 +107,7 @@ dependencies:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local
   local_path: ../../fittings/seed/trello-data-source
+- repo_url: _local/worktree-management-sequoias
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/worktree-management-sequoias

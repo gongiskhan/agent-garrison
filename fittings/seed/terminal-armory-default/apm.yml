@@ -2,7 +2,7 @@ name: terminal-armory-default
 version: 0.1.0
 description: PTY-backed terminal sessions with SSH host support and Claude Code launch presets.
 target: claude
-type: plugin
+type: hybrid
 includes: auto
 x-garrison:
   faculty: terminal
@@ -22,7 +22,7 @@ x-garrison:
     idempotent: true
     timeout_ms: 30000
   verify:
-    command: bash scripts/verify.sh
+    command: bash apm_modules/_local/terminal-armory-default/scripts/verify.sh
     expect: ok
     timeout_ms: 10000
   ui:

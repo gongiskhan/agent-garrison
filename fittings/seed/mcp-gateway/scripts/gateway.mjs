@@ -19,7 +19,21 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-import { checkProbe, callClassifyTier, callRunTests } from "./lib/tools.mjs";
+import {
+  checkProbe,
+  callClassifyTier,
+  callRunTests,
+  isGarrisonControlEnabled,
+  callTalkTo,
+  callWaitFor,
+  callListActiveSessions,
+  callEndSession,
+  callListWorkdirs,
+  callListWorktrees,
+  callCreateWorktree,
+  callGetWorktree,
+  callCloseWorktree
+} from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
 async function discoverTools() {
@@ -53,6 +67,118 @@ async function discoverTools() {
       }
     });
   }
+
+  if (isGarrisonControlEnabled()) {
+    tools.push(
+      {
+        name: "talk_to",
+        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (workbench → new terminal tab; channel → headless). Pass worktree_id to bind to a specific worktree; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            soul: { type: "string", description: "engineer | architect | assistant | researcher | companion" },
+            message: { type: "string", description: "What the Soul should do." },
+            worktree_id: { type: "string", description: "Bind the session to this worktree (resolves cwd, surfaces URLs)." },
+            mode: { type: "string", enum: ["headless", "workbench"], description: "Override the origin-derived default." },
+            tier_hint: { type: "object", description: "Result of classify_tier — { model, effort, needs_testing, needs_agents_team }." },
+            task_title: { type: "string", description: "Short human-readable summary for UI display." },
+            channel: { type: "string", description: "Channel id (default 'main')." },
+            cwd: { type: "string", description: "Working directory override." }
+          },
+          required: ["soul", "message"]
+        }
+      },
+      {
+        name: "wait_for",
+        description: "Block until a sub-session's current turn completes. Times out (chunked) so you can call again on long work.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session_id: { type: "string" },
+            timeout_seconds: { type: "number", description: "Max wait (default 30, max 300)." }
+          },
+          required: ["session_id"]
+        }
+      },
+      {
+        name: "list_active_sessions",
+        description: "Enumerate active Soul sub-sessions. Optional filters: parent, worktree_id, mode, soul.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            parent: { type: "string" },
+            worktree_id: { type: "string" },
+            mode: { type: "string" },
+            soul: { type: "string" }
+          }
+        }
+      },
+      {
+        name: "end_session",
+        description: "Kill the active sub-session for a Soul (SIGTERM).",
+        inputSchema: {
+          type: "object",
+          properties: { soul: { type: "string" } },
+          required: ["soul"]
+        }
+      },
+      {
+        name: "list_workdirs",
+        description: "List directories under a Soul's configured base_path. Use to pick a cwd before talk_to.",
+        inputSchema: {
+          type: "object",
+          properties: { soul: { type: "string" } },
+          required: ["soul"]
+        }
+      },
+      {
+        name: "list_worktrees",
+        description: "List Garrison worktrees, sorted by recency. Optional filter by project.",
+        inputSchema: {
+          type: "object",
+          properties: { project: { type: "string", description: "Project id (e.g., 'agent-garrison')." } }
+        }
+      },
+      {
+        name: "create_worktree",
+        description: "Create a new worktree on a feature branch with allocated ports and Tailscale URLs.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project: { type: "string" },
+            task_title: { type: "string", description: "Short human-readable summary." },
+            branch_name: { type: "string", description: "Override default slug-based branch name." },
+            base_branch: { type: "string", description: "Override projectConfig.defaultBaseBranch." }
+          },
+          required: ["project", "task_title"]
+        }
+      },
+      {
+        name: "get_worktree",
+        description: "Get details (ports, urls, status, bindings) for a worktree by id.",
+        inputSchema: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"]
+        }
+      },
+      {
+        name: "close_worktree",
+        description: "Close a worktree: 'merge' opens a PR via gh, 'discard' removes it, 'leave_open' is a no-op marker. Confirm with the user before merge/discard.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            action: { type: "string", enum: ["merge", "discard", "leave_open"] },
+            pr_title: { type: "string" },
+            pr_body: { type: "string" }
+          },
+          required: ["id", "action"]
+        }
+      }
+    );
+  }
+
   return tools;
 }
 
@@ -60,6 +186,15 @@ async function discoverTools() {
 async function dispatchTool(name, input) {
   if (name === "classify_tier") return callClassifyTier(input);
   if (name === "run_tests") return callRunTests(input);
+  if (name === "talk_to") return callTalkTo(input);
+  if (name === "wait_for") return callWaitFor(input);
+  if (name === "list_active_sessions") return callListActiveSessions(input);
+  if (name === "end_session") return callEndSession(input);
+  if (name === "list_workdirs") return callListWorkdirs(input);
+  if (name === "list_worktrees") return callListWorktrees(input);
+  if (name === "create_worktree") return callCreateWorktree(input);
+  if (name === "get_worktree") return callGetWorktree(input);
+  if (name === "close_worktree") return callCloseWorktree(input);
   throw new Error(`unknown tool: ${name}`);
 }
 

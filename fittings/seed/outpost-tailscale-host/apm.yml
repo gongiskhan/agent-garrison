@@ -2,7 +2,7 @@ name: outpost-tailscale-host
 version: 0.1.0
 description: Garrison Outpost — remote Mac bridge. Connects a remote Mac (running garrison-outpost-bridge) to the Garrison host over Garrison Outpost Protocol v1. Manage remote processes, files, and git worktrees from the Workbench.
 target: claude
-type: plugin
+type: hybrid
 includes: auto
 x-garrison:
   faculty: outposts
@@ -28,7 +28,7 @@ x-garrison:
     idempotent: true
     timeout_ms: 10000
   verify:
-    command: bash scripts/verify.sh
+    command: bash apm_modules/_local/outpost-tailscale-host/scripts/verify.sh
     expect: ok
     timeout_ms: 5000
   ui:

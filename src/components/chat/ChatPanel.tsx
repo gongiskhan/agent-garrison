@@ -24,12 +24,20 @@ interface ChatMessage {
   errorText?: string;
 }
 
+interface SubSessionBlock {
+  sessionId: string;
+  soul: string;
+  status: "running" | "completed" | "failed";
+  text: string;
+}
+
 export function ChatPanel() {
   const { composition, runnerState, setError } = useAppShell();
   const compositionId = composition?.id;
   const isRunning = runnerState?.status === "running";
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [subSessions, setSubSessions] = useState<Record<string, SubSessionBlock>>({});
   const [draft, setDraft] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [sending, setSending] = useState(false);
@@ -50,6 +58,59 @@ export function ChatPanel() {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [draft]);
+
+  // Phase 9H — subscribe to the orchestrator channel SSE while running.
+  // Sub-session events (engineer/architect/… subprocesses) stream live; we
+  // surface them as nested blocks so the user sees the work in real time.
+  useEffect(() => {
+    if (!compositionId || !isRunning) return;
+    const source = new EventSource(`/api/runner/${compositionId}/channels/main/stream`);
+    const handler = (e: MessageEvent) => {
+      try {
+        const wrapped = JSON.parse(e.data) as {
+          session_id: string;
+          soul: string;
+          event: { type?: string; subtype?: string; message?: { content?: Array<{ type?: string; text?: string }> } };
+        };
+        const ev = wrapped.event;
+        setSubSessions((prev) => {
+          const existing = prev[wrapped.session_id] ?? {
+            sessionId: wrapped.session_id,
+            soul: wrapped.soul,
+            status: "running" as const,
+            text: ""
+          };
+          if (ev?.type === "assistant" && ev.message?.content) {
+            for (const block of ev.message.content) {
+              if (block?.type === "text" && block.text) {
+                existing.text += block.text;
+              }
+            }
+          } else if (ev?.type === "result") {
+            existing.status = ev.subtype === "success" ? "completed" : "failed";
+          }
+          return { ...prev, [wrapped.session_id]: { ...existing } };
+        });
+      } catch { /* ignore malformed */ }
+    };
+    source.addEventListener("event", handler);
+    source.onerror = () => { /* auto-reconnect */ };
+    return () => {
+      source.removeEventListener("event", handler);
+      source.close();
+    };
+  }, [compositionId, isRunning]);
+
+  async function endSoul(soul: string) {
+    if (!compositionId) return;
+    try {
+      await fetch(`/api/runner/${compositionId}/sessions/by-soul/${encodeURIComponent(soul)}/end`, {
+        method: "POST"
+      });
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   if (!composition) {
     return (
@@ -135,7 +196,10 @@ export function ChatPanel() {
     try {
       const res = await fetch(`/api/runner/${compositionId}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Garrison-Origin": "workbench"
+        },
         body: JSON.stringify({ message: composedMessage })
       });
       if (!res.ok || !res.body) {
@@ -321,6 +385,53 @@ export function ChatPanel() {
             {messages.map((message) => (
               <ChatRow key={message.id} message={message} />
             ))}
+            {Object.values(subSessions).length > 0 ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                {Object.values(subSessions).map((block) => (
+                  <div
+                    key={block.sessionId}
+                    style={{
+                      borderLeft: "3px solid var(--accent, #aaa)",
+                      paddingLeft: 12,
+                      fontSize: 13,
+                      color: "var(--mute)",
+                      background: "var(--surface-2, transparent)",
+                      borderRadius: 4,
+                      padding: "8px 12px"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <strong>
+                        {block.soul}
+                        {" "}
+                        <span style={{ fontWeight: "normal", opacity: 0.7 }}>
+                          ({block.sessionId.slice(0, 8)}) — {block.status}
+                        </span>
+                      </strong>
+                      {block.status === "running" ? (
+                        <button
+                          type="button"
+                          onClick={() => endSoul(block.soul)}
+                          style={{
+                            fontSize: 11,
+                            background: "transparent",
+                            border: "1px solid var(--rule)",
+                            borderRadius: 3,
+                            padding: "2px 8px",
+                            cursor: "pointer"
+                          }}
+                        >
+                          End
+                        </button>
+                      ) : null}
+                    </div>
+                    {block.text ? (
+                      <div style={{ whiteSpace: "pre-wrap" }}>{block.text}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
       </div>

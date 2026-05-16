@@ -40,3 +40,47 @@ export function onLaunchClaude(
   window.addEventListener(GARRISON_LAUNCH_CLAUDE, listener);
   return () => window.removeEventListener(GARRISON_LAUNCH_CLAUDE, listener);
 }
+
+// ─────────────────────────────────────────────────────────────── Phase 9E
+// Soul-tab launch/respawn events bridged from the server-side bus into the
+// client. WorkbenchPanel subscribes to /api/workbench/launch-stream and
+// dispatches these via the client bus. TrenchesPanel will consume them in
+// Phase 9H to actually open / kill / re-run terminal tabs.
+
+export interface SoulTabLaunchEvent {
+  kind: "soul-tab-launch";
+  terminalTabId: string;
+  sessionId: string;
+  soul: string;
+  cwd: string;
+  worktreeId?: string;
+  args: string[];
+  message?: string;
+  mcpConfigPath?: string;
+}
+
+export interface SoulTabRespawnEvent {
+  kind: "soul-tab-respawn";
+  terminalTabId: string;
+  sessionId: string;
+  args: string[];
+  message?: string;
+}
+
+export type SoulTabEvent = SoulTabLaunchEvent | SoulTabRespawnEvent;
+
+const GARRISON_SOUL_TAB = "garrison:soul-tab";
+
+export function dispatchSoulTab(payload: SoulTabEvent): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(GARRISON_SOUL_TAB, { detail: payload }));
+  }
+}
+
+export function onSoulTab(handler: (payload: SoulTabEvent) => void): () => void {
+  function listener(ev: Event) {
+    handler((ev as CustomEvent<SoulTabEvent>).detail);
+  }
+  window.addEventListener(GARRISON_SOUL_TAB, listener);
+  return () => window.removeEventListener(GARRISON_SOUL_TAB, listener);
+}

@@ -2,7 +2,7 @@ name: session-view-sequoias
 version: 0.2.0
 description: Claude Code session status dashboard across git worktrees — local and remote outpost machines.
 target: claude
-type: plugin
+type: hybrid
 includes: auto
 x-garrison:
   faculty: session-view
@@ -33,7 +33,7 @@ x-garrison:
     idempotent: true
     timeout_ms: 5000
   verify:
-    command: bash scripts/verify.sh
+    command: bash apm_modules/_local/session-view-sequoias/scripts/verify.sh
     expect: ok
     timeout_ms: 5000
   ui:
