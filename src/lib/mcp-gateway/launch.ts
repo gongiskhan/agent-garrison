@@ -216,3 +216,43 @@ export function stopHttpGateway(sessionId: string): void {
 export function hasHttpGateway(sessionId: string): boolean {
   return httpGateways.has(sessionId);
 }
+
+// ─────────────────────────────────────────── Strict-probe (opt-in)
+
+/**
+ * Invoke `mcp-gateway --probe --strict` for the given composition. Resolves
+ * to `{ok: true}` only when both underlying probes (classify_tier and
+ * run_tests) succeed; otherwise returns `{ok: false, stderr}` so the caller
+ * can decide whether to abort the launch or continue with the lenient default.
+ *
+ * Workbench launches stay lenient by default (see docs/DECISIONS.md
+ * 2026-05-16). Wire this in only behind an explicit `requireFullMcpSurface`
+ * config flag.
+ */
+export async function probeMcpGatewayStrict(
+  compositionDir: string
+): Promise<{ ok: boolean; stdout: string; stderr: string; exitCode: number | null }> {
+  const scriptPath = resolveGatewayScript(compositionDir);
+  return new Promise((resolve) => {
+    const child = spawn(
+      "node",
+      [scriptPath, "--probe", "--strict"],
+      {
+        env: { ...process.env, GARRISON_COMPOSITION_DIR: compositionDir },
+        stdio: ["ignore", "pipe", "pipe"]
+      }
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    const timer = setTimeout(() => {
+      try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      resolve({ ok: false, stdout, stderr: stderr + "\nprobe timed out", exitCode: null });
+    }, 15_000);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, stdout, stderr, exitCode: code });
+    });
+  });
+}

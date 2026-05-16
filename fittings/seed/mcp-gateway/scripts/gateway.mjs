@@ -226,12 +226,30 @@ async function buildServer(tools) {
 }
 
 // ─────────────────────────────────────────── subcommand: --probe
-async function runProbe() {
+async function runProbe({ strict = false } = {}) {
   const [tierOk, testingOk] = await Promise.all([
     checkProbe("tier-classifier", "classify_tier.mjs"),
     checkProbe("testing", "run_tests.mjs"),
   ]);
-  // Probe succeeds even if no tools are available yet — gateway itself is healthy.
+
+  if (strict) {
+    if (!tierOk || !testingOk) {
+      const missing = [
+        tierOk ? null : "classify_tier",
+        testingOk ? null : "run_tests"
+      ].filter(Boolean).join(", ");
+      process.stderr.write(
+        `mcp-gateway --probe --strict: missing underlying probe(s): ${missing}\n`
+      );
+      return 1;
+    }
+    process.stdout.write("ok (strict; classify_tier=ready, run_tests=ready)\n");
+    return 0;
+  }
+
+  // Lenient default: succeed even if no tools are available yet — gateway
+  // itself is healthy. See docs/DECISIONS.md (2026-05-16
+  // "`mcp-gateway --probe` stays lenient by default; `--strict` opt-in").
   process.stdout.write(
     `ok (classify_tier=${tierOk ? "ready" : "absent"}, run_tests=${testingOk ? "ready" : "absent"})\n`
   );
@@ -327,11 +345,14 @@ function parseFlags(argv) {
 async function main(argv) {
   const cmd = argv[0];
 
-  if (cmd === "--probe") return runProbe();
+  if (cmd === "--probe") {
+    const strict = argv.slice(1).includes("--strict");
+    return runProbe({ strict });
+  }
   if (cmd === "stdio") return runStdio();
   if (cmd === "http") return runHttp(argv.slice(1));
 
-  process.stderr.write(`mcp-gateway: unknown command "${cmd}". Use: --probe | stdio | http\n`);
+  process.stderr.write(`mcp-gateway: unknown command "${cmd}". Use: --probe [--strict] | stdio | http\n`);
   return 1;
 }
 
