@@ -6,14 +6,22 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import {
+  applyEnvTemplate,
   discoverEnvFiles,
   ensureWorkspacePortFiles,
   readMainPortMap,
   rewriteEnvFiles
 } from "./worktree/env-rewriter";
+import { defaultPortRange, type PortRange } from "./worktree/ports";
+import { loadGarrisonConfig } from "./garrison-config";
 import { patchFrontendDevScripts } from "./worktree/package-json-patcher";
-import { removeSession, upsertSession } from "./garrison-sessions";
+import {
+  removeSession,
+  upsertSession,
+  type Session
+} from "./garrison-sessions";
 import { computeUrls } from "./tailscale";
+import { spawnTracked } from "./spawn";
 import type { ProjectConfig } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -113,9 +121,14 @@ export async function createWorktree(
     worktreeEnvFiles.push(rel);
   }
 
+  // Port range precedence: project config → ~/.garrison/config.yml → env vars / defaults.
+  const resolvedRange: PortRange =
+    cfg?.portPool ?? (await loadGarrisonConfig()).portPool ?? defaultPortRange();
+
   const { ports } = await rewriteEnvFiles(worktreePath, worktreeEnvFiles, {
     branch,
-    mainPortMap
+    mainPortMap,
+    range: resolvedRange
   });
 
   const createdPortFiles = await ensureWorkspacePortFiles(worktreePath, ports);
@@ -128,6 +141,12 @@ export async function createWorktree(
   const now = new Date().toISOString();
   const worktreeId = randomUUID();
   const urls = computeUrls(ports);
+
+  // Phase 2.3 — apply project envTemplate substitutions (${ports.X}, ${urls.X})
+  // to every key the env file already has. Never adds new keys.
+  if (cfg?.envTemplate && Object.keys(cfg.envTemplate).length > 0) {
+    await applyEnvTemplate(worktreePath, worktreeEnvFiles, cfg.envTemplate, ports, urls);
+  }
 
   await fsp.writeFile(
     path.join(worktreePath, ".garrison-meta.json"),
@@ -148,9 +167,9 @@ export async function createWorktree(
     )
   );
 
-  // Upsert a Session entry so Claude Code hooks fired from this worktree can
-  // find the right project/branch via findSessionByCwd().
-  await upsertSession(repo, {
+  const hasStartupCommands = Boolean(cfg?.startupCommands?.length);
+
+  const session: Session = {
     branch,
     worktreePath,
     ports,
@@ -163,8 +182,24 @@ export async function createWorktree(
     baseBranch: baseRef,
     status: "active",
     urls,
-    bindings: []
-  });
+    bindings: [],
+    ...(hasStartupCommands
+      ? {
+          startupCommandsStatus: "pending" as const,
+          startupCommandsAt: now
+        }
+      : {})
+  };
+
+  // Upsert a Session entry so Claude Code hooks fired from this worktree can
+  // find the right project/branch via findSessionByCwd().
+  await upsertSession(repo, session);
+
+  if (hasStartupCommands && cfg?.startupCommands) {
+    // Fire-and-forget; failures log a warning and flip the session field,
+    // they do NOT roll back the worktree.
+    void runStartupCommands(repo, session, cfg.startupCommands);
+  }
 
   return {
     worktreePath,
@@ -176,6 +211,71 @@ export async function createWorktree(
     baseBranch: baseRef
   };
 }
+
+async function runStartupCommands(
+  repo: string,
+  session: Session,
+  commands: string[]
+): Promise<void> {
+  const worktreePath = session.worktreePath;
+  await upsertSession(repo, {
+    ...session,
+    startupCommandsStatus: "running",
+    startupCommandsAt: new Date().toISOString()
+  }).catch(() => null);
+  try {
+    for (const command of commands) {
+      // eslint-disable-next-line no-await-in-loop
+      const exit = await runOneStartupCommand(worktreePath, command);
+      if (exit !== 0) {
+        await upsertSession(repo, {
+          ...session,
+          startupCommandsStatus: "failed",
+          startupCommandsAt: new Date().toISOString(),
+          startupCommandsError: `${command} exited ${exit}`
+        }).catch(() => null);
+        return;
+      }
+    }
+    await upsertSession(repo, {
+      ...session,
+      startupCommandsStatus: "success",
+      startupCommandsAt: new Date().toISOString()
+    }).catch(() => null);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await upsertSession(repo, {
+      ...session,
+      startupCommandsStatus: "failed",
+      startupCommandsAt: new Date().toISOString(),
+      startupCommandsError: message
+    }).catch(() => null);
+  }
+}
+
+function runOneStartupCommand(worktreePath: string, command: string): Promise<number> {
+  return new Promise((resolve) => {
+    const { child } = spawnTracked(
+      command,
+      { cwd: worktreePath, env: process.env, shell: true },
+      {
+        spawnSite: "worktrees:startupCommand",
+        description: command.length > 80 ? command.slice(0, 80) + "…" : command
+      }
+    );
+    let settled = false;
+    const settle = (code: number) => {
+      if (settled) return;
+      settled = true;
+      resolve(code);
+    };
+    child.on("error", () => settle(-1));
+    child.on("exit", (code) => settle(code ?? -1));
+    // Treat "close" as authoritative for processes that detach.
+    child.on("close", (code) => settle(code ?? -1));
+  });
+}
+
 
 export async function removeWorktree(
   repoPath: string,

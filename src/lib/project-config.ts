@@ -25,7 +25,19 @@ const RawConfigSchema = z
       .optional(),
     startupCommands: z.array(z.string()).optional(),
     envTemplate: z.record(z.string()).optional(),
-    defaultBaseBranch: z.string().optional()
+    defaultBaseBranch: z.string().optional(),
+    portPool: z
+      .object({
+        start: z.number().int().positive(),
+        end: z.number().int().positive()
+      })
+      .optional(),
+    port_pool: z
+      .object({
+        start: z.number().int().positive(),
+        end: z.number().int().positive()
+      })
+      .optional()
   })
   .passthrough();
 
@@ -64,6 +76,7 @@ function mergeConfigs(
   partial: RawConfig | null
 ): ProjectConfig {
   if (!partial) return base;
+  const portPool = partial.portPool ?? partial.port_pool ?? base.portPool;
   return {
     id: partial.id ?? base.id,
     name: partial.name ?? base.name,
@@ -74,7 +87,8 @@ function mergeConfigs(
     portNeeds: partial.portNeeds ?? base.portNeeds,
     startupCommands: partial.startupCommands ?? base.startupCommands,
     envTemplate: partial.envTemplate ?? base.envTemplate,
-    defaultBaseBranch: partial.defaultBaseBranch ?? base.defaultBaseBranch
+    defaultBaseBranch: partial.defaultBaseBranch ?? base.defaultBaseBranch,
+    portPool
   };
 }
 

@@ -138,6 +138,11 @@ export interface PortNeed {
   default?: number;
 }
 
+export interface PortPool {
+  start: number;
+  end: number;
+}
+
 export interface ProjectConfig {
   id: string;
   name: string;
@@ -147,6 +152,7 @@ export interface ProjectConfig {
   startupCommands: string[];
   envTemplate: Record<string, string>;
   defaultBaseBranch: string;
+  portPool?: PortPool;
 }
 
 export interface Tier {

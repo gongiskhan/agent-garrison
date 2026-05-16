@@ -23,6 +23,8 @@ export const SESSION_STATUSES = [
 ] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
+export type StartupCommandsStatus = "pending" | "running" | "success" | "failed";
+
 export interface Session {
   branch: string;
   worktreePath: string;
@@ -39,6 +41,10 @@ export interface Session {
   status?: WorktreeStatus;
   urls?: Record<string, string>;
   bindings?: WorktreeBinding[];
+  // Startup command execution status (Phase 2.2)
+  startupCommandsStatus?: StartupCommandsStatus;
+  startupCommandsAt?: string;
+  startupCommandsError?: string;
 }
 
 export interface Project {
@@ -98,7 +104,10 @@ const SessionSchema = z
     baseBranch: z.string().optional(),
     status: z.enum(["active", "merged", "discarded"]).optional(),
     urls: z.record(z.string()).optional(),
-    bindings: z.array(BindingSchema).optional()
+    bindings: z.array(BindingSchema).optional(),
+    startupCommandsStatus: z.enum(["pending", "running", "success", "failed"]).optional(),
+    startupCommandsAt: z.string().optional(),
+    startupCommandsError: z.string().optional()
   })
   .passthrough();
 

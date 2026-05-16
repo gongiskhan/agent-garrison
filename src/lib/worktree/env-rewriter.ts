@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { allocatePort } from "./ports";
+import { allocatePort, type PortRange } from "./ports";
 
 // Sequoias-derived. Discovers root + first-level .env files in a worktree,
 // rewrites per-service port variables and localhost:N URLs to deterministic
@@ -34,6 +34,7 @@ export type EnvRewriteOptions = {
   branch: string;
   mainPortMap: Record<number, { service: string; key: string }>;
   reserved?: Set<number>;
+  range?: PortRange;
 };
 
 export async function discoverEnvFiles(rootDir: string): Promise<string[]> {
@@ -325,6 +326,78 @@ function parseLine(line: string): ParsedLine {
   return { kind: "kv", indent, key, quoteChar, value };
 }
 
+/**
+ * Substitute `${ports.<name>}` and `${urls.<name>}` placeholders in an
+ * envTemplate against the allocated ports and URLs, then overwrite the
+ * matching key in every `.env*` file that already has it. Per the brief, we
+ * never add keys to a file that didn't already have them — env files keep
+ * their per-file scope. Returns the list of files actually modified.
+ */
+export async function applyEnvTemplate(
+  worktreeRoot: string,
+  envFiles: string[],
+  template: Record<string, string>,
+  ports: Record<string, number>,
+  urls: Record<string, string>
+): Promise<string[]> {
+  const keys = Object.keys(template);
+  if (keys.length === 0) return [];
+
+  const resolved: Record<string, string> = {};
+  for (const key of keys) {
+    const raw = template[key];
+    let value = raw;
+    let ok = true;
+    value = value.replace(/\$\{ports\.([A-Za-z0-9_-]+)\}/g, (_m, name) => {
+      const port = ports[name];
+      if (port === undefined) {
+        ok = false;
+        return "";
+      }
+      return String(port);
+    });
+    value = value.replace(/\$\{urls\.([A-Za-z0-9_-]+)\}/g, (_m, name) => {
+      const url = urls[name];
+      if (url === undefined) {
+        ok = false;
+        return "";
+      }
+      return url;
+    });
+    if (ok) resolved[key] = value;
+  }
+
+  if (Object.keys(resolved).length === 0) return [];
+
+  const touched: string[] = [];
+  for (const rel of envFiles) {
+    const abs = path.join(worktreeRoot, rel);
+    let content: string;
+    try {
+      content = await fsp.readFile(abs, "utf8");
+    } catch {
+      continue;
+    }
+    let next = content;
+    let changed = false;
+    for (const [key, value] of Object.entries(resolved)) {
+      const re = new RegExp(`^(\\s*)${escapeRegExp(key)}\\s*=.*$`, "m");
+      if (!re.test(next)) continue; // per-file scope: don't add keys
+      next = next.replace(re, `$1${key}=${value}`);
+      changed = true;
+    }
+    if (changed) {
+      await fsp.writeFile(abs, next);
+      touched.push(rel);
+    }
+  }
+  return touched;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export async function rewriteEnvFiles(
   worktreeRoot: string,
   envFiles: string[],
@@ -370,7 +443,10 @@ export async function rewriteEnvFiles(
   }
 
   for (const service of servicesNeeded) {
-    ports[service] = await allocatePort(opts.branch, service, { reserved });
+    ports[service] = await allocatePort(opts.branch, service, {
+      reserved,
+      range: opts.range
+    });
   }
 
   for (const file of fileContents) {

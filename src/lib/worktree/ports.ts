@@ -6,11 +6,43 @@ const execFileAsync = promisify(execFile);
 // One band for all services. Deterministic allocation within the band keeps
 // dev ports stable per (branch, service) and lets a single sweep clear every
 // Garrison-allocated process by port range.
-export const GARRISON_PORT_RANGE_START = 50000;
-export const GARRISON_PORT_RANGE_END = 54999;
-const GARRISON_PORT_RANGE_SIZE =
-  GARRISON_PORT_RANGE_END - GARRISON_PORT_RANGE_START + 1;
+//
+// The defaults (50000–54999) are deliberately well above common dev ports;
+// override via the GARRISON_PORT_RANGE_START / GARRISON_PORT_RANGE_END env
+// vars or via a project's `port_pool: { start, end }` config block. See
+// docs/DECISIONS.md (2026-05-16 "Worktree port pool stays 50000–54999,
+// exposed via config").
+export const DEFAULT_PORT_RANGE_START = 50000;
+export const DEFAULT_PORT_RANGE_END = 54999;
 const PROBE_LIMIT = 50;
+
+export interface PortRange {
+  start: number;
+  end: number;
+}
+
+export function defaultPortRange(): PortRange {
+  const envStart = Number(process.env.GARRISON_PORT_RANGE_START);
+  const envEnd = Number(process.env.GARRISON_PORT_RANGE_END);
+  const start =
+    Number.isFinite(envStart) && envStart > 0 ? envStart : DEFAULT_PORT_RANGE_START;
+  const end =
+    Number.isFinite(envEnd) && envEnd > 0 ? envEnd : DEFAULT_PORT_RANGE_END;
+  if (start >= end) {
+    return { start: DEFAULT_PORT_RANGE_START, end: DEFAULT_PORT_RANGE_END };
+  }
+  return { start, end };
+}
+
+// Back-compat aliases — keep the old uppercase names exported so other code
+// that imports them keeps working. They reflect the env-aware default range
+// rather than literal constants.
+export const GARRISON_PORT_RANGE_START = defaultPortRange().start;
+export const GARRISON_PORT_RANGE_END = defaultPortRange().end;
+
+function rangeSize(range: PortRange): number {
+  return range.end - range.start + 1;
+}
 
 export function fnv1a32(input: string): number {
   let hash = 0x811c9dc5;
@@ -23,13 +55,13 @@ export function fnv1a32(input: string): number {
   return hash >>> 0;
 }
 
-export function basePort(branch: string, service: string): number {
-  const offset = fnv1a32(`${branch}:${service}`) % GARRISON_PORT_RANGE_SIZE;
-  return GARRISON_PORT_RANGE_START + offset;
+export function basePort(branch: string, service: string, range: PortRange = defaultPortRange()): number {
+  const offset = fnv1a32(`${branch}:${service}`) % rangeSize(range);
+  return range.start + offset;
 }
 
-export function isPortInGarrisonRange(port: number): boolean {
-  return port >= GARRISON_PORT_RANGE_START && port <= GARRISON_PORT_RANGE_END;
+export function isPortInGarrisonRange(port: number, range: PortRange = defaultPortRange()): boolean {
+  return port >= range.start && port <= range.end;
 }
 
 export async function isPortInUse(port: number): Promise<boolean> {
@@ -48,6 +80,7 @@ export async function isPortInUse(port: number): Promise<boolean> {
 export type AllocateOptions = {
   reserved?: Set<number>;
   isInUse?: (port: number) => Promise<boolean>;
+  range?: PortRange;
 };
 
 export async function allocatePort(
@@ -57,14 +90,13 @@ export async function allocatePort(
 ): Promise<number> {
   const reserved = opts.reserved ?? new Set<number>();
   const isInUse = opts.isInUse ?? isPortInUse;
-  const span = GARRISON_PORT_RANGE_SIZE;
-  const candidate = basePort(branch, service);
+  const range = opts.range ?? defaultPortRange();
+  const span = rangeSize(range);
+  const candidate = basePort(branch, service, range);
   for (let i = 0; i < PROBE_LIMIT; i++) {
     const probe = candidate + i;
     const wrapped =
-      probe > GARRISON_PORT_RANGE_END
-        ? GARRISON_PORT_RANGE_START + ((probe - GARRISON_PORT_RANGE_START) % span)
-        : probe;
+      probe > range.end ? range.start + ((probe - range.start) % span) : probe;
     if (reserved.has(wrapped)) continue;
     // eslint-disable-next-line no-await-in-loop
     if (!(await isInUse(wrapped))) {

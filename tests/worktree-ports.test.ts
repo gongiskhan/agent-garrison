@@ -97,3 +97,62 @@ describe("allocatePortMap", () => {
     expect(new Set(values).size).toBe(values.length);
   });
 });
+
+describe("port range overrides (env vars + explicit option)", () => {
+  it("defaultPortRange reads GARRISON_PORT_RANGE_START / _END at call time", async () => {
+    const { defaultPortRange } = await import("@/lib/worktree/ports");
+    const before = defaultPortRange();
+    expect(before.start).toBe(50000);
+    expect(before.end).toBe(54999);
+
+    const oldStart = process.env.GARRISON_PORT_RANGE_START;
+    const oldEnd = process.env.GARRISON_PORT_RANGE_END;
+    try {
+      process.env.GARRISON_PORT_RANGE_START = "30000";
+      process.env.GARRISON_PORT_RANGE_END = "30099";
+      const next = defaultPortRange();
+      expect(next.start).toBe(30000);
+      expect(next.end).toBe(30099);
+    } finally {
+      if (oldStart === undefined) delete process.env.GARRISON_PORT_RANGE_START;
+      else process.env.GARRISON_PORT_RANGE_START = oldStart;
+      if (oldEnd === undefined) delete process.env.GARRISON_PORT_RANGE_END;
+      else process.env.GARRISON_PORT_RANGE_END = oldEnd;
+    }
+  });
+
+  it("ignores nonsense values and falls back to defaults", async () => {
+    const { defaultPortRange } = await import("@/lib/worktree/ports");
+    const oldStart = process.env.GARRISON_PORT_RANGE_START;
+    const oldEnd = process.env.GARRISON_PORT_RANGE_END;
+    try {
+      process.env.GARRISON_PORT_RANGE_START = "100";
+      process.env.GARRISON_PORT_RANGE_END = "50"; // end < start ⇒ defaults
+      const next = defaultPortRange();
+      expect(next.start).toBe(50000);
+      expect(next.end).toBe(54999);
+    } finally {
+      if (oldStart === undefined) delete process.env.GARRISON_PORT_RANGE_START;
+      else process.env.GARRISON_PORT_RANGE_START = oldStart;
+      if (oldEnd === undefined) delete process.env.GARRISON_PORT_RANGE_END;
+      else process.env.GARRISON_PORT_RANGE_END = oldEnd;
+    }
+  });
+
+  it("allocatePort honors an explicit range option", async () => {
+    const port = await allocatePort("main", "cortex", {
+      isInUse: async () => false,
+      range: { start: 4000, end: 4099 }
+    });
+    expect(port).toBeGreaterThanOrEqual(4000);
+    expect(port).toBeLessThanOrEqual(4099);
+  });
+
+  it("basePort respects an explicit range option", async () => {
+    const { basePort } = await import("@/lib/worktree/ports");
+    const range = { start: 4000, end: 4099 };
+    const p = basePort("main", "frontend", range);
+    expect(p).toBeGreaterThanOrEqual(4000);
+    expect(p).toBeLessThanOrEqual(4099);
+  });
+});
