@@ -171,7 +171,7 @@ export function Sidebar() {
           ct={isRunning ? "live" : undefined}
         />
         <NavLink href="/chat" pathname={pathname} icon={<MessageSquare aria-hidden />} label="Chat" />
-        <NavLink href="/workbench" pathname={pathname} icon={<Wrench aria-hidden />} label="Workbench" />
+        <NavLink href="/tools" pathname={pathname} icon={<Wrench aria-hidden />} label="Tools" />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
 
         <FittingSurfaceLinks

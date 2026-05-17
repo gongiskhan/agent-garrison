@@ -706,8 +706,8 @@ async function resolveGatewayFitting(
     const entry = entries.find((candidate) => candidate.id === selection.id);
     if (!entry) continue;
 
-    // Skip mcp-gateway — it is workbench infrastructure and is not spawned
-    // by the runner as the operative's HTTP chat gateway.
+    // Skip mcp-gateway — it is orchestrator-mode sidecar infrastructure and
+    // is not spawned by the runner as the operative's HTTP chat gateway.
     if (entry.metadata?.provides?.some((p) => p.kind === "mcp-gateway")) continue;
 
     const fittingDir = path.join(

@@ -74,24 +74,24 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
     fit: "Other Fittings (Documents next, Automations recordings later) layer their own schemas on top of this single shared backing store."
   },
   terminal: {
-    role: "Provides PTY-backed terminal sessions accessible from the Workbench.",
-    fit: "Includes SSH host support and Claude Code launch presets (Open Orchestrator, Open Claude Code)."
+    role: "Provides PTY-backed terminal sessions on the Fitting's own port (default 7078).",
+    fit: "Stand-alone Fitting; visible from the Tools discovery page when running."
   },
   "screen-share": {
-    role: "Captures the macOS display and streams JPEG frames to the Workbench viewer.",
+    role: "Captures the macOS display and streams JPEG frames on the Fitting's own port (default 7079).",
     fit: "Useful for monitoring or reviewing the desktop from a phone via the Tailscale URL."
   },
   "worktree-management": {
-    role: "Manages git worktrees for parallel branch work.",
-    fit: "Creates isolated worktrees with per-branch env port rewriting so multiple Claude Code sessions don't collide."
+    role: "Manages git worktrees for parallel branch work; runs on its own port (default 7080).",
+    fit: "Creates isolated worktrees and updates ~/.garrison/sessions/state.json so the session-view Fitting picks them up."
   },
   "session-view": {
-    role: "Shows Claude Code session status across git worktrees.",
+    role: "Shows Claude Code session status across git worktrees; runs on its own port (default 7081).",
     fit: "Badges reflect live session health (idle/working/waiting/errored) driven by Claude Code hooks."
   },
   outposts: {
-    role: "Connects remote Macs as managed outposts over Garrison Outpost Protocol v1.",
-    fit: "Each Outpost Fitting represents one remote machine. Spawn processes, watch files, and manage git worktrees remotely from the Workbench."
+    role: "Connects remote Macs as managed outposts over Garrison Outpost Protocol v1; runs on its own port (default 7082).",
+    fit: "Each Outpost Fitting represents one remote machine. Spawn processes, watch files, and manage git worktrees remotely."
   },
   sync: {
     role: "Periodically mirrors files between the host and remote outpost machines.",
@@ -118,11 +118,11 @@ const facultyGroup: Record<FacultyId, string> = {
   observability: "Control",
   soul: "Control",
   orchestrator: "Control",
-  terminal: "Workbench",
-  "screen-share": "Workbench",
-  "worktree-management": "Workbench",
-  "session-view": "Workbench",
-  outposts: "Workbench",
+  terminal: "Tools",
+  "screen-share": "Tools",
+  "worktree-management": "Tools",
+  "session-view": "Tools",
+  outposts: "Tools",
   sync: "Integration",
   monitor: "Control"
 };

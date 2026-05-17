@@ -1,6 +1,6 @@
 // Builds the prefix prepended to user-turn content before it's written to
 // the orchestrator's stdin. Encodes:
-//   1. The request origin ("workbench" or "channel") so the orchestrator can
+//   1. The request origin ("ui-tab" or "channel") so the orchestrator can
 //      default talk_to's mode appropriately.
 //   2. Channel id (default "main").
 //   3. Any acknowledged-as-completed soul session summaries since the last turn.

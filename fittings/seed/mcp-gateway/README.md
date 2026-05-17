@@ -1,15 +1,15 @@
 # mcp-gateway Fitting
 
 Exposes installed Garrison Faculties as MCP tools to Claude Code sessions
-launched from the Garrison workbench.
+launched in orchestrator-mode compositions.
 
 ## What it does
 
-The workbench writes an `.mcp.json` file into each launched worktree that
+The runner writes an `.mcp.json` file into each launched worktree that
 tells Claude Code how to reach this gateway. Same-machine sessions use the
 **stdio** transport (Claude Code spawns the gateway as a child process);
 remote outpost sessions use the **HTTP** transport (gateway runs on the
-workbench host, Claude Code on the remote machine connects over Tailscale).
+Garrison host, Claude Code on the remote machine connects over Tailscale).
 
 ## MCP tools (v1)
 
@@ -24,8 +24,8 @@ restart.
 
 ## Usage
 
-Do not invoke the gateway binary directly. The workbench `launch.ts` helper
-manages its lifecycle. The only manual use case is:
+Do not invoke the gateway binary directly. The `launch.ts` helper in
+src/lib/mcp-gateway/ manages its lifecycle. The only manual use case is:
 
 ```bash
 # Health check (requires GARRISON_COMPOSITION_DIR to be set)
@@ -43,6 +43,6 @@ GARRISON_COMPOSITION_DIR=/path/to/composition \
 
 ## Policy
 
-The `CLAUDE.md` fragment injected by the workbench into each worktree tells
+The `CLAUDE.md` fragment injected by the launcher into each worktree tells
 the model when to call these tools. The gateway is the capability; the
 policy lives in the prompt.

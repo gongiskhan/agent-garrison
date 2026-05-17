@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Garrison MCP gateway — exposes installed Faculties as MCP tools to
- * Claude Code sessions launched from the workbench.
+ * Claude Code sessions launched in orchestrator-mode compositions.
  *
  * Usage:
  *   node gateway.mjs --probe
@@ -72,14 +72,14 @@ async function discoverTools() {
     tools.push(
       {
         name: "talk_to",
-        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (workbench → new terminal tab; channel → headless). Pass worktree_id to bind to a specific worktree; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
+        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (ui-tab -> interactive; channel -> headless). Pass worktree_id to bind to a specific worktree; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
         inputSchema: {
           type: "object",
           properties: {
             soul: { type: "string", description: "engineer | architect | assistant | researcher | companion" },
             message: { type: "string", description: "What the Soul should do." },
             worktree_id: { type: "string", description: "Bind the session to this worktree (resolves cwd, surfaces URLs)." },
-            mode: { type: "string", enum: ["headless", "workbench"], description: "Override the origin-derived default." },
+            mode: { type: "string", enum: ["headless", "interactive"], description: "Override the origin-derived default." },
             tier_hint: { type: "object", description: "Result of classify_tier — { model, effort, needs_testing, needs_agents_team }." },
             task_title: { type: "string", description: "Short human-readable summary for UI display." },
             channel: { type: "string", description: "Channel id (default 'main')." },

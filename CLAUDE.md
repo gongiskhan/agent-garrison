@@ -27,7 +27,7 @@ choice.
 
 ```bash
 npm install                                            # one-time (postinstall fixes node-pty perms)
-npm start                                              # next dev + trenches WS, concurrently
+npm start                                              # next dev + outpost host, concurrently
 npm run typecheck                                      # tsc --noEmit
 npm test                                               # vitest run
 npm test -- tests/runner-setup.test.ts                 # single test file
@@ -45,8 +45,8 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app).
-- **Faculty** — a slot in a composition. 14 composition + 4 Workbench + derived **Tasks**.
-- **Workbench** — shell area at `/workbench` that renders Fittings whose Faculty has `family: "workbench"`. Distinct from **Armory** (`/armory`), which is the Fitting registry browser.
+- **Faculty** — a slot in a composition. 19 flat top-level Faculties + derived **Tasks**. The five tool Faculties (terminal, screen-share, worktree-management, session-view, outposts) each ship their own React UI on their own port (Monitor pattern); none embed in the Garrison shell.
+- **Tools** — discovery page at `/tools` that lists tool Fittings via `~/.garrison/ui-fittings/*.json`. Each entry opens the Fitting's own URL in a new tab. Distinct from **Armory** (`/armory`), which is the Fitting registry browser. See `docs/decisions/2026-05-17-dissolve-workbench.md`.
 - **Fitting** — the concrete component installed into a slot.
 - **Operative** — the composed, running agent.
 - **`x-garrison`** — Garrison's metadata block inside the APM
@@ -67,8 +67,7 @@ their TypeScript counterparts have been renamed.
 
 ```
 src/app/             Next.js routes — Compose, Run, Vault, Chat,
-                     Workbench (Phase 5 tool area, /workbench),
-                     Trenches (legacy standalone terminals page),
+                     Tools (discovery page, /tools),
                      Armory (Fitting registry browser, /armory),
                      /fitting/<id>/... per-Fitting sidebar surfaces.
                      API routes under src/app/api/.
@@ -80,8 +79,7 @@ src/lib/             Backend runtime: runner.ts (lifecycle),
                      v2 router), preflight.ts, hosts.ts,
                      worktrees.ts, sequoias-sessions.ts.
 src/components/      React UI (Compose, Run, Vault, Chrome,
-                     fitting-views registry, trenches, armory,
-                     workbench, chat).
+                     fitting-views registry, armory, tools, chat).
 compositions/<id>/   apm.yml = source of truth per composition.
                      Filesystem is authoritative; no JSON shadow.
 fittings/seed/       16 local APM seed Fittings + a README.md
@@ -90,23 +88,29 @@ fittings/seed/       16 local APM seed Fittings + a README.md
 data/library.json    Curated Fittings Registry (14 entries today;
                      the six originals plus Phase 1–3 additions).
 data/vault.json      Encrypted secrets, file mode 0600.
-scripts/             validate-fitting.ts, trenches-ws.mjs
-                     (node-pty WS server), integration-check.mjs,
+scripts/             validate-fitting.ts, integration-check.mjs,
                      refresh-default-prompts.ts, spike/.
 tests/               vitest suite — runner, capabilities, metadata,
                      fitting-view-resolver, validation, seeds, etc.
 ```
 
-### Faculties (14 composition + 4 Workbench + derived Tasks)
+### Faculties (19 flat top-level + derived Tasks)
 
-**Composition faculties:** `heartbeat`, `scheduler`, `data-sources`,
+All Faculties are flat siblings after the 2026-05-17 Workbench dissolution.
+
+**Cadence / Context / Action / Control:** `heartbeat`, `scheduler`, `data-sources`,
 `knowledge-base`, `automations`, `skills`, `memory`, `classifier`,
 `gateway`, `channels`, `observability`, `soul`, `orchestrator`,
-`artifact-store`. Tasks is *derived* from a data source and never
-declared by a Fitting.
+`artifact-store`, `sync`, `monitor`. Tasks is *derived* from a data source
+and never declared by a Fitting.
 
-**Workbench faculties** (`family: "workbench"`, render in `/workbench`):
-`terminal`, `screen-share`, `worktree-management`, `session-view`.
+**Tools** (each Fitting runs its own React UI on its own port, Monitor
+pattern; discovery via `/tools` page):
+`terminal` (default 7078), `screen-share` (7079), `worktree-management`
+(7080), `session-view` (7081), `outposts` (7082). See
+[`docs/decisions/2026-05-17-dissolve-workbench.md`](./docs/decisions/2026-05-17-dissolve-workbench.md)
+for the dissolution decision and [`docs/UI-FITTINGS.md`](./docs/UI-FITTINGS.md)
+for the own-port pattern.
 
 Long-form intent and failure modes per Faculty in
 [`docs/FACULTIES.md`](./docs/FACULTIES.md).
@@ -120,13 +124,13 @@ Orchestrator uses to **discover installed Fittings without
 hardcoding** — no Garrison code change is needed when a new Fitting
 is added.
 
-Current kinds (started at 5, grew to 9 across Phases 1–3, grew to 13
-in Phase 5 for Workbench Faculties): `orchestrator`, `soul`,
+Current kinds (started at 5, grew across phases — workbench-family
+annotation removed 2026-05-17): `orchestrator`, `soul`,
 `agent-skill`, `memory-store`, `automation-runner`, `data-source`,
 `channel`, `artifact-store`, `vault`, `terminal-session`, `worktree`,
-`session-view`, `screen-share`. `vault` is always provided by the
-runtime synthetic node (`__runtime__`). `terminal-session` is
-singleton.
+`session-view`, `screen-share`, `outpost`, `mcp-gateway`, `monitor`.
+`vault` is always provided by the runtime synthetic node (`__runtime__`).
+`terminal-session` is singleton.
 
 ### The runner (`src/lib/runner.ts`)
 
@@ -199,22 +203,12 @@ provider's `summary`.
   v2. **Done (2026-05-08).**
 - **Phase 4** — Plan-then-execute (Variant A sub-agent Fitting).
   **Done (2026-05-08).**
-- **Phase 5** — Workbench (family of tool Faculties; Sequoias
-  decomposition as verification milestone). **Shell + seeds + Sequoias
-  parity all shipped 2026-05-11.** 4 Workbench Faculties (`terminal`,
-  `screen-share`, `worktree-management`, `session-view`) + 4 seed
-  Fittings. Workbench shell at `/workbench`. Trenches legacy page stays
-  until T8 (Sequoias retirement) is met. Naming: Workbench = tool area;
-  Armory = Fitting registry browser.
-- **Phase 5.5** — Sequoias parity port (port allocation engine, env
-  rewriting, `package.json` patching, Claude Code hook wiring). **Done
-  (2026-05-11).** Live status pipeline:
-  `Claude Code hook → /api/workbench/sessions/hook → setSessionStatus →
-  ~/.garrison/sessions/state.json → SessionView poll`. Modules:
-  `src/lib/worktree/ports.ts`, `src/lib/worktree/env-rewriter.ts`,
-  `src/lib/worktree/package-json-patcher.ts`, `src/lib/claude-hooks.ts`,
-  `src/lib/garrison-sessions.ts`. T8 (retire Sequoias) blocker is now
-  only the 3-day daily-use validation gate.
+- **Phase 5** — Five tool Faculties (terminal, screen-share,
+  worktree-management, session-view, outposts). Originally landed
+  2026-05-11 as a Workbench-family group; **dissolved 2026-05-17** —
+  each Fitting now runs its own React UI on its own port (Monitor
+  pattern). See `docs/decisions/2026-05-17-dissolve-workbench.md`.
+  Default ports: 7078–7082. Discovery via `/tools`.
 - **Phase 6** — Automations Faculty (EKOA port). Not started.
 - **Phase 7** — Tasks Faculty (Kanban-as-control-plane). Not started.
 

@@ -6,7 +6,7 @@
  * "orchestrator + souls" mode:
  *   - Boots a `claude` CLI subprocess for the Orchestrator.
  *   - On demand, spawns Soul subprocesses (headless stream-JSON) or opens
- *     a TrenchesPanel-style tab via Garrison Next.js (workbench mode).
+ *     a TrenchesPanel-style tab via Garrison Next.js (interactive mode).
  *   - Multiplexes events to channel SSE subscribers.
  *   - Exposes /sessions/* and /worktrees/* endpoints used by the
  *     garrison-control MCP tools.
@@ -39,8 +39,8 @@ import { SessionRegistry } from "./lib/session-registry.mjs";
 import { JsonlWatcher } from "./lib/jsonl-watcher.mjs";
 import {
   spawnHeadless,
-  spawnWorkbenchTab,
-  respawnWorkbenchTab,
+  spawnInteractiveTab,
+  respawnInteractiveTab,
   writeUserTurn,
   writePromptTempFile
 } from "./lib/spawn-soul.mjs";
@@ -120,7 +120,7 @@ async function loadSoulsConfig() {
 
 async function writeSharedMcpConfig() {
   // Claude Code's HTTP MCP transport assumes OAuth and doesn't always honour
-  // raw Bearer headers; stdio is the proven-good transport (workbench uses
+  // raw Bearer headers; stdio is the proven-good transport (interactive uses
   // it). Spawn mcp-gateway as a child so the orchestrator + souls get a
   // local pipe-based MCP connection. Same set of tools as the HTTP sidecar.
   const gatewayScriptPath = path.join(COMPOSITION_DIR, "apm_modules", "_local", "mcp-gateway", "scripts", "gateway.mjs");
@@ -242,7 +242,7 @@ async function spawnSoulSession(opts) {
     throw new Error(`unknown soul: ${soul}`);
   }
   const spawnConfig = soulsConfig.souls[`soul-${soul}`] ?? soulsConfig.souls[soul];
-  const resolvedMode = mode ?? (origin === "workbench" ? "workbench" : "headless");
+  const resolvedMode = mode ?? (origin === "interactive" ? "interactive" : "headless");
 
   const existing = registry.bySoul(soul);
   if (existing && existing.status === "running") {
@@ -290,9 +290,9 @@ async function spawnSoulSession(opts) {
   });
   channels.bindSession(sessionUuid, channel);
 
-  if (resolvedMode === "workbench") {
+  if (resolvedMode === "interactive") {
     try {
-      const result = await spawnWorkbenchTab({
+      const result = await spawnInteractiveTab({
         nextBaseUrl: NEXT_BASE_URL,
         sessionUuid,
         spawnConfig,
@@ -348,7 +348,7 @@ async function spawnSoulSession(opts) {
   }
 
   // If this soul is bound to a worktree, persist the binding into the
-  // session state so the Monitor (and Workbench session-view) can surface
+  // session state so the Monitor (and Interactive session-view) can surface
   // soul/tier/branch metadata on top of raw PIDs.
   if (worktreeId) {
     void persistWorktreeBinding({
@@ -375,7 +375,7 @@ async function spawnSoulSession(opts) {
 async function persistWorktreeBinding(binding) {
   if (!NEXT_BASE_URL) return;
   try {
-    await fetch(new URL("/api/workbench/sessions/binding", NEXT_BASE_URL), {
+    await fetch(new URL("/api/interactive/sessions/binding", NEXT_BASE_URL), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -397,8 +397,8 @@ async function persistWorktreeBinding(binding) {
 async function respawnExisting(existing, { tier, tierFlags, message, soul, spawnConfig }) {
   logEvent("stdout", { kind: "respawn-start", session: existing.sessionId, old_tier: existing.tier, new_tier: tier });
   const promptTempPath = await writePromptTempFile(existing.sessionId, spawnConfig.promptPath);
-  if (existing.mode === "workbench") {
-    await respawnWorkbenchTab({
+  if (existing.mode === "interactive") {
+    await respawnInteractiveTab({
       nextBaseUrl: NEXT_BASE_URL,
       sessionUuid: existing.sessionId,
       terminalTabId: existing.terminalTabId,

@@ -15,43 +15,13 @@ type FittingViewComponent = ComponentType<FittingViewProps>;
 // which views exist; the host app decides how to render them. New Fittings
 // that ship a UI add their entry here. v3 may revisit dynamic loading from
 // disk — see AGENTS.md §9.
+//
+// The five tool Fittings (terminal-armory-default, screen-share-default,
+// worktree-management-sequoias, session-view-sequoias, outpost-tailscale-host)
+// no longer embed a view here — they serve their own React UI on their own
+// port (Monitor pattern). Garrison's /tools page lists them via the status
+// files at ~/.garrison/ui-fittings/*.json.
 const REGISTRY: Record<string, FittingViewComponent> = {
-  "terminal-armory-default:main": dynamic(
-    () => import("@/components/trenches/TerminalView"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading terminal…</div>
-      )
-    }
-  ),
-  "screen-share-default:main": dynamic(
-    () => import("@/components/trenches/ScreenShareView"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading screen share…</div>
-      )
-    }
-  ),
-  "worktree-management-sequoias:main": dynamic(
-    () => import("@/components/workbench/WorktreeView"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading worktrees…</div>
-      )
-    }
-  ),
-  "session-view-sequoias:main": dynamic(
-    () => import("@/components/workbench/SessionView"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading sessions…</div>
-      )
-    }
-  ),
   "tier-classifier:main": dynamic(
     () => import("@/components/extensions/TierClassifierInspector"),
     {
@@ -103,15 +73,6 @@ const REGISTRY: Record<string, FittingViewComponent> = {
       ssr: false,
       loading: () => (
         <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
-      )
-    }
-  ),
-  "outpost-tailscale-host:main": dynamic(
-    () => import("../../../fittings/seed/outpost-tailscale-host/ui/OutpostView"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading outposts…</div>
       )
     }
   )

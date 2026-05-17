@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "MCP gateway Fitting for Agent Garrison workbench sessions.",
+  "description": "MCP gateway Fitting for Agent Garrison interactive sessions.",
   "main": "scripts/gateway.mjs",
   "engines": {
     "node": ">=20"

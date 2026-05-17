@@ -1,28 +1,34 @@
-// Worktree CRUD endpoints proxied through to Garrison Next.js.
-// The actual git/worktree/port logic lives in src/lib/worktrees.ts;
-// this module is a thin HTTP forwarder so the orchestrator can talk to it
-// via the mcp-gateway garrison-control tools.
+// Worktree CRUD endpoints, now backed by the standalone worktree-management
+// Fitting on its own port (default 7080) instead of the deleted Garrison
+// Next.js (deleted) /api/worktrees routes. Configure the base URL via the
+// WORKTREE_FITTING_BASE_URL env var; default is http://127.0.0.1:7080.
 //
-// We hit two endpoints on the Next.js side:
-//   - /api/workbench/worktrees       (existing CRUD)
-//   - /api/workbench/worktrees/close (new — Phase 9F)
+// Endpoint shapes (from the worktree-management-sequoias Fitting server):
+//   - GET    /worktrees?repoPath=<path>     - list
+//   - POST   /worktrees {repoPath, branch, baseBranch, title}  - create
+//   - DELETE /worktrees/:id                 - remove
 
 import { logEvent } from "./log.mjs";
 
+const DEFAULT_BASE = "http://127.0.0.1:7080";
+
 export class WorktreesProxy {
-  constructor(nextBaseUrl) {
-    if (!nextBaseUrl) {
-      logEvent("stderr", { kind: "worktrees-proxy-disabled", message: "GARRISON_NEXT_BASE_URL not set" });
+  constructor(_nextBaseUrl) {
+    // _nextBaseUrl was the legacy Garrison-Next.js base; ignored now.
+    this.base = process.env.WORKTREE_FITTING_BASE_URL || DEFAULT_BASE;
+    if (!this.base) {
+      logEvent("stderr", { kind: "worktrees-proxy-disabled", message: "WORKTREE_FITTING_BASE_URL not set" });
     }
-    this.base = nextBaseUrl;
   }
 
   enabled() { return Boolean(this.base); }
 
   async list(project) {
     if (!this.base) throw new Error("worktrees proxy disabled");
-    const url = new URL("/api/workbench/worktrees", this.base);
-    if (project) url.searchParams.set("project", project);
+    // The new Fitting expects repoPath, not project. Treat project arg as
+    // repo path; orchestrator stores absolute paths in its project field.
+    const url = new URL("/worktrees", this.base);
+    if (project) url.searchParams.set("repoPath", project);
     const r = await fetch(url, { method: "GET" });
     if (!r.ok) throw new Error(`list worktrees ${r.status}: ${await r.text()}`);
     return await r.json();
@@ -30,21 +36,14 @@ export class WorktreesProxy {
 
   async create(input = {}) {
     if (!this.base) throw new Error("worktrees proxy disabled");
-    // Accept BOTH naming conventions — mcp-gateway sends snake_case
-    // (task_title/branch_name/base_branch) while older Workbench-UI clients
-    // use camelCase. Normalise to the shape Next.js's POST /api/workbench/
-    // worktrees expects (it also accepts both).
-    const payload = {
-      project: input.project,
-      repoPath: input.repoPath ?? input.repo_path,
-      branch: input.branch ?? input.branch_name,
-      branch_name: input.branch_name ?? input.branch,
-      baseBranch: input.baseBranch ?? input.base_branch,
-      base_branch: input.base_branch ?? input.baseBranch,
-      taskTitle: input.taskTitle ?? input.task_title,
-      task_title: input.task_title ?? input.taskTitle
-    };
-    const r = await fetch(new URL("/api/workbench/worktrees", this.base), {
+    // Accept both naming conventions from upstream callers (mcp-gateway sends
+    // snake_case, older UI-tab clients used camelCase).
+    const repoPath = input.repoPath ?? input.repo_path ?? input.project;
+    const branch = input.branch ?? input.branch_name ?? input.task_title?.replace(/\s+/g, "-").toLowerCase();
+    const baseBranch = input.baseBranch ?? input.base_branch ?? "main";
+    const title = input.taskTitle ?? input.task_title ?? null;
+    const payload = { repoPath, branch, baseBranch, title };
+    const r = await fetch(new URL("/worktrees", this.base), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
@@ -55,17 +54,25 @@ export class WorktreesProxy {
 
   async getById(id) {
     if (!this.base) throw new Error("worktrees proxy disabled");
-    const r = await fetch(new URL(`/api/workbench/worktrees?id=${encodeURIComponent(id)}`, this.base), { method: "GET" });
+    // The new Fitting has no GET-by-id endpoint; list and filter client-side.
+    const r = await fetch(new URL("/worktrees", this.base), { method: "GET" });
     if (!r.ok) throw new Error(`get worktree ${r.status}: ${await r.text()}`);
-    return await r.json();
+    const data = await r.json();
+    const match = (data.worktrees ?? []).find((w) => w.id === id);
+    if (!match) throw new Error(`get worktree: id not found: ${id}`);
+    return match;
   }
 
-  async close({ id, action, prTitle, prBody }) {
+  async close({ id, action }) {
     if (!this.base) throw new Error("worktrees proxy disabled");
-    const r = await fetch(new URL("/api/workbench/worktrees/close", this.base), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id, action, prTitle, prBody })
+    // The new Fitting's DELETE :id is the equivalent of action: "discard".
+    // PR / merge flows are handled by gh CLI in the orchestrator session
+    // itself in the new architecture.
+    if (action && action !== "discard") {
+      throw new Error(`close action '${action}' not supported by worktree Fitting; only 'discard'`);
+    }
+    const r = await fetch(new URL(`/worktrees/${encodeURIComponent(id)}`, this.base), {
+      method: "DELETE"
     });
     if (!r.ok) throw new Error(`close worktree ${r.status}: ${await r.text()}`);
     return await r.json();

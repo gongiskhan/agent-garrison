@@ -1,6 +1,6 @@
 # testing Fitting
 
-Project-aware test runner for Agent Garrison workbench sessions.
+Project-aware test runner for Agent Garrison interactive sessions.
 
 ## What it does
 

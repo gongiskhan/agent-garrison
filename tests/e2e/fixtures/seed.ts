@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export const TEST_STATE_DIR = path.join(os.homedir(), ".garrison-test");
 export const TEST_STATE_FILE = path.join(TEST_STATE_DIR, "state.json");
-export const TEST_PREFS_FILE = path.join(TEST_STATE_DIR, "workbench-prefs.json");
+export const TEST_PREFS_FILE = path.join(TEST_STATE_DIR, "ui-tab-prefs.json");
 
 const TAILSCALE_HOST = "100.90.155.85";
 
@@ -18,7 +18,7 @@ export interface SeedWorktree {
   bindings?: Array<{
     soul: string;
     sessionId: string;
-    mode: "headless" | "workbench";
+    mode: "headless" | "interactive";
     tier: { model: string };
     tierFlags: string[];
     spawnedAt: string;

@@ -24,3 +24,5 @@ run-tab-fixed.png
 _design-redesign/
 recordings
 public/phase-1-demo/.playwright-artifacts/
+
+.playwright-artifacts/

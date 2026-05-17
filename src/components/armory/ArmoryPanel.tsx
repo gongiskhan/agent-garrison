@@ -23,11 +23,11 @@ const groupForFaculty: Record<FacultyId, string> = {
   observability: "Control",
   soul: "Control",
   orchestrator: "Control",
-  terminal: "Workbench",
-  "screen-share": "Workbench",
-  "worktree-management": "Workbench",
-  "session-view": "Workbench",
-  outposts: "Workbench",
+  terminal: "Tools",
+  "screen-share": "Tools",
+  "worktree-management": "Tools",
+  "session-view": "Tools",
+  outposts: "Tools",
   sync: "Integration",
   monitor: "Control"
 };

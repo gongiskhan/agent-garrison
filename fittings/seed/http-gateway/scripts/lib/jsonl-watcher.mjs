@@ -1,4 +1,4 @@
-// Idle-based JSONL session log watcher (workbench mode only).
+// Idle-based JSONL session log watcher (interactive mode only).
 // Polls the file's mtime + size; after IDLE_MS of no growth, extracts the
 // most recent assistant text content as the session's "turn summary".
 //

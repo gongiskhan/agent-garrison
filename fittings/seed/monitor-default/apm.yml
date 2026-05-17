@@ -41,7 +41,7 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    Consumer Fittings (web-channel, http-gateway chat UI, future Workbench panels)
+    Consumer Fittings (web-channel, http-gateway chat UI, the /tools discovery page)
     discover the Monitor at runtime by reading:
       ~/.garrison/ui-fittings/monitor.json
     The file (written when the server binds) carries:

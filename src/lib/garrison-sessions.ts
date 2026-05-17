@@ -80,7 +80,7 @@ const BindingSchema = z
   .object({
     soul: z.string(),
     sessionId: z.string(),
-    mode: z.enum(["headless", "interactive", "workbench"]),
+    mode: z.enum(["headless", "interactive"]),
     tier: TierSchema,
     tierFlags: z.array(z.string()),
     terminalTabId: z.string().optional(),

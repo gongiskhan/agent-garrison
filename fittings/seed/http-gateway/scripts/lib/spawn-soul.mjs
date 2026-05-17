@@ -3,8 +3,8 @@
 //   - "headless": spawn `claude` CLI directly here with stream-JSON I/O.
 //                 Stdout events republish to the channel hub; on `result`,
 //                 resolve waiters and set lastSummary.
-//   - "workbench": delegate to Garrison Next.js's /api/workbench/spawn-soul-tab
-//                  which opens a PTY in the Workbench panel. We then install
+//   - "interactive": delegate to Garrison Next.js's /api/interactive/spawn-soul-tab
+//                  which opens a PTY in the Interactive panel. We then install
 //                  a JSONL watcher to extract summary feedback.
 
 import { spawn } from "node:child_process";
@@ -170,13 +170,13 @@ function extractResultText(ev) {
 }
 
 /**
- * Workbench-mode spawn: POST to Garrison Next.js's /api/workbench/spawn-soul-tab.
- * The endpoint opens a TrenchesPanel-style tab in /workbench, constructs the
+ * Interactive-mode spawn: POST to Garrison Next.js's /api/interactive/spawn-soul-tab.
+ * The endpoint opens a terminal tab on the Terminal Fitting (port 7078), constructs the
  * claude command (incorporating tier flags), and types the initial prompt over
  * PTY. Returns a terminal_tab_id which the caller stores on the SessionState
  * so subsequent respawns / kills can target the same tab.
  */
-export async function spawnWorkbenchTab({
+export async function spawnInteractiveTab({
   nextBaseUrl,
   sessionUuid,
   spawnConfig,
@@ -190,7 +190,7 @@ export async function spawnWorkbenchTab({
   promptPath
 }) {
   if (!nextBaseUrl) {
-    throw new Error("GARRISON_NEXT_BASE_URL not set — cannot spawn workbench-mode session");
+    throw new Error("GARRISON_NEXT_BASE_URL not set — cannot spawn interactive-mode session");
   }
   const args = buildClaudeArgs({
     sessionUuid,
@@ -210,7 +210,7 @@ export async function spawnWorkbenchTab({
     message,
     mcp_config_path: mcpConfigPath
   };
-  const response = await fetch(`${nextBaseUrl}/api/workbench/spawn-soul-tab`, {
+  const response = await fetch(`${nextBaseUrl}/api/interactive/spawn-soul-tab`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body)
@@ -222,7 +222,7 @@ export async function spawnWorkbenchTab({
   return await response.json();
 }
 
-export async function respawnWorkbenchTab({
+export async function respawnInteractiveTab({
   nextBaseUrl,
   sessionUuid,
   terminalTabId,
@@ -248,7 +248,7 @@ export async function respawnWorkbenchTab({
     args,
     message
   };
-  const response = await fetch(`${nextBaseUrl}/api/workbench/respawn-soul-tab`, {
+  const response = await fetch(`${nextBaseUrl}/api/interactive/respawn-soul-tab`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body)

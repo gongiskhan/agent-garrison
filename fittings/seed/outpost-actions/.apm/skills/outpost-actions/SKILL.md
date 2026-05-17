@@ -51,5 +51,5 @@ All subcommands print JSON to stdout on success:
 - `run_on` is blocking. For commands that may take over 30 s, pass `--timeout-ms <ms>`.
 - Paths on the remote machine may use `~` (the bridge expands against the remote user's home).
 - If exit 2: tell the principal which machines are available.
-- If exit 3: tell the principal the machine is offline; suggest checking Workbench → Outposts.
+- If exit 3: tell the principal the machine is offline; suggest checking the Outposts Fitting (port 7082).
 - If exit 5: the outpost-host may not be running; tell the principal to start Garrison.

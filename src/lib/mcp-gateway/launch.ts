@@ -46,7 +46,7 @@ export async function writeMcpConfig(worktreePath: string, compositionDir: strin
   await fs.writeFile(path.join(worktreePath, ".mcp.json"), JSON.stringify(config, null, 2), "utf8");
 }
 
-// System prompt fragment injected into every workbench-launched Claude Code session.
+// System prompt fragment injected into every interactive (UI-tab-launched) Claude Code session.
 export const GARRISON_SYSTEM_PROMPT = `## REQUIRED: Garrison workflow — follow exactly, no exceptions
 
 ### Step 1 — classify every request (MANDATORY, do this first)
@@ -225,7 +225,7 @@ export function hasHttpGateway(sessionId: string): boolean {
  * run_tests) succeed; otherwise returns `{ok: false, stderr}` so the caller
  * can decide whether to abort the launch or continue with the lenient default.
  *
- * Workbench launches stay lenient by default (see docs/DECISIONS.md
+ * Orchestrator-mode launches stay lenient by default (see docs/DECISIONS.md
  * 2026-05-16). Wire this in only behind an explicit `requireFullMcpSurface`
  * config flag.
  */

@@ -1,6 +1,6 @@
 name: worktree-management-sequoias
 version: 0.2.0
-description: Git worktree lifecycle manager — create, list, and delete worktrees across any project on any connected machine. Derived from Sequoias.
+description: Git worktree lifecycle Fitting. Stand-alone UI server on port 7080; backs ~/.garrison/sessions/state.json so the session-view Fitting sees new worktrees automatically.
 target: claude
 type: hybrid
 includes: auto
@@ -10,27 +10,20 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Sequoias-derived worktree manager. Create and manage isolated git worktrees for parallel branch work, across any project in the dev folder and on any connected outpost.
-  for_consumers: |
-    Use worktrees when you need to work on a different branch without disturbing the current checkout.
-    Worktrees are created at ~/.worktrees/<repo-name>/<branch-slug>.
-    The Workbench tab has a machine selector (local or outpost) and a project selector (lists directories
-    from the dev folder of the selected machine). The last selected project per machine is remembered.
-
-    API: GET /api/workbench/worktrees?repoPath=<path>&target=<local|outpost:name> to list.
-    API: POST /api/workbench/worktrees { target, repoPath, branch, baseBranch } to create.
-    API: DELETE /api/workbench/worktrees { target, repoPath, worktreePath } to remove.
-    API: GET /api/workbench/projects?target=<local|outpost:name>&devRoot=<path> to list projects.
-    API: GET /api/workbench/prefs to read machine/project preferences.
-    API: PATCH /api/workbench/prefs { worktrees: { lastTarget, lastProjectByTarget, devRootByTarget } } to update.
-
-    Preferences are stored in ~/.garrison/workbench-prefs.json.
-    Remote operations use the outpost bridge's git.* and fs.list RPCs — outpost must be connected.
+  summary: Create, list, and remove isolated git worktrees at ~/.worktrees/<repo>/<branch-slug>. Writes session records into ~/.garrison/sessions/state.json — picked up by session-view automatically.
   config_schema:
+    - key: port
+      type: integer
+      default: 7080
+      description: HTTP port the worktree-management UI binds to. Falls back to next free port.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
     - key: repo_path
-      type: path
-      description: Optional. Initial local project path (~/...) used as a seed on first launch if no preference is saved yet.
-      required: false
+      type: string
+      default: ""
+      description: Default repository path (absolute). When set, the UI pre-selects this project.
   provides:
     - kind: worktree
       name: worktree-management-sequoias
@@ -38,16 +31,20 @@ x-garrison:
     - kind: outpost
       cardinality: any
   setup:
-    command: bash scripts/setup.sh
+    command: node ui/build.mjs
     idempotent: true
-    timeout_ms: 10000
+    timeout_ms: 60000
   verify:
-    command: bash apm_modules/_local/worktree-management-sequoias/scripts/verify.sh
+    command: node apm_modules/_local/worktree-management-sequoias/scripts/probe.mjs --probe
     expect: ok
-    timeout_ms: 5000
-  ui:
-    views:
-      - id: main
-        placement: faculty-tab
-        entry: ./ui/WorktreeView.tsx
-        route: /
+    timeout_ms: 10000
+  for_consumers: |
+    Consumers discover this UI at runtime by reading:
+      ~/.garrison/ui-fittings/worktree-management-sequoias.json
+    Endpoints:
+      GET    /health                              - liveness
+      GET    /worktrees?repoPath=<path>           - list worktrees (git + state.json)
+      POST   /worktrees {repoPath, branch, ...}   - create new worktree
+      DELETE /worktrees/:id                       - remove worktree
+    Worktrees live at ~/.worktrees/<repo-name>/<branch-slug>.
+    Mutates ~/.garrison/sessions/state.json — session-view picks up new entries on its next poll.

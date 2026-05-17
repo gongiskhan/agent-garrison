@@ -1,6 +1,6 @@
 name: garrison-mcp-gateway
 version: 0.2.0
-description: MCP gateway Fitting for Agent Garrison workbench-launched sessions.
+description: MCP gateway Fitting for Agent Garrison interactive (UI-tab-launched) sessions.
 target: claude
 type: hybrid
 includes: auto
@@ -10,7 +10,7 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Exposes installed Faculties as MCP tools to workbench-launched Claude Code sessions. Hosts the garrison-control tool set (talk_to, wait_for, …) when GARRISON_HTTP_GATEWAY_BASE_URL is set.
+  summary: Exposes installed Faculties as MCP tools to interactive (UI-tab-launched) Claude Code sessions. Hosts the garrison-control tool set (talk_to, wait_for, …) when GARRISON_HTTP_GATEWAY_BASE_URL is set.
   config_schema:
     - key: bind_host
       type: string
@@ -33,10 +33,10 @@ x-garrison:
     expect: ok
     timeout_ms: 8000
   for_consumers: |
-    Workbench infrastructure — not invoked directly by the Operative.
+    Orchestrator-mode sidecar — not invoked directly by the Operative.
     Runs as a companion to Claude Code sessions. Same-machine sessions use stdio MCP
     (Claude Code spawns it as a child process). Remote outpost sessions use HTTP MCP
-    (gateway runs on the workbench host, Claude Code on the remote machine connects
+    (gateway runs on the Garrison host, Claude Code on the remote machine connects
     over Tailscale).
 
     Tools:

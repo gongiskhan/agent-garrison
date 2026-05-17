@@ -23,7 +23,7 @@ export async function POST(
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const origin = request.headers.get("x-garrison-origin") ?? "workbench";
+    const origin = request.headers.get("x-garrison-origin") ?? "ui-tab";
     const upstream = await fetch(`${baseUrl}/chat/stream`, {
       method: "POST",
       headers: {
