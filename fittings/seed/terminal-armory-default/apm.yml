@@ -1,6 +1,6 @@
 name: terminal-armory-default
-version: 0.1.0
-description: PTY-backed terminal sessions with SSH host support and Claude Code launch presets.
+version: 0.2.0
+description: PTY-backed terminal sessions. Stand-alone Fitting with own xterm.js UI on port 7078; WebSocket bridge to node-pty.
 target: claude
 type: hybrid
 includes: auto
@@ -10,7 +10,20 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Multi-session terminal panel — local PTY and SSH hosts, Open Orchestrator, Open Claude Code.
+  summary: Multi-session terminal panel (default port 7078). Local PTY via node-pty, xterm.js UI, WebSocket bridge on /io.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7078
+      description: HTTP port the terminal UI binds to. Falls back to next free port.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: default_shell
+      type: string
+      default: ""
+      description: Shell to spawn for new sessions. Empty = $SHELL or /bin/zsh.
   provides:
     - kind: terminal-session
       name: terminal-armory-default
@@ -18,16 +31,24 @@ x-garrison:
     - kind: outpost
       cardinality: any
   setup:
-    command: bash scripts/setup.sh
+    command: node ui/build.mjs
     idempotent: true
-    timeout_ms: 30000
+    timeout_ms: 60000
   verify:
-    command: bash apm_modules/_local/terminal-armory-default/scripts/verify.sh
+    command: node apm_modules/_local/terminal-armory-default/scripts/probe.mjs --probe
     expect: ok
     timeout_ms: 10000
-  ui:
-    views:
-      - id: main
-        placement: faculty-tab
-        entry: ./ui/TerminalView.tsx
-        route: /
+  for_consumers: |
+    Consumers discover this UI at runtime by reading:
+      ~/.garrison/ui-fittings/terminal-armory-default.json
+    Endpoints:
+      GET    /health                       - liveness
+      GET    /sessions                     - list active terminal sessions
+      POST   /terminals {name?, cwd?, ...} - create new PTY session
+      DELETE /terminals/:id                - kill session
+    WebSocket protocol on /io:
+      client -> server JSON {type:"init", sessionId}
+      server -> client JSON {type:"init_ack"} or {type:"error", message}
+      client -> server binary: stdin bytes
+      server -> client binary: stdout bytes
+      client -> server JSON {type:"resize", cols, rows}
