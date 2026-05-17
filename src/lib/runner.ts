@@ -148,10 +148,23 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           composition.directory,
           orchMode
         );
+        // Collect per-fitting config overrides from the composition's
+        // selections so settings like `base_path: ~/dev` actually reach
+        // the soul spawn. Without this, every soul falls back to its
+        // apm.yml default (~/code) regardless of what the user picked.
+        const configMap: Record<string, Record<string, string | number | boolean>> = {};
+        for (const facultyList of Object.values(composition.selections ?? {})) {
+          for (const selection of facultyList ?? []) {
+            if (selection?.id && selection.config) {
+              configMap[selection.id] = selection.config as Record<string, string | number | boolean>;
+            }
+          }
+        }
         const soulsBlob = await buildSoulsConfigBlob(
           composition.directory,
           orchMode.orchestratorFittingId,
-          orchMode.soulFittingIds
+          orchMode.soulFittingIds,
+          configMap
         );
         const nextPort = process.env.PORT ?? "3000";
         orchEnv = {
