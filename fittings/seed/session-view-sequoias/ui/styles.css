@@ -1,0 +1,52 @@
+:root {
+  --bg: #0e1014;
+  --bg-2: #14171c;
+  --panel: #1a1e25;
+  --border: #262b34;
+  --text: #d6d9df;
+  --mute: #8b919b;
+  --sage: #6fb47c;
+  --brass: #c9a14a;
+  --brass-2: #b9921c;
+  --alarm: #d96a5a;
+  --alarm-soft: #3a1f1a;
+  --accent: #5da9d5;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; font-size: 13px; }
+body { min-height: 100vh; }
+
+.app { padding: 24px; max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; letter-spacing: 0.02em; }
+.subtitle { color: var(--mute); font-size: 12px; margin: 0 0 20px; }
+
+.strip { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.strip .count { color: var(--mute); font-size: 12px; }
+.strip .sep { flex: 1; }
+
+.btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 3px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.small { padding: 4px 8px; font-size: 11px; }
+.btn.ghost { background: transparent; }
+
+.alert { padding: 10px 14px; background: var(--alarm-soft); color: var(--alarm); font-size: 12px; border-radius: 4px; margin-bottom: 16px; }
+
+.simple { width: 100%; border-collapse: collapse; background: var(--bg-2); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.simple thead { background: var(--panel); }
+.simple th { text-align: left; padding: 8px 12px; font-size: 11px; color: var(--mute); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+.simple td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.simple tr:last-child td { border-bottom: 0; }
+
+.pill { padding: 2px 7px; border-radius: 9px; background: var(--panel); border: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+code { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--panel); padding: 2px 5px; border-radius: 2px; font-size: 11px; }
+
+.empty { color: var(--mute); font-size: 13px; padding: 24px 0; text-align: center; }
+
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.dot.sage { background: var(--sage); }
+.dot.alarm { background: var(--alarm); }
+.dot.brass { background: var(--brass); }
+.dot.mute { background: var(--mute); }

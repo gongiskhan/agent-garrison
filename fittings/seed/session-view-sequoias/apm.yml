@@ -1,6 +1,6 @@
 name: session-view-sequoias
 version: 0.2.0
-description: Claude Code session status dashboard across git worktrees — local and remote outpost machines.
+description: Per-worktree Claude Code session status view — read-only aggregator of ~/.garrison/sessions/state.json with its own React UI on its own port.
 target: claude
 type: hybrid
 includes: auto
@@ -10,14 +10,20 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Per-worktree session status view — idle/working/waiting/errored badges aggregated from local and outpost machines.
-  for_consumers: |
-    Use GET /api/workbench/sessions to read current Claude Code session statuses across worktrees.
-    Statuses are: working, waiting, idle, errored, dead.
-    Response shape: { sessions: AggregatedSession[], outposts: [{ name, online, lastSyncedAt }] }.
-    Each session has a `machine` field ("local" or outpost name) and `online` boolean.
-    Data is sourced from ~/.garrison/sessions/state.json (local) and the equivalent file on each
-    connected outpost via fs.read RPC.
+  summary: Stand-alone UI server (default port 7081) that aggregates Garrison session state. Read-only; lists branch / project / status / since for each active worktree session.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7081
+      description: HTTP port the session-view server binds to. Falls back to next free port when in use.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: poll_interval_ms
+      type: integer
+      default: 3000
+      description: How often the UI re-reads state.json.
   provides:
     - kind: session-view
       name: session-view-sequoias
@@ -29,16 +35,22 @@ x-garrison:
     - kind: outpost
       cardinality: any
   setup:
-    command: bash scripts/setup.sh
+    command: node ui/build.mjs
     idempotent: true
-    timeout_ms: 5000
+    timeout_ms: 60000
   verify:
-    command: bash apm_modules/_local/session-view-sequoias/scripts/verify.sh
+    command: node apm_modules/_local/session-view-sequoias/scripts/probe.mjs --probe
     expect: ok
-    timeout_ms: 5000
-  ui:
-    views:
-      - id: main
-        placement: faculty-tab
-        entry: ./ui/SessionView.tsx
-        route: /
+    timeout_ms: 10000
+  for_consumers: |
+    Consumers discover the session-view UI at runtime by reading:
+      ~/.garrison/ui-fittings/session-view-sequoias.json
+    Carries: { fittingId, port, url, pid, startedAt }.
+    Then `GET <url>/health` to confirm reachability before linking.
+    Endpoints:
+      GET  /health             - {ok: true, port, pid}
+      GET  /sessions           - {sessions: AggregatedSession[], outposts: []}
+    AggregatedSession shape:
+      { branch, worktreePath, lastStatus, lastStatusAt, projectName, projectPath, machine, online }
+    Statuses are: starting, working, waiting, idle, errored, dead.
+    Reads ~/.garrison/sessions/state.json directly; no Garrison-host coupling.
