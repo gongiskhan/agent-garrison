@@ -1,0 +1,3 @@
+# Don't track per-run artifacts; verification logic lives in run.mjs.
+run-*/
+
