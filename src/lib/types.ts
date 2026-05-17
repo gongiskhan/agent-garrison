@@ -96,7 +96,6 @@ export interface FacultyDefinition {
   shapes: FittingShape[];
   notes: string;
   governing?: boolean;
-  family?: "workbench";
 }
 
 export interface ConfigSchemaField {
@@ -165,7 +164,7 @@ export interface Tier {
 export interface WorktreeBinding {
   soul: string;
   sessionId: string;
-  mode: "headless" | "workbench";
+  mode: "headless" | "interactive";
   tier: Tier;
   tierFlags: string[];
   terminalTabId?: string;

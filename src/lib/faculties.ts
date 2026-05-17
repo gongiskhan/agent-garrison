@@ -122,8 +122,7 @@ export const faculties: FacultyDefinition[] = [
     name: "Terminal",
     cardinality: "single",
     shapes: ["plugin", "script"],
-    family: "workbench",
-    notes: "PTY-backed terminal sessions with SSH host support and Claude Code launch presets."
+    notes: "PTY-backed terminal sessions. Stand-alone Fitting on its own port (default 7078)."
   },
   {
     id: "screen-share",
@@ -131,8 +130,7 @@ export const faculties: FacultyDefinition[] = [
     name: "Screen share",
     cardinality: "single",
     shapes: ["plugin", "script"],
-    family: "workbench",
-    notes: "macOS screenshot capture viewer (~2fps JPEG polling) for phone/remote access."
+    notes: "macOS screenshot capture viewer (~1fps JPEG polling). Stand-alone Fitting on its own port (default 7079)."
   },
   {
     id: "worktree-management",
@@ -140,8 +138,7 @@ export const faculties: FacultyDefinition[] = [
     name: "Worktree management",
     cardinality: "single",
     shapes: ["plugin", "script"],
-    family: "workbench",
-    notes: "Git worktree lifecycle — create, list, and delete worktrees with per-branch env port rewriting."
+    notes: "Git worktree lifecycle — create, list, and delete worktrees. Stand-alone Fitting on its own port (default 7080)."
   },
   {
     id: "session-view",
@@ -149,8 +146,7 @@ export const faculties: FacultyDefinition[] = [
     name: "Session view",
     cardinality: "single",
     shapes: ["plugin"],
-    family: "workbench",
-    notes: "Claude Code session status dashboard across git worktrees."
+    notes: "Claude Code session status dashboard across git worktrees. Stand-alone Fitting on its own port (default 7081)."
   },
   {
     id: "outposts",
@@ -158,8 +154,7 @@ export const faculties: FacultyDefinition[] = [
     name: "Outposts",
     cardinality: "multi",
     shapes: ["plugin"],
-    family: "workbench",
-    notes: "Remote Mac bridges connected over Garrison Outpost Protocol v1 — spawn processes, watch files, manage git worktrees on remote machines."
+    notes: "Remote Mac bridges connected over Garrison Outpost Protocol v1. Stand-alone Fitting on its own port (default 7082)."
   },
   {
     id: "sync",

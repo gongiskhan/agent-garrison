@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     const binding: WorktreeBinding = {
       soul: body.soul,
       sessionId: body.sessionId ?? (body as { session_id?: string }).session_id ?? "",
-      mode: (body.mode as "headless" | "workbench") ?? "headless",
+      mode: (body.mode as "headless" | "interactive") ?? "headless",
       tier: body.tier ?? { model: "" },
       tierFlags: body.tierFlags ?? (body as { tier_flags?: string[] }).tier_flags ?? [],
       terminalTabId: body.terminalTabId ?? undefined,

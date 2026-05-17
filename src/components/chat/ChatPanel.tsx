@@ -220,7 +220,7 @@ export function ChatPanel() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Garrison-Origin": "workbench"
+          "X-Garrison-Origin": "ui-tab"
         },
         body: JSON.stringify({ message: composedMessage })
       });

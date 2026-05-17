@@ -9,9 +9,11 @@ import { lookupFittingView } from "@/components/fitting-views/registry";
 import { onLaunchClaude, dispatchSoulTab, type SoulTabEvent } from "@/lib/workbench-bus";
 import type { FacultyId } from "@/lib/types";
 
-const WORKBENCH_FACULTY_IDS = new Set<FacultyId>(
-  faculties.filter((f) => f.family === "workbench").map((f) => f.id)
-);
+// Deprecated: workbench scaffold is being dissolved in Phase 4. This panel
+// no longer hosts any Fittings — the five workbench-family Faculties each
+// run on their own port now. Kept as an empty list to satisfy typecheck
+// until Phase 4 deletes the file.
+const WORKBENCH_FACULTY_IDS = new Set<FacultyId>();
 
 export function WorkbenchPanel() {
   const { composition, library, sidebarCollapsed } = useAppShell();
