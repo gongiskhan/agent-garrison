@@ -20,6 +20,7 @@ const HOME = os.homedir();
 const LOGS_ROOT = path.join(HOME, ".garrison", "logs");
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "monitor.json");
+const SESSIONS_STATE_FILE = path.join(HOME, ".garrison", "sessions", "state.json");
 
 const REDACT_PATTERN = /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PASSWORD$|^KEY$)/i;
 const REDACTED = "***REDACTED***";
@@ -161,6 +162,51 @@ function metaForPid(pid) {
   }
 }
 
+// Read the Garrison session registry and build a map keyed on the claude
+// session UUID. Each entry's value carries the soul, tier, branch, and
+// worktree path — enough to badge a Monitor card with "engineer ·
+// sonnet · feat/x". Re-read on every poll; the file is small.
+function readGarrisonBindings() {
+  if (!existsSync(SESSIONS_STATE_FILE)) return new Map();
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(SESSIONS_STATE_FILE, "utf8"));
+  } catch {
+    return new Map();
+  }
+  const map = new Map();
+  for (const project of Object.values(raw?.projects ?? {})) {
+    for (const session of Object.values(project?.sessions ?? {})) {
+      const branch = session?.branch ?? null;
+      const worktreePath = session?.worktreePath ?? null;
+      const title = session?.title ?? null;
+      for (const binding of session?.bindings ?? []) {
+        if (!binding?.sessionId) continue;
+        map.set(binding.sessionId, {
+          soul: binding.soul ?? null,
+          tier: binding.tier ?? null,
+          tierFlags: binding.tierFlags ?? [],
+          mode: binding.mode ?? null,
+          branch,
+          worktreePath,
+          title,
+          spawnedAt: binding.spawnedAt ?? null
+        });
+      }
+    }
+  }
+  return map;
+}
+
+// Extract the `--session-id <uuid>` arg from a command line. Claude Code
+// session subprocesses include it; the orchestrator binds its session UUID
+// at boot. We use it to look up the Garrison binding metadata.
+function extractSessionId(cmd) {
+  if (!cmd) return null;
+  const m = cmd.match(/--session-id[= ]([0-9a-f-]{36})/i);
+  return m ? m[1] : null;
+}
+
 function broadcastSnapshot() {
   if (sseSubscribers.size === 0) return;
   const payload = `data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()] })}\n\n`;
@@ -179,11 +225,14 @@ async function poll(rootPid) {
   }
 
   const descendants = walkDescendants(table, rootPid);
+  const bindings = readGarrisonBindings();
   const next = new Map();
   for (const proc of descendants) {
     const meta = metaForPid(proc.pid);
     const previous = entities.get(proc.pid);
     const tracked = previous ?? { ports: { listening: [], connections: [] }, cwd: null, env: {} };
+    const sessionId = extractSessionId(proc.command);
+    const garrison = sessionId ? bindings.get(sessionId) : null;
     const entry = {
       pid: proc.pid,
       ppid: proc.ppid,
@@ -202,7 +251,17 @@ async function poll(rootPid) {
       description: meta?.description ?? null,
       spawnedAt: meta?.spawnedAt ?? null,
       hasLogs: existsSync(path.join(LOGS_ROOT, String(proc.pid))),
-      status: proc.stat?.startsWith("Z") ? "exiting" : "alive"
+      status: proc.stat?.startsWith("Z") ? "exiting" : "alive",
+      // Garrison-binding metadata (joined via the `--session-id` arg in the
+      // claude command line). When present, the UI shows soul + tier + branch
+      // badges so the user can tell sessions apart at a glance.
+      garrisonSessionId: sessionId,
+      soul: garrison?.soul ?? null,
+      tier: garrison?.tier ?? null,
+      branch: garrison?.branch ?? null,
+      worktreePath: garrison?.worktreePath ?? null,
+      title: garrison?.title ?? null,
+      mode: garrison?.mode ?? null
     };
     next.set(proc.pid, entry);
   }

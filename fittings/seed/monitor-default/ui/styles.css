@@ -228,6 +228,33 @@ body {
   color: var(--success);
 }
 
+.tag-soul {
+  background: rgba(96, 165, 250, 0.16);
+  color: var(--info);
+  font-weight: 500;
+  text-transform: lowercase;
+}
+
+.tag-tier {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--warning);
+}
+
+.tag-branch {
+  background: rgba(74, 222, 128, 0.08);
+  color: var(--success);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+.tag-mode {
+  background: var(--border-strong);
+  color: var(--fg);
+}
+
 .drilldown {
   background: var(--bg-elevated);
   border-left: 1px solid var(--border);

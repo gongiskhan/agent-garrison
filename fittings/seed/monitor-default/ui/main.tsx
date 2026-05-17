@@ -24,6 +24,14 @@ type Entity = {
   hasLogs: boolean;
   status: "alive" | "exiting" | "dead";
   diedAt?: string;
+  // Garrison-binding fields (joined via --session-id from cmdline)
+  garrisonSessionId?: string | null;
+  soul?: string | null;
+  tier?: { model?: string; effort?: string; tier?: number; reason?: string } | null;
+  branch?: string | null;
+  worktreePath?: string | null;
+  title?: string | null;
+  mode?: string | null;
 };
 
 type Snapshot = { kind: "snapshot"; entities: Entity[] };
@@ -47,9 +55,23 @@ function StatusDot({ status, stat }: { status: Entity["status"]; stat: string })
 }
 
 function shortCommand(e: Entity): string {
+  if (e.soul) {
+    const bits = [e.soul];
+    if (e.tier?.model) bits.push(e.tier.model);
+    if (e.branch) bits.push(e.branch);
+    return bits.join(" · ");
+  }
   if (e.description) return e.description;
   const cmd = e.commandLine || e.command;
   return cmd.length > 64 ? cmd.slice(0, 64) + "…" : cmd;
+}
+
+function tierLabel(t: Entity["tier"]): string | null {
+  if (!t) return null;
+  // The classifier returns either { tier: <int>, reason } or { model, effort, ... }
+  if (typeof t.tier === "number") return `T${t.tier}`;
+  if (t.model) return t.model.replace(/^claude-/, "");
+  return null;
 }
 
 function ProcessCard({ entity, onOpen }: { entity: Entity; onOpen: (pid: number) => void }) {
@@ -92,6 +114,18 @@ function ProcessCard({ entity, onOpen }: { entity: Entity; onOpen: (pid: number)
         )}
         {entity.spawnSite && <span className="tag">{entity.spawnSite}</span>}
         {entity.tracked && <span className="tag tag-tracked">tracked</span>}
+        {entity.soul && <span className="tag tag-soul">{entity.soul}</span>}
+        {tierLabel(entity.tier) && (
+          <span className="tag tag-tier">{tierLabel(entity.tier)}</span>
+        )}
+        {entity.branch && (
+          <span className="tag tag-branch mono" title={entity.worktreePath ?? undefined}>
+            {entity.branch}
+          </span>
+        )}
+        {entity.mode && entity.mode !== "headless" && (
+          <span className="tag tag-mode">{entity.mode}</span>
+        )}
       </div>
     </div>
   );

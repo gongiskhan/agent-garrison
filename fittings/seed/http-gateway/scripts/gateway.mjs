@@ -347,6 +347,21 @@ async function spawnSoulSession(opts) {
     if (message) writeUserTurn(state.child, message);
   }
 
+  // If this soul is bound to a worktree, persist the binding into the
+  // session state so the Monitor (and Workbench session-view) can surface
+  // soul/tier/branch metadata on top of raw PIDs.
+  if (worktreeId) {
+    void persistWorktreeBinding({
+      worktreeId,
+      soul,
+      sessionId: sessionUuid,
+      mode: resolvedMode,
+      tier,
+      tierFlags,
+      terminalTabId: state.terminalTabId
+    });
+  }
+
   return {
     session_id: sessionUuid,
     status: state.status,
@@ -355,6 +370,28 @@ async function spawnSoulSession(opts) {
     worktree_id: state.worktreeId,
     terminal_tab_id: state.terminalTabId
   };
+}
+
+async function persistWorktreeBinding(binding) {
+  if (!NEXT_BASE_URL) return;
+  try {
+    await fetch(new URL("/api/workbench/sessions/binding", NEXT_BASE_URL), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        worktreeId: binding.worktreeId,
+        soul: binding.soul,
+        sessionId: binding.sessionId,
+        mode: binding.mode,
+        tier: binding.tier,
+        tierFlags: binding.tierFlags,
+        terminalTabId: binding.terminalTabId,
+        spawnedAt: new Date().toISOString()
+      })
+    });
+  } catch (err) {
+    logEvent("stderr", { kind: "binding-persist-failed", error: err?.message });
+  }
 }
 
 async function respawnExisting(existing, { tier, tierFlags, message, soul, spawnConfig }) {
