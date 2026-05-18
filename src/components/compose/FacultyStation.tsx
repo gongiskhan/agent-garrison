@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { FittingView } from "@/components/fitting-views/FittingView";
+import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
 import { faculties } from "@/lib/faculties";
 import type {
+  Composition,
   ConfigSchemaField,
   FacultyDefinition,
   FacultyId,
@@ -103,30 +105,6 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   }
 };
 
-const facultyGroup: Record<FacultyId, string> = {
-  heartbeat: "Cadence",
-  scheduler: "Cadence",
-  "data-sources": "Context",
-  "knowledge-base": "Context",
-  memory: "Context",
-  "artifact-store": "Context",
-  automations: "Action",
-  skills: "Action",
-  gateway: "Action",
-  channels: "Action",
-  classifier: "Control",
-  observability: "Control",
-  soul: "Control",
-  orchestrator: "Control",
-  terminal: "Tools",
-  "screen-share": "Tools",
-  "worktree-management": "Tools",
-  "session-view": "Tools",
-  outposts: "Tools",
-  sync: "Integration",
-  monitor: "Control"
-};
-
 export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
   const {
     composition,
@@ -176,7 +154,6 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
   }
 
   const copy = facultyRoleCopy[faculty.id];
-  const group = facultyGroup[faculty.id];
   const selections = composition.selections[faculty.id] ?? [];
   const entries = library.filter((e) => e.faculty === faculty.id);
   const verifyResults = runnerState?.verifyResults ?? [];
@@ -248,7 +225,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
   return (
     <main>
       <div className="crumbs">
-        <Link href="/compose">Compose</Link> · {group} · <b>{faculty.name}</b>
+        <Link href="/compose">Compose</Link> · <b>{faculty.name}</b>
       </div>
       <div className="page narrow">
         <header style={{ padding: "8px 0 22px", borderBottom: "1px solid var(--rule)", marginBottom: 26 }}>
@@ -262,7 +239,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
               marginBottom: 6
             }}
           >
-            Station {String(faculty.order).padStart(2, "0")} · {group} group ·{" "}
+            Station {String(faculty.order).padStart(2, "0")} ·{" "}
             {faculty.cardinality} {faculty.cardinality === "single" ? "Faculty" : "Faculty"}
             {faculty.governing ? " · capstone" : ""}
             {isAlarm ? " · alarm" : ""}
@@ -366,6 +343,8 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
                   selected={selected}
                   cardinality={faculty.cardinality}
                   busy={busy === "save"}
+                  composition={composition}
+                  library={library}
                   onSelect={() =>
                     faculty.cardinality === "single"
                       ? setSingleSelection(selected ? "" : entry.id)
@@ -584,6 +563,8 @@ function FittingCard({
   selected,
   cardinality,
   busy,
+  composition,
+  library,
   onSelect,
   onRemove,
   onEdit
@@ -592,105 +573,144 @@ function FittingCard({
   selected: boolean;
   cardinality: "single" | "multi";
   busy: boolean;
+  composition: Composition | null;
+  library: LibraryEntry[];
   onSelect: () => void;
   onRemove: () => void;
   onEdit: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
     <article
       style={{
         border: `1px solid ${selected ? "var(--sage)" : "var(--rule)"}`,
         background: selected ? "var(--sage-soft)" : "white",
-        padding: "16px 18px",
-        display: "grid",
-        gridTemplateColumns: "1fr auto",
-        gap: 18,
-        alignItems: "center"
+        padding: "16px 18px"
       }}
     >
-      <div>
-        <div className="font-display" style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.005em" }}>
-          {entry.name}
-          <span
-            className="font-mono"
-            style={{
-              marginLeft: 8,
-              fontSize: 10,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--mute)",
-              border: "1px solid var(--rule)",
-              padding: "2px 6px",
-              background: "var(--paper)",
-              fontWeight: 500,
-              verticalAlign: "middle"
-            }}
-          >
-            {entry.metadata.component_shape}
-          </span>
-        </div>
-        <p style={{ color: "var(--mute)", fontSize: 13, lineHeight: 1.5, marginTop: 4, maxWidth: 540 }}>
-          {entry.summary}
-        </p>
-        <div
-          className="font-mono"
-          style={{
-            marginTop: 8,
-            fontSize: 10.5,
-            color: "var(--mute)",
-            letterSpacing: "0.04em",
-            display: "flex",
-            gap: 14,
-            flexWrap: "wrap"
-          }}
-        >
-          <span>RATING · {entry.ratings.claude_code ?? "—"} cc · {entry.ratings.global ?? "—"} global</span>
-          {entry.metadata.consumes.length > 0 ? (
-            <span>CONSUMES · {entry.metadata.consumes.map((c) => c.kind).join(", ")}</span>
-          ) : null}
-          <span>SOURCE · {entry.localPath ?? entry.repo}</span>
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-        {selected ? (
-          <>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 18,
+          alignItems: "center"
+        }}
+      >
+        <div>
+          <div className="font-display" style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.005em" }}>
+            {entry.name}
             <span
               className="font-mono"
               style={{
+                marginLeft: 8,
                 fontSize: 10,
                 letterSpacing: "0.12em",
                 textTransform: "uppercase",
-                color: "var(--sage)",
-                border: "1px solid var(--sage)",
-                padding: "3px 8px"
+                color: "var(--mute)",
+                border: "1px solid var(--rule)",
+                padding: "2px 6px",
+                background: "var(--paper)",
+                fontWeight: 500,
+                verticalAlign: "middle"
               }}
             >
-              selected
+              {entry.metadata.component_shape}
             </span>
-            {cardinality === "multi" ? (
-              <button className="btn small ghost" onClick={onRemove} disabled={busy}>
-                Remove
-              </button>
+          </div>
+          <p style={{ color: "var(--mute)", fontSize: 13, lineHeight: 1.5, marginTop: 4, maxWidth: 540 }}>
+            {entry.summary}
+          </p>
+          <div
+            className="font-mono"
+            style={{
+              marginTop: 8,
+              fontSize: 10.5,
+              color: "var(--mute)",
+              letterSpacing: "0.04em",
+              display: "flex",
+              gap: 14,
+              flexWrap: "wrap"
+            }}
+          >
+            <span>RATING · {entry.ratings.claude_code ?? "—"} cc · {entry.ratings.global ?? "—"} global</span>
+            {entry.metadata.consumes.length > 0 ? (
+              <span>CONSUMES · {entry.metadata.consumes.map((c) => c.kind).join(", ")}</span>
             ) : null}
-            {entry.localPath ? (
-              <button className="btn small ghost" onClick={onEdit}>
-                Edit files
-              </button>
+            {entry.metadata.provides.length > 0 ? (
+              <span>PROVIDES · {entry.metadata.provides.map((p) => p.kind).join(", ")}</span>
             ) : null}
-          </>
-        ) : (
-          <>
-            <button className="btn small primary" onClick={onSelect} disabled={busy}>
-              + Add
-            </button>
-            {entry.localPath ? (
-              <button className="btn small ghost" onClick={onEdit}>
-                Edit files
+            <span>SOURCE · {entry.localPath ?? entry.repo}</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+          {selected ? (
+            <>
+              <span
+                className="font-mono"
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "var(--sage)",
+                  border: "1px solid var(--sage)",
+                  padding: "3px 8px"
+                }}
+              >
+                selected
+              </span>
+              {cardinality === "multi" ? (
+                <button className="btn small ghost" onClick={onRemove} disabled={busy}>
+                  Remove
+                </button>
+              ) : null}
+              {entry.localPath ? (
+                <button className="btn small ghost" onClick={onEdit}>
+                  Edit files
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <button className="btn small primary" onClick={onSelect} disabled={busy}>
+                + Add
               </button>
-            ) : null}
-          </>
-        )}
+              {entry.localPath ? (
+                <button className="btn small ghost" onClick={onEdit}>
+                  Edit files
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
+      <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--rule)", display: "flex", alignItems: "center", gap: 12 }}>
+        <button
+          type="button"
+          className="btn small ghost"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          style={{ flexShrink: 0 }}
+        >
+          {open ? "Less" : "Details"}
+        </button>
+        <Link
+          href={`/fitting/${entry.id}`}
+          className="font-mono"
+          style={{
+            fontSize: 10.5,
+            color: "var(--mute)",
+            letterSpacing: "0.04em",
+            textDecoration: "none"
+          }}
+        >
+          Open fitting page →
+        </Link>
+      </div>
+      {open ? (
+        <div style={{ marginTop: 4 }}>
+          <FittingOverview entry={entry} composition={composition} library={library} compact />
+        </div>
+      ) : null}
     </article>
   );
 }

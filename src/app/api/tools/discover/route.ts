@@ -17,6 +17,7 @@ interface ToolEntry {
   url: string;
   pid: number | null;
   startedAt: string | null;
+  healthy: boolean;
 }
 
 export async function GET() {
@@ -30,23 +31,41 @@ export async function GET() {
     return NextResponse.json({ error: e.message ?? String(err) }, { status: 500 });
   }
 
-  const tools: ToolEntry[] = [];
-  for (const name of names) {
+  // Probe each tool's /health server-side so the browser doesn't have to do
+  // cross-origin requests against the tool ports (no CORS headers there).
+  const probes: Promise<ToolEntry | null>[] = names.map(async (name) => {
     try {
       const raw = await readFile(path.join(dir, name), "utf8");
       const parsed = JSON.parse(raw) as Partial<ToolEntry>;
-      if (typeof parsed.fittingId === "string" && typeof parsed.port === "number" && typeof parsed.url === "string") {
-        tools.push({
-          fittingId: parsed.fittingId,
-          port: parsed.port,
-          url: parsed.url,
-          pid: typeof parsed.pid === "number" ? parsed.pid : null,
-          startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : null
-        });
+      if (typeof parsed.fittingId !== "string" || typeof parsed.port !== "number" || typeof parsed.url !== "string") {
+        return null;
       }
+      const healthy = await probeHealth(parsed.url);
+      return {
+        fittingId: parsed.fittingId,
+        port: parsed.port,
+        url: parsed.url,
+        pid: typeof parsed.pid === "number" ? parsed.pid : null,
+        startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : null,
+        healthy
+      };
     } catch {
-      // skip malformed entries
+      return null;
     }
-  }
+  });
+  const settled = await Promise.all(probes);
+  const tools = settled.filter((t): t is ToolEntry => t !== null);
   return NextResponse.json({ tools });
+}
+
+async function probeHealth(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(`${url}/health`, { signal: controller.signal, cache: "no-store" });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

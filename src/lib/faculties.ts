@@ -186,3 +186,30 @@ export function getFaculty(id: FacultyId): FacultyDefinition {
   }
   return faculty;
 }
+
+// Faculties whose Fittings serve their own React UI on their own port (Monitor
+// pattern, per docs/decisions/2026-05-17-dissolve-workbench.md). These do not
+// declare x-garrison.ui.views[] — they register at runtime via
+// ~/.garrison/ui-fittings/<id>.json. The default port is documented below.
+export const OWN_PORT_FACULTIES: ReadonlySet<FacultyId> = new Set([
+  "terminal",
+  "screen-share",
+  "worktree-management",
+  "session-view",
+  "outposts",
+  "monitor"
+]);
+
+export const OWN_PORT_DEFAULTS: Partial<Record<FacultyId, number>> = {
+  terminal: 7078,
+  "screen-share": 7079,
+  "worktree-management": 7080,
+  "session-view": 7081,
+  outposts: 7082
+  // monitor's default port is owned by the Monitor Fitting itself; if/when it
+  // lands a canonical default, add it here.
+};
+
+export function isOwnPortFaculty(id: FacultyId): boolean {
+  return OWN_PORT_FACULTIES.has(id);
+}

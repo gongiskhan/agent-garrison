@@ -258,6 +258,14 @@ export interface CapabilityIssue {
   message: string;
 }
 
+export interface SerializedCapabilityGraph {
+  consumers: Array<{
+    fittingId: string;
+    consumption: CapabilityConsumption;
+    providers: Array<{ fittingId: string; kind: CapabilityKind; name: string }>;
+  }>;
+}
+
 export interface Composition {
   id: string;
   name: string;
@@ -267,6 +275,7 @@ export interface Composition {
   globalConfig: GlobalConfig;
   derivedTasks?: DerivedTasks;
   capabilityIssues: CapabilityIssue[];
+  capabilityGraph: SerializedCapabilityGraph;
 }
 
 export interface VaultSecret {

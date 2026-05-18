@@ -3,7 +3,8 @@ import {
   type CapabilityConsumption,
   type CapabilityKind,
   type CapabilityProvision,
-  type GarrisonMetadata
+  type GarrisonMetadata,
+  type SerializedCapabilityGraph
 } from "./types";
 
 export const RUNTIME_FITTING_ID = "__runtime__";
@@ -38,7 +39,7 @@ export interface ResolverError {
 
 export type ResolverResult =
   | { ok: true; graph: CapabilityGraph }
-  | { ok: false; errors: ResolverError[] };
+  | { ok: false; graph: CapabilityGraph; errors: ResolverError[] };
 
 export interface ResolverInput {
   id: string;
@@ -124,11 +125,34 @@ export function resolveCapabilities(selected: ResolverInput[]): ResolverResult {
     }
   }
 
+  const graph: CapabilityGraph = { providers, consumers };
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, graph, errors };
   }
-  return { ok: true, graph: { providers, consumers } };
+  return { ok: true, graph };
 }
+
+// JSON-safe projection of a CapabilityGraph for use on the client. Maps don't
+// serialize, so providers are dropped here — only consumer→provider wiring
+// matters for the UI.
+export function serializeCapabilityGraph(graph: CapabilityGraph): SerializedCapabilityGraph {
+  return {
+    consumers: graph.consumers.map((c) => ({
+      fittingId: c.fittingId,
+      consumption: {
+        kind: c.consumption.kind,
+        ...(c.consumption.name !== undefined ? { name: c.consumption.name } : {}),
+        ...(c.consumption.cardinality !== undefined ? { cardinality: c.consumption.cardinality } : {})
+      },
+      providers: c.matched.map((node) => ({
+        fittingId: node.fittingId,
+        kind: node.provision.kind,
+        name: node.provision.name
+      }))
+    }))
+  };
+}
+
 
 function indexNode(
   providers: Map<string, CapabilityGraphNode[]>,

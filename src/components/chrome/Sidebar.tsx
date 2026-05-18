@@ -14,23 +14,17 @@ import {
   MessageSquare,
   Lock,
   Component,
-  Wrench
+  Wrench,
+  ExternalLink
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
-import { faculties } from "@/lib/faculties";
+import { faculties, isOwnPortFaculty } from "@/lib/faculties";
+import { useToolDiscovery, type ToolWithHealth } from "@/components/tools/useToolDiscovery";
 import type {
-  FacultyId,
-  FacultyDefinition,
   Composition,
+  FacultyId,
   LibraryEntry
 } from "@/lib/types";
-
-const facultyGroups: Array<{ label: string; ids: FacultyId[] }> = [
-  { label: "Cadence", ids: ["heartbeat", "scheduler"] },
-  { label: "Context", ids: ["data-sources", "knowledge-base", "memory", "artifact-store"] },
-  { label: "Action", ids: ["automations", "skills", "gateway", "channels"] },
-  { label: "Control", ids: ["classifier", "observability", "soul", "orchestrator"] }
-];
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
@@ -133,29 +127,6 @@ export function Sidebar() {
           active={isCompose}
         />
 
-        {isCompose ? (
-          <div className="nested">
-            {facultyGroups.map((group) => (
-              <div key={group.label}>
-                <div className="group-h">{group.label}</div>
-                {group.ids.map((id) => {
-                  const faculty = faculties.find((f) => f.id === id);
-                  if (!faculty) return null;
-                  return (
-                    <FacultyLeaf
-                      key={id}
-                      faculty={faculty}
-                      pathname={pathname}
-                      composition={composition}
-                      verifyResults={verifyResults}
-                    />
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        ) : null}
-
         <NavLink
           href="/armory"
           pathname={pathname}
@@ -174,7 +145,7 @@ export function Sidebar() {
         <NavLink href="/tools" pathname={pathname} icon={<Wrench aria-hidden />} label="Tools" />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
 
-        <FittingSurfaceLinks
+        <FittingViewsLinks
           composition={composition}
           library={library}
           pathname={pathname}
@@ -206,7 +177,7 @@ export function Sidebar() {
   );
 }
 
-function FittingSurfaceLinks({
+function FittingViewsLinks({
   composition,
   library,
   pathname
@@ -215,42 +186,108 @@ function FittingSurfaceLinks({
   library: LibraryEntry[];
   pathname: string;
 }) {
+  const { entries: toolEntries } = useToolDiscovery();
+
   if (!composition) return null;
+
   const selectedIds = new Set<string>();
   for (const selections of Object.values(composition.selections)) {
     for (const selection of selections ?? []) {
       selectedIds.add(selection.id);
     }
   }
-  // A Fitting earns a sidebar entry when it is stationed in the composition
-  // AND ships at least one sidebar-surface view. Faculty-tab views render
-  // inline on the Compose pane; they do not get their own nav row.
-  const entries = library
-    .filter((entry) => selectedIds.has(entry.id))
-    .filter((entry) =>
-      (entry.metadata.ui?.views ?? []).some(
-        (view) => view.placement === "sidebar-surface"
-      )
+  const stationed = library.filter((entry) => selectedIds.has(entry.id));
+
+  // Embedded views: Fittings whose metadata declares a sidebar-surface view.
+  // Routed to /fitting/<id> inside Garrison.
+  const embedded = stationed.filter((entry) =>
+    (entry.metadata.ui?.views ?? []).some(
+      (view) => view.placement === "sidebar-surface"
     )
-    .sort((a, b) => a.id.localeCompare(b.id));
-  if (entries.length === 0) return null;
+  );
+
+  // Own-port views: tool Fittings whose Faculty is in OWN_PORT_FACULTIES.
+  // They register at runtime via ~/.garrison/ui-fittings/<id>.json; the
+  // useToolDiscovery hook surfaces health + URL.
+  const ownPort = stationed.filter((entry) => isOwnPortFaculty(entry.faculty));
+
+  const toolByFittingId = new Map<string, ToolWithHealth>(
+    toolEntries.map((t) => [t.fittingId, t])
+  );
+
+  type Row =
+    | { kind: "embedded"; entry: LibraryEntry }
+    | { kind: "own-port"; entry: LibraryEntry; tool: ToolWithHealth | null };
+
+  const rows: Row[] = [
+    ...embedded.map((entry) => ({ kind: "embedded" as const, entry })),
+    ...ownPort.map((entry) => ({
+      kind: "own-port" as const,
+      entry,
+      tool: toolByFittingId.get(entry.id) ?? null
+    }))
+  ].sort((a, b) => a.entry.name.localeCompare(b.entry.name));
+
+  if (rows.length === 0) return null;
+
   return (
     <div className="nested" style={{ marginTop: 12 }}>
-      <div className="group-h">Surfaces</div>
-      {entries.map((entry) => {
-        const href = `/fitting/${entry.id}`;
+      <div className="group-h">Views</div>
+      {rows.map((row) => {
+        if (row.kind === "embedded") {
+          const href = `/fitting/${row.entry.id}`;
+          const isActive =
+            pathname === href || pathname.startsWith(`${href}/`);
+          return (
+            <Link
+              key={`embedded:${row.entry.id}`}
+              href={href}
+              className={clsx("leaf", "verified", isActive && "active")}
+            >
+              <span className="glyph">
+                <Component size={14} aria-hidden />
+              </span>
+              <span>{row.entry.name}</span>
+            </Link>
+          );
+        }
+        const tool = row.tool;
+        const healthy = tool?.healthy === true;
+        const statusClass = healthy ? "verified" : tool?.healthy === false ? "alarm" : "empty";
+        if (healthy && tool) {
+          return (
+            <a
+              key={`own-port:${row.entry.id}`}
+              href={tool.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={clsx("leaf", statusClass)}
+              title={`Open ${row.entry.name} in new tab (${tool.url})`}
+            >
+              <span className="glyph">
+                <ExternalLink size={14} aria-hidden />
+              </span>
+              <span>{row.entry.name}</span>
+            </a>
+          );
+        }
+        // Not running — render disabled-ish row pointing to /fitting/<id>
+        // overview where the user can read about it and find the start command.
+        const fallbackHref = `/fitting/${row.entry.id}`;
         const isActive =
-          pathname === href || pathname.startsWith(`${href}/`);
+          pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
         return (
           <Link
-            key={entry.id}
-            href={href}
-            className={clsx("leaf", "verified", isActive && "active")}
+            key={`own-port:${row.entry.id}`}
+            href={fallbackHref}
+            className={clsx("leaf", statusClass, isActive && "active")}
+            title={tool?.healthy === false ? "Tool is unreachable" : "Tool is not running"}
           >
             <span className="glyph">
-              <Component size={14} aria-hidden />
+              <ExternalLink size={14} aria-hidden />
             </span>
-            <span>{entry.name}</span>
+            <span>{row.entry.name}</span>
+            <span className="badge">{tool?.healthy === false ? "down" : "off"}</span>
           </Link>
         );
       })}
@@ -283,95 +320,6 @@ function NavLink({
       {ct ? <span className="ct">{ct}</span> : null}
     </Link>
   );
-}
-
-function FacultyLeaf({
-  faculty,
-  pathname,
-  composition,
-  verifyResults
-}: {
-  faculty: FacultyDefinition;
-  pathname: string;
-  composition: ReturnType<typeof useAppShell>["composition"];
-  verifyResults: ReturnType<typeof useAppShell>["runnerState"] extends infer R
-    ? NonNullable<R> extends { verifyResults: infer V }
-      ? V
-      : []
-    : [];
-}) {
-  const selections = composition?.selections[faculty.id] ?? [];
-  const stationed = selections.length > 0;
-  const isOrchestratorMissing = faculty.id === "orchestrator" && !stationed;
-
-  // Determine status glyph
-  let glyph = "·";
-  let statusClass = "empty";
-  if (isOrchestratorMissing) {
-    glyph = "!";
-    statusClass = "alarm";
-  } else if (stationed) {
-    // Check if any of this faculty's selected fittings have failing verify
-    const fittingIds = new Set(selections.map((s) => s.id));
-    const ownVerifies = (verifyResults as Array<{ fittingId: string; ok: boolean }>).filter((r) =>
-      fittingIds.has(r.fittingId)
-    );
-    if (ownVerifies.length === 0) {
-      // Stationed but verify hasn't run — neutral pip, not green.
-      glyph = "•";
-      statusClass = "empty";
-    } else if (ownVerifies.some((r) => !r.ok)) {
-      glyph = "!";
-      statusClass = "alarm";
-    } else {
-      glyph = "•";
-      statusClass = "verified";
-    }
-  }
-
-  // Compose a short badge — count for multi, key fact for some singles
-  const badge = stationed ? badgeFor(faculty.id, selections) : "—";
-
-  const href = `/compose/${faculty.id}`;
-  const isActive = pathname === href;
-
-  return (
-    <Link
-      href={href}
-      className={clsx("leaf", statusClass, isActive && "active")}
-    >
-      <span className="glyph">{glyph}</span>
-      <span>{faculty.name}</span>
-      <span className="badge">{badge}</span>
-    </Link>
-  );
-}
-
-function badgeFor(
-  id: FacultyId,
-  selections: Array<{ id: string; config: Record<string, string | number | boolean> }>
-): string {
-  if (selections.length === 0) return "—";
-  if (selections.length > 1) return String(selections.length);
-  const sel = selections[0];
-  switch (id) {
-    case "heartbeat": {
-      const m = sel.config?.cadence_minutes;
-      return typeof m === "number" || typeof m === "string" ? `${m}m` : "loop";
-    }
-    case "gateway": {
-      const p = sel.config?.port;
-      return p ? `:${p}` : "1";
-    }
-    case "classifier": {
-      const t = sel.config?.tier_floor;
-      return t ? `T${t}` : "1";
-    }
-    case "memory":
-      return "ƒ";
-    default:
-      return "1";
-  }
 }
 
 function countStationed(composition: ReturnType<typeof useAppShell>["composition"]): number {

@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { matchView } from "@/lib/fitting-views";
+import { faculties } from "@/lib/faculties";
 import { FittingView } from "./FittingView";
+import { FittingOverview } from "./FittingOverview";
 
 export function FittingSurfacePanel() {
   const params = useParams();
@@ -43,42 +46,102 @@ export function FittingSurfacePanel() {
       />
     );
   }
-  if (!entry.metadata.ui) {
-    return (
-      <SurfaceMessage
-        title={`${entry.name} ships no UI views`}
-        body="This Fitting has no x-garrison.ui.views to render here."
-      />
-    );
-  }
-  const match = matchView(entry.metadata.ui.views, subPath, "sidebar-surface");
-  if (!match) {
-    return (
-      <SurfaceMessage
-        title={`No view in ${entry.name} matches ${subPath}`}
-        body="Check the URL or pick a view from the sidebar."
-      />
-    );
-  }
+
+  const faculty = faculties.find((f) => f.id === entry.faculty);
+  const match = entry.metadata.ui
+    ? matchView(entry.metadata.ui.views, subPath, "sidebar-surface")
+    : null;
+  const hasDeepLink = subPath !== "/";
+
   return (
-    <main style={{ padding: "32px 36px" }}>
-      <header style={{ marginBottom: 20 }}>
-        <div className="lab" style={{ marginBottom: 4 }}>
-          {entry.name} · {match.view.id}
-        </div>
+    <main style={{ padding: "32px 36px", maxWidth: 880 }}>
+      <div className="crumbs" style={{ marginBottom: 16 }}>
+        <Link href="/compose">Compose</Link>
+        {faculty ? (
+          <>
+            {" · "}
+            <Link href={`/compose/${faculty.id}`}>{faculty.name}</Link>
+          </>
+        ) : null}
+        {" · "}
+        <b>{entry.name}</b>
+      </div>
+      <header style={{ marginBottom: 24 }}>
         <div
           className="font-mono"
-          style={{ fontSize: 11, color: "var(--mute)" }}
+          style={{
+            fontSize: 10.5,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: "var(--brass)",
+            marginBottom: 6
+          }}
         >
-          /fitting/{fittingId}{subPath === "/" ? "" : subPath}
+          Fitting · {entry.metadata.component_shape}
+          {faculty ? ` · ${faculty.name} faculty` : ""}
         </div>
+        <h1
+          className="font-display"
+          style={{
+            fontWeight: 600,
+            fontSize: 30,
+            letterSpacing: "-0.012em",
+            lineHeight: 1.1,
+            margin: "0 0 8px"
+          }}
+        >
+          {entry.name}
+        </h1>
+        <p
+          style={{
+            fontSize: 14,
+            lineHeight: 1.55,
+            color: "var(--ink-mute)",
+            margin: 0,
+            maxWidth: 640
+          }}
+        >
+          {entry.summary}
+        </p>
       </header>
-      <FittingView
-        entry={entry}
-        selection={selection}
-        view={match.view}
-        params={match.params}
-      />
+
+      <FittingOverview entry={entry} composition={composition} library={library} />
+
+      {match ? (
+        <section style={{ marginTop: 28 }}>
+          <div
+            className="lab"
+            style={{ marginBottom: 4 }}
+          >
+            {entry.name} · {match.view.id}
+          </div>
+          <div
+            className="font-mono"
+            style={{ fontSize: 11, color: "var(--mute)", marginBottom: 14 }}
+          >
+            /fitting/{fittingId}{subPath === "/" ? "" : subPath}
+          </div>
+          <FittingView
+            entry={entry}
+            selection={selection}
+            view={match.view}
+            params={match.params}
+          />
+        </section>
+      ) : hasDeepLink ? (
+        <section
+          style={{
+            marginTop: 28,
+            padding: "10px 14px",
+            background: "var(--paper-2)",
+            border: "1px dashed var(--rule-2)",
+            color: "var(--mute)",
+            fontSize: 12.5
+          }}
+        >
+          No view in {entry.name} matches <code>{subPath}</code>.
+        </section>
+      ) : null}
     </main>
   );
 }

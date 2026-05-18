@@ -81,7 +81,7 @@ export function StationGrid() {
         <div className="head">
           <h1>{composition.name}</h1>
           <p className="ld">
-            Thirteen Faculty stations. {stationedCount} stationed. Click any tile to configure that station —
+            {faculties.length} Faculty stations. {stationedCount} stationed. Click any tile to configure that station —
             long-form copy, Fitting picker, capability wiring, and per-Fitting extensions live on the
             station&apos;s own page, not here.
           </p>

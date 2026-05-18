@@ -4,8 +4,8 @@ import { COMPOSITIONS_DIR, ROOT_DIR } from "./paths";
 import { ensureDir, pathExists, slugify, toPosixPath } from "./fs-utils";
 import { readLibrary } from "./library";
 import { validateSelection } from "./metadata";
-import { resolveCapabilities } from "./capabilities";
-import { facultyIds, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting } from "./types";
+import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
+import { facultyIds, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
 
 const DEFAULT_COMPOSITION_ID = "default";
@@ -247,7 +247,8 @@ function manifestToComposition(id: string, manifest: CompositionManifest): Compo
     selections,
     globalConfig: composition?.global_config ?? defaultGlobalConfig(),
     derivedTasks: derived,
-    capabilityIssues: []
+    capabilityIssues: [],
+    capabilityGraph: { consumers: [] }
   };
 }
 
@@ -259,27 +260,38 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
   }
   const composition = manifestToComposition(id, manifest);
   const entries = await selectedLibraryEntries(composition.selections);
+  const { issues, graph } = computeCapabilityResolution(entries);
   return {
     ...composition,
     derivedTasks: deriveTasks(composition.selections, entries),
-    capabilityIssues: computeCapabilityIssues(entries)
+    capabilityIssues: issues,
+    capabilityGraph: graph
   };
 }
 
 export function computeCapabilityIssues(entries: LibraryEntry[]): CapabilityIssue[] {
+  return computeCapabilityResolution(entries).issues;
+}
+
+export function computeCapabilityResolution(entries: LibraryEntry[]): {
+  issues: CapabilityIssue[];
+  graph: SerializedCapabilityGraph;
+} {
   const result = resolveCapabilities(
     entries.map((entry) => ({ id: entry.id, metadata: entry.metadata }))
   );
+  const graph = serializeCapabilityGraph(result.graph);
   if (result.ok) {
-    return [];
+    return { issues: [], graph };
   }
-  return result.errors.map((error) => ({
+  const issues = result.errors.map((error) => ({
     fittingId: error.fittingId,
     code: error.code,
     kind: error.kind,
     name: error.name,
     message: error.message
   }));
+  return { issues, graph };
 }
 
 export async function selectedLibraryEntries(selections: FittingSelectionMap): Promise<LibraryEntry[]> {

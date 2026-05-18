@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useToolDiscovery } from "./useToolDiscovery";
 
 // Thin discovery list. Reads ~/.garrison/ui-fittings/*.json via a server-side
 // route, then polls each Fitting's /health from the browser to surface a
@@ -9,64 +9,8 @@ import { useCallback, useEffect, useState } from "react";
 // No Fitting UI is embedded here — each entry is a link that opens the
 // Fitting's own React app on its own port.
 
-interface ToolEntry {
-  fittingId: string;
-  port: number;
-  url: string;
-  pid: number | null;
-  startedAt: string | null;
-}
-
-interface ToolWithHealth extends ToolEntry {
-  healthy: boolean | null; // null = unknown / checking
-}
-
 export function ToolsPanel() {
-  const [entries, setEntries] = useState<ToolWithHealth[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/tools/discover");
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setError((data && data.error) || `HTTP ${res.status}`);
-        return;
-      }
-      const data = (await res.json()) as { tools: ToolEntry[] };
-      const initial: ToolWithHealth[] = data.tools.map((t) => ({ ...t, healthy: null }));
-      setEntries(initial);
-
-      // Health-probe each entry in parallel
-      const checked = await Promise.all(
-        initial.map(async (t) => {
-          try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 1500);
-            const r = await fetch(`${t.url}/health`, { signal: controller.signal, cache: "no-store" });
-            clearTimeout(timeout);
-            return { ...t, healthy: r.ok };
-          } catch {
-            return { ...t, healthy: false };
-          }
-        })
-      );
-      setEntries(checked);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const id = setInterval(refresh, 15000);
-    return () => clearInterval(id);
-  }, [refresh]);
+  const { entries, loading, error, refresh } = useToolDiscovery();
 
   const sorted = [...entries].sort((a, b) => a.fittingId.localeCompare(b.fittingId));
 
