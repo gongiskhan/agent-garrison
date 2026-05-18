@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "garrison": {
+      "command": "node",
+      "args": [
+        "/Users/ggomes/dev/garrison/compositions/dogfood-orch/apm_modules/_local/mcp-gateway/scripts/gateway.mjs",
+        "stdio"
+      ],
+      "env": {
+        "GARRISON_COMPOSITION_DIR": "/Users/ggomes/dev/garrison/compositions/dogfood-orch",
+        "GARRISON_HTTP_GATEWAY_BASE_URL": "http://127.0.0.1:4777"
+      }
+    }
+  }
+}
