@@ -7,10 +7,10 @@ dependencies:
     - path: ../../fittings/seed/browser-automation
     - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/documents
+    - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
-    - path: ../../fittings/seed/personal-operative
     - path: ../../fittings/seed/projects-index
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
@@ -30,9 +30,9 @@ x-garrison:
       vault: default
       platform: claude-code
       guardrails:
-        max_tasks_per_tick: 5
-        max_spend_per_day: 25
-        max_tool_calls_per_tick: 30
+        max_tasks_per_tick: 10
+        max_spend_per_day: 250
+        max_tool_calls_per_tick: 300
       permissions_mode: auto
       observability_config:
         log_sink: runner
@@ -97,13 +97,8 @@ x-garrison:
         - id: soul
           config: {}
       orchestrator:
-        - id: personal-operative
-          config:
-            tone: terse
-            idle_behavior: passive
-            priority_label: priority
-            silent_when_no_work: true
-            report_channel: ''
+        - id: garrison-orchestrator
+          config: {}
       artifact-store:
         - id: artifact-store
           config:

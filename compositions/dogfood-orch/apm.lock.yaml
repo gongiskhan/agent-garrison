@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-16T17:26:53.389352+00:00'
+generated_at: '2026-05-17T13:04:22.270578+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -25,7 +25,7 @@ dependencies:
   deployed_files:
   - .claude/commands/garrison-orchestrator.md
   deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:0e0c055a85e11d37257096a1225eaca0f6ce5c6612b13ce928843e2ca7dce0ef
+    .claude/commands/garrison-orchestrator.md: sha256:de996fd652c6f04cf5df8ba0e1094d79386f06e091cce77760126ca47d97fb9e
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway

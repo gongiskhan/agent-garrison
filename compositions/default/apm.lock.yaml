@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-05-15T06:17:03.003019+00:00'
-apm_version: 0.10.0
+generated_at: '2026-05-18T10:18:03.175081+00:00'
+apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
   package_type: apm_package
@@ -26,6 +26,14 @@ dependencies:
   - .claude/skills/documents
   source: local
   local_path: ../../fittings/seed/documents
+- repo_url: _local/garrison-orchestrator
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/garrison-orchestrator.md
+  deployed_file_hashes:
+    .claude/commands/garrison-orchestrator.md: sha256:de996fd652c6f04cf5df8ba0e1094d79386f06e091cce77760126ca47d97fb9e
+  source: local
+  local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway
   package_type: apm_package
   deployed_files:
@@ -48,14 +56,6 @@ dependencies:
   - .claude/skills/garrison-memory
   source: local
   local_path: ../../fittings/seed/memory
-- repo_url: _local/personal-operative
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/personal-operative.md
-  deployed_file_hashes:
-    .claude/commands/personal-operative.md: sha256:9e293e2337166e0cb0a336293b19a385d67066dac0800e0d246f7019f49ef7f9
-  source: local
-  local_path: ../../fittings/seed/personal-operative
 - repo_url: _local/projects-index
   package_type: apm_package
   deployed_files:
