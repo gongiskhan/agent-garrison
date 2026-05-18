@@ -34,6 +34,40 @@ function runtime(): VaultRuntime {
   return globalThis.__agentGarrisonVault;
 }
 
+// Fixed passphrase used only when VAULT_UNLOCKED=true is set in the
+// environment. Picking a stable string lets the vault stay readable across
+// restarts in dev without prompting the user for a password.
+const DEV_PASSPHRASE = "__GARRISON_DEV_UNLOCK__";
+
+export function isDevUnlock(): boolean {
+  return process.env.VAULT_UNLOCKED === "true";
+}
+
+async function ensureDevUnlock(): Promise<void> {
+  if (!isDevUnlock()) return;
+  const state = runtime();
+  if (state.plaintext && state.passphrase) return;
+  await ensureDir(DATA_DIR);
+  if (!(await pathExists(VAULT_PATH))) {
+    const plaintext: VaultPlaintext = { secrets: {}, updatedAt: new Date().toISOString() };
+    const file = await encryptVault(DEV_PASSPHRASE, plaintext);
+    await fs.writeFile(VAULT_PATH, JSON.stringify(file, null, 2), { encoding: "utf8", mode: 0o600 });
+    await fs.chmod(VAULT_PATH, 0o600);
+    state.passphrase = DEV_PASSPHRASE;
+    state.plaintext = plaintext;
+    return;
+  }
+  const file = JSON.parse(await fs.readFile(VAULT_PATH, "utf8")) as VaultFile;
+  try {
+    const plaintext = await decryptVault(DEV_PASSPHRASE, file);
+    state.passphrase = DEV_PASSPHRASE;
+    state.plaintext = plaintext;
+  } catch {
+    // Existing vault was encrypted with a different (real) passphrase. Leave
+    // it locked; the user can unlock it manually or unset VAULT_UNLOCKED.
+  }
+}
+
 export async function unlockVault(
   passphrase: string
 ): Promise<{ unlocked: boolean; configured: boolean; needsPassword: boolean; secrets: VaultSecret[] }> {
@@ -67,24 +101,29 @@ export async function vaultView(): Promise<{
   unlocked: boolean;
   configured: boolean;
   needsPassword: boolean;
+  devMode: boolean;
   secrets: VaultSecret[];
 }> {
+  await ensureDevUnlock();
+  const devMode = isDevUnlock();
   const state = runtime();
   if (state.plaintext) {
     return {
       unlocked: true,
       configured: true,
       needsPassword: false,
+      devMode,
       secrets: secretsToArray(state.plaintext.secrets)
     };
   }
   if (await pathExists(VAULT_PATH)) {
-    return { unlocked: false, configured: true, needsPassword: false, secrets: [] };
+    return { unlocked: false, configured: true, needsPassword: false, devMode, secrets: [] };
   }
-  return { unlocked: true, configured: false, needsPassword: true, secrets: [] };
+  return { unlocked: true, configured: false, needsPassword: true, devMode, secrets: [] };
 }
 
 export async function readVaultSecrets(): Promise<VaultSecret[]> {
+  await ensureDevUnlock();
   const state = runtime();
   if (!state.plaintext) {
     throw new Error("Vault is locked");
@@ -93,6 +132,7 @@ export async function readVaultSecrets(): Promise<VaultSecret[]> {
 }
 
 export async function writeVaultSecrets(secrets: VaultSecret[]): Promise<VaultSecret[]> {
+  await ensureDevUnlock();
   const state = runtime();
   if (!state.passphrase || !state.plaintext) {
     throw new Error("Vault is locked");
@@ -113,6 +153,7 @@ export async function writeVaultSecrets(secrets: VaultSecret[]): Promise<VaultSe
 }
 
 export async function materializeEnv(compositionDir: string): Promise<string> {
+  await ensureDevUnlock();
   const state = runtime();
   if (!state.plaintext) {
     if (await pathExists(VAULT_PATH)) {

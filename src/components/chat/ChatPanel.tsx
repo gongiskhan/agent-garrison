@@ -1,49 +1,35 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useAppShell } from "@/components/chrome/AppShell";
-import { readSseStream } from "@/lib/sse";
-import { bufferToBase64, formatBytes } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 import { garrisonRoutePath, parseMessageBody } from "@/lib/message-body";
-
-interface ChatAttachment {
-  filename: string;
-  path: string;
-  bytes: number;
-}
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  attachments?: ChatAttachment[];
-  toolCalls?: { name: string; input?: unknown }[];
-  status?: "pending" | "streaming" | "complete" | "error";
-  costUsd?: number | null;
-  errorText?: string;
-}
-
-interface SubSessionBlock {
-  sessionId: string;
-  soul: string;
-  status: "running" | "completed" | "failed";
-  text: string;
-}
+import {
+  useChatContext,
+  type ChatMessage
+} from "@/components/chat/ChatContext";
 
 export function ChatPanel() {
-  const { composition, runnerState, setError } = useAppShell();
-  const compositionId = composition?.id;
+  const { composition, runnerState } = useAppShell();
   const isRunning = runnerState?.status === "running";
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [subSessions, setSubSessions] = useState<Record<string, SubSessionBlock>>({});
-  const [draft, setDraft] = useState("");
-  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
-  const [sending, setSending] = useState(false);
-  const [attaching, setAttaching] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [monitorUrl, setMonitorUrl] = useState<string | null>(null);
+  const {
+    messages,
+    subSessions,
+    draft,
+    setDraft,
+    pendingAttachments,
+    sending,
+    attaching,
+    localError,
+    monitorUrl,
+    send,
+    clearChat,
+    handleAttach,
+    removeAttachment,
+    endSoul
+  } = useChatContext();
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -54,85 +40,11 @@ export function ChatPanel() {
   }, [messages]);
 
   useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const res = await fetch("/api/monitor/discover", { cache: "no-store" });
-        if (!res.ok) return;
-        const data = (await res.json()) as { available?: boolean; url?: string | null };
-        if (cancelled) return;
-        setMonitorUrl(data.available && data.url ? data.url : null);
-      } catch {
-        if (!cancelled) setMonitorUrl(null);
-      }
-    };
-    check();
-    const handle = setInterval(check, 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, []);
-
-  useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [draft]);
-
-  // Phase 9H — subscribe to the orchestrator channel SSE while running.
-  // Sub-session events (engineer/architect/… subprocesses) stream live; we
-  // surface them as nested blocks so the user sees the work in real time.
-  useEffect(() => {
-    if (!compositionId || !isRunning) return;
-    const source = new EventSource(`/api/runner/${compositionId}/channels/main/stream`);
-    const handler = (e: MessageEvent) => {
-      try {
-        const wrapped = JSON.parse(e.data) as {
-          session_id: string;
-          soul: string;
-          event: { type?: string; subtype?: string; message?: { content?: Array<{ type?: string; text?: string }> } };
-        };
-        const ev = wrapped.event;
-        setSubSessions((prev) => {
-          const existing = prev[wrapped.session_id] ?? {
-            sessionId: wrapped.session_id,
-            soul: wrapped.soul,
-            status: "running" as const,
-            text: ""
-          };
-          if (ev?.type === "assistant" && ev.message?.content) {
-            for (const block of ev.message.content) {
-              if (block?.type === "text" && block.text) {
-                existing.text += block.text;
-              }
-            }
-          } else if (ev?.type === "result") {
-            existing.status = ev.subtype === "success" ? "completed" : "failed";
-          }
-          return { ...prev, [wrapped.session_id]: { ...existing } };
-        });
-      } catch { /* ignore malformed */ }
-    };
-    source.addEventListener("event", handler);
-    source.onerror = () => { /* auto-reconnect */ };
-    return () => {
-      source.removeEventListener("event", handler);
-      source.close();
-    };
-  }, [compositionId, isRunning]);
-
-  async function endSoul(soul: string) {
-    if (!compositionId) return;
-    try {
-      await fetch(`/api/runner/${compositionId}/sessions/by-soul/${encodeURIComponent(soul)}/end`, {
-        method: "POST"
-      });
-    } catch (err) {
-      setLocalError(err instanceof Error ? err.message : String(err));
-    }
-  }
 
   if (!composition) {
     return (
@@ -147,140 +59,6 @@ export function ChatPanel() {
   }
 
   const canSend = isRunning && draft.trim().length > 0 && !sending;
-
-  async function handleAttach(files: FileList | null) {
-    if (!files || files.length === 0 || !compositionId) return;
-    if (!isRunning) {
-      setLocalError("Start the operative first to attach files.");
-      return;
-    }
-    setAttaching(true);
-    setLocalError(null);
-    try {
-      for (const file of Array.from(files)) {
-        const bytes = await file.arrayBuffer();
-        const base64 = bufferToBase64(bytes);
-        const res = await fetch(`/api/runner/${compositionId}/attachments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, content_base64: base64 })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error ?? `attach failed: ${res.status}`);
-        setPendingAttachments((prev) => [
-          ...prev,
-          { filename: file.name, path: data.path, bytes: data.bytes }
-        ]);
-      }
-    } catch (err) {
-      setLocalError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAttaching(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
-
-  function clearChat() {
-    if (sending) return;
-    setMessages([]);
-    setLocalError(null);
-  }
-
-  async function send() {
-    if (!canSend || !compositionId) return;
-    const trimmed = draft.trim();
-    const attachments = pendingAttachments;
-    const composedMessage = attachments.length
-      ? `${trimmed}\n\nAttached files:\n${attachments.map((a) => `- ${a.path}`).join("\n")}`
-      : trimmed;
-
-    const userMessage: ChatMessage = {
-      id: `u-${Date.now()}`,
-      role: "user",
-      text: trimmed,
-      attachments,
-      status: "complete"
-    };
-    const assistantId = `a-${Date.now()}`;
-    const assistantMessage: ChatMessage = {
-      id: assistantId,
-      role: "assistant",
-      text: "",
-      status: "streaming"
-    };
-
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
-    setDraft("");
-    setPendingAttachments([]);
-    setSending(true);
-    setLocalError(null);
-
-    try {
-      const res = await fetch(`/api/runner/${compositionId}/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Garrison-Origin": "ui-tab"
-        },
-        body: JSON.stringify({ message: composedMessage })
-      });
-      if (!res.ok || !res.body) {
-        const errorText = await res.text();
-        throw new Error(`chat failed: ${res.status} ${errorText}`);
-      }
-      await readSseStream(res.body, (event, data) => {
-        const payload = (data ?? {}) as Record<string, unknown>;
-        if (event === "chunk") {
-          const text = String(payload.text ?? "");
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, text: m.text + text } : m))
-          );
-        } else if (event === "tool") {
-          const tool = { name: String(payload.name ?? "?"), input: payload.input };
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, toolCalls: [...(m.toolCalls ?? []), tool] }
-                : m
-            )
-          );
-        } else if (event === "done") {
-          const finalReply = String(payload.reply ?? "");
-          const cost = typeof payload.cost_usd === "number" ? payload.cost_usd : null;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, text: finalReply || m.text, status: "complete", costUsd: cost }
-                : m
-            )
-          );
-        } else if (event === "error") {
-          const errText = String(payload.error ?? "stream error");
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, status: "error", errorText: errText } : m
-            )
-          );
-        }
-      });
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId && m.status === "streaming" ? { ...m, status: "complete" } : m
-        )
-      );
-    } catch (err) {
-      const messageText = err instanceof Error ? err.message : String(err);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId ? { ...m, status: "error", errorText: messageText } : m
-        )
-      );
-      setLocalError(messageText);
-      setError(messageText);
-    } finally {
-      setSending(false);
-    }
-  }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -519,7 +297,7 @@ export function ChatPanel() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => setPendingAttachments((p) => p.filter((x) => x.path !== a.path))}
+                  onClick={() => removeAttachment(a.path)}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -551,7 +329,10 @@ export function ChatPanel() {
             type="file"
             multiple
             style={{ display: "none" }}
-            onChange={(e) => handleAttach(e.target.files)}
+            onChange={(e) => {
+              void handleAttach(e.target.files);
+              if (fileInputRef.current) fileInputRef.current.value = "";
+            }}
           />
           <button
             type="button"
@@ -814,34 +595,26 @@ function summarizeToolInput(name: string, input: unknown): string | null {
   if (!input || typeof input !== "object") return null;
   const i = input as Record<string, unknown>;
 
-  // Bash: prefer description (it's a one-liner the agent wrote about
-  // intent) plus the actual command. Both are useful — description tells
-  // you why, command tells you what.
   if (typeof i.command === "string") {
     const desc = typeof i.description === "string" ? i.description : "";
     const cmd = `$ ${truncate(i.command.replace(/\s+/g, " "), TOOL_INPUT_MAX)}`;
     return desc ? `${desc}\n${cmd}` : cmd;
   }
 
-  // Read / Edit / Write: file path is the headline.
   if (typeof i.file_path === "string") return i.file_path;
   if (typeof i.path === "string") return i.path;
 
-  // Skill invocation by name.
   if (typeof i.skill === "string") return `skill: ${i.skill}`;
   if (typeof i.name === "string" && Object.keys(i).length <= 2) return `name: ${i.name}`;
 
-  // Search / query patterns (ToolSearch, MCP search variants).
   if (typeof i.query === "string") {
     return `query: ${truncate(i.query, TOOL_INPUT_MAX)}`;
   }
 
-  // Calendar list_events shape.
   if (typeof i.startTime === "string" && typeof i.endTime === "string") {
     return `${i.startTime} → ${i.endTime}`;
   }
 
-  // Slack send: channel + first chunk of text.
   if (typeof i.channel === "string") {
     const text =
       typeof i.text === "string"
@@ -850,13 +623,11 @@ function summarizeToolInput(name: string, input: unknown): string | null {
     return text ? `#${i.channel} · ${text}` : `#${i.channel}`;
   }
 
-  // URL-shaped tools (WebFetch, etc).
   if (typeof i.url === "string") return i.url;
   if (typeof i.urls === "object" && Array.isArray(i.urls)) {
     return (i.urls as string[]).slice(0, 3).join(", ");
   }
 
-  // Generic fallback: first non-empty string field.
   for (const [key, value] of Object.entries(i)) {
     if (typeof value === "string" && value.length > 0) {
       return `${key}: ${truncate(value, TOOL_INPUT_MAX)}`;
@@ -864,4 +635,3 @@ function summarizeToolInput(name: string, input: unknown): string | null {
   }
   return null;
 }
-

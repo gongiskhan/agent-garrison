@@ -166,7 +166,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           orchMode.soulFittingIds,
           configMap
         );
-        const nextPort = process.env.PORT ?? "3000";
+        const nextPort = process.env.PORT ?? "7777";
         orchEnv = {
           GARRISON_MCP_GATEWAY_BASE_URL: record.mcpGateway.baseUrl,
           GARRISON_MCP_GATEWAY_TOKEN: record.mcpGateway.token,
@@ -292,14 +292,43 @@ async function runSetupHooks(compositionId: string): Promise<void> {
   }
 }
 
+async function compositionNeedsApmInstall(
+  compositionDir: string,
+  entries: LibraryEntry[]
+): Promise<boolean> {
+  const localDir = path.join(compositionDir, "apm_modules", "_local");
+  if (!existsSync(localDir)) return true;
+  for (const entry of entries) {
+    if (!existsSync(path.join(localDir, entry.id))) return true;
+  }
+  return false;
+}
+
 export async function verify(compositionId: string): Promise<VerifyResult[]> {
   updateState(compositionId, { status: "verifying" });
   appendLog(compositionId, "runner", "Running fitting verify hooks");
   const composition = await readCompositionWithDerivedTasks(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+
+  // Self-heal: on a fresh composition apm_modules/_local may be missing
+  // entries and per-fitting setup may never have run, so verify hooks
+  // probing for installed deps would fail with cryptic errors like "SDK
+  // not installed". Re-run apm install (only when something is missing)
+  // and the idempotent setup hooks before the verify loop.
+  try {
+    if (await compositionNeedsApmInstall(composition.directory, entries)) {
+      appendLog(compositionId, "runner", "apm_modules incomplete; running apm install");
+      await requireCommand(compositionId, "apm");
+      await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    appendLog(compositionId, "stderr", `apm install (pre-verify) failed: ${msg}`);
+  }
 
   // Materialize the vault if unlocked, so verify hooks that read API keys
-  // can see them. If the vault is locked, log a clear actionable message
-  // rather than silently letting hooks fail with cryptic errors.
+  // (and setup hooks below) can see them. If the vault is locked, log a
+  // clear actionable message rather than silently letting hooks fail.
   try {
     const envPath = await materializeEnv(composition.directory);
     appendLog(
@@ -317,7 +346,13 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
     );
   }
 
-  const entries = await selectedLibraryEntries(composition.selections);
+  try {
+    await runSetupHooks(compositionId);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    appendLog(compositionId, "stderr", `Setup (pre-verify) failed: ${msg}`);
+  }
+
   const results: VerifyResult[] = [];
 
   for (const entry of entries) {

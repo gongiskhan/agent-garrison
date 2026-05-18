@@ -11,6 +11,7 @@ import {
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { FittingEditor } from "@/components/FittingEditor";
+import { ChatProvider } from "@/components/chat/ChatContext";
 import type {
   Composition,
   FittingSelectionMap,
@@ -28,6 +29,7 @@ export interface AppShellState {
   // vault
   vaultUnlocked: boolean;
   vaultNeedsPassword: boolean;
+  vaultDevMode: boolean;
   secrets: VaultSecret[];
   // ui state
   busy: string | null;
@@ -68,6 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [runnerState, setRunnerState] = useState<RunnerState | null>(null);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [vaultNeedsPassword, setVaultNeedsPassword] = useState(false);
+  const [vaultDevMode, setVaultDevMode] = useState(false);
   const [secrets, setSecrets] = useState<VaultSecret[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setComposition(next ?? null);
       setVaultUnlocked(Boolean(vaultData.unlocked));
       setVaultNeedsPassword(Boolean(vaultData.needsPassword));
+      setVaultDevMode(Boolean(vaultData.devMode));
       setSecrets(vaultData.secrets ?? []);
       if (next?.id) {
         const stateRes = await fetch(`/api/runner/${next.id}/state`);
@@ -267,6 +271,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       runnerState,
       vaultUnlocked,
       vaultNeedsPassword,
+      vaultDevMode,
       secrets,
       busy,
       error,
@@ -290,6 +295,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       runnerState,
       vaultUnlocked,
       vaultNeedsPassword,
+      vaultDevMode,
       secrets,
       busy,
       error,
@@ -307,19 +313,21 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={value}>
-      <div
-        className="app-shell"
-        style={{ gridTemplateColumns: sidebarCollapsed ? "48px 1fr" : "244px 1fr" }}
-      >
-        <Sidebar />
-        {children}
-      </div>
-      {editingFitting ? (
-        <FittingEditor
-          entry={editingFitting}
-          onClose={() => setEditingFitting(null)}
-        />
-      ) : null}
+      <ChatProvider>
+        <div
+          className="app-shell"
+          style={{ gridTemplateColumns: sidebarCollapsed ? "48px 1fr" : "244px 1fr" }}
+        >
+          <Sidebar />
+          {children}
+        </div>
+        {editingFitting ? (
+          <FittingEditor
+            entry={editingFitting}
+            onClose={() => setEditingFitting(null)}
+          />
+        ) : null}
+      </ChatProvider>
     </Ctx.Provider>
   );
 }

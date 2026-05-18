@@ -10,6 +10,7 @@ export function VaultPanel() {
     library,
     vaultUnlocked,
     vaultNeedsPassword,
+    vaultDevMode,
     secrets,
     setSecrets,
     saveSecrets,
@@ -36,7 +37,22 @@ export function VaultPanel() {
           </p>
         </div>
 
-        {vaultNeedsPassword ? (
+        {vaultDevMode ? (
+          <div className="banner alarm">
+            <span className="glyph">!</span>
+            <div>
+              <h5>Dev mode — vault is auto-unlocked</h5>
+              <p>
+                <code>VAULT_UNLOCKED=true</code> is set in the environment, so the vault is decrypted with
+                a fixed dev passphrase on every request. Convenient locally, unsafe anywhere else. Remove
+                <code> VAULT_UNLOCKED</code> from <code>.env</code> (or set it to <code>false</code>) to
+                require a real passphrase again.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {vaultNeedsPassword && !vaultDevMode ? (
           <div className="banner alarm">
             <span className="glyph">!</span>
             <div>

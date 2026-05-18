@@ -196,7 +196,7 @@ name: Agent Garrison
 root_path: /Users/goncalo/code/garrison
 worktree_base: /Users/goncalo/code/garrison-worktrees
 port_needs:
-  - { name: "frontend", default: 3000 }
+  - { name: "frontend", default: 7777 }
   - { name: "backend",  default: 4000 }
 startup_commands:              # optional — commands to run after worktree creation
   - "pnpm install"
