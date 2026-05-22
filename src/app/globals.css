@@ -545,14 +545,3 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   .crumbs, .page { padding-left: 18px; padding-right: 18px; }
   .head h1 { font-size: 30px; }
 }
-
-/* Mobile-friendly chat panel — inline styles in ChatPanel.tsx hardcode 56px
- * horizontal padding which clips on phones; override with tighter padding
- * via these stable class hooks. */
-@media (max-width: 640px) {
-  .chat-header { padding: 14px 16px 10px !important; }
-  .chat-metabar { padding: 8px 16px !important; gap: 10px !important; }
-  .chat-error { padding: 8px 16px !important; }
-  .chat-scroll { padding: 16px 16px 8px !important; }
-  .chat-input-bar { padding: 10px 16px 14px !important; }
-}

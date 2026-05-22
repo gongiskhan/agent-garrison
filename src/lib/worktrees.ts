@@ -103,9 +103,9 @@ export async function createWorktree(
     });
   }
 
-  // Mirror Sequoias's env handling: discover .env* files in the source repo,
-  // copy them into the new worktree, rewrite port variables and localhost
-  // URLs to allocated values, then patch frontend dev scripts.
+  // Discover .env* files in the source repo, copy them into the new worktree,
+  // rewrite port variables and localhost URLs to allocated values, then patch
+  // frontend dev scripts.
   const mainEnvFiles = await discoverEnvFiles(repo);
   const mainPortMap = readMainPortMap(repo, mainEnvFiles);
 

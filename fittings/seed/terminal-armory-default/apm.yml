@@ -41,11 +41,36 @@ x-garrison:
   for_consumers: |
     Consumers discover this UI at runtime by reading:
       ~/.garrison/ui-fittings/terminal-armory-default.json
-    Endpoints:
-      GET    /health                       - liveness
-      GET    /sessions                     - list active terminal sessions
-      POST   /terminals {name?, cwd?, ...} - create new PTY session
-      DELETE /terminals/:id                - kill session
+    Carries: { fittingId, port, url, pid, startedAt }.
+
+    HTTP endpoints:
+      GET    /health                                 - liveness
+      GET    /sessions                               - list active PTY sessions
+      POST   /terminals {name?, cwd?, shell?, command?} - create new PTY session
+      DELETE /terminals/:id                          - kill session
+
+    Session summary shape (`GET /sessions`):
+      { id, name, cwd, shell, command, busy, createdAt }
+    `command` is the initial line written into the PTY at spawn (null if
+    none). Use it to detect tabs that are running `claude ...`, an editor,
+    or other long-lived processes.
+
+    UI bootstrap query params (open <url>/?<params>):
+      ?focus=<sessionId>             switch the open browser tab to the
+                                     named PTY session (no new session is
+                                     created); pair with window.open(...,
+                                     "garrison-terminal") to reuse the tab.
+      ?cwd=&command=&name=           create a new PTY session at cwd,
+                                     write `command` after 250ms, label
+                                     the tab `name`.
+
+    Find-or-focus pattern (recommended for cross-fitting links):
+      1. Fetch `GET /sessions`.
+      2. Match a row by (cwd, name, command startsWith ...).
+      3. If found, `window.open(<url>/?focus=<id>, "garrison-terminal")`.
+      4. Otherwise, `window.open(<url>/?cwd=...&command=...&name=...,
+         "garrison-terminal")` to spawn.
+
     WebSocket protocol on /io:
       client -> server JSON {type:"init", sessionId}
       server -> client JSON {type:"init_ack"} or {type:"error", message}

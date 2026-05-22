@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { faculties } from "@/lib/faculties";
 import type { RunnerState } from "@/lib/types";
 
 interface LogEvent {
@@ -88,9 +89,6 @@ export function GarrisonHome() {
             </p>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-            <Link className="btn ghost" href="/chat">
-              <span className="ic">□</span>Open chat
-            </Link>
             <Link className="btn primary" href="/run">
               <span className="ic">▶</span>Run panel
             </Link>
@@ -106,7 +104,7 @@ export function GarrisonHome() {
               <h5>Vault is using the unsafe starter state</h5>
               <p>
                 The vault opens without a password for bootstrap convenience. Set one before storing
-                Trello, Anthropic, or any other API keys.
+                API keys or other secrets.
               </p>
               <div className="actions">
                 <Link href="/vault">Set vault password →</Link>
@@ -207,7 +205,7 @@ export function GarrisonHome() {
                 />
                 <Stat
                   label="Faculties"
-                  value={`${stationed} / 13`}
+                  value={`${stationed} / ${faculties.length}`}
                   sub="stationed"
                 />
                 <Stat
@@ -335,8 +333,7 @@ export function GarrisonHome() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <Panel title="Quick actions" tight>
-              <Quick href="/compose" nm="Tune the composition" sm="Add or change Fittings · 13 stations" />
-              <Quick href="/chat" nm="Talk to the operative" sm="Through the gateway · running session" />
+              <Quick href="/compose" nm="Tune the composition" sm={`Add or change Fittings · ${faculties.length} stations`} />
               <Quick href="/armory" nm="Browse the Armory" sm="Curated Fittings registry" />
               <Quick
                 href="/vault"
@@ -347,7 +344,7 @@ export function GarrisonHome() {
             </Panel>
 
             <Panel title="Composition · readiness">
-              <ReadyRow label="Faculties stationed" value={`${stationed} / 13`} />
+              <ReadyRow label="Faculties stationed" value={`${stationed} / ${faculties.length}`} />
               <ReadyRow
                 label="Capability wiring"
                 value={composition.capabilityIssues.length === 0 ? "resolved" : `${composition.capabilityIssues.length} issue${composition.capabilityIssues.length === 1 ? "" : "s"}`}
@@ -371,8 +368,8 @@ export function GarrisonHome() {
                   truth file · {composition.derivedTasks.truthFile}
                 </div>
                 <div style={{ fontSize: 13, color: "var(--mute)" }}>
-                  Selecting {prettySource(composition.derivedTasks.source)} as a data source makes derived
-                  Tasks Trello-backed automatically.
+                  The stationed data source declares the truth file; the derived Tasks Faculty
+                  follows it automatically.
                 </div>
               </Panel>
             ) : null}

@@ -8,7 +8,8 @@ import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
-import { readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
+import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
+import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
@@ -77,6 +78,12 @@ function runtime(): RunnerRuntime {
 }
 
 export function getRunnerState(compositionId: string): RunnerState {
+  // On the first read after a Garrison process starts, the in-memory record
+  // map is empty by definition. Any operative-bound own-port Fitting still
+  // running on disk is an orphan from the previous process — reconcile it.
+  // Fire-and-forget: state reads must stay synchronous, but a sweep finishing
+  // a few ticks later is fine for the sidebar Views surface.
+  void reconcileOrphanedOwnPortFittings();
   return getRecord(compositionId).state;
 }
 
@@ -94,6 +101,13 @@ export function subscribeLogs(
 }
 
 export async function up(compositionId: string, options: { devMode?: boolean } = {}): Promise<RunnerState> {
+  // Block on any pending reconciliation. If the user hits Run before the
+  // fire-and-forget sweep from getRunnerState has finished, awaiting here
+  // ensures stale Fittings are SIGTERM'd before we try to spawn fresh ones —
+  // otherwise startOwnPortFitting would see a still-alive orphan and skip
+  // the spawn, leaving the old bundle serving requests.
+  await reconcileOrphanedOwnPortFittings();
+
   const record = getRecord(compositionId);
   if (record.process) {
     await down(compositionId);
@@ -202,6 +216,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       await startDevWatcher(compositionId);
     }
     appendLog(compositionId, "runner", `Operative process started${child.pid ? ` with pid ${child.pid}` : ""}`);
+    await startOperativeBoundFittings(compositionId);
     return getRunnerState(compositionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -224,6 +239,7 @@ export async function down(compositionId: string): Promise<RunnerState> {
     await record.watcher.close();
     record.watcher = undefined;
   }
+  await stopOperativeBoundFittings(compositionId);
   if (record.process) {
     await stopChild(record.process);
     record.process = undefined;
@@ -239,6 +255,70 @@ export async function down(compositionId: string): Promise<RunnerState> {
   updateState(compositionId, { status: "stopped", pid: undefined, devMode: false });
   appendLog(compositionId, "runner", "Stopped and wiped materialised .env");
   return getRunnerState(compositionId);
+}
+
+let reconciliationPromise: Promise<void> | null = null;
+
+async function reconcileOrphanedOwnPortFittings(): Promise<void> {
+  if (reconciliationPromise) return reconciliationPromise;
+  reconciliationPromise = (async () => {
+    try {
+      const compositions = await listCompositions();
+      const seen = new Set<string>();
+      for (const composition of compositions) {
+        const entries = await selectedLibraryEntries(composition.selections);
+        for (const entry of entries) {
+          if (!isOperativeBound(entry)) continue;
+          if (seen.has(entry.id)) continue;
+          seen.add(entry.id);
+          const result = await stopOwnPortFitting(entry.id);
+          if (result.ok && result.wasRunning) {
+            console.log(
+              `[runner] reconciled orphan own-port fitting: ${entry.id}` +
+                (result.pid ? ` (was pid ${result.pid})` : "")
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[runner] startup reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  })();
+  return reconciliationPromise;
+}
+
+async function startOperativeBoundFittings(compositionId: string): Promise<void> {
+  const composition = await readCompositionWithDerivedTasks(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+  for (const entry of entries) {
+    if (!isOperativeBound(entry)) continue;
+    const result = await startOwnPortFitting(entry);
+    if (!result.ok) {
+      appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
+      continue;
+    }
+    if (result.alreadyRunning) {
+      appendLog(compositionId, "runner", `own-port ${entry.id} already running; left in place`);
+    } else {
+      appendLog(compositionId, "runner", `own-port ${entry.id} started${result.pid ? ` (pid ${result.pid})` : ""}`);
+    }
+  }
+}
+
+async function stopOperativeBoundFittings(compositionId: string): Promise<void> {
+  const composition = await readCompositionWithDerivedTasks(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+  for (const entry of entries) {
+    if (!isOperativeBound(entry)) continue;
+    const result = await stopOwnPortFitting(entry.id);
+    if (!result.ok) {
+      appendLog(compositionId, "stderr", `own-port ${entry.id} stop: ${result.error}`);
+      continue;
+    }
+    if (result.wasRunning) {
+      appendLog(compositionId, "runner", `own-port ${entry.id} stopped (pid ${result.pid})`);
+    }
+  }
 }
 
 export interface SetupResult {
@@ -421,55 +501,6 @@ export function getGatewayBaseUrl(compositionId: string): string | null {
     return null;
   }
   return record.gateway.baseUrl;
-}
-
-export async function sendTestMessage(compositionId: string, message: string): Promise<RunnerState> {
-  const trimmed = message.trim();
-  if (!trimmed) {
-    throw new Error("Test message is required");
-  }
-  const record = getRecord(compositionId);
-  if (!record.process || record.state.status !== "running") {
-    throw new Error("Operative is not running");
-  }
-  appendLog(compositionId, "input", `test message: ${trimmed}`);
-
-  if (record.gateway) {
-    try {
-      const response = await fetch(`${record.gateway.baseUrl}/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: trimmed }),
-        signal: AbortSignal.timeout(120_000)
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Gateway /chat returned ${response.status}: ${text}`);
-      }
-      const data = (await response.json()) as { reply?: string };
-      const reply = data.reply ?? "";
-      if (reply) {
-        appendLog(compositionId, "stdout", `assistant: ${reply}`);
-      } else {
-        appendLog(compositionId, "stdout", "(empty assistant reply)");
-      }
-    } catch (error) {
-      const messageText = error instanceof Error ? error.message : String(error);
-      appendLog(compositionId, "stderr", `chat failed: ${messageText}`);
-      throw error;
-    }
-    return getRunnerState(compositionId);
-  }
-
-  if (!record.process.stdin.writable) {
-    throw new Error("Operative stdin is not writable");
-  }
-  const turn = {
-    type: "user",
-    message: { role: "user", content: trimmed }
-  };
-  record.process.stdin.write(JSON.stringify(turn) + "\n");
-  return getRunnerState(compositionId);
 }
 
 async function startDevWatcher(compositionId: string): Promise<void> {

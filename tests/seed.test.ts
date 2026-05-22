@@ -17,6 +17,7 @@ const seedIds = [
   "scheduler",
   "trello-data-source",
   "slack-channel",
+  "web-channel-default",
   "soul",
   "personal-operative",
   "artifact-store",
@@ -175,6 +176,14 @@ describe("seed Fittings", () => {
       );
     }
     expect(result.ok).toBe(true);
+  });
+
+  it("web-channel-default provides channel:web on the web-channel Faculty", async () => {
+    const metadata = await loadSeed("web-channel-default");
+    expect(metadata.faculty).toBe("web-channel");
+    expect(metadata.component_shape).toBe("plugin");
+    expect(metadata.provides).toContainEqual({ kind: "channel", name: "web" });
+    expect(metadata.consumes).toEqual([]);
   });
 
   it("soul fittings parse correctly with spawn configs", async () => {

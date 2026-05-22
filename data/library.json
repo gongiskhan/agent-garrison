@@ -180,6 +180,21 @@
     }
   },
   {
+    "id": "web-channel-default",
+    "name": "Web channel",
+    "repo": "local:fittings/seed/web-channel-default",
+    "localPath": "fittings/seed/web-channel-default",
+    "summary": "Mobile-first browser chat surface. Serves a React UI on its own port (default 7083) and proxies the http-gateway for streaming replies.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-web-channel",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "artifact-store",
     "name": "Artifact store",
     "repo": "local:fittings/seed/artifact-store",

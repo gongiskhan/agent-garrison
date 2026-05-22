@@ -1,0 +1,61 @@
+name: web-channel-default
+version: 0.1.0
+description: Default Web Channel Fitting for Agent Garrison — mobile-first browser chat surface that proxies the http-gateway.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: web-channel
+  cardinality_hint: single
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Serves a React chat UI on its own port (default 7083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the Operative through the gateway; never spawns Claude itself.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7083
+      description: HTTP port the web-channel server binds to. Falls back to next free port when in use.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address. Set to 0.0.0.0 to expose to the LAN (e.g. phone access).
+    - key: gateway_url
+      type: string
+      default: ""
+      description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:4777.
+  provides:
+    - kind: channel
+      name: web
+  consumes: []
+  setup:
+    command: node ui/build.mjs
+    idempotent: true
+    timeout_ms: 60000
+  verify:
+    command: node apm_modules/_local/web-channel-default/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The web-channel Fitting is the Operative's mobile surface. The
+    Orchestrator does not call it directly — the browser drives. The
+    web-channel relays browser POSTs to the http-gateway's /chat/stream,
+    and subscribes to /channels/web/stream so that replies (and the
+    last 100 events on reconnect) reach the browser.
+
+    Channel id: "web" — set as the `channel` field on inbound /chat/stream
+    requests. When the Orchestrator publishes assistant replies, they
+    are multiplexed into the "web" channel ring buffer and any open SSE
+    subscribers (i.e. open browser tabs) receive them.
+
+    Status file at ~/.garrison/ui-fittings/web-channel-default.json
+    carries:
+      { fittingId, port, url, pid, startedAt }
+
+    Endpoints (served by this Fitting on its own port):
+      GET  /health           → liveness
+      GET  /api/health       → liveness
+      GET  /api/stream       → SSE proxy of gateway /channels/web/stream
+      POST /api/chat         → SSE proxy of gateway /chat/stream (body: {message})
+      GET  /api/monitor      → { available, url? } — opportunistic Monitor discovery
+      GET  /                 → React chat UI (dist/index.html)

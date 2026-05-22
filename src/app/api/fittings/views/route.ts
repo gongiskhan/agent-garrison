@@ -6,12 +6,12 @@ import os from "node:os";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Reads ~/.garrison/ui-fittings/*.json. Each file is written by a tool
-// Fitting on boot ({fittingId, port, url, pid, startedAt}) and removed on
-// SIGTERM. Returns the list as-is; the client probes /health to surface
-// reachability.
+// Reads ~/.garrison/ui-fittings/*.json. Each file is written by a Fitting
+// whose UI runs on its own port (Monitor pattern) and removed on SIGTERM.
+// The body is {fittingId, port, url, pid, startedAt}. We probe /health
+// server-side so the browser can avoid cross-origin requests.
 
-interface ToolEntry {
+interface ViewEntry {
   fittingId: string;
   port: number;
   url: string;
@@ -27,16 +27,14 @@ export async function GET() {
     names = (await readdir(dir)).filter((n) => n.endsWith(".json"));
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
-    if (e?.code === "ENOENT") return NextResponse.json({ tools: [] });
+    if (e?.code === "ENOENT") return NextResponse.json({ views: [] });
     return NextResponse.json({ error: e.message ?? String(err) }, { status: 500 });
   }
 
-  // Probe each tool's /health server-side so the browser doesn't have to do
-  // cross-origin requests against the tool ports (no CORS headers there).
-  const probes: Promise<ToolEntry | null>[] = names.map(async (name) => {
+  const probes: Promise<ViewEntry | null>[] = names.map(async (name) => {
     try {
       const raw = await readFile(path.join(dir, name), "utf8");
-      const parsed = JSON.parse(raw) as Partial<ToolEntry>;
+      const parsed = JSON.parse(raw) as Partial<ViewEntry>;
       if (typeof parsed.fittingId !== "string" || typeof parsed.port !== "number" || typeof parsed.url !== "string") {
         return null;
       }
@@ -54,8 +52,8 @@ export async function GET() {
     }
   });
   const settled = await Promise.all(probes);
-  const tools = settled.filter((t): t is ToolEntry => t !== null);
-  return NextResponse.json({ tools });
+  const views = settled.filter((v): v is ViewEntry => v !== null);
+  return NextResponse.json({ views });
 }
 
 async function probeHealth(url: string): Promise<boolean> {

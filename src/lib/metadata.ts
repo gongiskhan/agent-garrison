@@ -109,7 +109,8 @@ export const garrisonMetadataSchema = z.object({
       truth_file: z.string().min(1)
     })
     .optional(),
-  spawn: spawnConfigSchema.optional()
+  spawn: spawnConfigSchema.optional(),
+  lifecycle: z.enum(["operative-bound", "detached"]).optional()
 });
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {

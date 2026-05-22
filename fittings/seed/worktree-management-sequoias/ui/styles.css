@@ -34,6 +34,9 @@ h1 { font-size: 16px; font-weight: 600; margin: 0; }
 
 .form { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; }
 .form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.form input { flex: 1; min-width: 200px; background: var(--bg-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 3px; font-family: inherit; font-size: 12px; }
+.form input, .form select { flex: 1; min-width: 200px; background: var(--bg-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 3px; font-family: inherit; font-size: 12px; }
+.form select { cursor: pointer; }
 .form label { font-size: 11px; color: var(--mute); min-width: 100px; }
-code { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--panel); padding: 2px 5px; border-radius: 2px; font-size: 11px; }
+.hint { font-size: 11px; color: var(--brass); background: rgba(201, 161, 74, 0.12); border: 1px solid rgba(201, 161, 74, 0.4); padding: 6px 10px; border-radius: 3px; }
+code { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--panel); padding: 2px 5px; border-radius: 2px; font-size: 11px; cursor: default; }
+.simple td button + button { margin-left: 4px; }

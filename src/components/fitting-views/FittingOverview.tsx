@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { isOwnPortFaculty, OWN_PORT_DEFAULTS } from "@/lib/faculties";
 import { RUNTIME_FITTING_ID } from "@/lib/capabilities";
 import { singletonCapabilityKinds } from "@/lib/types";
-import { useToolDiscovery, type ToolWithHealth } from "@/components/tools/useToolDiscovery";
+import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import type {
   CapabilityConsumption,
   Composition,
@@ -27,9 +27,9 @@ interface FittingOverviewProps {
 // Reused inline-collapsed inside FittingCard on /compose/<faculty>, and
 // full-width on /fitting/<id> as the canonical Fitting page header.
 export function FittingOverview({ entry, composition, library, compact }: FittingOverviewProps) {
-  const { entries: toolEntries, refresh } = useToolDiscovery();
+  const { entries: viewStatuses, refresh } = useFittingViewStatus();
   const ownPort = isOwnPortFaculty(entry.faculty);
-  const tool = ownPort ? toolEntries.find((t) => t.fittingId === entry.id) ?? null : null;
+  const view = ownPort ? viewStatuses.find((t) => t.fittingId === entry.id) ?? null : null;
   const defaultPort = OWN_PORT_DEFAULTS[entry.faculty];
 
   return (
@@ -46,7 +46,7 @@ export function FittingOverview({ entry, composition, library, compact }: Fittin
       <Views
         entry={entry}
         ownPort={ownPort}
-        tool={tool}
+        view={view}
         defaultPort={defaultPort}
         refresh={refresh}
       />
@@ -225,13 +225,13 @@ function Consumes({
 function Views({
   entry,
   ownPort,
-  tool,
+  view,
   defaultPort,
   refresh
 }: {
   entry: LibraryEntry;
   ownPort: boolean;
-  tool: ToolWithHealth | null;
+  view: FittingViewStatus | null;
   defaultPort: number | undefined;
   refresh: () => Promise<void>;
 }) {
@@ -274,49 +274,87 @@ function Views({
           </li>
         ))}
         {ownPort ? (
-          <li
-            style={{
-              fontSize: 12.5,
-              padding: "8px 10px",
-              background: "white",
-              border: "1px solid var(--rule)",
-              display: "grid",
-              gridTemplateColumns: "1fr auto",
-              gap: 8,
-              alignItems: "center"
-            }}
-          >
-            <div>
-              <b>Own-port UI</b>
-              {defaultPort ? (
-                <span style={{ color: "var(--mute)" }}>
-                  {" "}
-                  · default <code style={{ fontFamily: "var(--font-mono), monospace" }}>:{defaultPort}</code>
-                </span>
-              ) : null}
-              {tool?.url ? (
-                <span style={{ color: "var(--mute)" }}>
-                  {" "}
-                  · live at <code style={{ fontFamily: "var(--font-mono), monospace" }}>{tool.url}</code>
-                </span>
-              ) : null}
-            </div>
-            <OwnPortControls entry={entry} tool={tool} refresh={refresh} />
-          </li>
+          <OwnPortRow
+            entry={entry}
+            view={view}
+            defaultPort={defaultPort}
+            refresh={refresh}
+          />
         ) : null}
       </ul>
     </section>
   );
 }
 
-function OwnPortControls({
+function OwnPortRow({
   entry,
-  tool,
+  view,
+  defaultPort,
   refresh
 }: {
   entry: LibraryEntry;
-  tool: ToolWithHealth | null;
+  view: FittingViewStatus | null;
+  defaultPort: number | undefined;
   refresh: () => Promise<void>;
+}) {
+  const [logsOpen, setLogsOpen] = useState(false);
+  return (
+    <li
+      style={{
+        fontSize: 12.5,
+        background: "white",
+        border: "1px solid var(--rule)"
+      }}
+    >
+      <div
+        style={{
+          padding: "8px 10px",
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 8,
+          alignItems: "center"
+        }}
+      >
+        <div>
+          <b>Own-port UI</b>
+          {defaultPort ? (
+            <span style={{ color: "var(--mute)" }}>
+              {" "}
+              · default <code style={{ fontFamily: "var(--font-mono), monospace" }}>:{defaultPort}</code>
+            </span>
+          ) : null}
+          {view?.url ? (
+            <span style={{ color: "var(--mute)" }}>
+              {" "}
+              · live at <code style={{ fontFamily: "var(--font-mono), monospace" }}>{view.url}</code>
+            </span>
+          ) : null}
+        </div>
+        <OwnPortControls
+          entry={entry}
+          view={view}
+          refresh={refresh}
+          logsOpen={logsOpen}
+          onToggleLogs={() => setLogsOpen((v) => !v)}
+        />
+      </div>
+      {logsOpen ? <LogPanel fittingId={entry.id} /> : null}
+    </li>
+  );
+}
+
+function OwnPortControls({
+  entry,
+  view,
+  refresh,
+  logsOpen,
+  onToggleLogs
+}: {
+  entry: LibraryEntry;
+  view: FittingViewStatus | null;
+  refresh: () => Promise<void>;
+  logsOpen: boolean;
+  onToggleLogs: () => void;
 }) {
   const [busy, setBusy] = useState<"start" | "stop" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -339,7 +377,7 @@ function OwnPortControls({
     }
   }
 
-  const healthy = tool?.healthy === true && tool.url;
+  const healthy = view?.healthy === true && view.url;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -348,10 +386,18 @@ function OwnPortControls({
           error
         </span>
       ) : null}
+      <button
+        type="button"
+        className="btn small ghost"
+        onClick={onToggleLogs}
+        aria-pressed={logsOpen}
+      >
+        {logsOpen ? "Hide logs" : "Logs"}
+      </button>
       {healthy ? (
         <>
           <a
-            href={tool.url}
+            href={view.url}
             target="_blank"
             rel="noopener noreferrer"
             className="btn small primary"
@@ -371,7 +417,7 @@ function OwnPortControls({
       ) : (
         <>
           <span style={{ fontSize: 11, color: "var(--mute)" }}>
-            {tool?.healthy === false ? "unreachable" : "not running"}
+            {view?.healthy === false ? "unreachable" : "not running"}
           </span>
           <button
             type="button"
@@ -383,6 +429,109 @@ function OwnPortControls({
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+// Polls /api/fittings/<id>/logs every 1.5s while mounted. Auto-scrolls to
+// the bottom only when the user is already pinned there, so they can scroll
+// up to read without being yanked back.
+function LogPanel({ fittingId }: { fittingId: string }) {
+  const [content, setContent] = useState<string>("");
+  const [exists, setExists] = useState<boolean>(true);
+  const [truncated, setTruncated] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const preRef = useRef<HTMLPreElement | null>(null);
+  const pinnedToBottomRef = useRef(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function tick() {
+      try {
+        const res = await fetch(`/api/fittings/${fittingId}/logs`, { cache: "no-store" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error((data && data.error) || `HTTP ${res.status}`);
+        }
+        const data = (await res.json()) as {
+          content: string;
+          exists: boolean;
+          truncated: boolean;
+        };
+        if (cancelled) return;
+        setContent(data.content);
+        setExists(data.exists);
+        setTruncated(data.truncated);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    void tick();
+    const handle = setInterval(() => void tick(), 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [fittingId]);
+
+  useEffect(() => {
+    const el = preRef.current;
+    if (!el) return;
+    if (pinnedToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [content]);
+
+  function onScroll(e: React.UIEvent<HTMLPreElement>) {
+    const el = e.currentTarget;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    pinnedToBottomRef.current = distanceFromBottom < 12;
+  }
+
+  return (
+    <div style={{ borderTop: "1px solid var(--rule)", background: "var(--paper-2)" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 10px",
+          fontSize: 11,
+          color: "var(--mute)",
+          borderBottom: "1px solid var(--rule)"
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-mono), monospace" }}>
+          ~/.garrison/ui-fittings/{fittingId}.log
+        </span>
+        <span style={{ flex: 1 }} />
+        {truncated ? <span>tail only</span> : null}
+        {!exists ? <span>no log yet — start the view to populate</span> : null}
+        {error ? <span style={{ color: "var(--alarm)" }}>{error}</span> : null}
+      </div>
+      <pre
+        ref={preRef}
+        onScroll={onScroll}
+        style={{
+          margin: 0,
+          padding: "10px 12px",
+          fontFamily: "var(--font-mono), monospace",
+          fontSize: 11.5,
+          lineHeight: 1.5,
+          color: "var(--ink)",
+          background: "var(--paper)",
+          maxHeight: 280,
+          overflow: "auto",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word"
+        }}
+      >
+        {content || (exists ? "" : "(no output captured yet)")}
+      </pre>
     </div>
   );
 }

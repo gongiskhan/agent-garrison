@@ -172,6 +172,15 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["plugin", "script"],
     notes:
       "Read-only visibility into everything Garrison spawns — PIDs, status, ports, logs. Default Fitting serves its own UI on its own port; consumers link by URL."
+  },
+  {
+    id: "web-channel",
+    order: 22,
+    name: "Web channel",
+    cardinality: "single",
+    shapes: ["plugin", "script"],
+    notes:
+      "Mobile-first browser chat surface. Stand-alone Fitting on its own port (default 7083) — talks to the Operative via the http-gateway and provides a kind:channel capability."
   }
 ];
 
@@ -197,7 +206,8 @@ export const OWN_PORT_FACULTIES: ReadonlySet<FacultyId> = new Set([
   "worktree-management",
   "session-view",
   "outposts",
-  "monitor"
+  "monitor",
+  "web-channel"
 ]);
 
 export const OWN_PORT_DEFAULTS: Partial<Record<FacultyId, number>> = {
@@ -205,7 +215,8 @@ export const OWN_PORT_DEFAULTS: Partial<Record<FacultyId, number>> = {
   "screen-share": 7079,
   "worktree-management": 7080,
   "session-view": 7081,
-  outposts: 7082
+  outposts: 7082,
+  "web-channel": 7083
   // monitor's default port is owned by the Monitor Fitting itself; if/when it
   // lands a canonical default, add it here.
 };

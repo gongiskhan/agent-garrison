@@ -44,6 +44,9 @@ let claudeShimDir: string;
 let nextStub: Server | undefined;
 let nextStubPort: number;
 let nextStubCalls: Array<{ method: string; pathname: string; body: unknown }> = [];
+let worktreeStub: http.Server | undefined;
+let worktreeStubPort: number;
+let worktreeStubCalls: Array<{ method: string; pathname: string; body: unknown }> = [];
 
 beforeAll(async () => {
   // Working dir for the test composition (fake apm_modules layout for mcp-gateway lookup).
@@ -75,7 +78,8 @@ beforeAll(async () => {
     { mode: 0o755 }
   );
 
-  // Mini Next.js stub for worktrees passthrough.
+  // Mini Next.js stub for interactive spawn-soul-tab passthrough (the
+  // post-Workbench-dissolution endpoint name).
   nextStubPort = await findFreePort();
   nextStub = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -89,27 +93,53 @@ beforeAll(async () => {
     nextStubCalls.push({ method: req.method ?? "GET", pathname, body });
     res.statusCode = 200;
     res.setHeader("content-type", "application/json");
-    if (pathname.startsWith("/api/workbench/spawn-soul-tab")) {
+    if (pathname.startsWith("/api/interactive/spawn-soul-tab") ||
+        pathname.startsWith("/api/interactive/respawn-soul-tab")) {
       res.end(JSON.stringify({ terminal_tab_id: "tab-test-123" }));
-      return;
-    }
-    if (pathname.startsWith("/api/workbench/worktrees/close")) {
-      res.end(JSON.stringify({ ok: true, pr_url: "https://github.com/test/repo/pull/1" }));
-      return;
-    }
-    if (pathname.startsWith("/api/workbench/worktrees")) {
-      res.end(
-        JSON.stringify(
-          req.method === "POST"
-            ? { id: "worktree-uuid-1", title: body && typeof body === "object" ? (body as { task_title?: string }).task_title : undefined, urls: { frontend: "http://localhost:50000" } }
-            : { worktrees: [] }
-        )
-      );
       return;
     }
     res.end("{}");
   });
   await new Promise<void>((resolve) => nextStub!.listen(nextStubPort, "127.0.0.1", resolve));
+
+  // Mini worktree-management fitting stub (production calls this on port 7080
+  // via WORKTREE_FITTING_BASE_URL).
+  worktreeStubPort = await findFreePort();
+  worktreeStub = http.createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const raw = Buffer.concat(chunks).toString("utf8");
+    let body: unknown = null;
+    if (raw) {
+      try { body = JSON.parse(raw); } catch { body = raw; }
+    }
+    const u = new URL(req.url ?? "/", "http://127.0.0.1");
+    const pathname = u.pathname;
+    worktreeStubCalls.push({ method: req.method ?? "GET", pathname, body });
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json");
+    if (req.method === "POST" && pathname === "/worktrees") {
+      res.end(JSON.stringify({
+        id: "worktree-uuid-1",
+        title: body && typeof body === "object"
+          ? (body as { title?: string }).title ?? null
+          : null,
+        urls: { frontend: "http://localhost:50000" }
+      }));
+      return;
+    }
+    if (req.method === "GET" && pathname === "/worktrees") {
+      res.end(JSON.stringify({ worktrees: [] }));
+      return;
+    }
+    const closeMatch = pathname.match(/^\/worktrees\/([^/]+)$/);
+    if (req.method === "DELETE" && closeMatch) {
+      res.end(JSON.stringify({ ok: true, id: closeMatch[1] }));
+      return;
+    }
+    res.end("{}");
+  });
+  await new Promise<void>((resolve) => worktreeStub!.listen(worktreeStubPort, "127.0.0.1", resolve));
 
   gatewayPort = await findFreePort();
   gatewayUrl = `http://127.0.0.1:${gatewayPort}`;
@@ -149,6 +179,7 @@ beforeAll(async () => {
       GARRISON_MCP_GATEWAY_BASE_URL: "http://127.0.0.1:65000", // fake; gateway just writes it into .mcp.json
       GARRISON_MCP_GATEWAY_TOKEN: "test-token",
       GARRISON_NEXT_BASE_URL: `http://127.0.0.1:${nextStubPort}`,
+      WORKTREE_FITTING_BASE_URL: `http://127.0.0.1:${worktreeStubPort}`,
       GARRISON_ORCHESTRATOR_FITTING_ID: "garrison-orchestrator",
       GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
       GARRISON_JSONL_IDLE_MS: "200" // shorten for tests
@@ -181,6 +212,9 @@ afterAll(async () => {
   if (nextStub) {
     await new Promise<void>((resolve) => nextStub!.close(() => resolve()));
   }
+  if (worktreeStub) {
+    await new Promise<void>((resolve) => worktreeStub!.close(() => resolve()));
+  }
   await fsp.rm(testDir, { recursive: true, force: true }).catch(() => null);
   await fsp.rm(claudeShimDir, { recursive: true, force: true }).catch(() => null);
 });
@@ -194,12 +228,19 @@ describe("Phase 9I L3 — http-gateway orchestrator mode (mock claude)", () => {
     expect(data.orchestrator_session_id).toMatch(/^[0-9a-f-]{36}$/i);
   });
 
-  it("writes the shared .mcp.json on boot pointing at the mcp-gateway URL", async () => {
+  it("writes the shared .mcp.json on boot wiring an mcp-gateway stdio child", async () => {
     const filePath = path.join(testDir, ".garrison", "mcp.json");
     const raw = await fsp.readFile(filePath, "utf8");
     const cfg = JSON.parse(raw);
-    expect(cfg.mcpServers.garrison.url).toContain("65000");
-    expect(cfg.mcpServers.garrison.headers.Authorization).toContain("test-token");
+    // Gateway now wires mcp-gateway as a stdio child (proven-good transport;
+    // HTTP transport was dropped because Claude Code's HTTP MCP assumes
+    // OAuth and doesn't always honour raw Bearer headers).
+    expect(cfg.mcpServers.garrison.command).toBe("node");
+    expect(Array.isArray(cfg.mcpServers.garrison.args)).toBe(true);
+    expect(cfg.mcpServers.garrison.args.join(" ")).toContain("gateway.mjs");
+    expect(cfg.mcpServers.garrison.args).toContain("stdio");
+    expect(cfg.mcpServers.garrison.env.GARRISON_COMPOSITION_DIR).toBe(testDir);
+    expect(cfg.mcpServers.garrison.env.GARRISON_HTTP_GATEWAY_BASE_URL).toContain(String(gatewayPort));
   });
 
   it("POST /chat with X-Garrison-Origin: channel includes the prefix in orchestrator stdin (echoed via assistant text)", async () => {
@@ -304,8 +345,8 @@ describe("Phase 9I L3 — http-gateway orchestrator mode (mock claude)", () => {
     expect(names).toContain("beta-project");
   });
 
-  it("POST /worktrees proxies to Next.js /api/workbench/worktrees", async () => {
-    nextStubCalls.length = 0;
+  it("POST /worktrees proxies to the worktree-management Fitting on its own port", async () => {
+    worktreeStubCalls.length = 0;
     const res = await fetch(`${gatewayUrl}/worktrees`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -314,19 +355,17 @@ describe("Phase 9I L3 — http-gateway orchestrator mode (mock claude)", () => {
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(data).toMatchObject({ id: "worktree-uuid-1" });
-    expect(nextStubCalls.some((c) => c.method === "POST" && c.pathname.startsWith("/api/workbench/worktrees"))).toBe(true);
+    expect(worktreeStubCalls.some((c) => c.method === "POST" && c.pathname === "/worktrees")).toBe(true);
   });
 
-  it("POST /worktrees/<id>/close proxies action through to Next.js close endpoint", async () => {
-    nextStubCalls.length = 0;
+  it("POST /worktrees/<id>/close action='discard' proxies through to the worktree Fitting's DELETE", async () => {
+    worktreeStubCalls.length = 0;
     const res = await fetch(`${gatewayUrl}/worktrees/abc-123/close`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "merge" })
+      body: JSON.stringify({ action: "discard" })
     });
     expect(res.ok).toBe(true);
-    const data = (await res.json()) as { pr_url: string };
-    expect(data.pr_url).toContain("github.com");
-    expect(nextStubCalls.some((c) => c.method === "POST" && c.pathname.startsWith("/api/workbench/worktrees/close"))).toBe(true);
+    expect(worktreeStubCalls.some((c) => c.method === "DELETE" && c.pathname === "/worktrees/abc-123")).toBe(true);
   });
 });

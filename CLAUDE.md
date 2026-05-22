@@ -44,11 +44,14 @@ validators land in the runtime SDK milestone.
 
 ## Terminology — don't drift
 
-- **Garrison** — the platform (this app).
-- **Faculty** — a slot in a composition. 19 flat top-level Faculties + derived **Tasks**. The five tool Faculties (terminal, screen-share, worktree-management, session-view, outposts) each ship their own React UI on their own port (Monitor pattern); none embed in the Garrison shell.
-- **Tools** — discovery page at `/tools` that lists tool Fittings via `~/.garrison/ui-fittings/*.json`. Each entry opens the Fitting's own URL in a new tab. Distinct from **Armory** (`/armory`), which is the Fitting registry browser. See `docs/decisions/2026-05-17-dissolve-workbench.md`.
+- **Garrison** — the platform (this app). Its job is **compose · run · observe**. Anything beyond that lives in Fittings.
+- **Faculty** — a slot in a composition. 22 flat top-level Faculties + derived **Tasks**. A subset of Faculties (`terminal`, `screen-share`, `worktree-management`, `session-view`, `outposts`, `monitor`, `web-channel`) is **own-port** — their Fittings serve their own React UI on their own HTTP port (Monitor pattern). Garrison links to those views from the sidebar's Views section; it does not embed them.
+- **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`). Garrison knows that Fittings have **views**; it does not know about "tools".
+- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted.
+- **Armory** — `/armory`, the Fitting registry browser.
 - **Fitting** — the concrete component installed into a slot.
 - **Operative** — the composed, running agent.
+- **Channel** — the way external surfaces (Slack, a future Web Channel, etc.) reach the Operative through the gateway. Garrison does not ship a built-in chat surface — talking to the Operative is the Channel Fittings' job.
 - **`x-garrison`** — Garrison's metadata block inside the APM
   `apm.yml` manifest. APM preserves `x-*` keys; Garrison reads this
   block. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
@@ -66,10 +69,8 @@ their TypeScript counterparts have been renamed.
 ## High-level architecture
 
 ```
-src/app/             Next.js routes — Compose, Run, Vault, Chat,
-                     Tools (discovery page, /tools),
-                     Armory (Fitting registry browser, /armory),
-                     /fitting/<id>/... per-Fitting sidebar surfaces.
+src/app/             Next.js routes — Compose, Run, Vault, Armory,
+                     /fitting/<id>/... per-Fitting overview + views.
                      API routes under src/app/api/.
 src/lib/             Backend runtime: runner.ts (lifecycle),
                      capabilities.ts (provides/consumes resolver),
@@ -79,14 +80,14 @@ src/lib/             Backend runtime: runner.ts (lifecycle),
                      v2 router), preflight.ts, hosts.ts,
                      worktrees.ts, sequoias-sessions.ts.
 src/components/      React UI (Compose, Run, Vault, Chrome,
-                     fitting-views registry, armory, tools, chat).
+                     fitting-views registry + status hook, armory,
+                     garrison home).
 compositions/<id>/   apm.yml = source of truth per composition.
                      Filesystem is authoritative; no JSON shadow.
-fittings/seed/       16 local APM seed Fittings + a README.md
+fittings/seed/       Local APM seed Fittings + a README.md
                      summarising capability wiring. New Fittings
                      ship as their own git repos.
-data/library.json    Curated Fittings Registry (14 entries today;
-                     the six originals plus Phase 1–3 additions).
+data/library.json    Curated Fittings Registry.
 data/vault.json      Encrypted secrets, file mode 0600.
 scripts/             validate-fitting.ts, integration-check.mjs,
                      refresh-default-prompts.ts, spike/.
@@ -94,23 +95,32 @@ tests/               vitest suite — runner, capabilities, metadata,
                      fitting-view-resolver, validation, seeds, etc.
 ```
 
-### Faculties (19 flat top-level + derived Tasks)
+The visible shell surfaces are **Garrison · Compose · Armory · Run ·
+Vault**, plus the sidebar **Views** group (auto-populated per
+composition) and per-Fitting routes under `/fitting/<id>/...`. There is
+no built-in Chat, Tools, or Operative test surface. Operative
+interaction goes through Channel Fittings; observability is the runtime
+log on `/run` plus per-Fitting logs under `/fitting/<id>`.
+
+### Faculties (22 flat top-level + derived Tasks)
 
 All Faculties are flat siblings after the 2026-05-17 Workbench dissolution.
 
 **Cadence / Context / Action / Control:** `heartbeat`, `scheduler`, `data-sources`,
 `knowledge-base`, `automations`, `skills`, `memory`, `classifier`,
 `gateway`, `channels`, `observability`, `soul`, `orchestrator`,
-`artifact-store`, `sync`, `monitor`. Tasks is *derived* from a data source
-and never declared by a Fitting.
+`artifact-store`, `sync`, `monitor`, `web-channel`. Tasks is *derived* from a
+data source and never declared by a Fitting.
 
-**Tools** (each Fitting runs its own React UI on its own port, Monitor
-pattern; discovery via `/tools` page):
-`terminal` (default 7078), `screen-share` (7079), `worktree-management`
-(7080), `session-view` (7081), `outposts` (7082). See
+**Own-port Faculties** — `terminal` (default port 7078),
+`screen-share` (7079), `worktree-management` (7080),
+`session-view` (7081), `outposts` (7082), `monitor` (7077), and
+`web-channel` (7083). Their Fittings serve their own React UI on the
+listed port (Monitor pattern) and register themselves at runtime via
+`~/.garrison/ui-fittings/<id>.json`. The sidebar Views section
+surfaces them; Garrison does not embed them. See
 [`docs/decisions/2026-05-17-dissolve-workbench.md`](./docs/decisions/2026-05-17-dissolve-workbench.md)
-for the dissolution decision and [`docs/UI-FITTINGS.md`](./docs/UI-FITTINGS.md)
-for the own-port pattern.
+and [`docs/UI-FITTINGS.md`](./docs/UI-FITTINGS.md).
 
 Long-form intent and failure modes per Faculty in
 [`docs/FACULTIES.md`](./docs/FACULTIES.md).
@@ -175,9 +185,9 @@ an `id`, a `placement` (`faculty-tab` | `sidebar-surface`), an
 `src/components/fitting-views/registry.tsx` is **static** in v2.
 Dynamic disk loading is a v3 concern.
 
-Cross-Fitting links use `garrison://<fitting-id>/<rest>` in chat or
-message bodies. The chat renderer translates them to
-`/fitting/<fitting-id>/<rest>` and renders Next.js `<Link>`s.
+Cross-Fitting links use `garrison://<fitting-id>/<rest>` in message
+bodies (e.g. channel replies). Renderers translate them to
+`/fitting/<fitting-id>/<rest>` and render Next.js `<Link>`s.
 `garrison://artifacts/<id>` for a markdown artifact resolves
 transparently to `garrison://documents/<id>`.
 
@@ -194,49 +204,43 @@ Orchestrator's "tools available" block at assembly time. 8 KB byte
 cap per block. When absent, the runner falls back to the
 provider's `summary`.
 
-## Roadmap status (as of 2026-05-11)
+## Roadmap status
 
 - **Phase 1** — PA-shaped seed Operative. **Done (2026-05-06).**
-- **Phase 2** — Real PA functionality. In progress / partially
-  landed; see roadmap for per-T status.
+- **Phase 2** — Real PA functionality. In progress; see roadmap.
 - **Phase 3** — Documents Fitting + Artifact Store + UI contract
   v2. **Done (2026-05-08).**
-- **Phase 4** — Plan-then-execute (Variant A sub-agent Fitting).
-  **Done (2026-05-08).**
-- **Phase 5** — Five tool Faculties (terminal, screen-share,
-  worktree-management, session-view, outposts). Originally landed
-  2026-05-11 as a Workbench-family group; **dissolved 2026-05-17** —
-  each Fitting now runs its own React UI on its own port (Monitor
-  pattern). See `docs/decisions/2026-05-17-dissolve-workbench.md`.
-  Default ports: 7078–7082. Discovery via `/tools`.
-- **Phase 6** — Automations Faculty (EKOA port). Not started.
-- **Phase 7** — Tasks Faculty (Kanban-as-control-plane). Not started.
+- **Phase 4** — Plan-then-execute sub-agent Fitting.
+  **Done (2026-05-08).** (Garrison no longer surfaces sub-agent runs
+  in the Run page; the Fitting owns its own UI if it wants one.)
+- **Phase 5** — Own-port UI Faculties (terminal, screen-share,
+  worktree-management, session-view, outposts). Workbench family
+  dissolved 2026-05-17 (Monitor pattern). Built-in `/tools` page
+  removed 2026-05-20 — sidebar Views is the surface.
+- **Phase 6** — Automations Faculty. Garrison provides the slot
+  and the capability contract; consumers wire their own runner.
+- **Phase 7** — Tasks Faculty (derived from a data source). Garrison
+  provides the derivation; consumers wire the data source.
+
+A **Web Channel Fitting** (browser-based channel surface) is the
+planned successor to the deleted built-in chat. Until it lands, Slack
+is the only shipped channel.
 
 **Always read [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md)
-for live status before planning new work** — phase state drifts
-faster than this file.
+for live status before planning new work** — phase state drifts faster
+than this file.
 
-## Permissions / Memory / Slack / Trello specifics
+## Permissions
 
 - **Permission mode is `bypassPermissions`.** Anything stricter
   hangs because the UI has no permission-prompt surface yet.
-- **Memory Fitting** wraps the user's existing
-  `~/.claude/memory-compiler/` (Python, three Claude Code hooks,
-  Anthropic-API atomic-article extraction into the Obsidian vault
-  at `~/Projects/ekus/obsidian-vault/Compiled/`). The Fitting does
-  **not** bundle the compiler — its setup script clones the repo
-  if missing, runs `uv sync`, and wires the SessionStart /
-  SessionEnd / PreCompact hooks into `~/.claude/settings.json` if
-  absent.
-- **Slack channel** is ported from
-  `~/Projects/awc-gateway-slack/` (real webhook adapter +
-  channel-agnostic gateway), **not Ekus**. Ekus's "Slack" is
-  poll-based curl from inside a session.
-- **Trello data source** ports
-  `mac-mini/gateway/heartbeat/trello.py` from Ekus (144-line
-  stdlib REST client) plus the Trello skill. Phase 7 will replace
-  it with a local Tasks Faculty + a `trello-sync` Fitting that
-  consumes it.
+
+Per-Fitting setup details (memory hook stacks, channel webhook
+adapters, data-source clients, etc.) belong in the Fittings'
+own READMEs and `apm.yml` files, not here. The Honesty Test
+([`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md) §3) rejects naming a
+specific downstream user's directory layout, repo URLs, or workflow
+in Garrison's project doc.
 
 ## Working conventions
 

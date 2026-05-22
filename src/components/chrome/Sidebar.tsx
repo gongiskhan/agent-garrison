@@ -11,15 +11,13 @@ import {
   Layers,
   Library,
   Play,
-  MessageSquare,
   Lock,
   Component,
-  Wrench,
   ExternalLink
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { faculties, isOwnPortFaculty } from "@/lib/faculties";
-import { useToolDiscovery, type ToolWithHealth } from "@/components/tools/useToolDiscovery";
+import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import type {
   Composition,
   FacultyId,
@@ -141,8 +139,6 @@ export function Sidebar() {
           label="Run"
           ct={isRunning ? "live" : undefined}
         />
-        <NavLink href="/chat" pathname={pathname} icon={<MessageSquare aria-hidden />} label="Chat" />
-        <NavLink href="/tools" pathname={pathname} icon={<Wrench aria-hidden />} label="Tools" />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
 
         <FittingViewsLinks
@@ -186,7 +182,7 @@ function FittingViewsLinks({
   library: LibraryEntry[];
   pathname: string;
 }) {
-  const { entries: toolEntries } = useToolDiscovery();
+  const { entries: viewStatuses } = useFittingViewStatus();
 
   if (!composition) return null;
 
@@ -206,25 +202,25 @@ function FittingViewsLinks({
     )
   );
 
-  // Own-port views: tool Fittings whose Faculty is in OWN_PORT_FACULTIES.
-  // They register at runtime via ~/.garrison/ui-fittings/<id>.json; the
-  // useToolDiscovery hook surfaces health + URL.
+  // Own-port views: Fittings whose Faculty is in OWN_PORT_FACULTIES (Monitor
+  // pattern). They register at runtime via ~/.garrison/ui-fittings/<id>.json;
+  // useFittingViewStatus surfaces health + URL.
   const ownPort = stationed.filter((entry) => isOwnPortFaculty(entry.faculty));
 
-  const toolByFittingId = new Map<string, ToolWithHealth>(
-    toolEntries.map((t) => [t.fittingId, t])
+  const statusByFittingId = new Map<string, FittingViewStatus>(
+    viewStatuses.map((s) => [s.fittingId, s])
   );
 
   type Row =
     | { kind: "embedded"; entry: LibraryEntry }
-    | { kind: "own-port"; entry: LibraryEntry; tool: ToolWithHealth | null };
+    | { kind: "own-port"; entry: LibraryEntry; status: FittingViewStatus | null };
 
   const rows: Row[] = [
     ...embedded.map((entry) => ({ kind: "embedded" as const, entry })),
     ...ownPort.map((entry) => ({
       kind: "own-port" as const,
       entry,
-      tool: toolByFittingId.get(entry.id) ?? null
+      status: statusByFittingId.get(entry.id) ?? null
     }))
   ].sort((a, b) => a.entry.name.localeCompare(b.entry.name));
 
@@ -251,18 +247,18 @@ function FittingViewsLinks({
             </Link>
           );
         }
-        const tool = row.tool;
-        const healthy = tool?.healthy === true;
-        const statusClass = healthy ? "verified" : tool?.healthy === false ? "alarm" : "empty";
-        if (healthy && tool) {
+        const status = row.status;
+        const healthy = status?.healthy === true;
+        const statusClass = healthy ? "verified" : status?.healthy === false ? "alarm" : "empty";
+        if (healthy && status) {
           return (
             <a
               key={`own-port:${row.entry.id}`}
-              href={tool.url}
+              href={status.url}
               target="_blank"
               rel="noopener noreferrer"
               className={clsx("leaf", statusClass)}
-              title={`Open ${row.entry.name} in new tab (${tool.url})`}
+              title={`Open ${row.entry.name} in new tab (${status.url})`}
             >
               <span className="glyph">
                 <ExternalLink size={14} aria-hidden />
@@ -271,8 +267,6 @@ function FittingViewsLinks({
             </a>
           );
         }
-        // Not running — render disabled-ish row pointing to /fitting/<id>
-        // overview where the user can read about it and find the start command.
         const fallbackHref = `/fitting/${row.entry.id}`;
         const isActive =
           pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
@@ -281,13 +275,13 @@ function FittingViewsLinks({
             key={`own-port:${row.entry.id}`}
             href={fallbackHref}
             className={clsx("leaf", statusClass, isActive && "active")}
-            title={tool?.healthy === false ? "Tool is unreachable" : "Tool is not running"}
+            title={status?.healthy === false ? "View is unreachable" : "View is not running"}
           >
             <span className="glyph">
               <ExternalLink size={14} aria-hidden />
             </span>
             <span>{row.entry.name}</span>
-            <span className="badge">{tool?.healthy === false ? "down" : "off"}</span>
+            <span className="badge">{status?.healthy === false ? "down" : "off"}</span>
           </Link>
         );
       })}

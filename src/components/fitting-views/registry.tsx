@@ -14,13 +14,12 @@ type FittingViewComponent = ComponentType<FittingViewProps>;
 // UI contract v2 keeps the loader static. A Fitting's `ui.views[]` declares
 // which views exist; the host app decides how to render them. New Fittings
 // that ship a UI add their entry here. v3 may revisit dynamic loading from
-// disk — see AGENTS.md §9.
+// disk — see docs/SPEC.md §9.
 //
-// The five tool Fittings (terminal-armory-default, screen-share-default,
-// worktree-management-sequoias, session-view-sequoias, outpost-tailscale-host)
-// no longer embed a view here — they serve their own React UI on their own
-// port (Monitor pattern). Garrison's /tools page lists them via the status
-// files at ~/.garrison/ui-fittings/*.json.
+// Fittings that serve their own React UI on their own port (Monitor pattern,
+// see docs/decisions/2026-05-17-dissolve-workbench.md) do not embed a view
+// here. They register at runtime via ~/.garrison/ui-fittings/<id>.json and
+// are surfaced by the sidebar Views section.
 const REGISTRY: Record<string, FittingViewComponent> = {
   "tier-classifier:main": dynamic(
     () => import("@/components/extensions/TierClassifierInspector"),

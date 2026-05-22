@@ -5,8 +5,8 @@
 // broker) is deferred and will be added back via the consumed outpost
 // capability.
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import http from "node:http";
@@ -19,9 +19,13 @@ import pty from "node-pty";
 const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "terminal-armory-default.json");
+const DEV_ROOT_FILE = path.join(HOME, ".garrison", "dev-root");
 
 const sessions = new Map(); // id -> { id, name, cwd, shell, pty, ws, lastActivity, createdAt, buffer }
-const OUTPUT_BUFFER_BYTES = 10 * 1024;
+// Big enough to replay a full alt-screen redraw (Claude Code, vim, less etc.)
+// on genuine reconnect. The UI keeps panes mounted on tab switch so this is
+// only hit on browser refresh / network blip.
+const OUTPUT_BUFFER_BYTES = 512 * 1024;
 const PTY_DETACHED_TIMEOUT_MS = 5 * 60 * 1000;
 
 function parseArgs(argv) {
@@ -58,12 +62,13 @@ function sessionSummary(s) {
     name: s.name,
     cwd: s.cwd,
     shell: s.shell,
+    command: s.command || null,
     busy: Date.now() - s.lastActivity < 2000,
     createdAt: s.createdAt
   };
 }
 
-function createSession({ name, cwd, shell }) {
+function createSession({ name, cwd, shell, command }) {
   const id = randomUUID();
   const finalShell = shell || process.env.SHELL || "/bin/zsh";
   const finalCwd = cwd && existsSync(cwd) ? cwd : process.env.HOME || "/tmp";
@@ -80,6 +85,7 @@ function createSession({ name, cwd, shell }) {
     name: name || `terminal-${sessions.size + 1}`,
     cwd: finalCwd,
     shell: finalShell,
+    command: command && typeof command === "string" ? command : null,
     pty: term,
     ws: null,
     lastActivity: Date.now(),
@@ -107,6 +113,13 @@ function createSession({ name, cwd, shell }) {
   });
 
   sessions.set(id, session);
+
+  if (command && typeof command === "string" && command.trim()) {
+    setTimeout(() => {
+      try { term.write(command + "\r"); } catch {}
+    }, 250);
+  }
+
   return session;
 }
 
@@ -123,6 +136,46 @@ function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host, sessions: sessions.size });
 }
 
+function expandHome(p) {
+  if (!p) return p;
+  if (p === "~" || p.startsWith("~/")) return path.join(HOME, p.slice(1).replace(/^\/+/, ""));
+  return p;
+}
+
+async function readDevRoot() {
+  try {
+    const raw = await readFile(DEV_ROOT_FILE, "utf8");
+    const trimmed = raw.trim();
+    if (trimmed) return trimmed;
+  } catch {}
+  return path.join(HOME, "dev");
+}
+
+async function handleListProjects(req, res, queryParams) {
+  const devRoot = expandHome(queryParams.devRoot || (await readDevRoot()));
+  if (!existsSync(devRoot)) return jsonRes(res, 200, { devRoot, projects: [] });
+  const projects = [];
+  let entries = [];
+  try {
+    entries = readdirSync(devRoot, { withFileTypes: true });
+  } catch (err) {
+    return jsonRes(res, 500, { error: `scan failed: ${err.message}` });
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (entry.name.startsWith(".")) continue;
+    const projectPath = path.join(devRoot, entry.name);
+    try {
+      const st = statSync(projectPath);
+      if (!st.isDirectory()) continue;
+    } catch { continue; }
+    if (!existsSync(path.join(projectPath, ".git"))) continue;
+    projects.push({ name: entry.name, path: projectPath });
+  }
+  projects.sort((a, b) => a.name.localeCompare(b.name));
+  jsonRes(res, 200, { devRoot, projects });
+}
+
 function handleListSessions(req, res) {
   jsonRes(res, 200, { sessions: [...sessions.values()].map(sessionSummary) });
 }
@@ -130,7 +183,7 @@ function handleListSessions(req, res) {
 async function handleCreateSession(req, res) {
   const body = (await readBody(req)) || {};
   try {
-    const s = createSession({ name: body.name, cwd: body.cwd, shell: body.shell });
+    const s = createSession({ name: body.name, cwd: body.cwd, shell: body.shell, command: body.command });
     jsonRes(res, 201, sessionSummary(s));
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -202,11 +255,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const server = http.createServer(async (req, res) => {
     try {
+      // CORS for cross-fitting POSTs (worktree-management, session-view)
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      if (req.method === "OPTIONS") { res.statusCode = 204; return res.end(); }
+
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
 
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
+      if (pathname === "/projects" && method === "GET") return handleListProjects(req, res, parsed.query);
       if (pathname === "/sessions" && method === "GET") return handleListSessions(req, res);
       if (pathname === "/terminals" && method === "POST") return handleCreateSession(req, res);
 
@@ -260,22 +320,30 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const session = sessions.get(sessionId);
       if (!session) return;
 
-      if (isBinary || Buffer.isBuffer(data)) {
-        // stdin bytes
+      if (isBinary) {
+        // stdin bytes (binary frame)
         try { session.pty.write(data.toString("utf8")); session.lastActivity = Date.now(); } catch {}
         return;
       }
 
-      // JSON control frames
-      let frame;
-      try { frame = JSON.parse(data.toString("utf8")); } catch { return; }
-      if (frame.type === "resize" && Number.isFinite(frame.cols) && Number.isFinite(frame.rows)) {
-        try { session.pty.resize(frame.cols, frame.rows); } catch {}
-      } else if (frame.type === "ping") {
-        try { ws.send(JSON.stringify({ type: "pong", ts: Date.now() })); } catch {}
-      } else if (frame.type === "stdin" && typeof frame.data === "string") {
-        try { session.pty.write(frame.data); session.lastActivity = Date.now(); } catch {}
+      // Text frame: either a JSON control frame or raw stdin
+      const text = data.toString("utf8");
+      let frame = null;
+      if (text.startsWith("{")) {
+        try { frame = JSON.parse(text); } catch {}
       }
+      if (frame && typeof frame === "object" && typeof frame.type === "string") {
+        if (frame.type === "resize" && Number.isFinite(frame.cols) && Number.isFinite(frame.rows)) {
+          try { session.pty.resize(frame.cols, frame.rows); } catch {}
+        } else if (frame.type === "ping") {
+          try { ws.send(JSON.stringify({ type: "pong", ts: Date.now() })); } catch {}
+        } else if (frame.type === "stdin" && typeof frame.data === "string") {
+          try { session.pty.write(frame.data); session.lastActivity = Date.now(); } catch {}
+        }
+        return;
+      }
+      // Raw text stdin
+      try { session.pty.write(text); session.lastActivity = Date.now(); } catch {}
     });
 
     ws.on("close", () => {

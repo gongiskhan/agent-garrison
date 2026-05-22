@@ -7,8 +7,11 @@
 //   - port-pool allocation
 //   - env file rewriting
 //   - package.json patching
-//   - PR creation / merge / close flows
 //   - outpost-target variants
+//
+// PR creation lives here as of 2026-05-20: POST /worktrees/:id/pr pushes the
+// branch and runs `gh pr create`. Requires the `gh` CLI authenticated for the
+// repo's host.
 //
 // What is preserved:
 //   - State.json schema (projects[path].sessions[branch] = { id, branch, ... })
@@ -16,7 +19,7 @@
 //   - id is a UUID assigned on creation; cleared on removal
 
 import { exec } from "node:child_process";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import http from "node:http";
@@ -29,6 +32,8 @@ const execP = promisify(exec);
 const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "worktree-management-sequoias.json");
+const TERMINAL_STATUS_FILE = path.join(STATUS_ROOT, "terminal-armory-default.json");
+const DEV_ROOT_FILE = path.join(HOME, ".garrison", "dev-root");
 const STATE_FILE = process.env.GARRISON_STATE_PATH && process.env.GARRISON_STATE_PATH.trim().length > 0
   ? process.env.GARRISON_STATE_PATH
   : path.join(HOME, ".garrison", "sessions", "state.json");
@@ -147,6 +152,36 @@ async function handleListWorktrees(req, res, queryParams) {
   try {
     const items = await gitWorktreeList(repoPath);
     const state = await readState();
+    // Upsert a session record for every non-main worktree git knows about
+    // but state.json doesn't. Worktrees created outside Garrison (by Sequoias,
+    // direct `git worktree add`, etc.) start out without an id; backfill one
+    // so Remove / Create PR can address them.
+    let stateDirty = false;
+    for (const it of items) {
+      if (it.isMain || !it.branch) continue;
+      const project = ensureProject(state, repoPath);
+      const existing = project.sessions[it.branch];
+      if (existing && existing.id) continue;
+      project.sessions[it.branch] = {
+        branch: it.branch,
+        worktreePath: it.path,
+        id: existing?.id || randomUUID(),
+        title: existing?.title ?? null,
+        baseBranch: existing?.baseBranch ?? null,
+        status: existing?.status ?? "active",
+        lastStatus: existing?.lastStatus ?? "idle",
+        lastStatusAt: existing?.lastStatusAt ?? new Date().toISOString(),
+        createdAt: existing?.createdAt ?? null,
+        bindings: existing?.bindings ?? [],
+        adopted: existing ? Boolean(existing.adopted) : true
+      };
+      stateDirty = true;
+    }
+    if (stateDirty) {
+      try { await writeState(state); }
+      catch (err) { console.error(`[worktrees] state write warning: ${err.message}`); }
+    }
+
     const project = state.projects[repoPath] ?? { sessions: {} };
     const enriched = items.map((it) => {
       const session = project.sessions?.[it.branch];
@@ -234,6 +269,83 @@ async function handleCreateWorktree(req, res) {
   });
 }
 
+async function handleCreatePr(req, res, id) {
+  const body = (await readBody(req)) ?? {};
+  const state = await readState();
+  let found = null;
+  for (const [projectPath, project] of Object.entries(state.projects)) {
+    for (const session of Object.values(project.sessions ?? {})) {
+      if (session.id === id) {
+        found = {
+          projectPath,
+          branch: session.branch,
+          worktreePath: session.worktreePath,
+          baseBranch: session.baseBranch || "main",
+          title: session.title || null
+        };
+        break;
+      }
+    }
+    if (found) break;
+  }
+  if (!found) return jsonRes(res, 404, { error: `worktree id not found: ${id}` });
+  if (!existsSync(found.worktreePath)) {
+    return jsonRes(res, 409, { error: `worktree path missing: ${found.worktreePath}` });
+  }
+
+  const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : found.title;
+  const prBody = typeof body.body === "string" ? body.body : "";
+  const base = typeof body.base === "string" && body.base.trim() ? body.base.trim() : found.baseBranch;
+  const draft = body.draft === true;
+  const cwd = found.worktreePath;
+
+  const trace = [];
+  const runStep = async (label, cmd) => {
+    trace.push(`$ ${cmd}`);
+    try {
+      const { stdout, stderr } = await execP(cmd, { cwd, maxBuffer: 4 * 1024 * 1024 });
+      if (stdout) trace.push(stdout.trim());
+      if (stderr) trace.push(stderr.trim());
+      return { stdout: stdout || "", stderr: stderr || "" };
+    } catch (err) {
+      const detail = err && typeof err === "object" ? `${err.stdout || ""}${err.stderr || ""}${err.message}` : String(err);
+      trace.push(`! ${label} failed`);
+      if (detail) trace.push(detail.trim());
+      throw new Error(`${label} failed: ${detail.trim() || err.message}`);
+    }
+  };
+
+  try {
+    await runStep("git push", `git push -u origin ${JSON.stringify(found.branch)}`);
+  } catch (err) {
+    return jsonRes(res, 502, { error: err.message, trace });
+  }
+
+  const ghArgs = ["pr", "create", "--base", base, "--head", found.branch];
+  if (title) {
+    ghArgs.push("--title", title);
+    ghArgs.push("--body", prBody);
+  } else {
+    ghArgs.push("--fill");
+  }
+  if (draft) ghArgs.push("--draft");
+  const ghCmd = ["gh", ...ghArgs.map((a) => JSON.stringify(a))].join(" ");
+
+  let url;
+  try {
+    const result = await runStep("gh pr create", ghCmd);
+    const match = (result.stdout + "\n" + result.stderr).match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/);
+    if (!match) {
+      return jsonRes(res, 502, { error: "gh pr create returned without a PR URL", trace });
+    }
+    url = match[0];
+  } catch (err) {
+    return jsonRes(res, 502, { error: err.message, trace });
+  }
+
+  jsonRes(res, 201, { id, branch: found.branch, base, url, draft, trace });
+}
+
 async function handleDeleteWorktree(req, res, id) {
   const state = await readState();
   let found = null;
@@ -269,6 +381,82 @@ async function handleDeleteWorktree(req, res, id) {
 
 function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host });
+}
+
+async function handleTerminalTarget(req, res) {
+  try {
+    const raw = await readFile(TERMINAL_STATUS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.url !== "string") {
+      return jsonRes(res, 404, { error: "terminal status file invalid" });
+    }
+    jsonRes(res, 200, { url: parsed.url, port: parsed.port ?? null, pid: parsed.pid ?? null });
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      return jsonRes(res, 404, { error: "terminal fitting not running" });
+    }
+    jsonRes(res, 500, { error: err.message });
+  }
+}
+
+async function readDevRoot() {
+  try {
+    const raw = await readFile(DEV_ROOT_FILE, "utf8");
+    const trimmed = raw.trim();
+    if (trimmed) return trimmed;
+  } catch {}
+  return path.join(HOME, "dev");
+}
+
+async function writeDevRoot(value) {
+  await mkdir(path.dirname(DEV_ROOT_FILE), { recursive: true });
+  await writeFile(DEV_ROOT_FILE, String(value).trim() + "\n");
+}
+
+async function handleGetDevRoot(req, res) {
+  const root = await readDevRoot();
+  jsonRes(res, 200, { devRoot: root, exists: existsSync(root) });
+}
+
+async function handlePatchDevRoot(req, res) {
+  const body = await readBody(req);
+  if (!body || typeof body.devRoot !== "string") {
+    return jsonRes(res, 400, { error: "devRoot string required" });
+  }
+  const expanded = expandHome(body.devRoot);
+  if (!expanded.startsWith("/")) {
+    return jsonRes(res, 400, { error: "devRoot must be an absolute path" });
+  }
+  await writeDevRoot(expanded);
+  jsonRes(res, 200, { devRoot: expanded, exists: existsSync(expanded) });
+}
+
+async function handleListProjects(req, res, queryParams) {
+  const devRoot = expandHome(queryParams.devRoot || (await readDevRoot()));
+  if (!existsSync(devRoot)) {
+    return jsonRes(res, 200, { devRoot, projects: [] });
+  }
+  const projects = [];
+  let entries = [];
+  try {
+    entries = readdirSync(devRoot, { withFileTypes: true });
+  } catch (err) {
+    return jsonRes(res, 500, { error: `scan failed: ${err.message}` });
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (entry.name.startsWith(".")) continue;
+    const projectPath = path.join(devRoot, entry.name);
+    try {
+      const st = statSync(projectPath);
+      if (!st.isDirectory()) continue;
+    } catch { continue; }
+    const gitPath = path.join(projectPath, ".git");
+    if (!existsSync(gitPath)) continue;
+    projects.push({ name: entry.name, path: projectPath });
+  }
+  projects.sort((a, b) => a.name.localeCompare(b.name));
+  jsonRes(res, 200, { devRoot, projects });
 }
 
 function serveStatic(req, res, distDir) {
@@ -331,13 +519,25 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const server = http.createServer(async (req, res) => {
     try {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      if (req.method === "OPTIONS") { res.statusCode = 204; return res.end(); }
+
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
 
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
+      if (pathname === "/terminal-target" && method === "GET") return handleTerminalTarget(req, res);
+      if (pathname === "/projects" && method === "GET") return handleListProjects(req, res, parsed.query);
+      if (pathname === "/dev-root" && method === "GET") return handleGetDevRoot(req, res);
+      if (pathname === "/dev-root" && method === "PATCH") return handlePatchDevRoot(req, res);
       if (pathname === "/worktrees" && method === "GET") return handleListWorktrees(req, res, parsed.query);
       if (pathname === "/worktrees" && method === "POST") return handleCreateWorktree(req, res);
+
+      const prMatch = pathname.match(/^\/worktrees\/([^/]+)\/pr$/);
+      if (prMatch && method === "POST") return handleCreatePr(req, res, decodeURIComponent(prMatch[1]));
 
       const delMatch = pathname.match(/^\/worktrees\/([^/]+)$/);
       if (delMatch && method === "DELETE") return handleDeleteWorktree(req, res, decodeURIComponent(delMatch[1]));

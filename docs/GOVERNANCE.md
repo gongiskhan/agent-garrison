@@ -59,6 +59,43 @@ Garrison does Z", rewrite it as "Z, because [Claude-Code-justified
 reason]; X happens to use this too." If you can't write that second
 form honestly, the underlying decision is what needs to change.
 
+### 3.1 Downstream consumers
+
+Garrison is a **composition platform**. Specific agentic workflows
+built on top of it — Ekus, Ekoa, EKOA, or anything else — are
+**consumers**. Features that only make sense for a particular consumer
+must live in that consumer's Fittings, not in Garrison's shell,
+routes, library, or core docs.
+
+Concrete forms of leakage that the Honesty Test rejects:
+
+- **Hardcoded user paths.** Naming `~/.claude/memory-compiler/`,
+  `~/Projects/awc-gateway-slack/`, `mac-mini/gateway/heartbeat/trello.py`,
+  or any other user-specific filesystem location in Garrison code or
+  docs. The Fitting that wraps such a hook documents its own setup
+  contract; Garrison's project doc does not.
+- **Hardcoded consumer naming.** Phrases like "EKOA port",
+  "Kanban-as-control-plane", "the user's existing Trello workflow"
+  used to justify a Garrison capability. State the capability on its
+  own merits; the consumer name is irrelevant.
+- **Garrison shell surfaces that duplicate Channel-Fitting work.** A
+  built-in chat tab, a "send a test message to the operative" box,
+  or an Operative-specific debugging UI in Garrison itself is leakage.
+  Talking to the Operative is what Channel Fittings exist for; if a
+  user needs a browser surface, the Web Channel Fitting is the right
+  place for it.
+- **Garrison shell surfaces that duplicate a Fitting's own UI.** A
+  global "tools" surface that treats certain Faculties as a privileged
+  category, a sub-agent inspector that knows about a specific Fitting's
+  on-disk schema, etc. Garrison knows that Fittings have **views**;
+  rendering them, indexing them, or observing them per-Fitting is the
+  Fittings' business.
+
+When in doubt: if you removed all of Garrison's downstream consumers
+tomorrow, would the feature still be load-bearing for *any* Claude
+Code user composing a long-running operative? If yes, it belongs.
+If no, it belongs in a Fitting.
+
 ## 4. Contribution model
 
 ### 4.1 Fittings (the most-wanted contribution)

@@ -7,16 +7,6 @@ import { useAppShell } from "@/components/chrome/AppShell";
 import { faculties } from "@/lib/faculties";
 import type { FacultyDefinition, FacultyId, LibraryEntry, SelectedFitting, VerifyResult } from "@/lib/types";
 
-const coreSeedIds = [
-  "loop-heartbeat",
-  "trello-data-source",
-  "browser-automation",
-  "memory",
-  "tier-classifier",
-  "http-gateway",
-  "personal-operative"
-];
-
 export function StationGrid() {
   const {
     composition,
@@ -39,24 +29,6 @@ export function StationGrid() {
   const verifyTotal = verifyResults.length;
   const verifyOk = verifyResults.filter((r) => r.ok).length;
   const isRunning = runnerState?.status === "running";
-
-  function loadSeedStack() {
-    if (!composition) return;
-    const selections = { ...composition.selections };
-    for (const id of coreSeedIds) {
-      const entry = library.find((e) => e.id === id);
-      if (!entry) continue;
-      const current = selections[entry.faculty] ?? [];
-      const exists = current.some((s) => s.id === entry.id);
-      const def = defaultSelection(entry);
-      if (entry.metadata.cardinality_hint === "single") {
-        selections[entry.faculty] = [def];
-      } else if (!exists) {
-        selections[entry.faculty] = [...current, def];
-      }
-    }
-    void saveComposition({ selections });
-  }
 
   if (!composition) {
     return (
@@ -119,15 +91,6 @@ export function StationGrid() {
               vault · <b style={{ color: "var(--alarm)" }}>unguarded</b>
             </span>
           ) : null}
-          <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            <button
-              className="btn ghost small"
-              onClick={loadSeedStack}
-              disabled={busy === "save"}
-            >
-              + Load seed stack
-            </button>
-          </span>
         </div>
 
         {orchestratorMissing ? (
@@ -344,13 +307,3 @@ function issueDetail(issue: { code: string; fittingId: string }): string {
   }
 }
 
-function defaultSelection(entry: LibraryEntry): SelectedFitting {
-  return {
-    id: entry.id,
-    config: Object.fromEntries(
-      entry.metadata.config_schema
-        .filter((field) => field.default !== undefined)
-        .map((field) => [field.key, field.default as string | number | boolean])
-    )
-  };
-}

@@ -11,7 +11,6 @@ import {
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { FittingEditor } from "@/components/FittingEditor";
-import { ChatProvider } from "@/components/chat/ChatContext";
 import type {
   Composition,
   FittingSelectionMap,
@@ -122,8 +121,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         vaultRes.json()
       ]);
       const allCompositions = (compositionData.compositions ?? []) as Composition[];
-      // Prefer a running composition over the alphabetical-first one so the
-      // chat surface lands on whatever the user actually has booted.
       const states = await Promise.all(
         allCompositions.map(async (c) => {
           try {
@@ -313,21 +310,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={value}>
-      <ChatProvider>
-        <div
-          className="app-shell"
-          style={{ gridTemplateColumns: sidebarCollapsed ? "48px 1fr" : "244px 1fr" }}
-        >
-          <Sidebar />
-          {children}
-        </div>
-        {editingFitting ? (
-          <FittingEditor
-            entry={editingFitting}
-            onClose={() => setEditingFitting(null)}
-          />
-        ) : null}
-      </ChatProvider>
+      <div
+        className="app-shell"
+        style={{ gridTemplateColumns: sidebarCollapsed ? "48px 1fr" : "244px 1fr" }}
+      >
+        <Sidebar />
+        {children}
+      </div>
+      {editingFitting ? (
+        <FittingEditor
+          entry={editingFitting}
+          onClose={() => setEditingFitting(null)}
+        />
+      ) : null}
     </Ctx.Provider>
   );
 }

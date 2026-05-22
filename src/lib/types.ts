@@ -19,7 +19,8 @@ export const facultyIds = [
   "session-view",
   "outposts",
   "sync",
-  "monitor"
+  "monitor",
+  "web-channel"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -174,6 +175,8 @@ export interface WorktreeBinding {
 
 export type WorktreeStatus = "active" | "merged" | "discarded";
 
+export type FittingLifecycle = "operative-bound" | "detached";
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -198,6 +201,13 @@ export interface GarrisonMetadata {
     truth_file: string;
   };
   spawn?: SpawnConfig;
+  // For own-port Fittings (those whose Faculty is in OWN_PORT_FACULTIES):
+  //   - "operative-bound" (default): Garrison starts/stops the Fitting alongside
+  //     the operative's up/down lifecycle.
+  //   - "detached": Garrison never auto-starts or auto-stops this Fitting; the
+  //     user manages it manually (via /api/fittings/<id>/start|stop or shell).
+  // The field is ignored for non-own-port Fittings.
+  lifecycle?: FittingLifecycle;
 }
 
 export interface RatingInfo {

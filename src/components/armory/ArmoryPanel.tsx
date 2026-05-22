@@ -29,7 +29,8 @@ const groupForFaculty: Record<FacultyId, string> = {
   "session-view": "Tools",
   outposts: "Tools",
   sync: "Integration",
-  monitor: "Control"
+  monitor: "Control",
+  "web-channel": "Action"
 };
 
 export function ArmoryPanel() {

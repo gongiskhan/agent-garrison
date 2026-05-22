@@ -7,11 +7,11 @@ describe("Phase 9I L1 — orchestrator-prefix / buildOrchestratorTurn", () => {
   it("starts with the literal [origin: X, channel: Y] header", async () => {
     const mod = await import(path.join(LIB, "orchestrator-prefix.mjs"));
     const turn = mod.buildOrchestratorTurn({
-      origin: "workbench",
+      origin: "ui-tab",
       channel: "main",
       message: "fix the regex bug"
     });
-    expect(turn.startsWith("[origin: workbench, channel: main]")).toBe(true);
+    expect(turn.startsWith("[origin: ui-tab, channel: main]")).toBe(true);
     expect(turn).toContain("fix the regex bug");
   });
 

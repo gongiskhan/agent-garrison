@@ -238,3 +238,17 @@ reachability from mobile. The locked decision is to surface
 TLS termination story exists.
 **Source:** [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md) §"Tailscale URL resolution"; user review 2026-05-16.
 **Status:** Settled.
+
+## 2026-05-20 · Lean Garrison trim — Chat, Tools, test box, sub-agent pane removed
+
+The built-in `/chat`, `/tools`, Operative test box, and Sub-agent pane
+are deleted. Operative interaction lives in Channel Fittings (Slack
+today, Web Channel Fitting planned). The sidebar Views section is the
+sole surface for Fitting views. Garrison's documentation drops
+consumer-specific paths (`~/.claude/memory-compiler/`,
+`~/Projects/awc-gateway-slack/`, `mac-mini/gateway/heartbeat/trello.py`)
+and consumer-feature naming. A new
+[GOVERNANCE.md §3.1 "Downstream consumers"](./GOVERNANCE.md#31-downstream-consumers)
+codifies the rule.
+**Source:** [`docs/decisions/2026-05-20-lean-garrison-trim.md`](./decisions/2026-05-20-lean-garrison-trim.md).
+**Status:** Settled.

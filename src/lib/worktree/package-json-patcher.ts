@@ -2,14 +2,11 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
-// Sequoias-derived. Rewrites `${PORT:-N}` defaults in frontend workspace dev
-// scripts so `npm run dev` from a worktree binds the worktree's allocated
-// frontend port instead of the upstream default (3000, 5173, …).
+// Rewrites `${PORT:-N}` defaults in frontend workspace dev scripts so
+// `npm run dev` from a worktree binds the worktree's allocated frontend port
+// instead of the upstream default (3000, 5173, …).
 
 const FRONTEND_DIRS = new Set([
-  "ekoa-app",
-  "ekoa_app",
-  "ekoa",
   "app",
   "frontend",
   "web",

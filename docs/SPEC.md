@@ -49,7 +49,7 @@ Each Faculty has a **cardinality** (single / multi) and a closed set of accepted
 | 13 | Orchestrator | single, **governing** | system prompt | The behaviour spine. Coordinates all other Faculties and owns global config. Rendered in the UI as the capstone, not just another row. |
 | 14 | Artifact store | single | CLI+skill | Filesystem-backed storage for files the Operative or its Fittings produce — documents, recordings, audio. The Documents Faculty layers on top of this; future Faculties (Automations recordings, Voice synthesis) will too. |
 
-**Tasks** — derived. Not user-selected. The orchestrator infers it from data sources (e.g. when a Trello data source is present, tasks flow through Trello). Source of truth for tasks = a markdown file synced to whatever system the data source declares.
+**Tasks** — derived. Not user-selected. The orchestrator infers it from whatever data-source Fitting is stationed; that Fitting declares where tasks come from and which markdown file is the synced truth. Garrison doesn't bake in a particular task source.
 
 **Note on the Faculty set.** It's intentionally treated as a working draft. The model has been iterated on enough to be load-bearing for v1, but the goal of v1 is to prove the *system* — manifest, runner, vault, UI scaffolding, capability resolver — works. The Faculties themselves will be refined as Fittings get built and the boundaries get tested. Don't optimise the Faculty list further before §10 is done.
 
@@ -246,9 +246,9 @@ Six seed Fittings, one per Faculty that needs a working example. Each is its own
 | Heartbeat | Loop heartbeat | A scheduled loop that wakes the Operative on a configurable cadence (default 40 min) and dispatches through the gateway. |
 | Gateway | HTTP gateway | A small HTTP server (Node or Python) speaking MCP, with endpoints for inbound jobs, channel events, and session management. |
 | Automations | Browser automation (Playwright + driving skill) | Canonical Automations seed — Playwright CLI plus a skill that drives it. |
-| Data sources | Trello data source | A working data-source example. When present, tasks flow through Trello (the `Tasks` derived Faculty picks Trello as its source of truth). |
+| Data sources | One concrete data-source Fitting | A working data-source example. When present, the derived `Tasks` Faculty picks the Fitting's declared source of truth. |
 
-**Port priority order** (smallest first, derisks the runner): tier classifier → loop heartbeat → memory → Playwright → Trello → gateway.
+**Port priority order** (smallest first, derisks the runner): tier classifier → loop heartbeat → memory → automation runner → data source → gateway.
 
 The list is suggestive, not prescriptive. The Definition of Done in §10 is what matters; equivalent Fittings that prove the same Faculty are fine.
 
@@ -265,7 +265,7 @@ Two placements ship in v2:
 
 The route field uses a small react-router-style syntax: a segment beginning with `:` captures one path segment into route params (`/:id`, `/:id/edit`). The view resolver in `src/lib/fitting-views.ts` is a pure function that matches a sub-path against an ordered list of views; the first matching view wins. Tests cover the resolver directly.
 
-Cross-Fitting linking uses a uniform URL scheme: `garrison://<fitting-id>/<rest>` in chat or message bodies translates to `/fitting/<fitting-id>/<rest>` in the app. The chat renderer parses these out of plain text and renders them as Next.js `<Link>` elements; external `https://` URLs keep opening in new tabs.
+Cross-Fitting linking uses a uniform URL scheme: `garrison://<fitting-id>/<rest>` in message bodies (e.g. channel replies) translates to `/fitting/<fitting-id>/<rest>` in the app. Renderers parse these out of plain text and render them as Next.js `<Link>` elements; external `https://` URLs keep opening in new tabs.
 
 **Loader is a static registry, not disk-loaded.** UI contract v2 declares the views in metadata but the host app maintains a static map of `(fitting-id, view-id)` to React component (in `src/components/fitting-views/registry.tsx`). Authors of new Fittings that ship UI add their entry to that registry. v3 may revisit dynamic loading from disk; for v2 the static registry keeps Next.js bundling honest and avoids a separate Fitting build pipeline. Out-of-scope for v2: iframe sandboxing, hot-reload of Fitting UI changes, mobile/responsive design.
 
@@ -283,7 +283,7 @@ Each item is observable. If it can't be pointed at, it doesn't count.
 2. Compose tab renders all 14 Faculties (Artifact Store added in Phase 3) in spec order. Cardinality rules enforced at compose time. Fitting-shape mismatches caught at compose time, not runtime.
 3. Vault round-trips: secret entered in UI, page reload, secret still there. `data/vault.json` unreadable without Garrison. No plain-text secrets on disk.
 4. All six seed Fittings are installed in the Fittings Registry and pickable under the correct Faculty.
-5. Selecting Trello as a data source causes `Tasks` to surface as Trello-backed automatically (no extra UI row for Tasks).
+5. Selecting any data-source Fitting that declares a task source causes the derived `Tasks` Faculty to surface automatically, backed by that source (no extra UI row for Tasks).
 6. Hitting **Run** on a configured composition:
    - Calls `apm install` and reports each step in the live log.
    - Materialises `.env` from vault into the composition directory.

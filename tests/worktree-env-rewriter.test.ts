@@ -38,8 +38,9 @@ describe("isPortKey", () => {
 
 describe("serviceForKey", () => {
   it("derives service names from common prefixes", () => {
-    expect(serviceForKey("CORTEX_PORT")).toBe("cortex");
-    expect(serviceForKey("NEXT_PORT")).toBe("ekoa_app");
+    expect(serviceForKey("NEXT_PORT")).toBe("frontend");
+    expect(serviceForKey("APP_PORT")).toBe("frontend");
+    expect(serviceForKey("FRONTEND_PORT")).toBe("frontend");
     expect(serviceForKey("API_PORT")).toBe("api");
     expect(serviceForKey("PORT")).toBe("port");
   });
@@ -47,12 +48,12 @@ describe("serviceForKey", () => {
 
 describe("packagePortForDir", () => {
   it("returns a direct match by lowercase dirname", () => {
-    expect(packagePortForDir("cortex", { cortex: 51000 })).toBe(51000);
+    expect(packagePortForDir("api", { api: 51000 })).toBe(51000);
   });
 
   it("falls back through the alias chain", () => {
-    expect(packagePortForDir("api", { cortex: 51000 })).toBe(51000);
-    expect(packagePortForDir("frontend", { ekoa_app: 53000 })).toBe(53000);
+    expect(packagePortForDir("api", { backend: 51000 })).toBe(51000);
+    expect(packagePortForDir("frontend", { app: 53000 })).toBe(53000);
   });
 
   it("returns undefined when no match", () => {

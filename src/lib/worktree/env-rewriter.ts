@@ -3,7 +3,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { allocatePort, type PortRange } from "./ports";
 
-// Sequoias-derived. Discovers root + first-level .env files in a worktree,
+// Discovers root + first-level .env files in a worktree,
 // rewrites per-service port variables and localhost:N URLs to deterministic
 // values from `allocatePort`, and synthesises minimal per-workspace .env files
 // for monorepo packages that read process.env.PORT.
@@ -117,9 +117,8 @@ export function isPortKey(key: string): boolean {
 
 export function serviceForKey(key: string): string {
   const upper = key.toUpperCase();
-  if (upper.includes("CORTEX")) return "cortex";
   if (upper.includes("NEXT") || upper.includes("APP") || upper.includes("FRONTEND")) {
-    return "ekoa_app";
+    return "frontend";
   }
   const prefixMatch = key.match(/^([A-Z][A-Z0-9]*?)(?:_PORT.*)?$/i);
   if (prefixMatch && prefixMatch[1]) {
@@ -133,27 +132,20 @@ export function serviceForKey(key: string): string {
 // hardcoded default — without this mapping, every worktree would collide on
 // that default. Returns undefined if no match is found.
 const DIR_PORT_ALIASES: Record<string, string[]> = {
-  cortex: ["cortex", "api", "backend", "server"],
-  api: ["api", "cortex", "backend", "server"],
-  backend: ["backend", "api", "cortex", "server"],
-  server: ["server", "api", "cortex", "backend"],
-  "ekoa-app": ["ekoa_app", "ekoa-app", "app", "frontend", "web", "ui", "next"],
-  ekoa_app: ["ekoa_app", "ekoa-app", "app", "frontend", "web", "ui", "next"],
-  ekoa: ["ekoa_app", "ekoa-app", "ekoa", "app", "frontend", "web", "ui", "next"],
-  app: ["app", "ekoa_app", "frontend", "web", "ui", "next"],
-  frontend: ["frontend", "ekoa_app", "app", "web", "ui", "next"],
-  web: ["web", "ekoa_app", "frontend", "app", "ui", "next"],
-  ui: ["ui", "ekoa_app", "frontend", "app", "web", "next"],
-  next: ["next", "ekoa_app", "frontend", "app", "web", "ui"],
-  client: ["client", "frontend", "web", "ui", "app", "ekoa_app"]
+  api: ["api", "backend", "server"],
+  backend: ["backend", "api", "server"],
+  server: ["server", "api", "backend"],
+  app: ["app", "frontend", "web", "ui", "next", "client"],
+  frontend: ["frontend", "app", "web", "ui", "next", "client"],
+  web: ["web", "frontend", "app", "ui", "next", "client"],
+  ui: ["ui", "frontend", "app", "web", "next", "client"],
+  next: ["next", "frontend", "app", "web", "ui", "client"],
+  client: ["client", "frontend", "web", "ui", "app", "next"]
 };
 
 // Workspace dir names that inherit NEXT_PUBLIC_* env vars from the worktree's
 // root .env. Mirrors FRONTEND_DIRS in package-json-patcher.
 const FRONTEND_DIR_NAMES = new Set([
-  "ekoa-app",
-  "ekoa_app",
-  "ekoa",
   "app",
   "frontend",
   "web",

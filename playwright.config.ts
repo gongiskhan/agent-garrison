@@ -45,7 +45,6 @@ export default defineConfig({
     timeout: 60_000,
     env: {
       GARRISON_STATE_PATH: TEST_STATE_FILE,
-      GARRISON_WORKBENCH_PREFS_PATH: path.join(TEST_STATE_DIR, "workbench-prefs.json"),
       NODE_ENV: process.env.NODE_ENV ?? "development"
     },
     stdout: "ignore",

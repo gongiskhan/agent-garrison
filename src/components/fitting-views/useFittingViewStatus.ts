@@ -2,23 +2,23 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export interface ToolWithHealth {
+export interface FittingViewStatus {
   fittingId: string;
   port: number;
   url: string;
   pid: number | null;
   startedAt: string | null;
-  healthy: boolean | null; // null = unknown / checking
+  healthy: boolean | null;
 }
 
-export interface UseToolDiscoveryResult {
-  entries: ToolWithHealth[];
+export interface UseFittingViewStatusResult {
+  entries: FittingViewStatus[];
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
 }
 
-interface DiscoveredTool {
+interface DiscoveredView {
   fittingId: string;
   port: number;
   url: string;
@@ -27,8 +27,8 @@ interface DiscoveredTool {
   healthy: boolean;
 }
 
-export function useToolDiscovery(pollMs = 15000): UseToolDiscoveryResult {
-  const [entries, setEntries] = useState<ToolWithHealth[]>([]);
+export function useFittingViewStatus(pollMs = 15000): UseFittingViewStatusResult {
+  const [entries, setEntries] = useState<FittingViewStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,16 +36,16 @@ export function useToolDiscovery(pollMs = 15000): UseToolDiscoveryResult {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/tools/discover");
+      const res = await fetch("/api/fittings/views");
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         setError((data && data.error) || `HTTP ${res.status}`);
         return;
       }
-      // Health is probed server-side (the tool ports don't emit CORS headers,
-      // so a browser-side probe always fails).
-      const data = (await res.json()) as { tools: DiscoveredTool[] };
-      setEntries(data.tools);
+      // Health is probed server-side — own-port Fittings don't emit CORS
+      // headers, so a browser-side probe always fails.
+      const data = (await res.json()) as { views: DiscoveredView[] };
+      setEntries(data.views);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

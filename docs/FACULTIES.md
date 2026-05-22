@@ -149,6 +149,18 @@ canonical example.
 
 The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary (orchestrator, agent-skill, memory-store, automation-runner, vault). The expansion is recorded in [DECISIONS.md](./DECISIONS.md) (2026-05-16 entry). See [UI-FITTINGS.md](./UI-FITTINGS.md) for the per-Fitting-own-UI-on-own-port pattern the Monitor's default Fitting follows.
 
+## 16. Web channel
+
+- Purpose: mobile-first browser chat surface for talking to the Operative ("Gary") from a phone on the same LAN. Distinct from the desktop Next.js shell; this is the planned successor to the deleted built-in chat.
+- Cardinality: single.
+- Shapes: `plugin`, `script`.
+- Config: bind port (default `7083`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose to the LAN), optional `gateway_url` override.
+- Capability: provides `kind: channel` (`name: web`). The Orchestrator routes to it like any channel — the http-gateway's `POST /chat/stream` is the inbound call, `GET /channels/web/stream` carries replies.
+- Streaming: web-channel proxies the gateway's SSE endpoints unchanged. The browser opens an `EventSource` on `/api/stream` for live + last-100-events replay, and `POST /api/chat` to send a turn.
+- Monitor link: at runtime, web-channel reads `~/.garrison/ui-fittings/monitor-default.json` to detect Monitor and surfaces a header link if present. No hard `consumes: monitor` — discovery is opportunistic.
+- Example: `web-channel-default` Fitting under `fittings/seed/web-channel-default/`, serving its React UI on port 7083.
+- Failure modes: port conflict on the default (Fitting falls back via `findFreePort`), `bind_host: 0.0.0.0` exposes the surface to anyone on the LAN with no auth (mirrors gateway posture; documented limitation), one-sided history (channel ring buffer only publishes assistant text events — user turns do not replay), Operative markdown is rendered via `marked` + `dangerouslySetInnerHTML` without further sanitization (acceptable under the single-user trusted-operative posture; flag this when adding multi-user surfaces or untrusted channel inputs).
+
 ## Derived: Tasks
 
 Tasks is never selected directly. When a data source declares task

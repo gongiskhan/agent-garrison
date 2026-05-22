@@ -19,7 +19,7 @@ import url from "node:url";
 const HOME = os.homedir();
 const LOGS_ROOT = path.join(HOME, ".garrison", "logs");
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
-const STATUS_FILE = path.join(STATUS_ROOT, "monitor.json");
+const STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
 const SESSIONS_STATE_FILE = path.join(HOME, ".garrison", "sessions", "state.json");
 
 const REDACT_PATTERN = /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PASSWORD$|^KEY$)/i;
@@ -73,7 +73,7 @@ async function getProcessTable() {
   return rows;
 }
 
-function walkDescendants(table, rootPid) {
+function walkDescendants(table, rootPid, stopAtPid) {
   const byParent = new Map();
   for (const row of table) {
     if (!byParent.has(row.ppid)) byParent.set(row.ppid, []);
@@ -89,6 +89,10 @@ function walkDescendants(table, rootPid) {
     const children = byParent.get(pid) ?? [];
     for (const child of children) {
       descendants.push(child);
+      // Don't descend into our own probe subprocesses (ps/lsof/etc. spawned
+      // by getProcessTable/getPorts/getCwd/getEnv on every poll). Including
+      // them as short-lived "DEAD" entries pollutes the UI.
+      if (stopAtPid != null && child.pid === stopAtPid) continue;
       queue.push(child.pid);
     }
   }
@@ -224,7 +228,7 @@ async function poll(rootPid) {
     return;
   }
 
-  const descendants = walkDescendants(table, rootPid);
+  const descendants = walkDescendants(table, rootPid, process.pid);
   const bindings = readGarrisonBindings();
   const next = new Map();
   for (const proc of descendants) {
@@ -476,7 +480,7 @@ async function findFreePort(startPort) {
 async function writeStatusFile(opts) {
   await mkdir(STATUS_ROOT, { recursive: true });
   await writeFile(STATUS_FILE, JSON.stringify({
-    fittingId: "monitor",
+    fittingId: "monitor-default",
     port: opts.port,
     url: `http://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
     pid: process.pid,

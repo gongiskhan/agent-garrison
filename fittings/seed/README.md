@@ -1,6 +1,6 @@
 # Seed Fittings
 
-These nine Fittings ship inside the Garrison repo as the bootstrap stack.
+These Fittings ship inside the Garrison repo as the bootstrap stack.
 They are functional reference implementations and the targets of every
 test in the codebase.
 
@@ -13,6 +13,7 @@ test in the codebase.
 | automations   | browser-automation   |
 | data-sources  | trello-data-source   |
 | channels      | slack-channel        |
+| web-channel   | web-channel-default  |
 | soul          | soul                 |
 | orchestrator  | personal-operative   |
 
@@ -31,6 +32,7 @@ Fittings and refuses to mark Compose ready until the wiring resolves.
 | browser-automation  | —                                     | vault (optional-one)                              |
 | trello-data-source  | data-source:trello                    | vault (one)                                       |
 | slack-channel       | channel:slack                         | vault (one)                                       |
+| web-channel-default | channel:web                           | —                                                 |
 | soul                | soul:personal-operative-soul          | —                                                 |
 | personal-operative  | orchestrator:personal-operative       | soul (one), agent-skill (any), memory-store (any), automation-runner (any), data-source (any), channel (any), vault (optional-one) |
 

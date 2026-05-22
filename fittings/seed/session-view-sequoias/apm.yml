@@ -35,7 +35,7 @@ x-garrison:
     - kind: outpost
       cardinality: any
   setup:
-    command: node ui/build.mjs
+    command: node ui/build.mjs && node scripts/install-hooks.mjs
     idempotent: true
     timeout_ms: 60000
   verify:
@@ -50,7 +50,23 @@ x-garrison:
     Endpoints:
       GET  /health             - {ok: true, port, pid}
       GET  /sessions           - {sessions: AggregatedSession[], outposts: []}
+      POST /_hook?event=<name> - Claude Code hook payload (session_id,
+                                 transcript_path, hook_event_name, cwd, ...)
+                                 forwarded verbatim from stdin. `event` lives
+                                 on the query string. Tracked events:
+                                 UserPromptSubmit | PostToolUse | Stop |
+                                 Notification.
+      POST /sessions/cleanup   - removes sessions whose worktreePath is gone
+      GET  /terminal-target    - returns the terminal fitting's live URL (for new-tab launches)
     AggregatedSession shape:
-      { branch, worktreePath, lastStatus, lastStatusAt, projectName, projectPath, machine, online }
-    Statuses are: starting, working, waiting, idle, errored, dead.
-    Reads ~/.garrison/sessions/state.json directly; no Garrison-host coupling.
+      { branch, worktreePath, lastStatus, lastStatusAt, projectName,
+        projectPath, machine, online, id, claudeSessionId, ... }
+    `claudeSessionId` is the Claude Code session id (captured from hook
+    payloads). When present, consumers can launch `claude --resume
+    <claudeSessionId>` to deterministically pick up that session; when
+    absent, fall back to `claude --continue` from `worktreePath`.
+    Statuses are: starting, working, waiting, idle, errored, dead, stale.
+    Reads ~/.garrison/sessions/state.json directly; writes back via hook events.
+    Setup installs `_garrison`-tagged matcher groups into ~/.claude/settings.json
+    so Claude Code hooks POST status transitions to /_hook. Re-running setup
+    is idempotent. To remove hooks: `node scripts/uninstall-hooks.mjs`.

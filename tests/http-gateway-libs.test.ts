@@ -50,10 +50,10 @@ describe("http-gateway libs (Phase 9B)", () => {
       const { SessionRegistry } = await import(path.join(LIB_DIR, "session-registry.mjs"));
       const reg = new SessionRegistry();
       reg.register({ sessionId: "a", soul: "engineer", mode: "headless" });
-      reg.register({ sessionId: "b", soul: "architect", mode: "workbench" });
+      reg.register({ sessionId: "b", soul: "architect", mode: "interactive" });
       expect(reg.get("a")?.soul).toBe("engineer");
       expect(reg.bySoul("architect")?.sessionId).toBe("b");
-      expect(reg.list({ mode: "workbench" })).toHaveLength(1);
+      expect(reg.list({ mode: "interactive" })).toHaveLength(1);
       expect(reg.list({ soul: "engineer" })).toHaveLength(1);
     });
 
@@ -84,8 +84,8 @@ describe("http-gateway libs (Phase 9B)", () => {
   describe("orchestrator-prefix", () => {
     it("includes origin and channel lines, no summaries when none pending", async () => {
       const mod = await import(path.join(LIB_DIR, "orchestrator-prefix.mjs"));
-      const out = mod.buildOrchestratorTurn({ origin: "workbench", channel: "main", message: "hi" });
-      expect(out.startsWith("[origin: workbench, channel: main]")).toBe(true);
+      const out = mod.buildOrchestratorTurn({ origin: "ui-tab", channel: "main", message: "hi" });
+      expect(out.startsWith("[origin: ui-tab, channel: main]")).toBe(true);
       expect(out.endsWith("hi")).toBe(true);
       expect(out).not.toContain("Recent sub-session summaries");
     });

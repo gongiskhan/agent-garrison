@@ -1,62 +1,59 @@
 # Garrison Roadmap
 
-**Status:** Live working document. Edited during planning conversations.
-This is the source of truth for Garrison's phased roadmap — not just
-the personal-assistant feature set that started it, but every feature
-being planned for the platform.
-**Goal:** Get Garrison to the point where it replaces claude.ai for
-PM/architect-style discussions, manages tasks via Trello, runs
-heartbeat-driven autonomous suggestions, can spawn coding work on real
-projects, and eventually owns the EKOA-style Automations as a Faculty.
+**Status:** Live working journal. Edited during planning conversations.
+This file records the phased delivery of Garrison capabilities and the
+historical context around them — including the **reference projects**
+(Ekus, EKOA, awc-gateway-slack, Sequoias, memory-compiler) whose code
+seeded several Fittings. Those are *consumer* projects; the Honesty
+Test ([GOVERNANCE.md §3.1](./GOVERNANCE.md#31-downstream-consumers))
+keeps them out of Garrison's normative scope.
+
+**Garrison's goal** is the platform: a composer + runner + observer
+for long-running Claude Code Operatives, local-first and
+single-user. Concrete Fittings (channels, automations, task sources,
+etc.) ship as their own Fittings and may originate from any
+consumer's prior art — but Garrison doesn't take a position on which
+consumer's workflows are "the right" workflows. Read the phase
+entries below with that frame: anywhere this journal says "the
+user's existing X" or "ported from Y", treat that as historical
+sourcing of the reference seed, not as Garrison's mission.
 
 ---
 
-## North star
+## North star (platform capabilities)
 
-A single Operative running locally that:
+A composed Operative running locally can:
 
-1. I can talk to from desktop **and** Slack.
-2. Acts as PM + Software Architect when I'm discussing a project (or
-   any other hat I configure into the Soul).
-3. Knows where my projects live and can read them for context without
-   me pasting GitHub sources.
-4. Remembers things across sessions via the Memory Faculty (the
-   user's existing Obsidian-backed memory-compiler with Claude Code
-   hooks).
-5. Looks at its task list on its heartbeat, suggests what to work
-   on, and — once I trust it — does autonomous tier-1/2 work.
-   Tasks live in a first-party Tasks Faculty with a Kanban UI; the
-   board doubles as the visible control plane for autonomous work.
-   Trello (and other external trackers) sync optionally.
-6. Builds documents alongside conversations the way claude.ai does
-   — the PM/Architect hat captures decisions and plans into a
-   browsable, editable markdown corpus without me asking. All
-   artifacts the Operative produces (documents now, automation
-   videos and voice audio later) live in a unified Artifact Store
-   browsable from one place.
-7. Plans features via Claude Code's planning tool, asks me to approve,
-   then executes them in the right project folder, in the right
-   session shape.
-8. Gives me a tooling surface (the Workbench) where worktrees,
-   sessions, terminals, screen sharing, and other tools compose
-   the same way agentic primitives do — Faculties and Fittings,
-   wired by provides/consumes. The Sequoias worktree-manager
-   becomes three Workbench Fittings rather than a separate app.
-9. Reaches across all my Macs via the Outposts Faculty: I sit
-   at any machine, Garrison runs on the always-on host, the
-   Operative orchestrates work on whichever machine the work
-   actually lives on. Worktrees, terminals, file operations,
-   vault sync — all flow through a small bridge per remote
-   machine, no second Garrison instance needed.
-10. Runs and self-improves browser automations (Playwright-based, ported
-    from EKOA) with a UI surface where I can fix, replay, and feedback.
-11. Treats the Kanban board as a control plane: I add a card,
-    the Operative picks it up; I drag a card, the Operative reacts.
-    Foundation for genuinely autonomous workflows where one operator
-    runs a software project — or a small business — through their
-    Operative.
+1. Be reached from multiple Channel Fittings concurrently (Slack
+   today; a browser-based Web Channel Fitting is the planned
+   successor to the removed built-in chat).
+2. Carry a configurable Soul (identity, voice, role) that composes
+   with the Orchestrator at prompt-assembly time.
+3. Read project context from data-source Fittings the user wires up,
+   without Garrison hardcoding which project layouts are supported.
+4. Remember across sessions via a Memory Fitting (whatever
+   memory-store implementation the user stations).
+5. Iterate on its task list on a heartbeat, with a derived Tasks
+   Faculty backed by whichever data-source Fitting declares a task
+   source.
+6. Capture artifacts (documents, recordings, audio) into a unified
+   Artifact Store — one Faculty, multiple producer Fittings.
+7. Plan-then-execute work via a sub-agent Fitting (Phase 4); the
+   Fitting owns its own UI if it wants to surface live runs.
+8. Compose own-port UI Fittings (terminals, screen shares, worktree
+   managers, session views, outposts) — Garrison links to them from
+   the sidebar Views section; it does not embed them.
+9. Reach other Macs via Outposts Fittings: an Operative running on
+   one host can drive worktrees, terminals, and file operations on
+   any host that runs a Garrison outpost bridge.
+10. Drive browser automations (an automation-runner Fitting; v1's
+    reference port comes from EKOA).
+11. Treat a task surface as a control plane — when a Tasks-backed
+    data-source Fitting is stationed.
 
-Phases below are **scoping containers**, not strict gates.
+Phases below are **scoping containers**, not strict gates. They
+describe *when* Garrison gained each capability; whether a particular
+consumer wires it up is the consumer's call.
 
 ---
 
@@ -1541,12 +1538,13 @@ means reinventing framing per feature; the bridge does it once.
 
 ---
 
-## Phase 7 — Automations Faculty as a real EKOA port
+## Phase 7 — Automations Faculty
 
-**Outcome:** Garrison has an Automations Fitting that does what
-EKOA's automations system does today — Playwright-based browser
-automation with a UI to author, run, fix, and replay them — wired
-into Memory and the Orchestrator.
+**Outcome:** Garrison ships the Automations Faculty contract and a
+reference automation-runner Fitting (Playwright-based browser
+automation with a UI to author, run, fix, and replay). The reference
+port comes from EKOA, but the Faculty itself is consumer-agnostic —
+any automation-runner Fitting that provides the contract slots in.
 
 ### Scope
 
@@ -1604,15 +1602,13 @@ into Memory and the Orchestrator.
 
 ---
 
-## Phase 8 — Tasks Faculty (Kanban-as-control-plane)
+## Phase 8 — Tasks Faculty (first-party task source)
 
-**Outcome:** A first-party `tasks` Faculty that owns task management
-end-to-end — file-system-backed, with a Kanban UI surface — replacing
-the Trello dependency as the source of truth. By the end of this
-phase, the Operative reads, writes, schedules, and acts on tasks
-from its own task store. Trello becomes optional: a Trello-sync
-Fitting can mirror tasks bidirectionally for users who want it,
-but Trello is no longer required.
+**Outcome:** A first-party `tasks` data-source Fitting that lets a
+composition run without depending on an external task tracker — local
+file-system-backed task store with a Kanban UI. External-tracker sync
+(Trello, Linear, GitHub Projects, etc.) becomes a separate
+sync-Fitting concern; the platform doesn't favor one.
 
 This phase is the foundation for autonomous workflows. The Kanban
 board becomes the visible control plane: a task appears, the

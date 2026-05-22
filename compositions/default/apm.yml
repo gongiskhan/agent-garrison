@@ -7,10 +7,11 @@ dependencies:
     - path: ../../fittings/seed/browser-automation
     - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/documents
-    - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/personal-operative
     - path: ../../fittings/seed/projects-index
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
@@ -20,6 +21,7 @@ dependencies:
     - path: ../../fittings/seed/terminal-armory-default
     - path: ../../fittings/seed/tier-classifier
     - path: ../../fittings/seed/trello-data-source
+    - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/worktree-management-sequoias
 x-garrison:
   composition:
@@ -97,8 +99,13 @@ x-garrison:
         - id: soul
           config: {}
       orchestrator:
-        - id: garrison-orchestrator
-          config: {}
+        - id: personal-operative
+          config:
+            tone: terse
+            idle_behavior: passive
+            priority_label: priority
+            silent_when_no_work: true
+            report_channel: ''
       artifact-store:
         - id: artifact-store
           config:
@@ -116,6 +123,19 @@ x-garrison:
       session-view:
         - id: session-view-sequoias
           config: {}
+      monitor:
+        - id: monitor-default
+          config:
+            port: 7077
+            bind_host: 127.0.0.1
+            poll_interval_ms: 1000
+            log_retention_hours: 24
+      web-channel:
+        - id: web-channel-default
+          config:
+            port: 7083
+            bind_host: 127.0.0.1
+            gateway_url: ''
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

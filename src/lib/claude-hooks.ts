@@ -3,9 +3,8 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { homedir } from "node:os";
 
-// Sequoias-derived. Non-destructive merge of Garrison hooks into
-// ~/.claude/settings.json. Marks groups with `_garrison: true` for
-// idempotent uninstall.
+// Non-destructive merge of Garrison hooks into ~/.claude/settings.json.
+// Marks groups with `_garrison: true` for idempotent uninstall.
 
 const HOOK_EVENTS = [
   "UserPromptSubmit",

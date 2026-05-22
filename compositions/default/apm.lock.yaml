@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-18T10:18:03.175081+00:00'
+generated_at: '2026-05-21T13:50:55.665099+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -26,14 +26,6 @@ dependencies:
   - .claude/skills/documents
   source: local
   local_path: ../../fittings/seed/documents
-- repo_url: _local/garrison-orchestrator
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/garrison-orchestrator.md
-  deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:de996fd652c6f04cf5df8ba0e1094d79386f06e091cce77760126ca47d97fb9e
-  source: local
-  local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway
   package_type: apm_package
   deployed_files:
@@ -56,6 +48,18 @@ dependencies:
   - .claude/skills/garrison-memory
   source: local
   local_path: ../../fittings/seed/memory
+- repo_url: _local/monitor-default
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/personal-operative
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/personal-operative.md
+  deployed_file_hashes:
+    .claude/commands/personal-operative.md: sha256:9e293e2337166e0cb0a336293b19a385d67066dac0800e0d246f7019f49ef7f9
+  source: local
+  local_path: ../../fittings/seed/personal-operative
 - repo_url: _local/projects-index
   package_type: apm_package
   deployed_files:
@@ -107,6 +111,10 @@ dependencies:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local
   local_path: ../../fittings/seed/trello-data-source
+- repo_url: _local/web-channel-default
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/web-channel-default
 - repo_url: _local/worktree-management-sequoias
   package_type: invalid
   source: local

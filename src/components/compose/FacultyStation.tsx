@@ -29,7 +29,7 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   },
   "data-sources": {
     role: "Feeds live external state into the operative.",
-    fit: "Data sources are read paths. When Trello is selected, derived Tasks become Trello-backed automatically."
+    fit: "Data sources are read paths. If the stationed source declares a task store, the derived Tasks Faculty follows it automatically."
   },
   "knowledge-base": {
     role: "Provides static references the operative can read.",
@@ -102,6 +102,10 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   monitor: {
     role: "Read-only visibility into every entity Garrison spawns.",
     fit: "The default Fitting serves its own UI on its own port and walks Garrison's PID tree to surface PIDs, ports, network connections, and tee'd stdout/stderr."
+  },
+  "web-channel": {
+    role: "Mobile-first browser chat surface for talking to the Operative.",
+    fit: "Distinct from the desktop shell — this Fitting serves its own React UI on its own port (default 7083) and provides a kind:channel capability that the Orchestrator routes to like Slack."
   }
 };
 

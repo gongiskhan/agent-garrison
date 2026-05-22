@@ -43,7 +43,7 @@ x-garrison:
   for_consumers: |
     Consumer Fittings (web-channel, http-gateway chat UI, the /tools discovery page)
     discover the Monitor at runtime by reading:
-      ~/.garrison/ui-fittings/monitor.json
+      ~/.garrison/ui-fittings/monitor-default.json
     The file (written when the server binds) carries:
       { fittingId, port, url, pid, startedAt }
     Then `GET <url>/health` to confirm reachability before linking.

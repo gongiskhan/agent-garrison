@@ -10,7 +10,7 @@ That is the whole contract.
 
 ## Why
 
-Coupling between UI Fittings would re-introduce the problem composability solves. If the chat surface imports the Monitor's React components, the Monitor can't ship a Vue rewrite. If they share state, a Monitor restart breaks chat. Linking by URL is the lowest-bandwidth integration that still lets one Fitting talk about another:
+Coupling between UI Fittings would re-introduce the problem composability solves. If a consumer Fitting imports another Fitting's React components, the provider can't ship a Vue rewrite. If they share state, a provider restart breaks the consumer. Linking by URL is the lowest-bandwidth integration that still lets one Fitting talk about another:
 
 - One Fitting renders → publishes a status file → the next Fitting reads the file → links to the URL.
 - If the providing Fitting isn't installed or isn't running, the link silently disappears. No errors, no missing components, no broken builds.
@@ -20,7 +20,7 @@ Coupling between UI Fittings would re-introduce the problem composability solves
 
 Each UI Fitting has three pieces:
 
-1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `7077`.
+1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `7077`. Optionally add `lifecycle: detached` to opt out of the operative-bound default — without it, Garrison's runner starts and stops the Fitting alongside the operative's `up` / `down` lifecycle (it reads the PID from the status file when stopping; it never grep's `lsof`). Use `detached` for Fittings the user expects to manage out-of-band (long-running watchers, etc.).
 2. **Server.** At startup, the Fitting tries to bind the declared port. If the port is taken, it falls back via the next-free-port helper. The actual chosen port is written to a status file:
 
    ```
@@ -51,7 +51,7 @@ A Fitting (or the Garrison Next.js app) that wants to surface a link to another 
 3. Otherwise render a link that opens `<url>` in a new tab (or a full-screen overlay on small viewports — implementation choice).
 4. Re-check on a slow cadence (every 15s is fine) so the link appears/disappears with the Fitting.
 
-The Garrison Next.js layer ships one such consumer today: `src/app/api/monitor/discover/route.ts` is the discovery endpoint, and `src/components/chat/ChatPanel.tsx` renders the conditional "Monitor ↗" link in the chat header.
+The Garrison Next.js layer ships one such consumer today: the sidebar **Views** group. Its hook (`src/components/fitting-views/useFittingViewStatus.ts`) polls `/api/fittings/views`, which aggregates the status files and probes `/health` server-side. A Fitting that shows up there is one whose Faculty is in `OWN_PORT_FACULTIES` (see `src/lib/faculties.ts`) and that has registered a status file. Other Fittings are free to add their own consumers using the same file/health contract.
 
 ## Build pipeline (for the React UIs)
 
@@ -91,13 +91,13 @@ It writes `dist/index.html`, `dist/<name>.bundle.js`, `dist/<name>.css`. No `nod
 ## Reference implementations
 
 - **`monitor-default`** (this milestone). Port 7077. Serves a React card-grid + drill-down + SSE log tail.
-- The pattern generalises to documents-viewer, future workbench surfaces, anything UI-bearing.
+- The pattern generalises to documents-viewer and any other UI-bearing Fitting.
 
 ## Anti-patterns
 
 - **Importing another Fitting's React components.** Don't. The whole point of the URL-link pattern is that UI Fittings can be written in different frameworks, restarted independently, and uninstalled cleanly.
-- **Storing the port in the consumer's source.** Don't hardcode `7077` in chat; read the status file every time.
-- **Sharing state across Fittings.** The Monitor does not push events into the chat panel and vice versa. If you find yourself needing a shared store, that's a sign one Fitting wants to consume a non-UI capability the other provides — declare it as a `provides`/`consumes` pair in `x-garrison`, not as a UI cross-call.
+- **Storing the port in the consumer's source.** Don't hardcode `7077` anywhere; read the status file every time.
+- **Sharing state across Fittings.** Don't push events from one Fitting's UI into another's. If you find yourself needing a shared store, that's a sign one Fitting wants to consume a non-UI capability the other provides — declare it as a `provides`/`consumes` pair in `x-garrison`, not as a UI cross-call.
 - **Long-lived status files.** Clean up on `SIGTERM` and `SIGINT`. A stale file pointing at a dead URL is worse than no file.
 
 ## See also

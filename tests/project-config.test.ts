@@ -97,7 +97,8 @@ describe("project-config", () => {
         JSON.stringify({ scripts: { dev: "next dev" } })
       );
       const needs = inferPortNeeds(tmpDir);
-      expect(needs.some((n) => n.default === 3000)).toBe(true);
+      // Garrison's Next dev port is 7777 (commit 4aeb727 moved it off 3000).
+      expect(needs.some((n) => n.default === 7777)).toBe(true);
     });
   });
 
