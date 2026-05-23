@@ -14,11 +14,13 @@ interface Session {
   createdAt: string;
 }
 
-function TerminalPane({ sessionId, isActive }: { sessionId: string; isActive: boolean }) {
+function TerminalPane({ sessionId, isActive, onPtyData }: { sessionId: string; isActive: boolean; onPtyData?: (id: string) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const onPtyDataRef = useRef(onPtyData);
+  onPtyDataRef.current = onPtyData;
   const [bridgeMsg, setBridgeMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,10 +95,12 @@ function TerminalPane({ sessionId, isActive }: { sessionId: string; isActive: bo
           } catch {}
         }
         term.write(ev.data);
+        onPtyDataRef.current?.(sessionId);
         return;
       }
       const buf = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : (ev.data as Uint8Array);
       term.write(buf);
+      onPtyDataRef.current?.(sessionId);
     });
 
     socket.addEventListener("close", () => {
@@ -193,6 +197,39 @@ function App() {
   const [activeProject, setActiveProject] = useState<string>(
     localStorage.getItem(LS_LAST_PROJECT) || ""
   );
+  const [splitOpen, setSplitOpen] = useState(true);
+  const [appUrl, setAppUrl] = useState<string | null>(null);
+  const [splitError, setSplitError] = useState<string | null>(null);
+  const [iframeNonce, setIframeNonce] = useState(0);
+  const [splitRatio, setSplitRatio] = useState<number>(() => {
+    const v = Number(localStorage.getItem("garrison.terminal.splitRatio"));
+    // Default: terminal 1/3, app iframe 2/3.
+    return Number.isFinite(v) && v > 0.1 && v < 0.9 ? v : 1 / 3;
+  });
+  const splitWrapRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+  const autoOpenedRef = useRef(false);
+  const lastDataRef = useRef<Map<string, number>>(new Map());
+  const [busyTick, setBusyTick] = useState(0);
+
+  const noteSessionActivity = useCallback((id: string) => {
+    lastDataRef.current.set(id, Date.now());
+  }, []);
+
+  // Re-render twice a second so the busy pill follows the activity window.
+  useEffect(() => {
+    const t = setInterval(() => setBusyTick((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, []);
+
+  // Stale: idle for >1.5s since the last byte from the PTY.
+  const BUSY_WINDOW_MS = 1500;
+  function isBusy(id: string): boolean {
+    const t = lastDataRef.current.get(id);
+    return !!t && Date.now() - t < BUSY_WINDOW_MS;
+  }
+  // Touch busyTick so the renderer re-evaluates isBusy on each interval.
+  void busyTick;
 
   const refresh = useCallback(async () => {
     try {
@@ -350,6 +387,107 @@ function App() {
     await createSession({ cwd: activeProject || undefined, name });
   }
 
+  const activeSession = sessions.find((s) => s.id === activeId) || null;
+
+  // First time we have an active session, try to auto-populate the iframe.
+  // Stay quiet on failure — the app.port file may not exist yet.
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (!activeSession) return;
+    autoOpenedRef.current = true;
+    void (async () => {
+      try {
+        const [ipRes, portRes] = await Promise.all([
+          fetch("/tailscale-ip"),
+          fetch(`/app-port?cwd=${encodeURIComponent(activeSession.cwd)}`)
+        ]);
+        if (!ipRes.ok || !portRes.ok) return;
+        const { ip } = await ipRes.json();
+        const { port } = await portRes.json();
+        setAppUrl(`http://${ip}:${port}`);
+      } catch {}
+    })();
+  }, [activeSession]);
+
+  async function resolveAppUrl(): Promise<string | null> {
+    setSplitError(null);
+    if (!activeSession) {
+      setSplitError("No active terminal session.");
+      return null;
+    }
+    try {
+      const [ipRes, portRes] = await Promise.all([
+        fetch("/tailscale-ip"),
+        fetch(`/app-port?cwd=${encodeURIComponent(activeSession.cwd)}`)
+      ]);
+      if (!ipRes.ok) {
+        setSplitError("No Tailscale interface found on this machine.");
+        return null;
+      }
+      if (!portRes.ok) {
+        const body = await portRes.json().catch(() => ({}));
+        setSplitError(`app.port: ${body?.error || `HTTP ${portRes.status}`}`);
+        return null;
+      }
+      const { ip } = await ipRes.json();
+      const { port } = await portRes.json();
+      return `http://${ip}:${port}`;
+    } catch (err) {
+      setSplitError(err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
+  async function toggleSplit() {
+    if (splitOpen) {
+      setSplitOpen(false);
+      return;
+    }
+    const url = await resolveAppUrl();
+    if (!url) return;
+    setAppUrl(url);
+    setSplitOpen(true);
+  }
+
+  async function refreshIframe() {
+    // Re-resolve in case app.port changed since the panel was opened.
+    const url = await resolveAppUrl();
+    if (url) setAppUrl(url);
+    setIframeNonce((n) => n + 1);
+  }
+
+  function openAppInNewTab() {
+    if (!appUrl) return;
+    window.open(appUrl, "_blank", "noopener");
+  }
+
+  function onDividerPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    draggingRef.current = true;
+    const target = e.currentTarget;
+    try { target.setPointerCapture(e.pointerId); } catch {}
+  }
+
+  function onDividerPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
+    const wrap = splitWrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const isVertical = window.matchMedia("(max-width: 720px)").matches;
+    const raw = isVertical
+      ? (e.clientY - rect.top) / rect.height
+      : (e.clientX - rect.left) / rect.width;
+    const clamped = Math.min(0.9, Math.max(0.1, raw));
+    setSplitRatio(clamped);
+  }
+
+  function onDividerPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    localStorage.setItem("garrison.terminal.splitRatio", String(splitRatio));
+  }
+
   return (
     <>
       <div className="header">
@@ -376,6 +514,7 @@ function App() {
               onClick={() => setActiveId(s.id)}
               title={s.cwd}
             >
+              {isBusy(s.id) && <span className="spinner" aria-hidden="true" />}
               <span>{s.name}</span>
               <span className="close" onClick={(e) => { e.stopPropagation(); void close(s.id); }}>×</span>
             </span>
@@ -390,13 +529,74 @@ function App() {
         <button type="button" className="btn primary" onClick={() => void newSessionAtProject()} disabled={busy} title={activeProject ? `New terminal at ${activeProject}` : "New terminal at $HOME"}>
           {busy ? "…" : "+ New"}
         </button>
+        <button
+          type="button"
+          className={`btn ${splitOpen ? "primary" : ""}`}
+          onClick={() => void toggleSplit()}
+          disabled={!activeSession}
+          title="Split this terminal with the app at <tailscale-ip>:<app.port>"
+        >
+          {splitOpen ? "Close app" : "Split app"}
+        </button>
       </div>
       {error && <div className="alert">{error}</div>}
-      <div className={`term-wrap ${sessions.length === 0 ? "empty" : ""}`}>
-        {sessions.map((s) => (
-          <TerminalPane key={s.id} sessionId={s.id} isActive={s.id === activeId} />
-        ))}
-        {sessions.length === 0 && <span>No active session. Click + New to start.</span>}
+      {splitError && <div className="alert">{splitError}</div>}
+      <div ref={splitWrapRef} className={`split-wrap ${splitOpen ? "split-open" : ""}`}>
+        <div
+          className={`term-wrap ${sessions.length === 0 ? "empty" : ""}`}
+          style={(splitOpen && appUrl) ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : undefined}
+        >
+          {sessions.map((s) => (
+            <TerminalPane
+              key={s.id}
+              sessionId={s.id}
+              isActive={s.id === activeId}
+              onPtyData={noteSessionActivity}
+            />
+          ))}
+          {sessions.length === 0 && <span>No active session. Click + New to start.</span>}
+        </div>
+        {splitOpen && appUrl && (
+          <>
+            <div
+              className="split-divider"
+              onPointerDown={onDividerPointerDown}
+              onPointerMove={onDividerPointerMove}
+              onPointerUp={onDividerPointerUp}
+              onPointerCancel={onDividerPointerUp}
+              role="separator"
+              aria-orientation="vertical"
+              title="Drag to resize"
+            />
+            <div className="app-pane" style={{ flex: `0 0 calc(${(1 - splitRatio) * 100}% - 3px)` }}>
+              <div className="app-pane-header">
+                <code className="app-pane-url">{appUrl}</code>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void refreshIframe()}
+                  title="Reload the iframe (also re-reads app.port)"
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={openAppInNewTab}
+                  title="Open the app in a new tab — then press Cmd+Opt+I (Mac) or F12 for devtools"
+                >
+                  New tab
+                </button>
+              </div>
+              <iframe
+                key={iframeNonce}
+                className="app-iframe"
+                src={appUrl}
+                title="app"
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {dialog && (

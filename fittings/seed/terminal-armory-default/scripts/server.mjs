@@ -136,6 +136,44 @@ function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host, sessions: sessions.size });
 }
 
+function getTailscaleIp() {
+  const ifaces = os.networkInterfaces();
+  for (const list of Object.values(ifaces)) {
+    if (!list) continue;
+    for (const iface of list) {
+      if (iface.family !== "IPv4" || iface.internal) continue;
+      // Tailscale uses 100.64.0.0/10 (CGNAT range).
+      const m = iface.address.match(/^100\.(\d+)\./);
+      if (!m) continue;
+      const n = Number(m[1]);
+      if (n >= 64 && n <= 127) return iface.address;
+    }
+  }
+  return null;
+}
+
+function handleTailscaleIp(req, res) {
+  const ip = getTailscaleIp();
+  if (!ip) return jsonRes(res, 404, { error: "no tailscale interface found" });
+  jsonRes(res, 200, { ip });
+}
+
+async function handleAppPort(req, res, queryParams) {
+  const cwd = expandHome(queryParams.cwd || "");
+  if (!cwd) return jsonRes(res, 400, { error: "cwd required" });
+  try {
+    const raw = await readFile(path.join(cwd, "app.port"), "utf8");
+    const port = Number(raw.trim());
+    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+      return jsonRes(res, 404, { error: "invalid app.port file" });
+    }
+    jsonRes(res, 200, { port });
+  } catch (err) {
+    if (err && err.code === "ENOENT") return jsonRes(res, 404, { error: "app.port not found" });
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 function expandHome(p) {
   if (!p) return p;
   if (p === "~" || p.startsWith("~/")) return path.join(HOME, p.slice(1).replace(/^\/+/, ""));
@@ -269,6 +307,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/projects" && method === "GET") return handleListProjects(req, res, parsed.query);
       if (pathname === "/sessions" && method === "GET") return handleListSessions(req, res);
       if (pathname === "/terminals" && method === "POST") return handleCreateSession(req, res);
+      if (pathname === "/tailscale-ip" && method === "GET") return handleTailscaleIp(req, res);
+      if (pathname === "/app-port" && method === "GET") return handleAppPort(req, res, parsed.query);
 
       const delMatch = pathname.match(/^\/terminals\/([^/]+)$/);
       if (delMatch && method === "DELETE") return handleDeleteSession(req, res, decodeURIComponent(delMatch[1]));

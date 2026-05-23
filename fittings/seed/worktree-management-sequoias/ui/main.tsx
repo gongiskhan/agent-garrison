@@ -18,8 +18,19 @@ interface Project { name: string; path: string; }
 
 const LS_LAST_PROJECT = "garrison.worktrees.lastProject";
 
+const CLAUDE_START_CMD =
+  `claude 'Run the app on app.port and if there is a backend run it on backend.port. If any of these files does not exist create them with a random port number between 5000 and 9999. Also, update the respective env files to update the ports for the backend if it exists and the nextjs url if its a nextjs app. Run them on dev mode.'`;
+
+const CLAUDE_CONTINUE_CMD =
+  `claude --continue 'Run the app on app.port and if there is a backend run it on backend.port. If any of these files does not exist create them with a random port number between 5000 and 9999. Also, update the respective env files to update the ports for the backend if it exists and the nextjs url if its a nextjs app. Run them on dev mode.'`;
+
 function buildTerminalUrl(terminalUrl: string, cwd: string, command?: string, name?: string): string {
   const u = new URL(terminalUrl);
+  // The status file always writes 127.0.0.1 / localhost. Rewrite to the host
+  // this page is being viewed at, so the link works on mobile / Tailscale too.
+  if (u.hostname === "127.0.0.1" || u.hostname === "localhost") {
+    u.hostname = window.location.hostname;
+  }
   if (cwd) u.searchParams.set("cwd", cwd);
   if (command) u.searchParams.set("command", command);
   if (name) u.searchParams.set("name", name);
@@ -205,7 +216,7 @@ function App() {
       return;
     }
     const target = buildTerminalUrl(terminalUrl, cwd, command, name);
-    window.open(target, "_blank", "noopener");
+    window.location.href = target;
   }
 
   const projectOptions = useMemo(() => {
@@ -325,8 +336,8 @@ function App() {
                     type="button"
                     className="btn"
                     disabled={!terminalUrl}
-                    title="Open a terminal and run claude --dangerously-skip-permissions"
-                    onClick={() => openInTerminal(w.path, "claude --dangerously-skip-permissions", `${w.branch}:claude`)}
+                    title="Open a terminal and start Claude with the run-the-app prompt"
+                    onClick={() => openInTerminal(w.path, CLAUDE_START_CMD, `${w.branch}:claude`)}
                   >
                     Claude Code
                   </button>{" "}
@@ -334,8 +345,8 @@ function App() {
                     type="button"
                     className="btn"
                     disabled={!terminalUrl}
-                    title="Open a terminal and run claude --continue --dangerously-skip-permissions"
-                    onClick={() => openInTerminal(w.path, "claude --continue --dangerously-skip-permissions", `${w.branch}:cont`)}
+                    title="Open a terminal and continue Claude with the run-the-app prompt"
+                    onClick={() => openInTerminal(w.path, CLAUDE_CONTINUE_CMD, `${w.branch}:cont`)}
                   >
                     Continue
                   </button>{" "}

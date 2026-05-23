@@ -1,19 +1,19 @@
 :root {
-  --bg: #0b0d10;
-  --surface: #14171c;
-  --surface-elev: #1a1e25;
-  --border: #2a2f38;
-  --text: #e8eaed;
-  --text-dim: #9aa3ad;
-  --text-muted: #6b7480;
-  --accent: #6aa9ff;
-  --accent-dim: #3a5a8c;
-  --user-bubble: #2a3340;
-  --assistant-bubble: #1a1e25;
-  --danger: #ff6b6b;
-  --warn-banner: #2a2412;
-  --warn-text: #d4b878;
-  color-scheme: dark;
+  --bg: #fbf8f1;
+  --surface: #f4ede0;
+  --surface-elev: #fbf8f1;
+  --border: #d6cdba;
+  --text: #18211c;
+  --text-dim: #66695f;
+  --text-muted: #7d8077;
+  --accent: #3d6249;
+  --accent-dim: #a9c5b3;
+  --user-bubble: #eaf1e7;
+  --assistant-bubble: #f4ede0;
+  --danger: #9b362d;
+  --warn-banner: #f6ecd0;
+  --warn-text: #b07215;
+  color-scheme: light;
 }
 
 * {
@@ -146,7 +146,7 @@ body {
 }
 
 .bubble.error {
-  background: #2a1313;
+  background: #f7eae6;
   border: 1px solid var(--danger);
   color: var(--danger);
   align-self: stretch;

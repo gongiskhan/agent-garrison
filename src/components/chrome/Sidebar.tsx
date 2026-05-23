@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -173,6 +173,25 @@ export function Sidebar() {
   );
 }
 
+// Matches NARROW_BREAKPOINT in AppShell — below this width the sidebar
+// auto-collapses, and own-port views open in a new tab instead of the
+// in-app iframe (which would be unusable next to the collapsed sidebar).
+const MOBILE_BREAKPOINT = 720;
+
+function useIsMobileViewport(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function check() {
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    }
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return isMobile;
+}
+
 function FittingViewsLinks({
   composition,
   library,
@@ -183,6 +202,7 @@ function FittingViewsLinks({
   pathname: string;
 }) {
   const { entries: viewStatuses } = useFittingViewStatus();
+  const isMobile = useIsMobileViewport();
 
   if (!composition) return null;
 
@@ -251,20 +271,37 @@ function FittingViewsLinks({
         const healthy = status?.healthy === true;
         const statusClass = healthy ? "verified" : status?.healthy === false ? "alarm" : "empty";
         if (healthy && status) {
+          if (isMobile) {
+            return (
+              <a
+                key={`own-port:${row.entry.id}`}
+                href={status.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={clsx("leaf", statusClass)}
+                title={`Open ${row.entry.name} in new tab (${status.url})`}
+              >
+                <span className="glyph">
+                  <ExternalLink size={14} aria-hidden />
+                </span>
+                <span>{row.entry.name}</span>
+              </a>
+            );
+          }
+          const embedHref = `/embed/${row.entry.id}`;
+          const isActive = pathname === embedHref;
           return (
-            <a
+            <Link
               key={`own-port:${row.entry.id}`}
-              href={status.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={clsx("leaf", statusClass)}
-              title={`Open ${row.entry.name} in new tab (${status.url})`}
+              href={embedHref}
+              className={clsx("leaf", statusClass, isActive && "active")}
+              title={`Open ${row.entry.name} embedded (${status.url})`}
             >
               <span className="glyph">
                 <ExternalLink size={14} aria-hidden />
               </span>
               <span>{row.entry.name}</span>
-            </a>
+            </Link>
           );
         }
         const fallbackHref = `/fitting/${row.entry.id}`;
