@@ -56,12 +56,25 @@ Per-phase evidence lives under [`phases/`](./phases/).
 - [x] Kill switch uses the SDK's `Query.interrupt()` first-class
       cancellation primitive.
 
-## Phase 5 status (Armory — in progress, reframed from Trenches)
+## Phase 5 / Stage 1 status (own-port UI Fittings)
 
-See [`phases/PHASE5_VERIFICATION.md`](./phases/PHASE5_VERIFICATION.md).
-Three of four scenarios verified live; screen-share blocked on macOS
-Screen Recording permission grant. The 2026-05-08 reframe (Trenches
-→ Armory: a family of Faculties hosting tool Fittings, not a
-hard-coded shell area) is in flight; Trenches code paths remain
-under `src/app/trenches` / `src/components/trenches` until the
-Sequoias decomposition lands.
+See [`phases/PHASE5_VERIFICATION.md`](./phases/PHASE5_VERIFICATION.md)
+and [`phases/PHASE5_WORKBENCH_VERIFICATION.md`](./phases/PHASE5_WORKBENCH_VERIFICATION.md).
+Workbench shell area dissolved 2026-05-17 — `terminal`,
+`screen-share`, `worktree-management`, `session-view` are flat
+top-level Faculties whose Fittings serve their own React UI on their
+own HTTP port (Monitor pattern). Sequoias decomposition shipped under
+the 5.5 follow-up; the standalone Sequoias app is pending the 3-day
+daily-use validation gate before retirement.
+
+The Browser Fitting (Stage 1 finishing work per the 2026-05-26
+restructure) is still in flight.
+
+## Roadmap restructure (2026-05-26)
+
+Prior Phase 1–9 layout replaced by a 5-Stage layout — see
+[`GARRISON_ROADMAP.md`](./GARRISON_ROADMAP.md). The "Phase N
+additions" sections above are preserved verbatim as the historical
+record of what shipped at each phase; the DoD items themselves
+remain the v1 acceptance checklist independent of the stage
+restructure.

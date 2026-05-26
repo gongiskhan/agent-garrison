@@ -1,143 +1,136 @@
 # Garrison Roadmap
 
-**Status:** Live working journal. Edited during planning conversations.
-This file records the phased delivery of Garrison capabilities and the
-historical context around them — including the **reference projects**
-(Ekus, EKOA, awc-gateway-slack, Sequoias, memory-compiler) whose code
-seeded several Fittings. Those are *consumer* projects; the Honesty
-Test ([GOVERNANCE.md §3.1](./GOVERNANCE.md#31-downstream-consumers))
-keeps them out of Garrison's normative scope.
+**Status:** Live working document. Edited during planning conversations.
+This is the source of truth for Garrison's phased roadmap — the
+restructure of 2026-05-26 replaced the prior Phase 1–9 layout with a
+5-Stage layout that reflects the actual priority order: replacing the
+IDE and CLI for daily dev work first, the autonomous loop last,
+personal-assistant and multi-machine work explicitly deferred.
 
-**Garrison's goal** is the platform: a composer + runner + observer
-for long-running Claude Code Operatives, local-first and
-single-user. Concrete Fittings (channels, automations, task sources,
-etc.) ship as their own Fittings and may originate from any
-consumer's prior art — but Garrison doesn't take a position on which
-consumer's workflows are "the right" workflows. Read the phase
-entries below with that frame: anywhere this journal says "the
-user's existing X" or "ported from Y", treat that as historical
-sourcing of the reference seed, not as Garrison's mission.
+**Goal:** Get Garrison to the point where it replaces the user's
+existing development environment (IDE, terminal, browser tooling,
+Claude Code outside Garrison, claude.ai conversations) for a single
+machine, then layer autonomy and tasks on top, then expand outward
+to other machines and to personal-assistant use cases.
 
----
+-----
 
-## North star (platform capabilities)
+## North star
 
-A composed Operative running locally can:
+A single Operative running locally that:
 
-1. Be reached from multiple Channel Fittings concurrently (Slack
-   today; a browser-based Web Channel Fitting is the planned
-   successor to the removed built-in chat).
-2. Carry a configurable Soul (identity, voice, role) that composes
-   with the Orchestrator at prompt-assembly time.
-3. Read project context from data-source Fittings the user wires up,
-   without Garrison hardcoding which project layouts are supported.
-4. Remember across sessions via a Memory Fitting (whatever
-   memory-store implementation the user stations).
-5. Iterate on its task list on a heartbeat, with a derived Tasks
-   Faculty backed by whichever data-source Fitting declares a task
-   source.
-6. Capture artifacts (documents, recordings, audio) into a unified
-   Artifact Store — one Faculty, multiple producer Fittings.
-7. Plan-then-execute work via a sub-agent Fitting (Phase 4); the
-   Fitting owns its own UI if it wants to surface live runs.
-8. Compose own-port UI Fittings (terminals, screen shares, worktree
-   managers, session views, outposts) — Garrison links to them from
-   the sidebar Views section; it does not embed them.
-9. Reach other Macs via Outposts Fittings: an Operative running on
-   one host can drive worktrees, terminals, and file operations on
-   any host that runs a Garrison outpost bridge.
-10. Drive browser automations (an automation-runner Fitting; v1's
-    reference port comes from EKOA).
-11. Treat a task surface as a control plane — when a Tasks-backed
-    data-source Fitting is stationed.
+1. Hosts the user's full development workflow inside Garrison —
+   worktrees, terminals, Claude Code sessions, an embedded browser
+   for both human and agent inspection, session-view, screen-share
+   — all as Fittings, all rendered as views in Garrison's shell.
+   The user can do a full day of dev work without touching VS Code,
+   iTerm, or a separate browser.
+1. Runs every dev task through a **disciplined pipeline**: classify
+   tier → (plan + classify-again if non-trivial) → execute under
+   `/goal` → validate against acceptance criteria → run tests →
+   package evidence → report. Each step is a single-responsibility
+   runner with its own session and its own model choice. Evidence
+   bundles land in the Artifact Store; reports surface in the
+   originating surface and the worktree view.
+1. Lets me drive that pipeline from the phone via an improved web
+   channel: I'm walking around with my phone, I ask the Operative
+   to spawn a worktree and start work on something, it does; I get
+   back to the desk and the worktree view shows me exactly what's
+   running. Cross-surface continuity is real, not a hack.
+1. Replaces my claude.ai PM/Architect discussions with conversations
+   inside Garrison. The Operative captures decisions and plans into
+   markdown documents in the Documents Fitting as the conversation
+   converges. I reference those documents manually when I start
+   work.
+1. Becomes genuinely autonomous: Tasks Faculty as substrate, the
+   Operative creating tasks from discussions, heartbeat picking them
+   up, asking for approval, executing through the same Stage 2
+   pipeline, returning evidence. One operator running a software
+   project entirely through their Operative.
 
-Phases below are **scoping containers**, not strict gates. They
-describe *when* Garrison gained each capability; whether a particular
-consumer wires it up is the consumer's call.
+Stages below are **scoping containers**, not strict gates. Earlier
+stages have to be solid before later ones can be built on top of
+them, but spillover work between stages is fine and expected.
 
----
+**Inverted from the prior plan (2026-05-26):** the previous roadmap
+had personal-assistant work first (Phases 1–3 in the old numbering)
+with developer-workflow work later (Phases 4–5). The actual
+priority is the inverse. PA work and Outposts are deferred to
+post-Stage-5. They are not abandoned — they are deliberately
+sequenced behind the developer workflow because that is what the
+user actually does all day and what Garrison needs to be useful
+for before anything else.
+
+-----
 
 ## Cross-cutting: settled context
 
-These are not phase items, just things to keep in mind across the work.
+These are not stage items, just things to keep in mind across the
+work.
 
 - **Reference projects, sibling folders.**
   - **`awc-gateway-slack`** (`~/Projects/awc-gateway-slack/`) — the
     real source of the Slack channel and a clean channel-agnostic
-    HTTP gateway. Pure stdlib Node 20+. 354-line slack-adapter.js +
-    146-line gateway.js + SessionStop hook. This is the
-    prior-art for both `fittings/seed/slack-channel` and a slimmer
-    `fittings/seed/http-gateway`.
-  - **Ekus** (`~/Projects/ekus/`) — has the **Trello client** worth
-    porting (`mac-mini/gateway/heartbeat/trello.py`, real REST
-    client) and a Trello agent skill. Ekus's *gateway* (2090-line
-    FastAPI doing jobs+automation+scheduler+voice+whatsapp+...) is
-    too coupled for Phase 1 — lift patterns only when needed.
-    Ekus's "Slack" is poll-based curl from inside a session, not an
-    inbound webhook — **not what we want**.
+    HTTP gateway. Ported during the old Phase 1; relevant now mainly
+    as prior art if the Stage 4 / Stage 5 channel work needs
+    extending.
+  - **Ekus** (`~/Projects/ekus/`) — has the Trello client (ported
+    during the old Phase 1) and a Trello agent skill. The Ekus
+    *gateway* (2090-line FastAPI doing twelve things at once) is
+    not being lifted into Garrison; patterns can be cherry-picked
+    as needed.
   - **`~/.claude/memory-compiler/`** — the user's existing working
-    memory compiler. Python (uv), three Claude Code hooks
-    (SessionStart / SessionEnd / PreCompact), compile script that
-    extracts atomic articles via the Anthropic API into the Obsidian
-    vault at `~/Projects/ekus/obsidian-vault/Compiled/`. This is
-    what the Memory Fitting wraps. Already alive on this machine.
-  - **EKOA** (`~/Projects/ekoa-dev/`) — Phase 7 only. Has *two*
-    automation engines: `cortex/` (Playwright in-process) and
-    `automato/` (raw CDP via chrome-remote-interface). Phase 7 has
-    to pick before porting. UI is Next.js 16 + React 19 at
-    `ekoa/app/(dashboard)/automations/`.
-  - **Sequoias** (sibling project on this machine) — Phase 5
-    primary reference. Standalone Next.js worktree-manager app.
-    Decomposes into three Workbench Fittings (`worktree-management`,
-    `session-view`, `terminal`) under the Sequoias decomposition
-    verification milestone. Once the Workbench composition works,
-    Sequoias is retired in favor of those three Fittings.
-    **Sequoias also has multi-machine support** (its own bridge
-    pattern) which Phase 5's Workbench port intentionally left out;
-    Phase 6 (Outposts) restores that capability as a proper
-    Faculty rather than a Sequoias-specific feature.
-  - **Four Macs on Tailscale:** the **automation machine** (Mac
-    Mini M4, 16 GB, always on — hosts Garrison + Operative), the
-    **development machine** (MacBook Pro M1 Max, 32 GB, always on
-    — primary code work), the **portable machine** (MacBook Air
-    M4, 16 GB, intermittent uptime — carried around), and the
-    **office machine** (at the user's office; details added when
-    relevant). Phase 6 (Outposts) wires these together; before
-    Phase 6, Garrison is single-machine. The user's goal is to
-    stop using Jump Desktop and instead sit at any machine,
-    work locally, and have Garrison absorb the work.
-  - **Harmonika** (sibling project on this machine) — Phase 5
-    secondary reference. Source of the screen-share
-    implementation and any terminal/PTY plumbing not already
-    available in Sequoias. Same tech stack as Garrison; lift
-    wholesale rather than reimplementing.
-- **Runtime is the SDK gateway, not `claude` spawn.** The HTTP gateway
-  uses `@anthropic-ai/claude-agent-sdk` in-process and resumes the
-  same session by id. Auth is the Max account; no API key billing.
+    memory compiler. The Memory Faculty wraps it. Setup script
+    clones the compiler repo and wires Claude Code hooks at the
+    user level. This work landed during the old Phase 1.
+  - **EKOA** (`~/Projects/ekoa-dev/`) — the source of the
+    Automations port that lands in Stage 2 (the old Phase 7
+    content). Two automation engines (`cortex/` Playwright
+    in-process and `automato/` raw CDP); the engine decision needs
+    to be settled before the port begins.
+  - **Sequoias** (sibling project on this machine) — fully
+    decomposed into Workbench-style flat Faculties (terminal,
+    worktrees, session-view) during the old Phase 5 and Phase 5.5.
+    The Sequoias standalone app is retired pending a 3-day
+    daily-use validation gate.
+  - **Harmonika** (sibling project on this machine) — provided the
+    screen-share implementation and the terminal/PTY plumbing.
+    Source code lifted wholesale during old Phase 5.
+  - **Four Macs on Tailscale** — automation, development, portable,
+    office. Currently Garrison is single-machine. The Outposts work
+    (deferred to post-Stage-5) wires them together.
+- **Runtime is the SDK gateway, not `claude` spawn.** The HTTP
+  gateway uses `@anthropic-ai/claude-agent-sdk` in-process and
+  resumes the same session by id. Auth is the Max account; no API
+  key billing.
 - **Orchestrator + Soul concatenation already works.** The runner
   reads both prompt files and writes `assembled-system-prompt.md`,
   passed to the SDK as `append`.
-- **Permission mode is `bypassPermissions` for now.** Anything stricter
-  hangs because the UI has no permission-prompt surface yet.
+- **Permission mode is `bypassPermissions` for now.** Anything
+  stricter hangs because the UI has no permission-prompt surface
+  yet.
 - **No multi-host compositions in v1.** One composition per host.
-  Slack will be an inbound channel pointed at the same Operative.
+- **Workbench-as-shell-area is gone.** The 2026-05-17 dissolution
+  decision made `terminal`, `worktrees`, `session-view`,
+  `screen-share` flat sibling Faculties at the top level. The shell
+  renders Fittings whose Faculty appears in the active composition,
+  no special Workbench grouping.
+- **"Views" is the canonical term for a Fitting's UI surface.**
+  Fittings ship one or more views; the shell hosts them.
 - **Faculties terminology:** Faculties (slots), Fittings (concrete
   components in slots), Operative (the agent), Garrison (the
   platform). Stay consistent.
 
----
+-----
 
-## Cross-cutting: the `setup` hook (new Fitting lifecycle stage)
+## Cross-cutting: the `setup` hook (Fitting lifecycle stage)
 
-**Decided 2026-05-05.** Garrison gains a new Fitting lifecycle stage:
-`setup`. It runs *before* `verify` on every `up`, and is the standard
-mechanism for Fittings whose prerequisites can't be satisfied by APM
-alone (clone a repo, run `uv sync`, write to host-level config,
-install a browser binary, set up a tunnel).
+**Decided 2026-05-05.** Fittings have a `setup` lifecycle stage that
+runs *before* `verify` on every `up`. Standard mechanism for
+prerequisites APM can't satisfy: clone a repo, run `uv sync`, write
+to host-level config, install a browser binary, set up a tunnel.
 
-### Shape
-
-In `x-garrison`:
+Shape in `x-garrison`:
 
 ```yaml
 x-garrison:
@@ -157,2613 +150,921 @@ x-garrison:
   only when `verify` last failed.
 - `timeout_ms` — bounded; setup is not a long-running daemon.
 
-### Runner behavior (added to runner.ts)
+Runner behavior: on `up(composition)`, after `apm install` and before
+`verify`, runs each Fitting's setup command; on non-zero exit, logs
+and aborts `up`. Setup must be idempotent in practice. Setup may
+print user-attention messages to stdout but cannot block on stdin.
 
-On `up(composition)`, after `apm install` and before `verify`:
+This is shipped and load-bearing. The Memory Fitting and the Browser
+Fitting both depend on it.
 
-1. For each selected Fitting with a `setup` block:
-   - Run `setup.command` in the Fitting's installed directory.
-   - Capture stdout/stderr to the composition log.
-   - On non-zero exit, log and **abort `up`** (don't pretend the
-     Fitting started).
-2. Then run `verify` as today.
+-----
 
-### Spec changes needed
+## Cross-cutting: `/goal` integration discipline
 
-- `METADATA.md` — add `setup` to the top-level `x-garrison` schema
-  table, schema same shape as `verify`.
-- `AGENTS.md` §5 — extend the runner responsibilities to mention
-  setup-before-verify.
-- `V1_DOD.md` — add an observable item: "Fittings with a setup
-  block run their setup script on every `up`, before verify, and a
-  failing setup aborts the run."
-- One test in `tests/runner.test.ts` (or wherever runner tests live)
-  proving the ordering.
+**Decided 2026-05-26.** Claude Code v2.1.139 shipped the `/goal`
+feature — a session-scoped Stop hook that asks a small/fast model
+(default Haiku) after every turn whether a stated condition holds,
+keeping the session running until it does (or until a turn ceiling
+is hit). Stable, documented, headless-compatible.
 
-### Why a new hook, not extending `verify`
+### Where `/goal` is used in Garrison
 
-`verify` is read-only by contract — "is this Fitting in a healthy
-state?" Mixing in side-effect-causing setup logic muddies that
-contract. Keep them distinct: setup makes the world right, verify
-checks it. Lets the user run `verify` standalone any time without
-fear it'll mutate things.
+**Exactly one place: the execute step of the Stage 2 pipeline.**
 
-### Authoring guidance for Fittings using setup
+When the planner has produced a plan plus an explicit acceptance
+criteria block, the orchestrator spawns the executor session as
+`claude -p "/goal <acceptance criteria + 'or stop after N turns'>"`
+in the target worktree at the tier-2-chosen model. The session keeps
+running until the evaluator agrees the criteria hold or the turn
+ceiling is reached.
 
-- Setup scripts must be idempotent in practice, regardless of the
-  flag.
-- Setup should fail loudly with clear messages, never silently no-op.
-- Setup may ask for user attention via stdout (e.g. "open
-  https://api.slack.com/apps and copy your signing secret into the
-  vault, then re-run") but cannot block on stdin — the runner
-  doesn't pipe a TTY.
-- Anything requiring user interaction belongs in
-  `manual-instructions` or a UI extension, not setup.
+### Where `/goal` is NOT used
 
----
+- **Anywhere the orchestrator is doing intent routing or capability
+  selection.** `/goal` is a loop convergence check; it has no notion
+  of "talk to this Fitting" or "switch hats."
+- **The validate-against-plan step.** Validation wants a structured
+  pass/fail per criterion, not a loop. A skill call with a schema
+  return is the right shape. Letting the executor's `/goal` judge
+  its own work defeats the validation step's purpose.
+- **Test runs themselves.** Deterministic. A bash call runs them and
+  a skill interprets the output if interpretation is needed.
+- **Anything the evaluator can't see from the conversation.** If the
+  success condition is "the user is happy with this," `/goal` can't
+  help — the evaluator has no eyes on the user.
+- **Tier 1 (trivial) tasks.** The per-turn Haiku evaluator call adds
+  cost that's not worth it for short, obvious work.
+
+### Acceptance criteria authorship
+
+The **planner writes the acceptance criteria** as an explicit,
+structured "definition of done" block within the plan artifact. The
+orchestrator lifts that block verbatim into the `/goal` condition
+string, appending the "or stop after N turns" ceiling clause. The
+planner's prompt has this discipline baked in.
+
+### When `/goal` gives up
+
+Control returns to the orchestrator with the evaluator's last reason.
+**The orchestrator owns the recovery decision** because it owns the
+tier classification and the original intent. Options it picks
+between:
+
+- Re-plan (loop back through the Plan node, possibly at a higher
+  tier).
+- Hand back to the human with the evaluator's reason as context.
+- Accept partial (mark the run as partially-complete in the evidence
+  bundle).
+- Retry with expanded scope or different model.
+
+The `/goal` mechanism itself never decides any of these — it just
+hands back with a reason.
+
+### Risk to keep in mind
+
+`/goal`'s evaluator is the configured small/fast model (Haiku by
+default) and judges only what the conversation surfaces. If the
+executor session doesn't surface enough of what it did, the
+evaluator can falsely conclude the goal is met. Garrison should
+have the planner write acceptance criteria that *force the executor
+to surface evidence* (e.g. "all tests in `pnpm test` pass and the
+final assistant message includes the test output verbatim"), not
+just stateful criteria ("the bug is fixed").
+
+-----
+
+## Cross-cutting: Workflow tool (parked)
+
+**Decided 2026-05-26.** Claude Code v2.1.147 shipped a Workflow tool
+gated behind `CLAUDE_CODE_WORKFLOWS=1`. JavaScript files that run
+deterministic multi-agent fan-out with resume. Real, runnable,
+deliberately undocumented by Anthropic.
+
+**Garrison is not adopting it for v1.** Reasoning: the existing
+Stage 2 pipeline as designed doesn't have a step that genuinely
+needs parallel multi-agent fan-out. The Ekoa Automations port is
+deterministic Playwright already — Workflow adds nothing there.
+Validate-against-plan would benefit from parallel-criterion
+evaluation but is fine as a sequential skill call in v1.
+Adopting an undocumented env-gated feature for a marginal benefit
+isn't worth the architectural and stability risk.
+
+**Revisit signal:** if the feature gets official documentation, or
+if it shows up in the YouTube content the user follows as a serious
+production pattern, re-evaluate then.
+
+**Research artifact** lives in conversation history (2026-05-26
+deep-research report) and need not be re-done.
+
+-----
 
 ## Cross-cutting: Garrison-as-AI-composer (future direction)
 
 **Status:** captured, not yet phased. Build advisory/validation
 version when there's a concrete need for it.
 
-### The idea
+Garrison today is purely deterministic: read manifests, resolve the
+capability graph, install Fittings, concatenate prompts, run the
+Operative. An AI-composer adds an LLM-assisted step at compose or
+apply time that reasons about the composition.
 
-Garrison today is purely deterministic: read manifests, resolve
-the capability graph, install Fittings, concatenate prompts, run
-the Operative. An AI-composer adds an LLM-assisted step at compose
-or apply time that reasons about the composition and either
-*advises the human* (option a) or *generates artifacts directly*
-(option b).
-
-### Two flavors
+Two flavors:
 
 - **Option (a) — advisory/validation.** Composition stays
-  deterministic. An assembler agent runs at apply time (or on
-  user request), reads the selected Fittings + their `for_consumers`
-  + soul + orchestrator + capability graph, and produces:
-  - Warnings ("two providers of `channel:slack` — pick one").
-  - Recommendations ("you have Trello but no Memory; consider
-    adding garrison-memory").
-  - Friction reports ("the Soul says terse, but the Documents
-    `for_consumers` asks for verbose link previews — you may want
-    to reconcile").
-  - The human accepts or rejects. The composition itself stays
-    code+YAML.
-
-- **Option (b) — synthesis.** The runner asks an LLM to *write*
-  the assembled system prompt by reasoning over inputs, not just
-  concatenating them. Risks: non-reproducibility (same composition
-  → different prompts), cost (every apply hits an LLM),
-  debuggability (one more layer between intent and behavior).
-  **Not recommended for the foreseeable future.** Solve a real
-  problem first; pull this in only if (a) doesn't.
-
-### When to build (a)
-
-Don't build speculatively. Build when one or more of:
-
-- Compositions get big enough that the human can't reason about
-  them unaided.
-- `for_consumers` blocks start contradicting each other in ways
-  the runner can't detect statically.
-- A meaningful number of Fittings exist in the registry and
-  novice users need help picking compatible sets.
-- Users start asking "did I miss something obvious?" when
-  composing.
-
-### Tracked as
-
-A future phase, exact number TBD. Likely lands sometime after
-Phase 7, when the Fitting registry has enough breadth that
-composition complexity is real.
-
----
-
-## Phase 1 — Make the seed Operative actually personal-assistant-shaped — **DONE (2026-05-06)**
-
-**Status:** Complete. Tickets T1–T9 from `PHASE_1_EXECUTION.md`
-all landed. The Operative has Gateway, Memory (via the cloned
-`~/.claude/memory-compiler/`), Soul, Orchestrator (with capability-
-graph composition awareness via `cardinality: any`), Classifier,
-Heartbeat (off by default), Trello, and Slack channel. Reachable
-from phone via Slack. The runtime composition-awareness assertion
-(operative lists/de-lists Trello based on selection) passed.
-
-**Outcome:** I can hit Run, get a single Operative that has the right
-core Faculties wired up (Gateway, Memory, Soul, Orchestrator,
-Classifier, Heartbeat, Trello, Slack), and reach it from my phone via
-Slack. It doesn't yet do anything clever — it just *exists in the
-right shape* with real memory and a real channel.
-
-### Scope
-
-1. **Audit the current seed Fittings against personal-assistant needs.**
-   Six exist: heartbeat, classifier, memory, gateway, browser-automation,
-   trello-data-source. Walk each one and decide: keep / extend / replace.
-2. **Memory Faculty wraps the existing `~/.claude/memory-compiler/`,
-   installed via the new `setup` hook.**
-   - The user has a working memory compiler at
-     `~/.claude/memory-compiler/` (Python, three Claude Code hooks,
-     compile script, Anthropic API extraction into the Obsidian
-     vault at `~/Projects/ekus/obsidian-vault/Compiled/`). The
-     SessionStart hook already injects `index.md` as
-     `[Knowledge Base]` into every Claude Code session on this
-     machine.
-   - **The compiler is its own GitHub repo** (URL: TBD — user to
-     share). The seed `fittings/seed/memory` does *not* bundle the
-     compiler. It bundles a setup script that clones it on demand.
-   - **Setup script behavior** (`fittings/seed/memory/scripts/setup.sh`):
-     1. If `~/.claude/memory-compiler/` exists, skip clone.
-     2. Else `git clone <compiler-repo> ~/.claude/memory-compiler`.
-     3. Run `uv sync --directory ~/.claude/memory-compiler` (idempotent).
-     4. Read `~/.claude/settings.json`. If the SessionStart /
-        SessionEnd / PreCompact hook entries are missing, add them
-        (matching the existing entries documented in the
-        investigation report). If present, leave alone.
-     5. Resolve `$COMPILER_OUTPUT_DIR` — if not set, default to
-        `~/Projects/ekus/obsidian-vault/Compiled` so the existing
-        compiled memory is reused.
-     6. Exit 0.
-   - **Verify hook** (post-setup): all three hooks resolve, the
-     compile script exists, `uv sync` succeeded, output directory
-     is reachable.
-   - **Manifest schema fix:** rename `compiled_memory_path` →
-     `compiled_memory_dir`. The compiler writes a directory tree
-     (`{concepts,procedures,gotchas}/<slug>.md` plus `index.md`),
-     not a single file.
-   - **Claude Code's separate auto-memory** at
-     `~/.claude/projects/.../memory/MEMORY.md` is left alone. The
-     Memory Faculty is cardinality `single`; this Fitting wraps the
-     compiler only.
-   - Wire via the `memory-store:garrison-memory` capability so the
-     Orchestrator consumes it. (Already declared.)
-   - **Context-bloat concern (Orchestrator-side, not Fitting-side):**
-     SessionStart already injects only `index.md`, not all articles.
-     The Orchestrator prompt should know "you have a query helper
-     that fetches specific articles by slug or keyword when you need
-     more than the index" so the model doesn't try to remember
-     everything from the index alone, and doesn't request the whole
-     compiled corpus into context unnecessarily. Add this to the
-     Orchestrator rewrite (item 6).
-3. **Slack channel Fitting (port from `~/Projects/awc-gateway-slack/`).**
-   - This is the real prior art. **Not Ekus** — Ekus only does
-     poll-based curl from inside a session, not inbound webhooks.
-   - **What's there to port:**
-     - `slack-adapter.js` (354 lines) — HTTP server on
-       `127.0.0.1:9512`, route `POST /slack/events`, signature
-       verification (HMAC-SHA256 with `SLACK_SIGNING_SECRET`,
-       5-minute replay window, `crypto.timingSafeEqual`),
-       url_verification challenge echo, immediate 200 to suppress
-       Slack retries, async event handling, bot-echo filter, mention
-       token strip, `reply_to = "slack:<channel>:<thread_ts>"`.
-     - Outbound: long-lived SSE subscriber to gateway's
-       `GET /events`, posts via `chat.postMessage` with
-       threading. Retry: exponential backoff with 429 retry-after
-       handling.
-   - **Faculty:** `channels`, shape: `script`. Runs as a child
-     process spawned by the runner.
-   - **Vault keys:** `SLACK_BOT_TOKEN` (xoxb-), `SLACK_SIGNING_SECRET`.
-     Both required at startup; process exits 1 if missing.
-   - **Public URL strategy:** instructions document one of ngrok,
-     Tailscale Funnel, or `cloudflared tunnel` pointed at
-     `127.0.0.1:9512`. Manual step in v1; documented, not automated.
-   - **Verify hook:** `curl -fsS http://127.0.0.1:9512/health`.
-4. **Verify Trello integration end-to-end — and replace the stub.**
-   - Current `fittings/seed/trello-data-source/scripts/trello-sync.mjs`
-     is a 4-line stub that prints a JSON line. Not a real client.
-   - Port `mac-mini/gateway/heartbeat/trello.py` from Ekus (144-line
-     stdlib REST client: `Card` dataclass, `TrelloClient` with
-     list/create/update/comment/label methods, URL-encoding,
-     pagination). Drop the `from . import config` dependency, swap
-     to env vars or vault lookup.
-   - Port the agent skill from `~/Projects/ekus/.claude/skills/trello/SKILL.md`
-     (curl-style instructions, "A Fazer" / "Brevemente" semantics,
-     Portuguese URL-encoding gotchas) into the Fitting's
-     `.apm/skills/`.
-   - Confirm derived Tasks surface still resolves Trello-backed
-     after the port.
-
-4a. **Swap `http-gateway` to the awc-gateway-slack pattern.**
-   - The current `http-gateway` Fitting may not cleanly support the
-     Slack adapter's expected SSE endpoint pattern (long-lived
-     subscriber on `GET /events`, FIFO pairing on `/inbound`).
-     Inventory it; if it's already the right shape, skip. Otherwise
-     port the 146-line `gateway.js` from `awc-gateway-slack` as the
-     Fitting's body — pure stdlib Node, channel-agnostic, FIFO
-     pairing, in-memory queue.
-   - **Do not** lift Ekus's 2090-line FastAPI gateway. It's doing
-     twelve unrelated things at once.
-   - Patterns from Ekus worth lifting **only when needed later**:
-     channel session-state machine (active/starting/switching/ready
-     with message_queue flush), WebSocket + polling fallback for
-     non-CLI clients, per-session JSONL history at
-     `data/channel-history/<session_id>.jsonl`.
-5. **Soul: a real one, not the placeholder.**
-   - Replace the dogfood placeholder soul with a real persona that
-     encodes:
-     - PM hat (clarifying questions, scope discipline, refusing to
-       write code in chat when the right answer is to plan).
-     - Software Architect hat (system thinking, calling out
-       tradeoffs, pushing back on premature decisions).
-     - Personal-assistant baseline tone for non-dev work.
-   - **Hat selection: auto-detect from context.** Project mentioned
-     → dev hat (PM + Architect blended). Otherwise → personal
-     assistant tone. No explicit toggle in v1; if the auto-detect
-     misfires often we revisit.
-   - Detection signals (Orchestrator-level, not Soul-level):
-     - Known project name from the projects index (Phase 2 makes this
-       solid; Phase 1 can use a simpler heuristic — explicit project
-       reference, code paste, file path mention).
-     - Code in the message.
-     - Explicit dev-flavored verbs ("plan", "implement", "fix",
-       "refactor", "design").
-   - The Soul declares the hats exist and what each one sounds like.
-     The Orchestrator owns the *detection logic and switching*. Soul
-     = who, Orchestrator = how.
-6. **Orchestrator: replace the placeholder with one that owns global
-   config properly *and* learns the composition by capability.**
-   - `projects_root` becomes a *real* config field, populated from
-     the UI.
-   - Add `personas` config (list of hats it can wear).
-   - Add `default_classifier_floor` (already exists implicitly).
-   - **Composition awareness via the capability graph, not
-     hardcoding.** The Orchestrator declares one consumes entry per
-     capability kind with `cardinality: any`. Concretely:
-     ```yaml
-     consumes:
-       - { kind: agent-skill,        cardinality: any }
-       - { kind: memory-store,       cardinality: any }
-       - { kind: automation-runner,  cardinality: any }
-       - { kind: vault,              cardinality: optional-one }
-     ```
-     At assembly time, the runner walks the resolver's
-     `consumer.matched` arrays, gathers everything provided in this
-     composition, and injects a "tools/Faculties available in this
-     Operative" block into the system prompt.
-   - The Orchestrator stays a single generic Fitting. Adding a new
-     Fitting to a composition automatically shows up in the
-     Orchestrator's awareness — no Garrison code change, no
-     per-composition prompt fork.
-   - **Prompt-flow ordering (explicit in the Orchestrator prompt):**
-     1. Auto-detect hat (dev vs PA) — based on intent verbs and
-        project signals. Sets *which Soul flavor* applies.
-     2. Classifier runs — sets *how much process* applies (T1–2
-        execute, T3+ plan-then-route).
-     3. Execute through the resolved Faculties.
-     Hat-detection and classification are orthogonal and run in that
-     order.
-   - **Memory usage discipline (Orchestrator prompt content):**
-     `[Knowledge Base]` is injected at SessionStart with only the
-     `index.md`. The Orchestrator prompt instructs:
-     - Treat the index as a map, not a knowledge dump. Don't try to
-       recite from it.
-     - When more detail is needed, query the compiled memory by slug
-       or keyword via the memory query helper
-       (`scripts/query.py` exposed as a skill or tool).
-     - Don't pull the full compiled corpus into context. The index
-       is enough to know *what's there*; query for specifics on
-       demand.
-
-7. **Capability resolver wildcard — already exists, just patch the
-   spec doc.**
-   - Investigation confirmed `cardinality: "any"` is wired
-     end-to-end: parser (`metadata.ts:43`), resolver
-     (`capabilities.ts:91-121`, fallthrough branch), types, tests.
-     `tests/capabilities.test.ts:120-137` proves "any cardinality
-     never errors regardless of provider count."
-   - Phase 1 work here collapses to:
-     - One-line patch in `CAPABILITIES.md` to name the literal token
-       `any` (currently the doc says "all available" without
-       mentioning the cardinality value).
-     - Optional cleanup: make `capabilities.ts:91-121` an explicit
-       `else if (cardinality === "any")` branch instead of
-       fallthrough. Functionally fine today but fragile if a fourth
-       cardinality is ever added.
-   - The Orchestrator can declare `consumes: { kind: ..., cardinality: any }`
-     for each capability kind it wants to discover. No spec change
-     needed.
-
-### Phase 1 done when
-
-- Slack message → Operative receives it → Orchestrator system prompt
-  is in effect → Memory hook fires and reads existing compiled memory
-  → Reply comes back to Slack.
-- I can say "what do you remember about me" and get a real answer.
-- Trello data source surfaces my tasks list to the Operative.
-- **Composition awareness verified at runtime:** with Trello
-  selected, asking the Operative "what tools/Faculties do you have
-  available?" lists Trello among them. With Trello removed and
-  Operative re-run, the same question no longer lists Trello. Proves
-  the capability injection actually fires at assembly.
-- Heartbeat is *off* by default at this point — we don't want it
-  acting until Phase 2 says it can.
-
-### Open questions for Phase 1
-
-- **Memory compiler repo URL** — user to share. Setup script needs
-  it before Phase 1 ships.
-- **Memory schema rename** confirmed: `compiled_memory_path` →
-  `compiled_memory_dir`. (Captured below; remove once implemented.)
-- **Slack public URL:** ngrok / Tailscale Funnel / `cloudflared
-  tunnel`. Pick one for the docs and the verify script. Cloudflare is
-  the most common in this user's setup; leaning that way.
-- **awc-gateway-slack also has a SessionStop hook
-  (`hooks/stop-to-gateway.sh`) referenced in `.claude/settings.json`.**
-  Likely Phase 1 — without it, the channel pairing doesn't tick.
-  Confirm during the port.
-- **Setup hook spec details:** does `setup` belong only at the
-  Fitting level, or should compositions also be able to declare a
-  composition-level setup? Phase 1 only needs Fitting-level. Leave
-  composition-level for later.
-
----
-
-## Phase 2 — Real personal-assistant functionality
-
-**Outcome:** The Operative is useful day-to-day. It picks up Trello
-tasks on its heartbeat, suggests what I should do, knows about my
-projects without me pasting code, and starts replacing my claude.ai
-PM/architect conversations.
-
-### Scope
-
-1. **Project awareness via Orchestrator config.**
-   - `projects_root` (already added in Phase 1) is the folder Garrison
-     scans.
-   - On startup or on demand, the Orchestrator builds an *index* of
-     projects in that folder: project name, README excerpt, top-level
-     directory layout, presence of CLAUDE.md / docs / etc.
-   - The index is *known about*, not eagerly read. When I mention a
-     project name, the Orchestrator knows where to look. It pulls
-     content into context only when needed, not preemptively.
-   - This needs a **new Faculty Fitting** under `knowledge-base` —
-     call it `projects-index` or similar. Seed Fitting, shape: `skill`
-     or `script` that exposes a structured "list/look-into project X"
-     interface to the Orchestrator.
-2. **Two-hat behavior, properly.**
-   - In Phase 1 the Orchestrator already auto-detects dev vs. PA
-     context using simple signals (project name, code, dev verbs).
-   - Phase 2 strengthens detection by hooking it into the **project
-     index**: if the user mentions any string that resolves against
-     the index, dev hat engages with that project as context.
-   - Both hats share the same memory and same Trello access.
-   - Still no explicit user-driven toggle. If misfires accumulate,
-     reopen the decision.
-3. **Heartbeat-driven task awareness.**
-   - Re-enable Heartbeat (loop variant) at a sensible cadence (40 min
-     by default).
-   - On each tick: read Trello tasks, decide if any are tier-1/2
-     (cheap, low-risk, well-scoped) and could be auto-suggested.
-   - **No autonomous execution yet.** The heartbeat *posts a
-     suggestion* via Slack: "I think you should work on X today
-     because Y, and I could do Z autonomously if you approve."
-   - When I approve, it produces a plan (still no code execution
-     yet — that's Phase 4).
-4. **Scheduler Faculty wired up.**
-   - New Fitting under `fittings/seed/scheduler` — currently empty in
-     the seed set. Cron-style for non-heartbeat scheduled work.
-   - First job: Google Calendar sync (see below).
-5. **Google Calendar integration.**
-   - New Fitting under `data-sources` (or `automations` — see open
-     question): `google-calendar`.
-   - Read events into the same Tasks markdown truth file (or a
-     parallel one), so the Operative has a unified daily view: Trello
-     tasks + calendar events.
-   - Two-way: when the Scheduler creates a calendar event, sync it
-     back to Google Calendar.
-6. **Memory gets exercised.**
-   - Make sure the memory compiler runs on its declared cadence
-     (`session | daily | on_bits` from EKOA).
-   - Verify decisions made in conversation actually land in the
-     compiled markdown.
-
-### Phase 2 done when
-
-- I open Slack in the morning, the Operative tells me what's on my
-  plate today (Trello + Calendar combined), and proposes one or two
-  things to start with.
-- I can say "let's discuss the Garrison Workspace Faculty" and get a
-  real PM/architect-flavored conversation that already knows what
-  Garrison is and where its docs live, without me pasting anything.
-- Memory entries from the conversation appear in the compiled memory
-  file by end of session.
-- Calendar events I create via the Operative appear in Google
-  Calendar.
-
-### Open questions for Phase 2
-
-- **Project-index scope:** how deep does it index? README + tree only?
-  Or also CLAUDE.md, docs/*, etc.? Leaning toward "shallow by default,
-  drill in on demand" to keep context window clean.
-- **Calendar Faculty:** `data-sources` or `automations`? It's
-  bidirectional, which the spec says is v1.2-only for data sources.
-  Possible answer: it's a **data source** for read, **automation** for
-  write, until two-way data sources land. Or just call it an
-  automation outright since we're already breaking the read-only data
-  source rule for our own use.
-- **Tier classifier behavior on heartbeat-triggered tasks:** does it
-  even apply, or is heartbeat work a separate routing path? Probably
-  the same path — heartbeat dispatches a synthetic prompt through the
-  classifier like any other entry point.
-- **Approval surface:** Slack message with buttons? Slack DM with
-  text reply? Reply in same thread? Threads are the cleanest — start
-  there.
-
----
-
-## Phase 3 — Documents Fitting + Artifact Store + UI contract v2 — **DONE (2026-05-08)**
-
-**Status:** Complete. Tickets T1–T6 from `PHASE_3_EXECUTION.md`
-all landed across commits `d22b384` (for_consumers), `7369d03`
-(UI contract v2), `efcd599` (Artifact Store), `e79d28f` (Documents),
-`947b1a3` and `434cff7` (verification). 133 tests pass. Three
-implementation adaptations documented in the decision log:
-static view registry instead of dynamic import; `cli-skill` shape
-now valid under `knowledge-base` Faculty (minimal validator change,
-not full refactor); edit view is textarea, not tiptap (upgrade
-path documented).
-
-**Outcome:** Three layered additions, scoped together because they
-share a UI surface, a release window, and several spec changes:
-
-1. An **Artifact Store Faculty** that underlies any Fitting which
-   produces files for the user — documents now, automation videos
-   later, voice audio later. Provides storage, browsing UI, and
-   channel-aware link generation.
-2. A **Documents Fitting** under the `knowledge-base` Faculty,
-   layered on the Artifact Store, that gives the Operative a place
-   to author, view, and edit markdown documents during
-   conversation — the way claude.ai maintains a working artifact
-   across a conversation. The PM / Software Architect hat learns
-   to produce documents proactively when a discussion has
-   converged on something worth capturing, without explicit
-   prompting.
-3. **UI extension contract v2** (multi-view Fittings, placement,
-   in-Fitting routing, cross-tab linking via `garrison://`) — the
-   contract redesign that was scheduled for Phase 7 (Automations).
-   The Artifact Store browser + Documents editor are the two
-   forcing functions, brought together here.
-
-### Why now (not Phase 7, not Garrison-core)
-
-- **Not Garrison-core:** documents are a specific use case, not
-  every Operative needs them. Putting documents in core would
-  bloat Garrison and assume too much about how people use their
-  Operatives. Fitting keeps it optional.
-- **Not Phase 7:** waiting to build documents until Automations
-  forces the UI redesign is artificial. The need is real now.
-- **Bringing the UI contract redesign forward is a calendar
-  shift, not a scope addition.** That work was already going to
-  happen at Phase 7. Documents drives the requirements concretely
-  instead of speculatively.
-
-### Scope
-
-1. **`for_consumers` field on Fittings (provider-side usage
-   instructions).**
-   - New optional field in `x-garrison`: free-form markdown text
-     telling consumers (typically the Orchestrator) how to use this
-     Fitting. Locality principle: the Fitting that ships a
-     capability also ships the doc on how to use it.
-   - Schema:
-     ```yaml
-     x-garrison:
-       faculty: knowledge-base
-       provides:
-         - kind: knowledge-base
-           name: project-documents
-       for_consumers: |
-         You have access to a Documents workspace. Use it when:
-         - In PM/Architect hat and a discussion has converged on
-           something worth capturing.
-         - The user explicitly asks you to write something down.
-
-         Tools: list_documents, read_document, create_document,
-         update_document. Reply with garrison://documents/<id>
-         links so the user can click through.
-     ```
-   - **Runner assembly extension** (extends T8's assembly logic
-     from Phase 1): when rendering the Orchestrator's "tools and
-     Faculties available" block, include each provider's
-     `for_consumers` text under its line. Fall back to `summary`
-     if no `for_consumers` is set.
-   - **Spec changes:**
-     - `METADATA.md` — add `for_consumers` to the `x-garrison`
-       schema table.
-     - `CAPABILITIES.md` — note the convention: providers SHOULD
-       ship `for_consumers` for any non-obvious usage.
-     - `AGENTS.md` §5 — extend the runner's assembly description.
-   - **Why this lands now (Phase 3) and not Phase 1:** Phase 1's
-     Fittings (Slack, Trello, Memory) are mostly invoked via well-
-     known patterns (channel = inbound/outbound; data-source = read);
-     they don't need much usage guidance. Documents is the first
-     Fitting where *when* to use it matters as much as *how* —
-     proactive document creation, knowing when the conversation
-     converged. Documents drives the requirement.
-   - **Phase 1 Fittings get retrofitted opportunistically.** Trello
-     gets a `for_consumers` block when someone wants to add
-     "prefer creating cards in 'A Fazer' for active work" guidance.
-     Slack gets one when threading rules need to be encoded. Not
-     forced.
-
-2. **UI extension contract v2.**
-   - Extend the v1 contract (single React component per Faculty
-     tab) to support:
-     - **Multiple views per Fitting.** A Fitting declares N views
-       in its `x-garrison.ui` block, each with a route fragment.
-     - **Placement:** `faculty-tab` (renders inside the Faculty's
-       pane, today's behavior) or `sidebar-surface` (renders as a
-       full Garrison surface in the left nav, alongside Run /
-       Components / Workbench). Documents will use
-       `sidebar-surface` since it's a workspace, not a Faculty
-       inspector.
-     - **In-Fitting routing.** Garrison's router exposes a path
-       prefix per Fitting; the Fitting handles its own sub-routes.
-     - **Cross-tab linking.** A Fitting can emit URLs of the form
-       `garrison://documents/<doc-id>` that resolve to its own
-       views. Other parts of Garrison (chat, etc.) can link via
-       these.
-     - **Event bus** for Fitting → Operative talkback (deferred,
-       Phase 7 still adds this; v2 only does views + routing +
-       linking).
-   - `AGENTS.md` §9 updated to spec the v2 contract.
-   - `METADATA.md` updated for the new `x-garrison.ui` shape.
-   - Migration path for existing Phase 1 Fittings (Slack, Memory):
-     they keep their v1-style single-pane UIs. The contract v2 is
-     additive — v1 declarations still work.
-
-3. **Artifact Store Faculty (storage + browsing layer).**
-   - New Faculty kind: `artifact-store`. Cardinality `single` per
-     composition. Provides storage, retrieval, listing, and link
-     generation for any file produced by the Operative or its
-     Fittings.
-   - Seed Fitting at `fittings/seed/artifact-store/`, shape
-     `script` + UI extension.
-   - **Storage model:**
-     - Filesystem-backed. Default root:
-       `<composition-dir>/artifacts/`. Configurable per Fitting.
-     - Hierarchical namespaces: `artifacts/documents/`,
-       `artifacts/automations/`, `artifacts/voice/`. Producer
-       Fittings write into their own namespace.
-     - Each artifact has metadata: producer Fitting id, mime type,
-       created-at, optional title. Stored as a sidecar `.meta.json`
-       or in a top-level index — pick at impl. Simple sidecar
-       leans simpler.
-   - **Tools exposed to consumers:** `write_artifact(namespace,
-     filename, content, metadata)`, `read_artifact(id)`,
-     `list_artifacts(namespace?, filter?)`,
-     `link_artifact(id) -> garrison://artifacts/<id>`.
-   - **UI surface:** sidebar-surface using contract v2.
-     File-browser view with namespace tree on the left, file list
-     on the right. Each file row: name, producer, type icon,
-     created-at, size. Clicking a file opens the *appropriate
-     viewer*:
-     - For markdown: routes to the Documents Fitting's read view
-       (`garrison://documents/<id>` resolves through Artifact Store
-       metadata).
-     - For video: routes to a built-in video player view (or the
-       Automations Fitting's player view, when Phase 7 lands).
-     - For audio: built-in audio player.
-     - Otherwise: download link.
-   - **`for_consumers` text:** generic — "to surface a file you've
-     produced, write to your namespace via `write_artifact()` and
-     emit a `garrison://artifacts/<id>` link in your chat reply.
-     The user will be able to click through and view."
-
-4. **Documents Fitting (layered on Artifact Store).**
-   - New Fitting at `fittings/seed/documents/` under the
-     `knowledge-base` Faculty.
-   - `provides: { kind: knowledge-base, name: project-documents }`.
-   - `consumes: { kind: artifact-store, cardinality: one }`.
-     Documents does *not* implement its own storage — every
-     document is an artifact in the `documents/` namespace of the
-     Artifact Store.
-   - **Documents adds on top:** the markdown editor view, the
-     "evolve a document over time" semantics, and the PM/Architect
-     hat discipline encoded in `for_consumers`.
-   - Each document is a markdown file. Filename = artifact id +
-     `.md`. Filesystem listing of the namespace is the document
-     list.
-   - Document `for_consumers` covers *intent*: PM hat triggers,
-     conversation-converged signals, prefer-update-over-create,
-     link-back conventions.
-
-5. **Documents UI surface.**
-   - Sidebar surface (uses contract v2's `sidebar-surface`
-     placement).
-   - Two views: read (rendered markdown), edit (editor).
-     The *list* view of documents lives in the Artifact Store
-     browser, filtered to the `documents/` namespace — Documents
-     doesn't ship its own list view.
-   - **Renderer:** `react-markdown`. Boring correct answer for
-     read view.
-   - **Editor:** lean toward `tiptap` + markdown extension (closer
-     to claude.ai's artifact editing feel) over Monaco (too
-     code-editor-flavored for prose). Confirm at implementation
-     start.
-   - Toggle button between read and edit. No live split-pane
-     preview in v1 — explicit mode switch is enough.
-   - URL shape: `garrison://documents/<doc-id>` (read),
-     `garrison://documents/<doc-id>/edit`.
-     `garrison://artifacts/<id>` for a markdown artifact resolves
-     transparently to `garrison://documents/<id>`.
-
-6. **Operative integration via `for_consumers`, not Orchestrator
-   hardcoding.**
-   - Both Artifact Store and Documents expose their tools via the
-     existing capability mechanism. The Operative gets:
-     `write_artifact / read_artifact / list_artifacts /
-     link_artifact` (Artifact Store), and Documents-specific
-     helpers if needed for editor-aware semantics
-     (`update_document` may differ from `write_artifact` to
-     preserve frontmatter / edit history; decide at impl).
-   - **All "when to use Documents" guidance lives in the Documents
-     Fitting's `for_consumers` block.** The Orchestrator stays
-     generic.
-   - **All "how to surface a produced file" guidance lives in the
-     Artifact Store's `for_consumers` block.** Generic across
-     producers.
-   - This is the first real test of the locality principle: each
-     Fitting teaches the Orchestrator how to use itself.
-
-7. **Cross-linking from chat.**
-   - When the Operative creates or updates a document, its chat
-     reply should include the `garrison://documents/<doc-id>`
-     link. When it produces any other artifact (in later phases:
-     a video, an audio file), it emits
-     `garrison://artifacts/<id>`. The Garrison chat renderer
-     handles both URL schemes — clicking opens the appropriate
-     surface.
-   - This is the first real cross-Fitting link, and the test of
-     whether contract v2's URL scheme works.
-
-### Phase 3 done when
-
-- I'm in a chat with the Operative about a feature. The
-  conversation converges. The Operative says "I've captured this
-  in a document — see garrison://documents/<id>." I click the
-  link and land on the read view of the document.
-- I click edit. tiptap (or chosen editor) loads the markdown.
-  I edit, save, switch back to read view, see the rendered result.
-- I open the Artifact Store browser (sidebar surface) and see the
-  document I just created listed under the `documents/` namespace,
-  with producer = Documents Fitting, mime = text/markdown.
-- I drop a file directly into the artifacts directory on disk
-  (e.g. a placeholder video). It appears in the Artifact Store
-  browser with a generic "unknown producer" tag, openable via the
-  built-in player. Proves the storage layer doesn't require a
-  producer Fitting to exist.
-- A second Fitting (created as a contract-v2 test) successfully
-  ships two views with placement `faculty-tab` + `sidebar-surface`,
-  proving the contract isn't Documents-shaped.
-- A `garrison://artifacts/<id>` link for a markdown artifact
-  resolves transparently to the Documents read view, proving the
-  layered routing works.
-
-### Open questions for Phase 3
-
-- **Editor choice — tiptap vs `@uiw/react-md-editor` vs Monaco.**
-  Lean tiptap; confirm at impl start by trying it against a real
-  markdown sample and seeing the feel.
-- **Artifact storage root** — `<composition-dir>/artifacts/` (lean)
-  vs `~/Projects/garrison-artifacts/<composition-name>/` vs
-  user-configurable. Owned by the Artifact Store Fitting's config,
-  not Documents.
-- **Artifact metadata format** — sidecar `.meta.json` per file
-  (lean, simpler) vs central index file (faster listing, one more
-  thing to keep consistent).
-- **What to do when the Operative wants to update a document the
-  user is currently editing.** Last-write-wins is the simplest;
-  v1 doesn't need conflict resolution. Surface a notification in
-  the editor if the file changed under it.
-- **Project association** — when Phase 2's project index is in
-  place, should documents (and artifacts more broadly) be scoped
-  per-project? Probably yes eventually, but v1 = flat namespaces
-  per composition. Add the per-project layer when project index
-  is solid.
-- **Cross-tab URL scheme — `garrison://` vs hash routing vs deep
-  links via React Router.** `garrison://` reads cleanly in chat
-  and is unambiguous. Confirm at impl whether it integrates
-  cleanly with the existing Garrison frontend router.
-- **`garrison://documents/<id>` vs `garrison://artifacts/<id>` for
-  the same markdown artifact** — both should work, the former is
-  the "open in editor" affordance, the latter is the "open in
-  whatever default viewer" affordance. Document the convention.
-- **Event bus for Fitting → Operative talkback** — deferred to
-  Phase 7 with the rest of the original UI contract redesign.
-  Documents/Artifact Store v1 don't need it; the editor saves a
-  file, the Operative reads the file the next time it consults
-  the Fitting.
-
-### Out of scope for Phase 3 (deferred)
-
-- Memory Fitting UI surface. Will be similar to Documents but
-  separate, separate phase, separate Fitting. Tracked in parking
-  lot.
-- RAG over the document corpus. Useful, but additive, not
-  required for v1.
-- Multi-user editing / collaboration features.
-- Document version history beyond what filesystem + git would
-  give.
-- Rich-media embedding *inside markdown* (images, diagrams).
-  Markdown-only v1. Note: rich-media files as separate artifacts
-  in the Artifact Store *are* in scope (you can save a PNG, view
-  it in the artifact browser); embedding them inline in a doc is
-  the deferred part.
-- Per-project document scoping. v1 = flat per composition.
-- Artifact retention/pruning policies. v1 = nothing is ever
-  pruned. Phase 7+ when video artifacts make storage growth real.
-
----
-
-## Phase 4 — Plan-then-execute on real projects — **DONE (2026-05-08)**
-
-**Status:** Complete. Tickets T1–T7 from `PHASE_4_EXECUTION.md`
-all landed. 134/135 tests pass, typecheck clean. Three
-implementation observations worth recording:
-
-1. **`Query.interrupt()` exists in the SDK** — direct
-   first-class cancellation primitive. T6's kill switch uses
-   this rather than process-tree termination. Cleaner than the
-   plan anticipated.
-2. **Variant A (CLI-shape) chosen for sub-agent spawning** — the
-   coding-subagent Fitting looks like every other Garrison
-   Fitting from the outside. Same `script` shape, same CLI
-   surface, same `for_consumers` injection. Future Fittings that
-   want sub-agent spawning have an idiomatic reference now.
-3. **Setup hook auto-restores the SDK symlink** — `runner.ts:87-90`
-   ensures `apm install` + `runSetupHooks` run on every Operative
-   up, so the gateway's SDK install gets re-symlinked into
-   `coding-subagent` automatically. No drift.
-
-**Outcome:** I finish a discussion with the Operative, say "plan and
-do it," and it: produces a plan via Claude Code's planning tool, asks
-me to approve, then executes the work in the right project folder.
-
-### Scope
-
-1. **The session-spawning question — resolve it.**
-   - **Option A:** Same gateway session does the work, switching its
-     `cwd` to the project folder for the run. Simpler. But: pollutes
-     the conversational context with code-edit chatter, and a long
-     coding session eats the context window the conversational hat
-     needs.
-   - **Option B:** Spawn a *new* Claude Code session in the project
-     folder for the work. Headless or visible. The gateway session
-     dispatches a job to it, watches stdout, reports back.
-   - **Option C:** Sub-agent invocation via the SDK in the same
-     process — keeps the gateway session "in charge" but offloads the
-     coding work into a child agent with its own context.
-   - **Recommendation (to debate):** **Option B** is the EKOA-style
-     answer (Vitruvius-shaped, multi-session), but it reopens the
-     Orchestrator-shape decision the v1 spec deferred. **Option C** is
-     the v1-aligned answer (single-session governing prompt + SDK
-     sub-agent calls). Option C is probably the right v1 answer; B is
-     the destination if the SDK's sub-agent invocation can't carry
-     the file-system work cleanly.
-2. **Planning tool integration.**
-   - When the Orchestrator decides to plan, it invokes Claude Code's
-     planning tool (skill or built-in?) and surfaces the plan to me
-     in the chat (or Slack thread).
-   - I approve / reject / edit. On approve → execution.
-3. **Execution path.**
-   - For Option C: SDK sub-agent invocation, working directory set
-     to `projects_root/<project_name>`, full Claude Code feature set.
-   - For Option B: spawn a fresh `claude` process in that directory
-     with the same orchestrator+soul system prompt (or a coding-only
-     variant of it), capture output back into the gateway log.
-4. **Project-folder discovery.**
-   - Phase 2 gives us the project index. Phase 4 uses it to *resolve*
-     "the Garrison Workspace Faculty" → `projects_root/agent-garrison`.
-   - Ambiguity prompts: if the user says "let's plan it" without
-     project context, ask which project.
-5. **Quick-task escape hatch.**
-   - Not every task needs a project context or a planning step. The
-     Orchestrator (via Classifier) routes tier-1/2 prompts through
-     the same conversational gateway session — no spawn, no plan.
-6. **Observability.**
-   - The Run tab should show the spawned coding session as a separate
-     log stream alongside the gateway log. (This is essentially what
-     the Workspace Faculty wants in v1.1, but a minimal version is
-     unavoidable in Phase 4.)
-
-### Phase 4 done when
-
-- "Let's plan the Garrison Slack channel Fitting and then do it" →
-  Operative produces a plan referencing the right files in
-  `projects_root/agent-garrison`, asks me to approve, then executes
-  and reports back.
-- Quick task ("rename this variable in file X") works without
-  spawning anything.
-- The conversational session's context isn't polluted by the coding
-  session's chatter.
-
-### Open questions for Phase 4
-
-- **Option A vs B vs C: which?** This is the biggest open call.
-  Likely C with B as fallback, but want to think through SDK
-  sub-agent ergonomics first.
-- **Observability of the spawned work — what do I want to see?**
-  Just the chat-level result summary, a second log stream in the Run
-  tab alongside the gateway log, or a full second "session" tab with
-  its own chat+log view? **Deferred to Phase 4 itself** — the answer
-  gates whether Phase 4 ends up adjacent to or partially inside the
-  Workspace Faculty design. If it's option 3 (full session view),
-  Phase 4 should be designed multi-session-aware from the start
-  rather than retrofitted.
-- **Planning tool:** is there a built-in Claude Code planning skill
-  to invoke, or do we ship our own under the `skills` Faculty?
-- **Approval UX:** plan rendered as markdown in chat, with
-  approve/reject buttons in Slack? In the desktop UI?
-- **What happens mid-execution if I want to redirect?** Inject a
-  message into the coding session? Kill and restart? Workspace v1.1
-  territory, but Phase 4 needs a v0 answer.
-
----
-
-## Phase 5 — Workbench: a family of Faculties for tools — **DONE (2026-05-11)**
-
-**Status (2026-05-11):** Shell + seeds + Sequoias parity all shipped.
-4 Workbench Faculties (`terminal`, `screen-share`,
-`worktree-management`, `session-view`) and 4 seed Fittings ship.
-Phase 5.5 (port allocation engine, env rewriting,
-`package.json` patching, Claude Code hook wiring) landed same-day
-after an audit caught the original Phase 5 had stopped at the
-shell. T8 (retire Sequoias) deferred only by the 3-day daily-use
-gate.
-
-**Outcome:** Garrison gains a "Workbench" area in the shell — a family
-of Faculties (each with stable contracts) hosting Fittings that
-provide non-agentic tools the user works with directly. The phase
-delivers a seed set of Workbench Faculties (`worktree-management`,
-`session-view`, `terminal`, `screen-share`) and the Fittings that
-fill them.
-
-The verification milestone for the phase is the **Sequoias
-decomposition**: replacing the standalone Sequoias worktree-manager
-app with three Workbench Fittings (`worktree-management`,
-`session-view`, `terminal`). Once Sequoias can be retired in favor
-of the Workbench composition, the pattern is proven.
-
-**Naming note:** Early planning used "Armory" for both the Fitting
-registry browser (`/armory`) and the tool area. The 2026-05-11
-implementation resolved the collision: the tool area is **Workbench**
-(`/workbench`); the Fitting registry browser stays **Armory**
-(`/armory`). The `family: "workbench"` field on FacultyDefinition
-identifies Workbench Faculties.
-
-### Why this phase exists, and where it sits
-
-- Phase 4 made the Operative competent at *delegating* coding work
-  (plan + spawn). Phase 5 gives the user a tooling surface that
-  lives alongside the Operative — terminals, worktrees, session
-  monitoring, screen share — composable through the same Faculty/
-  Fitting machinery as everything else.
-- **Critical platform reframe (revised 2026-05-08):** earlier
-  versions of Phase 5 specced a separate "Trenches" tab as
-  Garrison-core. That was a category error — the platform thesis
-  is "Faculties + Fittings compose; Garrison's shell renders what's
-  installed." The moment we built a separate area, we'd be saying
-  "but actually some things don't follow the rules." Workbench keeps
-  the rules: tools are just Fittings under a family of Faculties.
-- The first user is technical and the seed Faculties reflect that
-  bias (terminals, worktrees). The architecture is open: users can
-  declare ad-hoc Workbench Faculties in their composition for one-off
-  needs, and over time other tool categories (non-development) can
-  ship as Workbench Faculties without architectural change.
-
-### Naming
-
-- **Workbench** — the shell area that groups Faculties whose Fittings
-  provide tools. "Where the gear lives," pairs naturally with
-  Operatives, single-word noun, fits the Garrison metaphor.
-- **Workbench Faculty** — a Faculty whose Fittings render in the
-  Workbench area of the shell. The current seed set:
-  `worktree-management`, `session-view`, `terminal`,
-  `screen-share`, `browser`.
-
-### Scope
-
-1. **Workbench section in the Garrison shell.**
-   - The shell reads the active composition's `x-garrison` block,
-     identifies all installed Fittings whose declared Faculty is
-     an Workbench Faculty, and renders each in the Workbench area.
-   - **No special-cased UI.** The Workbench uses the same UI Fitting
-     mechanism as the existing chat surface and Phase 3's
-     contract-v2 sidebar surfaces. If APM's existing UI Fitting
-     support doesn't cover what the Workbench needs, the gap is in
-     the broader UI Fitting mechanism — fix benefits both.
-   - Layout: left rail showing installed Workbench Fittings as
-     entries, main pane rendering the active Fitting's view.
-     Multiple Fittings can be open at once (split / tabbed —
-     decide during T0 analysis).
-
-2. **Seed Workbench Faculties (well-known with stable contracts):**
-   - `worktree-management` — manages git worktrees: list, create
-     with port allocation and startup commands, delete.
-   - `session-view` — surfaces session state across the rest of
-     the Workbench: which terminals are running, which worktrees are
-     idle/busy, status indicators.
-   - `terminal` — embedded terminal (xterm.js + PTY backend).
-     Multi-session, busy/idle indicators, host selector.
-   - `screen-share` — capture-and-relay of the user's primary
-     display. Watch from a phone or another machine.
-   - `browser` — embedded browser surface for web tools the user
-     wants alongside their other Workbench tools (Excel-for-web,
-     dashboards, etc.). Lower priority for v1 — see T-list.
-
-3. **Action contract for Workbench Fittings.**
-   - Workbench Fittings that expose actions (create worktree, kill
-     session, launch shell at path) declare them via the existing
-     `provides`/`consumes` contract — same wiring as Operatives.
-   - **Operative bridge is design-now-cost-zero.** An agent-skill
-     Operative can invoke Workbench tool actions via the same wiring
-     graph. v1 doesn't ship a working bridge; the contract just
-     accommodates it without rework.
-
-4. **Sequoias decomposition (verification target).**
-   - Three Fittings, each filling one Workbench Faculty:
-     - `worktree-management:sequoias` Fitting — provides the
-       current worktree set; exposes create-worktree action.
-     - `session-view:sequoias` Fitting — consumes worktree stream;
-       provides session state (running, idle, needs attention,
-       finished); exposes actions (open PR, kill session, refocus).
-     - `terminal:armory-default` Fitting — consumes the active
-       worktree selection; renders xterm-based terminal in that
-       directory.
-   - Once these three Fittings work in Garrison, Sequoias the
-     standalone app is retired.
-
-5. **Quick-launch as actions on the `terminal` Fitting.**
-   - "Open Orchestrator" and "Open Claude Code" are *not* a
-     separate Fitting; they're launch presets the `terminal`
-     Fitting exposes as actions.
-   - Open Orchestrator: spawns a terminal with `claude
-     --append-system-prompt <assembled-prompt>` in Garrison's
-     working directory. Disabled when a remote host is selected.
-   - Open Claude Code: spawns a terminal with plain `claude`
-     command and configurable default flags at a chosen path.
-
-6. **Multi-host via Tailscale + SSH.**
-   - User-managed host list at `~/.garrison/hosts.json` (per-user
-     global, *not* per-composition — hosts follow the human, not
-     the Operative).
-   - Host selector on `terminal` Fittings (and any other Workbench
-     Fitting that wants it). Local is implicit and always
-     available.
-   - Remote launches wrap commands in `ssh -t <user>@<address>
-     '<command>'`. Trusts user's SSH config.
-   - Operative-aware actions (Open Orchestrator) are local-only;
-     disabled when a remote host is selected.
-
-7. **Ad-hoc Workbench Faculties (extensibility).**
-   - Users declare ad-hoc Workbench Faculties in their composition's
-     `x-garrison` block when they need something one-off (a custom
-     dashboard, a specialized tool).
-   - Ad-hoc faculties don't get the well-known-contract guarantees
-     — they wire and render, but other Fittings can't depend on
-     contracts that aren't published.
-   - This is the extensibility seam that lets the Workbench grow
-     beyond the seed set without core changes.
-
-### Deferred (acknowledged, not done in Phase 5)
-
-- **Operative bridge (working, end-to-end).** Action contract
-  designed for it; v1 doesn't ship the bridge invocation path.
-  Phase 7 or later.
-- **Persistent sessions across Garrison restarts.** v1 sessions
-  die on restart. Phase 7+ if needed.
-- **Server-side file-explorer dialog** for path picking. Free-text
-  path is fine for v1.
-- **Auth/security around remote hosts beyond SSH key auth.** v1
-  trusts Tailscale + SSH config.
-- **Cross-platform screen share.** v1 is macOS-first per Sequoias/
-  Harmonika prior art.
-- **Public discovery / curated lists / marketplace for Workbench
-  Fittings.** Downstream concern; Garrison must first be useful
-  for a single user.
-- **Multi-domain Workbench Faculties** (marketing, finance, ops,
-  etc.). Belong to Ekoa for now. Workbench is scoped to the
-  agentic-development workflow.
-
-### Phase 5 done when
-
-- I open Garrison, the Workbench area shows four Fittings
-  (`worktree-management-sequoias`, `session-view-sequoias`,
-  `terminal-armory-default`, `screen-share-default`) under the
-  active composition. **[Done 2026-05-11]**
-- I create a worktree from the worktree-management Fitting;
-  it appears in session-view, and clicking on it opens a
-  terminal in that worktree's directory. **[Done — Phase 5.5
-  wires `createWorktree` to allocate ports, copy + rewrite env
-  files, patch frontend dev scripts, and upsert a Session row
-  visible to session-view.]**
-- I open three terminals as separate sessions, run things in each
-  independently, see at a glance which is busy via session-view.
-  **[Done — Phase 5.5 installs Claude Code hooks that POST to
-  Garrison's hook endpoint, driving working/waiting/idle/dead
-  badges from real session activity.]**
-- I SSH-launch a terminal on another Tailscale host from the
-  terminal Fitting's host selector. **[Done — Trenches SSH re-homed]**
-- I open the Garrison UI on my phone and watch the screen-share
-  Fitting show what's happening on my desktop. **[Wired; macOS
-  Screen Recording permission required — see PHASE5_VERIFICATION.md §4]**
-- Sequoias the standalone app is retired in favor of the Workbench
-  composition. **[Deferred — 3-day daily-use gate not yet met; T8.
-  Phase 5.5 closed the parity blocker.]**
-
-### Phase 5.5 — Sequoias parity port (closed 2026-05-11)
-
-A 2026-05-11 audit caught that the original Phase 5 had shipped the
-Workbench shell + four Fittings + state-file *reader* but not the
-engine pieces that make Sequoias load-bearing. Phase 5.5 ported the
-missing pieces the same day:
-
-1. **Deterministic port allocation — shipped.** `src/lib/worktree/ports.ts`
-   exposes `allocatePort(branch, service)` (FNV-1a → 50000–54999 with
-   linear probe + wrap). Called from `createWorktree`.
-2. **Env-file rewriting and `package.json` patching — shipped.**
-   `src/lib/worktree/env-rewriter.ts` does the full Sequoias env
-   pipeline (discoverEnvFiles → readMainPortMap → rewriteEnvFiles →
-   ensureWorkspacePortFiles). `src/lib/worktree/package-json-patcher.ts`
-   ports `patchFrontendDevScripts`; marker renamed to
-   `GARRISON_FRONTEND_PORT`.
-3. **Claude Code hook wiring — shipped.** `src/lib/claude-hooks.ts`
-   merges 4 hook groups (UserPromptSubmit/Stop/Notification/
-   PostToolUse) into `~/.claude/settings.json` non-destructively,
-   marked `_garrison: true`. Snapshot lives at
-   `~/.garrison/hooks-snapshot.bytes`. Hook URL is derived at install
-   time from the running Garrison's request origin (via
-   `POST /api/workbench/sessions/install-hooks`). The receiver at
-   `/api/workbench/sessions/hook` calls `findSessionByCwd` and
-   `setSessionStatus` to update `~/.garrison/sessions/state.json`.
-   The session-view reader merges `~/.garrison/sessions/state.json`
-   with `~/.sequoias/state.json` during the migration window.
-4. **State-path drift — partially addressed.** Session state moved
-   to Garrison-owned `~/.garrison/sessions/state.json`. Worktree
-   directories stay at `~/.worktrees/<repo>/<slug>` (intentional —
-   matches Sequoias so the two tools coexist while T8 plays out).
-
-**Live status pipeline:**
-
-```
-Claude Code in /wt/<branch>
-  → settings.json hook fires curl POST {event, cwd}
-  → POST /api/workbench/sessions/hook
-  → findSessionByCwd(cwd) → {projectPath, branch}
-  → setSessionStatus(...) writes ~/.garrison/sessions/state.json
-  → SessionView next 5s poll re-renders
-```
-
-**Tests landed:** `tests/worktree-ports.test.ts` (port determinism,
-allocator probe/wrap), `tests/worktree-env-rewriter.test.ts`
-(discover/parse/rewrite/inject), `tests/claude-hooks.test.ts`
-(install/restore/idempotency), `tests/garrison-sessions.test.ts`
-(store CRUD + cwd lookup + merge fallback).
-
-**Blocker on T8 removed.** Sequoias retirement is now only gated on
-3 consecutive days of daily-use validation.
-
-### Open questions for Phase 5
-
-- **Analysis session at phase start (T0)** — pre-agreed. Walk the
-  Sequoias and Harmonika code, confirm exact files/components to
-  lift, settle the Workbench shell layout, settle the
-  screenshot-vs-streaming choice for screen-share, settle terminal
-  busy-detection heuristic.
-- **Default Claude Code flags** — `--dangerously-skip-permissions`
-  is implied; settle the rest at T0.
-- **Layout in the Workbench pane** — single-fitting-active vs
-  tabbed-multi-fitting vs split-grid. Decide at T0 based on what
-  Sequoias decomposition makes natural.
-- **Browser Faculty scope for v1** — full Fitting or deferred?
-  Lower priority than terminal/worktree/session/screen-share;
-  likely deferred. Confirm at T0.
-- **APM UI Fitting parity** — does the existing UI Fitting
-  mechanism cover what Workbench needs (action declarations,
-  provides/consumes wiring through to UI)? Gap-find at T0;
-  if there's a hole, fix it as Garrison-core work that lives
-  outside the Workbench but unblocks it.
-
----
-
-## Phase 6 — Outposts: multi-machine reach via a local bridge
-
-**Outcome:** Garrison gains an `outposts` Faculty. Each Outpost
-Fitting represents one remote Mac (or other host) running a small
-**bridge** process. From a single Operative on the host machine,
-Garrison can spawn worktrees, run terminals, execute commands,
-watch files, and (over time) carry the full Operative action
-surface across N machines connected via Tailscale.
-
-The phase is the foundation for "I sit at any Mac; my Garrison
-runs on the always-on Mac; everything I do feels local."
-
-### Why this phase, why now
-
-The user runs three Macs on Tailscale: the **automation machine**
-(Mac Mini M4, 16 GB, always on — hosts Garrison + Operative), the
-**development machine** (MacBook Pro M1 Max, 32 GB, always on —
-primary code work), and the **portable machine** (MacBook Air M4,
-16 GB, intermittent uptime — carried around).
-
-Today Garrison is single-machine: one Operative on one host, with
-everything (Trello, Calendar, Slack, Memory, Documents, Artifacts,
-Workbench) bound to that machine's filesystem and processes. To
-use Garrison from a second Mac, the user has to either
-remote-desktop into the first Mac or run a second Garrison
-instance — neither composes with the single-Operative model.
-
-Phase 5 (Workbench) shipped Sequoias-decomposed Fittings that
-handle worktrees + sessions + terminals locally. Sequoias-the-app
-*already* supports multi-machine via a similar bridge pattern; the
-Workbench port lost that capability. Phase 6 restores it as a
-proper Faculty rather than a Sequoias-specific feature.
-
-This is also the phase that begins to repay the architectural
-investment: the bridge is generic — Operative actions, vault sync,
-filesystem operations, command execution — all reuse it. Phase 7
-Automations and Phase 8 Tasks will both benefit.
-
-### The bridge architecture
-
-**Host machine** (automation machine) runs Garrison + the
-Operative as today.
-
-**Each remote Mac** runs a small `garrison-outpost-bridge` process
-that:
-
-- Authenticates to the host (Tailscale already provides network
-  trust; the bridge adds a Garrison-issued token for identity).
-- Holds a persistent WebSocket connection to the host.
-- Exposes RPC-like operations: spawn-process, watch-file,
-  list-files, list-worktrees, run-command, etc.
-- Streams events back to the host: process output, file changes,
-  process exit, status changes.
-- Sleeps when idle (no resource cost beyond the socket).
-
-**The host's Outposts Faculty:**
-
-- `provides: { kind: outpost, cardinality: many }` — one Fitting
-  per remote Mac.
-- Each Fitting maintains the WebSocket connection to its bridge.
-- Exposes uniform RPC + event subscription as a capability that
-  other Fittings (Workbench's worktree-management, terminal,
-  session-view, etc.) consume.
-
-**The transport:** WebSocket over Tailscale (no public exposure;
-Tailscale handles routing and encryption). Message framing: JSON
-for v1 (simple, debuggable). Switch to msgpack or protobuf only
-if the wire overhead bites — unlikely for the message volumes
-this phase deals with.
-
-**Why not SSH:** SSH alone handles fire-and-forget commands but
-doesn't carry long-lived state, bidirectional streams, filesystem
-watching, or reverse calls cleanly. Building those on top of SSH
-means reinventing framing per feature; the bridge does it once.
-
-### What the bridge does NOT do
-
-- **Run an Operative.** v1 keeps one Operative on one host
-  machine. The bridge gives the Operative *hands* on other
-  machines, not *brains*. Splitting the Operative across machines
-  is explicitly out of scope.
-- **Hold its own memory or state.** The bridge is dumb;
-  orchestration logic lives on the host.
-- **Cache or persist anything meaningful.** Restart safety = host
-  reconnects, bridge re-presents current machine state.
-
-### Scope
-
-1. **`outposts` Faculty + bridge protocol.**
-   - New Faculty kind: `outpost`, cardinality `many` per
-     composition.
-   - **Protocol** documented in `PHASE_6_PROTOCOL.md`:
-     - WebSocket over Tailscale.
-     - JSON message framing with typed `{version, type, id, payload}` shape.
-     - Bidirectional: host sends RPC requests, bridge sends
-       responses + unsolicited events.
-     - Operations grouped into namespaces: `process.*`, `fs.*`,
-       `git.*`, `exec.*`.
-     - Versioned at connect time; mismatches fail loudly.
-   - **Auth:** host issues a token per outpost. Bridge presents
-     it on connect. Token rotation: manual reissue + bridge
-     restart for v1. Stored on the bridge side in
-     `~/.garrison-outpost/config.json`.
-
-2. **`garrison-outpost-bridge` (the remote-side process).**
-   - New repo / package: `garrison-outpost-bridge` (its own
-     GitHub repo, like memory-compiler). Cloned by setup to
-     `~/.garrison-outpost/` on each remote Mac.
-   - Stdlib-leaning Node 20+ (matching Garrison's other Node
-     pieces). One persistent connection, one process.
-   - Manifest + version, so the host can detect protocol-version
-     mismatches and refuse to connect cleanly.
-   - launchd plist installed to keep it running across reboots
-     (macOS-first; user uses the bridge on Macs only for v1).
-   - Logs to `~/.garrison-outpost/logs/` with daily rotation.
-
-3. **`outpost:tailscale-host` Fitting (host side).**
-   - Seed Fitting at `fittings/seed/outpost-tailscale-host/`.
-   - Configured with: machine name, Tailscale address, optional
-     SSH user (for the *bootstrap* — see T-ticket later).
-   - `provides: { kind: outpost, name: <machine-name> }`.
-   - Holds the WebSocket connection. Reconnects automatically
-     with exponential backoff on disconnect.
-   - Exposes the protocol operations as a uniform capability
-     surface other Fittings consume.
-
-4. **Bootstrap: getting the bridge onto a remote Mac.**
-   - First-run setup on each remote Mac:
-     - Host generates a token + invitation script.
-     - User runs the script on the remote Mac (SCP'd from host
-       or curl-pipe-bash for v2).
-     - Script clones `garrison-outpost-bridge`, installs deps,
-       writes token, installs the launchd plist, starts the
-       daemon.
-     - Host sees the bridge connect, displays it in the Outposts
-       Faculty's UI as "connected — `development`".
-   - SSH used *only* for the bootstrap. Once the bridge is up,
-     all subsequent traffic is via WebSocket through the bridge.
-
-5. **Workbench integration (the headline use case).**
-   - The Workbench Fittings from Phase 5 grow an "outpost selector":
-     - `worktree-management:sequoias` — when an Outpost is
-       selected, worktrees are managed on that machine via the
-       bridge's `git.*` operations.
-     - `terminal:armory-default` — when an Outpost is selected,
-       PTY is spawned via the bridge's `process.spawn` and
-       streamed back through `process.io` events.
-     - `session-view:sequoias` — status data flows from the
-       remote machine's processes via bridge events.
-   - **The user experience:** I'm on the development machine,
-     open Garrison's web UI pointing at the automation machine,
-     click "New Worktree" with Outpost = development selected.
-     The worktree is created on the development machine's disk.
-     The terminal opens on the development machine. I see all of
-     it through the automation machine's Garrison UI.
-   - This is the deliverable that makes the phase real for the
-     user's workflow.
-
-6. **Operative-side bridge usage.**
-   - The Operative gains access to bridge operations through a
-     new agent-skill Fitting (`outpost-actions` or similar) that
-     exposes:
-     - `run_on(machine, command)` — execute a command on a
-       remote Mac.
-     - `read_file_on(machine, path)`, `write_file_on(...)`,
-       `list_files_on(...)`.
-     - `spawn_on(machine, command)` — start a long-running
-       process and get streaming output.
-   - This is the design-now-cost-zero part: the bridge already
-     supports these operations because the Workbench needs them;
-     wiring them to an Operative-callable skill is a small
-     additional Fitting.
-   - **For consumers (Operative):** when does it use this? The
-     `for_consumers` text guides — "when the user mentions a
-     machine by name, or when a task is naturally local to a
-     specific machine, route through outpost-actions; otherwise,
-     act locally."
-
-7. **Vault sync as the first bridge-driven service.**
-   - The user's Obsidian vault (`~/Projects/ekus/obsidian-vault/`)
-     today lives on the host machine. Git syncs it to a remote,
-     but the remotes get out of date.
-   - New seed Fitting: `vault-sync` (Faculty TBD — likely a new
-     `sync` Faculty, since this isn't really an automation).
-   - `consumes: outpost:many` (one per machine that wants the
-     vault).
-   - Periodically (or on file-change events from the bridge's
-     `fs.watch`) mirrors the host's vault directory to each
-     selected outpost.
-   - Bidirectional in v1 is hard; **start unidirectional**
-     (host → outposts). The host machine is the authority. Edits
-     on remotes are pushed back through git as today (manual
-     flow). Full bidirectional sync deferred to a later phase.
-
-### Phase 6 done when
-
-- I run the bootstrap script (or whatever the one-liner is) on
-  the development machine. Within a minute, that Mac appears in
-  the host's Outposts Faculty as connected.
-- I create a worktree on the Mac I'm sitting at, even though
-  Garrison is running on the automation machine. The worktree
-  appears on the correct machine's filesystem.
-- I open a terminal in an Outpost-managed worktree from
-  Garrison's web UI. Commands run on the remote machine. Output
-  streams back live.
-- I ask the Operative "run `ls ~/Projects` on development" — it
-  invokes `outpost-actions` and returns the result.
-- The vault on the development machine stays in sync with the
-  automation machine's vault within a few seconds of changes
-  (host → remote direction).
-- Bridge reconnects cleanly after the portable machine sleeps
-  and wakes.
-
-### Open questions for Phase 6
-
-- **Protocol choice for v1: JSON over WebSocket (lean) vs gRPC
-  vs custom binary.** JSON is debuggable and good enough for the
-  message volumes Phase 6 generates. Revisit if profiling shows
-  framing overhead matters.
-- **Auth model details.** Token-on-handshake is the v1 plan.
-  Whether to add per-operation signing, rotation policy, or
-  short-lived refresh tokens is open. v1 = static token,
-  manual rotation.
-- **Bridge update mechanism.** When the protocol version on the
-  host bumps, how do remote bridges learn and update? v1 =
-  manual ("user re-runs the bootstrap"); v2 could include a
-  self-update path.
-- **Filesystem semantics across machines.** Path conventions:
-  do `read_file_on("development", "~/Projects/x")` and
-  `read_file_on("host", "~/Projects/x")` resolve sensibly when
-  home dirs differ? v1 expects callers to use absolute paths
-  most of the time; tilde expansion happens on the remote side.
-- **Connection multiplexing.** Multiple Fittings consuming the
-  same outpost — do they share one WebSocket or open separate
-  ones? Sharing is more efficient; concurrent operation safety
-  is the cost. Lean: share, with operation IDs for response
-  routing.
-- **Failure modes.** What does the UI show when an outpost
-  disconnects mid-operation? Worktree creation fails? Terminal
-  hangs? Need explicit error surfacing per operation type.
-- **Host-side WebSocket server location.** The HTTP gateway is
-  the natural home (long-lived, already handling other
-  connections), but it currently does HTTP only. Adding a
-  WebSocket route is small; confirm the gateway can host both
-  cleanly during T0/T2.
-
-### Out of scope for Phase 6 (deferred)
-
-- **Multi-Operative.** Still one Operative on the host. No
-  Operative shards on remote machines.
-- **Cross-platform bridges.** macOS only for v1. Linux/Windows
-  later if the platform thesis pulls beyond Macs.
-- **Bidirectional vault sync.** Host → outposts only. Two-way
-  merge is hard; defer until there's a clear pattern.
-- **Bridge auto-discovery.** Manual bootstrap per remote Mac.
-  `tailscale status` parsing for auto-suggest is a nice future
-  feature, not v1.
-- **Resource limits on remote operations.** No "this bridge
-  caps at N concurrent processes" — first user pain triggers
-  the limit work.
-- **Cross-outpost operations.** v1 = host orchestrates each
-  outpost independently. "Copy file from outpost A to outpost B
-  directly" routes through the host. Direct bridge-to-bridge is
-  later.
-- **Ekoa parity.** Garrison's bridge intentionally diverges
-  where it makes sense. Convergence with Ekoa's similar work
-  is a separate effort.
-
----
-
-## Phase 7 — Automations Faculty
-
-**Outcome:** Garrison ships the Automations Faculty contract and a
-reference automation-runner Fitting (Playwright-based browser
-automation with a UI to author, run, fix, and replay). The reference
-port comes from EKOA, but the Faculty itself is consumer-agnostic —
-any automation-runner Fitting that provides the contract slots in.
-
-### Scope
-
-1. **Port the EKOA automations system.**
-   - Whatever EKOA uses (Playwright API or Playwright CLI — needs
-     verification on the EKOA side; the user's recollection is "we
-     used Playwright API but I'm not 100% sure"). Port that, don't
-     reinvent.
-   - Lives under `fittings/seed/automations-runner` or replaces the
-     current `browser-automation` seed.
-2. **UI surface — this is the first real test of UI surfaces beyond
-   v1's "UI extension in the Faculty tab" model.**
-   - Today, `x-garrison.ui.extension` lets a Fitting ship a React
-     component that renders inside its Faculty's tab. That's the
-     surface this Fitting will use.
-   - The Automations UI needs: list of automations, run button,
-     replay, edit selectors, see screenshots, mark a step as broken,
-     give feedback that the agent can act on.
-   - Re-evaluate whether the existing UI extension model is rich
-     enough or whether Phase 7 needs a more general "Fitting UI"
-     concept (probably the latter — see "UI surfaces" below).
-3. **Memory integration.**
-   - Automations remember their last successful run, common failure
-     modes, and selector evolution. This is *automation-specific
-     memory*, not user-memory — but it shares the Memory Faculty.
-   - Either the Memory Faculty grows a "namespace" concept, or the
-     Automations Fitting writes its own scoped memory file that the
-     compiler picks up.
-4. **Orchestrator awareness.**
-   - The Orchestrator knows automations exist and can invoke them
-     when appropriate (tier-2 task: "log into X and grab Y").
-   - The Classifier may need a new tier behavior: "this looks like
-     an automation, route to the automation runner."
-
-### Phase 7 done when
-
-- I can author an automation in the Garrison UI (or import from
-  EKOA), run it, see it fail, fix the broken step interactively, and
-  the Operative learns from the fix.
-- The Orchestrator can invoke automations as tools during
-  conversation.
-
-### Open questions for Phase 7
-
-- **Engine choice (must resolve before any porting):** EKOA has two.
-  `cortex/` uses Playwright API in-process (`browser-pool.ts`,
-  shared chromium instance, lazy-launch). `automato/` uses raw CDP
-  via `chrome-remote-interface`. Which one do we lift? Cortex is
-  more ergonomic; automato is closer to the metal.
-- **UI hosting:** still trusted React in-process per the v1 model, or
-  does Phase 7 push us toward iframe-sandboxed UI (v1.1 concern in
-  the original plan)?
-- **Memory namespacing:** new Memory Faculty config, or per-Fitting
-  scoped writes that the compiler aggregates?
-
----
-
-## Phase 8 — Tasks Faculty (first-party task source)
-
-**Outcome:** A first-party `tasks` data-source Fitting that lets a
-composition run without depending on an external task tracker — local
-file-system-backed task store with a Kanban UI. External-tracker sync
-(Trello, Linear, GitHub Projects, etc.) becomes a separate
-sync-Fitting concern; the platform doesn't favor one.
-
-This phase is the foundation for autonomous workflows. The Kanban
-board becomes the visible control plane: a task appears, the
-Operative picks it up, the user sees it move through columns, the
-user accepts or rejects the result. People run software projects
-and entire businesses on this pattern; Garrison's contribution is
-making it composable and self-hostable.
-
-### Why this is a phase, not a Phase 1 carry-over
-
-Phase 1's Trello integration treated Trello as the source of truth.
-That worked for v1 but has obvious limits: vendor lock-in, no
-control over schema, no ability to encode Garrison-specific
-task metadata, and Trello's API rate limits become Garrison's
-problem. Owning the task store makes Garrison genuinely standalone
-and lets task semantics evolve with the rest of the platform.
-
-The Kanban-as-control-plane vision also requires the Tasks Faculty
-to be aware of *Operative actions* (heartbeat picks, scheduling,
-plan approvals, automation runs), not just user-edited cards.
-That's a deeper integration than Phase 1's Trello-data-source.
-
-### Scope
-
-1. **Tasks Faculty + seed Fitting.**
-   - New Faculty kind: `tasks`. Cardinality `single`.
-   - Seed Fitting at `fittings/seed/tasks/`, shape `script` + UI
-     extension (uses contract v2 from Phase 3).
-   - **Storage:** filesystem-backed, under
-     `<composition-dir>/tasks/`. Each task is one markdown file
-     with YAML frontmatter (id, status, created, updated, labels,
-     assignee, due-date) + a body for description / discussion /
-     subtasks. Markdown chosen for grep-ability and human-edit
-     friendliness; alternatives (single JSON file, SQLite)
-     rejected for the source-of-truth-on-disk principle.
-   - Status enum: fixed at `backlog | todo | in_progress | done`
-     for v1. Customizable in later phases when there's evidence
-     it's needed.
-   - **Tools exposed to consumers:** `list_tasks(filter?)`,
-     `read_task(id)`, `create_task(...)`, `update_task(id, ...)`,
-     `move_task(id, status)`, `delete_task(id)`,
-     `add_comment(id, ...)`.
-   - `for_consumers` (Phase 3 mechanism): explains when to create
-     tasks, when to mark them done, conventions around Operative-
-     created vs user-created tasks (a metadata flag), and the
-     "user adds task → Operative picks it up" pattern.
-
-2. **Kanban UI surface.**
-   - Sidebar surface (contract v2 `sidebar-surface` placement).
-   - Four columns: Backlog, To Do, In Progress, Done.
-   - Cards: title, labels, due-date if any, "owned by Operative"
-     vs "user-created" indicator, last-action timestamp.
-   - Drag-and-drop between columns. Click for detail view (opens
-     a panel with full markdown body, comments, action history).
-   - Filter bar: by label, by owner, by date range.
-   - Real-time updates: when the Operative moves a card, the UI
-     reflects it within a few seconds. Polling is fine for v1; SSE
-     or websockets later if needed.
-
-3. **Operative integration: tasks as control plane.**
-   - **Manual task creation from chat:** the user says "remind me
-     to call the bank tomorrow," the Operative creates a task in
-     `todo` with a due-date. Discoverable via `for_consumers`,
-     not Orchestrator hardcoding.
-   - **Heartbeat-driven pickup (depends on Phase 2's heartbeat):**
-     on its tick, the Operative reads tasks in `todo`, picks one
-     that matches autonomy-allowed criteria (tier-1/2, has clear
-     completion signal, no human-in-the-loop required), moves it
-     to `in_progress`, and works on it.
-   - **Plan-before-execute integration (depends on Phase 4):**
-     for tasks the Operative judges higher-tier, it produces a
-     plan via Phase 4's planning tool, asks the user to approve
-     via Slack/chat, then moves the task forward only on approval.
-   - **Automation integration (depends on Phase 7):** a task
-     marked "needs browser automation" can be linked to a saved
-     automation; running the automation ticks the task.
-   - **Action history per task:** the task body grows over time
-     as the Operative appends comments documenting what it did,
-     what it checked, what it produced (links to artifacts via
-     Phase 3's `garrison://artifacts/<id>`).
-
-4. **Trello-sync Fitting (optional, replaces direct integration).**
-   - New Fitting at `fittings/seed/trello-sync/`. Faculty:
-     `data-sources` (or its own kind — see open question).
-   - `consumes: { kind: tasks, cardinality: one }`. Reads the
-     local Tasks store; mirrors selected lists to/from a Trello
-     board.
-   - Bidirectional, configurable per-list. Defaults: "A Fazer"
-     ↔ `todo`, "Brevemente" ↔ `backlog`, "Doing" ↔ `in_progress`,
-     "Done" ↔ `done`.
-   - **Phase 1's `trello-data-source` Fitting becomes deprecated**
-     by this. Migration path: ship both for one phase, drop
-     `trello-data-source` after Phase 8 ships and users have
-     migrated.
-
-### Phase 8 done when
-
-- I can create a task in chat ("remind me to do X"). It appears
-  in the Kanban board's `todo` column within seconds.
-- I can drag a task from `todo` to `in_progress` and the
-  Operative knows about it.
-- The heartbeat picks up an autonomy-allowed task, moves it to
-  `in_progress`, completes it, moves it to `done`, and posts a
-  summary as a comment on the task with a link to any artifacts
-  produced.
-- For a higher-tier task, the heartbeat produces a plan, posts
-  it to the user via Slack, waits for approval, then proceeds.
-- The Trello-sync Fitting (when installed) mirrors my Trello
-  board into the local Tasks store and propagates local changes
-  back to Trello.
-
-### Open questions for Phase 8
-
-- **Trello-sync Faculty:** new kind (`data-sync`?) vs reuse
-  `data-sources` vs reuse `automation-runner`. Likely a new kind
-  if other bidirectional syncs (Linear, Jira, GitHub Issues)
-  follow the same pattern.
-- **Tier semantics for autonomous pickup.** The Classifier already
-  exists from Phase 1 with tier 1–N. Need a clear "autonomy floor"
-  config — tier ≤ N runs autonomously, tier > N requires plan-then-
-  approve. Per-user, possibly per-task-label override.
-- **Customizable column sets.** v1 = fixed four columns. Probably
-  enough for a long time. When customization arrives, it's per-
-  composition config, not per-task.
-- **Multiple boards / projects.** v1 = one board per Operative.
-  When Phase 2's project index is solid, it might make sense to
-  scope tasks per-project — but that interacts with how the
-  Operative routes work between projects. Defer.
-- **Real-time push to UI.** Polling for v1. SSE/websocket if
-  polling load becomes real.
-- **Conflict resolution with Trello-sync.** Two-way sync always
-  has edge cases. Last-write-wins by `updated` timestamp for v1;
-  surface conflicts to the user when they're unresolvable.
-
-### Out of scope for Phase 8 (deferred)
-
-- Multi-user / multi-Operative shared boards.
-- Automation-style "run this task on a button click" — separate
-  from Operative-driven task pickup. Considered for a later phase.
-- Marketplace for task-board templates.
-- Dependency graphs / blocked-by / sub-tasks beyond what markdown
-  body conventions allow.
-- Time tracking, burndown charts, sprint mechanics. Garrison
-  isn't a Jira; staying out of project-management complexity.
-
----
-
-## Phase 9 — Knowledge & Self-Improvement (placeholder)
-
-**This is a placeholder, not a worked spec.** Detailed planning
-waits until Phase 8 (Tasks Faculty) is closer to shipping —
-Phase 8 provides the outcome signals (task completion, redo
-events) that Phase 9 needs. Premature detail would lock in
-assumptions we can't validate yet.
-
-### Why this phase exists
-
-The user works across four Macs (automation, development,
-portable, office). Today switching machines means Jump Desktop;
-the goal is to sit at any machine, work locally, and have
-Garrison absorb whatever was learned there. Phase 6 (Outposts)
-solves the *transport* — spawning sessions, file ops, exec on
-any connected machine. Phase 9 solves the *learning*:
-
-- When the Operative runs a session on the development machine
-  (via the bridge or via direct Claude Code), where do its
-  SessionEnd hooks write? Compiled memory should land in the
-  host-canonical store, not in machine-local memory.
-- When a skill gets refined on one machine, how does that
-  refinement reach the Operative when it runs on another
-  machine the next time?
-- Credentials live where the user logs in; the host doesn't see
-  them. How does the Operative access services that need
-  authentication when work happens on a remote machine?
-- Should skills, automations, and `for_consumers` blocks
-  *self-improve* over time? Other agentic systems (Hermes,
-  Voyager among others) treat these as evolving artifacts the
-  agent updates based on outcomes. Garrison's are static today
-  (humans edit them). Should they evolve? Under what review
-  discipline?
-
-### Architecture: four pillars
-
-Phase 9 spans four architecturally distinct concerns:
-
-- **A — Knowledge layer.** Memory consolidation across machines.
-- **B — Self-improving skills, automations, and `for_consumers`
-  blocks.** The prompts the Operative reads to decide what
-  to do — they evolve from outcomes, with a review discipline.
-  Distinct from Artifact Store contents (documents, recordings,
-  reports) which don't self-evolve.
-- **C — Operative identity across machines.** Wrapping vs
-  tagging for sessions originating from different paths.
-- **D — Lessons-learned feedback loop.** The agent actively
-  consulting its own past mistakes.
-
-#### Pillar A — Knowledge layer (memory)
-
-A single canonical knowledge surface that any Operative session
-on any machine reads from and writes back to.
-
-- **Capture discipline: configure, not sync.** Install the
-  memory-compiler hooks on every Mac that runs Claude Code,
-  including direct Claude Code sessions outside Garrison's
-  control. SessionEnd hooks fire wherever the session ran;
-  output flows through the bridge back to the host's canonical
-  store.
-- **Hooks at the user level, not the project level**
-  (confirmed 2026-05-11). The user has one canonical Claude
-  Code settings (`~/.claude/settings.json`) reused across all
-  machines. Hooks install there once per machine; every
-  Claude Code session on that machine flows through them
-  regardless of project. No per-project hook installation
-  needed. Setup discipline: when adding a new outpost,
-  bootstrap script verifies the hooks are present and prompts
-  the user to install if missing.
-- **Why not nightly walker?** Reconstructing what hooks already
-  capture cleanly is more fragile, and a walker has to handle
-  partial reads, in-progress sessions, log-format drift. Hooks
-  capture per-session as it happens. Bridge sync moves the
-  compiled output.
-- **Canonical store location:** TBD. Likely the existing vault
-  on the automation machine; possibly a new dedicated Faculty
-  on top of it.
-- **Memory scoping (global vs project).** Some memory is
-  personal (preferences, communication style). Some is
-  project-specific (Ekoa architectural decisions). Some is
-  cross-project (developer patterns). Phase 9 needs to settle
-  the scoping model. Lean: skills and memory exist globally
-  by default; project-scoped overrides live in project-local
-  files (`CLAUDE.md`, `.garrison/skills/<name>.md`) and take
-  precedence when the Operative is operating inside that
-  project's context. Phase 2's project-index Fitting is the
-  natural place to detect "we're in project X" and pull in
-  the right overrides.
-- **Volume is not a concern for v1.** Even with four machines,
-  it's one person producing content. Daily session volume is
-  the same as a one-machine setup. Tiered memory / compaction
-  / partitioning would matter only when agents work
-  autonomously and volume genuinely grows — defer until then.
-- **Credential question:** does the Operative ever *use* a
-  credential that lives on a remote machine, or does it always
-  *tell the remote machine to do the credential-needing thing
-  locally*? Lean: the latter (simpler, no credential transport).
-  Pillar A may still need a credential-discovery mechanism (the
-  Operative knows "to do X on development machine, you need
-  Indie auth there") but not a credential-extraction mechanism.
-
-#### Pillar B — Self-improving skills, automations, and `for_consumers` blocks
-
-Three things the Operative reads to decide what to do: skills
-(SKILL.md content + CLI tool docs), automations (Phase 7
-step definitions), and `for_consumers` blocks on Fittings.
-All static today; humans edit them. Phase 9 makes them evolve
-based on real outcomes.
-
-**What's NOT being evolved** — the outputs of the Operative's
-work (documents, screen recordings, automation results,
-research reports). Those live in the Artifact Store from Phase
-3 and don't self-modify; they're records of work, not
-guidance. What evolves is *the guidance the Operative reads
-to do the work next time.*
-
-**Scoping (v1 = refinement only).** Prior-art systems like
-Hermes do *both* refinement of existing skills *and*
-auto-generation of new skills from observed successful
-patterns. Phase 9 v1 scopes to refinement only — the Operative
-proposes updates to *existing* skills, automations, and
-`for_consumers` blocks. Auto-creating new skills from observed
-patterns is a meaningful additional capability and likely
-belongs in a later phase. Reason: refinement has a clearer
-review-gate (compare to known-good baseline); generation
-requires deciding "is this novel-thing worth being a skill at
-all" which is a harder review problem.
-
-- **Skills (skill-agents).** Today static (humans edit
-  `for_consumers`, the skill prompt, the tool list). After
-  Phase 9 they evolve based on outcomes: the Operative
-  proposes updates; a review gate decides what lands.
-- **Automations** (Phase 7). Already designed with
-  feedback-driven improvement and manual edit gates. Phase 9
-  unifies the discipline so automations and skills share the
-  same evolution machinery rather than reinventing it.
-- **`for_consumers` blocks.** Currently human-edited.
-  Architecturally the same pattern — prompts the Operative
-  consults, evolved based on outcomes. Includes *negative
-  learning* — "for context X, skill Y is the wrong choice"
-  (the Hermes-style discipline cares about this).
-- **Provenance and conflict resolution.** If a skill is
-  updated on Monday based on outcomes from the development
-  machine and on Tuesday based on outcomes from the office
-  machine, and both updates touch the same item, what
-  happens? Lean: **update proposals, not direct updates.**
-  Every learning event proposes a change; a periodic review
-  pass batches and reconciles. Aligns naturally with the
-  review-gate question — the review *is* where reconciliation
-  happens. Alternatives (linear timestamped last-write-wins,
-  three-way merge) lose learning or get too complex.
-  Confirm in detailed planning.
-
-#### Pillar C — Operative identity across machines
-
-When the Operative spawns a session on a remote machine via
-the bridge, whose session is it? Today (after Phase 6) the
-bridge produces a plain Claude Code session running as the
-user on that machine, with no Operative identity wrapping it.
-Memory it generates compiles, but the resulting compiled
-output is just "stuff the user did" — not linked back to the
-Operative that orchestrated it.
-
-This matters for self-improvement: the outcome signal (Phase
-8 Tasks) and the work that produced it (Phase 4 coding-subagent
-+ Phase 6 outpost-actions) need to be linkable. A skill update
-proposal needs to know *which Operative's skill* and *which
-session's outcomes*.
-
-**Approach: both wrapping and tagging.**
-
-- **Garrison-spawned sessions get Operative-wrapped.** When
-  the user opens a terminal via the Workbench or the
-  Operative invokes `outpost-actions.spawn_on`, the spawn
-  includes Operative-flavored system prompt material
-  (similar to Phase 5's launch-orchestrator banner, but
-  richer). Compiled memory from these sessions carries a
-  metadata header tagging them as Operative-extended.
-- **Direct Claude Code sessions get tagged but not wrapped.**
-  When the user opens plain `claude` outside Garrison, the
-  hooks fire as today, but the compiled output carries
-  metadata noting "this came from a direct session on
-  machine X." The Operative can see this work happened and
-  reference it, but treats it as user-driven not
-  Operative-driven.
-
-This is the minimum needed to make outcome → artifact-update
-attribution work cleanly.
-
-#### Pillar D — Lessons-learned feedback loop
-
-The most powerful self-improvement signal is *the agent
-actively reflecting on its own past mistakes.* Hermes and
-similar systems do this: after a task completes (succeeded
-or failed), generate a "lessons learned" entry that the
-agent reads on its next similar task.
-
-Today's Operative reads the compiled memory at SessionStart
-(Phase 1 hook). It doesn't have a "and here are the lessons
-learned from your three most recent similar tasks" surface.
-The compiled memory is *reference material*; the lessons-
-learned layer is *feedback*.
-
-**This is the learning loop closure** — without it, the
-agent gathers experience but doesn't actively consult it.
-Phase 9 needs:
-
-- **A mechanism for generating lessons-learned entries.**
-  Tied to Phase 8 task completion: when a task closes
-  (success or redo), the Operative generates a short
-  "what I learned" entry. Lives in a dedicated subsection
-  of the canonical store (`Compiled/lessons-learned/` or
-  similar).
-- **A mechanism for retrieving relevant lessons.** When
-  starting a session or picking up a task, the Operative
-  queries lessons relevant to the current task. Naive: by
-  keyword / topic match. Smarter: by task similarity. Start
-  naive.
-- **A pruning discipline.** Lessons that haven't been
-  consulted in N months get archived. Without pruning, the
-  lessons-learned layer becomes another noise corpus.
-
-This is the pillar with the most direct user-visible payoff:
-"the agent actually got better at this kind of task over
-time."
-
-### What's IN Phase 9
-
-1. **Memory consolidation across machines** (Pillar A).
-2. **Hook installation discipline on every Mac** at the user
-   level (`~/.claude/settings.json`). Including direct-Claude-
-   Code sessions outside Garrison.
-3. **Bridge sync of compiled memory** back to the canonical
-   store. Built on Phase 6's transport.
-4. **Memory scoping** — global vs project-scoped overrides.
-5. **Self-improving skills, automations, and `for_consumers`**
-   (Pillar B) — the unified review discipline across all three.
-6. **Update-proposal model** — proposals batched, reviewed,
-   reconciled (vs direct writes).
-7. **Outcome capture from Tasks** (Phase 8) feeding into
-   skill / automation / `for_consumers` evolution.
-8. **Tier rubric evolution.** The Classifier itself doesn't
-   self-improve; the tier rubric that informs the Classifier
-   evolves based on misclassification outcomes. Same review
-   discipline as the rest of Pillar B.
-9. **Operative identity model** (Pillar C) — wrap Garrison-
-   spawned sessions, tag direct sessions.
-10. **Lessons-learned feedback loop** (Pillar D) — generation,
-    retrieval, pruning.
-
-
-### What's explicitly OUT of Phase 9
-
-- **Soul / Orchestrator prompt self-improvement.** These are
-  the agent's stable self and routing logic. Letting them
-  self-edit is exactly the path to drift. Phase 9 excludes
-  them deliberately; a future phase could revisit, but not
-  Phase 9.
-- **Composition choices.** "Which Fittings should this
-  Operative have?" is currently human-decided. Letting the
-  Operative redesign its own composition is a different beast
-  ("agent designs its own Operative") and not Phase 9.
-- **Skill *invocation patterns*** — workflow-level learning
-  ("I almost always call A → B → C; should that be one
-  composed call?"). Borderline. Mention as future direction;
-  not Phase 9.
-- **Project context (`CLAUDE.md` files per repo).** Already
-  version-controlled via git; sync works. Question of *how
-  Operative learnings land into them* is open but probably
-  resolved by "the canonical store points at project-local
-  CLAUDE.md as authoritative for project specifics" — confirm
-  during detailed planning.
-- **Real-time skill evolution.** Updates land on a slower
-  cadence (review-gated). No "the agent improves itself
-  mid-session" pattern.
-
-### Dependencies
-
-- **Phase 6 (Outposts)** for the bridge transport. Memory
-  consolidation needs the bridge to move SessionEnd output
-  back to the host.
-- **Phase 7 (Automations)** ships its own
-  feedback-and-improvement loop. Phase 9 unifies its
-  discipline with skill evolution so they share the same
-  evolution machinery rather than reinventing it.
-- **Phase 8 (Tasks)** for outcome signals. "Did this work?
-  Did the user have to redo it?" is the ground truth Pillar B
-  depends on; the Kanban board is where those signals live.
-
-### A real constraint: we don't have clean success signals
-
-Prior-art systems that ship working self-improvement (Voyager
-especially) lean heavily on environments where success is
-binary and unambiguous — Minecraft's "you either have a
-diamond pickaxe or you don't." Every failed skill attempt
-produces a clean execution trace with a structured error
-message. Self-verification works because the sandbox provides
-ground truth.
-
-**Garrison doesn't have that.** Most of the Operative's work
-— research, code review, email drafting, planning, browser
-automation against a moving target — has fuzzy success
-criteria at best. "Was this code change good?" lacks a
-reliable signal. "Did this email get the response the user
-wanted?" requires waiting and interpreting.
-
-**Consequence for Phase 9:**
-
-- The self-improvement loop will be **slower-cadence and
-  fewer-examples** than the published research suggests.
-  Don't promise Voyager-like rapid skill compounding.
-- Phase 8 task outcomes (completed / redone / abandoned)
-  are the closest thing to ground truth and become the
-  primary signal. Lean hard on these.
-- Some skill categories (automations against deterministic
-  systems, code that compiles or doesn't, file operations
-  that succeed or fail) *do* have clean signals. Start the
-  evolution discipline there; expand to fuzzier domains
-  only after the clean cases work.
-- Acknowledge that "the agent gets better at this kind of
-  task" is a goal measured in months of usage, not days of
-  iteration.
-
-### Candidate library: DSPy + GEPA
-
-Hermes uses DSPy + GEPA (Genetic-Pareto Prompt Evolution) as
-the actual evolution mechanism. MIT-licensed, open-source,
-ICLR 2026 Oral. GEPA reads execution traces to understand
-*why* something failed, then proposes targeted improvements
-to prompts and skills. Works with as few as 3 examples. No
-GPU training — all API calls.
-
-Phase 9 detailed planning should evaluate whether to use DSPy
-as the substrate or build Garrison-specific tooling. Using
-DSPy avoids reinventing the evaluation loop, but adds a
-dependency on a Python framework (Garrison is TypeScript).
-Trade-off worth real consideration; not a settle-it-now
-decision.
-
-### Open questions to settle during detailed planning
-
-1. **Canonical knowledge store location.** Vault on automation
-   machine vs new dedicated Faculty vs hybrid.
-2. **Credential model.** Local-only (Operative tells remote
-   machine to do the auth-needing thing) vs proxying vs
-   discovery-only. Lean local-only.
-3. **Review-gate model for skill / automation /
-   `for_consumers` updates.** Prior art (Hermes/GEPA, Voyager)
-   converges on **empirical review**: the proposed update runs
-   against real past examples mined from session history, and
-   only ships if it scores higher than the current version.
-   This is the established discipline; not one of three rough
-   options. Phase 9 should default to empirical with human
-   review as an *escalation* path for high-impact updates or
-   ambiguous cases (e.g. tier rubric changes, Operative-facing
-   `for_consumers` blocks). Agent self-review (second agent
-   reviews) is out — inherits the same blind spots as the
-   original. Open: what counts as a "high-impact" update
-   warranting human review; how the empirical evaluation
-   dataset gets built and refreshed.
-4. **Outcome granularity.** Task completion (Phase 8 gives us
-   this directly) vs finer (per-tool-call, per-step). Finer is
-   more signal but harder to capture and easier to overfit.
-5. **Drift / sabotage protection.** Versioning? Rollback?
-   "Lock" specific artifacts as non-evolving? Diff review
-   before adoption?
-6. **Multi-machine evolution propagation.** When a skill is
-   improved by work on the development machine, the new
-   version lands in the host's canonical store. How does it
-   propagate to future bridge sessions on other machines? At
-   session start, the host injects latest versions into the
-   spawned session — but the protocol for "what counts as
-   latest" needs care.
-7. **Direct-Claude-Code session capture.** Hooks installed at
-   user level (`~/.claude/settings.json`) is the discipline;
-   what happens when the user forgets to install hooks on a
-   new machine? Outpost bootstrap script verifies and prompts.
-8. **Negative learning shape.** "Skill Y is the wrong choice
-   in context X" — how is this represented? As a `for_consumers`
-   block update? As a separate "anti-pattern" registry the
-   Operative consults?
-9. **Memory scoping mechanism.** Global skills + project-local
-   overrides (`.garrison/skills/` per repo) — how do overrides
-   compose with globals? Replace entirely, or merge sections?
-10. **Lessons-learned retrieval mechanism.** Naive keyword/
-    topic match vs task-similarity matching. Lean naive for
-    v1; upgrade when retrieval quality bites.
-11. **Lessons-learned pruning policy.** When do old lessons
-    archive? After N months unconsulted? After being
-    contradicted by newer outcomes?
-12. **Operative wrapping mechanism.** When a Garrison-spawned
-    session opens on a remote machine, what's the actual
-    plumbing for injecting Operative system-prompt material?
-    `--append-system-prompt` flag (Phase 5 launch-orchestrator
-    pattern), or env vars the hooks read, or something else?
-13. **Provenance for self-improvement attribution.** Skill
-    updates need to be traceable back to which outcomes
-    produced them, so problematic updates can be rolled back
-    by reverting to "what was learned before event X." Simple
-    git-style versioning of artifacts probably suffices; check
-    in detailed planning.
-
-
-### Prior art (researched 2026-05-11)
-
-- **Hermes Agent (NousResearch)** — *researched.* Four-part
-  learning loop (skill creation, skill improvement,
-  session search with summarization, user modeling).
-  Curator process autonomously evaluates skills, grades by
-  success metrics, prunes underperformers, consolidates
-  related skills. Companion repo `hermes-agent-self-evolution`
-  uses DSPy + GEPA for the actual evolution. GEPA reads
-  execution traces to understand *why* failures happen and
-  proposes targeted fixes; works with as few as 3 examples.
-  Empirical-review discipline (proposed update evaluated
-  against real session examples) is their core pattern.
-- **Voyager (MineDojo)** — *researched.* Three components:
-  automatic curriculum, ever-growing skill library of
-  executable code, iterative prompting with environment
-  feedback + execution errors + self-verification. Skills are
-  code, not prompts. Key caveat: works because Minecraft has
-  binary/unambiguous success and clean reset; **does not
-  transfer cleanly to Garrison's fuzzy domains.** Reinforces
-  the "lean on Phase 8 Tasks as primary signal" conclusion.
-- **Anthropic's Skills evolution direction** — *not yet
-  researched.* Defer to detailed planning.
-- **Karpathy's memory-layered improvements** — *not yet
-  researched.* User mentioned a ChatGPT pass was unhelpful;
-  unclear whether the concept exists as named. Skeptical;
-  treat as low-priority research item.
-- **RLAIF / Constitutional AI** — *not yet researched.*
-  Defer to detailed planning.
-
-### What's explicitly NOT in this phase placeholder
-
-- Concrete tickets, T-list, scope items beyond the questions
-  above.
-- Naming for the canonical store, the review gate, or the
-  evolution mechanism.
-- Whether Phase 9 should be one phase or two.
-- Whether the self-improving discipline applies only to skills
-  or also to `for_consumers` blocks, Orchestrator prompts, or
-  Soul declarations.
-
-These all wait until detailed planning happens.
-
----
+  deterministic. An assembler agent runs at apply time, reads the
+  selected Fittings + their `for_consumers` + soul + orchestrator
+  + capability graph, and produces warnings, recommendations, and
+  friction reports. The human accepts or rejects.
+- **Option (b) — synthesis.** The runner asks an LLM to *write* the
+  assembled system prompt. Risks: non-reproducibility, cost,
+  debuggability. **Not recommended for the foreseeable future.**
+
+Build (a) when one or more of: compositions get big enough to be
+hard to reason about unaided; `for_consumers` blocks start
+contradicting each other in ways static analysis can't detect; a
+meaningful number of Fittings exist and novice users need help
+picking compatible sets.
+
+Tracked as a future phase, exact number TBD.
+
+-----
 
 ## Cross-cutting: UI surfaces
 
-**Decided 2026-05-05, revised 2026-05-06:** UI extension contract
-evolves in two steps.
+UI extension contract evolves in steps. Each contract is additive
+under the next.
 
-- **Contract v1** (current, per `AGENTS.md` §9): Fittings ship
-  `x-garrison.ui.extension` pointing at a React component. Garrison
-  lazy-imports it and mounts it in the Faculty's tab. Static render,
-  no sandbox, trusted-author model.
-- **Contract v2** (Phase 3 — Documents Fitting forces it):
-  multi-view Fittings, placement (`faculty-tab` vs.
-  `sidebar-surface`), in-Fitting routing, cross-tab linking via
-  `garrison://<fitting>/<view>` URLs. Phase 1 v1-style Fittings
-  keep working unchanged (additive contract).
-- **Contract v3** (Phase 7 — Automations forces it): adds the event
-  bus for Fitting → Operative talkback (e.g. "this selector is
-  wrong, use this instead"). Stateful UI feedback loops.
+- **Contract v1** (per the original `AGENTS.md` §9): single React
+  component per Faculty tab. Static, no sandbox, trusted-author
+  model. Used by early Phase 1 Fittings (Slack, Memory).
+- **Contract v2** (Phase 3 / Stage 1 work, shipped): multi-view
+  Fittings, placement (`faculty-tab` vs `sidebar-surface`),
+  in-Fitting routing, cross-tab linking via
+  `garrison://<fitting>/<view>` URLs. Workbench/Armory Fittings
+  use v2. Documents and Artifact Store browser use v2.
+- **Contract v3** (Stage 2 + Stage 5 work): adds the event bus for
+  Fitting → Operative talkback. Stateful UI feedback loops.
 
-**Phase 5 (Workbench) uses contract v2 fully.** Workbench Fittings ship
-their UIs as multi-view contract-v2 declarations — same mechanism
-Documents and the Artifact Store browser already use. The Workbench
-shell area renders Fittings dynamically based on their declared
-faculty (one of `worktree-management`, `session-view`, `terminal`,
-`screen-share`, `browser`, or ad-hoc). This is the architectural
-reframe from earlier Phase 5 versions ("Trenches as a separate
-Garrison-core area"), captured in the 2026-05-08 decision log
-entry.
+Phase 1 Fittings keep their v1-style single-pane UIs and migrate
+opportunistically when one needs richer UI than v1 can carry.
 
-**Phase 1 Fittings (Slack, Memory) ship with constrained v1
-single-pane UIs.** They keep working under v2 unchanged. They get
-retrofitted *opportunistically* — when one of them needs a richer
-UI it migrates to v2. Phase 7's contract v3 work doesn't break v2
-either.
+-----
 
-**v2 contract shape (driven by Documents):**
+## Stage 1 — Replace IDE + CLI for working on agent-garrison itself
 
-- Fittings declare N views in `x-garrison.ui` (was
-  `x-garrison.ui.extension`, the single field).
-- Each view declares placement (`faculty-tab` | `sidebar-surface`)
-  and a route fragment.
-- Garrison's router exposes a per-Fitting path prefix; the Fitting
-  handles its own sub-routes within it.
-- `garrison://<fitting>/<view>` URLs resolve across the app — chat
-  can link to Documents, Documents can link to other Fittings.
+**Status: largely shipped; refining for daily use.**
 
-**v3 contract additions (Phase 7):**
+**Outcome:** The user can do a full day of development work on
+`agent-garrison` itself entirely inside Garrison's shell. Worktrees,
+terminals, Claude Code sessions, browser inspection, session
+monitoring, screen-share — all rendered as views inline. No external
+IDE, terminal, or browser tooling needed for the dev workflow.
 
-- Event bus: Fitting views can dispatch structured events the
-  Orchestrator listens on.
-- Likely also: per-Fitting persistent state shared across views.
-- Migrates Documents and any other v2 Fitting forward without
-  breaking changes (event bus is opt-in).
+### What's shipped
 
-This is closer to what the deferred Workspace Faculty wants for
-panes in v1.1. Treat Phase 7's UI work as the *de facto* prototype
-of Workspace.
+Per the old Phase 5 and Phase 5.5 work, fully decomposed after the
+2026-05-17 Workbench dissolution into flat sibling Faculties:
 
-### Retrofit consequences (acknowledged)
+- **`terminal` Faculty + `terminal-armory-default` Fitting** —
+  xterm.js + PTY backend, multi-session, busy/idle indicators, host
+  selector, "Open Claude Code" launch presets.
+- **`worktrees` Faculty + `worktrees-sequoias` Fitting** — git
+  worktree CRUD, deterministic port allocation, env-file rewriting,
+  `package.json` patching for frontend dev scripts, session-state
+  integration. Per Phase 5.5: full load-bearing parity with the
+  Sequoias standalone app.
+- **`session-view` Faculty + `session-view-sequoias` Fitting** —
+  reads `~/.garrison/sessions/state.json`, badges sessions by status
+  (working/waiting/idle/dead) driven by Claude Code hook events.
+- **`screen-share` Faculty + `screen-share-default` Fitting** —
+  macOS screen capture surface watchable from any Garrison client.
+- **Views terminology + contract v2 wiring.** Fittings ship views
+  with `faculty-tab` and `sidebar-surface` placements; the shell
+  renders them. Cross-tab `garrison://` links resolve.
+- **Documents Fitting + Artifact Store** (old Phase 3, shipped
+  2026-05-08). Markdown documents authored by the Operative,
+  rendered in a sidebar surface; Artifact Store as the underlying
+  storage with namespaced filesystem layout. Used in Stage 4
+  primarily, but already wired.
 
-- Phase 1 Slack and Memory Fittings ship with v1 single-pane UIs.
-  They keep working under v2 (additive contract). They migrate to
-  v2 only when one of them needs richer UI than v1 can carry.
-- Phase 3 Documents and any later Fittings ship as v2 from day
-  one, then migrate to v3's event bus opportunistically when
-  Phase 7 lands.
-- The compounding retrofit cost (v1 → v3 in two hops) is accepted
-  for the Phase 1 Fittings since their UIs are minimal and a
-  one-time migration is cheap.
+### What remains for Stage 1
 
----
+1. **Browser Fitting completion + polish.** Per the 2026-05-25
+   research, architecture is settled (Playwright-managed headless
+   Chromium, CDP for Operatives, viewport WebSocket for the UI,
+   input WebSocket for touch/keyboard). The user is currently
+   implementing and refining. Operative-side ergonomics: the
+   Operative can proactively grab screenshots, console output,
+   network logs, and drive the browser without disrupting the user.
+1. **Worktree view UX polish.** Buttons to open Claude Code with
+   the right flags (continue / new prompt / specific tier-aware
+   model), navigation between views inline, "this is the view that
+   matters right now" affordances. The goal is to make the worktree
+   view the natural starting point of every dev task.
+1. **Sequoias retirement (T8 from Phase 5).** 3-day daily-use
+   validation gate not yet met. Once met, the standalone Sequoias
+   app stops being used and Garrison's worktrees Fitting is the
+   only worktree manager.
+1. **Daily-use smoke pass.** A deliberate week of working on
+   agent-garrison entirely inside Garrison. Bugs surface, polish
+   gets applied, the experience is real-world hardened.
+
+### Stage 1 done when
+
+- I open Garrison in the morning. I create or pick a worktree from
+  the worktrees view. I open a terminal in that worktree's
+  directory. I open Claude Code in that terminal via the launch
+  preset. I open the browser view to test the running dev server.
+  Session-view tells me what's working and what's idle. I get
+  through the whole day without opening VS Code, iTerm, or Chrome
+  separately.
+- The Browser Fitting handles both interactive browsing from the
+  iPad over Tailscale AND CDP access from Operative-driven
+  inspection, concurrently and reliably.
+
+### Open questions for Stage 1
+
+- Browser Fitting iPad keyboard handling — hidden text input that
+  focuses when CDP reports a focused text field. The May 25
+  research flagged this as a pattern that needs implementation
+  verification.
+- Browser Fitting context isolation — separate profiles per worktree
+  vs one shared instance with separate contexts. Lean: one Chromium,
+  many contexts, profiles persisted per named context under
+  `~/.garrison/profiles/`.
+
+-----
+
+## Stage 2 — Disciplined dev pipeline (active focus)
+
+**Status: design locked 2026-05-26; implementation pending.**
+
+**Outcome:** Every dev task the user initiates from a worktree view
+runs through a fixed pipeline. The pipeline is composed of
+single-responsibility runners: classify → (plan + classify-again
+if non-trivial) → execute under `/goal` → validate → test →
+package evidence → report. Each step gets its own session with its
+own model and effort, chosen for that step's actual cost/quality
+tradeoff. Evidence bundles land in the Artifact Store; reports
+surface in both the originating surface and the worktree view.
+
+This is the disciplined dev workflow. The user drives it manually
+from worktree views in Stage 2 (no autonomous spawning yet —
+that's Stage 3). The full pipeline must be solid before Stages 3, 4,
+or 5 can build on top of it.
+
+### The pipeline
+
+```
+[user intent from a worktree view]
+   │
+   ▼
+[Classify-1]
+   │ trivial
+   ▼
+   [Execute] ─▶ [Validate] ─▶ [Test] ─▶ [Evidence] ─▶ [Report]
+
+   │ non-trivial
+   ▼
+[Plan] ─▶ [Classify-2] ─▶ [Execute] ─▶ [Validate] ─▶ [Test] ─▶ [Evidence] ─▶ [Report]
+```
+
+### Single-responsibility runners
+
+Each step is one process, one session, one Fitting (or capability
+provider) doing one thing.
+
+- **Classifier (Faculty: `classifier`; one Fitting, two entry
+  points).** Decided 2026-05-26: tier classification is two-stage.
+  - *Entry 1 — classify-pre-plan.* "Is this trivial or
+    non-trivial?" Gates whether to plan at all. Fast call, cheap
+    model. Output: `trivial` (skip to execute) or `non-trivial`
+    (proceed to plan).
+  - *Entry 2 — classify-post-plan.* Reads the plan + acceptance
+    criteria, chooses executor model and effort. Output:
+    `{model, effort, max_turns}` for the `/goal`-wrapped executor.
+  - One Fitting with two entry points (less proliferation; the
+    underlying skill is "judge complexity from inputs" with
+    different inputs). Easy to split if they diverge later.
+- **Planner (Faculty: `planner`; separate session per call).** Spawns
+  its own Claude Code session, Opus with extended thinking, in the
+  worktree. Reads the intent + repo context, produces:
+  - A plan (markdown) — the architectural / file-by-file reasoning.
+  - An **acceptance criteria block** — structured, machine-readable,
+    intended to be lifted verbatim into the `/goal` condition.
+  Planner's prompt has the discipline of writing both baked in.
+  Output artifact lands in the Artifact Store under
+  `dev-evidence/<worktree>/<run-id>/plan.md`.
+- **Executor (existing Claude Code session in worktree, wrapped in
+  `/goal`).** Spawned per the surface-aware orchestration brief
+  (2026-05-13), tier-aware respawn applies. The wrapping is
+  `claude -p "/goal <acceptance criteria + 'or stop after N turns'>"`
+  in headless mode. When `/goal` reports back (success or give-up),
+  control returns to the orchestrator.
+- **Validator (Faculty: `validator`; separate session per call).**
+  Cheap model (Haiku or Sonnet-low). Reads the diff produced by
+  the executor and the acceptance criteria; returns a structured
+  `{criterion, pass: bool, evidence: string}[]`. Can invoke
+  pre-written automations from the Automations Faculty when
+  validation needs browser/UI work — these are reproducible scripts,
+  so they don't need Opus to drive. Validator's job is mostly
+  orchestration over deterministic things plus schema-shaped
+  judgment.
+- **Test runner (Faculty: `testing`; deterministic).** Runs whatever
+  the worktree declares: `pnpm test`, project-specific commands.
+  Bash, no LLM. Output captured as a single artifact.
+- **Evidence packager (Faculty: `evidence` — see open question;
+  deterministic script).** Gathers prompt, classified tier(s), plan,
+  acceptance criteria, full diff, test output, validator output,
+  any screenshots/recordings produced during the run, optional full
+  session transcript (gitignored by default). Bundles into the
+  Artifact Store under `dev-evidence/<worktree>/<timestamp>/`.
+- **Reporter (Orchestrator Fitting's job).** Surfaces the result
+  with a link to the evidence bundle. Routes by origin (per the
+  May 13 surface-aware brief): worktree-origin → worktree view;
+  channel-origin → channel; **and always to the worktree view as
+  well**, deduped by run ID. (Decided 2026-05-26: report lands in
+  both.)
+
+### Orchestration model
+
+**Step-at-a-time, orchestrator-driven.** Decided 2026-05-26. The
+orchestrator (prompt-based Fitting) drives every transition between
+steps. After each step completes, the orchestrator reads the result,
+decides what next, invokes the next runner. This is more chatty than
+a single long-running pipeline runner, but it preserves the
+"orchestrator is the spine" principle and lets the orchestrator
+interrupt or redirect at any boundary.
+
+### `/goal` integration
+
+See the cross-cutting `/goal` discipline section above for the full
+rules. Summary in context:
+
+- `/goal` wraps the **execute step only**.
+- Acceptance criteria come verbatim from the planner.
+- When `/goal` gives up, the orchestrator decides recovery (re-plan,
+  ask human, accept partial, retry with expanded scope).
+- `/goal` is not used inside the validator, the tester, or any other
+  step.
+
+### Dependencies — existing briefs feeding into Stage 2
+
+- **May 12 — `mcp-gateway` Fitting brief.** Exposes installed
+  Faculties as MCP tools to workbench-launched Claude Code sessions.
+  Initial Faculty surface designed for tier-classifier and testing.
+  **Audit needed:** does the existing brief assume a single
+  classifier entry point, or can it accommodate the two entry
+  points decided 2026-05-26?
+- **May 13 — Surface-aware orchestration brief.** One orchestrator
+  per user, origin-tagged turns, tier-aware respawn via
+  `--resume --model`. Workbench-mode vs channel-mode spawn.
+  **Audit needed:** does the existing brief's spawn shape work
+  cleanly with `/goal` wrapping? A 10-minute spike to verify.
+- **Browser Fitting (Stage 1 in progress).** Stage 2's validator can
+  invoke browser-driving automations through the Browser Fitting's
+  CDP endpoint.
+- **Documents Fitting + Artifact Store (shipped, old Phase 3).**
+  Plan, acceptance criteria, and evidence bundles all land in the
+  Artifact Store.
+
+### Stage 2 done when
+
+- I type "implement X in Y worktree" in a worktree view.
+  Classify-1 fires. Trivial → straight to execute. Non-trivial →
+  planner runs in a separate Opus session, writes plan +
+  acceptance criteria, classify-2 reads it, picks executor model.
+  Executor runs under `/goal`. Validator runs in a separate
+  cheap-model session, returns pass/fail per criterion. Test runner
+  runs deterministic tests. Evidence packager bundles everything
+  into the Artifact Store. Report surfaces in worktree view (and
+  chat if chat-initiated).
+- When `/goal` gives up, the orchestrator gets the evaluator's last
+  reason and decides recovery.
+- Existing Ekoa automations can be invoked from the validator
+  session as a single tool call.
+- No orchestrator-driven spawning yet — every run is user-initiated
+  from a view.
+
+### Out of scope for Stage 2
+
+- Orchestrator spawning worktrees or pipelines autonomously
+  (Stage 3).
+- Mobile/channel-initiated pipelines (Stage 3).
+- Document writing during PM/Architect discussions (Stage 4).
+- Task-driven autonomous loop (Stage 5).
+- Workflow tool integration (parked indefinitely).
+
+### Open questions for Stage 2
+
+- **Evidence Faculty home.** The evidence packager is deterministic
+  glue. Options: a dedicated `evidence` Faculty with a single
+  script Fitting; a method on the Artifact Store; a step inside the
+  validator's output handling. Lean: **dedicated `evidence`
+  Faculty**, simple script Fitting. Keeps the responsibilities
+  clean.
+- **Validator invoking automations.** The validator Fitting
+  `consumes: automation-runner`? Probably yes. Confirm at impl.
+- **`/goal` under headless spawn — spike needed.** Does
+  `claude -p "/goal ..."` work cleanly under the exact spawn shape
+  the May 13 tier-aware respawn brief uses? What's the per-turn
+  evaluator token cost in practice?
+- **Planner's "acceptance criteria" block format.** YAML, JSON,
+  markdown checkboxes? Needs to be both human-readable in the plan
+  artifact and machine-extractable for the `/goal` condition. Lean:
+  markdown checkboxes with a fenced YAML block as the structured
+  source.
+- **Recovery loop bounds.** When `/goal` gives up and the
+  orchestrator decides to re-plan, how many re-plan loops are
+  allowed before forcing human handoff? Lean: hard cap at 2
+  re-plans, then mandatory human.
+- **Audit of existing tier-classifier work and the May 12
+  `mcp-gateway` brief.** Both predate the two-stage-classifier
+  decision. May need adjustment.
+- **Classifier-1 model.** Lean: Haiku, fast and cheap. Confirm at
+  impl.
+
+-----
+
+## Stage 3 — Mobile / orchestrator-driven dev workflow
+
+**Status:** scoped; depends on Stage 2 being solid.
+
+**Outcome:** The orchestrator can spawn worktrees and kick off
+pipelines on the user's behalf. The user drives this from mobile
+via an improved web channel. When the user gets to the desk, the
+worktree views show what's running and the user continues inline.
+Cross-surface continuity (mobile → desk) is the headline experience.
+
+### Scope
+
+1. **Web channel improvement.** The current web channel is crude
+   per the user's own description (2026-05-26). Stage 3 brings it
+   to a level that supports real conversation, real handoff to the
+   pipeline, real status feedback. Visual polish, mobile keyboard
+   handling, threading, evidence bundle linking.
+1. **Orchestrator gains pipeline-invocation capability.** The
+   orchestrator can call out: "spawn a worktree from branch X, run
+   the disciplined pipeline against intent Y." All the Stage 2
+   plumbing is reused; the orchestrator is just a new *initiator*
+   of the same pipeline.
+1. **One orchestrator per user, origin-tagged turns** (per the
+   May 13 brief). Cross-surface continuity: ask something on the
+   phone, follow up on desk, the orchestrator sees both.
+1. **Tier-aware respawn fully wired with `/goal`.** When mid-session
+   the work re-classifies to a different tier, the executor session
+   gets respawned with the new model. `/goal` resumes with the
+   same condition.
+
+### Stage 3 done when
+
+- I'm walking around with my phone. I message the operative: "spawn
+  a worktree for the screen-share Fitting bug fix and start work."
+  The orchestrator does it. The pipeline runs. The phone shows me
+  status. I get back to the desk and the worktree views show me
+  exactly what's happening; I can take over inline.
+- A mid-session tier escalation works: simple bug fix turns out to
+  need a redesign, classifier-2 says Opus, executor respawns with
+  Opus, `/goal` resumes against the same condition.
+
+### Open questions for Stage 3
+
+- Web channel UX choices — how much polish is "enough" before
+  Stage 3 ships vs continuing to refine in parallel.
+- Worktree-spawning permission model. Does the orchestrator
+  unilaterally spawn worktrees, or does it ask first? Lean:
+  unilateral for tier ≤ 2; asks for tier ≥ 3.
+- "Take over inline" UX — how does the worktree view know which
+  orchestrator-initiated run to surface as the active one?
+
+-----
+
+## Stage 4 — Replace claude.ai discussions in Garrison
+
+**Status:** scoped; substrate (Documents Fitting + Artifact Store)
+already shipped. Behavioral discipline missing.
+
+**Outcome:** PM/Architect-style discussions happen in Garrison's
+chat with the operative instead of in claude.ai. The operative
+captures decisions and plans into markdown documents (Documents
+Fitting from old Phase 3) as the conversation converges. The user
+references these documents manually to start work in the Stage 2
+pipeline.
+
+The substrate (chat, documents, artifact store) is already shipped.
+What's missing is the **behavior**: the PM/Architect hat, the
+discipline of writing documents during conversation, the chat UX
+for long-form discussion.
+
+### Scope
+
+1. **PM/Architect hat in Soul + Orchestrator.** Soul declares the
+   hat exists and what it sounds like. Orchestrator detects when
+   to engage it (project mentioned, code in message, dev-flavored
+   verbs). The detection logic lives in the orchestrator, not the
+   soul — already decided 2026-05-05.
+1. **Document-during-conversation discipline.** Operative
+   proactively writes documents into the Documents Fitting when a
+   discussion has converged on something worth capturing. The
+   trigger lives in the Documents Fitting's `for_consumers` block
+   (locality principle from old Phase 3).
+1. **Improved chat UX for long-form discussions.** Phone and desktop
+   both support real-back-and-forth conversations, document linking
+   inline, easy reference to past discussions.
+1. **Document → worktree-view referencing.** Pin a document while
+   working in a worktree; the operative can read it as context.
+
+### Stage 4 done when
+
+- I open Garrison, chat with the operative about a new feature for
+  agent-garrison. The conversation converges. The operative says:
+  "I've captured this in a document — see
+  `garrison://documents/<id>`." I click through, read it, edit if
+  needed. Later, when I'm ready, I pin the document and start work
+  on it through a worktree view + Stage 2 pipeline. The whole
+  flow happens inside Garrison, no claude.ai.
+
+### Stage 4 v2 (deferred to Stage 5 transition)
+
+The operative reads its own captured document and acts on it
+directly — kicking off a pipeline against it. That's Stage 5
+territory because it requires task-driven autonomy.
+
+### Open questions for Stage 4
+
+- Trigger for "the discussion has converged" — heuristic in the
+  `for_consumers` text, or explicit user signal? Lean: both.
+  `for_consumers` describes the heuristic; user can also say
+  "capture this" explicitly.
+- Document evolution — when the user revisits a topic, does the
+  operative update the existing doc or write a new one? Lean:
+  update existing if the topic matches a recent doc, otherwise new.
+- Chat history vs document — what's the boundary? Chat is the
+  ephemeral conversation; the document is the durable artifact.
+  Operative decides what to lift.
+
+-----
+
+## Stage 5 — Autonomous loop
+
+**Status:** scoped; depends on Stages 2, 3, 4.
+
+**Outcome:** Tasks Faculty as substrate. The operative creates tasks
+from discussions (Stage 4). Heartbeat picks tasks up. Operative
+asks the user for approval, executes via the same Stage 2 pipeline,
+returns evidence (bundled via the Stage 2 evidence packager).
+
+The point of Stage 5 is that **the entire underlying mechanism is
+already built by then**. Stage 5 is the autonomy layer on top of an
+otherwise complete system. The pipeline doesn't change; only the
+*initiator* changes (heartbeat instead of user).
+
+### Scope
+
+1. **Tasks Faculty (old Phase 8).** First-party file-system-backed
+   task store with a Kanban UI, replacing Trello as source of truth.
+   Trello becomes optional via a Trello-sync Fitting. Markdown
+   files with YAML frontmatter; four-column board
+   (backlog/todo/in_progress/done) for v1.
+1. **Heartbeat-driven task pickup.** Heartbeat reads tasks in
+   `todo`, picks one matching autonomy-allowed criteria, runs it
+   through the Stage 2 pipeline.
+1. **Plan-then-approve gate for higher tiers.** Classifier-2 says
+   Opus → orchestrator pauses and asks the user via chat/channel:
+   "I want to work on X, here's the plan, can I proceed?" User says
+   yes → executor runs.
+1. **Evidence return.** When the pipeline completes, the operative
+   posts the evidence bundle link as a comment on the task and
+   moves the task to `done`. Trello-sync (if installed) propagates.
+1. **Task creation from Stage 4 discussions.** PM/Architect hat
+   captures discussions into documents AND into tasks when the
+   discussion produced actionable work items.
+
+### Stage 5 done when
+
+- I have a chat in the morning, the operative captures the
+  discussion into a document and creates three tasks from it. I
+  approve. Heartbeat picks the first task up, runs it through the
+  pipeline, returns evidence on the task card. The whole loop runs
+  while I'm doing something else; the operative messages me when
+  there's something to approve or when work is done.
+
+### Open questions for Stage 5
+
+(See deferred Phase 8 content in the parking lot section. Most
+already captured; refresh when Stage 5 gets close.)
+
+-----
+
+## Deferred: Personal-assistant work
+
+**Why deferred:** The user's actual daily workload is dominated by
+software development on agent-garrison itself and adjacent projects.
+The personal-assistant pieces (Slack as primary channel, Trello as
+PA, calendar, briefings, heartbeat-driven non-dev suggestions) are
+real and wanted, but they're back-burner relative to making the
+dev workflow truly usable.
+
+**What's shipped from this area (per old Phase 1):**
+- Memory Faculty wraps `~/.claude/memory-compiler/`.
+- Slack channel Fitting (ported from `awc-gateway-slack`).
+- Trello data-source Fitting (ported from Ekus).
+- Heartbeat Fitting (off by default).
+- Classifier and Orchestrator Fittings with `cardinality: any`
+  composition awareness.
+
+**What's deferred:**
+- Heartbeat picking up Trello tasks for PA suggestions (old
+  Phase 2).
+- Google Calendar integration (old Phase 2).
+- Morning briefing flow (old Phase 2 T6/T7).
+- Slack as primary channel for non-dev conversations.
+- The "two hats" auto-detection extended to PA contexts.
+
+**Preconditions to un-defer:** Stages 1–5 solid. Operative
+genuinely useful for dev work end-to-end. Then PA work picks up
+where old Phase 2 left off.
+
+-----
+
+## Deferred: Outposts (multi-machine)
+
+**Why deferred:** Old Phase 6 was a substantial design (bridge
+process per remote Mac, WebSocket over Tailscale, `outpost-actions`
+agent skill, vault sync). It's the right direction long-term. But
+single-machine has to be rock-solid first — the user explicitly
+said as much on 2026-05-26.
+
+**Preconditions to un-defer:** Stage 5 solid. The user is genuinely
+running Garrison as their development environment on the
+automation machine, with the Stage 2 pipeline turning out evidence
+bundles consistently. Then Outposts adds the multi-machine layer
+without distraction.
+
+**What's preserved from old Phase 6:** the architectural sketch
+(bridge protocol, `outpost-actions` skill, vault sync as first
+service) stays in the prior roadmap version. Reload when the work
+becomes active.
+
+-----
+
+## Deferred: Knowledge & Self-Improvement
+
+**Why deferred:** Old Phase 9 was a placeholder for the
+multi-machine knowledge consolidation, self-improving skills /
+automations / `for_consumers` blocks, Operative identity across
+machines, and lessons-learned feedback loop. It depends on
+Outposts (transport), Automations (feedback loop), and Tasks
+(outcome signals) — all of which are themselves dependent on
+earlier stages.
+
+**Preconditions to un-defer:** Stage 5 in flight; outcome signals
+from the Tasks pipeline are real and observable; Outposts is
+shipped. Then prior-art research (Hermes/GEPA, Voyager, Anthropic
+Skills evolution direction) feeds detailed planning.
+
+-----
 
 ## Decision log (live)
 
-Append-only. Each decision dated and short. Phase numbers
-throughout reflect *current* numbering — when phases are renumbered,
-older entries are updated to keep the numbering consistent across
-the doc.
+Append-only. Each decision dated and short.
 
-- **2026-05-16** — Consolidation pass landed:
-  - **Monitor Faculty (NEW)** — `monitor` capability kind + Faculty +
-    `fittings/seed/monitor-default/` default Fitting (React UI on its
-    own port, 7077 default). Read-only observability over Garrison-
-    spawned PIDs via `ps`/`lsof`; logs captured via a new shared
-    `spawnTracked` helper at `src/lib/spawn.ts` that tees stdout/stderr
-    to `~/.garrison/logs/<pid>/`. Chat UI consumes optionally via
-    `/api/monitor/discover` + a "Monitor ↗" link that appears/hides
-    on a 15s reachability poll. Canonical per-Fitting-own-UI-on-own-port
-    pattern documented in `docs/UI-FITTINGS.md`.
-  - **Worktree brief gaps** — port-pool config (env vars + project
-    `port_pool` + `~/.garrison/config.yml`); `startupCommands` execution
-    on `createWorktree` with `startupCommandsStatus` lifecycle; project
-    `envTemplate` substitution (`${ports.X}`/`${urls.X}` → resolved
-    values, per-file scope preserved). The brief's origin-prefix and
-    JSONL-watcher items confirmed already shipped under Phase 9I.
-  - **`mcp-gateway --probe --strict`** opt-in flag; lenient default
-    unchanged.
-  - **DECISIONS.md** entries dated 2026-05-16: Monitor Faculty added,
-    shared spawn helper, UI-Fitting port convention, worktree pool stays
-    50000–54999 (exposed via config), mcp-gateway lenient-by-default
-    + strict opt-in, Tailscale URLs stay `http://` for v1.
-  - Plan + verification record: `/Users/ggomes/.claude/plans/we-have-been-working-federated-deer.md`
-    (private to the author); spike notes under `docs/phases/spike-*.md`
-    and `docs/phases/monitor-feasibility.md`.
-- **2026-05-06** — Phase 1 marked complete. Phases renumbered: the
-  former Phase 2.5 (Documents + Artifact Store + UI v2) becomes
-  Phase 3 to reflect that it's foundational and roughly Phase-1-
-  sized. Subsequent phases shift up by one: old Phase 3 → 4 (plan-
-  then-execute), old Phase 4 → 5 (Trenches), old Phase 5 → 6
-  (Automations). New Phase 8 added: Tasks Faculty (Kanban-as-
-  control-plane). Older decision-log entries updated to use the
-  new numbers for readability.
-- **2026-05-05** — Phased plan adopted: Phase 1 (PA-shaped seed),
-  Phase 2 (real PA functionality), and what at the time were
-  Phases 3–4 (plan-then-execute and Automations). Now: Phase 4
-  and Phase 7 respectively, post-renumber.
-- **2026-05-06** — Phase 5 added: **Trenches** (tooling surface
-  for hands-on work — embedded terminal, screen sharing, Open
-  Orchestrator/Open Claude Code launchers, multi-host via Tailscale +
-  SSH). Lifts working code from Harmonika. Inserted between
-  plan-then-execute and Automations.
-- **2026-05-06** — Phase 3 added: **Documents Fitting** under
-  the `knowledge-base` Faculty (claude.ai-style document workspace
-  with markdown view + edit). Built as a Fitting, not Garrison-core,
-  to keep the platform thesis (composable, optional). Brings the UI
-  extension contract redesign forward from Phase 7 — Documents is
-  the forcing function instead of Automations.
-- **2026-05-06** — UI contract evolution split into three steps:
-  v1 (today, single pane), v2 (Phase 3 — multi-view, placement,
-  routing, cross-tab linking), v3 (Phase 7 — event bus for
-  Operative talkback). v1 stays additive under v2/v3; v2 stays
-  additive under v3. Phase 1 Fittings migrate opportunistically.
-- **2026-05-06** — Documents Fitting scope explicitly excludes
-  Memory Fitting integration. Memory gets its own UI surface in a
-  later phase. Different lifecycle, different intent — keep separate.
-- **2026-05-06** — Document title renamed: "Garrison Roadmap"
-  (was "Garrison as Personal Assistant — Phased Plan"). The doc
-  outgrew its name; it now covers all Garrison roadmap planning.
-- **2026-05-06** — `for_consumers` field added in Phase 3.
-  Provider-side usage instructions, concatenated into the
-  Orchestrator's "tools available" block at assembly time.
-  Locality principle: a Fitting that ships a capability also
-  ships the doc on how to use it. Removes the need to hardcode
-  Faculty-specific guidance in the Orchestrator. Phase 1
-  Fittings retrofitted opportunistically. Spec changes to
-  `METADATA.md`, `CAPABILITIES.md`, `AGENTS.md` §5.
+- **2026-05-26** — Roadmap restructured: 9 phases → 5 stages.
+  Priority inverted: developer-environment replacement is Stage 1;
+  claude.ai discussion replacement is Stage 4. Personal-assistant
+  work and Outposts deferred to post-Stage-5. Knowledge &
+  Self-Improvement (old Phase 9) deferred. Workflow tool
+  (Claude Code v2.1.147, env-gated) dismissed for v1 — revisit if
+  external signals justify a second look. Decision log preserved
+  verbatim from prior structure; entries below this point use the
+  new Stage numbering.
+- **2026-05-26** — `/goal` (Claude Code v2.1.139) adopted as the
+  execute-step wrapper for Stage 2's disciplined pipeline. Used
+  exactly once, around the executor session. Acceptance criteria
+  written verbatim by the planner; orchestrator lifts them into the
+  `/goal` condition with a "or stop after N turns" tail clause.
+  When `/goal` gives up, control returns to the orchestrator with
+  the evaluator's last reason; orchestrator owns the recovery
+  decision (re-plan, ask human, accept partial, retry with expanded
+  scope). `/goal` is NOT used inside validator, tester, or any
+  other step. See cross-cutting "/goal integration discipline."
+- **2026-05-26** — Tier classifier is **two-stage**: classify-1
+  ("trivial vs non-trivial," gates planning) and classify-2 (reads
+  the plan, chooses executor model and effort). One Fitting with
+  two entry points. Easy to split into two Fittings later if they
+  diverge.
+- **2026-05-26** — Stage 2 pipeline: classify-1 → (plan →
+  classify-2)? → execute under `/goal` → validate → test → evidence
+  → report. Each step is a single-responsibility runner with its
+  own session and model. Planner runs in its own Opus + extended-
+  thinking session. Validator runs in its own cheap-model session
+  (Haiku or Sonnet-low), can invoke pre-written automations from
+  the Automations Faculty for reproducible browser/UI checks.
+- **2026-05-26** — Orchestration model: step-at-a-time,
+  orchestrator-driven. The orchestrator (prompt-based) drives every
+  transition between pipeline steps. Preserves the
+  "orchestrator-is-the-spine" principle.
+- **2026-05-26** — Evidence bundles include the full session
+  transcript (gitignored by default, optional to surface). Lands in
+  Artifact Store under `dev-evidence/<worktree>/<timestamp>/`.
+  Default contents: original prompt, classified tier(s), plan +
+  acceptance criteria, full diff, test command output, validator
+  output, screenshots/recordings, summary.
+- **2026-05-26** — Report routing: both the originating surface
+  (channel or worktree view) AND the worktree view, deduped by run
+  ID.
+- **2026-05-26** — Audit items flagged: existing tier-classifier
+  work and the May 12 `mcp-gateway` Fitting brief both predate the
+  two-stage-classifier decision; need verification and possibly
+  adjustment. May 13 tier-aware respawn brief needs a spike to
+  confirm clean interaction with `/goal` wrapping.
+
+— *Entries below preserved verbatim from prior roadmap.* —
+
+- **2026-05-11** — Phase 9 placeholder: Pillar B framing simplified.
+  Previous "evolvable artifacts" name collided with Phase 3's
+  Artifact Store. Pillar B renamed to its concrete contents: *self-
+  improving skills, automations, and `for_consumers` blocks.*
+- **2026-05-11** — Phase 9 placeholder expanded from two to four
+  pillars: knowledge layer (A), self-improving skills/automations/
+  for_consumers (B), Operative identity across machines (C),
+  lessons-learned feedback loop (D). Detailed planning still
+  deferred (now to post-Stage-5 per the 2026-05-26 restructure).
+- **2026-05-11** — Phase 9 placeholder: Hermes and Voyager prior-art
+  researched. Empirical review (Hermes/GEPA-style) is the
+  established discipline. Scoping limited to refinement, not
+  auto-generation of new skills. Honest acknowledgment that
+  Garrison lacks Voyager-style clean ground-truth signals.
+  DSPy + GEPA noted as evaluation target.
+- **2026-05-11** — Phase 9 added as placeholder: Knowledge &
+  Self-Improvement. Deferred to when Phase 8 (Tasks) is in flight.
+- **2026-05-11** — Phase 6 added: Outposts (multi-machine bridge).
+  Bumped Automations to Phase 7, Tasks to Phase 8. (Per 2026-05-26
+  restructure, all deferred to post-Stage-5.)
+- **2026-05-11** — Phase 5 implemented: Workbench shell area + 4
+  seed Fittings. (Per 2026-05-17 dissolution, Workbench shell
+  removed; the 4 Fittings became flat sibling Faculties.)
+- **2026-05-17** — Workbench dissolution: `terminal`, `worktrees`,
+  `session-view`, `screen-share` became flat sibling Faculties at
+  the top level. No Workbench grouping; no meta-Faculty. The shell
+  renders Fittings dynamically based on their declared Faculty.
+- **2026-05-08** — Phase 4 implementation observations. SDK exposes
+  `Query.interrupt()` for cancellation. Sub-agent invocation chose
+  Variant A (CLI-shape, looks like every other Fitting). Setup hook
+  re-runs on every Operative up.
+- **2026-05-08** — Phase 5 reframed: Trenches → Workbench (then
+  flat Faculties, per 2026-05-17). Earlier "Trenches as a separate
+  Garrison-core area" was a category error against the platform
+  thesis.
+- **2026-05-08** — Phase 3 implementation adaptations. Static view
+  registry instead of dynamic import; `cli-skill` shape valid under
+  `knowledge-base` Faculty; textarea instead of tiptap; mini
+  markdown renderer instead of full react-markdown.
+- **2026-05-08** — Phase 2 implementation observations. Gateway uses
+  `/jobs` for system-triggered prompts (not `/chat`).
+  `personal-operative.report_channel` config owns system-message
+  routing. Validator forces `automations + cli-skill` combo.
+- **2026-05-06** — Phase 1 marked complete. Phases renumbered.
+- **2026-05-06** — UI contract evolution split into v1 / v2 / v3.
+  v1 → v2 (multi-view, placement, routing, cross-tab linking) →
+  v3 (event bus for Fitting → Operative talkback).
+- **2026-05-06** — `for_consumers` field added. Provider-side usage
+  instructions, concatenated into the Orchestrator's "tools
+  available" block at assembly time. Locality principle.
 - **2026-05-06** — Garrison-as-AI-composer: capture as future
-  direction, build advisory/validation flavor (option a) only,
-  don't build until a concrete need surfaces. Synthesis flavor
-  (option b — LLM writes the assembled prompt) explicitly
-  rejected for foreseeable future on reproducibility/cost/
-  debuggability grounds.
-- **2026-05-06** — Testing & Automations stay *separate* Faculties.
-  Testing `consumes: { kind: automation-runner,
-  cardinality: optional-one }`. Bash-style tests need no
-  Automations; browser-flow tests use it. No duplication of
-  infrastructure. Automations owns the reusable pieces:
-  progressable steps, feedback loops, video recording, replay.
-- **2026-05-06** — **Artifact Store Faculty added to Phase 3,
-  layered under Documents.** Documents `consumes` Artifact Store;
-  Documents owns *intent* (when/how to write a document),
-  Artifact Store owns *substrate* (storage, browsing, links).
-  Future Fittings (Automations videos, Voice audio fallback)
-  reuse the same layer. Avoids merging four different intents
-  into one Faculty's `for_consumers` block. Cross-tab links
-  resolve through both `garrison://documents/<id>` and
-  `garrison://artifacts/<id>`.
-- **2026-05-06** — Phase 8 added: **Tasks Faculty
-  (Kanban-as-control-plane).** First-party file-system-backed
-  task store with a Kanban UI, replacing Trello as source of
-  truth. Trello becomes optional via a Trello-sync Fitting that
-  consumes the local Tasks store. Foundation for autonomous
-  workflows — heartbeat picks up tasks, plan-then-execute on
-  higher-tier ones, automation runs tick tasks. Phase 1's
-  `trello-data-source` Fitting deprecated by Phase 8's
-  `trello-sync` Fitting; both ship for one phase to allow
-  migration.
-- **2026-05-08** — Phase 2 implementation observations from T6/T7:
-  (a) gateway uses `/jobs` endpoint for system-triggered prompts,
-  not `/chat` — `/chat` is for user-initiated turns only.
-  Future briefs should reference `/jobs` directly.
-  (b) `personal-operative.report_channel` config already owns
-  "where do system messages go" — new Fittings should consume it
-  rather than introducing parallel `channel_target` configs.
-  (c) Validator forces `automations + cli-skill` combo for
-  wrapper-script Fittings; tracked in parking lot as a refactor.
-- **2026-05-08** — Phase 3 implementation adaptations from T2/T4:
-  (a) Static view registry in the frontend instead of dynamic
-  import per Fitting. Sufficient for seed-only Fittings; revisit
-  when third-party Fittings ship views.
-  (b) `cli-skill` shape now valid under `knowledge-base` Faculty —
-  minimal validator change to unblock Documents (one Fitting
-  pairing Operative-facing CLI with user-facing UI). Broader
-  Faculty/shape refactor still parked.
-  (c) Edit view in Documents is plain textarea, not tiptap.
-  Pragmatic v1; the upgrade path to tiptap is documented but
-  deferred. Markdown render in read view is a mini-renderer, not
-  full react-markdown — also pragmatic.
-- **2026-05-08** — Phase 4 implementation observations from T1/T2/T6:
-  (a) SDK exposes `Query.interrupt()` as a first-class
-  cancellation primitive. Phase 4 T6 uses it directly; plan-as-
-  written anticipated process-tree termination as fallback —
-  not needed.
-  (b) Sub-agent invocation chose Variant A (CLI-shape, looks like
-  every other Fitting) over Variant B (external claude process)
-  or Variant C (gateway-internal). Decision recorded in
-  `scripts/spike/sub-agent/report.md`. Future Fittings that want
-  sub-agent spawning have an idiomatic reference.
-  (c) Setup hook re-runs on every Operative up
-  (`runner.ts:87-90`), so the SDK symlink coding-subagent depends
-  on is auto-restored. Means setup hooks are safe places to
-  establish runtime invariants; they don't drift between ups.
-- **2026-05-11** — **Phase 5 implemented: Workbench shell area + 4
-  seed Fittings.** Added `terminal`, `screen-share`,
-  `worktree-management`, `session-view` Faculties (order 15–18,
-  `family: "workbench"`). Workbench shell at `/workbench` renders
-  installed Workbench Fittings as tabs. 4 seed Fittings:
-  `terminal-armory-default` (re-homes Trenches TrenchesPanel + WS
-  server), `screen-share-default` (re-homes screencapture capture
-  loop), `worktree-management-sequoias` (basic git worktree CRUD
-  derived from Sequoias), `session-view-sequoias` (reads
-  ~/.sequoias/state.json for session badges). `screen-share` added
-  to capabilityKinds. Naming: Workbench (tool area) vs Armory
-  (Fitting registry browser at /armory) — resolved collision.
-  T8 (Sequoias retirement) deferred — 3-day daily-use gate.
-- **2026-05-11** — **Phase 6 added: Outposts (multi-machine
-  bridge).** New Faculty (`outpost`, cardinality many) with a
-  small bridge process running on each remote Mac. Host machine
-  runs Garrison + the Operative; bridges expose RPC + event
-  streams over WebSocket-via-Tailscale for `process.*`, `fs.*`,
-  `git.*`, `exec.*` operations. Workbench Fittings (worktree,
-  terminal, session-view) gain outpost-selector to operate on any
-  connected machine. Operative gains an `outpost-actions` skill
-  that exposes the same operations as agent-callable tools. Vault
-  sync is the first bridge-driven service (host → outposts
-  unidirectional v1). One Operative on one host; bridge gives it
-  hands, not brains. SSH used only for the one-time bootstrap.
-  Bumped: Automations Phase 7, Tasks Phase 8. Driven by the
-  user's three-Mac workflow (automation/development/portable).
-- **2026-05-11** — **Phase 9 added as placeholder: Knowledge &
-  Self-Improvement.** Two architectural pillars: (a) **Knowledge
-  layer** — single canonical memory store; SessionEnd hooks on
-  every Mac (including direct-Claude-Code sessions outside
-  Garrison) capture per-session and bridge-sync to the host;
-  configure-not-walker discipline. (b) **Evolvable artifacts
-  layer** — skills, automations, and `for_consumers` blocks are
-  three flavors of the same pattern (evolvable artifacts with a
-  review discipline); Phase 9 defines the pattern, the three are
-  concrete instances. Soul and Orchestrator prompts explicitly
-  excluded from self-improvement (drift risk). Depends on Phase 6
-  (transport), Phase 7 (automations and their feedback loop),
-  Phase 8 (outcome signals from Tasks). Driven by user's
-  four-machine workflow (automation/development/portable/office —
-  the office machine was added to the canonical machine list
-  during the Phase 9 framing conversation). Detailed planning
-  deferred to when Phase 8 is in flight; prior-art research
-  (Hermes, Voyager, Karpathy memory layers, RLAIF) parked as
-  a precondition.
-- **2026-05-11** — **Phase 9 placeholder: Hermes and Voyager
-  prior-art researched.** Four corrections to the placeholder:
-  (a) review-gate model — empirical review (Hermes/GEPA-style)
-  is the established discipline, not one of three rough
-  options; placeholder now defaults to empirical with human
-  review as escalation. Agent self-review dropped (inherits
-  the same blind spots). (b) Scoping — v1 = refinement of
-  existing skills only; auto-generation of new skills from
-  patterns deferred to a later phase. (c) Binary-signal
-  honesty — Voyager works because Minecraft has clean ground
-  truth; Garrison doesn't. Placeholder now explicitly
-  acknowledges slower-cadence/fewer-examples constraint and
-  leans on Phase 8 Tasks as primary signal. (d) Candidate
-  library — DSPy + GEPA (MIT-licensed, ICLR 2026 Oral) noted
-  as evaluation target for detailed planning. Remaining items
-  (Anthropic Skills direction, Karpathy memory layers, RLAIF)
-  still deferred.
-- **2026-05-11** — **Phase 9 placeholder: Pillar B framing
-  simplified.** Previous "evolvable artifacts" name collided
-  with Phase 3's Artifact Store (documents, recordings,
-  reports). Pillar B renamed to its concrete contents:
-  *self-improving skills, automations, and `for_consumers`
-  blocks.* These are the prompts the Operative reads to
-  decide what to do; they evolve from outcomes. The outputs
-  in the Artifact Store don't self-evolve — they're records
-  of work, not guidance. Also removed the memory-volume open
-  question: with one user on N machines, volume is the same
-  as one machine; revisit if autonomous agents start
-  generating their own session traffic.
-- **2026-05-11** — **Phase 9 placeholder expanded from two to
-  four pillars.** Pillar A (knowledge layer) gained explicit
-  hooks-at-user-level discipline confirmation
-  (`~/.claude/settings.json`, not per-project), memory scoping
-  (global + project-local overrides), and parked volume
-  management as a future concern. Pillar B (evolvable artifacts)
-  gained an update-proposal-with-review model (vs direct
-  writes) for cross-machine conflict resolution. New Pillar C
-  (Operative identity across machines): Garrison-spawned
-  sessions get Operative-wrapped, direct Claude Code sessions
-  get tagged-only. New Pillar D (lessons-learned feedback loop):
-  the agent generates and consults lessons from completed
-  tasks — the actual learning loop closure that makes
-  self-improvement user-visible. Open questions expanded from
-  8 to 14. Detailed planning still deferred to Phase 8 era.
-- **2026-05-08** — **Phase 5 reframed: Trenches → Workbench (then
-  called Armory).** Earlier Phase 5 specced a "Trenches" tab as
-  Garrison-core (a separate top-level area). That was a category
-  error against the platform thesis ("Faculties + Fittings compose;
-  the shell renders what's installed"). Reframed: tools are a *family
-  of Faculties* (Workbench) — `worktree-management`, `session-view`,
-  `terminal`, `screen-share` — with Fittings filling them. The
-  Workbench area in the shell renders dynamically based on installed
-  Fittings. Verification milestone: decompose Sequoias (standalone
-  worktree-manager app) into Workbench Fittings.
-- **2026-05-05** — Memory Fitting is the Claude-Code-native
-  `memory-compiler` hook + Claude Code's own memory mechanism. Not
-  ported from EKOA.
-- **2026-05-05** — Slack Channel is ported from **Ekus** (not EKOA),
-  webhook-based.
-- **2026-05-05** — Reference projects clarified: Ekus = Slack,
-  Trello, channels in general. EKOA = Automations only (Phase 7).
-- **2026-05-05** — UI extension contract stays per-tab-single-pane
-  through Phase 5. Extended at Phase 7 when Automations forces the
-  redesign. Phase 1/2 Fittings accept the retrofit cost.
-  *(Superseded 2026-05-08: Phase 3's contract v2 brought the
-  redesign forward, and Phase 5's Armory reframe means Armory
-  Fittings use contract v2 from day one rather than sidestepping
-  it.)*
-- **2026-05-05** — Hat selection is **auto-detect from context**
-  only. No explicit toggle in v1. Detection lives in the
-  Orchestrator; Soul declares the hats. Revisit if misfires
-  accumulate.
-- **2026-05-05** — Phase 1 sequencing (post-investigation): add
-  `setup` hook to spec + runner (small, unblocks everything else) →
-  patch `CAPABILITIES.md` for `any` (1 line) → port awc-gateway-slack's
-  `gateway.js` into `http-gateway` if needed → port `slack-adapter.js`
-  + `stop-to-gateway.sh` into new `slack-channel` Fitting → port
-  Ekus `heartbeat/trello.py` + Trello skill into `trello-data-source`
-  → fix Memory Fitting (setup script that clones compiler + wires
-  hooks + schema rename) → Soul + Orchestrator rewrite (uses the
-  `cardinality: any` mechanism + memory query discipline). Trello
-  and Slack are mostly independent and can run in parallel.
-- **2026-05-05** — Orchestrator becomes composition-aware **via the
-  capability graph**, not hardcoded Faculty lists. Declares one
-  `consumes` entry per capability kind with `cardinality: any`.
-  Runner injects the resolved provider list into the system prompt
-  at assembly time. Verified in investigation: `cardinality: any`
-  is already wired end-to-end.
+  direction, build advisory/validation flavor only when concrete
+  need surfaces. Synthesis flavor rejected for foreseeable future.
+- **2026-05-06** — Testing & Automations stay separate Faculties.
+  Testing `consumes: { kind: automation-runner, cardinality:
+  optional-one }`.
+- **2026-05-06** — Artifact Store Faculty added (under what was
+  Phase 3, shipped). Layered under Documents. Documents owns
+  intent; Artifact Store owns substrate.
+- **2026-05-06** — Phase 8 added: Tasks Faculty (Kanban-as-control-
+  plane). First-party file-system-backed task store. Trello-sync
+  Fitting replaces direct Trello dependency. (Per 2026-05-26
+  restructure, this becomes Stage 5.)
+- **2026-05-05** — Phased plan adopted (later restructured to
+  stages 2026-05-26).
+- **2026-05-05** — `setup` hook lifecycle stage adopted. Runs before
+  `verify` on every `up`. Schema in `x-garrison` with `command`,
+  `idempotent`, `timeout_ms`.
+- **2026-05-05** — Memory Fitting wraps `~/.claude/memory-compiler/`,
+  installed via setup hook. Compiler is its own GitHub repo. Schema
+  rename: `compiled_memory_path` → `compiled_memory_dir`.
+- **2026-05-05** — Capability resolver `cardinality: "any"` already
+  wired end-to-end. Orchestrator declares one `consumes` per
+  capability kind with `cardinality: any`. Runner injects resolved
+  provider list into system prompt at assembly time.
+- **2026-05-05** — Slack source: port from `awc-gateway-slack`, not
+  Ekus.
+- **2026-05-05** — Hat selection: auto-detect from context only. No
+  explicit toggle. Detection in Orchestrator; hats declared in Soul.
 - **2026-05-05** — Prompt-flow ordering: hat auto-detect runs
-  *before* the classifier. Hat = which Soul flavor. Classifier =
-  how much process. Orthogonal, run in that order.
-- **2026-05-05** — Phase 1 done explicitly includes a runtime
-  assertion that the Orchestrator's composition awareness fires
-  (Operative lists/de-lists Trello based on whether it's selected).
-- **2026-05-05** (post-investigation) — Slack source corrected:
-  port from `~/Projects/awc-gateway-slack/` (real webhook adapter +
-  channel-agnostic gateway), not Ekus. Ekus's "Slack" is poll-based
-  curl from inside a session.
-- **2026-05-05** (post-investigation) — Capability resolver wildcard
-  already exists end-to-end as `cardinality: "any"`. No spec
-  extension needed; just a one-line patch in `CAPABILITIES.md`.
-- **2026-05-05** (post-investigation) — Memory Fitting wraps the
-  existing `~/.claude/memory-compiler/` (Python, three Claude Code
-  hooks, compile script). Compiled output is already at
-  `~/Projects/ekus/obsidian-vault/Compiled/`. The seed Fitting today
-  is a placeholder; "import existing memory" dissolves into "point
-  the Fitting at the same vault path."
-- **2026-05-05** (post-investigation) — `http-gateway` should
-  consider absorbing `awc-gateway-slack/gateway.js` (146 lines,
-  stdlib, channel-agnostic FIFO pairing). Ekus's 2090-line FastAPI
-  gateway is out of scope for Phase 1.
-- **2026-05-05** (post-investigation) — Trello seed Fitting is a
-  4-line stub. Real port: `mac-mini/gateway/heartbeat/trello.py`
-  from Ekus + the Ekus Trello skill prompt.
-- **2026-05-05** (post-investigation) — EKOA has *two* automation
-  engines (`cortex/` Playwright, `automato/` raw CDP). Phase 7 must
-  pick before porting. Captured for Phase 7.
-- **2026-05-05** — New `setup` Fitting lifecycle stage adopted.
-  Runs before `verify` on every `up`. For prerequisites APM can't
-  satisfy: clone repos, run `uv sync`, write to host config, install
-  binaries. Schema same shape as `verify` plus `idempotent: bool`.
-  Spec changes: `METADATA.md`, `AGENTS.md` §5, `V1_DOD.md`. Runner
-  test for ordering.
-- **2026-05-05** — Memory Fitting does *not* bundle the compiler.
-  The compiler is its own GitHub repo (URL TBD); the Fitting ships
-  a setup script that clones it to `~/.claude/memory-compiler/` if
-  missing, runs `uv sync`, wires the three hooks into
-  `~/.claude/settings.json`. Schema rename:
-  `compiled_memory_path` → `compiled_memory_dir`.
-- **2026-05-05** — Memory Faculty cardinality stays `single`.
-  Fitting wraps the compiler. Claude Code's native auto-memory at
-  `~/.claude/projects/.../memory/MEMORY.md` is left alone — Garrison
-  doesn't manage it.
-- **2026-05-05** — Memory usage discipline added to Orchestrator
-  prompt: index is a map, query for specifics, don't pull the full
-  corpus into context.
+  *before* classifier. Hat = which Soul flavor. Classifier = how
+  much process.
 
----
+-----
 
 ## Open questions parking lot
 
-Anything raised in conversation but not yet resolved.
+Anything raised in conversation but not yet resolved. Re-sectioned
+2026-05-26 by stage.
 
-(Phase 1 entries removed 2026-05-06; phase complete.)
+### Stage 1
 
-- (Phase 2) Project index depth: shallow + drill-in (leaning yes).
-- (Phase 2) Project index Faculty: `knowledge-base` Fitting vs.
-  `skills` Fitting + Orchestrator config (leaning skills + config).
-- (Phase 2) Calendar Faculty: data-source / automation / both.
-- (Phase 2) Heartbeat approval surface: Slack thread reply (leaning
-  yes).
-- (Phase 3) Editor choice: tiptap (lean) vs `@uiw/react-md-editor`
-  vs Monaco. Confirm at impl start.
-- (Phase 3) Artifact storage root: `<composition-dir>/artifacts/`
-  (lean) vs `~/Projects/garrison-artifacts/<composition-name>/`
-  vs user-configurable.
-- (Phase 3) Artifact metadata format: sidecar `.meta.json` per
-  file (lean) vs central index file.
-- (Phase 3) Cross-tab URL scheme: `garrison://` (lean) vs hash
-  routing. Verify integration with the existing Garrison frontend
-  router.
-- (Phase 3) Memory Fitting UI surface — separate phase, separate
-  Fitting. Likely structurally similar to Documents but kept
-  isolated. Capture phase number when Phase 3 is closer.
-- (Phase 3) Per-project document scoping: when Phase 2's project
-  index lands, should documents be scoped per-project? Likely yes
-  eventually; v1 = flat per composition.
-- (Phase 4) Session model: A vs B vs C (leaning C with B as
-  fallback). Verify SDK sub-agent ergonomics first.
-- (Phase 4) Planning tool source: built-in vs. own skill.
-- (Phase 5) Default Claude Code flags for the Open-Orchestrator
-  / Open-Claude-Code launch presets on the `terminal` Fitting:
-  `--dangerously-skip-permissions` plus what else?
-- (Phase 5) Hosts file location: `~/.garrison/hosts.json` (per-user
-  global) vs per-composition (leaning per-user global, since
-  hosts follow the human, not the Operative). *(Mostly superseded
-  by Phase 6 Outposts — hosts list moves into the Outposts
-  Faculty config.)*
-- (Phase 5) Screen share: periodic-screenshots vs full streaming.
-- (Phase 5) Terminal busy-detection heuristic — output-in-last-2s
-  vs prompt-string redraw detection (lean simple for v1).
-- (Phase 5) Workbench pane layout — single-active vs tabbed-multi
-  vs split-grid. Resolved at impl: tabbed per the Phase 5.5
-  shipped UI.
-- (Phase 5) Browser Faculty scope for v1 — full Fitting or
-  deferred? Lower priority than terminal/worktree/session/
-  screen-share. Deferred at Phase 5 ship.
-- (Phase 5) APM UI Fitting parity gap-find — does the existing
-  UI Fitting mechanism cover what Workbench needs (action
-  declarations, provides/consumes wiring through to UI)? Resolved
-  at Phase 5 ship via the contract v2 work from Phase 3.
-- (Phase 6) Protocol choice for v1: JSON over WebSocket (leaning)
-  vs gRPC vs custom binary. Revisit if framing overhead bites.
-- (Phase 6) Auth details: token-on-handshake confirmed for v1;
-  rotation policy and refresh-token semantics open.
-- (Phase 6) Bridge update mechanism for protocol version
-  bumps. v1 = manual re-bootstrap; v2 = self-update path.
-- (Phase 6) Filesystem path semantics across machines (tilde
-  expansion, home-dir differences). v1 = absolute paths, tilde
-  expansion on the remote side.
-- (Phase 6) Connection multiplexing: share one WebSocket per
-  outpost (leaning) vs separate per consumer. Share requires
-  operation IDs for routing.
-- (Phase 6) Failure UI: how to surface bridge disconnects
-  mid-operation (worktree create fails, terminal hangs, etc.).
-- (Phase 6) Host-side WebSocket server location — HTTP gateway
-  (lean) vs a separate process. Confirm gateway can host both
-  HTTP and WS routes during T0/T2.
-- (Phase 6) Vault-sync direction: host → outposts v1; full
-  bidirectional deferred.
-- (Phase 7) Pick automation engine: EKOA `cortex/` Playwright
-  in-process vs `automato/` raw CDP. Resolve before porting.
-- (Phase 8) Trello-sync Faculty kind: new `data-sync` kind vs
-  reuse `data-sources` vs reuse `automation-runner` (leaning new
-  kind if more bidirectional syncs follow).
-- (Phase 8) Autonomy floor configuration: tier ≤ N runs autonomously,
-  tier > N requires plan-then-approve. Per-user, possibly per-task-
-  label override.
-- (Phase 8) Multi-board / per-project task scoping when Phase 2
-  project index is solid.
-- (Phase 8) Real-time UI push: polling for v1, SSE/websocket if
-  load justifies it.
-- (Phase 8) Trello-sync conflict resolution: last-write-wins by
-  `updated` timestamp for v1; surface unresolvables to user.
-- (Future / un-phased) Garrison-as-AI-composer (advisory/validation
-  flavor) — build when composition complexity warrants it.
-  Triggers: Fitting registry breadth, contradicting `for_consumers`
-  blocks, novice users needing help. See cross-cutting section.
-- (Future / un-phased) **Faculty/shape validator refactor.**
-  Surfaced during Phase 2 T7: the validator currently only accepts
-  `automations + cli-skill` for Fittings whose surface is a wrapper
-  script (not an operative-facing tool). The morning-briefing
-  Fitting and the calendar Fitting both took this combo as a
-  workaround. Phase 3 T4 added a second narrow exception
-  (`knowledge-base + cli-skill`) for Documents. Faculty/shape is
-  conflating "what the operative sees" with "how the Fitting is
-  invoked." Worth a clean refactor when a third exception comes
-  up — the rule of three.
-- (Future / un-phased) **Documents editor: textarea → tiptap.**
-  Phase 3 T4 shipped with plain textarea for the edit view.
-  Upgrading to tiptap (or another markdown editor) is documented
-  in the Fitting itself; revisit when document editing becomes a
-  primary workflow rather than occasional polish.
-- (Future / un-phased) **Documents read view: mini-renderer →
-  full react-markdown.** Phase 3 T4 ships with a small custom
-  markdown renderer. Migrate to `react-markdown` when there's
-  demand for tables, footnotes, complex link rewriting, or other
-  features the mini-renderer doesn't cover.
-- (Future / un-phased) **Frontend view registry: static → dynamic
-  imports.** Phase 3 T2 ships with a static registry of view
-  components (compile-time). When third-party Fittings start
-  shipping their own views, dynamic imports become necessary;
-  until then, static is simpler and faster.
-- (Future / un-phased) Memory Fitting UI surface — likely Phase 7
-  or later. Structurally similar to Documents UI, separate Fitting,
-  separate scope.
-- (Future / un-phased) **Testing & Validation Faculty.** For
-  autonomous flows: a Faculty that validates the Operative's work
-  before declaring it done. **Resolved 2026-05-06:** Testing and
-  Automations are *separate Faculties* but Testing
-  `consumes: { kind: automation-runner, cardinality: optional-one }`
-  — testing scenarios that need browser automation get the
-  Automations infrastructure; testing scenarios that just run a
-  bash command don't. No duplication. Automations grows the
-  features needed for both: progressable steps, feedback for
-  improvement, video recording, video access. Testing itself is
-  thin — discipline, validation logic, when-to-run rules.
-  Videos produced by Automations land in the Artifact Store under
-  `automations/`, viewable from the unified browser.
-- (Future / un-phased) **Voice Faculty.** Two capabilities:
-  *playback* (read assistant replies aloud) and *recording* (user
-  speaks, gets transcribed). Channel-aware delivery:
-  - In Garrison's chat UI: play button per message, uses an
-    in-process voice provider.
-  - In Slack: synthesize audio file, post via Slack's audio
-    message support.
-  - In any other channel: synthesize audio file via the Artifact
-    Store (`voice/` namespace), send a `garrison://artifacts/<id>`
-    link.
-  - The Faculty itself decides delivery mechanism based on the
-    capabilities of the host channel — channels probably need to
-    declare "I can render audio inline" via a capability flag.
-  - Real-time bidirectional voice (live conversation) is much
-    later — explicitly future work. The user is already
-    struggling to make this work outside Garrison; not bringing
-    that complexity in until the standalone problem is solved.
-  - Reuses the Artifact Store layer rather than implementing its
-    own storage.
-- (Phase 9) **Prior-art research before detailed planning.**
-  Before scoping Phase 9 (Knowledge & Self-Improvement) into
-  tickets, do a web-search pass on the self-improving-agent
-  literature. Targets:
-  - **Hermes** (mentioned by user) — current discipline for
-    skill evolution.
-  - **Voyager** (Minecraft generative-skill agent) — the
-    canonical "agent writes its own skills" reference.
-  - **Anthropic's Skills framework evolution** — the public
-    direction on how SKILL.md files are meant to grow.
-  - **RLAIF / Constitutional AI** — Anthropic's broader
-    research on outcome-driven model updates.
-  - **CAMEL, AutoGPT, BabyAGI, Devin** — for variation in
-    learning-loop shapes (most are shallow; useful for
-    "what not to do").
-  Output: a short summary in `docs/research/` informing the
-  Phase 9 review-gate decision (human / agent / empirical /
-  hybrid). Premature now — wait until Phase 8 is in flight.
+- Browser Fitting iPad keyboard handling (May 25 research flagged
+  this).
+- Browser Fitting context isolation — one Chromium with many named
+  contexts (lean) vs separate instances per worktree.
+- Sequoias retirement gate (3-day daily-use validation).
+
+### Stage 2
+
+- Evidence Faculty home — dedicated `evidence` Faculty (lean) vs
+  method on Artifact Store vs validator output handling.
+- Validator `consumes: automation-runner`? Probably yes.
+- `/goal` under headless spawn — spike needed to confirm clean
+  interaction with the May 13 tier-aware respawn shape.
+- Acceptance criteria block format — markdown checkboxes with
+  fenced YAML source (lean).
+- Recovery loop bounds — hard cap on re-plan loops (lean: 2 then
+  mandatory human).
+- Audit of existing tier-classifier work and May 12 `mcp-gateway`
+  brief for compatibility with two-stage classifier.
+- Classifier-1 model — Haiku (lean).
+- Planner artifact location — `dev-evidence/<worktree>/<run-id>/`
+  (lean) vs project-relative `docs/plans/` vs Documents Fitting
+  proper.
+
+### Stage 3
+
+- Web channel UX polish bar — how much before Stage 3 ships vs
+  parallel iteration.
+- Worktree-spawning permission model — unilateral for tier ≤ 2,
+  asks for tier ≥ 3 (lean).
+- "Take over inline" UX — how the worktree view surfaces the
+  active orchestrator-initiated run.
+
+### Stage 4
+
+- "Discussion has converged" trigger — heuristic in `for_consumers`
+  plus explicit user signal (lean: both).
+- Document update vs new — match recent topic → update; else new
+  (lean).
+- Chat ↔ document boundary — chat is ephemeral, document is durable.
+
+### Stage 5
+
+(See deferred old Phase 8 entries. Refresh when Stage 5 gets close.)
+
+- Trello-sync Faculty kind — new `data-sync` kind vs reuse existing
+  (lean: new kind if more bidirectional syncs follow).
+- Autonomy floor config — tier ≤ N runs autonomously, tier > N
+  plan-then-approve.
+- Multi-board / per-project task scoping when Stage 4 documents
+  are reliable.
+- Real-time UI push — polling for v1, SSE/websocket if needed.
+- Trello-sync conflict resolution — last-write-wins by `updated`
+  timestamp.
+
+### Cross-cutting / future
+
+- **Faculty/shape validator refactor.** Surfaced during old Phase 2
+  T7 and again in Phase 3 T4. The validator conflates "what the
+  operative sees" with "how the Fitting is invoked." Worth a clean
+  refactor when a third exception comes up — the rule of three.
+- **Documents editor: textarea → tiptap.** Pragmatic v1 ships
+  textarea; upgrade path documented.
+- **Documents read view: mini-renderer → full react-markdown.**
+  Pragmatic v1; migrate when tables/footnotes/complex links bite.
+- **Frontend view registry: static → dynamic imports.** Pragmatic
+  v1; dynamic when third-party Fittings ship their own views.
+- **Memory Fitting UI surface** — likely a Stage 4 or later
+  follow-up. Structurally similar to Documents UI.
+- **Testing & Validation Faculty (separate from Stage 2's testing
+  step).** For autonomous flows. Testing consumes
+  `automation-runner`. Discipline + validation logic + when-to-run
+  rules.
+- **Voice Faculty.** Playback + recording, channel-aware delivery.
+  Reuses Artifact Store. Real-time bidirectional voice deferred.
+- **Garrison-as-AI-composer (advisory/validation).** Build when
+  composition complexity warrants.
+
+### Workflow tool (parked)
+
+Revisit only if external signals (YouTube content, community
+adoption, official Anthropic documentation) indicate the feature is
+worth a second look. Research artifact from 2026-05-26 is the
+starting point if/when revisited.
+
+### Outposts (deferred)
+
+Full Phase 6 design preserved in the prior roadmap revision. Reload
+when post-Stage-5 work activates this.
+
+### Knowledge & Self-Improvement (deferred)
+
+Full Phase 9 four-pillar placeholder preserved in the prior roadmap
+revision. Reload when post-Stage-5 work activates this.

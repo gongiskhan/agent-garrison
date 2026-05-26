@@ -102,20 +102,20 @@ no built-in Chat, Tools, or Operative test surface. Operative
 interaction goes through Channel Fittings; observability is the runtime
 log on `/run` plus per-Fitting logs under `/fitting/<id>`.
 
-### Faculties (22 flat top-level + derived Tasks)
+### Faculties (23 flat top-level + derived Tasks)
 
 All Faculties are flat siblings after the 2026-05-17 Workbench dissolution.
 
 **Cadence / Context / Action / Control:** `heartbeat`, `scheduler`, `data-sources`,
 `knowledge-base`, `automations`, `skills`, `memory`, `classifier`,
 `gateway`, `channels`, `observability`, `soul`, `orchestrator`,
-`artifact-store`, `sync`, `monitor`, `web-channel`. Tasks is *derived* from a
+`artifact-store`, `sync`, `monitor`, `web-channel`, `browser`. Tasks is *derived* from a
 data source and never declared by a Fitting.
 
 **Own-port Faculties** — `terminal` (default port 7078),
 `screen-share` (7079), `worktree-management` (7080),
-`session-view` (7081), `outposts` (7082), `monitor` (7077), and
-`web-channel` (7083). Their Fittings serve their own React UI on the
+`session-view` (7081), `outposts` (7082), `monitor` (7077),
+`web-channel` (7083), and `browser` (7084). Their Fittings serve their own React UI on the
 listed port (Monitor pattern) and register themselves at runtime via
 `~/.garrison/ui-fittings/<id>.json`. The sidebar Views section
 surfaces them; Garrison does not embed them. See
@@ -206,28 +206,44 @@ provider's `summary`.
 
 ## Roadmap status
 
-- **Phase 1** — PA-shaped seed Operative. **Done (2026-05-06).**
-- **Phase 2** — Real PA functionality. In progress; see roadmap.
-- **Phase 3** — Documents Fitting + Artifact Store + UI contract
-  v2. **Done (2026-05-08).**
-- **Phase 4** — Plan-then-execute sub-agent Fitting.
-  **Done (2026-05-08).** (Garrison no longer surfaces sub-agent runs
-  in the Run page; the Fitting owns its own UI if it wants one.)
-- **Phase 5** — Own-port UI Faculties (terminal, screen-share,
-  worktree-management, session-view, outposts). Workbench family
-  dissolved 2026-05-17 (Monitor pattern). Built-in `/tools` page
-  removed 2026-05-20 — sidebar Views is the surface.
-- **Phase 6** — Automations Faculty. Garrison provides the slot
-  and the capability contract; consumers wire their own runner.
-- **Phase 7** — Tasks Faculty (derived from a data source). Garrison
-  provides the derivation; consumers wire the data source.
+Restructured 2026-05-26: prior Phases 1–9 collapsed into 5 Stages,
+priority inverted so developer-environment replacement leads and
+personal-assistant / multi-machine work defers behind it. Old phase
+numbering is preserved verbatim in the decision log and references
+below for historical continuity.
+
+- **Stage 1** — Replace IDE + CLI for working on agent-garrison
+  itself. Largely shipped (former Phase 3 Documents/Artifact Store
+  + Phase 5 Workbench-then-flat-Faculties + UI contract v2).
+  Refining for daily use; Browser Fitting still in flight; Sequoias
+  retirement gated on 3-day daily-use validation.
+- **Stage 2** — Disciplined dev pipeline (classify → plan → execute
+  under `/goal` → validate → test → evidence → report). Design
+  locked 2026-05-26; implementation pending. Active focus.
+- **Stage 3** — Mobile / orchestrator-driven dev workflow. Scoped;
+  depends on Stage 2.
+- **Stage 4** — Replace claude.ai discussions in Garrison.
+  Substrate shipped (Documents + Artifact Store, formerly Phase 3);
+  behavioral discipline (PM/Architect hat, document-during-
+  conversation) still missing.
+- **Stage 5** — Autonomous loop (Tasks Faculty as substrate,
+  heartbeat-driven pickup, plan-then-approve gating). Depends on
+  Stages 2–4.
+
+Already-shipped legacy phase work that the stage list rolls up:
+former Phase 1 (PA seed Operative) and Phase 4 (plan-then-execute
+sub-agent) are done; their outputs (Memory/Slack/Trello/
+Orchestrator/Classifier Fittings, sub-agent Fitting pattern) sit
+inside the deferred PA bucket or contribute to Stage 2 pipeline
+parts. Former Phase 6 (Outposts) and Phase 9 (Knowledge & Self-
+Improvement) are explicitly deferred to post-Stage-5.
 
 A **Web Channel Fitting** (browser-based channel surface) is the
-planned successor to the deleted built-in chat. Until it lands, Slack
-is the only shipped channel.
+planned successor to the deleted built-in chat — it is now Stage 3
+work. Until it lands, Slack is the only shipped channel.
 
 **Always read [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md)
-for live status before planning new work** — phase state drifts faster
+for live status before planning new work** — stage state drifts faster
 than this file.
 
 ## Permissions

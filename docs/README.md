@@ -31,15 +31,17 @@ Spec and design docs (all under `docs/`):
   `AGENTS.md`).
 - `METADATA.md` — `x-garrison` schema reference, including the
   `setup`, `for_consumers`, and UI contract v2 fields.
-- `FACULTIES.md` — long-form per-Faculty notes (14 Faculties + derived
-  Tasks).
+- `FACULTIES.md` — long-form per-Faculty notes (23 flat top-level
+  Faculties + derived Tasks; count grew across phases as new
+  Fittings landed).
 - `FITTINGS.md` — seed Fitting catalogue.
 - `CAPABILITIES.md` — capability kinds (`orchestrator`, `soul`,
   `agent-skill`, `memory-store`, `automation-runner`, `data-source`,
   `channel`, `artifact-store`, `vault`).
 - `V1_DOD.md` — observable Definition of Done checklist.
-- `GARRISON_ROADMAP.md` — live phased roadmap. Phases 1, 3, 4 done;
-  Phase 5 (Armory) in progress.
+- `GARRISON_ROADMAP.md` — live roadmap. Restructured 2026-05-26
+  from 9 phases into 5 Stages. Stage 1 (IDE/CLI replacement) largely
+  shipped; Stage 2 (disciplined dev pipeline) is the active focus.
 
 Governance:
 
@@ -49,12 +51,14 @@ Governance:
   platform.
 - `DECISIONS.md` — append-only log of design decisions.
 
-Phase records (`docs/phases/`):
+Phase records (`docs/phases/`) — kept verbatim as the historical
+log of the prior 9-phase plan that the 2026-05-26 restructure
+replaced:
 
-- `PHASE1_VERIFICATION.md` … `PHASE5_VERIFICATION.md` — per-phase
+- `PHASE1_VERIFICATION.md` … `PHASE6_VERIFICATION.md` — per-phase
   done-when evidence.
-- `PHASE_5_ANALYSIS.md`, `PHASE_5_EXECUTION.md` — Phase 5 planning
-  artifacts (kept for traceability while Phase 5 lands).
+- `PHASE_5_ANALYSIS.md`, `PHASE_5_EXECUTION.md`, `PHASE_6_*` —
+  per-phase planning artifacts.
 
 Source layout:
 
@@ -62,10 +66,11 @@ Source layout:
 - `fittings/seed/` — local APM seed Fittings used during bootstrap.
   See `fittings/seed/README.md` for the orchestrator gap notice.
 - `data/vault.json` — encrypted secrets, file mode `0600`.
-- `src/` — Next.js 14 app (Compose / Run / Vault / Chat / Trenches /
-  Armory / per-Fitting sidebar surfaces) plus `src/lib/` runtime
-  modules (`runner.ts`, `capabilities.ts`, `vault.ts`,
-  `metadata.ts`, `artifact-store.ts`, `fitting-views.ts`, …).
+- `src/` — Next.js 14 app (Garrison / Compose / Armory / Run /
+  Vault / sidebar Views / per-Fitting routes under `/fitting/<id>/`)
+  plus `src/lib/` runtime modules (`runner.ts`, `capabilities.ts`,
+  `vault.ts`, `metadata.ts`, `artifact-store.ts`, `fitting-views.ts`,
+  …).
 
 ## Validating a Fitting
 
