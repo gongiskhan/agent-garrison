@@ -5,6 +5,7 @@ dependencies:
   apm:
     - path: ../../fittings/seed/artifact-store
     - path: ../../fittings/seed/browser-automation
+    - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/documents
     - path: ../../fittings/seed/http-gateway
@@ -136,6 +137,15 @@ x-garrison:
             port: 7083
             bind_host: 127.0.0.1
             gateway_url: ''
+      browser:
+        - id: browser-default
+          config:
+            port: 7084
+            bind_host: 127.0.0.1
+            viewport_width: 1600
+            viewport_height: 1200
+            jpeg_quality: 70
+            every_nth_frame: 1
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

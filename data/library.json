@@ -195,6 +195,21 @@
     }
   },
   {
+    "id": "browser-default",
+    "name": "Browser",
+    "repo": "local:fittings/seed/browser-default",
+    "localPath": "fittings/seed/browser-default",
+    "summary": "Headless Chromium substrate on port 7084. JPEG screencast, mouse/key/touch input, raw CDP, and Chromium's built-in DevTools reverse-proxied for any browser on the Tailnet.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-browser-default",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "artifact-store",
     "name": "Artifact store",
     "repo": "local:fittings/seed/artifact-store",

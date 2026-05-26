@@ -30,7 +30,8 @@ const groupForFaculty: Record<FacultyId, string> = {
   outposts: "Tools",
   sync: "Integration",
   monitor: "Control",
-  "web-channel": "Action"
+  "web-channel": "Action",
+  browser: "Tools"
 };
 
 export function ArmoryPanel() {

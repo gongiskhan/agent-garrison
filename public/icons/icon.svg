@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background: deep forest gradient -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#243a2d"/>
+      <stop offset="1" stop-color="#0e1612"/>
+    </linearGradient>
+    <!-- Picket wood: warm cream with side shading -->
+    <linearGradient id="picket" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b08e58"/>
+      <stop offset="0.20" stop-color="#e8d4a8"/>
+      <stop offset="0.55" stop-color="#f3e1b8"/>
+      <stop offset="0.85" stop-color="#cfb27a"/>
+      <stop offset="1" stop-color="#7a5d33"/>
+    </linearGradient>
+    <!-- Brass / gold rail -->
+    <linearGradient id="rail" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0c350"/>
+      <stop offset="0.45" stop-color="#c9962b"/>
+      <stop offset="1" stop-color="#6f4a13"/>
+    </linearGradient>
+    <!-- Soft vignette to push corners back -->
+    <radialGradient id="vignette" cx="0.5" cy="0.42" r="0.75">
+      <stop offset="0.55" stop-color="rgba(0,0,0,0)"/>
+      <stop offset="1" stop-color="rgba(0,0,0,0.42)"/>
+    </radialGradient>
+    <!-- Inner highlight on top of rail (sheen) -->
+    <linearGradient id="railSheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="rgba(255,255,255,0.55)"/>
+      <stop offset="1" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Filled background — bleeds to edge so macOS's rounded mask shows colour, not transparency -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- Ground band suggesting fortified earthwork -->
+  <rect x="0" y="392" width="512" height="120" fill="#0a110d"/>
+  <rect x="0" y="392" width="512" height="3" fill="rgba(255,255,255,0.06)"/>
+
+  <!-- Palisade — 4 pickets (outer pair short top, inner pair taller), -->
+  <!-- all within the inner 70% safe zone so macOS's rounded mask never crops them. -->
+  <g transform="translate(80 110)">
+    <!-- picket 1 (outer) -->
+    <path d="M0 50 L32 0 L64 50 L64 282 L0 282 Z" fill="url(#picket)"/>
+    <!-- picket 2 (inner, taller) -->
+    <path d="M96 30 L128 -22 L160 30 L160 282 L96 282 Z" fill="url(#picket)"/>
+    <!-- picket 3 (outer) -->
+    <path d="M192 50 L224 0 L256 50 L256 282 L192 282 Z" fill="url(#picket)"/>
+    <!-- picket 4 (inner, taller) -->
+    <path d="M288 30 L320 -22 L352 30 L352 282 L288 282 Z" fill="url(#picket)"/>
+
+    <!-- Subtle vertical grain on each picket (very faint dark line) -->
+    <g stroke="rgba(60,40,15,0.18)" stroke-width="1.5">
+      <line x1="20" y1="55" x2="20" y2="280"/>
+      <line x1="44" y1="55" x2="44" y2="280"/>
+      <line x1="116" y1="35" x2="116" y2="280"/>
+      <line x1="140" y1="35" x2="140" y2="280"/>
+      <line x1="212" y1="55" x2="212" y2="280"/>
+      <line x1="236" y1="55" x2="236" y2="280"/>
+      <line x1="308" y1="35" x2="308" y2="280"/>
+      <line x1="332" y1="35" x2="332" y2="280"/>
+    </g>
+
+    <!-- Brass horizontal rail across all four pickets -->
+    <rect x="-12" y="158" width="376" height="26" rx="3" fill="url(#rail)"/>
+    <!-- Sheen along the top of the rail -->
+    <rect x="-12" y="158" width="376" height="9" rx="3" fill="url(#railSheen)"/>
+    <!-- Darker bottom edge of the rail for depth -->
+    <rect x="-12" y="180" width="376" height="4" rx="2" fill="rgba(0,0,0,0.35)"/>
+
+    <!-- Four pin-heads where the rail meets each picket -->
+    <g fill="rgba(40,20,5,0.45)">
+      <circle cx="32" cy="171" r="3.5"/>
+      <circle cx="128" cy="171" r="3.5"/>
+      <circle cx="224" cy="171" r="3.5"/>
+      <circle cx="320" cy="171" r="3.5"/>
+    </g>
+  </g>
+
+  <!-- Vignette on top of everything to ground the composition -->
+  <rect width="512" height="512" fill="url(#vignette)"/>
+</svg>

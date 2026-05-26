@@ -161,6 +161,19 @@ The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary
 - Example: `web-channel-default` Fitting under `fittings/seed/web-channel-default/`, serving its React UI on port 7083.
 - Failure modes: port conflict on the default (Fitting falls back via `findFreePort`), `bind_host: 0.0.0.0` exposes the surface to anyone on the LAN with no auth (mirrors gateway posture; documented limitation), one-sided history (channel ring buffer only publishes assistant text events — user turns do not replay), Operative markdown is rendered via `marked` + `dangerouslySetInnerHTML` without further sanitization (acceptable under the single-user trusted-operative posture; flag this when adding multi-user surfaces or untrusted channel inputs).
 
+## 17. Browser
+
+- Purpose: headless browser substrate Garrison owns and exposes over HTTP/WS. Hosts a Playwright-launched Chromium, streams per-tab JPEG screencast, dispatches mouse/key/touch input, and reverse-proxies Chromium's built-in DevTools so iPad Safari over Tailscale gets the full Chrome DevTools UI. Targets two consumers: the terminal Fitting's split-pane (replaces its old `<iframe>` pointed at the user's dev server) and future Operative-side Fittings that want to drive a browser via raw CDP.
+- Cardinality: single.
+- Shapes: `plugin`, `script`.
+- Config: bind port (default `7084`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose over Tailscale), viewport dimensions (default `1600x1200`), JPEG quality (default `70`), `every_nth_frame` (default `1`).
+- HTTP endpoints: `GET /health`, `GET /tabs`, `POST /tabs {url}`, `POST /tabs/:id/nav {url}`, `POST /tabs/:id/{back,forward,reload}`, `DELETE /tabs/:id`, `GET /devtools/*` (reverse-proxy to Chromium's rdp HTTP server — serves the official `inspector.html` and asset bundles), `GET /canvas/:tabId` (HTML page: `<canvas>` + URL bar + DevTools button), `GET /` (tabs list / + new tab).
+- WS endpoints: `/viewport/:tabId` (Garrison-viewport-v1: JSON `{type:"frame", b64, meta}` + client ACKs), `/input/:tabId` (Garrison-input-v1: `mouse|key|touch|wheel|insertText`; server emits `{type:"focusedField", editable}` to drive iPad hidden-input focus), `/cdp/:tabId` (raw CDP passthrough to Chromium's per-target WS).
+- Open DevTools: `<fitting-url>/devtools/inspector.html?ws=<fitting-host>:7084/cdp/<tabId>` — Chromium serves the full DevTools frontend (loaded from `chrome-devtools-frontend.appspot.com`), and the CSP allows same-origin WS, so the connection through `/cdp/<tabId>` works over Tailscale.
+- Example: `browser-default` Fitting under `fittings/seed/browser-default/`, serving its React UI on port 7084.
+- Launch detail: Playwright's `chromium.launch()` uses chrome-headless-shell with `--remote-debugging-pipe`, which does not expose Chromium's HTTP CDP server. The Fitting spawns the full Chrome-for-Testing binary directly via `child_process.spawn` (`chromium.executablePath()` returns the right binary) with `--headless=new --remote-debugging-port=<picked>`, then attaches Playwright via `chromium.connectOverCDP`. v1 supports one viewer per tab; a second `/canvas/:tabId` viewer detaches the first's screencast.
+- Failure modes: port conflict (fallback via `findFreePort` on both the fitting port and Chromium's rdp port), missing full Chromium binary (setup runs `npx playwright install chromium`; override via `BROWSER_CHROMIUM_PATH`), CSP blocking the DevTools WS (mitigated by `--remote-allow-origins=*`), iOS Safari background-tab WebSocket drop (mitigated by client `visibilitychange` reconnect), DevTools frontend CDN unreachable (clients without internet won't load `inspector.html`'s scripts — a vendored alternative is v2 work).
+
 ## Derived: Tasks
 
 Tasks is never selected directly. When a data source declares task

@@ -24,6 +24,15 @@ x-garrison:
       type: string
       default: ""
       description: Default repository path (absolute). When set, the UI pre-selects this project.
+    - key: ide_path
+      type: string
+      default: /Applications/Rebased.app
+      description: |
+        IDE to spawn from each row's "Open in IDE" button. Accepts a
+        macOS .app bundle (opened via `open -a`) or a raw launcher
+        binary (executed with the worktree path as argv[1]). Default
+        points to the Rebased fork (IntelliJ-platform git client).
+        Runtime override via env GARRISON_IDE_PATH.
   provides:
     - kind: worktree
       name: worktree-management-sequoias

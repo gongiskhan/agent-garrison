@@ -20,7 +20,8 @@ export const facultyIds = [
   "outposts",
   "sync",
   "monitor",
-  "web-channel"
+  "web-channel",
+  "browser"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];

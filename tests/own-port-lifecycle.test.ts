@@ -36,6 +36,7 @@ describe("own-port lifecycle classification", () => {
     expect(isOperativeBound(makeEntry("outposts"))).toBe(true);
     expect(isOperativeBound(makeEntry("monitor"))).toBe(true);
     expect(isOperativeBound(makeEntry("web-channel"))).toBe(true);
+    expect(isOperativeBound(makeEntry("browser"))).toBe(true);
   });
 
   it("honours explicit detached opt-out", () => {

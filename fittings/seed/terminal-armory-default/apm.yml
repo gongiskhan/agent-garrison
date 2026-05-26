@@ -24,6 +24,15 @@ x-garrison:
       type: string
       default: ""
       description: Shell to spawn for new sessions. Empty = $SHELL or /bin/zsh.
+    - key: ide_path
+      type: string
+      default: /Applications/Rebased.app
+      description: |
+        IDE to spawn from the "Open in IDE" button. Accepts either a
+        macOS .app bundle (opened via `open -a`) or a raw launcher
+        binary (executed with the project path as argv[1]). Default
+        points to the Rebased fork (IntelliJ-platform git client).
+        Runtime override via env GARRISON_IDE_PATH.
   provides:
     - kind: terminal-session
       name: terminal-armory-default

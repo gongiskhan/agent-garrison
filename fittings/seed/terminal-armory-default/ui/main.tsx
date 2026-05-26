@@ -199,8 +199,20 @@ function App() {
   );
   const [splitOpen, setSplitOpen] = useState(true);
   const [appUrl, setAppUrl] = useState<string | null>(null);
+  const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
+  const [browserTabId, setBrowserTabId] = useState<string | null>(null);
+  // Per-terminal-session-cwd → Browser-Fitting tab mapping. Switching terminal
+  // tabs swaps the canvas to the tab associated with the new session's cwd.
+  const [tabIdByCwd, setTabIdByCwd] = useState<Record<string, string>>({});
+  const [appUrlByCwd, setAppUrlByCwd] = useState<Record<string, string>>({});
+  const [browserBase, setBrowserBase] = useState<string | null>(null);
   const [splitError, setSplitError] = useState<string | null>(null);
   const [iframeNonce, setIframeNonce] = useState(0);
+  // The iframe's `src` is sticky — set once on first wire, refreshed only on
+  // explicit user Refresh. Session-switches swap the canvas via postMessage,
+  // not by changing src (which would full-reload the canvas page).
+  const [iframeBaseUrl, setIframeBaseUrl] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [splitRatio, setSplitRatio] = useState<number>(() => {
     const v = Number(localStorage.getItem("garrison.terminal.splitRatio"));
     // Default: terminal 1/3, app iframe 2/3.
@@ -208,7 +220,6 @@ function App() {
   });
   const splitWrapRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
-  const autoOpenedRef = useRef(false);
   const lastDataRef = useRef<Map<string, number>>(new Map());
   const [busyTick, setBusyTick] = useState(0);
 
@@ -387,32 +398,103 @@ function App() {
     await createSession({ cwd: activeProject || undefined, name });
   }
 
+  async function openInIde() {
+    const target = (sessions.find((s) => s.id === activeId)?.cwd || activeProject || "").trim();
+    if (!target) {
+      setError("No active session cwd or project selected.");
+      return;
+    }
+    try {
+      const res = await fetch("/open-in-ide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: target })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error || `IDE launch failed: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const activeSession = sessions.find((s) => s.id === activeId) || null;
 
-  // First time we have an active session, try to auto-populate the iframe.
-  // Stay quiet on failure — the app.port file may not exist yet.
+  // On every active-session switch: snap the canvas to the browser tab paired
+  // with that session's cwd (instant swap from cache when we have one),
+  // then refresh app.port asynchronously and ensure the tab is live.
+  // If the new session has no app.port at all, leave the previous canvas in
+  // place rather than blanking — less context-switch friction.
   useEffect(() => {
-    if (autoOpenedRef.current) return;
     if (!activeSession) return;
-    autoOpenedRef.current = true;
-    void (async () => {
-      try {
-        const [ipRes, portRes] = await Promise.all([
-          fetch("/tailscale-ip"),
-          fetch(`/app-port?cwd=${encodeURIComponent(activeSession.cwd)}`)
-        ]);
-        if (!ipRes.ok || !portRes.ok) return;
-        const { ip } = await ipRes.json();
-        const { port } = await portRes.json();
-        setAppUrl(`http://${ip}:${port}`);
-      } catch {}
-    })();
-  }, [activeSession]);
+    const cwd = activeSession.cwd;
 
-  async function resolveAppUrl(): Promise<string | null> {
-    setSplitError(null);
+    // Instant swap from cache
+    const knownTabId = tabIdByCwd[cwd];
+    const knownUrl = appUrlByCwd[cwd];
+    if (knownTabId && browserBase) {
+      setBrowserTabId(knownTabId);
+      setCanvasUrl(`${browserBase}/canvas/${encodeURIComponent(knownTabId)}`);
+      if (knownUrl) setAppUrl(knownUrl);
+    }
+
+    // Async resolve + ensure tab exists for this cwd
+    let cancelled = false;
+    void (async () => {
+      const url = await resolveAppUrl({ silent: true });
+      if (cancelled || !url) return;
+      const wired = await ensureBrowserTab(url, knownTabId || null);
+      if (cancelled || !wired) return;
+      if (!browserBase) setBrowserBase(wired.browserUrl);
+      setTabIdByCwd((p) => ({ ...p, [cwd]: wired.tabId }));
+      setAppUrlByCwd((p) => ({ ...p, [cwd]: url }));
+      setBrowserTabId(wired.tabId);
+      setAppUrl(url);
+      setCanvasUrl(wired.canvasUrl);
+    })();
+    return () => { cancelled = true; };
+  }, [activeSession?.id]);
+
+  // Initialize the sticky iframe src once we know our first tab — after that
+  // the src never changes outside of explicit Refresh.
+  useEffect(() => {
+    if (canvasUrl && !iframeBaseUrl) setIframeBaseUrl(canvasUrl);
+  }, [canvasUrl, iframeBaseUrl]);
+
+  // Whenever the active browser tab changes, postMessage the canvas iframe to
+  // swap to it — no document reload, no WS re-handshake from scratch.
+  useEffect(() => {
+    if (!browserTabId || !browserBase) return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    try { win.postMessage({ type: "attach", tabId: browserTabId }, browserBase); } catch {}
+  }, [browserTabId, browserBase]);
+
+  // Ready handshake: the canvas posts {type:"ready"} on mount. If our attach
+  // raced ahead of its listener, replay it now.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (!browserBase || !browserTabId) return;
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      const data = e.data;
+      if (!data || typeof data !== "object" || data.type !== "ready") return;
+      try {
+        (e.source as Window).postMessage(
+          { type: "attach", tabId: browserTabId },
+          browserBase
+        );
+      } catch {}
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [browserBase, browserTabId]);
+
+  async function resolveAppUrl(opts: { silent?: boolean } = {}): Promise<string | null> {
+    const setErr = opts.silent ? () => {} : setSplitError;
+    setErr(null);
     if (!activeSession) {
-      setSplitError("No active terminal session.");
+      setErr("No active terminal session.");
       return null;
     }
     try {
@@ -421,17 +503,103 @@ function App() {
         fetch(`/app-port?cwd=${encodeURIComponent(activeSession.cwd)}`)
       ]);
       if (!ipRes.ok) {
-        setSplitError("No Tailscale interface found on this machine.");
+        setErr("No Tailscale interface found on this machine.");
         return null;
       }
       if (!portRes.ok) {
         const body = await portRes.json().catch(() => ({}));
-        setSplitError(`app.port: ${body?.error || `HTTP ${portRes.status}`}`);
+        setErr(`app.port: ${body?.error || `HTTP ${portRes.status}`}`);
         return null;
       }
       const { ip } = await ipRes.json();
       const { port } = await portRes.json();
       return `http://${ip}:${port}`;
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
+  // Auto-poll app.port for the ACTIVE session's cwd. When the dev server
+  // restarts on a different port, navigate THAT cwd's tab silently — no UI
+  // churn. Per-cwd: switching terminal tabs immediately repoints the poll.
+  useEffect(() => {
+    if (!splitOpen || !activeSession) return;
+    const cwd = activeSession.cwd;
+    const id = window.setInterval(async () => {
+      const url = await resolveAppUrl({ silent: true });
+      if (!url) return;
+      if (url === appUrlByCwd[cwd]) return;
+      const existing = tabIdByCwd[cwd] || null;
+      const wired = await ensureBrowserTab(url, existing);
+      if (!wired) return;
+      setTabIdByCwd((p) => ({ ...p, [cwd]: wired.tabId }));
+      setAppUrlByCwd((p) => ({ ...p, [cwd]: url }));
+      // Only push to displayed canvas if this session is still active.
+      if (activeId === activeSession.id) {
+        setAppUrl(url);
+        setCanvasUrl(wired.canvasUrl);
+        setBrowserTabId(wired.tabId);
+      }
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [splitOpen, activeSession?.id, tabIdByCwd, appUrlByCwd, activeId]);
+
+  // Ensure a Browser-Fitting tab exists pointing at `appUrl`. If `existingTabId`
+  // is given, navigate it; otherwise open a fresh tab. Returns the URL of the
+  // Browser Fitting's canvas page for `tabId` — that's what we iframe.
+  async function ensureBrowserTab(
+    appUrlValue: string,
+    existingTabId: string | null
+  ): Promise<{ tabId: string; canvasUrl: string; browserUrl: string } | null> {
+    try {
+      const targetRes = await fetch("/browser-target");
+      if (!targetRes.ok) {
+        const body = await targetRes.json().catch(() => ({}));
+        setSplitError(`browser fitting: ${body?.error || `HTTP ${targetRes.status}`}`);
+        return null;
+      }
+      const target = await targetRes.json();
+      // Re-host the canvas URL on whatever host the terminal page itself is
+      // served from so iPad-over-Tailscale links don't collapse to localhost.
+      const browserUrl = String(target.url || "").replace(
+        /\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?/,
+        `//${window.location.hostname}:${target.port}`
+      );
+
+      let tabId = existingTabId;
+      if (tabId) {
+        const navRes = await fetch(`${browserUrl}/tabs/${encodeURIComponent(tabId)}/nav`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: appUrlValue })
+        });
+        if (navRes.status === 404) tabId = null; // tab gone, reopen
+        else if (!navRes.ok) {
+          const body = await navRes.json().catch(() => ({}));
+          setSplitError(`browser nav: ${body?.error || `HTTP ${navRes.status}`}`);
+          return null;
+        }
+      }
+      if (!tabId) {
+        const openRes = await fetch(`${browserUrl}/tabs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: appUrlValue })
+        });
+        if (!openRes.ok) {
+          const body = await openRes.json().catch(() => ({}));
+          setSplitError(`browser open tab: ${body?.error || `HTTP ${openRes.status}`}`);
+          return null;
+        }
+        const data = await openRes.json();
+        tabId = String(data.tabId);
+      }
+      return {
+        tabId: tabId!,
+        browserUrl,
+        canvasUrl: `${browserUrl}/canvas/${encodeURIComponent(tabId!)}`
+      };
     } catch (err) {
       setSplitError(err instanceof Error ? err.message : String(err));
       return null;
@@ -443,22 +611,45 @@ function App() {
       setSplitOpen(false);
       return;
     }
+    if (!activeSession) return;
+    const cwd = activeSession.cwd;
     const url = await resolveAppUrl();
     if (!url) return;
+    const wired = await ensureBrowserTab(url, tabIdByCwd[cwd] || null);
+    if (!wired) return;
+    if (!browserBase) setBrowserBase(wired.browserUrl);
+    setTabIdByCwd((p) => ({ ...p, [cwd]: wired.tabId }));
+    setAppUrlByCwd((p) => ({ ...p, [cwd]: url }));
     setAppUrl(url);
+    setCanvasUrl(wired.canvasUrl);
+    setBrowserTabId(wired.tabId);
     setSplitOpen(true);
   }
 
   async function refreshIframe() {
-    // Re-resolve in case app.port changed since the panel was opened.
+    if (!activeSession) return;
+    const cwd = activeSession.cwd;
+    // Re-resolve in case app.port changed, then navigate the existing tab
+    // (no iframe reload — the canvas just streams the navigation).
     const url = await resolveAppUrl();
-    if (url) setAppUrl(url);
+    if (!url) return;
+    const wired = await ensureBrowserTab(url, tabIdByCwd[cwd] || null);
+    if (!wired) return;
+    if (!browserBase) setBrowserBase(wired.browserUrl);
+    setTabIdByCwd((p) => ({ ...p, [cwd]: wired.tabId }));
+    setAppUrlByCwd((p) => ({ ...p, [cwd]: url }));
+    setAppUrl(url);
+    setCanvasUrl(wired.canvasUrl);
+    setBrowserTabId(wired.tabId);
+    // Explicit Refresh: bump the sticky src and the iframe key so the
+    // canvas page remounts cleanly.
+    setIframeBaseUrl(wired.canvasUrl);
     setIframeNonce((n) => n + 1);
   }
 
   function openAppInNewTab() {
-    if (!appUrl) return;
-    window.open(appUrl, "_blank", "noopener");
+    if (!canvasUrl) return;
+    window.open(canvasUrl, "_blank", "noopener");
   }
 
   function onDividerPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -538,13 +729,22 @@ function App() {
         >
           {splitOpen ? "Close app" : "Split app"}
         </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => void openInIde()}
+          disabled={!activeSession && !activeProject}
+          title="Open the active session's cwd (or selected project) in the configured IDE"
+        >
+          IDE
+        </button>
       </div>
       {error && <div className="alert">{error}</div>}
       {splitError && <div className="alert">{splitError}</div>}
       <div ref={splitWrapRef} className={`split-wrap ${splitOpen ? "split-open" : ""}`}>
         <div
           className={`term-wrap ${sessions.length === 0 ? "empty" : ""}`}
-          style={(splitOpen && appUrl) ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : undefined}
+          style={(splitOpen && canvasUrl) ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : undefined}
         >
           {sessions.map((s) => (
             <TerminalPane
@@ -556,7 +756,7 @@ function App() {
           ))}
           {sessions.length === 0 && <span>No active session. Click + New to start.</span>}
         </div>
-        {splitOpen && appUrl && (
+        {splitOpen && iframeBaseUrl && (
           <>
             <div
               className="split-divider"
@@ -569,30 +769,18 @@ function App() {
               title="Drag to resize"
             />
             <div className="app-pane" style={{ flex: `0 0 calc(${(1 - splitRatio) * 100}% - 3px)` }}>
-              <div className="app-pane-header">
-                <code className="app-pane-url">{appUrl}</code>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => void refreshIframe()}
-                  title="Reload the iframe (also re-reads app.port)"
-                >
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={openAppInNewTab}
-                  title="Open the app in a new tab — then press Cmd+Opt+I (Mac) or F12 for devtools"
-                >
-                  New tab
-                </button>
-              </div>
               <iframe
+                ref={iframeRef}
                 key={iframeNonce}
                 className="app-iframe"
-                src={appUrl}
+                src={iframeBaseUrl}
                 title="app"
+                onLoad={() => {
+                  if (!browserTabId || !browserBase) return;
+                  const win = iframeRef.current?.contentWindow;
+                  if (!win) return;
+                  try { win.postMessage({ type: "attach", tabId: browserTabId }, browserBase); } catch {}
+                }}
               />
             </div>
           </>

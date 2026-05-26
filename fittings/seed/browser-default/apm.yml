@@ -1,0 +1,105 @@
+name: browser-default
+version: 0.1.0
+description: Playwright-managed headless Chromium on its own port. Exposes CDP / screencast / input over WebSockets and reverse-proxies Chromium's built-in DevTools.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: browser
+  cardinality_hint: single
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Headless Chromium substrate (default port 7084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7084
+      description: HTTP port the Browser Fitting binds to. Falls back to next free port.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: viewport_width
+      type: integer
+      default: 800
+      description: Default viewport width (matches LOW quality preset).
+    - key: viewport_height
+      type: integer
+      default: 800
+      description: Default viewport height (matches LOW quality preset).
+    - key: jpeg_quality
+      type: integer
+      default: 40
+      description: Screencast JPEG quality (1-100). Lower = smaller frames. The canvas chrome's LOW/MED/HIGH toggle overrides this per-tab at runtime.
+    - key: every_nth_frame
+      type: integer
+      default: 1
+      description: Send every Nth frame (1 = every paint). Stay at 1 — skipping paints starves first-frame on static pages.
+  provides: []
+  consumes: []
+  setup:
+    command: node ui/build.mjs && npx --yes playwright install chromium && node scripts/install-skill.mjs
+    idempotent: true
+    timeout_ms: 300000
+  verify:
+    command: node apm_modules/_local/browser-default/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Consumers discover this Fitting at runtime by reading:
+      ~/.garrison/ui-fittings/browser-default.json
+    Carries: { fittingId, port, url, pid, startedAt, cdpHttpEndpoint, cdpWsEndpoint }.
+
+    HTTP endpoints:
+      GET    /health                      - liveness + tab count
+      GET    /tabs                        - list { tabId, url, title }
+      POST   /tabs           {url}        - open new tab, returns { tabId }
+      POST   /tabs/:id/nav   {url}        - navigate existing tab
+      POST   /tabs/:id/(back|forward|reload)
+      DELETE /tabs/:id                    - close tab
+      GET    /canvas/:tabId               - HTML page: canvas + URL bar + DevTools button
+      GET    /                            - tabs list + "+ new tab"
+      GET    /devtools/*                  - reverse-proxy to Chromium's DevTools HTTP
+
+      # Inspection (Claude-Code-facing — also exposed via the
+      # garrison-browser CLI; see below):
+      GET    /active-tab                  - { tabId, url, title } of the
+                                            most-recently-active tab
+      GET    /tabs/:id/screenshot[?full=1] - PNG bytes (Page.captureScreenshot)
+      GET    /tabs/:id/console[?since=…&limit=…]
+                                          - captured console + uncaught
+                                            exceptions + Log.entryAdded
+      GET    /tabs/:id/network[?since=…&limit=…&filter=…&status=error]
+                                          - captured network requests/responses
+      GET    /tabs/:id/network/:requestId/body
+                                          - on-demand response body
+                                            (Network.getResponseBody)
+      GET    /tabs/:id/dom[?selector=…]   - outerHTML of doc or selector
+      POST   /tabs/:id/eval  {js}         - Runtime.evaluate; returns
+                                            { ok, value, type }
+
+    WebSocket endpoints:
+      /viewport/:tabId   - Garrison-viewport-v1 JSON { type: "frame", b64, meta }
+                           + client ACKs. v1 = one viewer per tab.
+      /input/:tabId      - Garrison-input-v1 JSON
+                           { type: "mouse"|"key"|"touch"|"wheel", ... }
+                           Server emits { type: "focusedField", editable }.
+      /cdp/:tabId        - raw CDP passthrough to Chromium's per-page WS
+                           (ws://127.0.0.1:<cdpPort>/devtools/page/<targetId>).
+
+    Open DevTools for a tab:
+      <fitting-url>/devtools/inspector.html?ws=<fitting-host>:<port>/cdp/<tabId>
+
+    Iframe a tab from another Fitting:
+      <iframe src="<fitting-url>/canvas/<tabId>">
+
+    Claude-Code CLI (installed by setup hook):
+      ~/.garrison/bin/garrison-browser tabs
+      ~/.garrison/bin/garrison-browser screenshot      # prints /tmp/...png
+      ~/.garrison/bin/garrison-browser console
+      ~/.garrison/bin/garrison-browser network [--errors]
+      ~/.garrison/bin/garrison-browser dom [--selector <css>]
+      ~/.garrison/bin/garrison-browser eval '<js>'
+    Skill at ~/.claude/skills/garrison-browser/SKILL.md tells Claude
+    Code when to reach for these vs. asking the user for a screenshot.

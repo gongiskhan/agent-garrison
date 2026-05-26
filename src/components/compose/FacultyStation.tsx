@@ -106,6 +106,10 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   "web-channel": {
     role: "Mobile-first browser chat surface for talking to the Operative.",
     fit: "Distinct from the desktop shell — this Fitting serves its own React UI on its own port (default 7083) and provides a kind:channel capability that the Orchestrator routes to like Slack."
+  },
+  browser: {
+    role: "Headless Chromium substrate Garrison owns and exposes over HTTP/WS.",
+    fit: "Default Fitting runs Chromium on port 7084 with per-tab JPEG screencast, mouse/key/touch input, raw CDP, and Chromium's built-in DevTools reverse-proxied — the terminal Fitting's split-pane iframes its canvas, and any browser on the Tailnet can drive it directly."
   }
 };
 

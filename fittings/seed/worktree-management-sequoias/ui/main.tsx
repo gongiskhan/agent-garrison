@@ -219,6 +219,22 @@ function App() {
     window.location.href = target;
   }
 
+  async function openInIde(cwdPath: string) {
+    try {
+      const res = await fetch("/open-in-ide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: cwdPath })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error || `IDE launch failed: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const projectOptions = useMemo(() => {
     const opts = [...projects];
     if (repoPath && !opts.find((p) => p.path === repoPath)) {
@@ -358,6 +374,14 @@ function App() {
                     onClick={() => openInTerminal(w.path, undefined, w.branch)}
                   >
                     Terminal
+                  </button>{" "}
+                  <button
+                    type="button"
+                    className="btn"
+                    title="Open this worktree in the configured IDE"
+                    onClick={() => void openInIde(w.path)}
+                  >
+                    IDE
                   </button>{" "}
                   {w.id && !w.isMain && (
                     <>

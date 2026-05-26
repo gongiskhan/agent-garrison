@@ -18,7 +18,9 @@
 //   - Worktree directory layout ~/.worktrees/<repo>/<branch-slug>
 //   - id is a UUID assigned on creation; cleared on removal
 
-import { exec } from "node:child_process";
+import { exec, spawn } from "node:child_process";
+
+const DEFAULT_IDE_PATH = "/Applications/Rebased.app";
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -383,6 +385,25 @@ function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host });
 }
 
+async function handleOpenInIde(req, res) {
+  const body = (await readBody(req)) || {};
+  const projectPath = typeof body.path === "string" ? body.path.trim() : "";
+  if (!projectPath) return jsonRes(res, 400, { error: "path required" });
+  if (!existsSync(projectPath)) return jsonRes(res, 404, { error: `path does not exist: ${projectPath}` });
+  const idePath = process.env.GARRISON_IDE_PATH || DEFAULT_IDE_PATH;
+  if (!existsSync(idePath)) return jsonRes(res, 500, { error: `IDE not found at ${idePath}` });
+  const isAppBundle = idePath.endsWith(".app");
+  const cmd = isAppBundle ? "open" : idePath;
+  const args = isAppBundle ? ["-a", idePath, projectPath] : [projectPath];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.unref();
+    jsonRes(res, 200, { ok: true, pid: child.pid ?? null, ide: idePath, path: projectPath, via: cmd });
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 async function handleTerminalTarget(req, res) {
   try {
     const raw = await readFile(TERMINAL_STATUS_FILE, "utf8");
@@ -530,6 +551,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/terminal-target" && method === "GET") return handleTerminalTarget(req, res);
+      if (pathname === "/open-in-ide" && method === "POST") return handleOpenInIde(req, res);
       if (pathname === "/projects" && method === "GET") return handleListProjects(req, res, parsed.query);
       if (pathname === "/dev-root" && method === "GET") return handleGetDevRoot(req, res);
       if (pathname === "/dev-root" && method === "PATCH") return handlePatchDevRoot(req, res);

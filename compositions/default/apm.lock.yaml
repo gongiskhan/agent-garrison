@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-21T13:50:55.665099+00:00'
+generated_at: '2026-05-23T21:35:13.544687+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -14,6 +14,12 @@ dependencies:
   - .claude/skills/browser-automation
   source: local
   local_path: ../../fittings/seed/browser-automation
+- repo_url: _local/browser-default
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-browser
+  source: local
+  local_path: ../../fittings/seed/browser-default
 - repo_url: _local/coding-subagent
   package_type: apm_package
   deployed_files:

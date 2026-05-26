@@ -7,6 +7,7 @@
 
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import http from "node:http";
@@ -16,9 +17,12 @@ import url from "node:url";
 import { WebSocketServer } from "ws";
 import pty from "node-pty";
 
+const DEFAULT_IDE_PATH = "/Applications/Rebased.app";
+
 const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "terminal-armory-default.json");
+const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
 const DEV_ROOT_FILE = path.join(HOME, ".garrison", "dev-root");
 
 const sessions = new Map(); // id -> { id, name, cwd, shell, pty, ws, lastActivity, createdAt, buffer }
@@ -156,6 +160,46 @@ function handleTailscaleIp(req, res) {
   const ip = getTailscaleIp();
   if (!ip) return jsonRes(res, 404, { error: "no tailscale interface found" });
   jsonRes(res, 200, { ip });
+}
+
+async function handleOpenInIde(req, res) {
+  const body = (await readBody(req)) || {};
+  const projectPath = typeof body.path === "string" ? expandHome(body.path).trim() : "";
+  if (!projectPath) return jsonRes(res, 400, { error: "path required" });
+  if (!existsSync(projectPath)) return jsonRes(res, 404, { error: `path does not exist: ${projectPath}` });
+  const idePath = process.env.GARRISON_IDE_PATH || DEFAULT_IDE_PATH;
+  if (!existsSync(idePath)) return jsonRes(res, 500, { error: `IDE not found at ${idePath}` });
+  const isAppBundle = idePath.endsWith(".app");
+  const cmd = isAppBundle ? "open" : idePath;
+  const args = isAppBundle ? ["-a", idePath, projectPath] : [projectPath];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.unref();
+    jsonRes(res, 200, { ok: true, pid: child.pid ?? null, ide: idePath, path: projectPath, via: cmd });
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleBrowserTarget(_req, res) {
+  try {
+    const raw = await readFile(BROWSER_STATUS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.url !== "string") {
+      return jsonRes(res, 404, { error: "browser status file invalid" });
+    }
+    jsonRes(res, 200, {
+      url: parsed.url,
+      port: parsed.port ?? null,
+      pid: parsed.pid ?? null,
+      cdpWsEndpoint: parsed.cdpWsEndpoint ?? null
+    });
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      return jsonRes(res, 404, { error: "browser fitting not running" });
+    }
+    jsonRes(res, 500, { error: err.message });
+  }
 }
 
 async function handleAppPort(req, res, queryParams) {
@@ -309,6 +353,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/terminals" && method === "POST") return handleCreateSession(req, res);
       if (pathname === "/tailscale-ip" && method === "GET") return handleTailscaleIp(req, res);
       if (pathname === "/app-port" && method === "GET") return handleAppPort(req, res, parsed.query);
+      if (pathname === "/browser-target" && method === "GET") return handleBrowserTarget(req, res);
+      if (pathname === "/open-in-ide" && method === "POST") return handleOpenInIde(req, res);
 
       const delMatch = pathname.match(/^\/terminals\/([^/]+)$/);
       if (delMatch && method === "DELETE") return handleDeleteSession(req, res, decodeURIComponent(delMatch[1]));

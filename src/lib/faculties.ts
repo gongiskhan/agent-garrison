@@ -181,6 +181,15 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["plugin", "script"],
     notes:
       "Mobile-first browser chat surface. Stand-alone Fitting on its own port (default 7083) — talks to the Operative via the http-gateway and provides a kind:channel capability."
+  },
+  {
+    id: "browser",
+    order: 23,
+    name: "Browser",
+    cardinality: "single",
+    shapes: ["plugin", "script"],
+    notes:
+      "Headless browser substrate. Default Fitting runs Playwright-managed Chromium on its own port (default 7084), exposes CDP / screencast / input over WebSockets, and reverse-proxies Chromium's built-in DevTools frontend so iPad Safari over Tailscale gets full DevTools."
   }
 ];
 
@@ -207,7 +216,8 @@ export const OWN_PORT_FACULTIES: ReadonlySet<FacultyId> = new Set([
   "session-view",
   "outposts",
   "monitor",
-  "web-channel"
+  "web-channel",
+  "browser"
 ]);
 
 export const OWN_PORT_DEFAULTS: Partial<Record<FacultyId, number>> = {
@@ -216,7 +226,8 @@ export const OWN_PORT_DEFAULTS: Partial<Record<FacultyId, number>> = {
   "worktree-management": 7080,
   "session-view": 7081,
   outposts: 7082,
-  "web-channel": 7083
+  "web-channel": 7083,
+  browser: 7084
   // monitor's default port is owned by the Monitor Fitting itself; if/when it
   // lands a canonical default, add it here.
 };
