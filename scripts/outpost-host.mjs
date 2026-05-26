@@ -12,9 +12,10 @@
 // WebSocket: ws://0.0.0.0:3702/bridge (bridge connects out to this)
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
 
@@ -27,6 +28,7 @@ const EVENT_RING_SIZE = 50;
 
 const GARRISON_DIR = join(homedir(), ".garrison");
 const REGISTRY_PATH = join(GARRISON_DIR, "outpost-registry.json");
+const PID_FILE = join(GARRISON_DIR, "outpost-host.pid");
 
 // Active WS connections — removed on disconnect
 // Map<name, { ws, lastHeartbeat, pendingRpcs: Map<id, {resolve,reject,timer}> }>
@@ -516,19 +518,123 @@ httpServer.on("upgrade", (req, socket, head) => {
   socket.destroy();
 });
 
+// Lookup the PID currently holding our TCP port (best-effort, macOS/Linux only).
+function findPortHolder(port) {
+  try {
+    const out = execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return out.split(/\s+/).filter(Boolean).map((n) => parseInt(n, 10))[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+// Read recorded PID file; returns null if missing/unreadable.
+function readPidFile() {
+  try {
+    if (!existsSync(PID_FILE)) return null;
+    const pid = parseInt(readFileSync(PID_FILE, "utf8").trim(), 10);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function pidAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writePidFile() {
+  try {
+    mkdirSync(GARRISON_DIR, { recursive: true });
+    writeFileSync(PID_FILE, String(process.pid), { mode: 0o600 });
+  } catch (err) {
+    console.warn(`[outpost-host] could not write PID file ${PID_FILE}: ${err.message}`);
+  }
+}
+
+function clearPidFile() {
+  try {
+    const recorded = readPidFile();
+    if (recorded === process.pid) unlinkSync(PID_FILE);
+  } catch {
+    // ignore
+  }
+}
+
+// Resilience: bind failures should not take down the rest of Garrison.
+// Concurrently was previously launched with --kill-others-on-fail; a non-zero
+// exit here would kill the Next dev server. We exit 0 on EADDRINUSE so the
+// main UI keeps running, but log loudly so the user can fix the conflict.
+httpServer.on("error", (err) => {
+  if (err && err.code === "EADDRINUSE") {
+    const holder = findPortHolder(PORT);
+    const recordedPid = readPidFile();
+    const recordedAlive = pidAlive(recordedPid);
+    console.error("");
+    console.error(`[outpost-host] PORT ${PORT} IS ALREADY IN USE — this instance will not start.`);
+    if (holder) {
+      console.error(`[outpost-host]   port held by PID ${holder}`);
+    }
+    if (recordedPid) {
+      if (recordedAlive && recordedPid === holder) {
+        console.error(`[outpost-host]   that PID matches the recorded outpost-host PID — another instance is already running, nothing to do.`);
+      } else if (recordedAlive) {
+        console.error(`[outpost-host]   recorded outpost-host PID ${recordedPid} is alive but does NOT hold the port — the port is held by something else.`);
+      } else {
+        console.error(`[outpost-host]   recorded outpost-host PID ${recordedPid} is gone; PID file is stale and will be cleaned up.`);
+        try { unlinkSync(PID_FILE); } catch {}
+      }
+    }
+    console.error(`[outpost-host]   to free the port:  lsof -nP -iTCP:${PORT} -sTCP:LISTEN  then  kill <pid>`);
+    console.error(`[outpost-host]   Garrison's main UI will continue without the outpost host.`);
+    console.error("");
+    process.exit(0); // graceful — keep concurrently siblings alive
+  }
+  console.error(`[outpost-host] fatal http error:`, err);
+  clearPidFile();
+  process.exit(1);
+});
+
+// Pre-flight: if we have a recorded PID that's alive and holds the port, defer
+// before we even attempt to bind. This avoids the noisy EADDRINUSE stack trace
+// for the most common case (the previous instance is still healthy).
+{
+  const recordedPid = readPidFile();
+  if (pidAlive(recordedPid)) {
+    const holder = findPortHolder(PORT);
+    if (recordedPid === holder) {
+      console.log(`[outpost-host] another outpost-host is already running on ${BIND}:${PORT} (PID ${recordedPid}); exiting cleanly.`);
+      process.exit(0);
+    }
+  }
+}
+
 httpServer.listen(PORT, BIND, () => {
   const addr = httpServer.address();
   const port = typeof addr === "object" ? addr?.port : PORT;
-  console.log(`[outpost-host] listening on ${BIND}:${port}`);
+  writePidFile();
+  console.log(`[outpost-host] listening on ${BIND}:${port} (pid ${process.pid})`);
   console.log(`[outpost-host] registry: ${REGISTRY_PATH}`);
   console.log(`[outpost-host] bridges connect to ws://<this-host>:${port}/bridge`);
 });
 
-process.on("SIGINT", () => {
-  httpServer.close();
-  process.exit(0);
-});
-process.on("SIGTERM", () => {
-  httpServer.close();
-  process.exit(0);
-});
+function shutdown(signal) {
+  console.log(`[outpost-host] received ${signal}, shutting down`);
+  clearPidFile();
+  httpServer.close(() => process.exit(0));
+  // Hard-stop fallback if close() hangs on open WS sockets
+  setTimeout(() => process.exit(0), 2000).unref();
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("exit", clearPidFile);
