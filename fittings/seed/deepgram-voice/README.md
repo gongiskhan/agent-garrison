@@ -5,8 +5,8 @@ Voice Faculty Fitting. A stand-alone server (default port **7085**) that proxies
 key stays on the host and never reaches the browser.
 
 It provides the `voice:deepgram` capability. Channel Fittings (e.g.
-`web-channel-default`) consume it for push-to-talk recording and read-aloud
-replies.
+`web-channel-default`) consume it for push-to-talk recording, live streaming STT
+with silence endpointing (hands-free), and read-aloud replies.
 
 ## Capabilities
 
@@ -25,6 +25,7 @@ Discover the live URL at `~/.garrison/ui-fittings/deepgram-voice.json`.
 | GET    | `/`       | —                                               | status HTML                  |
 | POST   | `/stt`    | raw audio bytes (`Content-Type` = recording mime, e.g. `audio/webm`) | `{ transcript, confidence }` |
 | POST   | `/tts`    | `{ "text": "...", "format": "mp3" \| "wav" }` (default `mp3`) | audio bytes (`audio/mpeg` or `audio/wav`) |
+| WS     | `/stream?sample_rate=<n>` | linear16 mono PCM frames | JSON events: `ready`, `speech_started`, `transcript`, `utterance_end` (Deepgram live + silence endpointing) |
 
 When `DEEPGRAM_API_KEY` is absent, `/stt` and `/tts` return HTTP 503; `/health`
 still reports `keyConfigured: false`.

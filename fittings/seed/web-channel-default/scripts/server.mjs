@@ -16,6 +16,7 @@ import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
+import { WebSocketServer, WebSocket } from "ws";
 
 const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
@@ -172,6 +173,32 @@ async function handleVoiceProxy(req, res, subpath) {
     try { jsonRes(res, 502, { error: `voice upstream: ${err.message}` }); } catch {}
   });
   upstream.end(body);
+}
+
+// Pure passthrough relay: browser WS ⇄ voice Fitting /stream WS. Binary (PCM)
+// and text (control + transcript events) are forwarded verbatim in both
+// directions; frames sent before the upstream opens are buffered briefly.
+function relayVoiceStream(client, voiceHttpUrl, search) {
+  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/stream" + (search || "");
+  const upstream = new WebSocket(upstreamUrl);
+  const pending = [];
+
+  upstream.on("open", () => {
+    for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
+    pending.length = 0;
+  });
+  upstream.on("message", (data, isBinary) => {
+    if (client.readyState === WebSocket.OPEN) client.send(data, { binary: isBinary });
+  });
+  upstream.on("close", () => { try { client.close(); } catch {} });
+  upstream.on("error", () => { try { client.close(); } catch {} });
+
+  client.on("message", (data, isBinary) => {
+    if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
+    else pending.push({ data, isBinary });
+  });
+  client.on("close", () => { try { upstream.close(); } catch {} });
+  client.on("error", () => { try { upstream.close(); } catch {} });
 }
 
 function readRawBody(req, limit = 25 * 1024 * 1024) {
@@ -408,6 +435,27 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const server = tls
     ? https.createServer(tls, requestHandler)
     : http.createServer(requestHandler);
+
+  // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting /stream.
+  // No parsing — all Deepgram logic stays in the voice Fitting; the key never
+  // reaches the browser. The page connects to /api/voice/stream (wss when this
+  // server is TLS), and we forward the query (sample_rate) verbatim.
+  const wss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    const parsed = url.parse(request.url || "/", true);
+    if (parsed.pathname !== "/api/voice/stream") {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    const info = readVoiceInfo();
+    if (!info?.url) {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || ""));
+  });
 
   server.listen(liveOpts.port, liveOpts.host, async () => {
     await writeStatusFile(liveOpts);

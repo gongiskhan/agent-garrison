@@ -50,5 +50,13 @@ x-garrison:
       POST /tts                            - text-to-speech. Body: { "text": "...",
                                              "format": "mp3" | "wav" } (default mp3).
                                              Returns: audio bytes (audio/mpeg or audio/wav).
+      WS   /stream?sample_rate=<n>         - live streaming STT. Send linear16 mono
+                                             PCM frames at <n> Hz; receive JSON events:
+                                             {type:"ready"} | {type:"speech_started"}
+                                             | {type:"transcript", text, isFinal, speechFinal}
+                                             | {type:"utterance_end", transcript}
+                                             | {type:"error", error}. Deepgram endpointing
+                                             emits utterance_end after ~1s of silence — use
+                                             it to auto-finalize/send hands-free.
     The Deepgram API key stays on the host (read from the vault as DEEPGRAM_API_KEY);
     callers never see it. When the key is missing, /stt and /tts return HTTP 503.

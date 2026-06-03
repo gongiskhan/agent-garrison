@@ -161,12 +161,35 @@ function App() {
   const [voice, setVoice] = useState<VoiceInfo>({ available: false });
   const [recording, setRecording] = useState(false);
   const [readAloud, setReadAloud] = useState(false);
+  const [autoSend, setAutoSend] = useState(true);
+  const [handsFree, setHandsFree] = useState(false);
   const [connected, setConnected] = useState(false);
+  // Voice state machine: idle → arming(countdown) → listening → speaking → …
+  const [voiceState, setVoiceStateRaw] = useState<"idle" | "arming" | "listening" | "speaking">("idle");
+  const [armCountdown, setArmCountdown] = useState(0);
+  const [interim, setInterim] = useState("");
+  const [level, setLevel] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Read latest readAloud inside async send() without re-creating the callback.
+  // Refs mirror state for use inside async callbacks/timers/ws handlers.
   const readAloudRef = useRef(false);
+  const autoSendRef = useRef(true);
+  const handsFreeRef = useRef(false);
+  const voiceStateRef = useRef<"idle" | "arming" | "listening" | "speaking">("idle");
+  const sendRef = useRef<(m?: string) => void>(() => {});
+  const streamRef = useRef<{ ws: WebSocket; ctx: AudioContext; proc: ScriptProcessorNode; src: MediaStreamAudioSourceNode; stream: MediaStream; sink: GainNode } | null>(null);
+  const armTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finalTranscriptRef = useRef("");
+  const streamReadyRef = useRef(false);
   useEffect(() => { readAloudRef.current = readAloud; }, [readAloud]);
+  useEffect(() => { autoSendRef.current = autoSend; }, [autoSend]);
+  useEffect(() => { handsFreeRef.current = handsFree; }, [handsFree]);
+  const setVoiceState = useCallback((s: "idle" | "arming" | "listening" | "speaking") => {
+    voiceStateRef.current = s;
+    setVoiceStateRaw(s);
+  }, []);
+  const streamingSupported = voice.available && micCaptureAllowed() &&
+    typeof (window.AudioContext || (window as any).webkitAudioContext) === "function";
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const lastAssistantBySessionRef = useRef<Map<string, string>>(new Map());
@@ -192,32 +215,178 @@ function App() {
       .catch(() => setVoice({ available: false }));
   }, []);
 
+  // Tear down the live capture graph + WS. Safe to call from any state.
+  const stopStreaming = useCallback(() => {
+    const s = streamRef.current;
+    streamRef.current = null;
+    streamReadyRef.current = false;
+    if (s) {
+      try { s.proc.disconnect(); } catch {}
+      try { s.src.disconnect(); } catch {}
+      try { s.sink.disconnect(); } catch {}
+      try { s.stream.getTracks().forEach((t) => t.stop()); } catch {}
+      try { s.ctx.close(); } catch {}
+      try { if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: "CloseStream" })); } catch {}
+      try { s.ws.close(); } catch {}
+    }
+    setInterim("");
+    setLevel(0);
+  }, []);
+
+  // End-of-utterance (Deepgram silence endpointing). Loop-safety guard: empty /
+  // sub-word transcripts are dropped silently so the mic opening into ambient
+  // noise or speaker bleed never auto-sends and triggers a self-talk loop.
+  const finalizeUtterance = useCallback((transcript: string) => {
+    stopStreaming();
+    const clean = (transcript || "").trim();
+    setVoiceState("idle");
+    if (!clean || clean.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length < 2) {
+      return; // nothing meaningful heard
+    }
+    if (autoSendRef.current) {
+      sendRef.current(clean);
+    } else {
+      setComposing((prev) => (prev ? prev + " " : "") + clean);
+      textareaRef.current?.focus();
+    }
+  }, [stopStreaming, setVoiceState]);
+
+  // Open the mic and stream linear16 PCM to the voice Fitting over a WS. The
+  // AudioContext's native sample rate is sent to the server (iOS Safari ignores
+  // a requested 16000), so no resampling and no rate guesswork.
+  const startStreaming = useCallback(async () => {
+    if (streamRef.current) return;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+    } catch {
+      setVoiceState("idle");
+      return;
+    }
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx: AudioContext = new Ctx();
+    try { await ctx.resume(); } catch {}
+    // Capture at the device's native rate (don't fight iOS, which ignores a
+    // requested 16000) and resample to 16 kHz in JS — a known-good Deepgram
+    // rate. Native rates vary wildly (48000 on phones, 192000 under headless
+    // Chromium); forwarding them raw is unreliable, so we always send 16000.
+    const TARGET = 16000;
+    const srcRate = ctx.sampleRate;
+    const ratio = srcRate / TARGET;
+    let rsPos = 0; // fractional read position, carried across buffers
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${window.location.host}/api/voice/stream?sample_rate=${TARGET}`);
+    ws.binaryType = "arraybuffer";
+    finalTranscriptRef.current = "";
+    streamReadyRef.current = false;
+
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    // Route through a muted sink so onaudioprocess fires without echoing the
+    // mic to the speakers.
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    src.connect(proc);
+    proc.connect(sink);
+    sink.connect(ctx.destination);
+
+    let levelTick = 0;
+    proc.onaudioprocess = (e) => {
+      if (ws.readyState !== WebSocket.OPEN || !streamReadyRef.current) return;
+      const input = e.inputBuffer.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+      // Linear-interpolate resample input@srcRate → 16 kHz Int16 PCM.
+      const out = new Int16Array(Math.ceil(input.length / ratio) + 2);
+      let oi = 0;
+      let pos = rsPos;
+      while (pos < input.length) {
+        const i0 = Math.floor(pos);
+        const i1 = Math.min(i0 + 1, input.length - 1);
+        const frac = pos - i0;
+        const s = input[i0] * (1 - frac) + input[i1] * frac;
+        const v = Math.max(-1, Math.min(1, s));
+        out[oi++] = v < 0 ? v * 0x8000 : v * 0x7fff;
+        pos += ratio;
+      }
+      rsPos = pos - input.length; // carry remainder into the next buffer
+      if (oi > 0) { try { ws.send(out.slice(0, oi).buffer); } catch {} }
+      if (++levelTick % 3 === 0) setLevel(Math.min(1, Math.sqrt(sum / input.length) * 4));
+    };
+
+    ws.onmessage = (ev) => {
+      let m: any;
+      try { m = JSON.parse(typeof ev.data === "string" ? ev.data : ""); } catch { return; }
+      if (!m) return;
+      if (m.type === "ready") { streamReadyRef.current = true; }
+      else if (m.type === "transcript") { if (m.text) setInterim(m.text); }
+      else if (m.type === "utterance_end") { finalizeUtterance(m.transcript || ""); }
+      else if (m.type === "error") { stopStreaming(); setVoiceState("idle"); }
+    };
+    ws.onerror = () => { stopStreaming(); setVoiceState("idle"); };
+    ws.onclose = () => { if (voiceStateRef.current === "listening") { /* server/proxy dropped */ } };
+
+    streamRef.current = { ws, ctx, proc, src, stream, sink };
+    setVoiceState("listening");
+  }, [finalizeUtterance, stopStreaming, setVoiceState]);
+
+  // Arm: wait a couple of seconds after the agent's voice finishes, with a
+  // visible, cancellable countdown, then open the mic.
+  const cancelArm = useCallback(() => {
+    if (armTimerRef.current) { clearInterval(armTimerRef.current); armTimerRef.current = null; }
+    setArmCountdown(0);
+    setVoiceState("idle");
+  }, [setVoiceState]);
+
+  const arm = useCallback(() => {
+    if (armTimerRef.current) clearInterval(armTimerRef.current);
+    setVoiceState("arming");
+    let n = 2;
+    setArmCountdown(n);
+    armTimerRef.current = setInterval(() => {
+      n -= 1;
+      setArmCountdown(n);
+      if (n <= 0) {
+        if (armTimerRef.current) clearInterval(armTimerRef.current);
+        armTimerRef.current = null;
+        void startStreaming();
+      }
+    }, 1000);
+  }, [startStreaming, setVoiceState]);
+
   // Text-to-speech: ask the voice Fitting (via the same-origin proxy) to speak
-  // `text`, then play the returned audio. Replaces any in-flight playback.
-  const speak = useCallback(async (text: string) => {
+  // `text`, then play it. When auto=true (read-aloud of a reply) and hands-free
+  // is on, re-arm the mic once playback ends — never while it is still playing.
+  const speak = useCallback(async (text: string, opts?: { auto?: boolean }) => {
     const clean = (text || "").trim();
     if (!clean) return;
+    const onDone = () => {
+      if (opts?.auto && handsFreeRef.current) arm();
+      else if (voiceStateRef.current === "speaking") setVoiceState("idle");
+    };
     try {
       const res = await fetch("/api/voice/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: clean })
       });
-      if (!res.ok) return;
+      if (!res.ok) { onDone(); return; }
       const blob = await res.blob();
-      if (!blob.size) return;
+      if (!blob.size) { onDone(); return; }
       const objectUrl = URL.createObjectURL(blob);
-      if (audioRef.current) {
-        try { audioRef.current.pause(); } catch {}
-      }
+      if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
       const audio = new Audio(objectUrl);
       audioRef.current = audio;
-      audio.onended = () => URL.revokeObjectURL(objectUrl);
-      audio.play().catch(() => URL.revokeObjectURL(objectUrl));
+      if (opts?.auto) setVoiceState("speaking");
+      audio.onended = () => { URL.revokeObjectURL(objectUrl); onDone(); };
+      audio.onerror = () => { URL.revokeObjectURL(objectUrl); onDone(); };
+      audio.play().catch(() => { URL.revokeObjectURL(objectUrl); onDone(); });
     } catch {
-      // TTS is best-effort; failures stay silent.
+      onDone();
     }
-  }, []);
+  }, [arm, setVoiceState]);
 
   // History + live event stream.
   useEffect(() => {
@@ -338,8 +507,9 @@ function App() {
               m.id === bubbleId ? { ...m, content: m.content || finalReply, streaming: false } : m
             ));
             // "Read aloud" toggle: speak the completed reply (never per-chunk).
+            // auto:true lets hands-free re-arm the mic after playback ends.
             if (readAloudRef.current && finalContent.trim()) {
-              void speak(finalContent);
+              void speak(finalContent, { auto: true });
             }
           }
         }
@@ -355,9 +525,36 @@ function App() {
     }
   }, [composing, sending, speak]);
 
-  // Push-to-talk. Click once to start recording from the mic, click again to
-  // stop; on stop we POST the captured audio to /api/voice/stt and auto-send
-  // the transcript. getUserMedia needs a secure context (see micCaptureAllowed).
+  // Let streaming helpers call the latest send() without a dependency cycle.
+  useEffect(() => { sendRef.current = send; }, [send]);
+
+  // Clean up the capture graph + timers on unmount.
+  useEffect(() => () => {
+    if (armTimerRef.current) clearInterval(armTimerRef.current);
+    stopStreaming();
+    try { audioRef.current?.pause(); } catch {}
+  }, [stopStreaming]);
+
+  // The mic control, interpreted against the voice state machine. Streaming is
+  // primary; the batch MediaRecorder path is the fallback when streaming isn't
+  // supported. Tapping the mic is always an interrupt/abort — it never sends;
+  // auto-send happens only on Deepgram silence endpointing.
+  const micAction = useCallback(() => {
+    if (!streamingSupported) { void toggleRecording(); return; }
+    switch (voiceStateRef.current) {
+      case "idle": void startStreaming(); break;
+      case "arming": cancelArm(); break;
+      case "listening": stopStreaming(); setVoiceState("idle"); break;
+      case "speaking":
+        try { audioRef.current?.pause(); } catch {}
+        setVoiceState("idle");
+        break;
+    }
+  }, [streamingSupported, startStreaming, cancelArm, stopStreaming, setVoiceState]);
+
+  // Push-to-talk fallback (batch). Click once to start recording from the mic,
+  // click again to stop; on stop we POST the captured audio to /api/voice/stt
+  // and auto-send the transcript. Used only when streaming isn't supported.
   const toggleRecording = useCallback(async () => {
     if (recording) {
       try { mediaRecorderRef.current?.stop(); } catch {}
@@ -424,15 +621,47 @@ function App() {
           {voice.available ? (
             <button
               type="button"
-              className={`read-aloud-toggle${readAloud ? " on" : ""}`}
+              className={`voice-toggle${readAloud ? " on" : ""}`}
               role="switch"
               aria-checked={readAloud}
               data-testid="read-aloud-toggle"
-              title={readAloud ? "Auto read-aloud is on" : "Auto read-aloud is off"}
+              title={readAloud ? "Read replies aloud: on" : "Read replies aloud: off"}
               onClick={() => setReadAloud((v) => !v)}
             >
               <SpeakerIcon />
-              <span>Read aloud{readAloud ? ": on" : ": off"}</span>
+              <span>Read aloud</span>
+            </button>
+          ) : null}
+          {streamingSupported ? (
+            <button
+              type="button"
+              className={`voice-toggle${autoSend ? " on" : ""}`}
+              role="switch"
+              aria-checked={autoSend}
+              data-testid="auto-send-toggle"
+              title="Auto-send when you stop talking (silence detection)"
+              onClick={() => setAutoSend((v) => !v)}
+            >
+              <span>Auto-send</span>
+            </button>
+          ) : null}
+          {streamingSupported ? (
+            <button
+              type="button"
+              className={`voice-toggle${handsFree ? " on" : ""}`}
+              role="switch"
+              aria-checked={handsFree}
+              data-testid="hands-free-toggle"
+              title="Hands-free: listen again automatically after each spoken reply"
+              onClick={() => setHandsFree((v) => {
+                const next = !v;
+                // Hands-free needs an agent voice to listen after, so enabling it
+                // turns read-aloud on too.
+                if (next) setReadAloud(true);
+                return next;
+              })}
+            >
+              <span>Hands-free</span>
             </button>
           ) : null}
           {monitor.available && monitor.url
@@ -450,19 +679,40 @@ function App() {
               <MessageBubble key={m.id} message={m} onSpeak={voice.available ? speak : undefined} />
             ))}
       </div>
+      {voiceState !== "idle" ? (
+        <div className={`voice-status voice-status-${voiceState}`} data-testid="voice-status" data-state={voiceState}>
+          {voiceState === "arming" ? (
+            <span className="vs-line">
+              <span className="vs-dot arming" /> Listening in {armCountdown}s… <span className="vs-hint">tap mic to cancel</span>
+            </span>
+          ) : voiceState === "listening" ? (
+            <span className="vs-line">
+              <span className="vs-dot listening" />
+              <span className="vs-level"><i style={{ transform: `scaleX(${0.15 + level * 0.85})` }} /></span>
+              <span className="vs-text">{interim ? interim : "Listening… speak now"}</span>
+              <span className="vs-hint">tap mic to stop</span>
+            </span>
+          ) : (
+            <span className="vs-line"><span className="vs-dot speaking" /> Speaking…</span>
+          )}
+        </div>
+      ) : null}
       <div className="composer">
         {voice.available ? (
           <button
             type="button"
-            className={`mic-button${recording ? " recording" : ""}`}
-            title={micCaptureAllowed()
-              ? (recording ? "Stop recording" : "Record (push to talk)")
-              : "Mic needs a secure context (https or localhost)"}
-            aria-label={recording ? "Stop recording" : "Record"}
-            aria-pressed={recording}
+            className={`mic-button state-${voiceState}`}
+            title={!micCaptureAllowed()
+              ? "Mic needs a secure context (https or localhost)"
+              : voiceState === "listening" ? "Stop listening"
+              : voiceState === "arming" ? "Cancel"
+              : voiceState === "speaking" ? "Stop"
+              : "Talk"}
+            aria-label="Voice"
+            aria-pressed={voiceState === "listening"}
             data-testid="mic-button"
-            disabled={sending || !micCaptureAllowed()}
-            onClick={toggleRecording}
+            disabled={!micCaptureAllowed() || (sending && voiceState === "idle")}
+            onClick={micAction}
           >
             <MicIcon />
           </button>
@@ -472,7 +722,7 @@ function App() {
           value={composing}
           onChange={(e) => setComposing(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={recording ? "Listening…" : "Message Gary…"}
+          placeholder={voiceState === "listening" ? "Listening…" : "Message Gary…"}
           rows={1}
           autoFocus
         />

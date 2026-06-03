@@ -8,16 +8,25 @@ capability.
 
 When a `kind:voice` Fitting (e.g. `deepgram-voice`) is stationed, the UI shows:
 
-- a **mic button** — push to talk; on stop the audio is sent to
-  `/api/voice/stt` and the transcript is auto-sent as a message;
-- a **speaker button** on each reply — reads that reply aloud via
-  `/api/voice/tts`;
-- a **"read aloud" toggle** — auto-speaks every completed reply.
+- a **mic button** — tap to talk. Audio streams to Deepgram live over
+  `WS /api/voice/stream`; you don't press stop — Deepgram's silence endpointing
+  ends the utterance. Tapping the mic is always an interrupt/abort.
+- a **speaker button** on each reply — reads that reply aloud via `/api/voice/tts`;
+- a **"Read aloud" toggle** — auto-speaks every completed reply;
+- an **"Auto-send" toggle** — when you stop talking (silence), the transcript is
+  sent automatically; off → it fills the composer for review;
+- a **"Hands-free" toggle** — after each spoken reply, the mic re-opens
+  automatically (a visible ~2s "Listening in Ns…" countdown, then a live
+  "Listening…" indicator with a level meter). The mic never opens while the
+  agent is still speaking. Enabling hands-free turns Read-aloud on.
 
-All voice traffic goes through this Fitting's same-origin proxy
-(`/api/voice/*`), so the browser never sees the Deepgram API key — it stays on
-the voice Fitting. Voice controls are hidden when no voice Fitting is running
-(`GET /api/voice` reports `available:false`).
+A loop-safety guard drops empty/sub-word transcripts so the mic opening into
+ambient noise never auto-sends. All voice traffic goes through this Fitting's
+same-origin proxy (`/api/voice/*`, plus the `/api/voice/stream` WebSocket which
+is a pure passthrough to the voice Fitting), so the browser never sees the
+Deepgram API key. Voice controls are hidden when no voice Fitting is running
+(`GET /api/voice` reports `available:false`). A batch `POST /api/voice/stt` path
+remains as a fallback when the browser can't stream (no AudioContext).
 
 ## Mobile / phone voice input needs HTTPS
 

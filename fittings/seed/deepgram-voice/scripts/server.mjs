@@ -2,8 +2,9 @@
 // deepgram-voice backend — Voice Faculty Fitting.
 //
 // Proxies Deepgram so the API key never reaches the browser:
-//   - POST /stt  → Deepgram /v1/listen  (audio in → { transcript } out)
-//   - POST /tts  → Deepgram /v1/speak   ({ text } in → audio bytes out)
+//   - POST /stt     → Deepgram /v1/listen  (audio in → { transcript } out)
+//   - POST /tts     → Deepgram /v1/speak   ({ text } in → audio bytes out)
+//   - WS   /stream  → Deepgram live /v1/listen (real-time STT + endpointing)
 //   - GET  /health, GET / (status page)
 //
 // The key is read from DEEPGRAM_API_KEY, injected from the vault by the runner
@@ -16,6 +17,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
+import { WebSocketServer, WebSocket } from "ws";
 
 const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
@@ -184,6 +186,96 @@ async function handleTts(req, res, opts) {
   }
 }
 
+// Live streaming STT: relay a browser PCM stream to Deepgram's live WebSocket
+// and translate its events into a small, stable protocol for the client:
+//   server → client: {type:"ready"} | {type:"speech_started"}
+//                    | {type:"transcript", text, isFinal, speechFinal}
+//                    | {type:"utterance_end", transcript}   (accumulated finals)
+//                    | {type:"error", error}
+//   client → server: binary PCM (linear16, mono, sampleRate from the query) and
+//                    optional {type:"CloseStream"} to flush.
+// sampleRate comes from the client at runtime (AudioContext.sampleRate differs
+// per device — iOS Safari often locks to 48000), so we never hardcode it.
+function attachStream(clientWs, opts, sampleRate) {
+  if (!opts.apiKey) {
+    try { clientWs.send(JSON.stringify({ type: "error", error: "DEEPGRAM_API_KEY not configured" })); } catch {}
+    clientWs.close();
+    return;
+  }
+  const rate = Number.isFinite(sampleRate) && sampleRate >= 8000 && sampleRate <= 48000
+    ? Math.round(sampleRate)
+    : 16000;
+
+  const qs = new URLSearchParams({
+    model: opts.sttModel,
+    encoding: "linear16",
+    sample_rate: String(rate),
+    channels: "1",
+    interim_results: "true",
+    punctuate: "true",
+    smart_format: "true",
+    endpointing: "300",      // ms of silence to finalize a result
+    utterance_end_ms: "1000", // emit UtteranceEnd after 1s of silence
+    vad_events: "true"
+  });
+  const dg = new WebSocket(`wss://api.deepgram.com/v1/listen?${qs.toString()}`, {
+    headers: { Authorization: `Token ${opts.apiKey}` }
+  });
+
+  // Accumulate final transcripts for the current utterance; flush on UtteranceEnd.
+  let finals = [];
+  const sendClient = (obj) => { try { clientWs.send(JSON.stringify(obj)); } catch {} };
+
+  dg.on("open", () => sendClient({ type: "ready", sampleRate: rate }));
+
+  dg.on("message", (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (msg.type === "Results") {
+      const text = msg.channel?.alternatives?.[0]?.transcript ?? "";
+      const isFinal = msg.is_final === true;
+      const speechFinal = msg.speech_final === true;
+      if (isFinal && text) finals.push(text);
+      sendClient({ type: "transcript", text, isFinal, speechFinal });
+    } else if (msg.type === "SpeechStarted") {
+      sendClient({ type: "speech_started" });
+    } else if (msg.type === "UtteranceEnd") {
+      const transcript = finals.join(" ").replace(/\s+/g, " ").trim();
+      finals = [];
+      sendClient({ type: "utterance_end", transcript });
+    }
+  });
+
+  dg.on("error", (err) => sendClient({ type: "error", error: `deepgram: ${err.message}` }));
+  dg.on("close", () => { try { clientWs.close(); } catch {} });
+
+  // Buffer any PCM that arrives before Deepgram's socket is open (the client
+  // also waits for {type:"ready"}, but guard anyway).
+  const pending = [];
+  clientWs.on("message", (data, isBinary) => {
+    if (isBinary) {
+      if (dg.readyState === WebSocket.OPEN) dg.send(data);
+      else pending.push(data);
+      return;
+    }
+    // Text control messages (e.g. CloseStream).
+    let ctrl;
+    try { ctrl = JSON.parse(data.toString()); } catch { return; }
+    if (ctrl?.type === "CloseStream" && dg.readyState === WebSocket.OPEN) {
+      dg.send(JSON.stringify({ type: "CloseStream" }));
+    }
+  });
+  dg.on("open", () => { for (const d of pending) dg.send(d); pending.length = 0; });
+
+  clientWs.on("close", () => {
+    try {
+      if (dg.readyState === WebSocket.OPEN) dg.send(JSON.stringify({ type: "CloseStream" }));
+    } catch {}
+    try { dg.close(); } catch {}
+  });
+  clientWs.on("error", () => { try { dg.close(); } catch {} });
+}
+
 async function findFreePort(startPort, host) {
   const net = await import("node:net");
   for (let port = startPort; port < startPort + 50; port++) {
@@ -242,6 +334,19 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       console.error("[voice] handler error:", err);
       jsonRes(res, 500, { error: err.message });
     }
+  });
+
+  // Live streaming STT over WebSocket at /stream?sample_rate=<n>.
+  const wss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    const parsed = url.parse(request.url || "/", true);
+    if (parsed.pathname !== "/stream") {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    const sampleRate = Number(parsed.query.sample_rate);
+    wss.handleUpgrade(request, socket, head, (clientWs) => attachStream(clientWs, liveOpts, sampleRate));
   });
 
   server.listen(liveOpts.port, liveOpts.host, async () => {
