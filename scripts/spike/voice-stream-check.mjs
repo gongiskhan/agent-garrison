@@ -71,7 +71,8 @@ voice.stderr.on("data", (d) => process.stderr.write(`[voice] ${d}`));
 function streamFile(wavPath, label) {
   return new Promise((resolve) => {
     const { sampleRate, pcm } = parseWav(readFileSync(wavPath));
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/stream?sample_rate=${sampleRate}`);
+    // Short utterance_end_ms so the 2.5s-silence fixture triggers quickly.
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/stream?sample_rate=${sampleRate}&utterance_end_ms=1500`);
     const events = { ready: false, speechStarted: false, utteranceEnd: null, finals: [] };
     let pos = 0;
     const chunk = Math.round(sampleRate * 2 * 0.05); // 50ms frames

@@ -104,7 +104,9 @@ async function main() {
   page.on("response", (r) => { const u = r.url(); if (u.endsWith("/api/chat")) hits.chat++; if (u.endsWith("/api/voice/tts")) hits.tts++; });
   page.on("console", (m) => { if (m.type() === "error") console.log(`[page-err] ${m.text()}`); });
 
-  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  // Use a short silence threshold so the test (which streams a 2.5s-silence
+  // fixture) triggers UtteranceEnd quickly; production defaults to 5000ms.
+  await page.goto(`${origin}/?silence_ms=1500`, { waitUntil: "domcontentloaded" });
   const checks = [];
   const ok = (c, l) => { checks.push({ c: !!c, l }); console.log(`${c ? "OK  " : "BAD "} ${l}`); };
 

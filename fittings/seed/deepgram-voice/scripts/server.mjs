@@ -196,7 +196,7 @@ async function handleTts(req, res, opts) {
 //                    optional {type:"CloseStream"} to flush.
 // sampleRate comes from the client at runtime (AudioContext.sampleRate differs
 // per device — iOS Safari often locks to 48000), so we never hardcode it.
-function attachStream(clientWs, opts, sampleRate) {
+function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
   if (!opts.apiKey) {
     try { clientWs.send(JSON.stringify({ type: "error", error: "DEEPGRAM_API_KEY not configured" })); } catch {}
     clientWs.close();
@@ -205,6 +205,12 @@ function attachStream(clientWs, opts, sampleRate) {
   const rate = Number.isFinite(sampleRate) && sampleRate >= 8000 && sampleRate <= 48000
     ? Math.round(sampleRate)
     : 16000;
+  // How long the speaker must be silent before we emit UtteranceEnd (→ auto-send).
+  // Client-configurable; Deepgram requires >= 1000. Default 5s so a normal
+  // mid-sentence pause doesn't fire a premature send in hands-free mode.
+  const utterEnd = Number.isFinite(utteranceEndMs) && utteranceEndMs >= 1000 && utteranceEndMs <= 20000
+    ? Math.round(utteranceEndMs)
+    : 5000;
 
   const qs = new URLSearchParams({
     model: opts.sttModel,
@@ -214,8 +220,8 @@ function attachStream(clientWs, opts, sampleRate) {
     interim_results: "true",
     punctuate: "true",
     smart_format: "true",
-    endpointing: "300",      // ms of silence to finalize a result
-    utterance_end_ms: "1000", // emit UtteranceEnd after 1s of silence
+    endpointing: "300",      // ms of silence to finalize an interim result
+    utterance_end_ms: String(utterEnd), // emit UtteranceEnd after this much silence
     vad_events: "true"
   });
   const dg = new WebSocket(`wss://api.deepgram.com/v1/listen?${qs.toString()}`, {
@@ -346,7 +352,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       return;
     }
     const sampleRate = Number(parsed.query.sample_rate);
-    wss.handleUpgrade(request, socket, head, (clientWs) => attachStream(clientWs, liveOpts, sampleRate));
+    const utteranceEndMs = Number(parsed.query.utterance_end_ms);
+    wss.handleUpgrade(request, socket, head, (clientWs) => attachStream(clientWs, liveOpts, sampleRate, utteranceEndMs));
   });
 
   server.listen(liveOpts.port, liveOpts.host, async () => {

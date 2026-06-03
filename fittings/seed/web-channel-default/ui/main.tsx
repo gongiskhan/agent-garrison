@@ -7,6 +7,34 @@ const GARRISON_URI = /\bgarrison:\/\/([A-Za-z0-9_-]+)(?:\/([^\s)<>"']+))?/g;
 
 marked.setOptions({ breaks: true, gfm: true });
 
+// Milliseconds of silence before a hands-free/streaming utterance is auto-sent.
+// A normal mid-sentence pause is ~1–2s, so 5s avoids premature sends. Override
+// for testing/tuning with ?silence_ms=<n> (clamped to Deepgram's [1000,20000]).
+const SILENCE_MS = (() => {
+  try {
+    const n = Number(new URLSearchParams(window.location.search).get("silence_ms"));
+    if (Number.isFinite(n) && n >= 1000 && n <= 20000) return Math.round(n);
+  } catch {}
+  return 5000;
+})();
+
+// A tiny valid silent WAV. Played once inside a user gesture (a toggle/mic/send
+// tap) to UNLOCK mobile audio playback, so read-aloud can auto-play replies
+// later without the user first tapping a speaker button (mobile autoplay policy).
+const SILENT_WAV = (() => {
+  const sr = 8000, n = 400;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const dv = new DataView(buf);
+  const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); ws(8, "WAVE"); ws(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  ws(36, "data"); dv.setUint32(40, n * 2, true);
+  let bin = ""; const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return "data:audio/wav;base64," + btoa(bin);
+})();
+
 type Role = "user" | "assistant" | "error";
 
 interface Message {
@@ -171,6 +199,8 @@ function App() {
   const [level, setLevel] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioPrimedRef = useRef(false);
+  const audioUrlRef = useRef<string | null>(null);
   // Refs mirror state for use inside async callbacks/timers/ws handlers.
   const readAloudRef = useRef(false);
   const autoSendRef = useRef(true);
@@ -214,6 +244,31 @@ function App() {
       .then((info) => setVoice(info))
       .catch(() => setVoice({ available: false }));
   }, []);
+
+  // One reused <audio> element. Reusing a single element (vs new Audio() per
+  // reply) is what lets a one-time gesture unlock keep working for later
+  // programmatic auto-play on mobile.
+  const getAudio = useCallback(() => {
+    if (!audioRef.current) audioRef.current = new Audio();
+    return audioRef.current;
+  }, []);
+
+  // Unlock mobile audio: play a silent clip inside a user gesture. After this,
+  // read-aloud can auto-play replies without a manual speaker tap.
+  const primeAudio = useCallback(() => {
+    if (audioPrimedRef.current) return;
+    const a = getAudio();
+    try {
+      a.src = SILENT_WAV;
+      const p = a.play();
+      if (p && typeof p.then === "function") {
+        p.then(() => { audioPrimedRef.current = true; try { a.pause(); a.currentTime = 0; } catch {} })
+         .catch(() => {});
+      } else {
+        audioPrimedRef.current = true;
+      }
+    } catch {}
+  }, [getAudio]);
 
   // Tear down the live capture graph + WS. Safe to call from any state.
   const stopStreaming = useCallback(() => {
@@ -277,7 +332,7 @@ function App() {
     const ratio = srcRate / TARGET;
     let rsPos = 0; // fractional read position, carried across buffers
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${window.location.host}/api/voice/stream?sample_rate=${TARGET}`);
+    const ws = new WebSocket(`${proto}://${window.location.host}/api/voice/stream?sample_rate=${TARGET}&utterance_end_ms=${SILENCE_MS}`);
     ws.binaryType = "arraybuffer";
     finalTranscriptRef.current = "";
     streamReadyRef.current = false;
@@ -376,17 +431,22 @@ function App() {
       const blob = await res.blob();
       if (!blob.size) { onDone(); return; }
       const objectUrl = URL.createObjectURL(blob);
-      if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
-      const audio = new Audio(objectUrl);
-      audioRef.current = audio;
+      if (audioUrlRef.current) { try { URL.revokeObjectURL(audioUrlRef.current); } catch {} }
+      audioUrlRef.current = objectUrl;
+      // Reuse the (gesture-unlocked) element so auto-play works on mobile
+      // without the user first tapping a speaker.
+      const audio = getAudio();
+      try { audio.pause(); } catch {}
+      audio.muted = false;
+      audio.src = objectUrl;
       if (opts?.auto) setVoiceState("speaking");
-      audio.onended = () => { URL.revokeObjectURL(objectUrl); onDone(); };
-      audio.onerror = () => { URL.revokeObjectURL(objectUrl); onDone(); };
-      audio.play().catch(() => { URL.revokeObjectURL(objectUrl); onDone(); });
+      audio.onended = () => { onDone(); };
+      audio.onerror = () => { onDone(); };
+      audio.play().catch(() => { onDone(); });
     } catch {
       onDone();
     }
-  }, [arm, setVoiceState]);
+  }, [arm, setVoiceState, getAudio]);
 
   // History + live event stream.
   useEffect(() => {
@@ -533,6 +593,7 @@ function App() {
     if (armTimerRef.current) clearInterval(armTimerRef.current);
     stopStreaming();
     try { audioRef.current?.pause(); } catch {}
+    if (audioUrlRef.current) { try { URL.revokeObjectURL(audioUrlRef.current); } catch {} }
   }, [stopStreaming]);
 
   // The mic control, interpreted against the voice state machine. Streaming is
@@ -540,6 +601,7 @@ function App() {
   // supported. Tapping the mic is always an interrupt/abort — it never sends;
   // auto-send happens only on Deepgram silence endpointing.
   const micAction = useCallback(() => {
+    primeAudio(); // unlock mobile audio on this gesture (for later read-aloud)
     if (!streamingSupported) { void toggleRecording(); return; }
     switch (voiceStateRef.current) {
       case "idle": void startStreaming(); break;
@@ -550,7 +612,9 @@ function App() {
         setVoiceState("idle");
         break;
     }
-  }, [streamingSupported, startStreaming, cancelArm, stopStreaming, setVoiceState]);
+  // NB: toggleRecording is intentionally omitted from deps — it's declared
+  // below (TDZ) and only referenced when invoked, well after render.
+  }, [streamingSupported, startStreaming, cancelArm, stopStreaming, setVoiceState, primeAudio]);
 
   // Push-to-talk fallback (batch). Click once to start recording from the mic,
   // click again to stop; on stop we POST the captured audio to /api/voice/stt
@@ -607,8 +671,9 @@ function App() {
     if (isCoarse) return;
     if (ev.shiftKey) return;
     ev.preventDefault();
+    primeAudio();
     send();
-  }, [send]);
+  }, [send, primeAudio]);
 
   return (
     <div className="app">
@@ -626,7 +691,7 @@ function App() {
               aria-checked={readAloud}
               data-testid="read-aloud-toggle"
               title={readAloud ? "Read replies aloud: on" : "Read replies aloud: off"}
-              onClick={() => setReadAloud((v) => !v)}
+              onClick={() => { primeAudio(); setReadAloud((v) => !v); }}
             >
               <SpeakerIcon />
               <span>Read aloud</span>
@@ -653,13 +718,13 @@ function App() {
               aria-checked={handsFree}
               data-testid="hands-free-toggle"
               title="Hands-free: listen again automatically after each spoken reply"
-              onClick={() => setHandsFree((v) => {
+              onClick={() => { primeAudio(); setHandsFree((v) => {
                 const next = !v;
                 // Hands-free needs an agent voice to listen after, so enabling it
                 // turns read-aloud on too.
                 if (next) setReadAloud(true);
                 return next;
-              })}
+              }); }}
             >
               <span>Hands-free</span>
             </button>
@@ -726,7 +791,7 @@ function App() {
           rows={1}
           autoFocus
         />
-        <button className="send-button" onClick={() => send()} disabled={sending || !composing.trim()}>
+        <button className="send-button" onClick={() => { primeAudio(); send(); }} disabled={sending || !composing.trim()}>
           {sending ? "…" : "Send"}
         </button>
       </div>
