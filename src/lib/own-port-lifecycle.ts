@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { ROOT_DIR } from "./paths";
 import { isOwnPortFaculty } from "./faculties";
+import { readVaultSecrets } from "./vault";
 import type { LibraryEntry } from "./types";
 
 // Lifecycle helpers for own-port Fittings (those whose Faculty is in
@@ -36,6 +37,25 @@ export function isOperativeBound(entry: LibraryEntry): boolean {
   return entry.metadata.lifecycle !== "detached";
 }
 
+// Own-port Fittings are spawned detached with a copy of process.env — they do
+// NOT see the materialized .env that the Operative reads. A Fitting that
+// declares `consumes: vault` (e.g. deepgram-voice needs DEEPGRAM_API_KEY) gets
+// its vault secrets injected into the spawn env here. Gated on the declared
+// consumption so we never leak one Fitting's secrets into another that did not
+// ask for the vault. Tolerant of a locked vault: returns {} so the manual
+// /api/fittings/<id>/start path (no unlock guarantee, unlike `up`) still
+// starts the Fitting — minus secrets — instead of crashing.
+export async function vaultEnvForEntry(entry: LibraryEntry): Promise<Record<string, string>> {
+  const consumesVault = entry.metadata.consumes.some((c) => c.kind === "vault");
+  if (!consumesVault) return {};
+  try {
+    const secrets = await readVaultSecrets();
+    return Object.fromEntries(secrets.map((s) => [s.key, s.value]));
+  } catch {
+    return {};
+  }
+}
+
 export interface StartResult {
   ok: boolean;
   pid?: number;
@@ -44,7 +64,10 @@ export interface StartResult {
   status?: number;
 }
 
-export async function startOwnPortFitting(entry: LibraryEntry): Promise<StartResult> {
+export async function startOwnPortFitting(
+  entry: LibraryEntry,
+  extraEnv?: Record<string, string>
+): Promise<StartResult> {
   if (!isValidFittingId(entry.id)) {
     return { ok: false, error: "invalid fittingId", status: 400 };
   }
@@ -78,7 +101,7 @@ export async function startOwnPortFitting(entry: LibraryEntry): Promise<StartRes
     cwd: fittingDir,
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    env: { ...process.env }
+    env: { ...process.env, ...(extraEnv ?? {}) }
   });
   child.unref();
   closeSync(logFd);

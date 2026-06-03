@@ -101,6 +101,37 @@ describe("capability resolver", () => {
     }
   });
 
+  it("web-channel resolves with a voice provider (voice:deepgram, optional-one)", () => {
+    const result = resolveCapabilities([
+      fitting("deepgram-voice", { provides: [{ kind: "voice", name: "deepgram" }] }),
+      fitting("web-channel-default", { consumes: [{ kind: "voice", cardinality: "optional-one" }] })
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const consumer = result.graph.consumers.find((c) => c.fittingId === "web-channel-default");
+      expect(consumer?.matched).toHaveLength(1);
+      expect(consumer?.matched[0].fittingId).toBe("deepgram-voice");
+    }
+  });
+
+  it("web-channel resolves with no voice provider (voice is optional)", () => {
+    const result = resolveCapabilities([
+      fitting("web-channel-default", { consumes: [{ kind: "voice", cardinality: "optional-one" }] })
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("voice is a singleton — two providers are ambiguous", () => {
+    const result = resolveCapabilities([
+      fitting("deepgram-voice", { provides: [{ kind: "voice", name: "deepgram" }] }),
+      fitting("other-voice", { provides: [{ kind: "voice", name: "other" }] })
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.code === "ambiguous-singleton" && e.kind === "voice")).toBe(true);
+    }
+  });
+
   it("optional-one with two providers emits too-many-for-optional", () => {
     const result = resolveCapabilities([
       fitting("a", { provides: [{ kind: "automation-runner", name: "a" }] }),

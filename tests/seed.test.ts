@@ -183,7 +183,16 @@ describe("seed Fittings", () => {
     expect(metadata.faculty).toBe("web-channel");
     expect(metadata.component_shape).toBe("plugin");
     expect(metadata.provides).toContainEqual({ kind: "channel", name: "web" });
-    expect(metadata.consumes).toEqual([]);
+    // Optionally consumes the voice capability (push-to-talk / read-aloud).
+    expect(metadata.consumes).toContainEqual({ kind: "voice", cardinality: "optional-one" });
+  });
+
+  it("deepgram-voice provides voice:deepgram on the voice Faculty", async () => {
+    const metadata = await loadSeed("deepgram-voice");
+    expect(metadata.faculty).toBe("voice");
+    expect(metadata.component_shape).toBe("plugin");
+    expect(metadata.provides).toContainEqual({ kind: "voice", name: "deepgram" });
+    expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
   });
 
   it("soul fittings parse correctly with spawn configs", async () => {

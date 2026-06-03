@@ -7,6 +7,7 @@ dependencies:
     - path: ../../fittings/seed/browser-automation
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/coding-subagent
+    - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/documents
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
@@ -146,6 +147,13 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
+      voice:
+        - id: deepgram-voice
+          config:
+            port: 7085
+            bind_host: 127.0.0.1
+            stt_model: nova-2
+            tts_model: aura-asteria-en
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

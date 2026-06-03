@@ -37,3 +37,25 @@ x-garrison:
     command: python3 apm_modules/_local/trello-data-source/scripts/trello.py --probe
     expect: boardOk
     timeout_ms: 15000
+  for_consumers: |
+    Trello is the task store. The board's tasks are mirrored to the truth
+    file (tasks/trello.md), and you can READ and WRITE tasks directly through
+    the CLI below. When a user asks (via any channel — Slack, the web channel,
+    etc.) to add / move / finish / comment on a task, do it with this CLI.
+
+    Run from the composition directory (TRELLO_KEY / TRELLO_TOKEN /
+    TRELLO_BOARD_ID are in the materialized .env):
+      python3 apm_modules/_local/trello-data-source/scripts/trello.py lists
+        → JSON of the board's lists: [{ id, name, closed }]. Run this FIRST to
+          resolve a human list name (e.g. "To Do", "Doing", "Done") to its id.
+      python3 .../trello.py list <list_id>           → open cards in that list
+      python3 .../trello.py create <list_id> <name> [desc]  → create a card (a task)
+      python3 .../trello.py move <card_id> <to_list_id>     → move a card between lists
+      python3 .../trello.py archive <card_id>               → mark a task done (archive)
+      python3 .../trello.py comment <card_id> <text>        → add a comment
+
+    Typical flow for "add a task to <list>": run `lists`, find the matching
+    list id, then `create <list_id> "<task name>"`. To complete a task, find
+    its card id via `list <list_id>`, then `archive <card_id>`. The create /
+    move / archive output is the card JSON (includes its id). Echo a short
+    confirmation back to the channel that asked.

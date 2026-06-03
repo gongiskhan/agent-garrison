@@ -24,10 +24,20 @@ x-garrison:
       type: string
       default: ""
       description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:4777.
+    - key: tls_cert
+      type: path
+      default: ""
+      description: Optional TLS certificate path. When set with tls_key, serves https so mobile browsers get a secure context (required for mic capture over a LAN IP). Prefer `tailscale serve` for a managed cert; this is the in-app fallback.
+    - key: tls_key
+      type: path
+      default: ""
+      description: Optional TLS private key path; pairs with tls_cert.
   provides:
     - kind: channel
       name: web
-  consumes: []
+  consumes:
+    - kind: voice
+      cardinality: optional-one
   setup:
     command: node ui/build.mjs
     idempotent: true
@@ -58,4 +68,13 @@ x-garrison:
       GET  /api/stream       → SSE proxy of gateway /channels/web/stream
       POST /api/chat         → SSE proxy of gateway /chat/stream (body: {message})
       GET  /api/monitor      → { available, url? } — opportunistic Monitor discovery
+      GET  /api/voice        → { available, url? } — opportunistic voice (kind:voice) discovery
+      POST /api/voice/stt    → binary proxy to the voice Fitting's /stt (audio → { transcript })
+      POST /api/voice/tts    → binary proxy to the voice Fitting's /tts ({text} → audio bytes)
       GET  /                 → React chat UI (dist/index.html)
+
+    Voice is optional: when a kind:voice Fitting (e.g. deepgram-voice) is
+    stationed, the browser UI shows a mic button (push-to-talk → /api/voice/stt),
+    a per-reply speaker button, and a "read aloud" toggle (auto-speaks completed
+    replies via /api/voice/tts). The voice Fitting holds the API key; the browser
+    only ever talks to this same-origin proxy.

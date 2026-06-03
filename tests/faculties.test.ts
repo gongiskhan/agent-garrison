@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { faculties } from "@/lib/faculties";
 
 describe("faculty definitions", () => {
-  it("renders the 23 Faculties in spec order", () => {
+  it("renders the 24 Faculties in spec order", () => {
     expect(faculties.map((faculty) => faculty.id)).toEqual([
       "heartbeat",
       "scheduler",
@@ -26,7 +26,8 @@ describe("faculty definitions", () => {
       "sync",
       "monitor",
       "web-channel",
-      "browser"
+      "browser",
+      "voice"
     ]);
   });
 

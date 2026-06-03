@@ -1,8 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { isOperativeBound, isValidFittingId } from "@/lib/own-port-lifecycle";
-import type { GarrisonMetadata, LibraryEntry, FacultyId } from "@/lib/types";
+import { describe, expect, it, vi } from "vitest";
+import { isOperativeBound, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
+import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry, FacultyId } from "@/lib/types";
 
-function makeEntry(faculty: FacultyId, lifecycle?: "operative-bound" | "detached"): LibraryEntry {
+// Mock the vault so the positive injection path is testable without touching
+// the real data/vault.json.
+vi.mock("@/lib/vault", () => ({
+  readVaultSecrets: vi.fn(async () => [{ key: "DEEPGRAM_API_KEY", value: "dg-secret" }])
+}));
+
+function makeEntry(
+  faculty: FacultyId,
+  lifecycle?: "operative-bound" | "detached",
+  consumes: CapabilityConsumption[] = []
+): LibraryEntry {
   const metadata: GarrisonMetadata = {
     faculty,
     cardinality_hint: "single",
@@ -10,7 +20,7 @@ function makeEntry(faculty: FacultyId, lifecycle?: "operative-bound" | "detached
     platforms: ["claude-code"],
     config_schema: [],
     provides: [],
-    consumes: [],
+    consumes,
     verify: { command: "true", expect: "ok", timeout_ms: 10000 },
     lifecycle
   };
@@ -53,6 +63,20 @@ describe("own-port lifecycle classification", () => {
     expect(isOperativeBound(makeEntry("memory"))).toBe(false);
     expect(isOperativeBound(makeEntry("gateway"))).toBe(false);
     expect(isOperativeBound(makeEntry("channels", "operative-bound"))).toBe(false);
+  });
+});
+
+describe("vaultEnvForEntry (own-port secret injection gating)", () => {
+  it("injects vault secrets only when the Fitting consumes vault", async () => {
+    const withVault = makeEntry("voice", undefined, [{ kind: "vault", cardinality: "one" }]);
+    const env = await vaultEnvForEntry(withVault);
+    expect(env).toEqual({ DEEPGRAM_API_KEY: "dg-secret" });
+  });
+
+  it("returns no secrets for a Fitting that does not consume vault", async () => {
+    const noVault = makeEntry("web-channel", undefined, [{ kind: "voice", cardinality: "optional-one" }]);
+    const env = await vaultEnvForEntry(noVault);
+    expect(env).toEqual({});
   });
 });
 

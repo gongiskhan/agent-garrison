@@ -1,0 +1,54 @@
+name: deepgram-voice
+version: 0.1.0
+description: Voice Faculty Fitting. Stand-alone server on port 7085 that proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side. Channels consume it for push-to-talk and read-aloud.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: voice
+  cardinality_hint: single
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Deepgram-backed speech I/O. POST audio to /stt for a transcript; POST text to /tts for spoken audio. The Deepgram key is read from the vault (DEEPGRAM_API_KEY) and never leaves the host.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7085
+      description: HTTP port the voice server binds to. Falls back to the next free port if busy.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over the LAN/Tailscale.
+    - key: stt_model
+      type: string
+      default: nova-2
+      description: Deepgram speech-to-text model used by /stt.
+    - key: tts_model
+      type: string
+      default: aura-asteria-en
+      description: Deepgram text-to-speech voice used by /tts.
+  provides:
+    - kind: voice
+      name: deepgram
+  consumes:
+    - kind: vault
+      cardinality: one
+  verify:
+    command: node apm_modules/_local/deepgram-voice/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Consumers discover this Fitting at runtime by reading:
+      ~/.garrison/ui-fittings/deepgram-voice.json   ({ fittingId, port, url, pid })
+    Endpoints (all on that url):
+      GET  /health                         - liveness: { ok, port, pid, host, keyConfigured }
+      POST /stt                            - speech-to-text. Body: raw audio bytes
+                                             (Content-Type = the recording's mime,
+                                             e.g. audio/webm or audio/wav).
+                                             Returns: { transcript, confidence }.
+      POST /tts                            - text-to-speech. Body: { "text": "...",
+                                             "format": "mp3" | "wav" } (default mp3).
+                                             Returns: audio bytes (audio/mpeg or audio/wav).
+    The Deepgram API key stays on the host (read from the vault as DEEPGRAM_API_KEY);
+    callers never see it. When the key is missing, /stt and /tts return HTTP 503.

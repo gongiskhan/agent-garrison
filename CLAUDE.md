@@ -45,7 +45,7 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe**. Anything beyond that lives in Fittings.
-- **Faculty** — a slot in a composition. 22 flat top-level Faculties + derived **Tasks**. A subset of Faculties (`terminal`, `screen-share`, `worktree-management`, `session-view`, `outposts`, `monitor`, `web-channel`) is **own-port** — their Fittings serve their own React UI on their own HTTP port (Monitor pattern). Garrison links to those views from the sidebar's Views section; it does not embed them.
+- **Faculty** — a slot in a composition. 24 flat top-level Faculties + derived **Tasks**. A subset of Faculties (`terminal`, `screen-share`, `worktree-management`, `session-view`, `outposts`, `monitor`, `web-channel`, `browser`, `voice`) is **own-port** — their Fittings serve their own React UI (or a headless backend, for `voice`) on their own HTTP port (Monitor pattern). Garrison links to those views from the sidebar's Views section; it does not embed them.
 - **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`). Garrison knows that Fittings have **views**; it does not know about "tools".
 - **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted.
 - **Armory** — `/armory`, the Fitting registry browser.
@@ -102,21 +102,21 @@ no built-in Chat, Tools, or Operative test surface. Operative
 interaction goes through Channel Fittings; observability is the runtime
 log on `/run` plus per-Fitting logs under `/fitting/<id>`.
 
-### Faculties (23 flat top-level + derived Tasks)
+### Faculties (24 flat top-level + derived Tasks)
 
 All Faculties are flat siblings after the 2026-05-17 Workbench dissolution.
 
 **Cadence / Context / Action / Control:** `heartbeat`, `scheduler`, `data-sources`,
 `knowledge-base`, `automations`, `skills`, `memory`, `classifier`,
 `gateway`, `channels`, `observability`, `soul`, `orchestrator`,
-`artifact-store`, `sync`, `monitor`, `web-channel`, `browser`. Tasks is *derived* from a
+`artifact-store`, `sync`, `monitor`, `web-channel`, `browser`, `voice`. Tasks is *derived* from a
 data source and never declared by a Fitting.
 
 **Own-port Faculties** — `terminal` (default port 7078),
 `screen-share` (7079), `worktree-management` (7080),
 `session-view` (7081), `outposts` (7082), `monitor` (7077),
-`web-channel` (7083), and `browser` (7084). Their Fittings serve their own React UI on the
-listed port (Monitor pattern) and register themselves at runtime via
+`web-channel` (7083), `browser` (7084), and `voice` (7085). Their Fittings serve their own React UI on the
+listed port (Monitor pattern, though `voice` is a headless backend) and register themselves at runtime via
 `~/.garrison/ui-fittings/<id>.json`. The sidebar Views section
 surfaces them; Garrison does not embed them. See
 [`docs/decisions/2026-05-17-dissolve-workbench.md`](./docs/decisions/2026-05-17-dissolve-workbench.md)

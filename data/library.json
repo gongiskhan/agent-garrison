@@ -210,6 +210,21 @@
     }
   },
   {
+    "id": "deepgram-voice",
+    "name": "Voice (Deepgram)",
+    "repo": "local:fittings/seed/deepgram-voice",
+    "localPath": "fittings/seed/deepgram-voice",
+    "summary": "Speech I/O on port 7085. Proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side; provides a kind:voice capability that channels consume for push-to-talk and read-aloud.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-deepgram-voice",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
     "id": "artifact-store",
     "name": "Artifact store",
     "repo": "local:fittings/seed/artifact-store",

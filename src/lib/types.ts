@@ -21,7 +21,8 @@ export const facultyIds = [
   "sync",
   "monitor",
   "web-channel",
-  "browser"
+  "browser",
+  "voice"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -59,7 +60,8 @@ export const capabilityKinds = [
   "screen-share",
   "outpost",
   "mcp-gateway",
-  "monitor"
+  "monitor",
+  "voice"
 ] as const;
 
 export type CapabilityKind = (typeof capabilityKinds)[number];
@@ -85,7 +87,8 @@ export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "screen-share",
   "worktree",
   "session-view",
-  "monitor"
+  "monitor",
+  "voice"
 ];
 
 export type PlatformId = "all" | "claude-code" | "codex" | string;

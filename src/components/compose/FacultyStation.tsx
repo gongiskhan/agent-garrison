@@ -110,6 +110,10 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   browser: {
     role: "Headless Chromium substrate Garrison owns and exposes over HTTP/WS.",
     fit: "Default Fitting runs Chromium on port 7084 with per-tab JPEG screencast, mouse/key/touch input, raw CDP, and Chromium's built-in DevTools reverse-proxied — the terminal Fitting's split-pane iframes its canvas, and any browser on the Tailnet can drive it directly."
+  },
+  voice: {
+    role: "Speech I/O the Operative and channels can use for voice in and voice out.",
+    fit: "Default Fitting proxies Deepgram speech-to-text and text-to-speech on its own port (default 7085) and provides a kind:voice capability. The web channel consumes it for push-to-talk recording and read-aloud replies; the API key stays server-side."
   }
 };
 

@@ -22,6 +22,24 @@ interface MonitorInfo {
   url?: string;
 }
 
+interface VoiceInfo {
+  available: boolean;
+  url?: string;
+}
+
+// Secure context is required for getUserMedia (mic capture). localhost counts
+// as secure; a LAN IP over plain http does not. We use this to disable the mic
+// button with an explanatory title rather than throwing on click.
+function micCaptureAllowed(): boolean {
+  return Boolean(
+    typeof window !== "undefined" &&
+      window.isSecureContext &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function" &&
+      typeof window.MediaRecorder !== "undefined"
+  );
+}
+
 function genId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -39,7 +57,13 @@ function renderMarkdown(content: string): string {
   return marked.parse(pre) as string;
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  onSpeak
+}: {
+  message: Message;
+  onSpeak?: (text: string) => void;
+}) {
   const html = useMemo(() => renderMarkdown(message.content || ""), [message.content]);
   const onClick = useCallback((ev: React.MouseEvent<HTMLDivElement>) => {
     const target = ev.target as HTMLElement;
@@ -58,13 +82,47 @@ function MessageBubble({ message }: { message: Message }) {
       window.open(`/fitting/${fittingId}${rest}`, "_blank", "noopener,noreferrer");
     }
   }, []);
+  const canSpeak = message.role === "assistant" && !message.streaming && Boolean(message.content.trim()) && Boolean(onSpeak);
   return (
     <div className={`bubble ${message.role}${message.streaming ? " streaming" : ""}`} onClick={onClick}>
       {message.role === "error"
         ? <div className="meta">error</div>
         : null}
       <div dangerouslySetInnerHTML={{ __html: html }} />
+      {canSpeak ? (
+        <button
+          type="button"
+          className="speak-button"
+          title="Read this reply aloud"
+          aria-label="Read this reply aloud"
+          data-testid="speak-button"
+          onClick={(ev) => { ev.stopPropagation(); onSpeak?.(message.content); }}
+        >
+          <SpeakerIcon />
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
   );
 }
 
@@ -100,7 +158,15 @@ function App() {
   const [composing, setComposing] = useState("");
   const [sending, setSending] = useState(false);
   const [monitor, setMonitor] = useState<MonitorInfo>({ available: false });
+  const [voice, setVoice] = useState<VoiceInfo>({ available: false });
+  const [recording, setRecording] = useState(false);
+  const [readAloud, setReadAloud] = useState(false);
   const [connected, setConnected] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Read latest readAloud inside async send() without re-creating the callback.
+  const readAloudRef = useRef(false);
+  useEffect(() => { readAloudRef.current = readAloud; }, [readAloud]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const lastAssistantBySessionRef = useRef<Map<string, string>>(new Map());
@@ -120,6 +186,37 @@ function App() {
       .then((r) => r.json())
       .then((info) => setMonitor(info))
       .catch(() => setMonitor({ available: false }));
+    fetch("/api/voice")
+      .then((r) => r.json())
+      .then((info) => setVoice(info))
+      .catch(() => setVoice({ available: false }));
+  }, []);
+
+  // Text-to-speech: ask the voice Fitting (via the same-origin proxy) to speak
+  // `text`, then play the returned audio. Replaces any in-flight playback.
+  const speak = useCallback(async (text: string) => {
+    const clean = (text || "").trim();
+    if (!clean) return;
+    try {
+      const res = await fetch("/api/voice/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean })
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      if (!blob.size) return;
+      const objectUrl = URL.createObjectURL(blob);
+      if (audioRef.current) {
+        try { audioRef.current.pause(); } catch {}
+      }
+      const audio = new Audio(objectUrl);
+      audioRef.current = audio;
+      audio.onended = () => URL.revokeObjectURL(objectUrl);
+      audio.play().catch(() => URL.revokeObjectURL(objectUrl));
+    } catch {
+      // TTS is best-effort; failures stay silent.
+    }
   }, []);
 
   // History + live event stream.
@@ -174,8 +271,8 @@ function App() {
     el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`;
   }, [composing]);
 
-  const send = useCallback(async () => {
-    const message = composing.trim();
+  const send = useCallback(async (explicitMessage?: string) => {
+    const message = (typeof explicitMessage === "string" ? explicitMessage : composing).trim();
     if (!message || sending) return;
     setSending(true);
     sendingRef.current = true;
@@ -205,6 +302,10 @@ function App() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
+      // Track the reply text locally — setMessages updaters run deferred, so we
+      // can't read the final content back out of them synchronously (e.g. to
+      // hand to read-aloud on `done`).
+      let assembled = "";
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -218,6 +319,7 @@ function App() {
           if (!ev) continue;
           if (ev.event === "chunk" && typeof ev.data?.text === "string") {
             const text = ev.data.text;
+            assembled += text;
             setMessages((prev) => prev.map((m) => m.id === bubbleId
               ? { ...m, content: m.content + text }
               : m));
@@ -231,10 +333,14 @@ function App() {
             const finalReply = typeof ev.data?.reply === "string" ? ev.data.reply : "";
             const sid = typeof ev.data?.session_id === "string" ? ev.data.session_id : "";
             if (sid) consumedSessionsRef.current.add(sid);
-            setMessages((prev) => prev.map((m) => {
-              if (m.id !== bubbleId) return m;
-              return { ...m, content: m.content || finalReply, streaming: false };
-            }));
+            const finalContent = assembled || finalReply;
+            setMessages((prev) => prev.map((m) =>
+              m.id === bubbleId ? { ...m, content: m.content || finalReply, streaming: false } : m
+            ));
+            // "Read aloud" toggle: speak the completed reply (never per-chunk).
+            if (readAloudRef.current && finalContent.trim()) {
+              void speak(finalContent);
+            }
           }
         }
       }
@@ -247,7 +353,54 @@ function App() {
       setSending(false);
       sendingRef.current = false;
     }
-  }, [composing, sending]);
+  }, [composing, sending, speak]);
+
+  // Push-to-talk. Click once to start recording from the mic, click again to
+  // stop; on stop we POST the captured audio to /api/voice/stt and auto-send
+  // the transcript. getUserMedia needs a secure context (see micCaptureAllowed).
+  const toggleRecording = useCallback(async () => {
+    if (recording) {
+      try { mediaRecorderRef.current?.stop(); } catch {}
+      return;
+    }
+    if (!micCaptureAllowed()) return;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      return; // permission denied / no device
+    }
+    const mr = new MediaRecorder(stream);
+    mediaRecorderRef.current = mr;
+    const chunks: BlobPart[] = [];
+    mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+    mr.onstop = async () => {
+      setRecording(false);
+      stream.getTracks().forEach((t) => t.stop());
+      mediaRecorderRef.current = null;
+      const type = mr.mimeType || "audio/webm";
+      const blob = new Blob(chunks, { type });
+      if (!blob.size) return;
+      try {
+        const res = await fetch("/api/voice/stt", {
+          method: "POST",
+          headers: { "Content-Type": type },
+          body: blob
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const transcript = typeof data?.transcript === "string" ? data.transcript.trim() : "";
+        if (transcript) {
+          setComposing(transcript);
+          void send(transcript);
+        }
+      } catch {
+        // STT best-effort.
+      }
+    };
+    mr.start();
+    setRecording(true);
+  }, [recording, send]);
 
   const onKeyDown = useCallback((ev: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (ev.key !== "Enter") return;
@@ -268,6 +421,20 @@ function App() {
           <small>{connected ? "connected" : "disconnected"} · channel: web</small>
         </div>
         <div className="app-actions">
+          {voice.available ? (
+            <button
+              type="button"
+              className={`read-aloud-toggle${readAloud ? " on" : ""}`}
+              role="switch"
+              aria-checked={readAloud}
+              data-testid="read-aloud-toggle"
+              title={readAloud ? "Auto read-aloud is on" : "Auto read-aloud is off"}
+              onClick={() => setReadAloud((v) => !v)}
+            >
+              <SpeakerIcon />
+              <span>Read aloud{readAloud ? ": on" : ": off"}</span>
+            </button>
+          ) : null}
           {monitor.available && monitor.url
             ? <a href={monitor.url} target="_blank" rel="noopener noreferrer">Monitor</a>
             : null}
@@ -279,19 +446,37 @@ function App() {
       <div className="messages" ref={messagesRef}>
         {messages.length === 0
           ? <div className="empty-state">No messages yet. Say hi.</div>
-          : messages.map((m) => <MessageBubble key={m.id} message={m} />)}
+          : messages.map((m) => (
+              <MessageBubble key={m.id} message={m} onSpeak={voice.available ? speak : undefined} />
+            ))}
       </div>
       <div className="composer">
+        {voice.available ? (
+          <button
+            type="button"
+            className={`mic-button${recording ? " recording" : ""}`}
+            title={micCaptureAllowed()
+              ? (recording ? "Stop recording" : "Record (push to talk)")
+              : "Mic needs a secure context (https or localhost)"}
+            aria-label={recording ? "Stop recording" : "Record"}
+            aria-pressed={recording}
+            data-testid="mic-button"
+            disabled={sending || !micCaptureAllowed()}
+            onClick={toggleRecording}
+          >
+            <MicIcon />
+          </button>
+        ) : null}
         <textarea
           ref={textareaRef}
           value={composing}
           onChange={(e) => setComposing(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Message Gary…"
+          placeholder={recording ? "Listening…" : "Message Gary…"}
           rows={1}
           autoFocus
         />
-        <button className="send-button" onClick={send} disabled={sending || !composing.trim()}>
+        <button className="send-button" onClick={() => send()} disabled={sending || !composing.trim()}>
           {sending ? "…" : "Send"}
         </button>
       </div>

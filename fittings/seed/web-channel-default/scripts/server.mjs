@@ -12,6 +12,7 @@
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
@@ -20,6 +21,7 @@ const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "web-channel-default.json");
 const MONITOR_STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
+const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
 
 const CHANNEL_ID = "web";
 
@@ -27,13 +29,17 @@ function parseArgs(argv) {
   const out = {
     port: Number(process.env.WEB_CHANNEL_PORT || 7083),
     host: process.env.WEB_CHANNEL_HOST || "127.0.0.1",
-    gatewayUrl: process.env.GARRISON_GATEWAY_URL || ""
+    gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
+    tlsCert: process.env.WEB_CHANNEL_TLS_CERT || "",
+    tlsKey: process.env.WEB_CHANNEL_TLS_KEY || ""
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--port") out.port = Number(argv[++i]);
     else if (a === "--host") out.host = argv[++i];
     else if (a === "--gateway-url") out.gatewayUrl = argv[++i];
+    else if (a === "--tls-cert") out.tlsCert = argv[++i];
+    else if (a === "--tls-key") out.tlsKey = argv[++i];
   }
   if (!out.gatewayUrl) {
     const h = process.env.GARRISON_GATEWAY_HOST || "127.0.0.1";
@@ -99,6 +105,90 @@ function pingHealth(baseUrl, timeoutMs) {
     } catch {
       settle(false);
     }
+  });
+}
+
+function readVoiceInfo() {
+  if (!existsSync(VOICE_STATUS_FILE)) return null;
+  try {
+    const info = JSON.parse(readFileSync(VOICE_STATUS_FILE, "utf8"));
+    return info?.url ? info : null;
+  } catch {
+    return null;
+  }
+}
+
+// Voice availability — mirrors handleMonitor. The web UI hides its mic / speaker
+// controls when this reports unavailable.
+async function handleVoiceInfo(res) {
+  const info = readVoiceInfo();
+  if (!info?.url) {
+    jsonRes(res, 200, { available: false });
+    return;
+  }
+  const ok = await pingHealth(info.url, 600);
+  jsonRes(res, 200, ok ? { available: true, url: info.url } : { available: false });
+}
+
+// Binary proxy to the voice Fitting. Used for both /stt (audio in → JSON) and
+// /tts (JSON in → audio out). pipeUpstreamSse/readJsonBody can't carry binary
+// bodies, so this buffers the request and pipes the upstream response straight
+// back, preserving the upstream Content-Type (audio/* or application/json).
+// Same-origin so the browser needs no CORS, and the Deepgram key stays on the
+// voice Fitting — the web UI never sees it.
+async function handleVoiceProxy(req, res, subpath) {
+  const info = readVoiceInfo();
+  if (!info?.url) {
+    jsonRes(res, 503, { error: "voice fitting not available" });
+    return;
+  }
+  let body;
+  try {
+    body = await readRawBody(req);
+  } catch (err) {
+    jsonRes(res, 400, { error: `bad body: ${err.message}` });
+    return;
+  }
+  const target = new URL(subpath, info.url);
+  const upstream = http.request(
+    {
+      method: "POST",
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname,
+      headers: {
+        "Content-Type": req.headers["content-type"] || "application/octet-stream",
+        "Content-Length": body.length
+      }
+    },
+    (up) => {
+      res.statusCode = up.statusCode || 502;
+      if (up.headers["content-type"]) res.setHeader("Content-Type", up.headers["content-type"]);
+      res.setHeader("Cache-Control", "no-store");
+      up.pipe(res);
+    }
+  );
+  upstream.on("error", (err) => {
+    try { jsonRes(res, 502, { error: `voice upstream: ${err.message}` }); } catch {}
+  });
+  upstream.end(body);
+}
+
+function readRawBody(req, limit = 25 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("payload too large"));
+        try { req.destroy(); } catch {}
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
   });
 }
 
@@ -259,7 +349,7 @@ async function writeStatusFile(opts) {
   await writeFile(STATUS_FILE, JSON.stringify({
     fittingId: "web-channel-default",
     port: opts.port,
-    url: `http://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
+    url: `${opts.scheme ?? "http"}://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
     pid: process.pid,
     startedAt: new Date().toISOString()
   }, null, 2));
@@ -277,15 +367,31 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     console.error(`[web-channel] no free port found starting from ${opts.port}`);
     process.exit(1);
   }
-  const liveOpts = { ...opts, port: free };
+  // Optional TLS so mobile browsers get a secure context (getUserMedia / mic
+  // capture is blocked on plain http over a LAN IP). When tls_cert/tls_key are
+  // configured and readable, serve https; otherwise plain http (localhost is a
+  // secure context, so desktop dev and Playwright are unaffected).
+  let tls = null;
+  if (opts.tlsCert && opts.tlsKey && existsSync(opts.tlsCert) && existsSync(opts.tlsKey)) {
+    try {
+      tls = { cert: readFileSync(opts.tlsCert), key: readFileSync(opts.tlsKey) };
+    } catch (err) {
+      console.error(`[web-channel] failed to read TLS cert/key, falling back to http: ${err.message}`);
+      tls = null;
+    }
+  }
+  const liveOpts = { ...opts, port: free, scheme: tls ? "https" : "http" };
 
-  const server = http.createServer(async (req, res) => {
+  const requestHandler = async (req, res) => {
     try {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
+      if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
+      if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
+      if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
       if (pathname.startsWith("/api/")) {
@@ -297,11 +403,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       console.error("[web-channel] handler error:", err);
       jsonRes(res, 500, { error: err.message });
     }
-  });
+  };
+
+  const server = tls
+    ? https.createServer(tls, requestHandler)
+    : http.createServer(requestHandler);
 
   server.listen(liveOpts.port, liveOpts.host, async () => {
     await writeStatusFile(liveOpts);
-    console.log(`[web-channel] listening on http://${liveOpts.host}:${liveOpts.port} (gateway=${liveOpts.gatewayUrl})`);
+    console.log(`[web-channel] listening on ${liveOpts.scheme}://${liveOpts.host}:${liveOpts.port} (gateway=${liveOpts.gatewayUrl})`);
   });
 
   const shutdown = async (signal) => {

@@ -9,7 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
-import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting } from "./own-port-lifecycle";
+import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
@@ -292,7 +292,8 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
   const entries = await selectedLibraryEntries(composition.selections);
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
-    const result = await startOwnPortFitting(entry);
+    const extraEnv = await vaultEnvForEntry(entry);
+    const result = await startOwnPortFitting(entry, extraEnv);
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
       continue;

@@ -6,6 +6,7 @@ continue (e.g. skip one call but finish a tick).
 
 Usage:
     python trello.py --probe                # health check, prints "boardOk"
+    python trello.py lists                   # list the board's lists (id, name)
     python trello.py list <list_id>         # list open cards in a list
     python trello.py create <list_id> <name>
     python trello.py archive <card_id>
@@ -212,6 +213,15 @@ def main(argv: list[str]) -> int:
             return _probe()
 
         client = TrelloClient()
+
+        if cmd == "lists":
+            board_id = os.environ.get("TRELLO_BOARD_ID", "")
+            if not board_id:
+                print("TRELLO_BOARD_ID not configured", file=sys.stderr)
+                return 1
+            lists = [lst for lst in client.board_lists(board_id) if not lst.get("closed")]
+            print(json.dumps(lists, ensure_ascii=False, indent=2))
+            return 0
 
         if cmd == "list":
             if len(argv) < 3:

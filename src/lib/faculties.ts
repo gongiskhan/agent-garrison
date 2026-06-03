@@ -190,6 +190,15 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["plugin", "script"],
     notes:
       "Headless browser substrate. Default Fitting runs Playwright-managed Chromium on its own port (default 7084), exposes CDP / screencast / input over WebSockets, and reverse-proxies Chromium's built-in DevTools frontend so iPad Safari over Tailscale gets full DevTools."
+  },
+  {
+    id: "voice",
+    order: 24,
+    name: "Voice",
+    cardinality: "single",
+    shapes: ["plugin", "script"],
+    notes:
+      "Speech I/O substrate. Stand-alone Fitting on its own port (default 7085) that proxies speech-to-text and text-to-speech (Deepgram in the default Fitting) and provides a kind:voice capability. Channel Fittings (e.g. web-channel) consume it for push-to-talk recording and read-aloud replies; the Deepgram key stays server-side."
   }
 ];
 
@@ -217,7 +226,8 @@ export const OWN_PORT_FACULTIES: ReadonlySet<FacultyId> = new Set([
   "outposts",
   "monitor",
   "web-channel",
-  "browser"
+  "browser",
+  "voice"
 ]);
 
 export const OWN_PORT_DEFAULTS: Partial<Record<FacultyId, number>> = {
@@ -227,7 +237,8 @@ export const OWN_PORT_DEFAULTS: Partial<Record<FacultyId, number>> = {
   "session-view": 7081,
   outposts: 7082,
   "web-channel": 7083,
-  browser: 7084
+  browser: 7084,
+  voice: 7085
   // monitor's default port is owned by the Monitor Fitting itself; if/when it
   // lands a canonical default, add it here.
 };
