@@ -1,0 +1,16 @@
+{
+  "project": "agent-garrison",
+  "updatedAt": "pending",
+  "galleryUrl": null,
+  "slices": [],
+  "globalGate": {
+    "status": "in_progress",
+    "e2eAll": { "cmd": "npm run test:e2e", "exit": null },
+    "verifyApp": { "via": "/verify", "verdict": null },
+    "build": { "cmd": "npm run build", "exit": null },
+    "typecheck": { "cmd": "npm run typecheck", "exit": null },
+    "lint": { "cmd": "npm run lint", "exit": null },
+    "designAudit": { "verdict": null },
+    "everySliceVideoVerified": false
+  }
+}
