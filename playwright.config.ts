@@ -19,7 +19,9 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "retain-on-failure",
-    screenshot: "only-on-failure"
+    screenshot: "only-on-failure",
+    // opt-in flow video capture (evidence): GARRISON_E2E_VIDEO=1
+    video: process.env.GARRISON_E2E_VIDEO === "1" ? "on" : "off"
   },
   projects: [
     {

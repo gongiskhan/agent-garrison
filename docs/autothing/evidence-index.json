@@ -59,7 +59,7 @@
   "globalGate": {
     "status": "completed-with-blockers",
     "e2eAll": { "cmd": "npm run test:e2e", "exit": 0, "note": "3/3 config-plane specs pass against the sandbox" },
-    "verifyApp": { "via": "/verify + sandbox API probes + vision-checked screenshots", "verdict": "clean" },
+    "verifyApp": { "via": "committed e2e specs + sandbox API probes + vision-checked screenshots + read-only GET against the live install", "verdict": "clean" },
     "build": { "cmd": "npm run build", "exit": 0 },
     "typecheck": { "cmd": "npm run typecheck", "exit": 0 },
     "lint": { "cmd": "npm run lint", "exit": 0 },
