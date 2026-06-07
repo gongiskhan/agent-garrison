@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { ClaudeInstallPanel } from "@/components/claude-install/ClaudeInstallPanel";
 import { faculties } from "@/lib/faculties";
 import type { FacultyId, LibraryEntry } from "@/lib/types";
 
@@ -109,6 +110,8 @@ export function ArmoryPanel() {
             Every Fitting passes the four-check validation pipeline before it reaches this list.
           </p>
         </div>
+
+        <ClaudeInstallPanel />
 
         <div
           style={{

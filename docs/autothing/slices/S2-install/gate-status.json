@@ -1,0 +1,20 @@
+{
+  "slice": "S2-install",
+  "title": "Global install/ownership backend + lockfile + skills→~/.claude/skills + adopt",
+  "updatedAt": "2026-06-07T10:33:00Z",
+  "phase": "gate",
+  "status": "in_progress",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npm test -- tests/claude-install.test.ts", "exit": 0, "summary": "9 passed — green-field install + sha256 lock, exact uninstall, never-clobber refusal, brown-field adopt, drift-skip, drift detect, idempotent reinstall, real deployed_files resolver" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "clean" },
+    "build":     { "cmd": "npm run build", "exit": 0, "summary": "/api/claude-install + /armory (ClaudeInstallPanel) compiled" },
+    "e2e":       { "cmd": "npm run test:e2e", "exit": null, "summary": "deferred to evidence pass (Armory install/adopt/uninstall against sandbox)" },
+    "designAudit": { "verdict": null },
+    "video":     { "status": "pending" }
+  },
+  "blockers": [],
+  "notes": "Resolver uses APM's authoritative apm.lock.yaml deployed_files (commands<-.apm/prompts, rules<-.apm/instructions are APM-internal mappings, not a clean mirror — verified, so deployed_files is the source of truth; .apm/skills is a skills-only fallback)."
+}
