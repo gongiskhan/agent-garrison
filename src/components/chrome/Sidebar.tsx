@@ -12,6 +12,7 @@ import {
   Library,
   Play,
   Lock,
+  SlidersHorizontal,
   Component,
   ExternalLink
 } from "lucide-react";
@@ -140,6 +141,7 @@ export function Sidebar() {
           ct={isRunning ? "live" : undefined}
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
+        <NavLink href="/settings" pathname={pathname} icon={<SlidersHorizontal aria-hidden />} label="Settings" />
 
         <FittingViewsLinks
           composition={composition}

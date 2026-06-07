@@ -1,0 +1,20 @@
+{
+  "slice": "S1-settings",
+  "title": "Settings surface over ~/.claude/settings.json (merge-managed, never-clobber)",
+  "updatedAt": "2026-06-07T10:27:00Z",
+  "phase": "gate",
+  "status": "in_progress",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npm test -- tests/claude-settings-file.test.ts tests/settings.test.ts", "exit": 0, "summary": "13 passed — writer read-fresh/merge + view drift/passthrough-by-value/owner-scoped hooks" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "clean" },
+    "build":     { "cmd": "npm run build", "exit": 0, "summary": "/settings (3.2 kB) + /api/settings compiled" },
+    "e2e":       { "cmd": "npm run test:e2e", "exit": null, "summary": "deferred to evidence pass (sandbox-backed /settings spec)" },
+    "designAudit": { "verdict": null },
+    "video":     { "status": "pending" }
+  },
+  "blockers": [],
+  "notes": "Objective gates green. Evidence (e2e + design audit + walkthrough) deferred to the post-implementation evidence pass per the advisor-endorsed sequencing for an unattended multi-slice build; the committed vitest specs are the correctness gate."
+}
