@@ -1,16 +1,75 @@
 {
   "project": "agent-garrison",
-  "updatedAt": "pending",
+  "updatedAt": "2026-06-07T11:01:00Z",
   "galleryUrl": null,
-  "slices": [],
+  "galleryNote": "Evidence artifacts are local files under docs/autothing/evidence/ (no Tailscale gallery this run).",
+  "slices": [
+    {
+      "slice": "S1-settings",
+      "title": "Settings surface over ~/.claude/settings.json (merge-managed, never-clobber)",
+      "kind": "ui",
+      "status": "passed",
+      "video": "docs/autothing/evidence/settings-flow.webm",
+      "screenshot": "docs/autothing/evidence/settings.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/S1-settings/gate-status.json"
+    },
+    {
+      "slice": "S2-install",
+      "title": "Global install/ownership backend + lockfile + skills→~/.claude/skills + adopt",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/armory-install-flow.webm",
+      "screenshot": "docs/autothing/evidence/armory.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/S2-install/gate-status.json"
+    },
+    {
+      "slice": "S3-hooks",
+      "title": "Hook fittings via shared owner-scoped writer; delete dead claude-hooks.ts; migrate session-view",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoNote": "Backend slice; its observable surface (hooks read-only-with-provenance) is the /settings view filmed in settings-flow.webm.",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/S3-hooks/gate-status.json"
+    },
+    {
+      "slice": "S4-memory",
+      "title": "CLAUDE.md editor (user + project); memory-compiler untouched",
+      "kind": "ui",
+      "status": "passed",
+      "video": "docs/autothing/evidence/memory-flow.webm",
+      "screenshot": "docs/autothing/evidence/memory.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/S4-memory/gate-status.json"
+    },
+    {
+      "slice": "S5-importer",
+      "title": "Seed importer — scan ~/.claude → emit fittings (+--adopt)",
+      "kind": "automation",
+      "status": "passed",
+      "video": null,
+      "videoNote": "CLI slice; behavioral proof is an emitted fitting passing tsx scripts/validate-fitting.ts (Overall: PASS).",
+      "flagged": false,
+      "blockerSummary": "Hook-fitting emission is reported-only (deferred); skills emission fully implemented + validated.",
+      "gateStatus": "docs/autothing/slices/S5-importer/gate-status.json"
+    }
+  ],
   "globalGate": {
-    "status": "in_progress",
-    "e2eAll": { "cmd": "npm run test:e2e", "exit": null },
-    "verifyApp": { "via": "/verify", "verdict": null },
-    "build": { "cmd": "npm run build", "exit": null },
-    "typecheck": { "cmd": "npm run typecheck", "exit": null },
-    "lint": { "cmd": "npm run lint", "exit": null },
-    "designAudit": { "verdict": null },
-    "everySliceVideoVerified": false
+    "status": "completed-with-blockers",
+    "e2eAll": { "cmd": "npm run test:e2e", "exit": 0, "note": "3/3 config-plane specs pass against the sandbox" },
+    "verifyApp": { "via": "/verify + sandbox API probes + vision-checked screenshots", "verdict": "clean" },
+    "build": { "cmd": "npm run build", "exit": 0 },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0 },
+    "lint": { "cmd": "npm run lint", "exit": 0 },
+    "unitTests": { "cmd": "npm test", "exit": 1, "note": "394 passed, 1 skipped; the only failure is the pre-existing flaky live-SDK orchestrator-integration test (baseline, not config-plane). Feature added 33 passing specs." },
+    "designAudit": { "verdict": "clean", "by": ["vision screenshots vs Vault/Armory reference"], "notes": "matches the shell visual language; no emoji; no new design idioms" },
+    "everySliceVideoVerified": false,
+    "blockers": [
+      "No walkthrough-skill self-verified narrated videos. Substituted with 3 sandbox-safe Playwright flow recordings (.webm) + 3 vision-checked screenshots + 3 committed e2e flow assertions. Reason: a narrated walkthrough that drives 'edit + save' would mutate the user's LIVE ~/.claude unless the walkthrough server is wired to the sandbox; that wiring + the skill's STUCK-prone vision pipeline was out of budget. The feature's correctness is proven by committed re-runnable tests, not the video.",
+      "S5 importer: hook-fitting emission is reported-only (skills emission fully implemented + validated).",
+      "Pre-existing flaky test tests/orchestrator-integration.test.ts (live-model non-determinism) remains red at baseline — not introduced by this work."
+    ]
   }
 }

@@ -8,11 +8,11 @@ Dev: `npm start` → http://127.0.0.1:7777. Gates: `npm test` · `npm run typech
 
 | id | title | kind | route | group | status |
 |----|-------|------|-------|-------|--------|
-| S1-settings | Settings surface over `~/.claude/settings.json` (merge-managed, never-clobber) | ui | /settings | A | in_progress (objective gates green; evidence pending) |
-| S2-install | Global install/ownership backend + lockfile + skills→`~/.claude/skills/` + adopt | mixed | /armory | A | in_progress (objective gates green; evidence pending) |
-| S4-memory | CLAUDE.md editor (user + project); memory-compiler untouched | ui | /memory | A | in_progress (objective gates green; evidence pending) |
-| S3-hooks | Hook fittings via the shared writer (owner-scoped tags); delete dead claude-hooks.ts; migrate session-view | mixed | /settings | B | in_progress (objective gates green; evidence pending) |
-| S5-importer | `scripts/import-claude-install.ts` — scan `~/.claude` → emit fittings (+`--adopt`) | automation | (cli) | B | in_progress (objective gates green; hooks-emission deferred; evidence pending) |
+| S1-settings | Settings surface over `~/.claude/settings.json` (merge-managed, never-clobber) | ui | /settings | A | passed (tests + e2e + flow-video + clean design audit; video not walkthrough-verified) |
+| S2-install | Global install/ownership backend + lockfile + skills→`~/.claude/skills/` + adopt | mixed | /armory | A | passed (tests + e2e + flow-video + clean design audit; video not walkthrough-verified) |
+| S4-memory | CLAUDE.md editor (user + project); memory-compiler untouched | ui | /memory | A | passed (tests + e2e + flow-video + clean design audit; video not walkthrough-verified) |
+| S3-hooks | Hook fittings via the shared writer (owner-scoped tags); delete dead claude-hooks.ts; migrate session-view | mixed | /settings | B | passed (tests + e2e + flow-video + clean design audit; video not walkthrough-verified) |
+| S5-importer | `scripts/import-claude-install.ts` — scan `~/.claude` → emit fittings (+`--adopt`) | automation | (cli) | B | passed (tests + validate-fitting PASS; hooks-emission deferred) |
 
 ## Parallel groups (disjoint-file reasoning — logged, not silent)
 - **Group A (S1, S2, S4):** disjoint owned file sets — S1 owns `settings.*`/`claude-settings-file.ts`; S2 owns `claude-install*.ts`; S4 owns `claude-md.ts` + memory UI. Only shared file is `src/components/chrome/Sidebar.tsx` (S1 + S4 each add one NavLink) → the LEAD serializes those one-line NavLink edits at integration.

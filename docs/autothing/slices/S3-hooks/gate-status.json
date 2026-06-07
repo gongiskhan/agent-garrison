@@ -2,8 +2,8 @@
   "slice": "S3-hooks",
   "title": "Hook fittings via shared writer (owner-scoped tags); delete dead claude-hooks.ts; migrate session-view",
   "updatedAt": "2026-06-07T10:40:00Z",
-  "phase": "gate",
-  "status": "in_progress",
+  "phase": "done",
+  "status": "passed",
   "kind": "mixed",
   "retries": { "limit": 5, "used": 0 },
   "gates": {

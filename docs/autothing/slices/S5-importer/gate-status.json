@@ -2,8 +2,8 @@
   "slice": "S5-importer",
   "title": "scripts/import-claude-install.ts — scan ~/.claude → emit fittings (+--adopt)",
   "updatedAt": "2026-06-07T10:46:00Z",
-  "phase": "gate",
-  "status": "in_progress",
+  "phase": "done",
+  "status": "passed",
   "kind": "automation",
   "retries": { "limit": 5, "used": 0 },
   "gates": {

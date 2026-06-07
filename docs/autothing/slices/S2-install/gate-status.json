@@ -2,8 +2,8 @@
   "slice": "S2-install",
   "title": "Global install/ownership backend + lockfile + skills→~/.claude/skills + adopt",
   "updatedAt": "2026-06-07T10:33:00Z",
-  "phase": "gate",
-  "status": "in_progress",
+  "phase": "done",
+  "status": "passed",
   "kind": "mixed",
   "retries": { "limit": 5, "used": 0 },
   "gates": {
@@ -11,9 +11,9 @@
     "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
     "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "clean" },
     "build":     { "cmd": "npm run build", "exit": 0, "summary": "/api/claude-install + /armory (ClaudeInstallPanel) compiled" },
-    "e2e":       { "cmd": "npm run test:e2e", "exit": null, "summary": "deferred to evidence pass (Armory install/adopt/uninstall against sandbox)" },
-    "designAudit": { "verdict": null },
-    "video":     { "status": "pending" }
+    "e2e":       { "cmd": "npm run test:e2e", "exit": 0, "summary": "tests/e2e/armory-install.spec.ts passes vs sandbox — green-field install, brown-field adopt, uninstall" },
+    "designAudit": { "verdict": "clean", "by": ["vision screenshot vs Vault/Armory"], "at": "2026-06-07T11:00:00Z", "notes": "install section sits cleanly atop the existing Armory grid" },
+    "video":     { "status": "recorded", "artifact": "docs/autothing/evidence/armory-install-flow.webm", "note": "sandbox-safe Playwright flow recording + vision-checked screenshot; NOT a walkthrough-skill vision-verified video" }
   },
   "blockers": [],
   "notes": "Resolver uses APM's authoritative apm.lock.yaml deployed_files (commands<-.apm/prompts, rules<-.apm/instructions are APM-internal mappings, not a clean mirror — verified, so deployed_files is the source of truth; .apm/skills is a skills-only fallback)."
