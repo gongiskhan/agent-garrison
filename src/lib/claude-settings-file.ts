@@ -111,6 +111,20 @@ export function upsertGarrisonHookGroup(
   hooks[event] = kept;
 }
 
+// Append an owner-tagged group WITHOUT stripping same-owner groups first. Lets
+// one owner install multiple groups (possibly on the same event); the installer
+// does a single upfront stripGarrisonGroupsForOwner for idempotency.
+export function appendGarrisonHookGroup(
+  draft: SettingsObject,
+  event: string,
+  group: HookGroup,
+  owner: string
+): void {
+  const hooks = hooksBlock(draft);
+  const list = (hooks[event] = Array.isArray(hooks[event]) ? hooks[event] : []);
+  list.push({ ...group, _garrison: owner });
+}
+
 // Remove ONLY the groups owned by `owner`, across every event. Never touches
 // other owners' groups or untagged hand-authored groups.
 export function stripGarrisonGroupsForOwner(

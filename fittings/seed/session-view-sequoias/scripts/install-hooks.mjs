@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Install Garrison session-view hooks into ~/.claude/settings.json.
-// Idempotent: re-running strips any prior `_garrison: true` groups before adding fresh ones.
-// Preserves all unrelated entries (memory-compiler, sequoias, user-defined).
+// Owner-scoped: groups are tagged `_garrison: "fitting:session-view-sequoias"`,
+// so this writer strips ONLY its own groups and never collides with other
+// Garrison hook writers (memory, future hook fittings) or hand-authored hooks.
+// Idempotent: re-running strips this owner's groups (and any legacy bare
+// `_garrison: true` groups it wrote pre-migration) before adding fresh ones.
+// Preserves all unrelated entries (memory-compiler, user-defined).
 
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -15,6 +19,7 @@ const SNAPSHOT_PATH = path.join(SNAPSHOT_DIR, "claude-settings.before-garrison.j
 
 const PORT = Number(process.env.GARRISON_SESSION_VIEW_PORT || 7081);
 const HOOK_EVENTS = ["UserPromptSubmit", "Stop", "Notification", "PostToolUse"];
+const OWNER = "fitting:session-view-sequoias";
 
 function buildHookCommand(event) {
   // Claude Code passes a JSON payload on stdin (session_id, transcript_path,
@@ -40,13 +45,15 @@ function safeParse(text) {
   return {};
 }
 
-function stripGarrisonGroups(settings) {
+// Strip only THIS owner's groups (plus legacy bare-`true` groups, which only
+// this writer ever produced — completes the migration on re-run).
+function stripOwnGroups(settings) {
   if (!settings.hooks || typeof settings.hooks !== "object") return false;
   let removedAny = false;
   for (const [event, list] of Object.entries(settings.hooks)) {
     if (!Array.isArray(list)) continue;
     const before = list.length;
-    settings.hooks[event] = list.filter((g) => !(g && g._garrison));
+    settings.hooks[event] = list.filter((g) => !(g && (g._garrison === OWNER || g._garrison === true)));
     if (settings.hooks[event].length !== before) removedAny = true;
   }
   return removedAny;
@@ -57,7 +64,7 @@ async function main() {
   await fsp.mkdir(SNAPSHOT_DIR, { recursive: true });
 
   const existedBefore = fs.existsSync(SETTINGS_PATH);
-  let originalText = existedBefore ? await fsp.readFile(SETTINGS_PATH, "utf8") : "";
+  const originalText = existedBefore ? await fsp.readFile(SETTINGS_PATH, "utf8") : "";
 
   // First-install snapshot (preserved across re-runs)
   if (existedBefore && !fs.existsSync(SNAPSHOT_PATH)) {
@@ -68,21 +75,20 @@ async function main() {
   const settings = existedBefore ? safeParse(originalText) : {};
   if (!settings.hooks || typeof settings.hooks !== "object") settings.hooks = {};
 
-  // Clean any prior _garrison groups so re-running is idempotent
-  const stripped = stripGarrisonGroups(settings);
-  if (stripped) console.log("[install-hooks] removed stale _garrison hook entries");
+  const stripped = stripOwnGroups(settings);
+  if (stripped) console.log(`[install-hooks] removed stale ${OWNER} hook entries`);
 
   for (const event of HOOK_EVENTS) {
     if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
     settings.hooks[event].push({
-      _garrison: true,
+      _garrison: OWNER,
       matcher: "",
       hooks: [{ type: "command", command: buildHookCommand(event), timeout: 5 }]
     });
   }
 
   await fsp.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2));
-  console.log(`[install-hooks] installed ${HOOK_EVENTS.length} _garrison hook groups → ${SETTINGS_PATH}`);
+  console.log(`[install-hooks] installed ${HOOK_EVENTS.length} ${OWNER} hook groups → ${SETTINGS_PATH}`);
   for (const e of HOOK_EVENTS) {
     console.log(`  + ${e} → POST http://127.0.0.1:${PORT}/_hook`);
   }

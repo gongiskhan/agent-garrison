@@ -2,6 +2,11 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { claudeHome, garrisonDir } from "./claude-home";
+import {
+  writeSettingsMerged,
+  appendGarrisonHookGroup,
+  stripGarrisonGroupsForOwner
+} from "./claude-settings-file";
 
 // Global install/ownership backend for the Claude Code installation (~/.claude).
 //
@@ -15,10 +20,17 @@ import { claudeHome, garrisonDir } from "./claude-home";
 
 export type ArtifactKind = "skill-dir" | "command-file" | "rule-file" | "hook-group";
 
+export interface HookGroupSpec {
+  event: string; // e.g. "SessionStart"
+  matcher?: string;
+  hooks: { type: string; command: string; timeout?: number }[];
+}
+
 export interface ArtifactSource {
-  target: string; // relative to claudeHome, e.g. "skills/foo" | "commands/foo.md"
+  target: string; // relative to claudeHome, e.g. "skills/foo"; for hooks a synthetic label "hooks"
   kind: ArtifactKind;
-  sourcePath?: string; // absolute path of the source to copy (not needed for adopt)
+  sourcePath?: string; // absolute path of the source to copy (file artifacts only)
+  hookGroups?: HookGroupSpec[]; // hook-group artifacts only
 }
 
 export interface InstallManifest {
@@ -30,7 +42,9 @@ export interface InstallManifest {
 export interface InstalledArtifact {
   target: string;
   kind: ArtifactKind;
-  files: Record<string, string>; // relpath-under-claudeHome -> "sha256:<hex>"
+  files: Record<string, string>; // relpath-under-claudeHome -> "sha256:<hex>" (file artifacts)
+  owner?: string; // hook-group: the "_garrison" owner tag written into settings.json
+  events?: string[]; // hook-group: events touched
 }
 
 export interface InstalledFitting {
@@ -154,12 +168,13 @@ function ownedTargets(lock: InstallLock): Map<string, string> {
 export async function installFitting(manifest: InstallManifest, opts?: InstallOpts): Promise<InstallResult> {
   const h = home(opts);
   const fileArtifacts = manifest.artifacts.filter((a) => a.kind !== "hook-group");
-  if (fileArtifacts.length === 0) return { ok: false, code: "no-artifacts" };
+  const hookArtifacts = manifest.artifacts.filter((a) => a.kind === "hook-group");
+  if (manifest.artifacts.length === 0) return { ok: false, code: "no-artifacts" };
 
   const lock = await readInstallLock(opts);
   const owners = ownedTargets(lock);
 
-  // Precheck (atomic at the fitting level): refuse the WHOLE install if any
+  // Precheck (atomic at the fitting level): refuse the WHOLE install if any file
   // target exists on disk and is not already owned by THIS fitting. Write nothing.
   for (const a of fileArtifacts) {
     if (!a.sourcePath || !(await exists(a.sourcePath))) {
@@ -182,6 +197,24 @@ export async function installFitting(manifest: InstallManifest, opts?: InstallOp
     await fs.mkdir(path.dirname(absTarget), { recursive: true });
     await fs.cp(a.sourcePath as string, absTarget, { recursive: true });
     records.push({ target: a.target, kind: a.kind, files: await hashArtifactOnDisk(h, a.target) });
+  }
+
+  // Hook-group artifacts -> owner-tagged groups in settings.json via the single
+  // shared writer. Owner-scoped, so multiple hook fittings coexist and uninstall
+  // strips ONLY this fitting's groups.
+  if (hookArtifacts.length > 0) {
+    const owner = `fitting:${manifest.fittingId}`;
+    const events = new Set<string>();
+    await writeSettingsMerged((draft) => {
+      stripGarrisonGroupsForOwner(draft, owner); // idempotent re-install
+      for (const a of hookArtifacts) {
+        for (const g of a.hookGroups ?? []) {
+          events.add(g.event);
+          appendGarrisonHookGroup(draft, g.event, { matcher: g.matcher ?? "", hooks: g.hooks }, owner);
+        }
+      }
+    }, h);
+    records.push({ target: "hooks", kind: "hook-group", files: {}, owner, events: [...events].sort() });
   }
 
   lock.installs[manifest.fittingId] = {
@@ -239,6 +272,15 @@ export async function uninstallFitting(fittingId: string, opts?: InstallOpts): P
   const driftedSkipped: string[] = [];
 
   for (const a of inst.artifacts) {
+    if (a.kind === "hook-group") {
+      if (a.owner) {
+        await writeSettingsMerged((draft) => {
+          stripGarrisonGroupsForOwner(draft, a.owner as string);
+        }, h);
+        removed.push(`hooks:${a.owner}`);
+      }
+      continue;
+    }
     for (const [rel, recordedHash] of Object.entries(a.files)) {
       const abs = path.join(h, rel);
       if (!(await exists(abs))) continue; // already gone

@@ -1,0 +1,20 @@
+{
+  "slice": "S3-hooks",
+  "title": "Hook fittings via shared writer (owner-scoped tags); delete dead claude-hooks.ts; migrate session-view",
+  "updatedAt": "2026-06-07T10:40:00Z",
+  "phase": "gate",
+  "status": "in_progress",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npm test -- tests/claude-hooks-install.test.ts", "exit": 0, "summary": "3 passed — owner-scoped coexistence (the exact bare-marker collision), uninstall-isolation, idempotent reinstall; +22 lib regression green" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors; no stray imports of deleted module" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "clean" },
+    "build":     { "cmd": "npm run build", "exit": 0, "summary": "ok" },
+    "e2e":       { "cmd": "npm run test:e2e", "exit": null, "summary": "hooks read-only-with-provenance covered by S1 /settings in evidence pass" },
+    "designAudit": { "verdict": null },
+    "video":     { "status": "pending" }
+  },
+  "blockers": [],
+  "notes": "Deleted dead src/lib/claude-hooks.ts + tests/claude-hooks.test.ts (bare-marker source, no live caller). Migrated session-view install/uninstall-hooks.mjs to _garrison:'fitting:session-view-sequoias' with legacy bare-true cleanup. Hook-group artifacts now route through claude-install -> the single shared settings writer."
+}
