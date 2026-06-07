@@ -1,0 +1,22 @@
+{
+  "slice": "S5-importer",
+  "title": "scripts/import-claude-install.ts — scan ~/.claude → emit fittings (+--adopt)",
+  "updatedAt": "2026-06-07T10:46:00Z",
+  "phase": "gate",
+  "status": "in_progress",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npm test -- tests/import-claude-install.test.ts", "exit": 0, "summary": "4 passed — frontmatter parse, emit+skip-existing, --adopt records lock at current bytes, dry-run" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "clean" },
+    "build":     { "cmd": "npm run build", "exit": 0, "summary": "ok" },
+    "e2e":       { "cmd": "tsx scripts/validate-fitting.ts <emitted>", "exit": 0, "summary": "emitted fitting passes the four-check pipeline (Overall: PASS) — the slice's behavioral assertion" },
+    "designAudit": { "verdict": "n/a", "by": ["none"], "at": "2026-06-07T10:46:00Z", "notes": "CLI-only slice, no UI surface" },
+    "video":     { "status": "pending" }
+  },
+  "blockers": [
+    "Hook-fitting emission is reported-only (untagged group count), not emitted as installable hook fittings — the resolver->hook-group path isn't wired (hooks install via a manifest's hookGroups, which the importer would author and the resolver would read). Skills emission (the dominant case) is fully implemented + validated. Logged in docs/autothing/decisions.md."
+  ],
+  "notes": "Verified end-to-end: importer emits a skill fitting that PASSES tsx scripts/validate-fitting.ts. --adopt bridges brown-field on-disk skills into the install lock."
+}

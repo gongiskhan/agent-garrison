@@ -12,7 +12,7 @@ Dev: `npm start` → http://127.0.0.1:7777. Gates: `npm test` · `npm run typech
 | S2-install | Global install/ownership backend + lockfile + skills→`~/.claude/skills/` + adopt | mixed | /armory | A | in_progress (objective gates green; evidence pending) |
 | S4-memory | CLAUDE.md editor (user + project); memory-compiler untouched | ui | /memory | A | in_progress (objective gates green; evidence pending) |
 | S3-hooks | Hook fittings via the shared writer (owner-scoped tags); delete dead claude-hooks.ts; migrate session-view | mixed | /settings | B | in_progress (objective gates green; evidence pending) |
-| S5-importer | `scripts/import-claude-install.ts` — scan `~/.claude` → emit fittings (+`--adopt`) | automation | (cli) | B | pending |
+| S5-importer | `scripts/import-claude-install.ts` — scan `~/.claude` → emit fittings (+`--adopt`) | automation | (cli) | B | in_progress (objective gates green; hooks-emission deferred; evidence pending) |
 
 ## Parallel groups (disjoint-file reasoning — logged, not silent)
 - **Group A (S1, S2, S4):** disjoint owned file sets — S1 owns `settings.*`/`claude-settings-file.ts`; S2 owns `claude-install*.ts`; S4 owns `claude-md.ts` + memory UI. Only shared file is `src/components/chrome/Sidebar.tsx` (S1 + S4 each add one NavLink) → the LEAD serializes those one-line NavLink edits at integration.
