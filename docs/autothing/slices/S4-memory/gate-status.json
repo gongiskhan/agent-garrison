@@ -1,0 +1,20 @@
+{
+  "slice": "S4-memory",
+  "title": "CLAUDE.md editor (user + project); memory-compiler untouched",
+  "updatedAt": "2026-06-07T10:42:00Z",
+  "phase": "gate",
+  "status": "in_progress",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npm test -- tests/claude-md.test.ts", "exit": 0, "summary": "4 passed — round-trip, user/project scope, never-clobber conflict refusal, baseline-match write" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "clean" },
+    "build":     { "cmd": "npm run build", "exit": 0, "summary": "/memory + /api/claude-md compiled" },
+    "e2e":       { "cmd": "npm run test:e2e", "exit": null, "summary": "deferred to evidence pass (edit/save CLAUDE.md against sandbox)" },
+    "designAudit": { "verdict": null },
+    "video":     { "status": "pending" }
+  },
+  "blockers": [],
+  "notes": "Keep-both: claude-md.ts touches ONLY CLAUDE.md files; fittings/seed/memory and the episodic compiler are unchanged. Conflict (sha-baseline) refusal mirrors the settings never-clobber discipline."
+}

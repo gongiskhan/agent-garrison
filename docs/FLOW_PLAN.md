@@ -10,7 +10,7 @@ Dev: `npm start` → http://127.0.0.1:7777. Gates: `npm test` · `npm run typech
 |----|-------|------|-------|-------|--------|
 | S1-settings | Settings surface over `~/.claude/settings.json` (merge-managed, never-clobber) | ui | /settings | A | in_progress (objective gates green; evidence pending) |
 | S2-install | Global install/ownership backend + lockfile + skills→`~/.claude/skills/` + adopt | mixed | /armory | A | in_progress (objective gates green; evidence pending) |
-| S4-memory | CLAUDE.md editor (user + project); memory-compiler untouched | ui | /memory | A | pending |
+| S4-memory | CLAUDE.md editor (user + project); memory-compiler untouched | ui | /memory | A | in_progress (objective gates green; evidence pending) |
 | S3-hooks | Hook fittings via the shared writer (owner-scoped tags); delete dead claude-hooks.ts; migrate session-view | mixed | /settings | B | in_progress (objective gates green; evidence pending) |
 | S5-importer | `scripts/import-claude-install.ts` — scan `~/.claude` → emit fittings (+`--adopt`) | automation | (cli) | B | pending |
 
