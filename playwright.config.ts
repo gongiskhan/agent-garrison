@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 import path from "node:path";
 import os from "node:os";
+import { CLAUDE_SANDBOX, GARRISON_SANDBOX } from "./tests/e2e/sandbox";
 
 const TEST_STATE_DIR = path.join(os.homedir(), ".garrison-test");
 const TEST_STATE_FILE = path.join(TEST_STATE_DIR, "state.json");
@@ -8,6 +9,7 @@ const PORT = Number(process.env.GARRISON_E2E_PORT ?? 3401);
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: false, // serialise — shared dev server
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -45,6 +47,8 @@ export default defineConfig({
     timeout: 60_000,
     env: {
       GARRISON_STATE_PATH: TEST_STATE_FILE,
+      GARRISON_CLAUDE_HOME: CLAUDE_SANDBOX,
+      GARRISON_HOME: GARRISON_SANDBOX,
       NODE_ENV: process.env.NODE_ENV ?? "development"
     },
     stdout: "ignore",
