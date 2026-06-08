@@ -214,7 +214,10 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
       {deleting ? (
         <ConfirmDialog
           title={`Remove ${deleting.crud.noun}`}
-          body={`Remove "${deleting.rec.name}"? This rewrites the underlying ~/.claude file. This cannot be undone from here.`}
+          body={
+            deleting.crud.confirmBody?.(deleting.rec) ??
+            `Remove "${deleting.rec.name}"? This rewrites the underlying ~/.claude file. This cannot be undone from here.`
+          }
           confirmLabel="Remove"
           onConfirm={() => remove(deleting.rec, deleting.crud)}
           onClose={() => setDeleting(null)}

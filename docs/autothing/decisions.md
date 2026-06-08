@@ -12,6 +12,68 @@ Build-time decisions and blockers for the config-plane build. Kept separate from
 
 - **Hook-fitting emission deferred (honest partial):** the seed importer fully emits + validates SKILL fittings (the dominant case; an emitted fitting passes `validate-fitting`). It REPORTS untagged hook groups in settings.json but does not yet emit installable hook fittings — that requires wiring the source resolver to produce `hook-group` artifacts from a fitting definition (hooks install via a manifest's `hookGroups`, which the importer would author and the resolver would read). Scoped as a follow-up; not a regression.
 
+## 2026-06-08 — Quarters-pivot finish wave (Q1–Q4) scope + deferrals
+
+Continuing `/autothing finish the work at docs/CLAUDE_CONFIG_PLANE_HANDOFF.md`.
+Layer 1 (S1–S5) and the Layer-2 engine + read-only Quarters + roles cut are
+committed (`5e640e2`). This wave finishes the *achievable* deferred items and
+honestly logs the rest. Scope set with advisor review.
+
+**Building this wave:** Q1 RC5 docs sync · Q2 Logs+Sessions read-only tailing
+(UI6/UI7) · Q3 S5 hook-fitting emission · Q4 EA2 follow-ups (atomic-write 0600 +
+plugins classification). See `docs/FLOW_PLAN.md` for the slice table + gates.
+
+**Deferred (explicitly, not silently — same honesty bar as garrison-control):**
+- **RC4 (full) — hosted authoring + Run→hosted-session launcher.** Deferred
+  *whole*, not half-wired. Reason (advisor-confirmed): the pivot retires the
+  spawned process so the user's real Claude Code becomes the runtime; wiring
+  `projectOrchestrator` into `up()` while `up()` still does
+  `spawnGateway`/`spawnClaude` with `--append-system-prompt-file` would deliver
+  the orchestrator instructions twice into a process the pivot is deleting — an
+  architecturally incoherent half-migration, worse than the current honest state.
+  `runner.ts` is intentionally untouched this wave. `orchestrator-projection.ts`
+  stays unit-tested in isolation. The Run copy remains accurate ("it genuinely
+  spawns").
+- **Compose reframe** (the other half of the decision record's UI6/UI7 line):
+  reframing `/compose` from the 24-faculty station grid into the role-fitting
+  editor for the global composition. Large UI rework; deferred. Logged here so it
+  does not vanish — `/compose` still shows the legacy station grid until done.
+- **garrison-control MCP** — gated on **SP1** (APM MCP write-through), unverified
+  ground truth. Not built blind.
+- **EA5 strangler** — retiring `claude-install.ts` once global-composition
+  subsumes it. Deleting a working installer in an unattended run is too risky;
+  deferred until the global-composition install path is daily-use-proven.
+
+**Expected terminal state:** `completed-with-blockers` (the correct deliverable,
+not a failure) — the deferrals above plus backend/docs/CLI slices that have no
+meaningful walkthrough video keep the global gate honest. Q2 is the one UI slice
+that can earn a verified walkthrough video (read-only Logs/Sessions vs the
+sandbox dev-server).
+
 ## 2026-06-07 — sequencing
 
 - **Objective-gates-first, evidence pass second:** per advisor guidance for an unattended multi-slice build, all five slices were taken to code-complete + committed-test-green + typecheck/lint/build green and committed BEFORE the walkthrough/e2e evidence pass. The committed vitest specs (33 across the feature) are the correctness gate; the walkthrough videos are the evidence layer. This deviates from autothing's strict per-slice-video-before-next-slice; recorded in friction-log.
+
+## 2026-06-09 — Quarters-CRUD wave (manage everything from the UI)
+
+Added full create/edit/delete to the Quarters surfaces Garrison is
+writer-of-record for, governed by one invariant (see FLOW_PLAN): the UI
+freely CRUDs loose files / untagged hooks / mcp.json; owner-managed things
+(APM lock, `_garrison` hooks, Claude Code's plugin manager) route through
+the owner's mechanism or stay read-only. Slices C1 (MCP) · C2 (skills) ·
+C3 (commands+rules) · C4 (hooks) · C5 (plugins-remove), serial/lead-authored.
+
+**Deferred (logged, not dropped):**
+- **Plugin install from a marketplace** — needs marketplace resolution + git
+  clone; stays with Claude Code's `/plugin` (gated on SP6). Only uninstall ships.
+- **MCP secrets to the vault** — MCP `env`/`headers` are written as plaintext to
+  mcp.json (matches Claude Code's own format; not a regression). Routing MCP
+  secrets through the AES vault is a future enhancement, not done here.
+- **File-primitive rename** — editing keeps the name fixed (rename = a move);
+  out of scope this wave.
+
+**Cooperative-ownership caveat (plugins + hooks + mcp + settings):** a RUNNING
+Claude Code may rewrite these files on exit, same as the settings.json surface.
+The plugin uninstall confirm warns to restart. Verified the plugin manifest is
+the source of truth (no `enabledPlugins` in settings.json; marketplaces only
+list availability) before building removal.

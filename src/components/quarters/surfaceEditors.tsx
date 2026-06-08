@@ -64,7 +64,8 @@ export interface SurfaceCrud {
   noun: string; // "MCP server"
   createLabel: string; // "Add server"
   creatable: boolean;
-  Editor: ComponentType<SurfaceEditorProps>;
+  // Some surfaces are remove-only (plugins): no create/edit form, just Remove.
+  Editor?: ComponentType<SurfaceEditorProps>;
   // POST body to delete this record, or null if it can't be directly deleted.
   deleteBody: (rec: PrimitiveRecord) => Record<string, unknown> | null;
   // When deleteBody is null, a short reason shown in place of the Delete button.
@@ -72,6 +73,8 @@ export interface SurfaceCrud {
   // Whether THIS record may be edited (default true). Fitting-owned hooks are
   // read-only here → false, so no Edit button is offered for them.
   editable?: (rec: PrimitiveRecord) => boolean;
+  // Custom confirm-dialog body for a destructive remove (default: generic).
+  confirmBody?: (rec: PrimitiveRecord) => string;
 }
 
 export const SURFACE_CRUD: Partial<Record<PrimitiveSurface, SurfaceCrud>> = {
@@ -121,6 +124,16 @@ export const SURFACE_CRUD: Partial<Record<PrimitiveSurface, SurfaceCrud>> = {
       return { action: "hook.delete", event, index };
     },
     blockedDeleteHint: (rec) => (rec.state === "owned" ? `fitting-owned${rec.fittingId ? ` · ${rec.fittingId}` : ""}` : null)
+  },
+  plugin: {
+    // Remove-only: Claude Code's plugin manager owns install; Garrison can
+    // uninstall (drop the installed_plugins.json entry + cache dir). No editor.
+    noun: "plugin",
+    createLabel: "",
+    creatable: false,
+    deleteBody: (rec) => ({ action: "plugin.remove", key: rec.name }),
+    confirmBody: (rec) =>
+      `Uninstall "${rec.name}"? This drops it from Claude Code's plugin manifest (installed_plugins.json) and removes its cached files. A running Claude Code may need a restart. You can reinstall it later via /plugin.`
   }
 };
 

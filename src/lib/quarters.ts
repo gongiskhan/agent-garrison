@@ -20,6 +20,7 @@ import {
   deleteHandHook,
   type HookCrudResult
 } from "./hooks-crud";
+import { removePlugin, type PluginRemoveResult } from "./plugin-writer";
 
 // Backend for the Quarters surface: a read (the loose/owned StateModel over the
 // real ~/.claude), the promote/park/unpark transition dispatch, AND the CRUD
@@ -50,7 +51,8 @@ export type QuartersActionRequest =
   | { action: "file.delete"; surface: FilePrimitiveSurface; name: string }
   | { action: "hook.create"; event: string; matcher?: string; command: string; timeout?: number }
   | { action: "hook.update"; event: string; index: number; matcher?: string; command: string; timeout?: number }
-  | { action: "hook.delete"; event: string; index: number };
+  | { action: "hook.delete"; event: string; index: number }
+  | { action: "plugin.remove"; key: string };
 
 export async function getQuartersState(): Promise<StateModel> {
   return computeStateModel();
@@ -66,6 +68,10 @@ function fromFile(r: FilePrimitiveResult): CrudResult {
 
 function fromHook(r: HookCrudResult): CrudResult {
   return { ok: r.ok, id: r.id, code: r.code, error: r.error };
+}
+
+function fromPlugin(r: PluginRemoveResult): CrudResult {
+  return { ok: r.ok, id: r.key ? `plugin:${r.key}` : undefined, code: r.code, error: r.error };
 }
 
 // Backend half of the writer-of-record invariant: a delete is refused for an
@@ -116,6 +122,8 @@ export async function runQuartersAction(
       return fromHook(await updateHandHook(req.event, req.index, { event: req.event, matcher: req.matcher, command: req.command, timeout: req.timeout }));
     case "hook.delete":
       return fromHook(await deleteHandHook(req.event, req.index));
+    case "plugin.remove":
+      return fromPlugin(await removePlugin(req.key));
     default:
       throw new Error(`unknown quarters action: ${(req as { action?: string })?.action}`);
   }

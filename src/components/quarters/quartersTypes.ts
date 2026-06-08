@@ -71,7 +71,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "plugins",
     label: "Plugins",
-    blurb: "Plugins installed by Claude Code's plugin manager (installed_plugins.json) — surfaced read-only (Garrison-driven plugin install is gated on SP6).",
+    blurb: "Plugins from Claude Code's plugin manager (installed_plugins.json) — uninstall (remove) here; install stays with Claude Code's /plugin.",
     writer: "readonly",
     kind: "primitives",
     icon: "Boxes",

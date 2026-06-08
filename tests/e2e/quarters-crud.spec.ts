@@ -186,3 +186,29 @@ test("Quarters Hooks: hand-authored editable, fitting-owned read-only, create→
 
   expect(appErrors(errors)).toEqual([]);
 });
+
+test("Quarters Plugins: uninstall (remove) a plugin from the UI", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+
+  const KEY = "frontend-design@claude-plugins-official";
+
+  await page.goto("/quarters/plugins");
+  await expect(page.getByRole("heading", { name: "Plugins", level: 1 })).toBeVisible();
+  const row = page.getByTestId(`primitive-plugin:${KEY}`);
+  await expect(row).toBeVisible();
+  // remove-only: a Remove button but no Edit and no Promote/Park
+  await expect(page.getByTestId(`delete-plugin:${KEY}`)).toBeVisible();
+  await expect(page.getByTestId(`edit-plugin:${KEY}`)).toHaveCount(0);
+
+  // --- REMOVE --- (confirm warns it edits Claude Code's manifest)
+  await page.getByTestId(`delete-plugin:${KEY}`).click();
+  await expect(page.getByTestId("confirm-dialog")).toBeVisible();
+  await expect(page.getByTestId("confirm-dialog").getByText(/installed_plugins\.json/)).toBeVisible();
+  await page.getByTestId("confirm-action").click();
+  await expect(page.getByTestId(`primitive-plugin:${KEY}`)).toHaveCount(0);
+
+  expect(appErrors(errors)).toEqual([]);
+});
