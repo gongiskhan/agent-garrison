@@ -7,6 +7,13 @@ import {
   type McpServerConfig,
   type McpWriteResult
 } from "./mcp-writer";
+import {
+  createFilePrimitive,
+  updateFilePrimitive,
+  deleteFilePrimitive,
+  type FilePrimitiveSurface,
+  type FilePrimitiveResult
+} from "./primitive-files";
 
 // Backend for the Quarters surface: a read (the loose/owned StateModel over the
 // real ~/.claude), the promote/park/unpark transition dispatch, AND the CRUD
@@ -31,7 +38,10 @@ export type QuartersActionRequest =
   | { action: "unpark"; slug: string; target: "owned" | "loose" }
   | { action: "mcp.add"; name: string; config: McpServerConfig }
   | { action: "mcp.update"; name: string; newName?: string; config: McpServerConfig }
-  | { action: "mcp.remove"; name: string };
+  | { action: "mcp.remove"; name: string }
+  | { action: "file.create"; surface: FilePrimitiveSurface; name: string; content: string }
+  | { action: "file.update"; surface: FilePrimitiveSurface; name: string; content: string }
+  | { action: "file.delete"; surface: FilePrimitiveSurface; name: string };
 
 export async function getQuartersState(): Promise<StateModel> {
   return computeStateModel();
@@ -39,6 +49,27 @@ export async function getQuartersState(): Promise<StateModel> {
 
 function fromMcp(r: McpWriteResult): CrudResult {
   return { ok: r.ok, id: r.name ? `mcp:${r.name}` : undefined, code: r.code, error: r.error };
+}
+
+function fromFile(r: FilePrimitiveResult): CrudResult {
+  return { ok: r.ok, id: r.id, code: r.code, error: r.error };
+}
+
+// Backend half of the writer-of-record invariant: a delete is refused for an
+// APM-OWNED file primitive (the lock manages it) — the caller must Park it. The
+// UI hides the Delete button for owned records, but the dispatch enforces it too
+// (never trust the client).
+async function guardedFileDelete(surface: FilePrimitiveSurface, name: string): Promise<CrudResult> {
+  const model = await computeStateModel();
+  const rec = model.records.find((r) => r.id === `${surface}:${name}`);
+  if (rec?.state === "owned") {
+    return {
+      ok: false,
+      code: "owned",
+      error: `"${name}" is APM-managed (owned) — Park it to remove, don't delete behind the lock.`
+    };
+  }
+  return fromFile(await deleteFilePrimitive(surface, name));
 }
 
 export async function runQuartersAction(
@@ -60,6 +91,12 @@ export async function runQuartersAction(
       return fromMcp(await updateMcpServer(req.name, req.config, undefined, req.newName));
     case "mcp.remove":
       return fromMcp(await removeMcpServer(req.name));
+    case "file.create":
+      return fromFile(await createFilePrimitive(req.surface, req.name, req.content));
+    case "file.update":
+      return fromFile(await updateFilePrimitive(req.surface, req.name, req.content));
+    case "file.delete":
+      return guardedFileDelete(req.surface, req.name);
     default:
       throw new Error(`unknown quarters action: ${(req as { action?: string })?.action}`);
   }

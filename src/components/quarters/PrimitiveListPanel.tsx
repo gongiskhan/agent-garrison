@@ -187,7 +187,7 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
                       >
                         <Trash2 size={13} aria-hidden /> Remove
                       </button>
-                    ) : blockedHint ? (
+                    ) : blockedHint && !transitionable ? (
                       <span style={{ fontSize: 11, color: "var(--mute)" }}>{blockedHint}</span>
                     ) : !crud && cat.slug === "hooks" ? (
                       <span style={{ fontSize: 11, color: "var(--mute)" }}>manage via fitting</span>

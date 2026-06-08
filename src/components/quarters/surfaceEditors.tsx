@@ -3,6 +3,26 @@
 import type { ComponentType } from "react";
 import type { PrimitiveRecord, PrimitiveSurface } from "@/lib/primitive-state";
 import { McpServerForm } from "./McpServerForm";
+import { FilePrimitiveForm } from "./FilePrimitiveForm";
+
+// ---- file-primitive editors (skill / command / rule) ----
+
+const skillTemplate = (name: string): string =>
+  `---\nname: ${name || "my-skill"}\ndescription: One line on when this skill should trigger.\n---\n\n# ${name || "my-skill"}\n\nSkill instructions go here.\n`;
+
+function SkillEditor(props: SurfaceEditorProps) {
+  return <FilePrimitiveForm surface="skill" noun="skill" template={skillTemplate} {...props} />;
+}
+
+// A loose file primitive deletes directly; an APM-owned one routes to Park (the
+// writer-of-record invariant — the dispatch enforces this server-side too).
+function fileDeleteBody(surface: "skill" | "command" | "rule") {
+  return (rec: PrimitiveRecord): Record<string, unknown> | null =>
+    rec.state === "owned" ? null : { action: "file.delete", surface, name: rec.name };
+}
+function fileBlockedHint(rec: PrimitiveRecord): string | null {
+  return rec.state === "owned" ? "Park to remove" : null;
+}
 
 // Props every per-surface editor receives. `rec === null` means create; a record
 // means edit. The editor owns its own fetch/save and calls onSaved (reload+close)
@@ -37,6 +57,14 @@ export const SURFACE_CRUD: Partial<Record<PrimitiveSurface, SurfaceCrud>> = {
     Editor: McpServerForm,
     // mcp.json has no APM ownership model — every server is loose, always removable.
     deleteBody: (rec) => ({ action: "mcp.remove", name: rec.name })
+  },
+  skill: {
+    noun: "skill",
+    createLabel: "New skill",
+    creatable: true,
+    Editor: SkillEditor,
+    deleteBody: fileDeleteBody("skill"),
+    blockedDeleteHint: fileBlockedHint
   }
 };
 

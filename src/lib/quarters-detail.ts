@@ -1,5 +1,6 @@
 import { claudeHome } from "./claude-home";
 import { getMcpServer, type McpServerConfig } from "./mcp-writer";
+import { readFilePrimitive, type FilePrimitiveSurface } from "./primitive-files";
 
 // Detail fetch for a single Quarters primitive, keyed by its surface-qualified id
 // (e.g. "mcp:context7", "skill:foo"). Powers the per-surface editors, which need
@@ -22,6 +23,12 @@ export async function getPrimitiveDetail(id: string, home: string = claudeHome()
   switch (surface) {
     case "mcp":
       return { surface: "mcp", name: rest, config: await getMcpServer(rest, home) };
+    case "skill":
+    case "command":
+    case "rule": {
+      const r = await readFilePrimitive(surface as FilePrimitiveSurface, rest, home);
+      return { surface, name: rest, content: r.content, path: r.path, exists: r.exists };
+    }
     default:
       throw new Error(`no detail provider for surface "${surface}" yet`);
   }
