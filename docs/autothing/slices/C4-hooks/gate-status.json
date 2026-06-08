@@ -1,0 +1,20 @@
+{
+  "slice": "C4-hooks",
+  "title": "Hooks CRUD — untagged hand-authored hook write/update/delete (distinct from owner-scoped) + HookEditor; fitting-owned read-only-with-provenance",
+  "updatedAt": "2026-06-09T00:00:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/hooks-crud.test.ts", "exit": 0, "summary": "7 passed — create UNTAGGED group (no _garrison) seen as loose by the state model; edit command+matcher; delete + prune empty event; REFUSE edit/delete of a _garrison-owned group (code 'owned', left intact); hand-authored coexists beside an owned group on the same event (owner preserved, mine untagged); dispatch round-trip; event+command validation" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (hooks-crud + quarters-detail hook branch + quarters dispatch hook actions + HookEditor + registry editable/deleteBody)" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build":     { "exit": 0, "summary": "covered by the C1 build + re-verified at the global gate" },
+    "e2e":       { "cmd": "npx playwright test --project=desktop-chromium tests/e2e/quarters-crud.spec.ts", "exit": 0, "summary": "4 passed — the new Hooks test: hand-authored SessionStart#0 shows Edit+Remove and prefills its command on edit; fitting-owned Stop#0 shows 'fitting-owned · fitting:session-view' with NO edit/delete; create→edit→delete a fresh Notification hook; seeded groups intact" },
+    "designAudit": { "verdict": "clean", "by": ["vision screenshots c4-hooks-list.png + c4-hooks-new-form.png vs the shell"], "at": "2026-06-09T00:00:00Z", "notes": "The writer-of-record invariant is visible in one screen: LOOSE hand-authored row with Edit+Remove vs OWNED fitting row that is read-only with provenance. New-hook form has event (datalist of common events), optional matcher, command, optional timeout. Matches the shell; no emoji" },
+    "video":     { "status": "deferred", "note": "Consolidated walkthrough at the global gate. Re-runnable gate is the e2e editable/read-only + create→edit→delete round-trip + the unit suite incl. the owned-group refusal." }
+  },
+  "blockers": [],
+  "notes": "The most delicate slice. hooks-crud.ts adds hand-authored (UNTAGGED) hook write/update/delete — deliberately distinct from claude-settings-file's owner-scoped helpers: a hand-authored hook must stay untagged or the state model would misclassify it as fitting-owned. Both update and delete REFUSE a _garrison-tagged group (read-only here; uninstall the fitting to change it), enforced server-side; the UI also hides Edit (editable predicate) and Delete (deleteBody null) for owned hooks and shows provenance instead. claude-settings-file.ts (the delicate single settings writer) was left untouched — new logic lives in hooks-crud.ts."
+}

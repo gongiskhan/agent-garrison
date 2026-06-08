@@ -4,6 +4,14 @@ import type { ComponentType } from "react";
 import type { PrimitiveRecord, PrimitiveSurface } from "@/lib/primitive-state";
 import { McpServerForm } from "./McpServerForm";
 import { FilePrimitiveForm } from "./FilePrimitiveForm";
+import { HookEditor } from "./HookEditor";
+
+// "hook:SessionStart#0" -> { event, index }
+function parseHookId(id: string): { event: string; index: number } {
+  const rest = id.replace(/^hook:/, "");
+  const hash = rest.lastIndexOf("#");
+  return { event: rest.slice(0, hash), index: Number(rest.slice(hash + 1)) };
+}
 
 // ---- file-primitive editors (skill / command / rule) ----
 
@@ -61,6 +69,9 @@ export interface SurfaceCrud {
   deleteBody: (rec: PrimitiveRecord) => Record<string, unknown> | null;
   // When deleteBody is null, a short reason shown in place of the Delete button.
   blockedDeleteHint?: (rec: PrimitiveRecord) => string | null;
+  // Whether THIS record may be edited (default true). Fitting-owned hooks are
+  // read-only here → false, so no Edit button is offered for them.
+  editable?: (rec: PrimitiveRecord) => boolean;
 }
 
 export const SURFACE_CRUD: Partial<Record<PrimitiveSurface, SurfaceCrud>> = {
@@ -95,6 +106,21 @@ export const SURFACE_CRUD: Partial<Record<PrimitiveSurface, SurfaceCrud>> = {
     Editor: RuleEditor,
     deleteBody: fileDeleteBody("rule"),
     blockedDeleteHint: fileBlockedHint
+  },
+  hook: {
+    noun: "hook",
+    createLabel: "New hook",
+    creatable: true,
+    Editor: HookEditor,
+    // Hand-authored (loose) hooks are editable + removable; fitting-owned
+    // (_garrison-tagged → state "owned") hooks are read-only here.
+    editable: (rec) => rec.state !== "owned",
+    deleteBody: (rec) => {
+      if (rec.state === "owned") return null;
+      const { event, index } = parseHookId(rec.id);
+      return { action: "hook.delete", event, index };
+    },
+    blockedDeleteHint: (rec) => (rec.state === "owned" ? `fitting-owned${rec.fittingId ? ` · ${rec.fittingId}` : ""}` : null)
   }
 };
 

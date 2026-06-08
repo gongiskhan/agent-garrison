@@ -156,7 +156,7 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <StateBadge state={rec.state} drifted={rec.driftedFromLock} />
-                    {crud?.Editor ? (
+                    {crud?.Editor && (crud.editable?.(rec) ?? true) ? (
                       <button
                         className="btn small ghost"
                         data-testid={`edit-${rec.id}`}

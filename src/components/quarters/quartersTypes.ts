@@ -53,7 +53,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "hooks",
     label: "Hooks",
-    blurb: "settings.json hook groups — owned by Garrison fittings or hand-authored.",
+    blurb: "settings.json hook groups — add, edit, and remove hand-authored hooks; fitting-owned groups are read-only.",
     writer: "garrison",
     kind: "primitives",
     icon: "Webhook",

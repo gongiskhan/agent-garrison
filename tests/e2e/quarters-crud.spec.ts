@@ -131,3 +131,58 @@ test("Quarters Scripts: create → edit → delete a command (commands + rules l
 
   expect(appErrors(errors)).toEqual([]);
 });
+
+test("Quarters Hooks: hand-authored editable, fitting-owned read-only, create→edit→delete", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+
+  await page.goto("/quarters/hooks");
+  await expect(page.getByRole("heading", { name: "Hooks", level: 1 })).toBeVisible();
+
+  // hand-authored (untagged) group is editable + removable
+  const hand = page.getByTestId("primitive-hook:SessionStart#0");
+  await expect(hand).toBeVisible();
+  await expect(page.getByTestId("edit-hook:SessionStart#0")).toBeVisible();
+  await expect(page.getByTestId("delete-hook:SessionStart#0")).toBeVisible();
+
+  // fitting-owned group is READ-ONLY: no edit, no delete, shows provenance
+  const owned = page.getByTestId("primitive-hook:Stop#0");
+  await expect(owned).toBeVisible();
+  await expect(owned.getByText(/fitting-owned/)).toBeVisible();
+  await expect(page.getByTestId("edit-hook:Stop#0")).toHaveCount(0);
+  await expect(page.getByTestId("delete-hook:Stop#0")).toHaveCount(0);
+
+  // editing the hand-authored hook prefills its command
+  await page.getByTestId("edit-hook:SessionStart#0").click();
+  await expect(page.getByTestId("hook-form")).toBeVisible();
+  await expect(page.getByTestId("hook-command")).toHaveValue("echo hand-authored");
+  await page.getByTestId("drawer-close").click();
+
+  // --- CREATE a new hook on a fresh event ---
+  await page.getByTestId("create-hook").click();
+  await expect(page.getByTestId("hook-form")).toBeVisible();
+  await page.getByTestId("hook-event").fill("Notification");
+  await page.getByTestId("hook-command").fill("echo notify");
+  await page.getByTestId("hook-save").click();
+  await expect(page.getByTestId("primitive-hook:Notification#0")).toBeVisible();
+
+  // --- EDIT it ---
+  await page.getByTestId("edit-hook:Notification#0").click();
+  await expect(page.getByTestId("hook-command")).toHaveValue("echo notify");
+  await page.getByTestId("hook-command").fill("echo notify-edited");
+  await page.getByTestId("hook-save").click();
+  await expect(page.getByTestId("primitive-hook:Notification#0")).toBeVisible();
+
+  // --- DELETE it ---
+  await page.getByTestId("delete-hook:Notification#0").click();
+  await page.getByTestId("confirm-action").click();
+  await expect(page.getByTestId("primitive-hook:Notification#0")).toHaveCount(0);
+
+  // seeded groups intact
+  await expect(page.getByTestId("primitive-hook:SessionStart#0")).toBeVisible();
+  await expect(page.getByTestId("primitive-hook:Stop#0")).toBeVisible();
+
+  expect(appErrors(errors)).toEqual([]);
+});

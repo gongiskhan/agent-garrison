@@ -24,7 +24,9 @@ export function seedSandbox(): void {
     "---\nname: garrison-memory\ndescription: pre-existing on disk\n---\n# existing\n"
   );
 
-  // settings.json with documented (typed) + bespoke (passthrough) keys
+  // settings.json with documented (typed) + bespoke (passthrough) keys, plus a
+  // hand-authored (untagged) hook group AND a fitting-owned (_garrison) one — so
+  // the Quarters Hooks surface can prove editable-vs-read-only.
   fs.writeFileSync(
     path.join(CLAUDE_SANDBOX, "settings.json"),
     JSON.stringify(
@@ -33,7 +35,11 @@ export function seedSandbox(): void {
         model: "claude-sonnet-4-6",
         advisorModel: "opus",
         autoDreamEnabled: true,
-        autoMode: { environment: ["solo dev"] }
+        autoMode: { environment: ["solo dev"] },
+        hooks: {
+          SessionStart: [{ hooks: [{ type: "command", command: "echo hand-authored" }] }],
+          Stop: [{ _garrison: "fitting:session-view", hooks: [{ type: "command", command: "echo owned" }] }]
+        }
       },
       null,
       2

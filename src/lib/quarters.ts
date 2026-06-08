@@ -14,6 +14,12 @@ import {
   type FilePrimitiveSurface,
   type FilePrimitiveResult
 } from "./primitive-files";
+import {
+  createHandHook,
+  updateHandHook,
+  deleteHandHook,
+  type HookCrudResult
+} from "./hooks-crud";
 
 // Backend for the Quarters surface: a read (the loose/owned StateModel over the
 // real ~/.claude), the promote/park/unpark transition dispatch, AND the CRUD
@@ -41,7 +47,10 @@ export type QuartersActionRequest =
   | { action: "mcp.remove"; name: string }
   | { action: "file.create"; surface: FilePrimitiveSurface; name: string; content: string }
   | { action: "file.update"; surface: FilePrimitiveSurface; name: string; content: string }
-  | { action: "file.delete"; surface: FilePrimitiveSurface; name: string };
+  | { action: "file.delete"; surface: FilePrimitiveSurface; name: string }
+  | { action: "hook.create"; event: string; matcher?: string; command: string; timeout?: number }
+  | { action: "hook.update"; event: string; index: number; matcher?: string; command: string; timeout?: number }
+  | { action: "hook.delete"; event: string; index: number };
 
 export async function getQuartersState(): Promise<StateModel> {
   return computeStateModel();
@@ -52,6 +61,10 @@ function fromMcp(r: McpWriteResult): CrudResult {
 }
 
 function fromFile(r: FilePrimitiveResult): CrudResult {
+  return { ok: r.ok, id: r.id, code: r.code, error: r.error };
+}
+
+function fromHook(r: HookCrudResult): CrudResult {
   return { ok: r.ok, id: r.id, code: r.code, error: r.error };
 }
 
@@ -97,6 +110,12 @@ export async function runQuartersAction(
       return fromFile(await updateFilePrimitive(req.surface, req.name, req.content));
     case "file.delete":
       return guardedFileDelete(req.surface, req.name);
+    case "hook.create":
+      return fromHook(await createHandHook({ event: req.event, matcher: req.matcher, command: req.command, timeout: req.timeout }));
+    case "hook.update":
+      return fromHook(await updateHandHook(req.event, req.index, { event: req.event, matcher: req.matcher, command: req.command, timeout: req.timeout }));
+    case "hook.delete":
+      return fromHook(await deleteHandHook(req.event, req.index));
     default:
       throw new Error(`unknown quarters action: ${(req as { action?: string })?.action}`);
   }
