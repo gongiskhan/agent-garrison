@@ -197,7 +197,8 @@ async function handleListWorktrees(req, res, queryParams) {
         baseBranch: session?.baseBranch ?? null,
         lastStatus: session?.lastStatus ?? "idle",
         createdAt: session?.createdAt ?? null,
-        status: session?.status ?? null
+        status: session?.status ?? null,
+        prUrl: session?.prUrl ?? null
       };
     });
     jsonRes(res, 200, { worktrees: enriched, projectPath: repoPath });
@@ -343,6 +344,18 @@ async function handleCreatePr(req, res, id) {
     url = match[0];
   } catch (err) {
     return jsonRes(res, 502, { error: err.message, trace });
+  }
+
+  // Persist PR URL so the UI can surface a "View PR" button after refresh.
+  try {
+    const project = state.projects[found.projectPath];
+    const session = project?.sessions?.[found.branch];
+    if (session) {
+      session.prUrl = url;
+      await writeState(state);
+    }
+  } catch (err) {
+    console.error(`[worktrees] state write warning (prUrl): ${err.message}`);
   }
 
   jsonRes(res, 201, { id, branch: found.branch, base, url, draft, trace });

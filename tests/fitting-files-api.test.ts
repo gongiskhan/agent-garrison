@@ -28,7 +28,7 @@ describe("fitting files api", () => {
   });
 
   it("lists the root of a local fitting and sorts dirs first", async () => {
-    const listing = await listDirectory("browser-automation", "");
+    const listing = await listDirectory("browser-default", "");
     expect(listing.path).toBe("");
     const names = listing.entries.map((entry) => entry.name);
     expect(names).toContain("apm.yml");
@@ -40,8 +40,8 @@ describe("fitting files api", () => {
   });
 
   it("rejects path traversal in directory listing", async () => {
-    await expect(listDirectory("browser-automation", "../etc")).rejects.toBeInstanceOf(FittingFileError);
-    await expect(listDirectory("browser-automation", "../../../etc")).rejects.toMatchObject({ status: 400 });
+    await expect(listDirectory("browser-default", "../etc")).rejects.toBeInstanceOf(FittingFileError);
+    await expect(listDirectory("browser-default", "../../../etc")).rejects.toMatchObject({ status: 400 });
   });
 
   it("hides node_modules / .git / .DS_Store", async () => {

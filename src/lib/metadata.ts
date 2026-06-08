@@ -110,8 +110,28 @@ export const garrisonMetadataSchema = z.object({
     })
     .optional(),
   spawn: spawnConfigSchema.optional(),
+  own_port: z.boolean().optional(),
+  default_port: z.number().int().positive().optional(),
   lifecycle: z.enum(["operative-bound", "detached"]).optional()
 });
+
+// Legacy faculty names fold into the role faculties (the Quarters pivot). The
+// own-port residue keeps working — its Fittings just declare a role faculty + the
+// own_port flag. Parked config-projection faculties (heartbeat/scheduler/skills/…)
+// are not aliased; their Fittings are de-listed from the library and never parsed.
+const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
+  terminal: "sessions",
+  "screen-share": "sessions",
+  "worktree-management": "sessions",
+  "session-view": "sessions",
+  outposts: "sessions",
+  browser: "sessions",
+  "artifact-store": "sessions",
+  "web-channel": "channels",
+  voice: "channels",
+  monitor: "observability",
+  "testing-framework": "sessions"
+};
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {
   const normalized = normalizeDeprecations(input);
@@ -134,11 +154,12 @@ function normalizeDeprecations(input: unknown): unknown {
     record = { faculty: primitive, ...rest };
   }
 
-  if (record.faculty === "testing-framework") {
+  if (typeof record.faculty === "string" && record.faculty in FACULTY_ALIASES) {
+    const target = FACULTY_ALIASES[record.faculty];
     console.warn(
-      "[garrison] faculty \"testing-framework\" is deprecated; rename to \"skills\""
+      `[garrison] faculty "${record.faculty}" is deprecated; folded into role "${target}"`
     );
-    record = { ...record, faculty: "skills" };
+    record = { ...record, faculty: target };
   }
 
   // UI contract v1 → v2: rewrite { ui: { extension } } into a single
@@ -171,9 +192,12 @@ function normalizeDeprecations(input: unknown): unknown {
 
 export function validateFacultyCompatibility(metadata: GarrisonMetadata): void {
   const faculty = getFaculty(metadata.faculty);
-  if (metadata.cardinality_hint !== faculty.cardinality) {
+  // A multi role (e.g. sessions) legitimately holds several single-instance
+  // own-port Fittings, so cardinality_hint need only be <= the faculty: a
+  // multi-cardinality Fitting cannot occupy a single-cardinality role.
+  if (metadata.cardinality_hint === "multi" && faculty.cardinality === "single") {
     throw new Error(
-      `${metadata.faculty} declares ${metadata.cardinality_hint}, expected ${faculty.cardinality}`
+      `${metadata.faculty} is a single-Fitting role, but ${metadata.cardinality_hint} was declared`
     );
   }
   if (!faculty.shapes.includes(metadata.component_shape)) {
@@ -181,9 +205,8 @@ export function validateFacultyCompatibility(metadata: GarrisonMetadata): void {
       `${metadata.component_shape} is not accepted by faculty ${metadata.faculty}`
     );
   }
-  if (metadata.tasks && metadata.faculty !== "data-sources") {
-    throw new Error("Only data source fittings may declare derived task backing");
-  }
+  // (The data-sources faculty — the former home of derived task backing — was
+  // folded out in the Quarters pivot; `tasks` is no longer faculty-restricted.)
 }
 
 export function validateSelection(

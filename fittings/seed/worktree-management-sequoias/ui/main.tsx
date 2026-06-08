@@ -12,17 +12,16 @@ interface Worktree {
   lastStatus: string;
   createdAt: string | null;
   status: string | null;
+  prUrl: string | null;
 }
 
 interface Project { name: string; path: string; }
 
 const LS_LAST_PROJECT = "garrison.worktrees.lastProject";
 
-const CLAUDE_START_CMD =
-  `claude 'Run the app on app.port and if there is a backend run it on backend.port. If any of these files does not exist create them with a random port number between 5000 and 9999. Also, update the respective env files to update the ports for the backend if it exists and the nextjs url if its a nextjs app. Run them on dev mode.'`;
+const CLAUDE_START_CMD = `claude`;
 
-const CLAUDE_CONTINUE_CMD =
-  `claude --continue 'Run the app on app.port and if there is a backend run it on backend.port. If any of these files does not exist create them with a random port number between 5000 and 9999. Also, update the respective env files to update the ports for the backend if it exists and the nextjs url if its a nextjs app. Run them on dev mode.'`;
+const CLAUDE_CONTINUE_CMD = `claude --continue`;
 
 function buildTerminalUrl(terminalUrl: string, cwd: string, command?: string, name?: string): string {
   const u = new URL(terminalUrl);
@@ -203,6 +202,7 @@ function App() {
         return;
       }
       window.open(data.url, "_blank", "noopener");
+      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -213,6 +213,20 @@ function App() {
   function openInTerminal(cwd: string, command?: string, name?: string) {
     if (!terminalUrl) {
       setError("Terminal fitting is not running. Start terminal-armory-default.");
+      return;
+    }
+    const params: Record<string, string> = {};
+    if (cwd) params.cwd = cwd;
+    if (command) params.command = command;
+    if (name) params.name = name;
+    // Ask the parent (Garrison) to navigate. Falls back to in-iframe nav when
+    // opened standalone (no parent), so the Fitting still works outside
+    // Garrison's shell.
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(
+        { type: "garrison:navigate-fitting", fittingId: "terminal-armory-default", params },
+        "*"
+      );
       return;
     }
     const target = buildTerminalUrl(terminalUrl, cwd, command, name);
@@ -352,7 +366,7 @@ function App() {
                     type="button"
                     className="btn"
                     disabled={!terminalUrl}
-                    title="Open a terminal and start Claude with the run-the-app prompt"
+                    title="Open a terminal and start Claude in this worktree"
                     onClick={() => openInTerminal(w.path, CLAUDE_START_CMD, `${w.branch}:claude`)}
                   >
                     Claude Code
@@ -361,7 +375,7 @@ function App() {
                     type="button"
                     className="btn"
                     disabled={!terminalUrl}
-                    title="Open a terminal and continue Claude with the run-the-app prompt"
+                    title="Open a terminal and continue the last Claude session in this worktree"
                     onClick={() => openInTerminal(w.path, CLAUDE_CONTINUE_CMD, `${w.branch}:cont`)}
                   >
                     Continue
@@ -385,15 +399,26 @@ function App() {
                   </button>{" "}
                   {w.id && !w.isMain && (
                     <>
-                      <button
-                        type="button"
-                        className="btn"
-                        title="Push the branch and open a PR via gh"
-                        disabled={busyPrId === w.id}
-                        onClick={() => void createPr(w)}
-                      >
-                        {busyPrId === w.id ? "Opening PR…" : "Create PR"}
-                      </button>{" "}
+                      {w.prUrl ? (
+                        <button
+                          type="button"
+                          className="btn"
+                          title={`Open PR: ${w.prUrl}`}
+                          onClick={() => window.open(w.prUrl!, "_blank", "noopener")}
+                        >
+                          View PR
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn"
+                          title="Push the branch and open a PR via gh"
+                          disabled={busyPrId === w.id}
+                          onClick={() => void createPr(w)}
+                        >
+                          {busyPrId === w.id ? "Opening PR…" : "Create PR"}
+                        </button>
+                      )}{" "}
                       <button type="button" className="btn danger" onClick={() => void remove(w.id!)}>Remove</button>
                     </>
                   )}

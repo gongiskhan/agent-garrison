@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readSettingsView, writeSettingsPatch, KNOWN_SETTINGS } from "@/lib/settings";
+import { readSettingsView, writeSettingsPatch, computeSettingsDrift, KNOWN_SETTINGS } from "@/lib/settings";
 import { settingsPath } from "@/lib/claude-settings-file";
 
 let home: string;
@@ -107,5 +107,36 @@ describe("settings view + patch", () => {
     expect(view.exists).toBe(false);
     await writeSettingsPatch({ cleanupPeriodDays: 14 }, home);
     expect(onDisk()).toEqual({ cleanupPeriodDays: 14 });
+  });
+});
+
+describe("computeSettingsDrift (read-only drift poll)", () => {
+  it("returns false with no baseline yet and never WRITES one (no side effect)", async () => {
+    seed({ cleanupPeriodDays: 365, ...BESPOKE });
+    const drift = await computeSettingsDrift(home);
+    expect(drift.changedExternally).toBe(false);
+    expect(drift.lastSeenAt).toBeNull();
+    // polling must not establish a baseline (that's readSettingsView's job)
+    expect(fs.existsSync(path.join(garrison, "claude-settings.last-seen.json"))).toBe(false);
+  });
+
+  it("flags an external edit once a baseline exists, value-compared not byte-compared", async () => {
+    const value = { cleanupPeriodDays: 365, ...BESPOKE };
+    seed(value);
+    await readSettingsView(home); // establishes baseline
+    expect((await computeSettingsDrift(home)).changedExternally).toBe(false);
+    // pure reformat, identical values -> still no drift
+    fs.writeFileSync(settingsPath(home), JSON.stringify(value, null, 2));
+    expect((await computeSettingsDrift(home)).changedExternally).toBe(false);
+    // a real external value change -> drift
+    fs.writeFileSync(settingsPath(home), JSON.stringify({ ...value, model: "x" }));
+    expect((await computeSettingsDrift(home)).changedExternally).toBe(true);
+  });
+
+  it("does not flag Garrison's own autosave as drift", async () => {
+    seed({ cleanupPeriodDays: 365, ...BESPOKE });
+    await readSettingsView(home);
+    await writeSettingsPatch({ cleanupPeriodDays: 30 }, home); // our own write refreshes baseline
+    expect((await computeSettingsDrift(home)).changedExternally).toBe(false);
   });
 });

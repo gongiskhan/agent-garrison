@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { isOperativeBound, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
-import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry, FacultyId } from "@/lib/types";
+import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry } from "@/lib/types";
 
 // Mock the vault so the positive injection path is testable without touching
 // the real data/vault.json.
@@ -8,13 +8,16 @@ vi.mock("@/lib/vault", () => ({
   readVaultSecrets: vi.fn(async () => [{ key: "DEEPGRAM_API_KEY", value: "dg-secret" }])
 }));
 
+// Own-port is now declared per-Fitting via the `own_port` metadata flag (a role
+// like `sessions` mixes own-port and non-own-port Fittings), so the test entry
+// sets own_port directly rather than inferring it from the Faculty.
 function makeEntry(
-  faculty: FacultyId,
+  ownPort: boolean,
   lifecycle?: "operative-bound" | "detached",
   consumes: CapabilityConsumption[] = []
 ): LibraryEntry {
   const metadata: GarrisonMetadata = {
-    faculty,
+    faculty: "sessions",
     cardinality_hint: "single",
     component_shape: "plugin",
     platforms: ["claude-code"],
@@ -22,14 +25,15 @@ function makeEntry(
     provides: [],
     consumes,
     verify: { command: "true", expect: "ok", timeout_ms: 10000 },
+    own_port: ownPort,
     lifecycle
   };
   return {
-    id: `${faculty}-test`,
-    name: faculty,
-    faculty,
+    id: ownPort ? "own-port-test" : "plain-test",
+    name: "test",
+    faculty: "sessions",
     repo: "local:test",
-    localPath: `fittings/seed/${faculty}-test`,
+    localPath: "fittings/seed/own-port-test",
     summary: "test",
     platforms: ["claude-code"],
     ratings: {},
@@ -39,42 +43,32 @@ function makeEntry(
 
 describe("own-port lifecycle classification", () => {
   it("defaults own-port Fittings to operative-bound", () => {
-    expect(isOperativeBound(makeEntry("terminal"))).toBe(true);
-    expect(isOperativeBound(makeEntry("session-view"))).toBe(true);
-    expect(isOperativeBound(makeEntry("worktree-management"))).toBe(true);
-    expect(isOperativeBound(makeEntry("screen-share"))).toBe(true);
-    expect(isOperativeBound(makeEntry("outposts"))).toBe(true);
-    expect(isOperativeBound(makeEntry("monitor"))).toBe(true);
-    expect(isOperativeBound(makeEntry("web-channel"))).toBe(true);
-    expect(isOperativeBound(makeEntry("browser"))).toBe(true);
+    expect(isOperativeBound(makeEntry(true))).toBe(true);
   });
 
   it("honours explicit detached opt-out", () => {
-    expect(isOperativeBound(makeEntry("terminal", "detached"))).toBe(false);
-    expect(isOperativeBound(makeEntry("monitor", "detached"))).toBe(false);
+    expect(isOperativeBound(makeEntry(true, "detached"))).toBe(false);
   });
 
   it("honours explicit operative-bound (same as default)", () => {
-    expect(isOperativeBound(makeEntry("terminal", "operative-bound"))).toBe(true);
+    expect(isOperativeBound(makeEntry(true, "operative-bound"))).toBe(true);
   });
 
-  it("returns false for non-own-port Faculties even when lifecycle is set", () => {
-    expect(isOperativeBound(makeEntry("soul"))).toBe(false);
-    expect(isOperativeBound(makeEntry("memory"))).toBe(false);
-    expect(isOperativeBound(makeEntry("gateway"))).toBe(false);
-    expect(isOperativeBound(makeEntry("channels", "operative-bound"))).toBe(false);
+  it("returns false for non-own-port Fittings even when lifecycle is set", () => {
+    expect(isOperativeBound(makeEntry(false))).toBe(false);
+    expect(isOperativeBound(makeEntry(false, "operative-bound"))).toBe(false);
   });
 });
 
 describe("vaultEnvForEntry (own-port secret injection gating)", () => {
   it("injects vault secrets only when the Fitting consumes vault", async () => {
-    const withVault = makeEntry("voice", undefined, [{ kind: "vault", cardinality: "one" }]);
+    const withVault = makeEntry(true, undefined, [{ kind: "vault", cardinality: "one" }]);
     const env = await vaultEnvForEntry(withVault);
     expect(env).toEqual({ DEEPGRAM_API_KEY: "dg-secret" });
   });
 
   it("returns no secrets for a Fitting that does not consume vault", async () => {
-    const noVault = makeEntry("web-channel", undefined, [{ kind: "voice", cardinality: "optional-one" }]);
+    const noVault = makeEntry(true, undefined, [{ kind: "voice", cardinality: "optional-one" }]);
     const env = await vaultEnvForEntry(noVault);
     expect(env).toEqual({});
   });

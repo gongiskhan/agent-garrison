@@ -9,6 +9,7 @@ dist/
 .env.*
 !.env.example
 data/vault.json
+data/vault.json.bak-*
 compositions/*/.env
 compositions/*/.garrison/assembled-system-prompt.md
 compositions/*/.garrison/uploads/

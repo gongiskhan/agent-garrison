@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { COMPOSITIONS_DIR, ROOT_DIR } from "./paths";
-import { ensureDir, pathExists, slugify, toPosixPath } from "./fs-utils";
+import { ensureDir, pathExists, slugify } from "./fs-utils";
+import { authorApmDependencies } from "./apm-manifest";
 import { readLibrary } from "./library";
 import { validateSelection } from "./metadata";
 import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
@@ -139,13 +140,12 @@ export async function writeComposition(
   await validateCompositionSelections(nextSelections);
 
   const selectedEntries = await selectedLibraryEntries(nextSelections);
-  const dependencies = selectedEntries.map((entry) => {
-    if (!entry.localPath) {
-      return entry.repo;
-    }
-    const relative = path.relative(getCompositionDirectory(id), path.join(ROOT_DIR, entry.localPath));
-    return { path: toPosixPath(relative) };
-  });
+  const dependencies = authorApmDependencies(
+    selectedEntries.map((entry) =>
+      entry.localPath ? { absPath: path.join(ROOT_DIR, entry.localPath) } : { repo: entry.repo }
+    ),
+    getCompositionDirectory(id)
+  );
 
   manifest.name = slugify(nextName) || id;
   manifest.version = manifest.version ?? "0.1.0";
@@ -339,8 +339,10 @@ function deriveTasks(
   selections: FittingSelectionMap,
   entries: LibraryEntry[]
 ): Composition["derivedTasks"] {
-  const dataSources = selections["data-sources"] ?? [];
-  for (const selected of dataSources) {
+  // The data-sources faculty folded out; derived-task backing is now found by
+  // any selected Fitting that declares `tasks`, regardless of role.
+  const candidates = Object.values(selections).flat().filter(Boolean) as SelectedFitting[];
+  for (const selected of candidates) {
     const entry = entries.find((candidate) => candidate.id === selected.id);
     if (entry?.metadata.tasks) {
       return {

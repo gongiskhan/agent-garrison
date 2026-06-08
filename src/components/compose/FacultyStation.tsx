@@ -19,101 +19,29 @@ import type {
 } from "@/lib/types";
 
 const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
-  heartbeat: {
-    role: "Defines when the operative wakes up without a human prompt.",
-    fit: "It triggers the gateway on a cadence, so routine work starts from the same entry point as inbound channel events."
-  },
-  scheduler: {
-    role: "Handles scheduled work that is not part of the heartbeat loop.",
-    fit: "Use this for one-off or calendar-like jobs that should not change the main wake cadence."
-  },
-  "data-sources": {
-    role: "Feeds live external state into the operative.",
-    fit: "Data sources are read paths. If the stationed source declares a task store, the derived Tasks Faculty follows it automatically."
-  },
-  "knowledge-base": {
-    role: "Provides static references the operative can read.",
-    fit: "Use this for docs, codebases, policies, and project context that should inform work but not act as live integrations."
-  },
-  automations: {
-    role: "Gives the operative tools that can act in the world.",
-    fit: "Browser, desktop, or scripted UI control belongs here; testing can reuse these when it needs to drive an interface."
-  },
-  skills: {
-    role: "Reusable capabilities the Operative can invoke during work.",
-    fit: "A Fitting here exposes a skill — a procedure, helper, or test author — that the Orchestrator can call as a sub-agent or tool."
-  },
-  memory: {
-    role: "Controls what the operative remembers within and across sessions.",
-    fit: "A single Memory Fitting owns recency, persistence cadence, and compiled memory output."
-  },
-  classifier: {
-    role: "Classifies each prompt before work starts.",
-    fit: "This is an operative Fitting, not a separate app surface. It sets the routing floor and escalation behavior."
-  },
-  gateway: {
-    role: "Receives jobs from heartbeat, channels, and local test inputs.",
-    fit: "The gateway is the MCP-speaking front door; public exposure remains a manual documented step in v1."
+  orchestrator: {
+    role: "Governs the operative's behavior — projected into ~/.claude as a managed prompt primitive.",
+    fit: "The capstone role. It coordinates the other roles, owns global config, and provides the behavioral spine."
   },
   channels: {
-    role: "Connects real user-facing message surfaces.",
-    fit: "Slack, Discord, Telegram, WhatsApp, and custom UIs belong here. The Run test box is not a channel."
+    role: "Connects user-facing message surfaces (Slack, web channel, voice).",
+    fit: "Garrison-side runtime transport. The Operative is reached through these channels; only a garrison-control MCP entry projects into ~/.claude."
+  },
+  gateway: {
+    role: "The Claude Code execution path (stream-JSON).",
+    fit: "Garrison-side runtime. Hosts the sessions that authoring and channel traffic run through."
+  },
+  memory: {
+    role: "Produces the Context document and owns recall.",
+    fit: "Unified with the local memory-compiler — one instance produces the Context (CLAUDE.md) surfaced in Quarters."
   },
   observability: {
-    role: "Reports health, errors, no-ops, and runtime state.",
-    fit: "Observability routes loop outcomes to logs or alert channels so silent failure is not treated as success."
+    role: "Reports health, errors, and runtime state; surfaces the Logs record.",
+    fit: "Collection is Garrison-side; an own-port Monitor Fitting surfaces it read-only."
   },
-  soul: {
-    role: "Defines identity, tone, voice, and boundaries.",
-    fit: "The runner concatenates orchestrator first, then soul, to produce the system prompt passed to Claude Code."
-  },
-  orchestrator: {
-    role: "Governs the operative's behavior.",
-    fit: "This is the capstone. It coordinates Faculties, owns global config, and provides the behavioral spine."
-  },
-  "artifact-store": {
-    role: "Stores files the Operative or its Fittings produce — documents, recordings, audio.",
-    fit: "Other Fittings (Documents next, Automations recordings later) layer their own schemas on top of this single shared backing store."
-  },
-  terminal: {
-    role: "Provides PTY-backed terminal sessions on the Fitting's own port (default 7078).",
-    fit: "Stand-alone Fitting; visible from the Tools discovery page when running."
-  },
-  "screen-share": {
-    role: "Captures the macOS display and streams JPEG frames on the Fitting's own port (default 7079).",
-    fit: "Useful for monitoring or reviewing the desktop from a phone via the Tailscale URL."
-  },
-  "worktree-management": {
-    role: "Manages git worktrees for parallel branch work; runs on its own port (default 7080).",
-    fit: "Creates isolated worktrees and updates ~/.garrison/sessions/state.json so the session-view Fitting picks them up."
-  },
-  "session-view": {
-    role: "Shows Claude Code session status across git worktrees; runs on its own port (default 7081).",
-    fit: "Badges reflect live session health (idle/working/waiting/errored) driven by Claude Code hooks."
-  },
-  outposts: {
-    role: "Connects remote Macs as managed outposts over Garrison Outpost Protocol v1; runs on its own port (default 7082).",
-    fit: "Each Outpost Fitting represents one remote machine. Spawn processes, watch files, and manage git worktrees remotely."
-  },
-  sync: {
-    role: "Periodically mirrors files between the host and remote outpost machines.",
-    fit: "v1 is host→outpost unidirectional. Use for Obsidian vaults, dotfiles, or any directory you want to keep in sync across your machines."
-  },
-  monitor: {
-    role: "Read-only visibility into every entity Garrison spawns.",
-    fit: "The default Fitting serves its own UI on its own port and walks Garrison's PID tree to surface PIDs, ports, network connections, and tee'd stdout/stderr."
-  },
-  "web-channel": {
-    role: "Mobile-first browser chat surface for talking to the Operative.",
-    fit: "Distinct from the desktop shell — this Fitting serves its own React UI on its own port (default 7083) and provides a kind:channel capability that the Orchestrator routes to like Slack."
-  },
-  browser: {
-    role: "Headless Chromium substrate Garrison owns and exposes over HTTP/WS.",
-    fit: "Default Fitting runs Chromium on port 7084 with per-tab JPEG screencast, mouse/key/touch input, raw CDP, and Chromium's built-in DevTools reverse-proxied — the terminal Fitting's split-pane iframes its canvas, and any browser on the Tailnet can drive it directly."
-  },
-  voice: {
-    role: "Speech I/O the Operative and channels can use for voice in and voice out.",
-    fit: "Default Fitting proxies Deepgram speech-to-text and text-to-speech on its own port (default 7085) and provides a kind:voice capability. The web channel consumes it for push-to-talk recording and read-aloud replies; the API key stays server-side."
+  sessions: {
+    role: "Session records plus the own-port runtime surfaces.",
+    fit: "Holds the Session Viewer plus the own-port dev tools (terminal, screen-share, worktree, browser, outposts, artifact store), each detected via the own_port flag."
   }
 };
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseGarrisonMetadata, validateSelection } from "@/lib/metadata";
 
 const baseMetadata = {
-  faculty: "classifier" as const,
+  faculty: "memory" as const,
   cardinality_hint: "single" as const,
   component_shape: "skill" as const,
   platforms: ["claude-code"],
@@ -10,15 +10,15 @@ const baseMetadata = {
 };
 
 describe("x-garrison metadata", () => {
-  it("accepts a valid classifier package", () => {
+  it("accepts a valid role package", () => {
     const metadata = parseGarrisonMetadata({
       ...baseMetadata,
       config_schema: [
         {
-          key: "tier_floor",
+          key: "recency_window",
           type: "integer",
-          default: 3,
-          description: "Minimum tier"
+          default: 20,
+          description: "Recency window"
         }
       ]
     });
@@ -50,51 +50,53 @@ describe("x-garrison metadata", () => {
     console.warn = (...args: unknown[]) => calls.push(args);
     try {
       const metadata = parseGarrisonMetadata({
-        primitive: "classifier",
+        primitive: "memory",
         cardinality_hint: "single",
         component_shape: "skill",
         platforms: ["claude-code"],
         verify: { command: "echo ok", expect: "ok" }
       });
-      expect(metadata.faculty).toBe("classifier");
+      expect(metadata.faculty).toBe("memory");
       expect(calls.length).toBeGreaterThan(0);
     } finally {
       console.warn = warn;
     }
   });
 
-  it("accepts the deprecated `testing-framework` faculty and normalizes to `skills`", () => {
+  it("folds a deprecated own-port faculty into its role (terminal -> sessions)", () => {
     const warn = console.warn;
     const calls: unknown[] = [];
     console.warn = (...args: unknown[]) => calls.push(args);
     try {
       const metadata = parseGarrisonMetadata({
-        faculty: "testing-framework",
-        cardinality_hint: "multi",
-        component_shape: "skill",
+        faculty: "terminal",
+        cardinality_hint: "single",
+        component_shape: "plugin",
         platforms: ["claude-code"],
+        own_port: true,
         verify: { command: "echo ok", expect: "ok" }
       });
-      expect(metadata.faculty).toBe("skills");
+      expect(metadata.faculty).toBe("sessions");
+      expect(metadata.own_port).toBe(true);
       expect(calls.length).toBeGreaterThan(0);
     } finally {
       console.warn = warn;
     }
   });
 
-  it("warns about both deprecations when a manifest uses primitive: testing-framework", () => {
+  it("warns about both deprecations when a manifest uses primitive: monitor", () => {
     const warn = console.warn;
     const calls: unknown[] = [];
     console.warn = (...args: unknown[]) => calls.push(args);
     try {
       const metadata = parseGarrisonMetadata({
-        primitive: "testing-framework",
-        cardinality_hint: "multi",
-        component_shape: "skill",
+        primitive: "monitor",
+        cardinality_hint: "single",
+        component_shape: "plugin",
         platforms: ["claude-code"],
         verify: { command: "echo ok", expect: "ok" }
       });
-      expect(metadata.faculty).toBe("skills");
+      expect(metadata.faculty).toBe("observability");
       expect(calls.length).toBe(2);
     } finally {
       console.warn = warn;
@@ -210,9 +212,9 @@ describe("capability provides/consumes", () => {
   it("accepts a valid provides entry", () => {
     const metadata = parseGarrisonMetadata({
       ...baseMetadata,
-      provides: [{ kind: "agent-skill", name: "tier-classifier" }]
+      provides: [{ kind: "memory-store", name: "garrison-memory" }]
     });
-    expect(metadata.provides).toEqual([{ kind: "agent-skill", name: "tier-classifier" }]);
+    expect(metadata.provides).toEqual([{ kind: "memory-store", name: "garrison-memory" }]);
   });
 
   it("accepts a valid consumes entry", () => {
@@ -226,11 +228,20 @@ describe("capability provides/consumes", () => {
   it("accepts both provides and consumes together", () => {
     const metadata = parseGarrisonMetadata({
       ...baseMetadata,
-      provides: [{ kind: "agent-skill", name: "tier-classifier" }],
+      provides: [{ kind: "memory-store", name: "garrison-memory" }],
       consumes: [{ kind: "vault", cardinality: "optional-one" }]
     });
     expect(metadata.provides).toHaveLength(1);
     expect(metadata.consumes).toHaveLength(1);
+  });
+
+  it("rejects a dropped capability kind (agent-skill was removed in the pivot)", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...baseMetadata,
+        provides: [{ kind: "agent-skill", name: "x" }]
+      })
+    ).toThrow(/agent-skill/);
   });
 
   it("rejects an unknown capability kind by name", () => {
@@ -246,7 +257,7 @@ describe("capability provides/consumes", () => {
     expect(() =>
       parseGarrisonMetadata({
         ...baseMetadata,
-        provides: [{ kind: "agent-skill" }]
+        provides: [{ kind: "memory-store" }]
       })
     ).toThrow();
   });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
 interface ViewEntry {
   fittingId: string;
@@ -14,11 +14,43 @@ interface ViewEntry {
 
 export default function EmbedPage() {
   const params = useParams<{ fittingId: string }>();
-  const fittingId = params.fittingId;
+  const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  // Derive fittingId from pathname as the source of truth — useParams has been
+  // observed returning stale values when navigating between sibling dynamic
+  // routes in Next 14, which causes the iframe to keep showing the previous
+  // Fitting's content even after the URL changes.
+  const fromPath = pathname.startsWith("/embed/")
+    ? decodeURIComponent(pathname.slice("/embed/".length).split("/")[0] ?? "")
+    : "";
+  const fittingId = fromPath || params.fittingId;
   const [entry, setEntry] = useState<ViewEntry | null | undefined>(undefined);
+
+  // Cross-Fitting navigation: an embedded Fitting can ask Garrison to swap to
+  // another Fitting (with optional query params forwarded to the destination
+  // iframe). Without this, a Fitting calling `window.location.href = otherUrl`
+  // would swap its iframe content but leave Garrison's outer URL stale — the
+  // sidebar would still highlight the old Fitting and clicking its link would
+  // be a no-op.
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+      if (data.type !== "garrison:navigate-fitting") return;
+      if (typeof data.fittingId !== "string" || !/^[a-z0-9][a-z0-9-]*$/i.test(data.fittingId)) return;
+      const qs = new URLSearchParams(
+        data.params && typeof data.params === "object" ? data.params : {}
+      ).toString();
+      router.push(`/embed/${data.fittingId}${qs ? `?${qs}` : ""}`);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [router]);
 
   useEffect(() => {
     let alive = true;
+    setEntry(undefined);
     async function load() {
       try {
         const res = await fetch("/api/fittings/views", { cache: "no-store" });
@@ -53,9 +85,12 @@ export default function EmbedPage() {
       </div>
     );
   }
+  const qs = searchParams?.toString() ?? "";
+  const iframeSrc = qs ? `${entry.url}${entry.url.includes("?") ? "&" : "?"}${qs}` : entry.url;
   return (
     <iframe
-      src={entry.url}
+      key={fittingId}
+      src={iframeSrc}
       title={fittingId}
       style={{
         width: "100%",

@@ -223,4 +223,18 @@ export async function writeSettingsPatch(
   return readSettingsView(home);
 }
 
+// Read-only drift check: compares the current on-disk settings against the last
+// baseline Garrison wrote, WITHOUT establishing a baseline (unlike
+// readSettingsView, which writes a last-seen on first open). Safe to poll for a
+// live drift banner. Echo-suppressed: Garrison's own saves refresh the baseline
+// (writeSettingsPatch -> writeLastSeen), so a self-write reads as deepEqual.
+export async function computeSettingsDrift(
+  home: string = claudeHome()
+): Promise<{ changedExternally: boolean; lastSeenAt: string | null }> {
+  const lastSeen = await readLastSeen();
+  if (!lastSeen) return { changedExternally: false, lastSeenAt: null };
+  const { json } = await readSettingsRaw(home);
+  return { changedExternally: !deepEqual(json, lastSeen.settings), lastSeenAt: lastSeen.at };
+}
+
 export const __test = { deepEqual, lastSeenPath };

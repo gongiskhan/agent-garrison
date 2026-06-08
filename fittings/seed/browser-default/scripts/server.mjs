@@ -421,15 +421,28 @@ async function cleanupTab(tab) {
 }
 
 async function listTabs() {
-  const out = [];
-  for (const tab of tabs.values()) {
-    let title = "";
+  // Parallelize and bound each title() — a page with a jammed main thread
+  // (e.g. an app showing a Next.js dev error overlay whose instrumentation
+  // is stuck) makes page.title() hang via CDP, which would otherwise block
+  // /tabs for every consumer (notably the canvas URL bar polling).
+  const titleWithTimeout = async (tab) => {
+    try {
+      return await Promise.race([
+        tab.page.title(),
+        new Promise((resolve) => setTimeout(() => resolve(tab.lastKnownTitle || ""), 500))
+      ]);
+    } catch { return tab.lastKnownTitle || ""; }
+  };
+  const entries = [...tabs.values()];
+  const titles = await Promise.all(entries.map(titleWithTimeout));
+  return entries.map((tab, i) => {
     let pageUrl = "";
     try { pageUrl = tab.page.url(); } catch {}
-    try { title = await tab.page.title(); } catch {}
-    out.push({ tabId: tab.tabId, url: pageUrl, title, requestedUrl: tab.requestedUrl });
-  }
-  return out;
+    // Cache the most recent successful title so a subsequently-jammed tab
+    // still shows something useful instead of falling back to empty.
+    if (titles[i]) tab.lastKnownTitle = titles[i];
+    return { tabId: tab.tabId, url: pageUrl, title: titles[i], requestedUrl: tab.requestedUrl };
+  });
 }
 
 // ─── HTTP handlers ──────────────────────────────────────────────────────
@@ -715,11 +728,21 @@ function serveStatic(req, res, distDir) {
 
 // 15s ping; two missed pongs → terminate. Survives iOS Safari's habit of
 // silently killing idle WS without close events.
-function setupHeartbeat(ws) {
+function setupHeartbeat(ws, label) {
   ws._alive = true;
   ws.on("pong", () => { ws._alive = true; });
   ws._hbTimer = setInterval(() => {
-    if (!ws._alive) { try { ws.terminate(); } catch {} return; }
+    if (!ws._alive) {
+      // TEMP: swap-timing — attribute heartbeat terminates to a label.
+      console.log(`[swap-timing] heartbeat timeout, terminating ${label || "(unlabeled)"}`);
+      // Self-clear the interval here — if terminate() doesn't fire a close
+      // event (which can happen when a server-initiated close() leaves the
+      // ws stuck in CLOSING), the interval would otherwise keep firing
+      // every HEARTBEAT_MS forever.
+      if (ws._hbTimer) { clearInterval(ws._hbTimer); ws._hbTimer = null; }
+      try { ws.terminate(); } catch {}
+      return;
+    }
     ws._alive = false;
     try { ws.ping(); } catch {}
   }, HEARTBEAT_MS);
@@ -730,7 +753,7 @@ function setupHeartbeat(ws) {
 
 function bindViewportClient(ws, tab) {
   tab.viewportClient = ws;
-  setupHeartbeat(ws);
+  setupHeartbeat(ws, `viewport tabId=${tab.tabId}`);
   ws.on("close", () => {
     if (tab.viewportClient !== ws) return;
     tab.viewportClient = null;
@@ -752,13 +775,23 @@ function bindViewportClient(ws, tab) {
 }
 
 async function attachViewport(ws, tab, _opts) {
+  // TEMP: swap-timing instrumentation.
+  const t0 = Date.now();
+  const warm = !!tab.viewportCdp;
+  console.log(`[swap-timing] attachViewport tabId=${tab.tabId} ${warm ? "WARM (cdp reused)" : "COLD (new cdp)"}`);
+
   // Connecting a viewport means a user is now LOOKING at this tab — bump
   // activity so /active-tab and `garrison-browser` default to it.
   tab.lastActivityAt = Date.now();
 
   // Replace an existing live viewer (rare — usually only one client at a time).
+  // Use terminate() not close() — close() waits for a peer ack that may never
+  // arrive if the old client already navigated away, leaving the ws stuck in
+  // CLOSING with its heartbeat timer still firing every 15s.
   if (tab.viewportClient && tab.viewportClient !== ws) {
-    try { tab.viewportClient.close(); } catch {}
+    const old = tab.viewportClient;
+    if (old._hbTimer) { clearInterval(old._hbTimer); old._hbTimer = null; }
+    try { old.terminate(); } catch {}
     tab.viewportClient = null;
   }
 
@@ -772,6 +805,8 @@ async function attachViewport(ws, tab, _opts) {
     // Fresh attach: create the CDP session and wire the frame listener.
     const cdp = await context.newCDPSession(tab.page);
     tab.viewportCdp = cdp;
+    // TEMP: swap-timing — first frame after every (re)start. Reset on restart.
+    tab.firstFrameLogged = false;
     // Frame listener: send binary JPEG bytes; stash the ACK for the client to
     // confirm via the input WS. This is the backpressure spine — Chromium
     // pauses encoding until the client says it drew the frame.
@@ -781,7 +816,14 @@ async function attachViewport(ws, tab, _opts) {
         try { sock.send(Buffer.from(params.data, "base64")); } catch {}
       }
       tab.pendingAck = { sessionId: params.sessionId, ts: Date.now() };
+      // TEMP: swap-timing — first frame after most recent restart.
+      if (!tab.firstFrameLogged) {
+        tab.firstFrameLogged = true;
+        const elapsed = tab.lastRestartAt ? Date.now() - tab.lastRestartAt : -1;
+        console.log(`[swap-timing] first screencastFrame tabId=${tab.tabId} +${elapsed}ms since restart, ${Buffer.byteLength(params.data, "base64")} bytes`);
+      }
     });
+    console.log(`[swap-timing] CDP session created tabId=${tab.tabId} +${Date.now() - t0}ms`);
   }
 
   bindViewportClient(ws, tab);
@@ -790,13 +832,29 @@ async function attachViewport(ws, tab, _opts) {
   // sit blank. Idempotent: on a CDP session that already had a screencast,
   // Chromium resets and re-emits.
   await restartScreencast(tab);
+  console.log(`[swap-timing] attachViewport done tabId=${tab.tabId} total +${Date.now() - t0}ms`);
 }
 
-async function restartScreencast(tab) {
+function restartScreencast(tab) {
+  // Serialize per tab: under rapid swaps, attachViewport's restart and
+  // applyQuality's restart can both fire and interleave Page.stop/start on
+  // the same CDP session, stretching into multi-second outliers that jam
+  // the event loop and trigger heartbeat-driven disconnects.
+  const prior = tab.restartChain || Promise.resolve();
+  const next = prior.then(() => doRestartScreencast(tab)).catch(() => {});
+  tab.restartChain = next;
+  return next;
+}
+
+async function doRestartScreencast(tab) {
   if (!tab.viewportCdp) return;
   // Any stale ACK held from a prior session is for a sessionId Chromium no
   // longer knows — drop it before restarting.
   tab.pendingAck = null;
+  // TEMP: swap-timing — anchor for "first frame since restart" log.
+  const t0 = Date.now();
+  tab.lastRestartAt = t0;
+  tab.firstFrameLogged = false;
   const preset = QUALITY_PRESETS[tab.qualityLevel] || QUALITY_PRESETS.low;
   try {
     // Best-effort stop; ignored if not currently running. Stop+start is the
@@ -804,6 +862,7 @@ async function restartScreencast(tab) {
     // touching device metrics (which would race with the client's viewport
     // push and squish the rendered page).
     try { await tab.viewportCdp.send("Page.stopScreencast"); } catch {}
+    console.log(`[swap-timing] Page.stopScreencast done tabId=${tab.tabId} +${Date.now() - t0}ms`);
     await tab.viewportCdp.send("Page.startScreencast", {
       format: "jpeg",
       quality: preset.jpegQuality,
@@ -811,6 +870,7 @@ async function restartScreencast(tab) {
       maxHeight: preset.viewportHeight,
       everyNthFrame: preset.everyNthFrame
     });
+    console.log(`[swap-timing] Page.startScreencast done tabId=${tab.tabId} +${Date.now() - t0}ms`);
   } catch (err) {
     console.warn(`[browser] startScreencast failed: ${err.message}`);
   }
@@ -819,13 +879,18 @@ async function restartScreencast(tab) {
 async function applyQuality(tab, level) {
   const preset = QUALITY_PRESETS[level];
   if (!preset) return;
+  // Client sends a quality message on every input-WS open even when nothing
+  // changed. Dedupe — restarting the screencast for a same-level "change"
+  // doubles up with attachViewport's restart and starves the CDP under
+  // rapid tab swaps.
+  if (tab.qualityLevel === level && tab.viewportCdp) return;
   tab.qualityLevel = level;
   await restartScreencast(tab);
 }
 
 async function attachInput(ws, tab) {
   tab.inputClients.add(ws);
-  setupHeartbeat(ws);
+  setupHeartbeat(ws, `input tabId=${tab.tabId}`);
   if (!tab.focusWatcher) startFocusWatcher(tab);
 
   // Send current focus state immediately.
@@ -1063,6 +1128,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         ws.close();
         return;
       }
+      // TEMP: swap-timing — WS upgrade arrival.
+      console.log(`[swap-timing] WS upgrade kind=${route.kind} tabId=${tab.tabId}`);
       if (route.kind === "viewport") void attachViewport(ws, tab, liveOpts);
       else if (route.kind === "input") void attachInput(ws, tab);
       else if (route.kind === "cdp") attachRawCdp(ws, tab);

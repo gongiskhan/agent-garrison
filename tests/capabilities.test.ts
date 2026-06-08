@@ -74,7 +74,7 @@ describe("capability resolver", () => {
   it("optional-one with zero providers is ok with empty matched", () => {
     const result = resolveCapabilities([
       fitting("memory", {
-        consumes: [{ kind: "automation-runner", cardinality: "optional-one" }]
+        consumes: [{ kind: "channel", cardinality: "optional-one" }]
       })
     ]);
     expect(result.ok).toBe(true);
@@ -87,10 +87,10 @@ describe("capability resolver", () => {
   it("optional-one with one provider matches that provider", () => {
     const result = resolveCapabilities([
       fitting("heartbeat", {
-        provides: [{ kind: "automation-runner", name: "loop-heartbeat" }]
+        provides: [{ kind: "channel", name: "loop-heartbeat" }]
       }),
       fitting("memory", {
-        consumes: [{ kind: "automation-runner", cardinality: "optional-one" }]
+        consumes: [{ kind: "channel", cardinality: "optional-one" }]
       })
     ]);
     expect(result.ok).toBe(true);
@@ -134,10 +134,10 @@ describe("capability resolver", () => {
 
   it("optional-one with two providers emits too-many-for-optional", () => {
     const result = resolveCapabilities([
-      fitting("a", { provides: [{ kind: "automation-runner", name: "a" }] }),
-      fitting("b", { provides: [{ kind: "automation-runner", name: "b" }] }),
+      fitting("a", { provides: [{ kind: "channel", name: "a" }] }),
+      fitting("b", { provides: [{ kind: "channel", name: "b" }] }),
       fitting("memory", {
-        consumes: [{ kind: "automation-runner", cardinality: "optional-one" }]
+        consumes: [{ kind: "channel", cardinality: "optional-one" }]
       })
     ]);
     expect(result.ok).toBe(false);
@@ -150,15 +150,15 @@ describe("capability resolver", () => {
 
   it("any cardinality never errors regardless of provider count", () => {
     const zero = resolveCapabilities([
-      fitting("k", { consumes: [{ kind: "agent-skill", cardinality: "any" }] })
+      fitting("k", { consumes: [{ kind: "channel", cardinality: "any" }] })
     ]);
     expect(zero.ok).toBe(true);
 
     const many = resolveCapabilities([
-      fitting("a", { provides: [{ kind: "agent-skill", name: "a" }] }),
-      fitting("b", { provides: [{ kind: "agent-skill", name: "b" }] }),
-      fitting("c", { provides: [{ kind: "agent-skill", name: "c" }] }),
-      fitting("k", { consumes: [{ kind: "agent-skill", cardinality: "any" }] })
+      fitting("a", { provides: [{ kind: "channel", name: "a" }] }),
+      fitting("b", { provides: [{ kind: "channel", name: "b" }] }),
+      fitting("c", { provides: [{ kind: "channel", name: "c" }] }),
+      fitting("k", { consumes: [{ kind: "channel", cardinality: "any" }] })
     ]);
     expect(many.ok).toBe(true);
     if (many.ok) {
@@ -169,16 +169,16 @@ describe("capability resolver", () => {
 
   it("kind-only consumption matches any provision of that kind", () => {
     const result = resolveCapabilities([
-      fitting("p", { provides: [{ kind: "agent-skill", name: "tier-classifier" }] }),
-      fitting("c", { consumes: [{ kind: "agent-skill" }] })
+      fitting("p", { provides: [{ kind: "channel", name: "tier-classifier" }] }),
+      fitting("c", { consumes: [{ kind: "channel" }] })
     ]);
     expect(result.ok).toBe(true);
   });
 
   it("named consumption matches only same-name provisions", () => {
     const result = resolveCapabilities([
-      fitting("p", { provides: [{ kind: "agent-skill", name: "tier-classifier" }] }),
-      fitting("c", { consumes: [{ kind: "agent-skill", name: "summarizer" }] })
+      fitting("p", { provides: [{ kind: "channel", name: "tier-classifier" }] }),
+      fitting("c", { consumes: [{ kind: "channel", name: "summarizer" }] })
     ]);
     expect(result.ok).toBe(false);
     if (!result.ok) {

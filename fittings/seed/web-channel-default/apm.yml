@@ -5,8 +5,10 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: web-channel
+  faculty: channels
   cardinality_hint: single
+  own_port: true
+  default_port: 7083
   component_shape: plugin
   platforms:
     - claude-code

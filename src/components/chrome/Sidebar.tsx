@@ -12,13 +12,15 @@ import {
   Library,
   Play,
   Lock,
-  SlidersHorizontal,
-  NotebookText,
   Component,
-  ExternalLink
+  ExternalLink,
+  LayoutGrid,
+  type LucideIcon
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import { useAppShell } from "./AppShell";
-import { faculties, isOwnPortFaculty } from "@/lib/faculties";
+import { faculties, isOwnPortFitting } from "@/lib/faculties";
+import { QUARTERS_CATEGORIES } from "@/components/quarters/quartersTypes";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import type {
   Composition,
@@ -142,8 +144,15 @@ export function Sidebar() {
           ct={isRunning ? "live" : undefined}
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
-        <NavLink href="/settings" pathname={pathname} icon={<SlidersHorizontal aria-hidden />} label="Settings" />
-        <NavLink href="/memory" pathname={pathname} icon={<NotebookText aria-hidden />} label="Memory" />
+        <NavLink
+          href="/quarters"
+          pathname={pathname}
+          icon={<LayoutGrid aria-hidden />}
+          label="Quarters"
+          active={pathname === "/quarters" || pathname.startsWith("/quarters/")}
+        />
+
+        <QuartersLinks pathname={pathname} />
 
         <FittingViewsLinks
           composition={composition}
@@ -229,7 +238,7 @@ function FittingViewsLinks({
   // Own-port views: Fittings whose Faculty is in OWN_PORT_FACULTIES (Monitor
   // pattern). They register at runtime via ~/.garrison/ui-fittings/<id>.json;
   // useFittingViewStatus surfaces health + URL.
-  const ownPort = stationed.filter((entry) => isOwnPortFaculty(entry.faculty));
+  const ownPort = stationed.filter((entry) => isOwnPortFitting(entry));
 
   const statusByFittingId = new Map<string, FittingViewStatus>(
     viewStatuses.map((s) => [s.fittingId, s])
@@ -323,6 +332,28 @@ function FittingViewsLinks({
             </span>
             <span>{row.entry.name}</span>
             <span className="badge">{status?.healthy === false ? "down" : "off"}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function QuartersLinks({ pathname }: { pathname: string }) {
+  return (
+    <div className="nested" style={{ marginTop: 12 }}>
+      <div className="group-h">Quarters</div>
+      {QUARTERS_CATEGORIES.map((cat) => {
+        const Icon =
+          (LucideIcons as unknown as Record<string, LucideIcon>)[cat.icon] ?? LucideIcons.Square;
+        const href = `/quarters/${cat.slug}`;
+        const isActive = pathname === href;
+        return (
+          <Link key={cat.slug} href={href} className={clsx("leaf", isActive && "active")}>
+            <span className="glyph">
+              <Icon size={14} aria-hidden />
+            </span>
+            <span>{cat.label}</span>
           </Link>
         );
       })}

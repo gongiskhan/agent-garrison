@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import path from "node:path";
 import { claudeHome } from "./claude-home";
+import { writeFileAtomic } from "./atomic-write";
 
 // Host-config editor for CLAUDE.md (user + project scope). Garrison manages
 // these durable, hand-authored guidance files directly; the episodic
@@ -62,7 +63,6 @@ export async function writeClaudeMd(
   if (current.exists && opts?.baselineSha && current.sha !== opts.baselineSha) {
     return { ok: false, code: "conflict", current };
   }
-  await fs.mkdir(path.dirname(current.path), { recursive: true });
-  await fs.writeFile(current.path, body, "utf8");
+  await writeFileAtomic(current.path, body);
   return { ok: true, view: { scope, path: current.path, exists: true, content: body, sha: sha(body) } };
 }

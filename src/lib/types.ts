@@ -1,28 +1,19 @@
+// Faculties are ROLES only (the Quarters pivot). Skills/Hooks/MCPs/Plugins/
+// Scripts/Settings are no longer faculties — they are platform primitives
+// surfaced in Quarters. The own-port runtime residue (terminal, screen-share,
+// worktree, session-view, outposts, browser, monitor, web-channel, voice) folds
+// under these roles (sessions/channels/observability) and is detected via the
+// `own_port` metadata flag, not a dedicated faculty. Legacy faculty names are
+// accepted as deprecation aliases (see metadata.ts normalizeDeprecations).
+// Vault is the runtime vault surface (/vault + the synthetic vault capability),
+// not a composition faculty.
 export const facultyIds = [
-  "heartbeat",
-  "scheduler",
-  "data-sources",
-  "knowledge-base",
-  "automations",
-  "skills",
-  "memory",
-  "classifier",
-  "gateway",
-  "channels",
-  "observability",
-  "soul",
   "orchestrator",
-  "artifact-store",
-  "terminal",
-  "screen-share",
-  "worktree-management",
-  "session-view",
-  "outposts",
-  "sync",
-  "monitor",
-  "web-channel",
-  "browser",
-  "voice"
+  "channels",
+  "gateway",
+  "memory",
+  "observability",
+  "sessions"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -44,13 +35,13 @@ export const fittingShapes = [
 
 export type FittingShape = (typeof fittingShapes)[number];
 
+// The capability-kind vocabulary shrinks with the Quarters pivot: soul,
+// agent-skill, automation-runner, data-source, and mcp-gateway are dropped
+// (Skills/automations become platform primitives; the spawned-operative
+// machinery is retired). The own-port runtime wiring kinds are kept.
 export const capabilityKinds = [
   "orchestrator",
-  "soul",
-  "agent-skill",
   "memory-store",
-  "automation-runner",
-  "data-source",
   "channel",
   "vault",
   "artifact-store",
@@ -59,7 +50,6 @@ export const capabilityKinds = [
   "session-view",
   "screen-share",
   "outpost",
-  "mcp-gateway",
   "monitor",
   "voice"
 ] as const;
@@ -81,7 +71,6 @@ export interface CapabilityConsumption {
 
 export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "orchestrator",
-  "soul",
   "vault",
   "terminal-session",
   "screen-share",
@@ -205,7 +194,16 @@ export interface GarrisonMetadata {
     truth_file: string;
   };
   spawn?: SpawnConfig;
-  // For own-port Fittings (those whose Faculty is in OWN_PORT_FACULTIES):
+  // Own-port Fittings serve their own React UI on their own port (Monitor
+  // pattern) and register at runtime via ~/.garrison/ui-fittings/<id>.json.
+  // After the faculties-as-roles pivot, own-port is declared per-Fitting via
+  // this flag (not inferred from the Faculty), since a role like `sessions`
+  // mixes own-port and non-own-port Fittings.
+  own_port?: boolean;
+  // Default port the own-port Fitting binds (informational; the runtime status
+  // file is authoritative).
+  default_port?: number;
+  // For own-port Fittings:
   //   - "operative-bound" (default): Garrison starts/stops the Fitting alongside
   //     the operative's up/down lifecycle.
   //   - "detached": Garrison never auto-starts or auto-stops this Fitting; the

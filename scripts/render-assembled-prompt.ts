@@ -9,7 +9,6 @@ async function main() {
   const entries = await selectedLibraryEntries(composition.selections);
 
   const orchestratorEntry = entries.find((e) => e.faculty === "orchestrator");
-  const soulEntry = entries.find((e) => e.faculty === "soul");
   if (!orchestratorEntry?.localPath) {
     console.error("no orchestrator selected");
     process.exit(1);
@@ -25,13 +24,7 @@ async function main() {
   const orchestratorPrompt = await fs.readFile(orchestratorPath, "utf8");
   const substituted = substituteCapabilitiesPlaceholder(orchestratorPrompt, entries);
 
-  let soulPrompt = "";
-  if (soulEntry?.localPath) {
-    const soulPath = path.join(process.cwd(), soulEntry.localPath, ".apm", "prompts", "soul.prompt.md");
-    soulPrompt = await fs.readFile(soulPath, "utf8");
-  }
-
-  const assembled = [substituted, "", soulPrompt].join("\n");
+  const assembled = substituted;
   const outPath = path.join(composition.directory, ".garrison", "assembled-system-prompt.md");
   await fs.writeFile(outPath, assembled, "utf8");
   console.log(`wrote ${outPath} (${assembled.length} chars)`);

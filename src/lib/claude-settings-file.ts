@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { claudeHome } from "./claude-home";
+import { writeFileAtomic } from "./atomic-write";
 
 // The SINGLE writer for ~/.claude/settings.json.
 //
@@ -79,8 +80,7 @@ export async function writeSettingsMerged(
   const p = settingsPath(home);
   const { json } = await readSettingsRaw(home);
   mutate(json);
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, `${JSON.stringify(json, null, 2)}\n`, "utf8");
+  await writeFileAtomic(p, `${JSON.stringify(json, null, 2)}\n`);
   return json;
 }
 

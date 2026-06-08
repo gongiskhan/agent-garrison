@@ -56,15 +56,15 @@ describe("orchestrator prompt + {{capabilities}} substitution", () => {
     const raw = await fs.readFile(ORCH_PROMPT, "utf8");
     const trello = entry(
       "trello-data-source",
-      "data-sources",
+      "sessions",
       "cli",
       "multi",
-      [{ kind: "data-source", name: "trello" }],
+      [{ kind: "channel", name: "trello" }],
       "Trello board access"
     );
     const result = substituteCapabilitiesPlaceholder(raw, [trello]);
     expect(result).not.toContain("{{capabilities}}");
-    expect(result).toContain("data-source:trello");
+    expect(result).toContain("channel:trello");
     expect(result).toContain("Trello board access");
   });
 
@@ -81,7 +81,7 @@ describe("orchestrator prompt + {{capabilities}} substitution", () => {
     const result = substituteCapabilitiesPlaceholder(raw, [slack]);
     expect(result).not.toContain("{{capabilities}}");
     expect(result).toContain("channel:slack");
-    expect(result).not.toContain("data-source:trello");
+    expect(result).not.toContain("channel:trello");
   });
 
   it("an empty Composition renders the no-Faculties placeholder", async () => {

@@ -15,18 +15,7 @@ x-garrison:
   provides:
     - kind: orchestrator
       name: garrison-orchestrator
-  consumes:
-    - kind: agent-skill
-      cardinality: any
-    - kind: mcp-gateway
-      cardinality: optional-one
-  spawn:
-    preset: none
-    allowed_tools: []
-    exclude_dynamic_sections: true
-    base_path: "~/.garrison/orchestrator"
-    mcp:
-      - garrison-control
+  consumes: []
   verify:
     command: test -f apm_modules/_local/garrison-orchestrator/.apm/prompts/garrison-orchestrator.prompt.md && echo ok
     expect: ok

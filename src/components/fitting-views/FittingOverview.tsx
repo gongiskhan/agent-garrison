@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { ExternalLink } from "lucide-react";
-import { isOwnPortFaculty, OWN_PORT_DEFAULTS } from "@/lib/faculties";
+import { isOwnPortFitting, ownPortDefaultPort } from "@/lib/faculties";
 import { RUNTIME_FITTING_ID } from "@/lib/capabilities";
 import { singletonCapabilityKinds } from "@/lib/types";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
@@ -28,9 +29,9 @@ interface FittingOverviewProps {
 // full-width on /fitting/<id> as the canonical Fitting page header.
 export function FittingOverview({ entry, composition, library, compact }: FittingOverviewProps) {
   const { entries: viewStatuses, refresh } = useFittingViewStatus();
-  const ownPort = isOwnPortFaculty(entry.faculty);
+  const ownPort = isOwnPortFitting(entry);
   const view = ownPort ? viewStatuses.find((t) => t.fittingId === entry.id) ?? null : null;
-  const defaultPort = OWN_PORT_DEFAULTS[entry.faculty];
+  const defaultPort = ownPortDefaultPort(entry);
 
   return (
     <div
@@ -396,15 +397,14 @@ function OwnPortControls({
       </button>
       {healthy ? (
         <>
-          <a
-            href={view.url}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href={`/embed/${entry.id}`}
             className="btn small primary"
             style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+            title={`Open ${entry.name} embedded (${view.url})`}
           >
             Open <ExternalLink size={12} aria-hidden />
-          </a>
+          </Link>
           <button
             type="button"
             className="btn small ghost"

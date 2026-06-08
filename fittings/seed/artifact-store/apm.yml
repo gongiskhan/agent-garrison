@@ -5,7 +5,7 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  faculty: artifact-store
+  faculty: sessions
   cardinality_hint: single
   component_shape: cli-skill
   platforms:

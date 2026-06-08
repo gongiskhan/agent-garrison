@@ -13,7 +13,6 @@ import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForE
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
-import { buildSoulsConfigBlob } from "./soul-spawn-config";
 import type { GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
@@ -34,27 +33,12 @@ interface GatewayInfo {
   config: Record<string, unknown>;
 }
 
-interface OrchestratorModeInfo {
-  orchestratorFittingId: string;
-  mcpGatewayDir: string;
-  mcpGatewayScript: string;
-  soulFittingIds: string[];
-}
-
-interface McpGatewayHandle {
-  process: ChildProcessWithoutNullStreams;
-  port: number;
-  token: string;
-  baseUrl: string;
-}
-
 interface RunnerRecord {
   state: RunnerState;
   logs: LogEvent[];
   logBytes: number;
   subscribers: Set<(event: LogEvent) => void>;
   process?: ChildProcessWithoutNullStreams;
-  mcpGateway?: McpGatewayHandle;
   watcher?: FSWatcher;
   restartTimer?: NodeJS.Timeout;
   gateway?: GatewayInfo;
@@ -145,58 +129,11 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         gateway.fittingDir
       );
 
-      // Detect orchestrator+souls mode. When the composition selects a
-      // garrison-orchestrator-style Fitting that consumes mcp-gateway and
-      // mcp-gateway is installed, boot mcp-gateway HTTP as a sidecar so the
-      // orchestrator's MCP tools can dispatch back through http-gateway.
-      const orchMode = await resolveOrchestratorMode(compositionId);
-      let orchEnv: Record<string, string> | undefined;
-      if (orchMode) {
-        appendLog(
-          compositionId,
-          "runner",
-          `Orchestrator mode detected: ${orchMode.orchestratorFittingId} + ${orchMode.soulFittingIds.length} souls`
-        );
-        record.mcpGateway = await spawnMcpGatewayHttp(
-          compositionId,
-          composition.directory,
-          orchMode
-        );
-        // Collect per-fitting config overrides from the composition's
-        // selections so settings like `base_path: ~/dev` actually reach
-        // the soul spawn. Without this, every soul falls back to its
-        // apm.yml default (~/code) regardless of what the user picked.
-        const configMap: Record<string, Record<string, string | number | boolean>> = {};
-        for (const facultyList of Object.values(composition.selections ?? {})) {
-          for (const selection of facultyList ?? []) {
-            if (selection?.id && selection.config) {
-              configMap[selection.id] = selection.config as Record<string, string | number | boolean>;
-            }
-          }
-        }
-        const soulsBlob = await buildSoulsConfigBlob(
-          composition.directory,
-          orchMode.orchestratorFittingId,
-          orchMode.soulFittingIds,
-          configMap
-        );
-        const nextPort = process.env.PORT ?? "7777";
-        orchEnv = {
-          GARRISON_MCP_GATEWAY_BASE_URL: record.mcpGateway.baseUrl,
-          GARRISON_MCP_GATEWAY_TOKEN: record.mcpGateway.token,
-          GARRISON_ORCHESTRATOR_FITTING_ID: orchMode.orchestratorFittingId,
-          GARRISON_SOULS_CONFIG: JSON.stringify(soulsBlob),
-          GARRISON_NEXT_BASE_URL:
-            process.env.GARRISON_NEXT_BASE_URL ?? `http://127.0.0.1:${nextPort}`
-        };
-      }
-
       child = await spawnGateway(
         compositionId,
         composition.directory,
         promptPath,
-        gateway,
-        orchEnv
+        gateway
       );
       record.gateway = gateway;
     } else {
@@ -243,11 +180,6 @@ export async function down(compositionId: string): Promise<RunnerState> {
   if (record.process) {
     await stopChild(record.process);
     record.process = undefined;
-  }
-  if (record.mcpGateway) {
-    appendLog(compositionId, "runner", "Stopping mcp-gateway sidecar");
-    try { record.mcpGateway.process.kill("SIGTERM"); } catch { /* ignore */ }
-    record.mcpGateway = undefined;
   }
   record.gateway = undefined;
   const composition = await readCompositionWithDerivedTasks(compositionId);
@@ -543,11 +475,13 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
   const orchestratorRaw = await readPromptForFaculty(entries, "orchestrator");
-  const soul = await readPromptForFaculty(entries, "soul");
   const fallbackOrchestrator = await fs.readFile(
     path.join(composition.directory, ".garrison", "prompts", "orchestrator.md"),
     "utf8"
   );
+  // Identity/soul prompt comes from the composition default file (.garrison/
+  // prompts/soul.md). Since the spawn path was retired, there is no separate
+  // soul Faculty; identity folds into the assembled prompt ahead of behavior.
   const fallbackSoul = await fs.readFile(
     path.join(composition.directory, ".garrison", "prompts", "soul.md"),
     "utf8"
@@ -556,14 +490,12 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
     orchestratorRaw ?? fallbackOrchestrator,
     entries
   );
-  // Soul (identity) first, Orchestrator (behavior) second. Identity at the
-  // top of the append makes the override land before the long behavior
-  // section buries it; otherwise Claude Code's preset ("You are Claude")
-  // wins on identity questions.
-  const prompt = [soul ?? fallbackSoul, "", orchestrator].join("\n");
+  // Identity first, Orchestrator (behavior) second — identity lands before the
+  // long behavior section buries it.
+  const prompt = [fallbackSoul, "", orchestrator].join("\n");
   const promptPath = path.join(composition.directory, ".garrison", "assembled-system-prompt.md");
   await fs.writeFile(promptPath, prompt, "utf8");
-  appendLog(compositionId, "runner", `Assembled soul+orchestrator prompt at ${path.relative(ROOT_DIR, promptPath)}`);
+  appendLog(compositionId, "runner", `Assembled system prompt at ${path.relative(ROOT_DIR, promptPath)}`);
   return promptPath;
 }
 
@@ -629,7 +561,7 @@ export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {
 
 async function readPromptForFaculty(
   entries: LibraryEntry[],
-  faculty: "orchestrator" | "soul"
+  faculty: "orchestrator"
 ): Promise<string | undefined> {
   const entry = entries.find((candidate) => candidate.faculty === faculty);
   if (!entry?.localPath) {
@@ -648,45 +580,6 @@ async function readPromptForFaculty(
   }
 }
 
-async function resolveOrchestratorMode(
-  compositionId: string
-): Promise<OrchestratorModeInfo | null> {
-  const composition = await readCompositionWithDerivedTasks(compositionId);
-  const entries = await selectedLibraryEntries(composition.selections);
-
-  const orchestrator = entries.find(
-    (entry) =>
-      entry.metadata?.provides?.some((p) => p.kind === "orchestrator") &&
-      entry.metadata?.consumes?.some((c) => c.kind === "mcp-gateway") &&
-      entry.metadata?.spawn
-  );
-  if (!orchestrator) return null;
-
-  const mcpGatewayDir = path.join(
-    composition.directory,
-    "apm_modules",
-    "_local",
-    "mcp-gateway"
-  );
-  const mcpGatewayScript = path.join(mcpGatewayDir, "scripts", "gateway.mjs");
-  if (!existsSync(mcpGatewayScript)) return null;
-
-  const soulFittingIds = entries
-    .filter((entry) =>
-      entry.metadata?.provides?.some(
-        (p) => p.kind === "agent-skill" && typeof p.name === "string" && p.name.startsWith("soul.")
-      )
-    )
-    .map((entry) => entry.id);
-
-  return {
-    orchestratorFittingId: orchestrator.id,
-    mcpGatewayDir,
-    mcpGatewayScript,
-    soulFittingIds
-  };
-}
-
 async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
@@ -697,66 +590,6 @@ async function findFreePort(): Promise<number> {
     });
     server.on("error", reject);
   });
-}
-
-async function spawnMcpGatewayHttp(
-  compositionId: string,
-  compositionDir: string,
-  mode: OrchestratorModeInfo
-): Promise<McpGatewayHandle> {
-  const port = await findFreePort();
-  const token = randomBytes(32).toString("hex");
-
-  appendLog(
-    compositionId,
-    "runner",
-    `Starting mcp-gateway HTTP mode on 127.0.0.1:${port}`
-  );
-
-  const { child } = spawnTracked(
-    "node",
-    [mode.mcpGatewayScript, "http", "--port", String(port), "--token", token, "--host", "127.0.0.1"],
-    {
-      cwd: compositionDir,
-      env: {
-        ...process.env,
-        GARRISON_COMPOSITION_DIR: compositionDir,
-        GARRISON_HTTP_GATEWAY_BASE_URL: `http://127.0.0.1:${4777}` // overwritten at http-gateway spawn time anyway; mcp-gateway resolves lazily
-      },
-      stdio: ["pipe", "pipe", "pipe"]
-    },
-    { spawnSite: "runner:spawnMcpGatewayHttp", description: `mcp-gateway http :${port}` }
-  );
-
-  child.stdout.on("data", (chunk) =>
-    appendLog(compositionId, "stdout", `[mcp-gw] ${chunk.toString()}`)
-  );
-  child.stderr.on("data", (chunk) =>
-    appendLog(compositionId, "stderr", `[mcp-gw] ${chunk.toString()}`)
-  );
-
-  const baseUrl = `http://127.0.0.1:${port}`;
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
-      throw new Error(`mcp-gateway exited before becoming ready (code=${child.exitCode})`);
-    }
-    try {
-      const response = await fetch(`${baseUrl}/healthz`, {
-        headers: { authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(1000)
-      });
-      if (response.ok) {
-        appendLog(compositionId, "runner", `mcp-gateway ready on ${baseUrl}`);
-        return { process: child, port, token, baseUrl };
-      }
-    } catch {
-      // not ready yet
-    }
-    await delay(250);
-  }
-
-  throw new Error(`mcp-gateway did not become ready within 10s on ${baseUrl}`);
 }
 
 async function resolveGatewayFitting(
@@ -772,10 +605,6 @@ async function resolveGatewayFitting(
   for (const selection of gatewaySelections) {
     const entry = entries.find((candidate) => candidate.id === selection.id);
     if (!entry) continue;
-
-    // Skip mcp-gateway — it is orchestrator-mode sidecar infrastructure and
-    // is not spawned by the runner as the operative's HTTP chat gateway.
-    if (entry.metadata?.provides?.some((p) => p.kind === "mcp-gateway")) continue;
 
     const fittingDir = path.join(
       composition.directory,

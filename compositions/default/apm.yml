@@ -4,25 +4,16 @@ target: claude
 dependencies:
   apm:
     - path: ../../fittings/seed/artifact-store
-    - path: ../../fittings/seed/browser-automation
     - path: ../../fittings/seed/browser-default
-    - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/deepgram-voice
-    - path: ../../fittings/seed/documents
+    - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/memory
     - path: ../../fittings/seed/monitor-default
-    - path: ../../fittings/seed/personal-operative
-    - path: ../../fittings/seed/projects-index
-    - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/session-view-sequoias
     - path: ../../fittings/seed/slack-channel
-    - path: ../../fittings/seed/soul
     - path: ../../fittings/seed/terminal-armory-default
-    - path: ../../fittings/seed/tier-classifier
-    - path: ../../fittings/seed/trello-data-source
     - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/worktree-management-sequoias
 x-garrison:
@@ -41,51 +32,9 @@ x-garrison:
       observability_config:
         log_sink: runner
     selections:
-      heartbeat:
-        - id: loop-heartbeat
-          config:
-            cadence_minutes: 40
-            gateway_url: http://127.0.0.1:4777/jobs
-      scheduler:
-        - id: scheduler
-          config:
-            jobs_file: data/scheduler-jobs.json
-            log_file: data/scheduler.log
-      data-sources:
-        - id: trello-data-source
-          config:
-            tasks_truth_file: tasks/trello.md
-            board_id: vl1Z8KFH
-      knowledge-base:
-        - id: projects-index
-          config:
-            projects_root: ~/Projects
-        - id: documents
+      orchestrator:
+        - id: garrison-orchestrator
           config: {}
-      automations:
-        - id: browser-automation
-          config:
-            browser: chromium
-            headless: false
-      skills:
-        - id: coding-subagent
-          config:
-            subagent_model: opus
-            subagent_permission_mode: bypassPermissions
-            max_plan_turns: 30
-            max_execute_turns: 200
-      memory:
-        - id: memory
-          config:
-            recency_window: 20
-            persistence_cadence: hourly
-            compiled_memory_dir: ~/Projects/ekus/obsidian-vault/Compiled
-            compiler_repo_url: https://github.com/coleam00/claude-memory-compiler
-      classifier:
-        - id: tier-classifier
-          config:
-            tier_floor: 3
-            plan_threshold: 3
       gateway:
         - id: http-gateway
           config:
@@ -97,48 +46,44 @@ x-garrison:
             slack_port: 9512
             gateway_url: http://127.0.0.1:4777
             chat_timeout_ms: 600000
-      soul:
-        - id: soul
-          config: {}
-      orchestrator:
-        - id: personal-operative
+        - id: web-channel-default
           config:
-            tone: terse
-            idle_behavior: passive
-            priority_label: priority
-            silent_when_no_work: true
-            report_channel: ''
-      artifact-store:
-        - id: artifact-store
+            port: 7083
+            bind_host: 127.0.0.1
+            gateway_url: ''
+        - id: deepgram-voice
           config:
-            storage_root: artifacts
-      terminal:
-        - id: terminal-armory-default
-          config: {}
-      screen-share:
-        - id: screen-share-default
-          config: {}
-      worktree-management:
-        - id: worktree-management-sequoias
+            port: 7085
+            bind_host: 127.0.0.1
+            stt_model: nova-2
+            tts_model: aura-asteria-en
+      memory:
+        - id: memory
           config:
-            repo_path: ~/Projects/agent-garrison
-      session-view:
-        - id: session-view-sequoias
-          config: {}
-      monitor:
+            recency_window: 20
+            persistence_cadence: hourly
+            compiled_memory_dir: ~/Projects/ekus/obsidian-vault/Compiled
+            compiler_repo_url: https://github.com/coleam00/claude-memory-compiler
+      observability:
         - id: monitor-default
           config:
             port: 7077
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
-      web-channel:
-        - id: web-channel-default
+      sessions:
+        - id: artifact-store
           config:
-            port: 7083
-            bind_host: 127.0.0.1
-            gateway_url: ''
-      browser:
+            storage_root: artifacts
+        - id: terminal-armory-default
+          config: {}
+        - id: screen-share-default
+          config: {}
+        - id: worktree-management-sequoias
+          config:
+            repo_path: ~/Projects/agent-garrison
+        - id: session-view-sequoias
+          config: {}
         - id: browser-default
           config:
             port: 7084
@@ -147,13 +92,6 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
-      voice:
-        - id: deepgram-voice
-          config:
-            port: 7085
-            bind_host: 127.0.0.1
-            stt_model: nova-2
-            tts_model: aura-asteria-en
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

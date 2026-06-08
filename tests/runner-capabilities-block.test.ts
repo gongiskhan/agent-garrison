@@ -45,10 +45,10 @@ describe("renderCapabilitiesBlock", () => {
     const entries = [
       entry(
         "trello-data-source",
-        "data-sources",
+        "sessions",
         "cli",
         "multi",
-        [{ kind: "data-source", name: "trello" }],
+        [{ kind: "channel", name: "trello" }],
         "Trello board access"
       ),
       entry(
@@ -62,24 +62,24 @@ describe("renderCapabilitiesBlock", () => {
     ];
     const block = renderCapabilitiesBlock(entries);
     expect(block).toContain("- channel:slack — Slack inbound/outbound");
-    expect(block).toContain("- data-source:trello — Trello board access");
+    expect(block).toContain("- channel:trello — Trello board access");
     const channelIdx = block.indexOf("channel:slack");
-    const dataIdx = block.indexOf("data-source:trello");
+    const dataIdx = block.indexOf("channel:trello");
     expect(channelIdx).toBeLessThan(dataIdx);
   });
 
   it("renders the for_consumers body indented under the provider line when present", () => {
     const docs = entry(
       "documents",
-      "knowledge-base",
+      "sessions",
       "cli-skill",
       "single",
-      [{ kind: "agent-skill", name: "project-documents" }],
+      [{ kind: "channel", name: "project-documents" }],
       "Documents workspace",
       "Use the Documents Faculty when in PM hat.\n- bullet one\n- bullet two"
     );
     const block = renderCapabilitiesBlock([docs]);
-    expect(block).toContain("- agent-skill:project-documents — Documents workspace");
+    expect(block).toContain("- channel:project-documents — Documents workspace");
     expect(block).toContain("  Use the Documents Faculty when in PM hat.");
     expect(block).toContain("  - bullet one");
     expect(block).toContain("  - bullet two");
@@ -88,31 +88,31 @@ describe("renderCapabilitiesBlock", () => {
   it("falls back to the summary line when for_consumers is absent", () => {
     const trello = entry(
       "trello-data-source",
-      "data-sources",
+      "sessions",
       "cli",
       "multi",
-      [{ kind: "data-source", name: "trello" }],
+      [{ kind: "channel", name: "trello" }],
       "Trello board access"
     );
     const block = renderCapabilitiesBlock([trello]);
-    expect(block).toBe("- data-source:trello — Trello board access");
+    expect(block).toBe("- channel:trello — Trello board access");
   });
 
   it("separates entries with a blank line when any provider ships for_consumers", () => {
     const trello = entry(
       "trello-data-source",
-      "data-sources",
+      "sessions",
       "cli",
       "multi",
-      [{ kind: "data-source", name: "trello" }],
+      [{ kind: "channel", name: "trello" }],
       "Trello board access"
     );
     const docs = entry(
       "documents",
-      "knowledge-base",
+      "sessions",
       "cli-skill",
       "single",
-      [{ kind: "agent-skill", name: "project-documents" }],
+      [{ kind: "channel", name: "project-documents" }],
       "Documents workspace",
       "Use this when capturing decisions."
     );
@@ -120,7 +120,7 @@ describe("renderCapabilitiesBlock", () => {
     // Sorted by kind: agent-skill comes before data-source. The blank line
     // separator only kicks in once at least one provider ships for_consumers.
     expect(block).toContain(
-      "  Use this when capturing decisions.\n\n- data-source:trello — Trello board access"
+      "  Use this when capturing decisions.\n\n- channel:trello — Trello board access"
     );
   });
 
@@ -128,16 +128,16 @@ describe("renderCapabilitiesBlock", () => {
     const entries = [
       entry(
         "trello-data-source",
-        "data-sources",
+        "sessions",
         "cli",
         "multi",
-        [{ kind: "data-source", name: "trello" }],
+        [{ kind: "channel", name: "trello" }],
         "Trello"
       ),
       entry("personal-operative", "orchestrator", "system-prompt", "single", [], "Orchestrator")
     ];
     const block = renderCapabilitiesBlock(entries);
-    expect(block).toContain("data-source:trello");
+    expect(block).toContain("channel:trello");
     expect(block).not.toContain("personal-operative");
   });
 });

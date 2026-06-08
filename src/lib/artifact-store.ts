@@ -19,8 +19,11 @@ export async function resolveArtifactRoot(
   compositionId?: string
 ): Promise<string> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
-  const selections = composition.selections["artifact-store"] ?? [];
-  const selection = selections[0];
+  // The artifact-store Fitting folded under the `sessions` role; find it by id
+  // across selections rather than by a dedicated faculty key.
+  const selection = Object.values(composition.selections)
+    .flat()
+    .find((s) => s?.id === "artifact-store");
   const relative =
     (selection?.config?.storage_root as string | undefined) ?? "artifacts";
   return path.resolve(composition.directory, relative);

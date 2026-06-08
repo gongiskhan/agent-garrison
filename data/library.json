@@ -1,35 +1,5 @@
 [
   {
-    "id": "coding-subagent",
-    "name": "Coding sub-agent",
-    "repo": "local:fittings/seed/coding-subagent",
-    "localPath": "fittings/seed/coding-subagent",
-    "summary": "Plan-then-execute coding sub-agent. Spawns an isolated SDK session in a project folder to plan or execute substantial coding work.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-coding-subagent",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "browser-automation",
-    "name": "Browser automation",
-    "repo": "local:fittings/seed/browser-automation",
-    "localPath": "fittings/seed/browser-automation",
-    "summary": "Playwright CLI plus a driving skill for browser automation.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-browser-automation",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
     "id": "http-gateway",
     "name": "HTTP gateway",
     "repo": "local:fittings/seed/http-gateway",
@@ -45,66 +15,6 @@
     }
   },
   {
-    "id": "loop-heartbeat",
-    "name": "Loop heartbeat",
-    "repo": "local:fittings/seed/loop-heartbeat",
-    "localPath": "fittings/seed/loop-heartbeat",
-    "summary": "Scheduled loop that wakes the operative and dispatches through the gateway.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-loop-heartbeat",
-      "global": 4.6,
-      "claude_code": 4.6
-    }
-  },
-  {
-    "id": "scheduler",
-    "name": "Scheduler",
-    "repo": "local:fittings/seed/scheduler",
-    "localPath": "fittings/seed/scheduler",
-    "summary": "Cron-style job scheduler. Add/remove/list/run-now via CLI; tick processes due jobs; daemon mode runs the loop.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-scheduler",
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "projects-index",
-    "name": "Projects index",
-    "repo": "local:fittings/seed/projects-index",
-    "localPath": "fittings/seed/projects-index",
-    "summary": "Lists, describes, and reads files from local projects under a configurable root (default ~/Projects). Lazy filesystem walk; no persistent index.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-projects-index",
-      "global": 4.2,
-      "claude_code": 4.2
-    }
-  },
-  {
-    "id": "personal-operative",
-    "name": "Personal operative",
-    "repo": "local:fittings/seed/personal-operative",
-    "localPath": "fittings/seed/personal-operative",
-    "summary": "Default Orchestrator. Heartbeat-driven loop: triage inbox/scheduled/tasks, route through the classifier, persist context across sessions.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-personal-operative",
-      "global": 4.5,
-      "claude_code": 4.6
-    }
-  },
-  {
     "id": "memory",
     "name": "Memory fitting",
     "repo": "local:fittings/seed/memory",
@@ -115,51 +25,6 @@
     ],
     "ratings": {
       "github_stars_url": "https://github.com/gongiskhan/garrison-memory",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "tier-classifier",
-    "name": "Tier classifier",
-    "repo": "local:fittings/seed/tier-classifier",
-    "localPath": "fittings/seed/tier-classifier",
-    "summary": "Tier 1-7 routing floor; T3+ forces plan-then-reclassify-then-route.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-tier-classifier",
-      "global": 4.7,
-      "claude_code": 4.7
-    }
-  },
-  {
-    "id": "trello-data-source",
-    "name": "Trello data source",
-    "repo": "local:fittings/seed/trello-data-source",
-    "localPath": "fittings/seed/trello-data-source",
-    "summary": "One-way Trello fetch with Trello-backed derived Tasks.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-trello-data-source",
-      "global": 4.4,
-      "claude_code": 4.4
-    }
-  },
-  {
-    "id": "soul",
-    "name": "Soul",
-    "repo": "local:fittings/seed/soul",
-    "localPath": "fittings/seed/soul",
-    "summary": "PM / Software Architect / PA persona for the personal Operative.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-soul",
       "global": 4.5,
       "claude_code": 4.5
     }
@@ -240,21 +105,6 @@
     }
   },
   {
-    "id": "documents",
-    "name": "Documents",
-    "repo": "local:fittings/seed/documents",
-    "localPath": "fittings/seed/documents",
-    "summary": "Markdown documents workspace layered on the artifact store. Operative captures decisions and plans; user reads and edits in the sidebar.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-documents",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
     "id": "terminal-armory-default",
     "name": "Terminal",
     "repo": "local:fittings/seed/terminal-armory-default",
@@ -273,7 +123,7 @@
     "name": "Screen share",
     "repo": "local:fittings/seed/screen-share-default",
     "localPath": "fittings/seed/screen-share-default",
-    "summary": "macOS screenshot capture \u2014 ~2fps JPEG polling viewer for phone/remote access.",
+    "summary": "macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.",
     "platforms": [
       "claude-code"
     ],
@@ -287,7 +137,7 @@
     "name": "Worktrees",
     "repo": "local:fittings/seed/worktree-management-sequoias",
     "localPath": "fittings/seed/worktree-management-sequoias",
-    "summary": "Git worktree lifecycle manager \u2014 create, list, and delete worktrees with per-branch isolation. Derived from Sequoias.",
+    "summary": "Git worktree lifecycle manager — create, list, and delete worktrees with per-branch isolation. Derived from Sequoias.",
     "platforms": [
       "claude-code"
     ],
@@ -325,147 +175,16 @@
     }
   },
   {
-    "id": "outpost-actions",
-    "name": "Outpost actions",
-    "repo": "local:fittings/seed/outpost-actions",
-    "localPath": "fittings/seed/outpost-actions",
-    "summary": "Agent skill for invoking operations on remote outpost machines \u2014 run commands, read/write files, list directories via Python stdlib CLI.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "vault-sync",
-    "name": "Vault sync",
-    "repo": "local:fittings/seed/vault-sync",
-    "localPath": "fittings/seed/vault-sync",
-    "summary": "Periodic host\u2192outpost directory mirror (Obsidian vault and similar). Size+mtime diff, parallel outpost sync, scheduler-driven.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.2,
-      "claude_code": 4.2
-    }
-  },
-  {
-    "id": "mcp-gateway",
-    "name": "MCP gateway",
-    "repo": "local:fittings/seed/mcp-gateway",
-    "localPath": "fittings/seed/mcp-gateway",
-    "summary": "Exposes installed Faculties as MCP tools to workbench-launched Claude Code sessions. Supports stdio (same-machine) and HTTP (remote outpost) transports.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "testing",
-    "name": "Testing",
-    "repo": "local:fittings/seed/testing",
-    "localPath": "fittings/seed/testing",
-    "summary": "Project-aware test runner. Auto-detects npm/pytest/cargo/go test and runs the worktree project's native test command.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
     "id": "garrison-orchestrator",
     "name": "Garrison Orchestrator",
     "repo": "local:fittings/seed/garrison-orchestrator",
     "localPath": "fittings/seed/garrison-orchestrator",
-    "summary": "Delegating Orchestrator \u2014 routes requests to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.",
+    "summary": "Delegating Orchestrator — routes requests to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
       "github_stars_url": "https://github.com/gongiskhan/garrison-orchestrator",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "soul-engineer",
-    "name": "Engineer Soul",
-    "repo": "local:fittings/seed/soul-engineer",
-    "localPath": "fittings/seed/soul-engineer",
-    "summary": "Coding specialist Soul. Full filesystem and shell access in the projects folder.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-soul-engineer",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "soul-architect",
-    "name": "Architect Soul",
-    "repo": "local:fittings/seed/soul-architect",
-    "localPath": "fittings/seed/soul-architect",
-    "summary": "Design thinking specialist Soul. Read access to source code; produces markdown design documents.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-soul-architect",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "soul-assistant",
-    "name": "Personal Assistant Soul",
-    "repo": "local:fittings/seed/soul-assistant",
-    "localPath": "fittings/seed/soul-assistant",
-    "summary": "Personal life logistics Soul. Meal planning, family scheduling, todos. No web access.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-soul-assistant",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "soul-researcher",
-    "name": "Researcher Soul",
-    "repo": "local:fittings/seed/soul-researcher",
-    "localPath": "fittings/seed/soul-researcher",
-    "summary": "Research specialist Soul. Web search and fetch; produces cited markdown research notes.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-soul-researcher",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "soul-companion",
-    "name": "Companion Soul",
-    "repo": "local:fittings/seed/soul-companion",
-    "localPath": "fittings/seed/soul-companion",
-    "summary": "Conversational companion Soul. Quick answers and everyday web lookups. Light and fast.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-soul-companion",
       "global": 4.5,
       "claude_code": 4.5
     }

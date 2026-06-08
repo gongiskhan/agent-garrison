@@ -45,5 +45,16 @@ export function seedSandbox(): void {
     "# Sandbox user CLAUDE.md\n\nDurable behavioral guidance lives here.\n"
   );
 
+  // A plan file for the Quarters -> Plans surface.
+  const plansDir = path.join(CLAUDE_SANDBOX, "plans");
+  fs.mkdirSync(plansDir, { recursive: true });
+  fs.writeFileSync(path.join(plansDir, "example-plan.md"), "# Example plan\n\nstep one.\n");
+
+  // An MCP server for the Quarters -> MCPs surface.
+  fs.writeFileSync(
+    path.join(CLAUDE_SANDBOX, "mcp.json"),
+    JSON.stringify({ mcpServers: { "sandbox-mcp": { command: "echo" } } }, null, 2)
+  );
+
   fs.mkdirSync(GARRISON_SANDBOX, { recursive: true });
 }

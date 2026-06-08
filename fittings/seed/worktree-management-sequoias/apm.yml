@@ -5,8 +5,10 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: worktree-management
+  faculty: sessions
   cardinality_hint: single
+  own_port: true
+  default_port: 7080
   component_shape: plugin
   platforms:
     - claude-code

@@ -4,12 +4,10 @@ import { validateFitting } from "@/lib/validation";
 
 const SEED_DIR = path.resolve(__dirname, "..", "fittings", "seed");
 const seedIds = [
-  "loop-heartbeat",
-  "tier-classifier",
   "memory",
   "http-gateway",
-  "browser-automation",
-  "trello-data-source"
+  "slack-channel",
+  "monitor-default"
 ] as const;
 
 describe("validateFitting", () => {

@@ -4,7 +4,7 @@ import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { ROOT_DIR } from "./paths";
-import { isOwnPortFaculty } from "./faculties";
+import { isOwnPortFitting } from "./faculties";
 import { readVaultSecrets } from "./vault";
 import type { LibraryEntry } from "./types";
 
@@ -31,7 +31,7 @@ export function isValidFittingId(fittingId: string): boolean {
 }
 
 export function isOperativeBound(entry: LibraryEntry): boolean {
-  if (!isOwnPortFaculty(entry.faculty)) return false;
+  if (!isOwnPortFitting(entry)) return false;
   // Default for own-port Fittings is operative-bound; explicit "detached"
   // opts out.
   return entry.metadata.lifecycle !== "detached";
@@ -71,7 +71,7 @@ export async function startOwnPortFitting(
   if (!isValidFittingId(entry.id)) {
     return { ok: false, error: "invalid fittingId", status: 400 };
   }
-  if (!isOwnPortFaculty(entry.faculty)) {
+  if (!isOwnPortFitting(entry)) {
     return { ok: false, error: `fitting ${entry.id} is not an own-port Fitting`, status: 400 };
   }
   if (await isAlreadyRunning(entry.id)) {

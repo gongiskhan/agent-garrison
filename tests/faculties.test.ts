@@ -2,36 +2,25 @@ import { describe, expect, it } from "vitest";
 import { faculties } from "@/lib/faculties";
 
 describe("faculty definitions", () => {
-  it("renders the 24 Faculties in spec order", () => {
+  it("renders the 6 role Faculties in order", () => {
     expect(faculties.map((faculty) => faculty.id)).toEqual([
-      "heartbeat",
-      "scheduler",
-      "data-sources",
-      "knowledge-base",
-      "automations",
-      "skills",
-      "memory",
-      "classifier",
-      "gateway",
-      "channels",
-      "observability",
-      "soul",
       "orchestrator",
-      "artifact-store",
-      "terminal",
-      "screen-share",
-      "worktree-management",
-      "session-view",
-      "outposts",
-      "sync",
-      "monitor",
-      "web-channel",
-      "browser",
-      "voice"
+      "channels",
+      "gateway",
+      "memory",
+      "observability",
+      "sessions"
     ]);
   });
 
   it("keeps Tasks out of the selectable Faculty set", () => {
     expect(faculties.map((faculty) => faculty.id)).not.toContain("tasks");
+  });
+
+  it("drops the config-projection faculties (now platform primitives in Quarters)", () => {
+    const ids = faculties.map((f) => f.id);
+    for (const gone of ["skills", "heartbeat", "scheduler", "classifier", "soul"]) {
+      expect(ids).not.toContain(gone);
+    }
   });
 });

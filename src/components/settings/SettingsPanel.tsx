@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AutosaveStatus } from "@/hooks/useAutosave";
 import type {
   SettingsView,
   KnownSettingView,
@@ -17,14 +18,33 @@ const GROUP_ORDER: { id: SettingGroup; label: string }[] = [
   { id: "advanced", label: "Advanced" }
 ];
 
+const STATUS_WORD: Record<AutosaveStatus, string> = {
+  idle: "",
+  saving: "saving…",
+  saved: "saved",
+  error: "save failed"
+};
+
+const DEBOUNCE_MS = 700;
+const DRIFT_POLL_MS = 5000;
+
+// No save button. Discrete controls (boolean / enum) autosave immediately; text,
+// number and JSON controls debounce. The backend writeSettingsPatch merges only
+// the changed keys onto a fresh read (never a blind overwrite) and refreshes the
+// drift baseline, so each per-key save is echo-suppressed. A visibility-gated
+// poll of /api/settings/drift surfaces external edits (Claude Code's /model,
+// permission approvals) as a live banner while the page sits idle.
 export function SettingsPanel() {
   const [view, setView] = useState<SettingsView | null>(null);
-  const [patch, setPatch] = useState<Record<string, unknown>>({});
+  const [overrides, setOverrides] = useState<Record<string, unknown>>({});
   const [jsonText, setJsonText] = useState<Record<string, string>>({});
   const [jsonErr, setJsonErr] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<AutosaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [drift, setDrift] = useState(false);
+
+  const pending = useRef<Record<string, unknown>>({});
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -33,9 +53,11 @@ export function SettingsPanel() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? res.statusText);
       setView(data as SettingsView);
-      setPatch({});
+      setOverrides({});
       setJsonText({});
       setJsonErr({});
+      pending.current = {};
+      setDrift(Boolean((data as SettingsView).drift?.changedExternally));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -45,35 +67,15 @@ export function SettingsPanel() {
     void load();
   }, [load]);
 
-  const setScalar = useCallback((key: string, value: unknown) => {
-    setSaved(false);
-    setPatch((p) => ({ ...p, [key]: value }));
-  }, []);
-
-  const setJson = useCallback((key: string, text: string) => {
-    setSaved(false);
-    setJsonText((t) => ({ ...t, [key]: text }));
-    if (text.trim() === "") {
-      // empty means "remove this key"
-      setPatch((p) => ({ ...p, [key]: undefined }));
-      setJsonErr((e) => ({ ...e, [key]: "" }));
-      return;
+  const flush = useCallback(async () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
     }
-    try {
-      const parsed = JSON.parse(text);
-      setPatch((p) => ({ ...p, [key]: parsed }));
-      setJsonErr((e) => ({ ...e, [key]: "" }));
-    } catch (err) {
-      setJsonErr((e) => ({ ...e, [key]: err instanceof Error ? err.message : "invalid JSON" }));
-    }
-  }, []);
-
-  const dirty = Object.keys(patch).length > 0;
-  const hasJsonErr = Object.values(jsonErr).some((m) => m && m.length > 0);
-
-  const save = useCallback(async () => {
-    if (!dirty || hasJsonErr) return;
-    setBusy(true);
+    const patch = pending.current;
+    if (Object.keys(patch).length === 0) return;
+    pending.current = {};
+    setStatus("saving");
     setError(null);
     try {
       const res = await fetch("/api/settings", {
@@ -83,21 +85,90 @@ export function SettingsPanel() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? res.statusText);
+      // Refresh from the authoritative post-write view. Sticky overrides keep the
+      // user's in-flight edits visible on top until an explicit Reload.
       setView(data as SettingsView);
-      setPatch({});
-      setJsonText({});
-      setJsonErr({});
-      setSaved(true);
+      setDrift(Boolean((data as SettingsView).drift?.changedExternally));
+      setStatus("saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
+      setStatus("error");
     }
-  }, [dirty, hasJsonErr, patch]);
+  }, []);
+
+  // Flush any pending edit on unmount so navigating away never drops it.
+  useEffect(() => () => void flush(), [flush]);
+
+  const queue = useCallback(
+    (key: string, value: unknown, immediate: boolean) => {
+      pending.current = { ...pending.current, [key]: value };
+      setOverrides((o) => ({ ...o, [key]: value }));
+      setStatus("idle");
+      if (immediate) {
+        void flush();
+        return;
+      }
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => void flush(), DEBOUNCE_MS);
+    },
+    [flush]
+  );
+
+  const setScalar = useCallback(
+    (key: string, value: unknown, immediate: boolean) => queue(key, value, immediate),
+    [queue]
+  );
+
+  const setJson = useCallback(
+    (key: string, text: string) => {
+      setJsonText((t) => ({ ...t, [key]: text }));
+      if (text.trim() === "") {
+        // empty means "remove this key"
+        setJsonErr((e) => ({ ...e, [key]: "" }));
+        queue(key, undefined, false);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(text);
+        setJsonErr((e) => ({ ...e, [key]: "" }));
+        queue(key, parsed, false);
+      } catch (err) {
+        // Don't autosave a half-typed value: drop it from the pending patch and
+        // surface the parse error. It re-queues once the JSON parses again.
+        setJsonErr((e) => ({ ...e, [key]: err instanceof Error ? err.message : "invalid JSON" }));
+        const { [key]: _drop, ...rest } = pending.current;
+        void _drop;
+        pending.current = rest;
+      }
+    },
+    [queue]
+  );
+
+  // Visibility-gated drift poll — only while visible, not saving, and with no
+  // pending edits (so it never races a debounced write).
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (status === "saving") return;
+      if (Object.keys(pending.current).length > 0) return;
+      void (async () => {
+        try {
+          const res = await fetch("/api/settings/drift");
+          if (!res.ok) return;
+          const d = await res.json();
+          setDrift(Boolean(d.changedExternally));
+        } catch {
+          // ignore transient poll errors
+        }
+      })();
+    }, DRIFT_POLL_MS);
+    return () => clearInterval(id);
+  }, [status]);
 
   const currentValue = useCallback(
-    (k: KnownSettingView): unknown => (k.key in patch ? patch[k.key] : k.value),
-    [patch]
+    (k: KnownSettingView): unknown =>
+      Object.prototype.hasOwnProperty.call(overrides, k.key) ? overrides[k.key] : k.value,
+    [overrides]
   );
 
   const grouped = useMemo(() => {
@@ -126,10 +197,10 @@ export function SettingsPanel() {
         <div className="head">
           <h1>Settings</h1>
           <p className="ld">
-            A merge-managed view of <code>~/.claude/settings.json</code>. Garrison reads it fresh,
-            writes only the keys you change, preserves bespoke/unknown keys untouched, and never
-            blind-overwrites — Claude Code itself rewrites this file, so it is owned cooperatively,
-            not exclusively.
+            A merge-managed view of <code>~/.claude/settings.json</code>. Changes save automatically —
+            Garrison writes only the key you touch, preserves bespoke/unknown keys untouched, and never
+            blind-overwrites. Claude Code itself rewrites this file, so it is owned cooperatively, not
+            exclusively.
           </p>
         </div>
 
@@ -140,15 +211,18 @@ export function SettingsPanel() {
           </div>
         ) : null}
 
-        {view?.drift.changedExternally ? (
+        {drift ? (
           <div className="banner alarm" data-testid="drift-banner">
             <span className="glyph">!</span>
             <div>
               <h5>Changed outside Garrison</h5>
               <p>
                 <code>settings.json</code> differs from what Garrison last wrote (Claude Code edits it
-                on /model, permission approvals, etc.). The values below are the current on-disk state;
-                saving reconciles the baseline.
+                on /model, permission approvals, etc.).{" "}
+                <button className="btn small ghost" data-testid="drift-reload" onClick={() => void load()}>
+                  Reload from disk
+                </button>{" "}
+                to pull the current values before editing.
               </p>
             </div>
           </div>
@@ -157,7 +231,7 @@ export function SettingsPanel() {
         {!view?.exists ? (
           <div className="banner" data-testid="missing-banner" style={{ border: "1px solid var(--rule)", padding: "12px 16px" }}>
             <p style={{ margin: 0, color: "var(--mute)", fontSize: 13 }}>
-              No <code>settings.json</code> yet — saving any field creates it.
+              No <code>settings.json</code> yet — changing any field creates it.
             </p>
           </div>
         ) : null}
@@ -185,7 +259,7 @@ export function SettingsPanel() {
                   value={currentValue(s)}
                   jsonText={jsonText[s.key]}
                   jsonErr={jsonErr[s.key]}
-                  onScalar={(v) => setScalar(s.key, v)}
+                  onScalar={(v, immediate) => setScalar(s.key, v, immediate)}
                   onJson={(t) => setJson(s.key, t)}
                 />
               ))}
@@ -244,18 +318,18 @@ export function SettingsPanel() {
             alignItems: "center"
           }}
         >
-          <button
-            className="btn primary"
-            data-testid="settings-save"
-            disabled={!dirty || hasJsonErr || busy}
-            onClick={() => void save()}
+          <span
+            data-testid="autosave-status"
+            style={{
+              fontSize: 12.5,
+              color: status === "error" ? "var(--alarm)" : "var(--sage)",
+              minWidth: 64
+            }}
           >
-            {busy ? "Saving…" : "Save changes"}
-          </button>
-          <button className="btn small ghost" disabled={busy} onClick={() => void load()}>Reload</button>
-          {saved ? <span style={{ color: "var(--sage)", fontSize: 12.5 }} data-testid="saved-flag">Saved.</span> : null}
-          {dirty ? <span style={{ color: "var(--mute)", fontSize: 12 }}>{Object.keys(patch).length} change(s) pending</span> : null}
-          {hasJsonErr ? <span style={{ color: "var(--alarm)", fontSize: 12 }}>Fix JSON errors to save</span> : null}
+            {STATUS_WORD[status]}
+          </span>
+          <button className="btn small ghost" onClick={() => void load()}>Reload</button>
+          <span style={{ color: "var(--mute)", fontSize: 11.5 }}>Changes save automatically.</span>
         </div>
       </div>
     </main>
@@ -274,7 +348,7 @@ function SettingRow({
   value: unknown;
   jsonText: string | undefined;
   jsonErr: string | undefined;
-  onScalar: (v: unknown) => void;
+  onScalar: (v: unknown, immediate: boolean) => void;
   onJson: (t: string) => void;
 }) {
   return (
@@ -290,7 +364,7 @@ function SettingRow({
             type="checkbox"
             data-testid={`setting-${setting.key}`}
             checked={value === true}
-            onChange={(e) => onScalar(e.target.checked)}
+            onChange={(e) => onScalar(e.target.checked, true)}
           />
         ) : setting.control === "number" ? (
           <input
@@ -298,14 +372,15 @@ function SettingRow({
             type="number"
             data-testid={`setting-${setting.key}`}
             value={value === undefined || value === null ? "" : String(value)}
-            onChange={(e) => onScalar(e.target.value === "" ? undefined : Number(e.target.value))}
+            onChange={(e) => onScalar(e.target.value === "" ? undefined : Number(e.target.value), false)}
+            onBlur={(e) => onScalar(e.target.value === "" ? undefined : Number(e.target.value), true)}
           />
         ) : setting.control === "enum" ? (
           <select
             className="text"
             data-testid={`setting-${setting.key}`}
             value={typeof value === "string" ? value : ""}
-            onChange={(e) => onScalar(e.target.value === "" ? undefined : e.target.value)}
+            onChange={(e) => onScalar(e.target.value === "" ? undefined : e.target.value, true)}
           >
             <option value="">(unset)</option>
             {(setting.enumValues ?? []).map((o) => (
@@ -329,7 +404,8 @@ function SettingRow({
             type="text"
             data-testid={`setting-${setting.key}`}
             value={typeof value === "string" ? value : value === undefined ? "" : String(value)}
-            onChange={(e) => onScalar(e.target.value === "" ? undefined : e.target.value)}
+            onChange={(e) => onScalar(e.target.value === "" ? undefined : e.target.value, false)}
+            onBlur={(e) => onScalar(e.target.value === "" ? undefined : e.target.value, true)}
           />
         )}
       </div>

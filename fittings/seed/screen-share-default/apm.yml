@@ -5,8 +5,10 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: screen-share
+  faculty: sessions
   cardinality_hint: single
+  own_port: true
+  default_port: 7079
   component_shape: plugin
   platforms:
     - claude-code

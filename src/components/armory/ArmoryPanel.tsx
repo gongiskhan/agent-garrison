@@ -10,30 +10,12 @@ import { faculties } from "@/lib/faculties";
 import type { FacultyId, LibraryEntry } from "@/lib/types";
 
 const groupForFaculty: Record<FacultyId, string> = {
-  heartbeat: "Cadence",
-  scheduler: "Cadence",
-  "data-sources": "Context",
-  "knowledge-base": "Context",
+  orchestrator: "Control",
+  observability: "Control",
   memory: "Context",
-  "artifact-store": "Context",
-  automations: "Action",
-  skills: "Action",
   gateway: "Action",
   channels: "Action",
-  classifier: "Control",
-  observability: "Control",
-  soul: "Control",
-  orchestrator: "Control",
-  terminal: "Tools",
-  "screen-share": "Tools",
-  "worktree-management": "Tools",
-  "session-view": "Tools",
-  outposts: "Tools",
-  sync: "Integration",
-  monitor: "Control",
-  "web-channel": "Action",
-  browser: "Tools",
-  voice: "Action"
+  sessions: "Tools"
 };
 
 export function ArmoryPanel() {

@@ -22,6 +22,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
 import { adoptFitting, type InstallManifest } from "../src/lib/claude-install";
+import { parseFrontmatter } from "../src/lib/reconcile";
+
+// Re-exported so existing importers of this script keep working; the canonical
+// definition now lives in the reusable reconcile lib (EA3).
+export { parseFrontmatter };
 
 export interface ImportOpts {
   claudeHome: string;
@@ -38,18 +43,6 @@ export interface ImportReport {
   adopted: string[];
   untaggedHookGroups: number;
   table: string;
-}
-
-export function parseFrontmatter(text: string): Record<string, unknown> {
-  if (!text.startsWith("---")) return {};
-  const end = text.indexOf("\n---", 3);
-  if (end < 0) return {};
-  try {
-    const obj = yaml.load(text.slice(3, end));
-    return obj && typeof obj === "object" ? (obj as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
 }
 
 export async function runImport(opts: ImportOpts): Promise<ImportReport> {

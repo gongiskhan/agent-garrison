@@ -11,7 +11,15 @@ function appErrors(errors: string[]): string[] {
   );
 }
 
-test("S1 settings: typed controls + bespoke passthrough; edit/save preserves bespoke keys", async ({ page }) => {
+function onDisk(): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+}
+
+// NOTE: the three viewport projects (desktop/tablet/mobile) run serially against
+// ONE shared sandbox seeded once by global-setup, so a prior project may have
+// already mutated settings.json. Assertions therefore reflect the CURRENT on-disk
+// state and force real state changes rather than assuming the seed values.
+test("S1 settings: autosave (no save button) persists changes + preserves bespoke keys", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (m) => {
     if (m.type() === "error") errors.push(m.text());
@@ -20,25 +28,39 @@ test("S1 settings: typed controls + bespoke passthrough; edit/save preserves bes
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
 
-  // documented key renders as a typed (number) control with the on-disk value
+  // Headline: there is NO save button — changes persist automatically.
+  await expect(page.getByTestId("settings-save")).toHaveCount(0);
+
+  // documented key renders as a typed (number) control reflecting the on-disk value
   const cleanup = page.getByTestId("setting-cleanupPeriodDays");
   await expect(cleanup).toBeVisible();
-  await expect(cleanup).toHaveValue("365");
+  await expect(cleanup).toHaveValue(String(onDisk().cleanupPeriodDays));
 
-  // bespoke keys surface in the Advanced (unmanaged) passthrough
+  // bespoke keys (never edited here) surface in the Advanced passthrough
   await expect(page.getByTestId("unknown-advisorModel")).toBeVisible();
   await expect(page.getByTestId("unknown-autoMode")).toBeVisible();
 
-  // edit a documented key and save
+  // edit a debounced (number) key and blur -> immediate autosave
   await cleanup.fill("30");
-  await page.getByTestId("settings-save").click();
-  await expect(page.getByTestId("saved-flag")).toBeVisible();
+  await cleanup.blur();
+  await expect(page.getByTestId("autosave-status")).toHaveText("saved");
+  await expect.poll(() => onDisk().cleanupPeriodDays).toBe(30);
 
-  // on-disk settings.json updated AND bespoke keys preserved by value
-  const disk = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
-  expect(disk.cleanupPeriodDays).toBe(30);
-  expect(disk.advisorModel).toBe("opus");
-  expect(disk.autoMode).toEqual({ environment: ["solo dev"] });
+  // bespoke keys preserved by value through the merge-write
+  expect(onDisk().advisorModel).toBe("opus");
+  expect(onDisk().autoMode).toEqual({ environment: ["solo dev"] });
+
+  // a discrete (boolean) control autosaves immediately, no blur. setChecked to the
+  // opposite of the current state guarantees a real change event regardless of the
+  // value a prior project left on disk.
+  const thinking = page.getByTestId("setting-alwaysThinkingEnabled");
+  const before = await thinking.isChecked();
+  await thinking.setChecked(!before);
+  await expect.poll(() => onDisk().alwaysThinkingEnabled).toBe(!before);
+
+  // the number edit and bespoke keys are still intact after the second write
+  expect(onDisk().cleanupPeriodDays).toBe(30);
+  expect(onDisk().advisorModel).toBe("opus");
 
   expect(appErrors(errors)).toEqual([]);
 });

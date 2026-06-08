@@ -6,35 +6,25 @@ import type { GarrisonMetadata } from "@/lib/types";
 import { readYamlFile } from "@/lib/yaml";
 
 const SEED_DIR = path.resolve(__dirname, "..", "fittings", "seed");
+// The 14 survivor Fittings after the faculties-as-roles pivot. The operative/PA
+// Fittings (souls, coding-subagent, tier-classifier, loop-heartbeat, scheduler,
+// trello-data-source, documents, projects-index, testing, mcp-gateway, …) were
+// de-listed from data/library.json — they carry the dropped capability kinds and
+// no longer parse against the shrunk schema.
 const seedIds = [
-  "loop-heartbeat",
-  "tier-classifier",
   "memory",
   "http-gateway",
-  "browser-automation",
-  "google-calendar",
-  "morning-briefing",
-  "scheduler",
-  "trello-data-source",
   "slack-channel",
   "web-channel-default",
-  "soul",
-  "personal-operative",
+  "deepgram-voice",
   "artifact-store",
-  "documents",
-  "projects-index",
-  "coding-subagent",
   "terminal-armory-default",
   "screen-share-default",
   "worktree-management-sequoias",
   "session-view-sequoias",
-  "mcp-gateway",
-  "testing",
-  "soul-engineer",
-  "soul-architect",
-  "soul-assistant",
-  "soul-researcher",
-  "soul-companion",
+  "outpost-tailscale-host",
+  "monitor-default",
+  "browser-default",
   "garrison-orchestrator"
 ] as const;
 
@@ -49,7 +39,7 @@ async function loadSeed(id: string): Promise<GarrisonMetadata> {
 }
 
 describe("seed Fittings", () => {
-  it("each seed manifest parses with its declared provides/consumes", async () => {
+  it("each survivor manifest parses with its declared provides/consumes", async () => {
     for (const id of seedIds) {
       const metadata = await loadSeed(id);
       expect(metadata.provides).toBeInstanceOf(Array);
@@ -57,170 +47,56 @@ describe("seed Fittings", () => {
     }
   });
 
-  it("loop-heartbeat provides automation-runner:loop-heartbeat and consumes orchestrator", async () => {
-    const metadata = await loadSeed("loop-heartbeat");
-    expect(metadata.provides).toContainEqual({
-      kind: "automation-runner",
-      name: "loop-heartbeat"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "orchestrator",
-      cardinality: "one"
-    });
-  });
-
   it("memory provides memory-store and optionally consumes vault", async () => {
     const metadata = await loadSeed("memory");
-    expect(metadata.provides).toContainEqual({
-      kind: "memory-store",
-      name: "garrison-memory"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "vault",
-      cardinality: "optional-one"
-    });
+    expect(metadata.faculty).toBe("memory");
+    expect(metadata.provides).toContainEqual({ kind: "memory-store", name: "garrison-memory" });
+    expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "optional-one" });
   });
 
-  it("personal-operative provides the orchestrator capability and consumes soul + composition Faculties", async () => {
-    const metadata = await loadSeed("personal-operative");
-    expect(metadata.faculty).toBe("orchestrator");
-    expect(metadata.component_shape).toBe("system-prompt");
-    expect(metadata.provides).toContainEqual({
-      kind: "orchestrator",
-      name: "personal-operative"
-    });
-    expect(metadata.consumes).toContainEqual({ kind: "soul", cardinality: "one" });
-    expect(metadata.consumes).toContainEqual({ kind: "agent-skill", cardinality: "any" });
-    expect(metadata.consumes).toContainEqual({ kind: "channel", cardinality: "any" });
-    expect(metadata.consumes).toContainEqual({ kind: "data-source", cardinality: "any" });
-  });
-
-  it("google-calendar provides automation-runner:google-calendar and consumes vault + scheduler", async () => {
-    const metadata = await loadSeed("google-calendar");
-    expect(metadata.faculty).toBe("automations");
-    expect(metadata.provides).toContainEqual({
-      kind: "automation-runner",
-      name: "google-calendar"
-    });
-    expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
-    expect(metadata.consumes).toContainEqual({
-      kind: "automation-runner",
-      name: "scheduler",
-      cardinality: "optional-one"
-    });
-  });
-
-  it("morning-briefing provides nothing and consumes scheduler+slack required, trello+google-calendar optional", async () => {
-    const metadata = await loadSeed("morning-briefing");
-    expect(metadata.faculty).toBe("automations");
-    expect(metadata.provides).toEqual([]);
-    expect(metadata.consumes).toContainEqual({
-      kind: "automation-runner",
-      name: "scheduler",
-      cardinality: "one"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "channel",
-      name: "slack",
-      cardinality: "one"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "data-source",
-      name: "trello",
-      cardinality: "optional-one"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "automation-runner",
-      name: "google-calendar",
-      cardinality: "optional-one"
-    });
-  });
-
-  it("coding-subagent provides agent-skill:coding-subagent and consumes projects-index + documents + artifact-store", async () => {
-    const metadata = await loadSeed("coding-subagent");
-    expect(metadata.faculty).toBe("skills");
-    expect(metadata.component_shape).toBe("skill");
-    expect(metadata.provides).toContainEqual({
-      kind: "agent-skill",
-      name: "coding-subagent"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "agent-skill",
-      name: "projects-index",
-      cardinality: "one"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "agent-skill",
-      name: "project-documents",
-      cardinality: "one"
-    });
-    expect(metadata.consumes).toContainEqual({
-      kind: "artifact-store",
-      cardinality: "one"
-    });
-    expect(metadata.for_consumers).toBeTruthy();
-    expect(metadata.for_consumers!).toContain("coding-subagent");
-  });
-
-  it("the full seed stack resolves capabilities cleanly", async () => {
-    // garrison-orchestrator is an alternative orchestrator — it cannot coexist with
-    // personal-operative in the same stack. Exclude it from the combined resolution test.
-    const resolutionIds = seedIds.filter((id) => id !== "garrison-orchestrator");
-    const metadatas = await Promise.all(
-      resolutionIds.map(async (id) => ({ id, metadata: await loadSeed(id) }))
-    );
-    const result = resolveCapabilities(metadatas);
-    if (!result.ok) {
-      throw new Error(
-        `expected seed stack to resolve cleanly; got: ${JSON.stringify(result.errors, null, 2)}`
-      );
-    }
-    expect(result.ok).toBe(true);
-  });
-
-  it("web-channel-default provides channel:web on the web-channel Faculty", async () => {
+  it("web-channel-default folds into the channels role and provides channel:web", async () => {
     const metadata = await loadSeed("web-channel-default");
-    expect(metadata.faculty).toBe("web-channel");
-    expect(metadata.component_shape).toBe("plugin");
+    expect(metadata.faculty).toBe("channels");
+    expect(metadata.own_port).toBe(true);
     expect(metadata.provides).toContainEqual({ kind: "channel", name: "web" });
-    // Optionally consumes the voice capability (push-to-talk / read-aloud).
     expect(metadata.consumes).toContainEqual({ kind: "voice", cardinality: "optional-one" });
   });
 
-  it("deepgram-voice provides voice:deepgram on the voice Faculty", async () => {
+  it("deepgram-voice folds into the channels role and provides voice:deepgram", async () => {
     const metadata = await loadSeed("deepgram-voice");
-    expect(metadata.faculty).toBe("voice");
-    expect(metadata.component_shape).toBe("plugin");
+    expect(metadata.faculty).toBe("channels");
+    expect(metadata.own_port).toBe(true);
     expect(metadata.provides).toContainEqual({ kind: "voice", name: "deepgram" });
     expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
   });
 
-  it("soul fittings parse correctly with spawn configs", async () => {
-    const souls = [
-      { id: "soul-engineer",    soulName: "engineer"    },
-      { id: "soul-architect",   soulName: "architect"   },
-      { id: "soul-assistant",   soulName: "assistant"   },
-      { id: "soul-researcher",  soulName: "researcher"  },
-      { id: "soul-companion",   soulName: "companion"   }
-    ];
-    for (const { id, soulName } of souls) {
+  it("own-port runtime Fittings fold into roles + carry the own_port flag", async () => {
+    for (const id of ["terminal-armory-default", "session-view-sequoias", "monitor-default", "browser-default"]) {
       const metadata = await loadSeed(id);
-      expect(metadata.faculty).toBe("skills");
-      expect(metadata.component_shape).toBe("system-prompt");
-      expect(metadata.provides).toContainEqual({ kind: "agent-skill", name: `soul.${soulName}` });
-      expect(metadata.spawn).toBeDefined();
-      expect(["claude_code", "none"]).toContain(metadata.spawn!.preset);
+      expect(metadata.own_port).toBe(true);
+      expect(["sessions", "observability", "channels"]).toContain(metadata.faculty);
     }
   });
 
-  it("garrison-orchestrator provides orchestrator capability with spawn=none", async () => {
+  it("garrison-orchestrator provides the orchestrator capability (spawn retired)", async () => {
     const metadata = await loadSeed("garrison-orchestrator");
     expect(metadata.faculty).toBe("orchestrator");
     expect(metadata.component_shape).toBe("system-prompt");
     expect(metadata.provides).toContainEqual({ kind: "orchestrator", name: "garrison-orchestrator" });
-    expect(metadata.spawn).toBeDefined();
-    expect(metadata.spawn!.preset).toBe("none");
-    expect(metadata.spawn!.allowed_tools).toEqual([]);
-    expect(metadata.spawn!.mcp).toContain("garrison-control");
+    expect(metadata.consumes).toEqual([]); // souls dispatch + mcp-gateway consume removed
+    expect(metadata.spawn).toBeUndefined();
+  });
+
+  it("the full survivor stack resolves capabilities cleanly", async () => {
+    const metadatas = await Promise.all(
+      seedIds.map(async (id) => ({ id, metadata: await loadSeed(id) }))
+    );
+    const result = resolveCapabilities(metadatas);
+    if (!result.ok) {
+      throw new Error(
+        `expected survivor stack to resolve cleanly; got: ${JSON.stringify(result.errors, null, 2)}`
+      );
+    }
+    expect(result.ok).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-23T21:35:13.544687+00:00'
+generated_at: '2026-06-08T00:23:15.031754+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -8,30 +8,24 @@ dependencies:
   - .claude/skills/artifact-store
   source: local
   local_path: ../../fittings/seed/artifact-store
-- repo_url: _local/browser-automation
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/browser-automation
-  source: local
-  local_path: ../../fittings/seed/browser-automation
 - repo_url: _local/browser-default
   package_type: apm_package
   deployed_files:
   - .claude/skills/garrison-browser
   source: local
   local_path: ../../fittings/seed/browser-default
-- repo_url: _local/coding-subagent
+- repo_url: _local/deepgram-voice
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/deepgram-voice
+- repo_url: _local/garrison-orchestrator
   package_type: apm_package
   deployed_files:
-  - .claude/skills/coding-subagent
+  - .claude/commands/garrison-orchestrator.md
+  deployed_file_hashes:
+    .claude/commands/garrison-orchestrator.md: sha256:de996fd652c6f04cf5df8ba0e1094d79386f06e091cce77760126ca47d97fb9e
   source: local
-  local_path: ../../fittings/seed/coding-subagent
-- repo_url: _local/documents
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/documents
-  source: local
-  local_path: ../../fittings/seed/documents
+  local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway
   package_type: apm_package
   deployed_files:
@@ -40,14 +34,6 @@ dependencies:
     .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
   source: local
   local_path: ../../fittings/seed/http-gateway
-- repo_url: _local/loop-heartbeat
-  package_type: apm_package
-  deployed_files:
-  - .claude/rules/loop-heartbeat.md
-  deployed_file_hashes:
-    .claude/rules/loop-heartbeat.md: sha256:f7362ad4d0be0435a10b7e8ba4d165875fc2310cee90977c6558b4113cef7cac
-  source: local
-  local_path: ../../fittings/seed/loop-heartbeat
 - repo_url: _local/memory
   package_type: apm_package
   deployed_files:
@@ -58,26 +44,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
-- repo_url: _local/personal-operative
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/personal-operative.md
-  deployed_file_hashes:
-    .claude/commands/personal-operative.md: sha256:9e293e2337166e0cb0a336293b19a385d67066dac0800e0d246f7019f49ef7f9
-  source: local
-  local_path: ../../fittings/seed/personal-operative
-- repo_url: _local/projects-index
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/projects-index
-  source: local
-  local_path: ../../fittings/seed/projects-index
-- repo_url: _local/scheduler
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/scheduler
-  source: local
-  local_path: ../../fittings/seed/scheduler
 - repo_url: _local/screen-share-default
   package_type: invalid
   source: local
@@ -90,33 +56,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/slack-channel
-- repo_url: _local/soul
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/soul.md
-  deployed_file_hashes:
-    .claude/commands/soul.md: sha256:30257ed594ad8fec83f5e6143dfe4defcb88d58a246853d5d49ccfdc3fc3684e
-  source: local
-  local_path: ../../fittings/seed/soul
 - repo_url: _local/terminal-armory-default
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/terminal-armory-default
-- repo_url: _local/tier-classifier
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/tier-classifier
-  source: local
-  local_path: ../../fittings/seed/tier-classifier
-- repo_url: _local/trello-data-source
-  package_type: apm_package
-  deployed_files:
-  - .claude/rules/trello-data-source.md
-  - .claude/skills/trello
-  deployed_file_hashes:
-    .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
-  source: local
-  local_path: ../../fittings/seed/trello-data-source
 - repo_url: _local/web-channel-default
   package_type: invalid
   source: local

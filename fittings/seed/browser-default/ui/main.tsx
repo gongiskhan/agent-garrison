@@ -123,6 +123,11 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
   const ackRafRef = useRef<number | null>(null);
   const unmountedRef = useRef(false);
   const qualitySentRef = useRef<QualityLevel | null>(null);
+  // TEMP: tab-swap timing instrumentation. swapStartRef marks the moment a
+  // tab-swap (or initial mount) began; firstFrameSeenRef gates the
+  // first-frame-after-connect log so we only print once per connect.
+  const swapStartRef = useRef<number>(performance.now());
+  const firstFrameSeenRef = useRef<boolean>(false);
 
   // tabId lives in state so the parent (terminal Fitting) can swap us to a
   // different browser tab via postMessage without an iframe reload.
@@ -213,6 +218,11 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
     setConnState("connecting");
     lastSentViewportRef.current = null;
     qualitySentRef.current = null;
+    firstFrameSeenRef.current = false;
+    // TEMP: tab-swap timing instrumentation.
+    const connectStart = performance.now();
+    const sinceSwap = (connectStart - swapStartRef.current).toFixed(1);
+    console.log(`[swap-timing] connect() tabId=${tabId} +${sinceSwap}ms since swap`);
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const vws = new WebSocket(`${proto}//${window.location.host}/viewport/${encodeURIComponent(tabId)}`);
@@ -220,8 +230,17 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
     vws.onopen = () => {
       reconnectAttemptRef.current = 0;
       setConnState("open");
+      // TEMP: tab-swap timing instrumentation.
+      const sinceConnect = (performance.now() - connectStart).toFixed(1);
+      const sinceSwap2 = (performance.now() - swapStartRef.current).toFixed(1);
+      console.log(`[swap-timing] viewport WS open tabId=${tabId} +${sinceConnect}ms since connect, +${sinceSwap2}ms since swap`);
     };
-    vws.onclose = () => { setConnState("closed"); scheduleReconnect(); };
+    vws.onclose = (e) => {
+      // TEMP: tab-swap timing instrumentation — capture disconnect reasons.
+      console.log(`[swap-timing] viewport WS close tabId=${tabId} code=${e.code} reason=${e.reason || "(none)"} wasClean=${e.wasClean}`);
+      setConnState("closed");
+      scheduleReconnect();
+    };
     vws.onerror = () => setConnState("closed");
     vws.onmessage = (e) => {
       const data = e.data;
@@ -229,7 +248,17 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
         const blob = new Blob([data], { type: "image/jpeg" });
         // createImageBitmap is async + off-main-thread decode where available.
         createImageBitmap(blob)
-          .then((bm) => { drawBitmap(bm); scheduleAck(); })
+          .then((bm) => {
+            drawBitmap(bm);
+            scheduleAck();
+            // TEMP: tab-swap timing — first frame after connect only.
+            if (!firstFrameSeenRef.current) {
+              firstFrameSeenRef.current = true;
+              const sinceConnect = (performance.now() - connectStart).toFixed(1);
+              const sinceSwap3 = (performance.now() - swapStartRef.current).toFixed(1);
+              console.log(`[swap-timing] first frame drawn tabId=${tabId} +${sinceConnect}ms since connect, +${sinceSwap3}ms since swap (${data.byteLength} bytes)`);
+            }
+          })
           .catch(() => {});
         return;
       }
@@ -263,7 +292,11 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
       // Unblock any frame that arrived before the input WS was ready.
       if (pendingAckRef.current) flushAck();
     };
-    iws.onclose = () => scheduleReconnect();
+    iws.onclose = (e) => {
+      // TEMP: tab-swap timing instrumentation — capture disconnect reasons.
+      console.log(`[swap-timing] input WS close tabId=${tabId} code=${e.code} reason=${e.reason || "(none)"} wasClean=${e.wasClean}`);
+      scheduleReconnect();
+    };
     iws.onmessage = (e) => {
       let msg: { type: string; editable?: boolean };
       try { msg = JSON.parse(e.data); } catch { return; }
@@ -341,6 +374,9 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
       if (!data || typeof data !== "object") return;
       if (data.type === "attach" && typeof data.tabId === "string" && data.tabId !== tabId) {
         const nextId = data.tabId;
+        // TEMP: tab-swap timing instrumentation — anchor for downstream marks.
+        swapStartRef.current = performance.now();
+        console.log(`[swap-timing] attach received from=${tabId} to=${nextId}`);
         setTabId(nextId);
         // Clear stale URL state so the polling effect repopulates for the new
         // tab. Without this the URL bar keeps showing the previous tab's URL.

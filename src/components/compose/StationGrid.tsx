@@ -262,20 +262,10 @@ function subFor(id: FacultyId, selections: SelectedFitting[], library: LibraryEn
   }
   const sel = selections[0];
   switch (id) {
-    case "heartbeat":
-      return `<b>${sel.config?.cadence_minutes ?? 40}m</b> cadence · gateway ${sel.config?.gateway_url ?? ":4777"}`;
     case "memory":
       return `<b>${sel.config?.persistence_cadence ?? "hourly"}</b> persistence · ${sel.config?.recency_window ?? 20}-line recency`;
     case "gateway":
       return `${sel.config?.bind_host ?? "127.0.0.1"}<b>:${sel.config?.port ?? 4777}</b>`;
-    case "classifier":
-      return `floor <b>T${sel.config?.tier_floor ?? 3}</b> · plan-then-route`;
-    case "automations":
-      return `<b>1</b> automation · ${sel.config?.browser ?? "chromium"}`;
-    case "data-sources": {
-      const entry = library.find((e) => e.id === sel.id);
-      return `<b>1</b> source · ${entry?.metadata.tasks?.truth_file ?? entry?.name ?? "source"}`;
-    }
     default:
       return library.find((e) => e.id === sel.id)?.name ?? sel.id;
   }
