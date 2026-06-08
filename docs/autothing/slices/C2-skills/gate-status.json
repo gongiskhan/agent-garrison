@@ -1,19 +1,53 @@
 {
   "slice": "C2-skills",
-  "title": "Skills CRUD — primitive-files.ts file writer + FilePrimitiveForm/SkillEditor; Skills panel New/Edit/Delete with owned-delete→Park guard",
+  "title": "Skills CRUD \u2014 primitive-files.ts file writer + FilePrimitiveForm/SkillEditor; Skills panel New/Edit/Delete with owned-delete\u2192Park guard",
   "updatedAt": "2026-06-09T00:00:00Z",
   "phase": "done",
   "status": "passed",
   "kind": "mixed",
-  "retries": { "limit": 5, "used": 0 },
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
   "gates": {
-    "tests":     { "cmd": "npx vitest run tests/primitive-files.test.ts", "exit": 0, "summary": "6 passed — create SKILL.md + refuse clobber + edit + delete; command/rule path mapping; unsafe-name/traversal rejection + not-found on update; trailing-newline normalization; dispatch create→update→delete round-trip; and the OWNED-DELETE GUARD: file.delete on an APM-owned skill returns code 'owned' and leaves the file intact (route to Park)" },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (primitive-files + quarters-detail file branch + quarters dispatch file actions + FilePrimitiveForm + SkillEditor registry entry)" },
-    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
-    "build":     { "exit": 0, "summary": "covered by the C1 build + re-verified at the global gate" },
-    "e2e":       { "cmd": "npx playwright test --project=desktop-chromium tests/e2e/quarters-crud.spec.ts", "exit": 0, "summary": "2 passed — the new Skills test creates a unique skill (demo-skill-e2e, template prefilled from the typed name), edits the body, deletes it; seeded garrison-memory keeps its Promote action and is untouched" },
-    "designAudit": { "verdict": "clean", "by": ["vision screenshots c2-skills-list.png + c2-skills-new-form.png vs the shell"], "at": "2026-06-09T00:00:00Z", "notes": "New-skill button; row shows Edit + Promote + Remove (loose); New-skill drawer has a name field that live-prefills the SKILL.md frontmatter, an Edit/Preview markdown toggle, Cancel/Create footer; matches the shell; no emoji" },
-    "video":     { "status": "deferred", "note": "Consolidated walkthrough at the global gate. Re-runnable gate is the e2e create→edit→delete round-trip + unit specs incl. the owned-delete guard." }
+    "tests": {
+      "cmd": "npx vitest run tests/primitive-files.test.ts",
+      "exit": 0,
+      "summary": "6 passed \u2014 create SKILL.md + refuse clobber + edit + delete; command/rule path mapping; unsafe-name/traversal rejection + not-found on update; trailing-newline normalization; dispatch create\u2192update\u2192delete round-trip; and the OWNED-DELETE GUARD: file.delete on an APM-owned skill returns code 'owned' and leaves the file intact (route to Park)"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors (primitive-files + quarters-detail file branch + quarters dispatch file actions + FilePrimitiveForm + SkillEditor registry entry)"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "build": {
+      "exit": 0,
+      "summary": "covered by the C1 build + re-verified at the global gate"
+    },
+    "e2e": {
+      "cmd": "npx playwright test --project=desktop-chromium tests/e2e/quarters-crud.spec.ts",
+      "exit": 0,
+      "summary": "2 passed \u2014 the new Skills test creates a unique skill (demo-skill-e2e, template prefilled from the typed name), edits the body, deletes it; seeded garrison-memory keeps its Promote action and is untouched"
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "vision screenshots c2-skills-list.png + c2-skills-new-form.png vs the shell"
+      ],
+      "at": "2026-06-09T00:00:00Z",
+      "notes": "New-skill button; row shows Edit + Promote + Remove (loose); New-skill drawer has a name field that live-prefills the SKILL.md frontmatter, an Edit/Preview markdown toggle, Cancel/Create footer; matches the shell; no emoji"
+    },
+    "video": {
+      "status": "verified-via-consolidated",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "note": "Covered by the VERIFIED consolidated 'Manage everything from Quarters' walkthrough (11 beats, all vision-verified, run not flagged). This slice's own re-runnable committed e2e is the per-slice correctness gate."
+    }
   },
   "blockers": [],
   "notes": "primitive-files.ts is Garrison's writer-of-record for loose skill/command/rule files (create/edit/delete). The writer-of-record invariant is enforced on BOTH sides: the UI hides Delete for an owned skill (shows Park), and the dispatch's guardedFileDelete refuses an owned delete server-side (code 'owned'). FilePrimitiveForm is the reusable name+markdown editor (Edit/Preview, explicit Save) that C3 reuses for commands/rules. C2 establishes the file detail provider (skill/command/rule content)."

@@ -5,20 +5,59 @@
   "phase": "done",
   "status": "passed",
   "kind": "mixed",
-  "retries": { "limit": 5, "used": 0 },
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
   "gates": {
-    "tests":     { "cmd": "npx vitest run tests/plugin-writer.test.ts", "exit": 0, "summary": "4 passed — drop manifest entry + remove cache dir UNDER plugins/ (preserving version+siblings); PATH GUARD never removes an installPath outside <home>/plugins/; not-found (direct + dispatch); dispatch round-trip returns plugin:<key>" },
-    "suite":     { "cmd": "npx vitest run --exclude '**/orchestrator-integration.test.ts'", "exit": 0, "summary": "423 passed, 2 skipped, 0 failed — whole suite minus the env-dependent live-gateway test (the CRUD wave added 30 specs across mcp-writer/quarters-crud/primitive-files/hooks-crud/plugin-writer)" },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
-    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
-    "build":     { "cmd": "npm run build", "exit": 0, "summary": "all routes compiled" },
-    "e2e":       { "cmd": "npx playwright test --project=desktop-chromium", "exit": 0, "summary": "9 passed, 1 skipped (the pre-existing unconditional armory-install.spec skip). The 5 quarters-crud specs (mcp/skills/scripts/hooks/plugins) + the prior settings/memory/quarters/quarters-logs specs all green — no regression from the sandbox-seed/blurb/panel changes" },
-    "designAudit": { "verdict": "clean", "by": ["vision screenshots c5-plugins-list.png + c5-plugins-confirm.png vs the shell"], "at": "2026-06-09T00:00:00Z", "notes": "Plugins row: plugin id + version, LOOSE badge, Remove (alarm-red), no Edit/Promote (correct — remove-only). The uninstall confirm clearly states it edits Claude Code's installed_plugins.json + cache and that a running Claude Code may need a restart; reinstall via /plugin. Matches the shell; no emoji" },
-    "video":     { "status": "deferred", "note": "Consolidated walkthrough at the global gate." }
+    "tests": {
+      "cmd": "npx vitest run tests/plugin-writer.test.ts",
+      "exit": 0,
+      "summary": "4 passed \u2014 drop manifest entry + remove cache dir UNDER plugins/ (preserving version+siblings); PATH GUARD never removes an installPath outside <home>/plugins/; not-found (direct + dispatch); dispatch round-trip returns plugin:<key>"
+    },
+    "suite": {
+      "cmd": "npx vitest run --exclude '**/orchestrator-integration.test.ts'",
+      "exit": 0,
+      "summary": "423 passed, 2 skipped, 0 failed \u2014 whole suite minus the env-dependent live-gateway test (the CRUD wave added 30 specs across mcp-writer/quarters-crud/primitive-files/hooks-crud/plugin-writer)"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": 0,
+      "summary": "all routes compiled"
+    },
+    "e2e": {
+      "cmd": "npx playwright test --project=desktop-chromium",
+      "exit": 0,
+      "summary": "9 passed, 1 skipped (the pre-existing unconditional armory-install.spec skip). The 5 quarters-crud specs (mcp/skills/scripts/hooks/plugins) + the prior settings/memory/quarters/quarters-logs specs all green \u2014 no regression from the sandbox-seed/blurb/panel changes"
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "vision screenshots c5-plugins-list.png + c5-plugins-confirm.png vs the shell"
+      ],
+      "at": "2026-06-09T00:00:00Z",
+      "notes": "Plugins row: plugin id + version, LOOSE badge, Remove (alarm-red), no Edit/Promote (correct \u2014 remove-only). The uninstall confirm clearly states it edits Claude Code's installed_plugins.json + cache and that a running Claude Code may need a restart; reinstall via /plugin. Matches the shell; no emoji"
+    },
+    "video": {
+      "status": "verified-via-consolidated",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "note": "Covered by the VERIFIED consolidated 'Manage everything from Quarters' walkthrough (11 beats, all vision-verified, run not flagged). This slice's own re-runnable committed e2e is the per-slice correctness gate."
+    }
   },
   "blockers": [
-    "Plugin INSTALL (from a marketplace) is NOT built — it needs marketplace resolution + a git clone and stays with Claude Code's own /plugin (gated on SP6). Only uninstall (remove) ships this slice.",
-    "Plugin remove is a cooperative-ownership edit of installed_plugins.json (the documented source of truth — no separate enabled-plugins list, no marketplace auto-reinstall, verified by inspecting the real ~/.claude/plugins structure). Same caveat as the settings.json surface: a RUNNING Claude Code may rewrite the manifest on exit, so the confirm dialog warns to restart. Not a silent risk."
+    "Plugin INSTALL (from a marketplace) is NOT built \u2014 it needs marketplace resolution + a git clone and stays with Claude Code's own /plugin (gated on SP6). Only uninstall (remove) ships this slice.",
+    "Plugin remove is a cooperative-ownership edit of installed_plugins.json (the documented source of truth \u2014 no separate enabled-plugins list, no marketplace auto-reinstall, verified by inspecting the real ~/.claude/plugins structure). Same caveat as the settings.json surface: a RUNNING Claude Code may rewrite the manifest on exit, so the confirm dialog warns to restart. Not a silent risk."
   ],
   "notes": "The advisor's pre-build safety check resolved IN FAVOUR of building: installed_plugins.json is the source of truth (no enabledPlugins in settings.json; known_marketplaces.json only lists availability), so a manifest-entry removal is safe + reversible (reinstall re-clones). plugin-writer.ts removes the entry (preserving version+siblings) and path-guards the cache-dir cleanup to within <home>/plugins/. The plugins surface is remove-only (Editor optional in the registry; creatable false). Honesty pass: blurbs/labels for mcps/hooks/plugins updated to state the new CRUD capabilities."
 }

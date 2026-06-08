@@ -1,0 +1,129 @@
+{
+  "title": "Walkthrough: Manage everything from Quarters",
+  "project": "agent-garrison",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Manage everything from Quarters",
+      "subtitle": "agent-garrison · full CRUD over your ~/.claude",
+      "duration": 2.6,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:3733",
+      "startPath": "/quarters/mcps",
+      "beats": [
+        {
+          "id": "mcps",
+          "caption": "MCPs — Garrison owns mcp.json directly",
+          "expectedScreen": "the MCPs page with an Add server button and a sandbox-mcp row",
+          "assert": { "selector": "[data-testid=\"create-mcp\"]", "highlight": true },
+          "hold": 2600
+        },
+        {
+          "id": "mcp-form",
+          "caption": "Add a new MCP server",
+          "expectedScreen": "the Add MCP server form with name, transport and command fields",
+          "actions": [
+            { "type": "click", "selector": "[data-testid=\"create-mcp\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"mcp-form\"]" }
+          ],
+          "assert": { "selector": "[data-testid=\"mcp-name\"]", "highlight": true },
+          "hold": 2200
+        },
+        {
+          "id": "mcp-added",
+          "caption": "context7 added to mcp.json",
+          "expectedScreen": "the MCPs list now showing a context7 row",
+          "actions": [
+            { "type": "fill", "selector": "[data-testid=\"mcp-name\"]", "text": "context7" },
+            { "type": "fill", "selector": "[data-testid=\"mcp-command\"]", "text": "npx" },
+            { "type": "fill", "selector": "[data-testid=\"mcp-args\"]", "text": "-y\n@upstash/context7-mcp" },
+            { "type": "click", "selector": "[data-testid=\"mcp-save\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"primitive-mcp:context7\"]" }
+          ],
+          "assert": { "selector": "[data-testid=\"primitive-mcp:context7\"]", "highlight": true },
+          "hold": 3000
+        },
+        {
+          "id": "mcp-confirm",
+          "caption": "Remove it — something you could not do before",
+          "expectedScreen": "a confirm dialog asking to remove the MCP server",
+          "actions": [
+            { "type": "click", "selector": "[data-testid=\"delete-mcp:context7\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"confirm-dialog\"]" }
+          ],
+          "assert": { "selector": "[data-testid=\"confirm-dialog\"]", "highlight": true },
+          "hold": 2600
+        },
+        {
+          "id": "mcp-removed",
+          "caption": "Removed — mcp.json rewritten, sandbox-mcp untouched",
+          "expectedScreen": "the MCPs list with context7 gone and sandbox-mcp still present",
+          "actions": [
+            { "type": "click", "selector": "[data-testid=\"confirm-action\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"primitive-mcp:context7\"]", "state": "detached" }
+          ],
+          "assert": { "selector": "[data-testid=\"primitive-mcp:sandbox-mcp\"]", "highlight": true },
+          "hold": 2800
+        },
+        {
+          "id": "hooks",
+          "caption": "Hooks — hand-authored ones are fully editable",
+          "expectedScreen": "the Hooks page with a SessionStart row that has Edit and Remove buttons",
+          "actions": [
+            { "type": "goto", "path": "/quarters/hooks" },
+            { "type": "waitFor", "selector": "[data-testid=\"primitive-hook:SessionStart#0\"]" }
+          ],
+          "assert": { "selector": "[data-testid=\"edit-hook:SessionStart#0\"]", "highlight": true },
+          "hold": 2800
+        },
+        {
+          "id": "hooks-owned",
+          "caption": "Fitting-owned hooks stay read-only, with provenance",
+          "expectedScreen": "the Stop hook row labelled fitting-owned with no edit or remove",
+          "assert": { "selector": "text:fitting-owned", "highlight": true },
+          "hold": 2800
+        },
+        {
+          "id": "skills",
+          "caption": "New skill — the SKILL.md template fills in as you name it",
+          "expectedScreen": "the New skill form with a name field and a SKILL.md body",
+          "actions": [
+            { "type": "goto", "path": "/quarters/skills" },
+            { "type": "click", "selector": "[data-testid=\"create-skill\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"file-form\"]" },
+            { "type": "fill", "selector": "[data-testid=\"file-name\"]", "text": "changelog-writer" }
+          ],
+          "assert": { "selector": "[data-testid=\"file-content\"]", "highlight": true },
+          "hold": 3000
+        },
+        {
+          "id": "plugins",
+          "caption": "Uninstall a plugin — Garrison edits Claude Code's manifest",
+          "expectedScreen": "a confirm dialog warning it edits installed_plugins.json",
+          "actions": [
+            { "type": "goto", "path": "/quarters/plugins" },
+            { "type": "waitFor", "selector": "[data-testid=\"primitive-plugin:frontend-design@claude-plugins-official\"]" },
+            { "type": "click", "selector": "[data-testid=\"delete-plugin:frontend-design@claude-plugins-official\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"confirm-dialog\"]" }
+          ],
+          "assert": { "selector": "[data-testid=\"confirm-dialog\"]", "highlight": true },
+          "hold": 3200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Quarters: compose, run — and now manage",
+      "subtitle": "every writable surface, full CRUD",
+      "duration": 2.2
+    }
+  ]
+}

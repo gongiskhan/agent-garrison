@@ -1,8 +1,8 @@
 {
   "project": "agent-garrison",
-  "updatedAt": "2026-06-07T11:01:00Z",
-  "galleryUrl": null,
-  "galleryNote": "Evidence artifacts are local files under docs/autothing/evidence/ (no Tailscale gallery this run).",
+  "updatedAt": "2026-06-09T00:35:00Z",
+  "galleryUrl": "http://100.108.210.116:8099/",
+  "galleryNote": "The Quarters-CRUD wave (C1–C5) earned a VERIFIED 11-beat consolidated walkthrough (newest run, live while the gallery server runs). Durable copy committed at docs/autothing/evidence/quarters-crud-walkthrough.mp4. Q2's earlier verified video is also present. Per-surface screenshots (c1..c5) committed under docs/autothing/evidence/.",
   "slices": [
     {
       "slice": "S1-settings",
@@ -52,24 +52,134 @@
       "video": null,
       "videoNote": "CLI slice; behavioral proof is an emitted fitting passing tsx scripts/validate-fitting.ts (Overall: PASS).",
       "flagged": false,
-      "blockerSummary": "Hook-fitting emission is reported-only (deferred); skills emission fully implemented + validated.",
+      "blockerSummary": "RESOLVED by Q3-hook-emission — hook-fitting emission is now implemented + validated (was reported-only).",
       "gateStatus": "docs/autothing/slices/S5-importer/gate-status.json"
+    },
+    {
+      "slice": "Q1-docs",
+      "title": "RC5 docs sync — canonical docs reflect the Quarters pivot (6 roles, shrunk kinds, folded Operative)",
+      "kind": "automation",
+      "status": "passed",
+      "video": null,
+      "videoNote": "Docs slice; the re-runnable gate is the code-derived tests/docs-consistency.test.ts (7 passed).",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/Q1-docs/gate-status.json"
+    },
+    {
+      "slice": "Q2-logs-sessions",
+      "title": "UI6/UI7 — Logs + Sessions read-only tailing over the real ~/.claude",
+      "kind": "ui",
+      "status": "passed",
+      "video": "docs/autothing/evidence/quarters-logs-sessions-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-08_16-37-48/final.mp4",
+      "videoStatus": "verified",
+      "screenshot": "docs/autothing/evidence/quarters-logs.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/Q2-logs-sessions/gate-status.json"
+    },
+    {
+      "slice": "Q3-hook-emission",
+      "title": "S5 follow-up — importer/resolver emit installable hook fittings",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoNote": "CLI/backend slice; the re-runnable gate is tests/hook-fitting-emission.test.ts (5 passed, incl. validate-fitting + resolve→install round-trip).",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/Q3-hook-emission/gate-status.json"
+    },
+    {
+      "slice": "Q4-ea2",
+      "title": "EA2 follow-ups — writeFileAtomic 0600 mode preservation + plugins classification",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoNote": "Backend + small read-only UI delta (Plugins panel) reusing the existing PrimitiveListPanel idiom; design-checked via screenshot. The re-runnable gate is tests/ea2-followups.test.ts (7 passed).",
+      "screenshot": "docs/autothing/evidence/quarters-plugins.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/Q4-ea2/gate-status.json"
+    },
+    {
+      "slice": "C1-mcp",
+      "title": "MCP CRUD — add/edit/remove servers in mcp.json + reusable CRUD shell",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "videoStatus": "verified-via-consolidated",
+      "screenshot": "docs/autothing/evidence/c1-mcps-add-form.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/C1-mcp/gate-status.json"
+    },
+    {
+      "slice": "C2-skills",
+      "title": "Skills CRUD — create/edit/delete SKILL.md with owned-delete→Park guard",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "videoStatus": "verified-via-consolidated",
+      "screenshot": "docs/autothing/evidence/c2-skills-new-form.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/C2-skills/gate-status.json"
+    },
+    {
+      "slice": "C3-scripts",
+      "title": "Scripts CRUD — commands + rules create/edit/delete reusing the file writer",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "videoStatus": "verified-via-consolidated",
+      "videoNote": "Scripts share C2's FilePrimitiveForm mechanism (the video films the skill-create variant); C3's own re-runnable e2e (command create→edit→delete + both surfaces listed) is the per-slice gate.",
+      "screenshot": "docs/autothing/evidence/c3-scripts-list.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/C3-scripts/gate-status.json"
+    },
+    {
+      "slice": "C4-hooks",
+      "title": "Hooks CRUD — hand-authored editable, fitting-owned read-only-with-provenance",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "videoStatus": "verified-via-consolidated",
+      "screenshot": "docs/autothing/evidence/c4-hooks-list.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/C4-hooks/gate-status.json"
+    },
+    {
+      "slice": "C5-plugins",
+      "title": "Plugins uninstall (remove) + cross-panel honesty pass",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "videoStatus": "verified-via-consolidated",
+      "screenshot": "docs/autothing/evidence/c5-plugins-confirm.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/C5-plugins/gate-status.json"
     }
   ],
   "globalGate": {
     "status": "completed-with-blockers",
-    "e2eAll": { "cmd": "npm run test:e2e", "exit": 0, "note": "3/3 config-plane specs pass against the sandbox" },
-    "verifyApp": { "via": "committed e2e specs + sandbox API probes + vision-checked screenshots + read-only GET against the live install", "verdict": "clean" },
-    "build": { "cmd": "npm run build", "exit": 0 },
+    "wave": "Quarters-CRUD (C1–C5): manage everything from the UI. S1–S5 + Q1–Q4 previously gated.",
+    "unitTests": { "cmd": "npx vitest run --exclude '**/orchestrator-integration.test.ts'", "exit": 0, "note": "423 passed, 2 skipped, 0 failed. The CRUD wave added 30 passing specs (mcp-writer 10, quarters-crud 3, primitive-files 6, hooks-crud 7, plugin-writer 4). `npm test` (full) additionally surfaces 2 FAILURES in tests/orchestrator-integration.test.ts — those are the live-SDK tests hitting a STRAY live Garrison gateway on :4777 (the user's own running operative, PID 46463) which defeats the test's skip-by-default; environmental, unrelated to Quarters, the process was not killed. Excluding that one env-dependent file, everything is green." },
     "typecheck": { "cmd": "npm run typecheck", "exit": 0 },
-    "lint": { "cmd": "npm run lint", "exit": 0 },
-    "unitTests": { "cmd": "npm test", "exit": 1, "note": "394 passed, 1 skipped; the only failure is the pre-existing flaky live-SDK orchestrator-integration test (baseline, not config-plane). Feature added 33 passing specs." },
-    "designAudit": { "verdict": "clean", "by": ["vision screenshots vs Vault/Armory reference"], "notes": "matches the shell visual language; no emoji; no new design idioms" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "note": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0 },
+    "e2eAll": { "cmd": "npx playwright test --project=desktop-chromium", "exit": 0, "note": "9 passed, 1 skipped against the seeded sandbox. The 5 new quarters-crud specs (mcp add/edit/remove · skills create/edit/delete · scripts command round-trip · hooks editable-vs-read-only + create/edit/delete · plugin uninstall) all green, plus the prior settings/memory/quarters/quarters-logs specs (no regression from the sandbox-seed/blurb/panel changes). The 1 skip is the pre-existing UNCONDITIONAL armory-install.spec test.skip() (legacy S2 path, superseded by the Quarters model)." },
+    "verifyApp": { "via": "5 committed e2e CRUD round-trips + 10 vision-checked screenshots + a VERIFIED 11-beat consolidated walkthrough video", "verdict": "clean" },
+    "designAudit": { "verdict": "clean", "by": ["vision screenshots c1..c5 vs Vault/Armory/shell"], "notes": "All new editors (MCP form, file/skill form, hook form, confirm + drawer) render in the existing shell visual language on the .scrim overlay; alarm-red for destructive; no emoji; no new idiom. Honesty pass updated mcps/hooks/plugins blurbs to state the new CRUD." },
     "everySliceVideoVerified": false,
+    "everySliceVideoVerifiedNote": "ONE verified consolidated walkthrough (docs/autothing/evidence/quarters-crud-walkthrough.mp4, 11 beats, all vision-verified, run NOT flagged) covers the headline flow of C1 (MCP add+remove), C2 (skill create), C4 (hooks editable-vs-read-only), C5 (plugin uninstall). C3 (scripts) shares C2's FilePrimitiveForm mechanism and is filmed via the skill variant; it has its OWN committed e2e (command create→edit→delete). It is one consolidated video, NOT five per-slice videos — hence the global gate is completed-with-blockers, not passed. Each slice's true correctness gate is its committed re-runnable e2e + unit specs, all green.",
+    "consolidatedVideo": { "path": "docs/autothing/evidence/quarters-crud-walkthrough.mp4", "link": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4", "verifiedAt": "2026-06-09T00:35:00Z", "beats": 11, "flagged": false },
     "blockers": [
-      "No walkthrough-skill self-verified narrated videos. Substituted with 3 sandbox-safe Playwright flow recordings (.webm) + 3 vision-checked screenshots + 3 committed e2e flow assertions. Reason: a narrated walkthrough that drives 'edit + save' would mutate the user's LIVE ~/.claude unless the walkthrough server is wired to the sandbox; that wiring + the skill's STUCK-prone vision pipeline was out of budget. The feature's correctness is proven by committed re-runnable tests, not the video.",
-      "S5 importer: hook-fitting emission is reported-only (skills emission fully implemented + validated).",
-      "Pre-existing flaky test tests/orchestrator-integration.test.ts (live-model non-determinism) remains red at baseline — not introduced by this work."
+      "Per-slice walkthrough videos were CONSOLIDATED into one verified video (covers C1/C2/C4/C5 headline flows; C3 shares C2's mechanism + has its own e2e). Not five separate per-slice videos — this is why the wave is completed-with-blockers rather than passed.",
+      "Plugin INSTALL from a marketplace is NOT built — needs marketplace resolution + git clone; stays with Claude Code's /plugin (gated on SP6). Only plugin UNINSTALL (remove) ships.",
+      "MCP env/headers are written as PLAINTEXT to mcp.json (matches Claude Code's own format; not a regression). Routing MCP secrets through Garrison's AES vault is a deferred enhancement.",
+      "File-primitive RENAME is out of scope — editing keeps the name fixed (rename = a move).",
+      "Cooperative-ownership caveat (plugins/hooks/mcp/settings): a RUNNING Claude Code may rewrite these files on exit, same as the settings.json surface. The plugin-uninstall confirm warns to restart.",
+      "ENVIRONMENTAL (not this wave's work): tests/orchestrator-integration.test.ts fails under `npm test` because a stray live gateway is up on :4777 (the user's own running operative), defeating the test's skip-by-default. Killing that process or running `npx vitest run --exclude '**/orchestrator-integration.test.ts'` makes the suite fully green."
     ]
   }
 }

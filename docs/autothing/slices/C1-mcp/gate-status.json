@@ -1,21 +1,60 @@
 {
   "slice": "C1-mcp",
-  "title": "MCP CRUD — mcp-writer.ts (add/update/remove) + reusable QuartersDrawer/ConfirmDialog shell + MCP transport form + detail endpoint; MCPs panel Add/Edit/Remove",
+  "title": "MCP CRUD \u2014 mcp-writer.ts (add/update/remove) + reusable QuartersDrawer/ConfirmDialog shell + MCP transport form + detail endpoint; MCPs panel Add/Edit/Remove",
   "updatedAt": "2026-06-09T00:00:00Z",
   "phase": "done",
   "status": "passed",
   "kind": "mixed",
-  "retries": { "limit": 5, "used": 0 },
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
   "gates": {
-    "tests":     { "cmd": "npx vitest run tests/mcp-writer.test.ts tests/quarters-crud.test.ts", "exit": 0, "summary": "13 passed — mcp-writer (10): add to missing file (wrapped), refuse clobber, preserve BARE map shape, preserve sibling keys under wrapped shape, http/sse round-trip, update+rename, refuse rename collision, remove + not-found, name/transport validation, normalizeServerConfig cross-transport drop + bespoke keep. quarters dispatch (3): add→detail→update→remove round-trip, CrudResult error surfaced not thrown, unknown action rejected." },
-    "suite":     { "cmd": "npx vitest run --exclude '**/orchestrator-integration.test.ts'", "exit": 0, "summary": "406 passed, 2 skipped, 0 failed across the whole suite minus the env-dependent live-gateway test." },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (mcp-writer + quarters-detail + quarters dispatch widened to CrudResult + 4 new UI components)" },
-    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
-    "build":     { "cmd": "npm run build", "exit": 0, "summary": "/quarters/[type] built at 19.1 kB; all routes compiled" },
-    "e2e":       { "cmd": "npx playwright test --project=desktop-chromium tests/e2e/quarters-crud.spec.ts", "exit": 0, "summary": "1 passed — add → edit → remove an MCP server with a UNIQUE fixture name (ctx7-e2e); seeded sandbox-mcp untouched; self-contained, no suite-order dependence, no residue" },
-    "designAudit": { "verdict": "clean", "by": ["vision screenshots c1-mcps-list.png + c1-mcps-add-form.png vs Vault/Armory/shell"], "at": "2026-06-09T00:00:00Z", "notes": "Add-server button top-right; row shows LOOSE pill + Edit (pencil) + Remove (trash, alarm-red); form drawer on the existing .scrim overlay with mono labels, paper/rule fields, transport switch, Cancel/Add footer; matches the shell visual language; no emoji; no new idiom" },
-    "video":     { "status": "deferred", "note": "Per-slice walkthrough deferred to a consolidated 'manage everything from Quarters' walkthrough at the global gate (turn-budget + recorder-serialization). Re-runnable committed gate is the e2e round-trip + unit specs." }
+    "tests": {
+      "cmd": "npx vitest run tests/mcp-writer.test.ts tests/quarters-crud.test.ts",
+      "exit": 0,
+      "summary": "13 passed \u2014 mcp-writer (10): add to missing file (wrapped), refuse clobber, preserve BARE map shape, preserve sibling keys under wrapped shape, http/sse round-trip, update+rename, refuse rename collision, remove + not-found, name/transport validation, normalizeServerConfig cross-transport drop + bespoke keep. quarters dispatch (3): add\u2192detail\u2192update\u2192remove round-trip, CrudResult error surfaced not thrown, unknown action rejected."
+    },
+    "suite": {
+      "cmd": "npx vitest run --exclude '**/orchestrator-integration.test.ts'",
+      "exit": 0,
+      "summary": "406 passed, 2 skipped, 0 failed across the whole suite minus the env-dependent live-gateway test."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors (mcp-writer + quarters-detail + quarters dispatch widened to CrudResult + 4 new UI components)"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": 0,
+      "summary": "/quarters/[type] built at 19.1 kB; all routes compiled"
+    },
+    "e2e": {
+      "cmd": "npx playwright test --project=desktop-chromium tests/e2e/quarters-crud.spec.ts",
+      "exit": 0,
+      "summary": "1 passed \u2014 add \u2192 edit \u2192 remove an MCP server with a UNIQUE fixture name (ctx7-e2e); seeded sandbox-mcp untouched; self-contained, no suite-order dependence, no residue"
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "vision screenshots c1-mcps-list.png + c1-mcps-add-form.png vs Vault/Armory/shell"
+      ],
+      "at": "2026-06-09T00:00:00Z",
+      "notes": "Add-server button top-right; row shows LOOSE pill + Edit (pencil) + Remove (trash, alarm-red); form drawer on the existing .scrim overlay with mono labels, paper/rule fields, transport switch, Cancel/Add footer; matches the shell visual language; no emoji; no new idiom"
+    },
+    "video": {
+      "status": "verified-via-consolidated",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "note": "Covered by the VERIFIED consolidated 'Manage everything from Quarters' walkthrough (11 beats, all vision-verified, run not flagged). This slice's own re-runnable committed e2e is the per-slice correctness gate."
+    }
   },
   "blockers": [],
-  "notes": "The headline ask ('we can't even remove an mcp!'). mcp-writer.ts is Garrison's writer-of-record for ~/.claude/mcp.json: preserves the file's wrapper shape ({mcpServers:{}} vs bare map) + sibling keys, round-trips both transports (stdio command/args/env + http/sse url/headers), validates name+transport, supports rename. Establishes the reusable CRUD shell (QuartersDrawer + ConfirmDialog on .scrim) and the surfaceEditors registry + CrudResult contract that C2–C5 inherit. The 2 suite failures are tests/orchestrator-integration.test.ts hitting a stray live Garrison gateway (PID on :4777, the user's own running operative) that defeats the test's skip-by-default — environmental, unrelated to Quarters, not killed."
+  "notes": "The headline ask ('we can't even remove an mcp!'). mcp-writer.ts is Garrison's writer-of-record for ~/.claude/mcp.json: preserves the file's wrapper shape ({mcpServers:{}} vs bare map) + sibling keys, round-trips both transports (stdio command/args/env + http/sse url/headers), validates name+transport, supports rename. Establishes the reusable CRUD shell (QuartersDrawer + ConfirmDialog on .scrim) and the surfaceEditors registry + CrudResult contract that C2\u2013C5 inherit. The 2 suite failures are tests/orchestrator-integration.test.ts hitting a stray live Garrison gateway (PID on :4777, the user's own running operative) that defeats the test's skip-by-default \u2014 environmental, unrelated to Quarters, not killed."
 }

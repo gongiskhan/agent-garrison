@@ -1,20 +1,54 @@
 {
   "slice": "C3-scripts",
-  "title": "Scripts CRUD — command + rule .md create/edit/delete-if-loose, reusing primitive-files + FilePrimitiveForm",
+  "title": "Scripts CRUD \u2014 command + rule .md create/edit/delete-if-loose, reusing primitive-files + FilePrimitiveForm",
   "updatedAt": "2026-06-09T00:00:00Z",
   "phase": "done",
   "status": "passed",
   "kind": "mixed",
-  "retries": { "limit": 5, "used": 0 },
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
   "gates": {
-    "tests":     { "cmd": "npx vitest run tests/primitive-files.test.ts", "exit": 0, "summary": "6 passed — command/rule path mapping + create/edit/delete + owned-delete guard already covered by the C2 primitive-files suite (command+rule share the same writer/dispatch as skill)" },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (CommandEditor + RuleEditor registry entries; no backend changes — primitive-files/detail/dispatch already generic over FilePrimitiveSurface)" },
-    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
-    "build":     { "exit": 0, "summary": "covered by the C1 build + re-verified at the global gate" },
-    "e2e":       { "cmd": "npx playwright test --project=desktop-chromium tests/e2e/quarters-crud.spec.ts", "exit": 0, "summary": "3 passed — the new Scripts test lists both seeded surfaces (example-command + example-rule), shows two create buttons (New command / New rule), and round-trips a unique command (deploy-note-e2e): create → edit body → delete" },
-    "designAudit": { "verdict": "clean", "by": ["vision screenshot c3-scripts-list.png vs the shell"], "at": "2026-06-09T00:00:00Z", "notes": "Two create buttons (one per surface); command + rule rows each show LOOSE + Edit + Promote + Remove; reuses the FilePrimitiveForm drawer; matches the shell; no emoji" },
-    "video":     { "status": "deferred", "note": "Consolidated walkthrough at the global gate. Re-runnable gate is the e2e command round-trip + the shared primitive-files unit suite." }
+    "tests": {
+      "cmd": "npx vitest run tests/primitive-files.test.ts",
+      "exit": 0,
+      "summary": "6 passed \u2014 command/rule path mapping + create/edit/delete + owned-delete guard already covered by the C2 primitive-files suite (command+rule share the same writer/dispatch as skill)"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors (CommandEditor + RuleEditor registry entries; no backend changes \u2014 primitive-files/detail/dispatch already generic over FilePrimitiveSurface)"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "build": {
+      "exit": 0,
+      "summary": "covered by the C1 build + re-verified at the global gate"
+    },
+    "e2e": {
+      "cmd": "npx playwright test --project=desktop-chromium tests/e2e/quarters-crud.spec.ts",
+      "exit": 0,
+      "summary": "3 passed \u2014 the new Scripts test lists both seeded surfaces (example-command + example-rule), shows two create buttons (New command / New rule), and round-trips a unique command (deploy-note-e2e): create \u2192 edit body \u2192 delete"
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "vision screenshot c3-scripts-list.png vs the shell"
+      ],
+      "at": "2026-06-09T00:00:00Z",
+      "notes": "Two create buttons (one per surface); command + rule rows each show LOOSE + Edit + Promote + Remove; reuses the FilePrimitiveForm drawer; matches the shell; no emoji"
+    },
+    "video": {
+      "status": "verified-via-consolidated",
+      "video": "docs/autothing/evidence/quarters-crud-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4",
+      "note": "Covered by the VERIFIED consolidated 'Manage everything from Quarters' walkthrough (11 beats, all vision-verified, run not flagged). This slice's own re-runnable committed e2e is the per-slice correctness gate."
+    }
   },
   "blockers": [],
-  "notes": "Scripts CRUD is almost entirely a UI registration: primitive-files.ts, the detail provider, and the dispatch were authored generic over FilePrimitiveSurface in C2, so C3 adds CommandEditor + RuleEditor wrappers + two registry entries. The Scripts category (surfaces command+rule, writer 'split') now shows one create button per surface and full CRUD per row, with the owned→Park guard inherited (a promoted/owned command shows Park, not Remove). Seeded a loose example-command + example-rule into the e2e sandbox so the surface has realistic content."
+  "notes": "Scripts CRUD is almost entirely a UI registration: primitive-files.ts, the detail provider, and the dispatch were authored generic over FilePrimitiveSurface in C2, so C3 adds CommandEditor + RuleEditor wrappers + two registry entries. The Scripts category (surfaces command+rule, writer 'split') now shows one create button per surface and full CRUD per row, with the owned\u2192Park guard inherited (a promoted/owned command shows Park, not Remove). Seeded a loose example-command + example-rule into the e2e sandbox so the surface has realistic content."
 }
