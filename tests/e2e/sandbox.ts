@@ -56,5 +56,50 @@ export function seedSandbox(): void {
     JSON.stringify({ mcpServers: { "sandbox-mcp": { command: "echo" } } }, null, 2)
   );
 
+  // Plugins surface (Quarters -> Plugins): Claude-Code-managed installs.
+  fs.mkdirSync(path.join(CLAUDE_SANDBOX, "plugins"), { recursive: true });
+  fs.writeFileSync(
+    path.join(CLAUDE_SANDBOX, "plugins", "installed_plugins.json"),
+    JSON.stringify(
+      {
+        version: 2,
+        plugins: {
+          "frontend-design@claude-plugins-official": [
+            { scope: "user", version: "08de64fff891", installPath: "/sandbox/fd" }
+          ]
+        }
+      },
+      null,
+      2
+    )
+  );
+
+  // Logs surface (Quarters -> Logs): a top-level *.log + a nested log file.
+  fs.mkdirSync(path.join(CLAUDE_SANDBOX, "logs", "security"), { recursive: true });
+  fs.writeFileSync(path.join(CLAUDE_SANDBOX, "daemon.log"), "daemon boot\ndaemon ready\ndaemon serving\n");
+  fs.writeFileSync(
+    path.join(CLAUDE_SANDBOX, "logs", "security", "audit.log"),
+    "audit: start\naudit: ok\n"
+  );
+
+  // Scripts surface (Quarters -> Scripts): a loose command + rule .md (the shape
+  // APM deploys), so the surface has hand-authored content to list/edit/delete.
+  fs.mkdirSync(path.join(CLAUDE_SANDBOX, "commands"), { recursive: true });
+  fs.writeFileSync(path.join(CLAUDE_SANDBOX, "commands", "example-command.md"), "# /example-command\n\nrun the thing.\n");
+  fs.mkdirSync(path.join(CLAUDE_SANDBOX, "rules"), { recursive: true });
+  fs.writeFileSync(path.join(CLAUDE_SANDBOX, "rules", "example-rule.md"), "# example-rule\n\nbe terse.\n");
+
+  // Sessions surface (Quarters -> Sessions): a per-pid record + a transcript.
+  fs.mkdirSync(path.join(CLAUDE_SANDBOX, "sessions"), { recursive: true });
+  fs.mkdirSync(path.join(CLAUDE_SANDBOX, "projects", "-sandbox-proj"), { recursive: true });
+  fs.writeFileSync(
+    path.join(CLAUDE_SANDBOX, "sessions", "9937.json"),
+    JSON.stringify({ pid: 9937, cwd: "/tmp/sandbox" }, null, 2)
+  );
+  fs.writeFileSync(
+    path.join(CLAUDE_SANDBOX, "projects", "-sandbox-proj", "transcript.jsonl"),
+    '{"type":"user","text":"hello"}\n{"type":"assistant","text":"hi there"}\n'
+  );
+
   fs.mkdirSync(GARRISON_SANDBOX, { recursive: true });
 }

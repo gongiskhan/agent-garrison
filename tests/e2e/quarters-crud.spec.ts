@@ -92,3 +92,42 @@ test("Quarters Skills: create → edit → delete a loose skill from the UI", as
 
   expect(appErrors(errors)).toEqual([]);
 });
+
+test("Quarters Scripts: create → edit → delete a command (commands + rules listed)", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+
+  const NAME = "deploy-note-e2e";
+
+  await page.goto("/quarters/scripts");
+  await expect(page.getByRole("heading", { name: "Scripts", level: 1 })).toBeVisible();
+  // both seeded surfaces are listed
+  await expect(page.getByTestId("primitive-command:example-command")).toBeVisible();
+  await expect(page.getByTestId("primitive-rule:example-rule")).toBeVisible();
+  // two create buttons (one per surface)
+  await expect(page.getByTestId("create-command")).toBeVisible();
+  await expect(page.getByTestId("create-rule")).toBeVisible();
+
+  // --- CREATE a command ---
+  await page.getByTestId("create-command").click();
+  await expect(page.getByTestId("file-form")).toBeVisible();
+  await page.getByTestId("file-name").fill(NAME);
+  await page.getByTestId("file-save").click();
+  await expect(page.getByTestId(`primitive-command:${NAME}`)).toBeVisible();
+
+  // --- EDIT ---
+  await page.getByTestId(`edit-command:${NAME}`).click();
+  await expect(page.getByTestId("file-content")).toHaveValue(new RegExp(NAME));
+  await page.getByTestId("file-content").fill("# /" + NAME + "\n\nedited prompt body\n");
+  await page.getByTestId("file-save").click();
+  await expect(page.getByTestId(`primitive-command:${NAME}`)).toBeVisible();
+
+  // --- DELETE ---
+  await page.getByTestId(`delete-command:${NAME}`).click();
+  await page.getByTestId("confirm-action").click();
+  await expect(page.getByTestId(`primitive-command:${NAME}`)).toHaveCount(0);
+
+  expect(appErrors(errors)).toEqual([]);
+});
