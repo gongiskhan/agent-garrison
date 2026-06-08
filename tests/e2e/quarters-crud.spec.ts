@@ -1,0 +1,53 @@
+import { test, expect } from "@playwright/test";
+
+function appErrors(errors: string[]): string[] {
+  return errors.filter((e) => !/favicon|React DevTools|hydrat|Fast Refresh|\[HMR\]/i.test(e));
+}
+
+// Self-contained MCP CRUD round-trip against the seeded sandbox. Uses a UNIQUE
+// fixture name and removes it at the end, so it neither depends on suite ordering
+// nor leaves residue another spec asserts against (the seeded `sandbox-mcp` is
+// never touched).
+test("Quarters MCPs: add → edit → remove an MCP server from the UI", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+
+  const NAME = "ctx7-e2e";
+
+  await page.goto("/quarters/mcps");
+  await expect(page.getByRole("heading", { name: "MCPs", level: 1 })).toBeVisible();
+  // seeded server present and untouched
+  await expect(page.getByTestId("primitive-mcp:sandbox-mcp")).toBeVisible();
+
+  // --- ADD ---
+  await page.getByTestId("create-mcp").click();
+  await expect(page.getByTestId("mcp-form")).toBeVisible();
+  await page.getByTestId("mcp-name").fill(NAME);
+  await page.getByTestId("mcp-command").fill("npx");
+  await page.getByTestId("mcp-args").fill("-y\n@upstash/context7-mcp");
+  await page.getByTestId("mcp-save").click();
+
+  const row = page.getByTestId(`primitive-mcp:${NAME}`);
+  await expect(row).toBeVisible();
+
+  // --- EDIT --- (reopen, change a field, save; row persists)
+  await page.getByTestId(`edit-mcp:${NAME}`).click();
+  await expect(page.getByTestId("mcp-form")).toBeVisible();
+  await expect(page.getByTestId("mcp-command")).toHaveValue("npx");
+  await page.getByTestId("mcp-command").fill("uvx");
+  await page.getByTestId("mcp-save").click();
+  await expect(page.getByTestId(`primitive-mcp:${NAME}`)).toBeVisible();
+
+  // --- REMOVE --- (confirm dialog → gone)
+  await page.getByTestId(`delete-mcp:${NAME}`).click();
+  await expect(page.getByTestId("confirm-dialog")).toBeVisible();
+  await page.getByTestId("confirm-action").click();
+  await expect(page.getByTestId(`primitive-mcp:${NAME}`)).toHaveCount(0);
+
+  // seeded server still present
+  await expect(page.getByTestId("primitive-mcp:sandbox-mcp")).toBeVisible();
+
+  expect(appErrors(errors)).toEqual([]);
+});

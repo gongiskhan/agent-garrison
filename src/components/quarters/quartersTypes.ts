@@ -62,7 +62,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "mcps",
     label: "MCPs",
-    blurb: "MCP servers declared in mcp.json.",
+    blurb: "MCP servers in mcp.json — add, edit, and remove directly.",
     writer: "garrison",
     kind: "primitives",
     icon: "Plug",
@@ -71,8 +71,8 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "plugins",
     label: "Plugins",
-    blurb: "Plugin collections installed by APM.",
-    writer: "apm",
+    blurb: "Plugins installed by Claude Code's plugin manager (installed_plugins.json) — surfaced read-only (Garrison-driven plugin install is gated on SP6).",
+    writer: "readonly",
     kind: "primitives",
     icon: "Boxes",
     surfaces: ["plugin"]

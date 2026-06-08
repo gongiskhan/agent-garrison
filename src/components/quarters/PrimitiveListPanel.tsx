@@ -1,18 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { StateModel, PrimitiveRecord } from "@/lib/primitive-state";
+import { Pencil, Plus, Trash2 } from "lucide-react";
+import type { StateModel, PrimitiveRecord, PrimitiveSurface } from "@/lib/primitive-state";
 import { StateBadge } from "./StateBadge";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { WRITER_LABEL, type QuartersCategory } from "./quartersTypes";
+import { crudFor, type SurfaceCrud } from "./surfaceEditors";
 
 // One parameterized panel for every package-surface category (Skills/Hooks/MCPs/
-// Plugins/Scripts). Lists ALL primitives with their state and a promote/park
-// action. Refetches on action completion (no watcher) — the structural answer to
-// the immediate-save echo storm for the package surface.
+// Plugins/Scripts). Lists ALL primitives with their state, the promote/park
+// transition action, AND — where Garrison is writer-of-record — full CRUD
+// (Add / Edit / Remove) via the per-surface editor registry. Refetches on any
+// mutation (no watcher).
 export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
   const [model, setModel] = useState<StateModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ surface: PrimitiveSurface; rec: PrimitiveRecord | null } | null>(null);
+  const [deleting, setDeleting] = useState<{ rec: PrimitiveRecord; crud: SurfaceCrud } | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -30,7 +36,7 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
     void load();
   }, [load]);
 
-  const act = useCallback(
+  const transition = useCallback(
     async (rec: PrimitiveRecord) => {
       const body =
         rec.state === "loose"
@@ -45,9 +51,7 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
           body: JSON.stringify(body)
         });
         const data = await res.json();
-        if (!res.ok || data?.ok === false) {
-          throw new Error(data?.error ?? data?.code ?? res.statusText);
-        }
+        if (!res.ok || data?.ok === false) throw new Error(data?.error ?? data?.code ?? res.statusText);
         await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -58,18 +62,57 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
     [load]
   );
 
+  const remove = useCallback(
+    async (rec: PrimitiveRecord, crud: SurfaceCrud) => {
+      const body = crud.deleteBody(rec);
+      if (!body) return;
+      const res = await fetch("/api/quarters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) throw new Error(data?.error ?? data?.code ?? res.statusText);
+      await load();
+    },
+    [load]
+  );
+
   const surfaces = cat.surfaces ?? [];
   const records = surfaces.flatMap((s) => model?.bySurface[s] ?? []);
-  const actionable = cat.writer === "apm" || cat.writer === "split"; // hooks/mcp manage differently
+  const transitionable = cat.writer === "apm" || cat.writer === "split"; // promote/park surfaces
+  const creatable = surfaces.map((s) => crudFor(s)).filter((c): c is SurfaceCrud => !!c?.creatable);
+
+  const ActiveEditor = editing ? crudFor(editing.surface)?.Editor : undefined;
 
   return (
     <main>
       <div className="crumbs"><b>Quarters</b> · {cat.label}</div>
       <div className="page">
-        <div className="head">
-          <h1>{cat.label}</h1>
-          <p className="ld">{cat.blurb}</p>
-          <span className="pill idle" style={{ fontSize: 10.5 }}>{WRITER_LABEL[cat.writer]}</span>
+        <div className="head" style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <h1>{cat.label}</h1>
+            <p className="ld">{cat.blurb}</p>
+            <span className="pill idle" style={{ fontSize: 10.5 }}>{WRITER_LABEL[cat.writer]}</span>
+          </div>
+          {creatable.length > 0 ? (
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              {surfaces
+                .map((s) => ({ s, crud: crudFor(s) }))
+                .filter((x): x is { s: PrimitiveSurface; crud: SurfaceCrud } => !!x.crud?.creatable)
+                .map(({ s, crud }) => (
+                  <button
+                    key={s}
+                    className="btn small"
+                    data-testid={`create-${s}`}
+                    onClick={() => setEditing({ surface: s, rec: null })}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    <Plus size={14} aria-hidden /> {crud.createLabel}
+                  </button>
+                ))}
+            </div>
+          ) : null}
         </div>
 
         {error ? (
@@ -85,47 +128,98 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
           ) : records.length === 0 ? (
             <div style={{ padding: 20, color: "var(--mute)", fontSize: 13, textAlign: "center" }}>
               No {cat.label.toLowerCase()} found in ~/.claude.
+              {creatable.length > 0 ? " Use the button above to add one." : ""}
             </div>
           ) : (
-            records.map((rec) => (
-              <div
-                key={rec.id}
-                data-testid={`primitive-${rec.id}`}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto auto",
-                  gap: 12,
-                  alignItems: "center",
-                  padding: "11px 18px",
-                  borderBottom: "1px solid var(--rule)"
-                }}
-              >
-                <div>
-                  <span className="font-mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{rec.name}</span>
-                  {rec.fittingId ? (
-                    <code style={{ fontSize: 11, color: "var(--mute)", marginLeft: 8 }}>{rec.fittingId}</code>
-                  ) : null}
+            records.map((rec) => {
+              const crud = crudFor(rec.surface);
+              const deletable = crud ? crud.deleteBody(rec) !== null : false;
+              const blockedHint = crud && !deletable ? crud.blockedDeleteHint?.(rec) ?? null : null;
+              return (
+                <div
+                  key={rec.id}
+                  data-testid={`primitive-${rec.id}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: 12,
+                    alignItems: "center",
+                    padding: "11px 18px",
+                    borderBottom: "1px solid var(--rule)"
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <span className="font-mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{rec.name}</span>
+                    {rec.fittingId ? (
+                      <code style={{ fontSize: 11, color: "var(--mute)", marginLeft: 8 }}>{rec.fittingId}</code>
+                    ) : null}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <StateBadge state={rec.state} drifted={rec.driftedFromLock} />
+                    {crud?.Editor ? (
+                      <button
+                        className="btn small ghost"
+                        data-testid={`edit-${rec.id}`}
+                        title="Edit"
+                        onClick={() => setEditing({ surface: rec.surface, rec })}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                      >
+                        <Pencil size={13} aria-hidden /> Edit
+                      </button>
+                    ) : null}
+                    {transitionable && (rec.state === "loose" || rec.state === "owned") ? (
+                      <button
+                        className="btn small ghost"
+                        data-testid={`action-${rec.id}`}
+                        disabled={busy === rec.id}
+                        onClick={() => void transition(rec)}
+                      >
+                        {busy === rec.id ? "…" : rec.state === "loose" ? "Promote" : "Park"}
+                      </button>
+                    ) : null}
+                    {deletable ? (
+                      <button
+                        className="btn small ghost"
+                        data-testid={`delete-${rec.id}`}
+                        title="Remove"
+                        onClick={() => setDeleting({ rec, crud: crud! })}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--alarm)" }}
+                      >
+                        <Trash2 size={13} aria-hidden /> Remove
+                      </button>
+                    ) : blockedHint ? (
+                      <span style={{ fontSize: 11, color: "var(--mute)" }}>{blockedHint}</span>
+                    ) : !crud && cat.slug === "hooks" ? (
+                      <span style={{ fontSize: 11, color: "var(--mute)" }}>manage via fitting</span>
+                    ) : null}
+                  </div>
                 </div>
-                <StateBadge state={rec.state} drifted={rec.driftedFromLock} />
-                {actionable && (rec.state === "loose" || rec.state === "owned") ? (
-                  <button
-                    className="btn small"
-                    data-testid={`action-${rec.id}`}
-                    disabled={busy === rec.id}
-                    onClick={() => void act(rec)}
-                  >
-                    {busy === rec.id ? "…" : rec.state === "loose" ? "Promote" : "Park"}
-                  </button>
-                ) : (
-                  <span style={{ fontSize: 11, color: "var(--mute)" }}>
-                    {cat.slug === "hooks" ? "manage via fitting" : ""}
-                  </span>
-                )}
-              </div>
-            ))
+              );
+            })
           )}
         </section>
       </div>
+
+      {editing && ActiveEditor ? (
+        <ActiveEditor
+          rec={editing.rec}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void load();
+          }}
+        />
+      ) : null}
+
+      {deleting ? (
+        <ConfirmDialog
+          title={`Remove ${deleting.crud.noun}`}
+          body={`Remove "${deleting.rec.name}"? This rewrites the underlying ~/.claude file. This cannot be undone from here.`}
+          confirmLabel="Remove"
+          onConfirm={() => remove(deleting.rec, deleting.crud)}
+          onClose={() => setDeleting(null)}
+        />
+      ) : null}
     </main>
   );
 }
