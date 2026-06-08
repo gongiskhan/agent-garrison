@@ -31,6 +31,11 @@ export function FilePrimitiveForm({
   onSaved
 }: SurfaceEditorProps & { surface: FilePrimitiveSurface; noun: string; template: (name: string) => string }) {
   const isEdit = !!rec;
+  const isOwned = rec?.state === "owned";
+  const dirName = surface === "skill" ? "skills" : surface === "command" ? "commands" : "rules";
+  const subtitle = isOwned
+    ? "APM-managed (owned) — saving edits the deployed file and creates drift from the lockfile."
+    : `Written to ~/.claude/${dirName}/ — loose, hand-authored.`;
   const [name, setName] = useState(rec ? rec.name : "");
   const [content, setContent] = useState(isEdit ? "" : template(""));
   const [mode, setMode] = useState<ContentMode>("edit");
@@ -95,7 +100,7 @@ export function FilePrimitiveForm({
   return (
     <QuartersDrawer
       title={isEdit ? `Edit ${noun} — ${rec!.name}` : `New ${noun}`}
-      subtitle={`Written to ~/.claude/${surface === "skill" ? "skills" : surface === "command" ? "commands" : "rules"}/ — loose, hand-authored.`}
+      subtitle={subtitle}
       onClose={onClose}
       testId="file-form"
       footer={
@@ -113,6 +118,17 @@ export function FilePrimitiveForm({
         <p className="ld" style={{ fontSize: 13 }}>Loading…</p>
       ) : (
         <>
+          {isOwned ? (
+            <div className="banner warn" data-testid="owned-drift-warning" style={{ marginBottom: 14 }}>
+              <span className="glyph">!</span>
+              <div>
+                <p style={{ margin: 0, fontSize: 12.5 }}>
+                  This {noun} is <b>APM-managed</b>. Saving edits the deployed file directly and creates
+                  drift from the lockfile. To stop managing it, Park it instead.
+                </p>
+              </div>
+            </div>
+          ) : null}
           {!isEdit ? (
             <div style={{ marginBottom: 14 }}>
               <label style={LABEL}>Name</label>

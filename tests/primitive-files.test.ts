@@ -110,4 +110,16 @@ describe("file CRUD dispatch + owned-delete guard", () => {
     // file still there — we did NOT delete behind the lock
     expect(exists("skills/owned-skill/SKILL.md")).toBe(true);
   });
+
+  it("ALLOWS editing an APM-owned skill (drift is honest, the complement of the delete guard)", async () => {
+    write(path.join(claudeRoot, "skills", "owned-skill", "SKILL.md"), "---\nname: owned-skill\n---\n# owned\n");
+    write(
+      path.join(garrisonRoot, "global-composition", "apm.lock.yaml"),
+      ["dependencies:", "- repo_url: _local/owned-skill", "  package_type: apm_package", "  deployed_files:", "  - .claude/skills/owned-skill"].join("\n") + "\n"
+    );
+    // editing an owned file is permitted (it creates honest, surfaced drift) — only delete is blocked
+    const res = (await runQuartersAction({ action: "file.update", surface: "skill", name: "owned-skill", content: "# edited owned\n" })) as CrudResult;
+    expect(res.ok).toBe(true);
+    expect(fs.readFileSync(path.join(claudeRoot, "skills", "owned-skill", "SKILL.md"), "utf8")).toBe("# edited owned\n");
+  });
 });
