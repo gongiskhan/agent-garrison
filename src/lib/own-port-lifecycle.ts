@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, writeSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
+import { garrisonDir } from "./claude-home";
 import { ROOT_DIR } from "./paths";
 import { isOwnPortFitting } from "./faculties";
 import { readVaultSecrets } from "./vault";
@@ -15,15 +15,20 @@ import type { LibraryEntry } from "./types";
 //     on start and removes on SIGTERM. Garrison kills by the PID it finds
 //     there; it never grep's `lsof` because the file is the only source that
 //     guarantees the PID is one this contract owns.
+//
+// Resolved per-call through garrisonDir() (GARRISON_HOME-aware) so tests and
+// the e2e sandbox can never SIGTERM the user's real fittings.
 
-const STATUS_DIR = path.join(os.homedir(), ".garrison", "ui-fittings");
+function statusDir(): string {
+  return path.join(garrisonDir(), "ui-fittings");
+}
 
 export function statusFilePath(fittingId: string): string {
-  return path.join(STATUS_DIR, `${fittingId}.json`);
+  return path.join(statusDir(), `${fittingId}.json`);
 }
 
 export function logFilePath(fittingId: string): string {
-  return path.join(STATUS_DIR, `${fittingId}.log`);
+  return path.join(statusDir(), `${fittingId}.log`);
 }
 
 export function isValidFittingId(fittingId: string): boolean {
@@ -92,7 +97,7 @@ export async function startOwnPortFitting(
   // Redirect stdout/stderr to a per-Fitting log file so failures are visible.
   // Truncated on each start so the file always reflects the most recent
   // attempt; persists after exit so a crash leaves diagnostics behind.
-  mkdirSync(STATUS_DIR, { recursive: true });
+  mkdirSync(statusDir(), { recursive: true });
   const logPath = logFilePath(entry.id);
   const logFd = openSync(logPath, "w");
   writeSync(logFd, `--- ${new Date().toISOString()} starting ${entry.id} ---\n`);

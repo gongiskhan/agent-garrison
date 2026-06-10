@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
+import { garrisonDir } from "@/lib/claude-home";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ interface ViewEntry {
 }
 
 export async function GET() {
-  const dir = path.join(os.homedir(), ".garrison", "ui-fittings");
+  const dir = path.join(garrisonDir(), "ui-fittings");
   let names: string[] = [];
   try {
     names = (await readdir(dir)).filter((n) => n.endsWith(".json"));

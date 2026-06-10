@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-08T00:23:15.031754+00:00'
+generated_at: '2026-06-10T08:32:30.800257+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -64,6 +64,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/web-channel-default
+- repo_url: _local/workspaces
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/workspaces
 - repo_url: _local/worktree-management-sequoias
   package_type: invalid
   source: local

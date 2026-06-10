@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
+import { readEagerBootPrefs, runEagerBoot } from "./eager-boot";
 import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
@@ -154,6 +155,27 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     }
     appendLog(compositionId, "runner", `Operative process started${child.pid ? ` with pid ${child.pid}` : ""}`);
     await startOperativeBoundFittings(compositionId);
+    // Eager-toggled views also boot with the operative (not just with the
+    // server): covers detached-lifecycle fittings and the case where the
+    // server-start boot was missed. runEagerBoot skips anything already
+    // running, so operative-bound fittings just started above are untouched.
+    // Best-effort — a failed eager boot must not fail the operative.
+    try {
+      const eager = await runEagerBoot();
+      if (eager.booted.length > 0 || eager.warmed.length > 0) {
+        appendLog(
+          compositionId,
+          "runner",
+          `eager views: booted [${eager.booted.join(", ") || "none"}], warmed [${eager.warmed.join(", ") || "none"}]`
+        );
+      }
+    } catch (error) {
+      appendLog(
+        compositionId,
+        "stderr",
+        `eager boot failed (operative unaffected): ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
     return getRunnerState(compositionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -191,11 +213,21 @@ export async function down(compositionId: string): Promise<RunnerState> {
 
 let reconciliationPromise: Promise<void> | null = null;
 
-async function reconcileOrphanedOwnPortFittings(): Promise<void> {
+// Exported for the eager-lifecycle vitest gate (sandbox GARRISON_HOME); the
+// app itself only reaches this through getRunnerState/up.
+export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
   if (reconciliationPromise) return reconciliationPromise;
   reconciliationPromise = (async () => {
     try {
       const compositions = await listCompositions();
+      // Eager-toggled fittings are NOT orphans: eager boot (Layer 3) owns
+      // their lifecycle — they are meant to be "always there" across Garrison
+      // restarts, carrying live state (PTY sessions etc.). Reaping them here
+      // was exactly the bug that killed eager-booted terminals on the first
+      // runner-state read. Trade-off: an eager fitting keeps serving its old
+      // bundle across Garrison restarts; toggle eager off (or stop it
+      // explicitly) when developing the fitting itself.
+      const prefs = await readEagerBootPrefs();
       const seen = new Set<string>();
       for (const composition of compositions) {
         const entries = await selectedLibraryEntries(composition.selections);
@@ -203,6 +235,9 @@ async function reconcileOrphanedOwnPortFittings(): Promise<void> {
           if (!isOperativeBound(entry)) continue;
           if (seen.has(entry.id)) continue;
           seen.add(entry.id);
+          if (prefs.eager[entry.id]) {
+            continue;
+          }
           const result = await stopOwnPortFitting(entry.id);
           if (result.ok && result.wasRunning) {
             console.log(
@@ -238,11 +273,22 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
   }
 }
 
-async function stopOperativeBoundFittings(compositionId: string): Promise<void> {
+// Exported for the eager-lifecycle vitest gate; the app reaches this through
+// down().
+export async function stopOperativeBoundFittings(compositionId: string): Promise<void> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
+  // Eager-toggled fittings are server-lifecycle, not operative-lifecycle:
+  // stopping the operative must not tear down an "always there" view (it
+  // would drop live terminal sessions). They stay up; eager boot keeps
+  // owning them.
+  const prefs = await readEagerBootPrefs();
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
+    if (prefs.eager[entry.id]) {
+      appendLog(compositionId, "runner", `own-port ${entry.id} left running (eager: always-on)`);
+      continue;
+    }
     const result = await stopOwnPortFitting(entry.id);
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id} stop: ${result.error}`);
