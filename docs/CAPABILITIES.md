@@ -5,20 +5,29 @@ The capability kinds Fittings can `provides` or `consumes` in their
 (`src/lib/capabilities.ts`); see [GOVERNANCE.md](./GOVERNANCE.md) and
 [FITTINGS.md](./FITTINGS.md) for context.
 
-The set started at five at the 2026-05-04 v1 reset and grew as
-Phases 1–5 landed: `soul`, `data-source`, `channel`,
-`artifact-store`, the four Workbench Faculty kinds
-(`terminal-session`, `worktree`, `session-view`, `screen-share`),
-`outpost`, `mcp-gateway`, and most recently `monitor`. Each was
-added on Claude-Code-justified evidence (see
-[DECISIONS.md](./DECISIONS.md) and
-[GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md)). The current full
-list, as enforced by `src/lib/metadata.ts` via the
-`capabilityKinds` array in `src/lib/types.ts`: `orchestrator`,
-`soul`, `agent-skill`, `memory-store`, `automation-runner`,
-`data-source`, `channel`, `vault`, `artifact-store`,
-`terminal-session`, `worktree`, `session-view`, `screen-share`,
-`outpost`, `mcp-gateway`, `monitor`.
+The set grew across phases, then **shrank with the 2026-06-07 Quarters pivot**
+(see [DECISIONS.md](./DECISIONS.md) and the decision record
+`decisions/2026-06-07-faculties-as-roles-operative-folded.md`). The spawned
+Operative folded into the user's real Claude Code, so the spawn-machinery kinds
+were retired and Skills/automations became Quarters platform primitives rather
+than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
+via the `capabilityKinds` array in `src/lib/types.ts`: `orchestrator`,
+`memory-store`, `channel`, `vault`, `artifact-store`, `terminal-session`,
+`worktree`, `session-view`, `screen-share`, `outpost`, `monitor`, `voice`,
+`view`.
+
+`view` is **derived, never declared**: fittings do not list it in `provides` —
+the resolver synthesises one `view` provision per produced view (each
+`ui.views[]` entry, plus an own-port fitting's `main` surface), named
+`<fittingId>:<viewId>` (see `src/lib/view-instances.ts`). Only `consumes` names
+it explicitly — e.g. the Workspaces Fitting consumes `view` with
+`cardinality: any` to discover every view in the composition without
+hardcoding. Derived provisions live only in the capability graph; they never
+appear in the assembled prompt's capabilities block.
+
+Dropped in the Quarters pivot (no longer valid kinds): `soul`, `agent-skill`, `automation-runner`, `data-source`, `mcp-gateway`.
+Sections for these are kept below under *Dropped kinds (historical)* for readers
+tracing old manifests; the resolver rejects them.
 
 ## Cardinality literals
 
@@ -37,7 +46,7 @@ Example:
 
 ```yaml
 consumes:
-  - { kind: agent-skill, cardinality: any }
+  - { kind: channel, cardinality: any }
 ```
 
 > **Interface stubs are TBD — runtime SDK milestone.** Each section
@@ -77,9 +86,28 @@ exactly one orchestrator per composition.
 - **Typically consumes:** nothing — it is the consumer of everything
   else.
 - **Interface (TBD — runtime SDK milestone):** must accept the user
-  prompt, dispatch to `agent-skill` consumers, observe lifecycle
-  events from `automation-runner` providers, persist via
-  `memory-store`, and read secrets from `vault`.
+  prompt, persist via `memory-store`, and read secrets from `vault`.
+  Post-pivot the orchestrator is an APM-managed instructions primitive
+  projected to `~/.claude/rules/garrison-orchestrator.md` (with
+  `--append-system-prompt` as the higher-authority launch fallback), not a
+  separately-spawned agent.
+
+## Own-port runtime kinds
+
+`terminal-session`, `worktree`, `session-view`, `screen-share`, `outpost`, and
+`voice` are the runtime-residue capability kinds that survived the pivot. Their
+Fittings serve their own React UI (or a headless backend, for `voice`) on their
+own HTTP port (the Monitor pattern) and are surfaced under the `sessions` /
+`channels` / `observability` roles via the metadata `own_port` flag — see
+[UI-FITTINGS.md](./UI-FITTINGS.md). `terminal-session`, `worktree`,
+`session-view`, `screen-share`, and `voice` are singletons; `outpost` is
+multi. Consumers link by URL after a `GET /health` check rather than sharing
+state.
+
+## Dropped kinds (historical)
+
+The following kinds were retired in the 2026-06-07 Quarters pivot. They are kept
+here only to help read old manifests; `src/lib/metadata.ts` rejects them today.
 
 ## soul
 

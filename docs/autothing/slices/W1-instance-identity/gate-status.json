@@ -1,0 +1,20 @@
+{
+  "slice": "W1-instance-identity",
+  "title": "Stable view-instance IDs + derived `view` capability kind",
+  "updatedAt": "2026-06-10T02:31:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/view-instances.test.ts", "exit": 0, "summary": "15 passed — ref codec round-trip (default omitted), traversal rejection at codec + path-builder, descriptor/provision derivation (embedded + own-port + none), resolver `view` cardinality:any discovers all derived views, named consumption targets one, backward compat, prompt-block no-pollution, instance enumeration from sandbox GARRISON_HOME. Full suite 477 passed / 3 skipped." },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "no warnings or errors" },
+    "build":     { "cmd": "NEXT_DIST_DIR=.next-build npm run build", "exit": 0, "summary": "isolated dist dir (new next.config distDir env hook) — live dev server's dynamic routes verified 200 after build" },
+    "e2e":       { "exit": 0, "summary": "N/A — lib-only slice; behavioral proof is the committed vitest gate" },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "no UI surface" },
+    "video":     { "status": "pending-consolidated", "note": "lib-only slice — covered by the W-wave consolidated walkthrough (instance refs visible through W4 panes)" }
+  },
+  "blockers": [],
+  "notes": "Retry 1: first build failed — view-instances.ts originally held node:fs/path helpers and capabilities.ts is client-imported (FittingOverview), pulling node builtins into the client bundle. Fixed by splitting: view-instances.ts stays pure (codec + derivation), disk side (viewStateDir/viewStateFile/listInstanceIds) moved to server-only view-state.ts. Derivation lives in the RESOLVER (synthetic-vault precedent), not metadata.provides, so the assembled prompt's capabilities block is untouched (asserted by test). Side fix: next.config.mjs distDir honours NEXT_DIST_DIR so gate builds never poison the running dev server (friction-log 2026-06-10 permanently resolved)."
+}

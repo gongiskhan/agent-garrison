@@ -6,6 +6,7 @@ import {
   type GarrisonMetadata,
   type SerializedCapabilityGraph
 } from "./types";
+import { deriveViewProvisions } from "./view-instances";
 
 export const RUNTIME_FITTING_ID = "__runtime__";
 
@@ -59,6 +60,16 @@ export function resolveCapabilities(selected: ResolverInput[]): ResolverResult {
 
   for (const fitting of selected) {
     for (const provision of fitting.metadata.provides) {
+      const node: CapabilityGraphNode = { fittingId: fitting.id, provision };
+      indexNode(providers, node);
+      allNodes.push(node);
+    }
+    // Derived `view` provisions (same synthetic pattern as the vault node):
+    // every view a fitting produces — ui.views[] or its own-port surface — is
+    // discoverable in the graph without the fitting declaring it. These never
+    // come from metadata.provides, so the assembled prompt's capabilities
+    // block (which iterates declared provides) is untouched.
+    for (const provision of deriveViewProvisions(fitting.id, fitting.metadata)) {
       const node: CapabilityGraphNode = { fittingId: fitting.id, provision };
       indexNode(providers, node);
       allNodes.push(node);

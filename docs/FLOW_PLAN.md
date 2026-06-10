@@ -173,5 +173,59 @@ here (CRUD lives in Quarters → Hooks, C4).
   zero data loss; e2e proves search, structured permission-rule add, sandbox
   toggle, enterprise collapse, hooks link, no save button, zero console errors.
 
+## W wave — Workspaces Fitting, view-state persistence & run-panel eager boot
+
+Brief: universal automatic persistence of every view's state across server
+restarts; run-panel toggles that eager-boot chosen views; a **Workspaces**
+Fitting that tiles referenced view instances into resizable panes. Three
+layers: (1) stable per-instance identity, (2) a generic `(fitting, instanceId)`
+state store at `~/.garrison/view-state/`, (3) eager activation toggles.
+Workspaces composes, never owns — its persisted state is just a
+`(instanceRef, geometry)` layout. Confirmed decisions: **D1** terminal v1 =
+respawn shell with restored cwd + scrollback (PTY dies; herdr deferred);
+**D2** toggle per view type; **D3** `~/.garrison/view-state/<fittingId>/
+<instanceId>.json` via `writeJsonAtomic`, debounced ~500ms, no save buttons
+anywhere. E1 resolution: parser **derives** a synthetic `view` capability from
+`ui.views[]`/`own_port` (no per-fitting manifest churn); Workspaces consumes
+`view` with cardinality `any`.
+
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| W1-instance-identity | Stable view-instance IDs + derived `view` capability kind (`view-instances.ts`, metadata derivation, capabilities) | automation | (lib) | W-serial | pending |
+| W2-view-state | Generic view-state store (`view-state.ts`, `/api/view-state`, `usePersistedViewState`) + terminal cwd/scrollback proof | mixed | (lib + terminal fitting) | W-serial (after W1) | pending |
+| W3-eager-boot | Run-panel per-view-type toggles + server-start eager boot (`src/instrumentation.ts`, `eager-boot.json`) | mixed | /run | W-A (after W2) | pending |
+| W4-workspaces | Workspaces Fitting — tiling resizable panes over referenced instances, layout persisted via Layer 2, top-of-menu Workspace/Garrison switch, chrome ≤28px | ui | /fitting/workspaces | W-A (after W2) | pending |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **W-serial (W1→W2):** W2's store keys on W1's instance IDs and both touch
+  `types.ts`/`metadata.ts` neighbourhood — serial by dependency.
+- **Group W-A (W3, W4):** disjoint owned sets — W3 owns `instrumentation.ts`,
+  `eager-boot` lib/API, `RunPanel.tsx`; W4 owns `fittings/seed/workspaces/`,
+  its registry entry, and the Sidebar top-of-menu switch. No shared edit
+  files → **author in parallel** (ultracode is on; workflow/teammates with
+  explicit file-ownership boundaries), but the gate runtime (one vitest + one
+  sandbox dev-server + one recorder) serializes — gates run lead-sequenced
+  W3 then W4.
+
+### Acceptance per slice (sentinels lifted verbatim from the brief)
+- **W1:** every produced view is addressable as `(fittingId, viewId,
+  instanceId)`; single-instance views default `instanceId: "default"` and all
+  existing routes/tests still pass; the resolver exposes the derived `view`
+  capability and a consumer with cardinality `any` discovers instances without
+  hardcoding. Vitest proves derivation + backward compat.
+- **W2:** real on-disk round-trip — create instance, write known state,
+  re-init the persistence layer (simulated restart), read back exact match →
+  print `PERSIST_OK <instanceId>`; state survives with no explicit save call →
+  print `NO_SAVE_BUTTON_OK`; terminal fitting round-trips cwd + scrollback per
+  D1.
+- **W3:** toggle on → boot sequence → persisted instance active → print
+  `EAGER_BOOT_OK <view>`; toggle off → not auto-active but state restores on
+  open → print `LAZY_RESTORE_OK <view>`.
+- **W4:** layout with 2 referenced instances + geometry persists and reloads
+  with refs+geometry matching → print `WORKSPACE_LAYOUT_OK`; Playwright opens a
+  workspace, asserts N panes render referenced view types, resizes a pane and
+  asserts geometry changed, saves a screenshot and prints its path → print
+  `WORKSPACE_PANES_OK`; pane title-bar height ≤ 28px → print `CHROME_OK <px>`.
+
 ## Status legend
 pending · in_progress · passed · blocked

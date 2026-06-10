@@ -39,6 +39,12 @@ export type FittingShape = (typeof fittingShapes)[number];
 // agent-skill, automation-runner, data-source, and mcp-gateway are dropped
 // (Skills/automations become platform primitives; the spawned-operative
 // machinery is retired). The own-port runtime wiring kinds are kept.
+//
+// `view` is never declared in a fitting's `provides` — the resolver derives
+// one provision per produced view from `ui.views[]` / `own_port` (see
+// view-instances.ts), so a consumer like Workspaces can discover views with
+// cardinality `any` without any per-fitting manifest churn. Only `consumes`
+// entries name it explicitly.
 export const capabilityKinds = [
   "orchestrator",
   "memory-store",
@@ -51,7 +57,8 @@ export const capabilityKinds = [
   "screen-share",
   "outpost",
   "monitor",
-  "voice"
+  "voice",
+  "view"
 ] as const;
 
 export type CapabilityKind = (typeof capabilityKinds)[number];

@@ -35,6 +35,13 @@ x-garrison:
     extension: ./ui/ClassifierInspector.tsx
 ```
 
+> **Note (post-Quarters-pivot):** this example uses the legacy `faculty:
+> classifier` and `provides: agent-skill`, both retired in the 2026-06-07 pivot
+> but still accepted as deprecation aliases (with a `console.warn`). A skill like
+> a tier classifier is now a Quarters **platform primitive** (a `type: skill`
+> package compiled by APM), not a capability provider. See the live faculty/kind
+> lists below.
+
 ## Schema
 
 Top-level `x-garrison` fields:
@@ -63,11 +70,15 @@ emit a `console.warn`:
 - `primitive:` (rewritten to `faculty:`).
 - `faculty: testing-framework` (rewritten to `faculty: skills`).
 
-Faculty ids:
+Faculty ids (the 6 roles, post-2026-06-07 Quarters pivot):
 
-`heartbeat`, `scheduler`, `data-sources`, `knowledge-base`,
-`automations`, `skills`, `memory`, `classifier`, `gateway`, `channels`,
-`observability`, `soul`, `orchestrator`.
+`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`.
+
+The legacy flat-Faculty ids (`heartbeat`, `scheduler`, `data-sources`,
+`knowledge-base`, `automations`, `skills`, `classifier`, `soul`, …) are accepted
+as deprecation aliases by `metadata.ts normalizeDeprecations` and fold into the
+roles above; Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans are now
+Quarters platform primitives, not Faculties.
 
 Fitting shapes:
 
@@ -89,14 +100,14 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `soul`, `agent-skill`, `memory-store`, `automation-runner`, `data-source`, `channel`, `vault`. |
+| `kind` | enum | yes | One of: `orchestrator`, `memory-store`, `channel`, `vault`, `artifact-store`, `terminal-session`, `worktree`, `session-view`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `automation-runner`, `data-source`, `mcp-gateway`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of the five capability kinds. |
+| `kind` | enum | yes | One of the live capability kinds listed in the provision schema above. |
 | `name` | string | no | Omit for kind-only matching; provide to require a specific named provider. |
 | `cardinality` | enum | no | `one` (default), `optional-one`, or `any`. Enforced by the resolver. |
 

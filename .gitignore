@@ -27,3 +27,9 @@ recordings
 public/phase-1-demo/.playwright-artifacts/
 
 .playwright-artifacts/
+
+# walkthrough runtime artifacts (videos/frames/logs are large; evidence link lives in the gallery)
+.walkthrough/runs/
+.walkthrough/*.log
+.walkthrough/auth.json
+.next-build/
