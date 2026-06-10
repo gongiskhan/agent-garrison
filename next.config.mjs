@@ -6,7 +6,10 @@ const nextConfig = {
   // Gates set NEXT_DIST_DIR=.next-build; default stays .next for normal use.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   experimental: {
-    serverComponentsExternalPackages: ["js-yaml", "chokidar"]
+    serverComponentsExternalPackages: ["js-yaml", "chokidar"],
+    // Next 14 gates src/instrumentation.ts (the eager-boot server hook)
+    // behind this flag; without it register() never runs.
+    instrumentationHook: true
   }
 };
 

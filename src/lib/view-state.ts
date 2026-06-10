@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic, readFileTolerant } from "./atomic-write";
 import { garrisonDir } from "./claude-home";
@@ -58,7 +58,9 @@ export async function listInstanceIds(fittingId: string): Promise<string[]> {
 export async function listFittingIds(): Promise<string[]> {
   // Directories only — root-level files (e.g. eager-boot.json, the Layer 3
   // toggle prefs) are not fittings.
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  // Annotated explicitly: ReturnType<typeof fs.readdir> resolves to the
+  // Buffer overload under current @types/node and breaks tsc.
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(viewStateDir(), { withFileTypes: true });
   } catch (error) {
