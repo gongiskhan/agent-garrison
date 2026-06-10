@@ -56,16 +56,22 @@ export async function listInstanceIds(fittingId: string): Promise<string[]> {
 }
 
 export async function listFittingIds(): Promise<string[]> {
-  let entries: string[];
+  // Directories only — root-level files (e.g. eager-boot.json, the Layer 3
+  // toggle prefs) are not fittings.
+  let entries: Awaited<ReturnType<typeof fs.readdir>>;
   try {
-    entries = await fs.readdir(viewStateDir());
+    entries = await fs.readdir(viewStateDir(), { withFileTypes: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];
     }
     throw error;
   }
-  return entries.filter((id) => isValidInstanceId(id)).sort();
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((id) => isValidInstanceId(id))
+    .sort();
 }
 
 // On-disk envelope. `state` is the fitting's opaque blob (its serialize()
