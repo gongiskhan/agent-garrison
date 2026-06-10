@@ -1,0 +1,56 @@
+{
+  "slice": "S1b-settings-complete",
+  "title": "Full 82-key settings.json coverage: schema-synced catalog + typed editors + searchable group layout",
+  "updatedAt": "2026-06-10T00:35:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": {
+    "limit": 5,
+    "used": 1
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run --exclude '**/orchestrator-integration.test.ts'",
+      "exit": 0,
+      "summary": "456 passed, 2 skipped, 0 failed — whole suite minus the env-dependent live-gateway file. The slice added 29 specs: settings-catalog.test.ts (11 — the mechanical catalog↔vendored-schema sync gate: completeness both directions, nested field sets, enum/bounds/required/const/managedOnly/deprecated/docsUrl sync, permission-rule pattern byte-equality + prefix parse, hook event names, bundle-hygiene grep guard) + settings-validate.test.ts (18 — all 19 schema permission-rule examples pass, per-key structural validators for the 8 json-control keys, bounds, env keys, and the object-assembly round-trip core: unknown-subkey preservation, clear-to-unset, const injection, required, meaningful empty string). settings.test.ts gained the editorMode/autoScrollEnabled demotion spec and the whole-object-sandbox-patch sibling-preservation spec; its BESPOKE fixture dropped autoMode (now an official schema key)."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": 0,
+      "summary": "all routes compiled; the vendored schema JSON stays out of the client bundle (value imports come from the pure settings-catalog module; a grep-guard spec enforces it)"
+    },
+    "e2e": {
+      "cmd": "npx playwright test",
+      "exit": 0,
+      "summary": "30 passed, 3 skipped across ALL THREE viewport projects (desktop/tablet/mobile) — stricter than the prior waves' desktop-only gate. The 3 skips are the pre-existing unconditional armory-install.spec legacy skip. New S1b spec proves: search filter + match count, seeded rule rendered structured [Bash][git add:*], permission-rule add via tool select → polled on disk, sandbox.enabled object-form flip → polled on disk (flip-relative), enterprise collapsed + honesty banner + managed pill, hooks CRUD link href, unset round-trip (set language → unset → key gone from disk), still no save button, zero console errors. Fixed forward: the pre-existing C5 plugins spec consumed its seed and failed on tablet/mobile (never gated before) — now self-seeding."
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "vision pass over s1b-settings-{top,permissions,enterprise,search,narrow}.png vs s1b-ref-{vault,armory}.png at 1440px and 1000px"
+      ],
+      "at": "2026-06-10T00:30:00Z",
+      "notes": "The surface speaks the shell's language: paper theme, serif display headings, crumbs, .text inputs, ghost buttons (Unset/Raw JSON/Add entry mirror Vault's reveal/+Add/Save), bordered uppercase mono pills (SET/MANAGED-ONLY/AUTO-MANAGED), banner.warn for the Enterprise honesty copy, sage-accented sticky group nav matching the sidebar's active-leaf idiom; <1100px stacks the nav into horizontal tabs. No emoji. Zero console errors while driving."
+    },
+    "video": {
+      "status": "verified",
+      "video": "docs/autothing/evidence/settings-s1b-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-10_01-31-32/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/2026-06-10_01-31-32",
+      "note": "9 beats (intro + 7 + outro), all vision-verified frame-by-frame, run NOT flagged, verifiedAt 2026-06-10T00:33:32Z. Films: 82-key overview, live search to 1 match, structured permission rows, rule add autosaved, nested sandbox.enabled object-form toggle, expanded Enterprise honesty banner, bespoke passthrough. Re-recorded once (retry 1): the first take's 'saved'-footer asserts sat under the caption HUD and debug reruns had left duplicate rule rows — asserts moved to visible result elements and the sandbox allow list reset."
+    }
+  },
+  "blockers": [],
+  "notes": "Resumed from a prior session's durable state (vendored schema + meta + refresh script, the 1240-line catalog, the sync-gate spec, settings.ts re-exports + suggestions feed were already in the tree); this session authored the validators, the 9 editor components, the panel rework (nav/search/enterprise/hooks-link layout), the settings CSS, the unit/e2e surgery, docs, and all gates. Found and fixed a latent S1 bug along the way: JSON.stringify drops undefined patch entries, so UI key-removal silently no-opped — deletions now travel as an explicit remove[] list in PUT /api/settings (back-compatible). Same-key concurrent-external-edit mitigation unchanged: drift banner + reload-before-edit; object-form editors document it. The hooks key stays read-only here by design (C4 CRUD owns it at /quarters/hooks)."
+}

@@ -2,16 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readSettingsView, writeSettingsPatch, computeSettingsDrift, KNOWN_SETTINGS } from "@/lib/settings";
+import { readSettingsView, reloadSettingsView, writeSettingsPatch, computeSettingsDrift, KNOWN_SETTINGS } from "@/lib/settings";
 import { settingsPath } from "@/lib/claude-settings-file";
 
 let home: string;
 let garrison: string;
 let prevGarrisonHome: string | undefined;
 
+// Genuinely bespoke keys: NOT in the official schema, so they must surface in
+// the Advanced passthrough and round-trip by value. (autoMode used to sit here
+// until the schema adopted it — it is a known object-form key now.)
 const BESPOKE = {
   advisorModel: "opus",
-  autoMode: { environment: ["solo dev", "ggomes"] },
   autoDreamEnabled: true,
   remoteControlAtStartup: true
 };
@@ -47,7 +49,7 @@ describe("settings view + patch", () => {
     expect(cleanup?.control).toBe("number");
 
     const unknownKeys = view.unknown.map((u) => u.key).sort();
-    expect(unknownKeys).toEqual(["advisorModel", "autoDreamEnabled", "autoMode", "remoteControlAtStartup"]);
+    expect(unknownKeys).toEqual(["advisorModel", "autoDreamEnabled", "remoteControlAtStartup"]);
     // every KNOWN_SETTINGS descriptor is rendered, even when absent from the file
     expect(view.known).toHaveLength(KNOWN_SETTINGS.length);
   });
@@ -61,9 +63,40 @@ describe("settings view + patch", () => {
     expect(disk.cleanupPeriodDays).toBe(30);
     // bespoke keys round-trip by value (formatting is normalised — not byte-equal)
     expect(disk.advisorModel).toBe("opus");
-    expect(disk.autoMode).toEqual(BESPOKE.autoMode);
     expect(disk.autoDreamEnabled).toBe(true);
     expect(disk.remoteControlAtStartup).toBe(true);
+  });
+
+  it("schema-dropped keys (editorMode, autoScrollEnabled) fall to the passthrough with zero data loss", async () => {
+    // These two were in Garrison's old hand-picked catalog but are NOT in the
+    // official schema — dropping them from the typed catalog must demote them
+    // to the Advanced passthrough, never lose them.
+    seed({ editorMode: "vim", autoScrollEnabled: false, cleanupPeriodDays: 365 });
+    const view = await readSettingsView(home);
+    expect(view.known.find((k) => k.key === "editorMode")).toBeUndefined();
+    const unknownKeys = view.unknown.map((u) => u.key).sort();
+    expect(unknownKeys).toEqual(["autoScrollEnabled", "editorMode"]);
+
+    await writeSettingsPatch({ cleanupPeriodDays: 30 }, home);
+    expect(onDisk().editorMode).toBe("vim");
+    expect(onDisk().autoScrollEnabled).toBe(false);
+  });
+
+  it("a whole-object patch (sandbox) replaces only that key and preserves sibling bespoke keys", async () => {
+    // Object-form editors assemble the WHOLE top-level object and queue
+    // { sandbox: ... } — exactly the JSON-control semantics. Siblings,
+    // documented or bespoke, must survive untouched.
+    seed({ sandbox: { enabled: false }, cleanupPeriodDays: 365, ...BESPOKE });
+    await readSettingsView(home);
+    await writeSettingsPatch(
+      { sandbox: { enabled: true, excludedCommands: ["docker"], someFutureSubkey: 1 } },
+      home
+    );
+    const disk = onDisk();
+    expect(disk.sandbox).toEqual({ enabled: true, excludedCommands: ["docker"], someFutureSubkey: 1 });
+    expect(disk.cleanupPeriodDays).toBe(365);
+    expect(disk.advisorModel).toBe("opus");
+    expect(disk.autoDreamEnabled).toBe(true);
   });
 
   it("does NOT flag the writer's own save as external drift", async () => {
@@ -92,6 +125,22 @@ describe("settings view + patch", () => {
     fs.writeFileSync(settingsPath(home), JSON.stringify(value, null, 2));
     const view = await readSettingsView(home);
     expect(view.drift.changedExternally).toBe(false);
+  });
+
+  it("'reload from disk' clears drift by advancing the baseline (bug fix)", async () => {
+    seed({ cleanupPeriodDays: 365, ...BESPOKE });
+    await readSettingsView(home); // baseline
+    // external edit -> drift surfaces
+    fs.writeFileSync(settingsPath(home), JSON.stringify({ cleanupPeriodDays: 365, model: "x", ...BESPOKE }));
+    expect((await readSettingsView(home)).drift.changedExternally).toBe(true);
+    // a plain re-read must NOT clear it (baseline intentionally not advanced)
+    expect((await readSettingsView(home)).drift.changedExternally).toBe(true);
+    // reloadSettingsView advances the baseline -> drift clears AND shows disk values
+    const reloaded = await reloadSettingsView(home);
+    expect(reloaded.drift.changedExternally).toBe(false);
+    expect(reloaded.known.find((k) => k.key === "model")?.value).toBe("x");
+    // and it stays cleared on the next read
+    expect((await readSettingsView(home)).drift.changedExternally).toBe(false);
   });
 
   it("removes a key when patched with undefined", async () => {

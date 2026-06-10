@@ -35,7 +35,10 @@ export function seedSandbox(): void {
         model: "claude-sonnet-4-6",
         advisorModel: "opus",
         autoDreamEnabled: true,
+        // autoMode is an OFFICIAL key now (object-form in the typed catalog);
+        // advisorModel/autoDreamEnabled remain the bespoke-passthrough proof.
         autoMode: { environment: ["solo dev"] },
+        permissions: { allow: ["Bash(git add:*)"] },
         hooks: {
           SessionStart: [{ hooks: [{ type: "command", command: "echo hand-authored" }] }],
           Stop: [{ _garrison: "fitting:session-view", hooks: [{ type: "command", command: "echo owned" }] }]

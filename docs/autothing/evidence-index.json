@@ -1,9 +1,21 @@
 {
   "project": "agent-garrison",
-  "updatedAt": "2026-06-09T00:35:00Z",
+  "updatedAt": "2026-06-10T00:45:00Z",
   "galleryUrl": "http://100.108.210.116:8099/",
-  "galleryNote": "The Quarters-CRUD wave (C1–C5) earned a VERIFIED 11-beat consolidated walkthrough (newest run, live while the gallery server runs). Durable copy committed at docs/autothing/evidence/quarters-crud-walkthrough.mp4. Q2's earlier verified video is also present. Per-surface screenshots (c1..c5) committed under docs/autothing/evidence/.",
+  "galleryNote": "Newest: the S1b settings wave earned a VERIFIED 9-beat walkthrough (durable copy docs/autothing/evidence/settings-s1b-walkthrough.mp4). The Quarters-CRUD wave's verified 11-beat consolidated walkthrough and Q2's verified video remain. Per-surface screenshots (c1..c5, s1b-*) committed under docs/autothing/evidence/.",
   "slices": [
+    {
+      "slice": "S1b-settings-complete",
+      "title": "Full 82-key settings.json coverage: schema-synced catalog + typed editors + searchable group layout",
+      "kind": "ui",
+      "status": "passed",
+      "video": "docs/autothing/evidence/settings-s1b-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-10_01-31-32/final.mp4",
+      "videoStatus": "verified",
+      "screenshot": "docs/autothing/evidence/s1b-settings-top.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/S1b-settings-complete/gate-status.json"
+    },
     {
       "slice": "S1-settings",
       "title": "Settings surface over ~/.claude/settings.json (merge-managed, never-clobber)",
@@ -162,24 +174,57 @@
   ],
   "globalGate": {
     "status": "completed-with-blockers",
-    "wave": "Quarters-CRUD (C1–C5): manage everything from the UI. S1–S5 + Q1–Q4 previously gated.",
-    "unitTests": { "cmd": "npx vitest run --exclude '**/orchestrator-integration.test.ts'", "exit": 0, "note": "423 passed, 2 skipped, 0 failed. The CRUD wave added 30 passing specs (mcp-writer 10, quarters-crud 3, primitive-files 6, hooks-crud 7, plugin-writer 4). `npm test` (full) additionally surfaces 2 FAILURES in tests/orchestrator-integration.test.ts — those are the live-SDK tests hitting a STRAY live Garrison gateway on :4777 (the user's own running operative, PID 46463) which defeats the test's skip-by-default; environmental, unrelated to Quarters, the process was not killed. Excluding that one env-dependent file, everything is green." },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0 },
-    "lint": { "cmd": "npm run lint", "exit": 0, "note": "No ESLint warnings or errors" },
-    "build": { "cmd": "npm run build", "exit": 0 },
-    "e2eAll": { "cmd": "npx playwright test --project=desktop-chromium", "exit": 0, "note": "9 passed, 1 skipped against the seeded sandbox. The 5 new quarters-crud specs (mcp add/edit/remove · skills create/edit/delete · scripts command round-trip · hooks editable-vs-read-only + create/edit/delete · plugin uninstall) all green, plus the prior settings/memory/quarters/quarters-logs specs (no regression from the sandbox-seed/blurb/panel changes). The 1 skip is the pre-existing UNCONDITIONAL armory-install.spec test.skip() (legacy S2 path, superseded by the Quarters model)." },
-    "verifyApp": { "via": "5 committed e2e CRUD round-trips + 10 vision-checked screenshots + a VERIFIED 11-beat consolidated walkthrough video", "verdict": "clean" },
-    "designAudit": { "verdict": "clean", "by": ["vision screenshots c1..c5 vs Vault/Armory/shell"], "notes": "All new editors (MCP form, file/skill form, hook form, confirm + drawer) render in the existing shell visual language on the .scrim overlay; alarm-red for destructive; no emoji; no new idiom. Honesty pass updated mcps/hooks/plugins blurbs to state the new CRUD." },
+    "wave": "S1b-settings-complete: full 82-key settings.json coverage with typed editors. S1-S5 + Q1-Q4 + C1-C5 previously gated.",
+    "unitTests": {
+      "cmd": "npm test",
+      "exit": 0,
+      "note": "462 passed, 3 skipped, 0 failed - the FULL suite with no exclusions: the stray :4777 live gateway that broke the C-wave gate is gone, so orchestrator-integration skips by default as designed. The slice added 29 specs: the 11-spec mechanical catalog<->vendored-schema sync gate and 18 validator/assembly specs; settings IO specs reworked (autoMode migrated out of the bespoke fixture, schema-dropped keys demotion proven, whole-object sandbox patch sibling-preservation proven)."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "note": "No ESLint warnings or errors"
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": 0
+    },
+    "e2eAll": {
+      "cmd": "npx playwright test",
+      "exit": 0,
+      "note": "30 passed, 3 skipped across ALL THREE viewport projects (desktop/tablet/mobile - stricter than the prior waves desktop-only gate). The 3 skips are the pre-existing unconditional armory-install.spec legacy skip. Includes the new S1b spec (search/match-count, structured rule add to disk, sandbox.enabled object-form flip to disk, enterprise collapse + banner + managed pill, hooks link, unset round-trip, no save button, zero console errors). Fixed forward: the C5 plugins spec consumed its seed and failed on tablet/mobile (never gated before) - now self-seeding."
+    },
+    "verifyApp": {
+      "via": "the committed e2e suite + a read-only smoke of the REAL ~/.claude through the live :7777 app: 82 known rows render, the 165-rule allow list renders as structured rows, the 7 genuinely-bespoke keys sit in the Advanced passthrough, the suggestions feed is live, and the drift banner honestly flags real external edits",
+      "verdict": "clean"
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "vision pass over s1b-settings-{top,permissions,enterprise,search,narrow}.png vs s1b-ref-{vault,armory}.png at 1440px + 1000px"
+      ],
+      "notes": "Same shell language as Vault/Armory: paper theme, serif headings, .text inputs, ghost buttons, mono pills, banner.warn for the Enterprise honesty copy; responsive stacked nav under 1100px; no emoji; zero console errors while driving."
+    },
     "everySliceVideoVerified": false,
-    "everySliceVideoVerifiedNote": "ONE verified consolidated walkthrough (docs/autothing/evidence/quarters-crud-walkthrough.mp4, 11 beats, all vision-verified, run NOT flagged) covers the headline flow of C1 (MCP add+remove), C2 (skill create), C4 (hooks editable-vs-read-only), C5 (plugin uninstall). C3 (scripts) shares C2's FilePrimitiveForm mechanism and is filmed via the skill variant; it has its OWN committed e2e (command create→edit→delete). It is one consolidated video, NOT five per-slice videos — hence the global gate is completed-with-blockers, not passed. Each slice's true correctness gate is its committed re-runnable e2e + unit specs, all green.",
-    "consolidatedVideo": { "path": "docs/autothing/evidence/quarters-crud-walkthrough.mp4", "link": "http://100.108.210.116:8099/agent-garrison/2026-06-09_00-31-40/final.mp4", "verifiedAt": "2026-06-09T00:35:00Z", "beats": 11, "flagged": false },
+    "everySliceVideoVerifiedNote": "S1b earned its OWN verified walkthrough (9 beats, every frame vision-verified, run not flagged), as did Q2; C1-C5 stay covered by the verified consolidated video; S1/S2/S4 flow videos predate the walkthrough verification pipeline; S3/S5/Q1/Q3/Q4 are backend/CLI/docs slices with justified null videos. That historical state is unchanged and is the sole reason the project-wide verdict stays completed-with-blockers - the S1b wave itself has zero blockers.",
+    "s1bVideo": {
+      "path": "docs/autothing/evidence/settings-s1b-walkthrough.mp4",
+      "link": "http://100.108.210.116:8099/agent-garrison/2026-06-10_01-31-32/final.mp4",
+      "verifiedAt": "2026-06-10T00:33:32Z",
+      "beats": 9,
+      "flagged": false
+    },
     "blockers": [
-      "Per-slice walkthrough videos were CONSOLIDATED into one verified video (covers C1/C2/C4/C5 headline flows; C3 shares C2's mechanism + has its own e2e). Not five separate per-slice videos — this is why the wave is completed-with-blockers rather than passed.",
-      "Plugin INSTALL from a marketplace is NOT built — needs marketplace resolution + git clone; stays with Claude Code's /plugin (gated on SP6). Only plugin UNINSTALL (remove) ships.",
-      "MCP env/headers are written as PLAINTEXT to mcp.json (matches Claude Code's own format; not a regression). Routing MCP secrets through Garrison's AES vault is a deferred enhancement.",
-      "File-primitive RENAME is out of scope — editing keeps the name fixed (rename = a move).",
-      "Cooperative-ownership caveat (plugins/hooks/mcp/settings): a RUNNING Claude Code may rewrite these files on exit, same as the settings.json surface. The plugin-uninstall confirm warns to restart.",
-      "ENVIRONMENTAL (not this wave's work): tests/orchestrator-integration.test.ts fails under `npm test` because a stray live gateway is up on :4777 (the user's own running operative), defeating the test's skip-by-default. Killing that process or running `npx vitest run --exclude '**/orchestrator-integration.test.ts'` makes the suite fully green."
+      "HISTORICAL (project-wide video coverage): not every past slice has its own vision-verified video - S1/S2/S4 predate the pipeline, C1-C5 share one verified consolidated video, backend/CLI/docs slices have justified nulls. S1b and Q2 each have their own verified video.",
+      "Plugin INSTALL from a marketplace is NOT built (C5 scope decision, stands) - only uninstall ships; install stays with Claude Code /plugin.",
+      "MCP env/headers are written as PLAINTEXT to mcp.json (matches Claude Code format; vault routing remains a deferred enhancement).",
+      "File-primitive RENAME remains out of scope.",
+      "Cooperative-ownership caveat stands for settings/hooks/mcp/plugins: a RUNNING Claude Code may rewrite these files; the drift banner + reload-before-edit is the standing mitigation.",
+      "S1b manual-verification nuance: the spec asked for a hand edit of one nested sandbox field against the REAL ~/.claude; performed READ-ONLY smoke only (82 rows / 165 structured rules / bespoke passthrough / live suggestions verified on :7777) - autonomously mutating the user real settings.json was deliberately skipped; the identical write path is proven by e2e against the sandbox."
     ]
   }
 }

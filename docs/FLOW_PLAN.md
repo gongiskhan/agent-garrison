@@ -136,5 +136,42 @@ dispatch. A new `GET /api/quarters/primitive?id=` returns one primitive's detail
 - **C4:** Hooks panel shows hand-authored (untagged) groups as **editable** (add event+matcher+command, edit, delete) and fitting-owned (`_garrison`) groups as **read-only with provenance**; new helpers write/delete by event+index WITHOUT a `_garrison` tag (never misclassify a user hook as fitting-owned). Vitest proves untagged round-trip + that fitting-owned groups are untouched; e2e adds + removes a hand-authored hook.
 - **C5:** EITHER a working plugin remove (verified to survive Claude Code's manager) with confirm, OR a logged blocker if direct edit is unsafe; plus a final design audit across all new components and a metadata-honesty pass (blurbs/`WRITER_LABEL` no longer claim "read-only"/"manage via fitting" where CRUD now exists).
 
+## S1b wave — Settings: full settings.json coverage with proper editors
+
+S1 shipped 18 hand-picked keys with raw-JSON textareas for anything complex.
+This wave manages **every key of the official schema** (82 top-level keys,
+vendored at `src/lib/claude-settings-schema.json`, synced by a mechanical test
+gate) with per-type editors: enum selects, list editors, key→value editors,
+structured object sub-forms, validated permission-rule rows. VS Code-style
+layout (sticky group nav + live search). User scope only. All S1 invariants
+preserved: single-writer merge, per-key autosave patches, drift baseline +
+echo suppression, bespoke passthrough, no save button. `hooks` stays read-only
+here (CRUD lives in Quarters → Hooks, C4).
+
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| S1b-settings-complete | Full 82-key settings.json coverage: schema-synced catalog + typed editors + searchable group layout | ui | /quarters/settings (+ /settings) | S1b (serial) | passed (tests 456✓ incl. 29 new + e2e 30✓ all 3 viewports + typecheck/lint/build 0 + clean design audit + **verified walkthrough video**) |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **S1b: serial, lead-authored.** Single slice; every editor component funnels
+  into the same two integration files (`SettingsPanel.tsx` and
+  `settings-catalog.ts`) and the same gate runtime (one vitest + one sandbox
+  dev-server), so there is nothing disjoint to fan out. Resumed from a prior
+  session's durable state (catalog + vendored schema + sync gate already
+  green; validators/editors/panel/e2e authored this session).
+
+### Acceptance
+- **S1b:** catalog ∪ {hooks} === schema.properties − {$schema} both directions,
+  enforced by `tests/settings-catalog.test.ts` (enum/bounds/managed-only/
+  deprecated/pattern sync); every key renders a per-type editor (object-forms
+  spread-preserve unrecognized subkeys; permission rules parse into tool +
+  specifier rows, legacy rows never silently rewritten); search filters rows +
+  match count; managed-only keys sit in a collapsed Enterprise group with an
+  honest banner; per-key autosave patches only the touched top-level key
+  (proven: whole-sandbox patch preserves sibling bespoke keys); schema-dropped
+  keys (editorMode, autoScrollEnabled) fall to the Advanced passthrough with
+  zero data loss; e2e proves search, structured permission-rule add, sandbox
+  toggle, enterprise collapse, hooks link, no save button, zero console errors.
+
 ## Status legend
 pending · in_progress · passed · blocked

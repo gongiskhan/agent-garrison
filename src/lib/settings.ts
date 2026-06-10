@@ -8,61 +8,32 @@ import {
   type SettingsObject,
   type HookGroup
 } from "./claude-settings-file";
+import { KNOWN_SETTINGS, KNOWN_KEYS, type KnownSetting } from "./settings-catalog";
+import { scanClaudeFiles, readMcpServerNames } from "./claude-scan";
 
 // Typed-controls + raw-passthrough + drift layer over the single writer.
 //
-// KNOWN_SETTINGS is the hand-maintained descriptor map of OFFICIALLY-DOCUMENTED
-// keys (source: https://code.claude.com/docs/en/settings and the published
-// schema https://json.schemastore.org/claude-code-settings.json). It is the
-// typed-controls layer ONLY — it never gates what may be written. Any key not
-// in it (bespoke/experimental, e.g. advisorModel/autoMode on this machine)
-// round-trips untouched through the Advanced passthrough.
+// The descriptor map now lives in settings-catalog.ts and covers EVERY key of
+// the official settings.json schema (synced against the vendored copy by
+// tests/settings-catalog.test.ts). It is the typed-controls layer ONLY — it
+// never gates what may be written. Any key not in it (bespoke/experimental,
+// e.g. advisorModel on this machine) round-trips untouched through the
+// Advanced passthrough.
 
-export type ControlType = "boolean" | "string" | "number" | "enum" | "json";
-export type SettingGroup =
-  | "model"
-  | "behavior"
-  | "appearance"
-  | "permissions"
-  | "env"
-  | "cleanup"
-  | "advanced";
-
-export interface KnownSetting {
-  key: string;
-  label: string;
-  control: ControlType;
-  group: SettingGroup;
-  doc: string;
-  enumValues?: string[];
-  sinceVersion?: string;
-}
-
-// Curated high-value documented surface. Extend per Claude-Code version — it is
-// intentionally a flat editable constant so a version bump is a one-file diff.
-export const KNOWN_SETTINGS: KnownSetting[] = [
-  { key: "model", label: "Model", control: "string", group: "model", doc: "Override the default model (e.g. claude-sonnet-4-6)." },
-  { key: "outputStyle", label: "Output style", control: "string", group: "model", doc: "Adjust the system prompt style (e.g. Explanatory)." },
-  { key: "effortLevel", label: "Effort level", control: "enum", enumValues: ["low", "medium", "high", "xhigh"], group: "model", doc: "Persist the reasoning effort level." },
-  { key: "language", label: "Response language", control: "string", group: "behavior", doc: "Preferred response language (e.g. japanese)." },
-  { key: "alwaysThinkingEnabled", label: "Always thinking", control: "boolean", group: "behavior", doc: "Enable extended thinking by default." },
-  { key: "autoMemoryEnabled", label: "Auto memory", control: "boolean", group: "behavior", doc: "Enable automatic memory capture." },
-  { key: "respectGitignore", label: "Respect .gitignore", control: "boolean", group: "behavior", doc: "Respect .gitignore in the file picker." },
-  { key: "autoUpdatesChannel", label: "Auto-updates channel", control: "enum", enumValues: ["stable", "latest"], group: "behavior", doc: "Release channel for auto-updates." },
-  { key: "editorMode", label: "Editor mode", control: "enum", enumValues: ["normal", "vim"], group: "appearance", doc: "Key binding mode." },
-  { key: "tui", label: "Terminal renderer", control: "enum", enumValues: ["default", "fullscreen"], group: "appearance", doc: "Terminal UI renderer." },
-  { key: "viewMode", label: "View mode", control: "enum", enumValues: ["default", "verbose", "focus"], group: "appearance", doc: "Default view." },
-  { key: "spinnerTipsEnabled", label: "Spinner tips", control: "boolean", group: "appearance", doc: "Show tips while Claude works." },
-  { key: "autoScrollEnabled", label: "Auto-scroll", control: "boolean", group: "appearance", doc: "Follow output in fullscreen." },
-  { key: "cleanupPeriodDays", label: "Cleanup period (days)", control: "number", group: "cleanup", doc: "Session-file retention in days." },
-  { key: "enableAllProjectMcpServers", label: "Auto-approve project MCP servers", control: "boolean", group: "advanced", doc: "Auto-approve servers from a project's .mcp.json." },
-  { key: "disableAllHooks", label: "Disable all hooks", control: "boolean", group: "advanced", doc: "Disable all hooks and the status line." },
-  { key: "env", label: "Environment variables", control: "json", group: "env", doc: "Environment variables applied to all sessions (object)." },
-  { key: "permissions", label: "Permissions", control: "json", group: "permissions", doc: "allow / deny / ask rules + defaultMode (object)." },
-  { key: "statusLine", label: "Status line", control: "json", group: "appearance", doc: "Custom status line { type, command } (object)." }
-];
-
-const KNOWN_KEYS = new Set(KNOWN_SETTINGS.map((s) => s.key));
+export {
+  KNOWN_SETTINGS,
+  GROUP_ORDER,
+  PERMISSION_RULE_PATTERN,
+  PERMISSION_TOOL_PREFIXES,
+  HOOK_EVENT_NAMES
+} from "./settings-catalog";
+export type {
+  KnownSetting,
+  FieldDesc,
+  ControlType,
+  SettingGroup,
+  SettingGroupId
+} from "./settings-catalog";
 
 export interface KnownSettingView extends KnownSetting {
   value: unknown;
@@ -92,6 +63,9 @@ export interface SettingsView {
   // are not shown/edited yet.
   scope: "user";
   permissionsScopeNote: string;
+  // Datalist feeds for map-key / list-row editors (skillOverrides,
+  // enabled/disabledMcpjsonServers). Best-effort: scan failures yield [].
+  suggestions: { skills: string[]; mcpServers: string[] };
 }
 
 function lastSeenPath(): string {
@@ -167,6 +141,16 @@ function hookViews(json: SettingsObject): HookGroupView[] {
   return out;
 }
 
+async function readSuggestions(home: string): Promise<{ skills: string[]; mcpServers: string[] }> {
+  const [skills, mcpServers] = await Promise.all([
+    scanClaudeFiles(home)
+      .then((files) => files.filter((f) => f.surface === "skill").map((f) => f.name))
+      .catch(() => [] as string[]),
+    readMcpServerNames(home).catch(() => [] as string[])
+  ]);
+  return { skills, mcpServers };
+}
+
 export async function readSettingsView(home: string = claudeHome()): Promise<SettingsView> {
   const { json, exists } = await readSettingsRaw(home);
 
@@ -199,8 +183,20 @@ export async function readSettingsView(home: string = claudeHome()): Promise<Set
     drift: { changedExternally, lastSeenAt: lastSeen.at },
     scope: "user",
     permissionsScopeNote:
-      "Permissions shown are user-scope (~/.claude/settings.json) only. settings.local.json allow-rules merge into the effective set but are not shown or edited here."
+      "Permissions shown are user-scope (~/.claude/settings.json) only. settings.local.json allow-rules merge into the effective set but are not shown or edited here.",
+    suggestions: await readSuggestions(home)
   };
+}
+
+// "Reload from disk": the user accepts the external change. Advance the
+// last-seen baseline to the current on-disk values so the drift banner clears,
+// then return the fresh view. Plain readSettingsView intentionally does NOT
+// advance the baseline (so it keeps surfacing drift until the user explicitly
+// reloads) — which is why a plain GET reload left the banner stuck.
+export async function reloadSettingsView(home: string = claudeHome()): Promise<SettingsView> {
+  const { json } = await readSettingsRaw(home);
+  await writeLastSeen(json);
+  return readSettingsView(home);
 }
 
 // Apply only the changed keys onto the fresh on-disk document (never a blind

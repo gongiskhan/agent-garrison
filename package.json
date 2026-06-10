@@ -16,6 +16,7 @@
     "test:all": "npm test && npm run test:e2e",
     "check:integration": "node scripts/integration-check.mjs",
     "refresh:prompts": "tsx scripts/refresh-default-prompts.ts",
+    "refresh:settings-schema": "tsx scripts/refresh-settings-schema.ts",
     "import:claude": "tsx scripts/import-claude-install.ts",
     "test:integration": "GARRISON_INTEGRATION=1 vitest run tests/orchestrator-integration.test.ts",
     "postinstall": "node scripts/fix-node-pty-permissions.mjs"

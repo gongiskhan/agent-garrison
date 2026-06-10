@@ -1,0 +1,6 @@
+{
+  "sourceUrl": "https://json.schemastore.org/claude-code-settings.json",
+  "fetchedAt": "2026-06-09T23:41:40.954Z",
+  "sha256": "904f62fc488a52543faa1bf981aeeae6b9ef798afef242e1346eacc595d2f916",
+  "note": "Vendored for tests/settings-catalog.test.ts; never import from runtime src/. Refresh with: npm run refresh:settings-schema"
+}

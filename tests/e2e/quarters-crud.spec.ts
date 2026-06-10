@@ -1,4 +1,7 @@
 import { test, expect } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { CLAUDE_SANDBOX } from "./sandbox";
 
 function appErrors(errors: string[]): string[] {
   return errors.filter((e) => !/favicon|React DevTools|hydrat|Fast Refresh|\[HMR\]/i.test(e));
@@ -194,6 +197,23 @@ test("Quarters Plugins: uninstall (remove) a plugin from the UI", async ({ page 
   });
 
   const KEY = "frontend-design@claude-plugins-official";
+
+  // Re-seed the plugin manifest: the sandbox is seeded ONCE for all three
+  // viewport projects, and this test consumes the entry — without this, the
+  // second and third projects find nothing to remove (flip-relative rule).
+  fs.writeFileSync(
+    path.join(CLAUDE_SANDBOX, "plugins", "installed_plugins.json"),
+    JSON.stringify(
+      {
+        version: 2,
+        plugins: {
+          [KEY]: [{ scope: "user", version: "08de64fff891", installPath: "/sandbox/fd" }]
+        }
+      },
+      null,
+      2
+    )
+  );
 
   await page.goto("/quarters/plugins");
   await expect(page.getByRole("heading", { name: "Plugins", level: 1 })).toBeVisible();
