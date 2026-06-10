@@ -39,9 +39,26 @@ export async function writeFileAtomic(
     `.${base}.garrison-tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`
   );
 
-  const fh = await fs.open(tmpPath, "w", opts.mode ?? 0o644);
+  // Mode resolution (EA2 fix): a temp-file+rename loses the destination's
+  // permissions, which would WIDEN a 0600 secret file (e.g. vault.json) to 0644
+  // on every autosave. So: an explicit opts.mode wins; otherwise preserve the
+  // existing target's mode; otherwise fall back to 0644 for a brand-new file.
+  // When a mode is determined (explicit or preserved) we fchmod after creating
+  // the temp file so the result is EXACT regardless of the process umask.
+  let exactMode: number | undefined = opts.mode;
+  if (exactMode === undefined) {
+    try {
+      const st = await fs.stat(finalPath);
+      exactMode = st.mode & 0o777;
+    } catch {
+      exactMode = undefined; // new file: take the open() default below (respects umask)
+    }
+  }
+
+  const fh = await fs.open(tmpPath, "w", exactMode ?? 0o644);
   try {
     await fh.writeFile(data, { encoding: opts.encoding ?? "utf8" });
+    if (exactMode !== undefined) await fh.chmod(exactMode); // defeat umask -> exact perms
     await fh.sync();
   } finally {
     await fh.close();

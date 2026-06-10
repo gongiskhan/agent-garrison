@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
 import { SEED_FITTINGS_DIR, COMPOSITIONS_DIR } from "./paths";
-import type { ArtifactKind, ArtifactSource, InstallManifest } from "./claude-install";
+import type { ArtifactKind, ArtifactSource, HookGroupSpec, InstallManifest } from "./claude-install";
 
 // Resolve a fitting's installable artifacts to copy into ~/.claude.
 //
@@ -72,6 +72,48 @@ async function resolveFromLock(fittingId: string, compositionDir: string): Promi
   return out;
 }
 
+// Resolve a `component_shape: hook` fitting's `x-garrison.hook_groups` payload
+// into a single hook-group artifact. installFitting routes it through the shared
+// owner-scoped settings.json writer (hooks are NOT apm-deployed — ground truth
+// #7 — so there is nothing in apm.lock for them; the source IS the manifest).
+async function resolveHookFitting(fittingId: string, seedDir: string): Promise<ArtifactSource[]> {
+  const apmPath = path.join(seedDir, fittingId, "apm.yml");
+  let manifest: { "x-garrison"?: { component_shape?: string; hook_groups?: unknown } } | null;
+  try {
+    manifest = (yaml.load(await fs.readFile(apmPath, "utf8")) as typeof manifest) ?? null;
+  } catch {
+    return [];
+  }
+  const xg = manifest?.["x-garrison"];
+  if (!xg || xg.component_shape !== "hook") return [];
+  const groups = Array.isArray(xg.hook_groups) ? xg.hook_groups : [];
+
+  const hookGroups: HookGroupSpec[] = [];
+  for (const g of groups) {
+    if (!g || typeof g !== "object") continue;
+    const grp = g as { event?: unknown; matcher?: unknown; hooks?: unknown };
+    if (typeof grp.event !== "string") continue;
+    const rawHooks = Array.isArray(grp.hooks) ? grp.hooks : [];
+    const hooks = rawHooks
+      .filter((h): h is { command: string; type?: unknown; timeout?: unknown } =>
+        Boolean(h) && typeof (h as { command?: unknown }).command === "string"
+      )
+      .map((h) => ({
+        type: typeof h.type === "string" ? h.type : "command",
+        command: String(h.command),
+        ...(typeof h.timeout === "number" ? { timeout: h.timeout } : {})
+      }));
+    if (hooks.length === 0) continue;
+    hookGroups.push({
+      event: grp.event,
+      ...(typeof grp.matcher === "string" ? { matcher: grp.matcher } : {}),
+      hooks
+    });
+  }
+  if (hookGroups.length === 0) return [];
+  return [{ target: "hooks", kind: "hook-group", hookGroups }];
+}
+
 async function resolveFromApmSkills(fittingId: string, seedDir: string): Promise<ArtifactSource[]> {
   const skillsDir = path.join(seedDir, fittingId, ".apm", "skills");
   let entries: import("node:fs").Dirent[];
@@ -96,6 +138,9 @@ export async function resolveArtifacts(fittingId: string, opts?: ResolveOpts): P
   let artifacts = await resolveFromLock(fittingId, compositionDir);
   if (artifacts.length === 0) {
     artifacts = await resolveFromApmSkills(fittingId, seedDir);
+  }
+  if (artifacts.length === 0) {
+    artifacts = await resolveHookFitting(fittingId, seedDir);
   }
 
   return {

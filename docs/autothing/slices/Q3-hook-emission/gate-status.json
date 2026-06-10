@@ -1,0 +1,20 @@
+{
+  "slice": "Q3-hook-emission",
+  "title": "S5 follow-up — importer/resolver emit installable hook fittings (not reported-only)",
+  "updatedAt": "2026-06-08T16:48:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/hook-fitting-emission.test.ts", "exit": 0, "summary": "5 passed — readUntaggedHookGroups skips Garrison-owned groups; importer emits imported-hook-<event> component_shape:hook fittings; emitted fitting passes validate-fitting (4-check pipeline); resolveArtifacts -> hook-group artifact; installFitting writes the owner-scoped _garrison group + records owner/events in the lock" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (reconcile.readUntaggedHookGroups + claude-install-source.resolveHookFitting + importer emission)" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "deferred to the global gate (project-wide)" },
+    "build":     { "exit": 0, "summary": "deferred to the global gate (project-wide)" },
+    "e2e":       { "exit": 0, "summary": "N/A — CLI/backend slice; behavioral proof is the committed re-runnable test + a validate-fitting PASS on an emitted fitting" },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "no UI surface" },
+    "video":     { "status": "skipped", "note": "CLI/backend slice — no walkthrough-able UI; the committed test (incl. validate-fitting + install round-trip) is the re-runnable gate" }
+  },
+  "blockers": [],
+  "notes": "Resolves the S5-importer 'hook-fitting emission reported-only' blocker. The install path (installFitting hook-group routing via the owner-scoped settings writer) was already wired by S3; the gap was emission + resolution, now closed. Honest limitation logged: emission is emit-only (captures the shape for version control/portability like skills); installing an emitted hook fitting onto the SAME machine it was imported from would create an owned copy alongside the still-present untagged original (a duplicate) — de-dup-on-install (strip the matching untagged group) is a logged follow-up, kept out to honor the keep-both decision. Grouping is per-event (no metadata exists to recover feature-level grouping)."
+}

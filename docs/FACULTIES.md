@@ -1,8 +1,36 @@
 # Agent Garrison Faculties
 
-This document expands the Faculty table from [SPEC.md](./SPEC.md) §2.
-The list is a working draft for v1; do not optimize the Faculty set
-before the Definition of Done is observable.
+## Current model: 6 roles (the 2026-06-07 Quarters pivot)
+
+Faculties are now **roles only**. The flat 24-Faculty list was collapsed to six
+roles, enforced by `facultyIds` in `src/lib/types.ts`:
+
+- **orchestrator** — the governing behaviour spine; projected to
+  `~/.claude/rules/garrison-orchestrator.md` as an APM instructions primitive
+  (the Operative folded into the user's real Claude Code).
+- **channels** — user-facing message surfaces (Slack, web-channel, …).
+- **gateway** — the MCP/HTTP entry point inbound channels and runtime route to.
+- **memory** — within-session and cross-session recall; the compiler that
+  *produces* the durable Context (CLAUDE.md) document.
+- **observability** — health, logs, runtime reporting (the read-only Logs view).
+- **sessions** — the runtime session/worktree/terminal/screen-share residue.
+
+Everything that used to be its own Faculty — Skills, Hooks, MCPs, Plugins,
+Scripts, Settings, Context, Plans — is now a **Quarters platform primitive**, not
+a Faculty (see [`decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./decisions/2026-06-07-faculties-as-roles-operative-folded.md)).
+The own-port runtime residue (terminal, screen-share, worktree, session-view,
+outposts, browser, monitor, web-channel, voice) survives under
+`sessions`/`channels`/`observability` via the metadata `own_port` flag, not as
+selectable faculties. Legacy faculty names are accepted as deprecation aliases.
+
+---
+
+## Historical: the retired flat-Faculty model
+
+The sections below describe the **previous** flat-Faculty model. They are kept
+for the long-form intent and failure-mode notes (still useful for the surviving
+own-port Fittings), but the named faculties below — except the six roles above —
+are no longer selectable; they fold into the roles via aliases.
 
 ## 1. Heartbeat
 

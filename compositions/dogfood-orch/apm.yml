@@ -21,6 +21,7 @@ dependencies:
     - path: ../../fittings/seed/terminal-armory-default
     - path: ../../fittings/seed/testing
     - path: ../../fittings/seed/tier-classifier
+    - path: ../../fittings/seed/workspaces
     - path: ../../fittings/seed/worktree-management-sequoias
 x-garrison:
   composition:
@@ -106,6 +107,9 @@ x-garrison:
         - id: artifact-store
           config:
             storage_root: artifacts
+      sessions:
+        - id: workspaces
+          config: {}
       terminal:
         - id: terminal-armory-default
           config: {}

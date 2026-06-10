@@ -53,6 +53,22 @@ export function FittingSurfacePanel() {
     : null;
   const hasDeepLink = subPath !== "/";
 
+  // Full-bleed views (chrome: "full-bleed" in x-garrison.ui.views) own the
+  // whole estate: no overview header, no width cap. The Workspaces tiling
+  // container is the canonical case — panes maximize usable area.
+  if (match?.view.chrome === "full-bleed") {
+    return (
+      <main style={{ padding: "12px 14px" }}>
+        <FittingView
+          entry={entry}
+          selection={selection}
+          view={match.view}
+          params={match.params}
+        />
+      </main>
+    );
+  }
+
   return (
     <main style={{ padding: "32px 36px", maxWidth: 880 }}>
       <div className="crumbs" style={{ marginBottom: 16 }}>

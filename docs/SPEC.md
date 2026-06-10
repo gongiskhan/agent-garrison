@@ -6,6 +6,17 @@
 
 > **Note on the Faculty count.** The spec below describes 13 Faculties plus derived Tasks, then introduces Artifact Store as Faculty #14 in §2. The current count is **14 + derived Tasks**. The DoD §10 item 2 was updated post-Phase-3 to reference all 14.
 
+> **Superseded by the 2026-06-07 Quarters pivot.** The Faculty list and the
+> "spawns its own Operative" framing below are the original shape and no longer
+> the current architecture: Faculties are now **6 roles** (`orchestrator`,
+> `channels`, `gateway`, `memory`, `observability`, `sessions`), the capability
+> vocabulary shrank (`soul`/`agent-skill`/`automation-runner`/`data-source`/
+> `mcp-gateway` dropped), and the Operative folds into the user's real
+> `~/.claude` Claude Code. This spec is kept for intent/shape; for current state
+> read [`decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./decisions/2026-06-07-faculties-as-roles-operative-folded.md),
+> [`FACULTIES.md`](./FACULTIES.md), and [`CAPABILITIES.md`](./CAPABILITIES.md).
+> (Full §-by-§ SPEC rewrite is logged as RC5 remainder.)
+
 ---
 
 ## 0. Naming & framing

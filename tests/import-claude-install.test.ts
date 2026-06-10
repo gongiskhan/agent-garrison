@@ -77,7 +77,9 @@ describe("import-claude-install", () => {
 
   it("dry-run reports would-create without writing", async () => {
     const report = await runImport({ claudeHome, outDir, write: false, adopt: false, prefix: "" });
-    expect(report.created.sort()).toEqual(["bar", "foo"]);
+    // two skills + one hook fitting for the untagged Stop group (S5 follow-up)
+    expect(report.created.sort()).toEqual(["bar", "foo", "imported-hook-stop"]);
     expect(fs.existsSync(path.join(outDir, "foo"))).toBe(false); // nothing written
+    expect(fs.existsSync(path.join(outDir, "imported-hook-stop"))).toBe(false); // nothing written
   });
 });

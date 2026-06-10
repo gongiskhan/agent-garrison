@@ -15,6 +15,7 @@ dependencies:
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/terminal-armory-default
     - path: ../../fittings/seed/web-channel-default
+    - path: ../../fittings/seed/workspaces
     - path: ../../fittings/seed/worktree-management-sequoias
 x-garrison:
   composition:
@@ -75,6 +76,8 @@ x-garrison:
         - id: artifact-store
           config:
             storage_root: artifacts
+        - id: workspaces
+          config: {}
         - id: terminal-armory-default
           config: {}
         - id: screen-share-default

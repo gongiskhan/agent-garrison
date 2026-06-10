@@ -6,8 +6,10 @@
  * already exist as seeds (never mutates an existing seed). With --adopt it also
  * records each emitted skill's already-on-disk artifact into the install lock
  * (the brown-field "import what I already have" bootstrap). Untagged hook groups
- * in settings.json are reported (faithful installable hook-fitting emission is a
- * documented follow-up; see docs/autothing/decisions.md).
+ * in settings.json are also emitted as installable `component_shape: hook`
+ * fittings (one `imported-hook-<event>` per event); resolveArtifacts turns their
+ * hook_groups payload into a hook-group artifact that installFitting writes via
+ * the owner-scoped settings writer.
  *
  * Usage:
  *   tsx scripts/import-claude-install.ts            # dry-run report
@@ -22,7 +24,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
 import { adoptFitting, type InstallManifest } from "../src/lib/claude-install";
-import { parseFrontmatter } from "../src/lib/reconcile";
+import { parseFrontmatter, readUntaggedHookGroups, type ParsedHookGroup } from "../src/lib/reconcile";
 
 // Re-exported so existing importers of this script keep working; the canonical
 // definition now lives in the reusable reconcile lib (EA3).
@@ -112,16 +114,54 @@ export async function runImport(opts: ImportOpts): Promise<ImportReport> {
     }
   }
 
-  // Report untagged hook groups (faithful hook-fitting emission deferred).
-  let untaggedHookGroups = 0;
-  try {
-    const settings = JSON.parse(await fsp.readFile(path.join(opts.claudeHome, "settings.json"), "utf8"));
-    for (const list of Object.values(settings.hooks ?? {})) {
-      if (!Array.isArray(list)) continue;
-      for (const g of list) if (g && (g as { _garrison?: unknown })._garrison === undefined) untaggedHookGroups++;
+  // Emit installable hook fittings from the untagged settings.json hook groups
+  // (S5 follow-up — previously reported-only). Grouped per event into one
+  // `imported-hook-<event>` fitting (component_shape: hook + hook_groups). This
+  // captures the SHAPE for version control / portability, exactly like skills;
+  // it is emit-only and never mutates the untagged originals (keep-both).
+  const untaggedGroups = await readUntaggedHookGroups(opts.claudeHome);
+  const untaggedHookGroups = untaggedGroups.length;
+  const byEvent = new Map<string, ParsedHookGroup[]>();
+  for (const g of untaggedGroups) {
+    const arr = byEvent.get(g.event) ?? [];
+    arr.push(g);
+    byEvent.set(g.event, arr);
+  }
+  for (const [event, groups] of byEvent) {
+    const slug = `${opts.prefix}imported-hook-${event.toLowerCase()}`;
+    const fittingDir = path.join(opts.outDir, slug);
+    if (fs.existsSync(fittingDir)) {
+      skipped.push(slug); // never mutate an existing seed
+      continue;
     }
-  } catch {
-    // no settings / no hooks
+    if (opts.write) {
+      await fsp.mkdir(fittingDir, { recursive: true });
+      const summary = `Imported ${event} hook group(s) captured from the local settings.json.`;
+      const manifest = {
+        name: slug,
+        version: "0.1.0",
+        // Hooks live in settings.json, not APM's package surface (ground truth
+        // #7): this is a Garrison-direct fitting, installed via the owner-scoped
+        // settings writer, not `apm install`.
+        description: `Imported ${event} hooks from ~/.claude/settings.json (Garrison-direct, not APM-deployed)`,
+        target: "claude",
+        type: "config",
+        includes: "none",
+        "x-garrison": {
+          faculty: "observability",
+          cardinality_hint: "multi",
+          component_shape: "hook",
+          platforms: ["claude-code"],
+          summary,
+          hook_groups: groups.map((g) => ({ event: g.event, matcher: g.matcher, hooks: g.hooks })),
+          verify: { command: "echo ok", expect: "ok" }
+        }
+      };
+      await fsp.writeFile(path.join(fittingDir, "apm.yml"), yaml.dump(manifest, { lineWidth: 120 }), "utf8");
+      created.push(slug);
+    } else {
+      created.push(slug); // dry-run: would-create
+    }
   }
 
   const table =
@@ -151,7 +191,7 @@ async function main(): Promise<void> {
   console.log(`  created:  ${report.created.join(", ") || "(none)"}`);
   console.log(`  skipped:  ${report.skipped.join(", ") || "(none)"}  (already-existing seeds)`);
   if (opts.adopt) console.log(`  adopted:  ${report.adopted.join(", ") || "(none)"}`);
-  console.log(`  untagged hook groups in settings.json: ${report.untaggedHookGroups} (reported; emission deferred)`);
+  console.log(`  untagged hook groups in settings.json: ${report.untaggedHookGroups} (emitted as imported-hook-<event> fittings)`);
   console.log(`  ${report.table}`);
 }
 

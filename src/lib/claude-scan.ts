@@ -82,6 +82,48 @@ export async function hashFile(absPath: string): Promise<string> {
   return `sha256:${crypto.createHash("sha256").update(buf).digest("hex")}`;
 }
 
+export interface InstalledPlugin {
+  key: string; // "<name>@<marketplace>" — the unique installed id
+  name: string; // the plugin name (before "@")
+  marketplace?: string; // after "@"
+  version?: string;
+  scope?: string;
+}
+
+// Plugins installed by Claude Code's own plugin manager, read from
+// plugins/installed_plugins.json (schema: { version, plugins: { "<name>@<mkt>":
+// [ { scope, version, installPath, ... } ] } }). These are Claude-Code-managed,
+// not APM/Garrison-owned — Quarters surfaces them read-only (SP6 gates Garrison-
+// driven plugin install).
+export async function readInstalledPlugins(home: string = claudeHome()): Promise<InstalledPlugin[]> {
+  try {
+    const raw = await fs.readFile(path.join(home, "plugins", "installed_plugins.json"), "utf8");
+    const parsed = JSON.parse(raw) as { plugins?: Record<string, unknown> };
+    const plugins = parsed?.plugins;
+    if (!plugins || typeof plugins !== "object" || Array.isArray(plugins)) return [];
+    const out: InstalledPlugin[] = [];
+    for (const [key, installs] of Object.entries(plugins)) {
+      const at = key.indexOf("@");
+      const name = at > 0 ? key.slice(0, at) : key;
+      const marketplace = at > 0 ? key.slice(at + 1) : undefined;
+      const first =
+        Array.isArray(installs) && installs[0] && typeof installs[0] === "object"
+          ? (installs[0] as Record<string, unknown>)
+          : {};
+      out.push({
+        key,
+        name,
+        ...(marketplace ? { marketplace } : {}),
+        ...(typeof first.version === "string" ? { version: first.version } : {}),
+        ...(typeof first.scope === "string" ? { scope: first.scope } : {})
+      });
+    }
+    return out.sort((a, b) => a.key.localeCompare(b.key));
+  } catch {
+    return [];
+  }
+}
+
 // Server names declared in ~/.claude/mcp.json. Tolerates both `{ mcpServers: {…} }`
 // and a bare `{ <name>: {…} }` top-level map.
 export async function readMcpServerNames(home: string = claudeHome()): Promise<string[]> {

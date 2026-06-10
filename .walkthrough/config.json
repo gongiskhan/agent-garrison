@@ -1,0 +1,7 @@
+{
+  "project": "agent-garrison",
+  "baseURL": "http://127.0.0.1:3733",
+  "startCommand": "echo 'sandbox dev server already running on :3733'",
+  "ports": { "app": 3733 },
+  "logFile": ".walkthrough/server.log"
+}

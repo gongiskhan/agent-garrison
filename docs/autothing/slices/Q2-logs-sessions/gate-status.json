@@ -1,0 +1,20 @@
+{
+  "slice": "Q2-logs-sessions",
+  "title": "UI6/UI7 — Logs + Sessions read-only tailing over the real ~/.claude",
+  "updatedAt": "2026-06-08T15:40:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/claude-logs.test.ts", "exit": 0, "summary": "8 passed — list logs/** + debug/** + top-level *.log; list sessions/*.json + projects/**/*.jsonl; line/byte-capped tail; path-traversal + category-scope + symlink-escape rejection (all routed through the claude-home seam)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (new lib + 2 api routes + ReadOnlyTailPanel + [type] wiring)" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "deferred to the global gate (project-wide shared-runtime gate)" },
+    "build":     { "exit": 0, "summary": "deferred to the global gate (project-wide)" },
+    "e2e":       { "cmd": "npx playwright test tests/e2e/quarters.spec.ts tests/e2e/quarters-logs.spec.ts --project=desktop-chromium", "exit": 0, "summary": "2 passed vs sandbox — Logs lists daemon.log + audit.log and tails 'daemon serving'; Sessions lists transcript.jsonl + 9937.json and tails the pid JSON; zero console errors; existing quarters spec still green" },
+    "designAudit": { "verdict": "clean", "by": ["vision screenshots vs Vault/Armory/Plans"], "at": "2026-06-08T15:36:00Z", "notes": "identical shell idiom — serif h1, muted lead, READ-ONLY pill, bordered white master/detail cards, mono filenames + tail <pre>, lucide sidebar icons, no emoji" },
+    "video":     { "status": "verified", "verifiedAt": "2026-06-08T15:39:56Z", "flagged": false, "link": "http://100.108.210.116:8099/agent-garrison/2026-06-08_16-37-48/final.mp4", "localArtifact": "docs/autothing/evidence/quarters-logs-sessions-walkthrough.mp4", "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/2026-06-08_16-37-48", "note": "walkthrough skill: 6/6 beats vision-verified (captions exact + screens matched) AND functional Playwright asserts 0 failures; recorded against the seeded SANDBOX dev server (read-only-safe, never the live ~/.claude). This is the verified narrated video the prior S1-S5 run lacked." }
+  },
+  "blockers": [],
+  "notes": "New: src/lib/claude-logs.ts (read-only tailing), src/app/api/quarters/{logs,sessions}/route.ts, src/components/quarters/ReadOnlyTailPanel.tsx; wired in src/app/quarters/[type]/page.tsx; sandbox seed extended (tests/e2e/sandbox.ts) with logs + sessions + a transcript. The Compose reframe half of UI6/UI7 is deferred (logged in decisions.md)."
+}

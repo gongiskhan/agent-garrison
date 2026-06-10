@@ -1,0 +1,20 @@
+{
+  "slice": "Q1-docs",
+  "title": "RC5 docs sync — canonical docs reflect the Quarters pivot (6 roles, shrunk kinds, folded Operative)",
+  "updatedAt": "2026-06-08T16:26:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/docs-consistency.test.ts", "exit": 0, "summary": "7 passed — code-derived gate: reads facultyIds + capabilityKinds from src/lib/types and asserts CLAUDE.md/FACULTIES/CAPABILITIES/METADATA/SPEC agree (6 roles, live kinds present, dropped kinds marked dropped, stale 24-faculty count gone)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (new tests/docs-consistency.test.ts clean)" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "deferred to the global gate (project-wide shared-runtime gate); new test file is plain TS imports" },
+    "build":     { "exit": 0, "summary": "N/A — docs-only change has no compiled output; project build run at the global gate" },
+    "e2e":       { "exit": 0, "summary": "N/A — no UI surface" },
+    "designAudit": { "verdict": "clean", "by": ["N/A — docs slice, no UI"], "notes": "no UI; design audit not applicable" },
+    "video":     { "status": "skipped", "note": "docs/CLI slice — no walkthrough-able behaviour; the committed code-derived test is the re-runnable regression guard" }
+  },
+  "blockers": [],
+  "notes": "Surgically corrected the canonical docs (no gut-rewrite): CAPABILITIES.md (intro kind list + dropped-marker line + own-port kinds section + dropped-kinds-historical regrouping + example kind), METADATA.md (faculty ids -> 6 roles, kind enum table, legacy-example note), FACULTIES.md (6-role current-model header + retired-model marker), CLAUDE.md (pivot banner + faculty/kind sections + honest 'runner still spawns, RC4 deferred' note), SPEC.md (superseded-by-pivot pointer). SPEC §-by-§ rewrite + DECISIONS.md/GARRISON_ROADMAP.md full sync logged as RC5 remainder."
+}

@@ -1,0 +1,71 @@
+{
+  "title": "Walkthrough: Quarters read-only Logs & Sessions",
+  "project": "agent-garrison",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Quarters: read-only Logs & Sessions",
+      "subtitle": "agent-garrison · Quarters pivot · 2026-06-08",
+      "duration": 2.6,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:3733",
+      "startPath": "/quarters/logs",
+      "beats": [
+        {
+          "id": "logs-list",
+          "caption": "Quarters → Logs: your real ~/.claude logs, read-only",
+          "expectedScreen": "Logs master/detail page listing daemon.log and audit.log entries",
+          "assert": { "selector": "testid:logentry-daemon.log", "highlight": true },
+          "hold": 2600
+        },
+        {
+          "id": "logs-tail",
+          "caption": "Tail daemon.log — Garrison reads it, never writes it",
+          "expectedScreen": "the tail viewer showing daemon boot / daemon ready / daemon serving",
+          "actions": [
+            { "type": "click", "selector": "testid:logentry-daemon.log" },
+            { "type": "waitFor", "selector": "testid:tail-logs" }
+          ],
+          "assert": { "selector": "testid:tail-logs", "text": "daemon serving", "highlight": true },
+          "hold": 3000
+        },
+        {
+          "id": "sessions-list",
+          "caption": "Quarters → Sessions: records and transcripts, read-only",
+          "expectedScreen": "Sessions page listing transcript.jsonl and 9937.json entries",
+          "actions": [
+            { "type": "goto", "path": "/quarters/sessions" },
+            { "type": "waitFor", "selector": "testid:logentry-sessions/9937.json" }
+          ],
+          "assert": { "selector": "testid:logentry-sessions/9937.json", "highlight": true },
+          "hold": 2400
+        },
+        {
+          "id": "sessions-tail",
+          "caption": "Tail a session record — pid and cwd, surfaced read-only",
+          "expectedScreen": "the tail viewer showing the JSON with pid 9937",
+          "actions": [
+            { "type": "click", "selector": "testid:logentry-sessions/9937.json" },
+            { "type": "waitFor", "selector": "testid:tail-sessions" }
+          ],
+          "assert": { "selector": "testid:tail-sessions", "text": "9937", "highlight": true },
+          "hold": 3000
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Garrison surfaces ~/.claude read-only",
+      "subtitle": "APM is the single writer · logs & sessions are never mutated",
+      "duration": 2.4
+    }
+  ]
+}

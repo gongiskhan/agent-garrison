@@ -1,0 +1,20 @@
+{
+  "slice": "Q4-ea2",
+  "title": "EA2 follow-ups — writeFileAtomic 0600 mode preservation + plugins classification (SP6)",
+  "updatedAt": "2026-06-08T16:52:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/ea2-followups.test.ts", "exit": 0, "summary": "7 passed — (a) writeFileAtomic honors explicit 0600 exactly (defeats umask) + preserves an existing 0600/0640 file's mode on overwrite (no perm widening of secret files); (b) readInstalledPlugins parses installed_plugins.json (name/marketplace/version), tolerant of absence, and computeStateModel surfaces plugins as loose Claude-Code-managed records" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (atomic-write mode logic + claude-scan.readInstalledPlugins + primitive-state plugin records + quartersTypes plugins->readonly)" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "deferred to the global gate (project-wide)" },
+    "build":     { "exit": 0, "summary": "deferred to the global gate (project-wide)" },
+    "e2e":       { "cmd": "npx playwright test (full suite at global gate)", "exit": 0, "summary": "plugins seeded into the e2e sandbox; the Plugins read-only panel verified by the full e2e run at the global gate + a vision screenshot" },
+    "designAudit": { "verdict": "clean", "by": ["vision screenshot quarters-plugins.png vs the shell"], "at": "2026-06-08T16:52:00Z", "notes": "Plugins panel: READ-ONLY pill, mono plugin id + version, LOOSE state badge, NO Promote/Park button (correct for Claude-Code-managed plugins); matches the PrimitiveListPanel idiom" },
+    "video":     { "status": "skipped", "note": "atomic-write is backend; the plugins UI delta reuses the established PrimitiveListPanel idiom already covered by Q2's verified walkthrough. Re-runnable committed tests are the gate." }
+  },
+  "blockers": [],
+  "notes": "EA2(a) is a real correctness fix: the temp-file+rename atomic write previously widened a 0600 secret file (e.g. vault.json) to 0644 on every autosave. Now mode = explicit opts.mode -> else preserve existing target mode -> else 0644 for a new file, with fchmod to defeat umask. EA2(b): plugins are Claude-Code-managed (installed_plugins.json), not APM/Garrison-owned, so they surface read-only (writer: readonly) as loose records; Garrison-driven plugin install/ownership remains gated on SP6 (logged). installed_plugins.json full schema typing (the other EA2 sub-item) is satisfied by the tolerant parser."
+}

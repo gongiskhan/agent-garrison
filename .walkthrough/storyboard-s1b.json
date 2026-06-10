@@ -1,0 +1,103 @@
+{
+  "title": "Walkthrough: Settings — every key, a proper editor",
+  "project": "agent-garrison",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Settings: full settings.json coverage",
+      "subtitle": "agent-garrison · S1b · 82 keys, schema-synced · 2026-06-10",
+      "duration": 2.6,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:3402",
+      "startPath": "/settings",
+      "beats": [
+        {
+          "id": "overview",
+          "caption": "Every settings.json key now has a typed editor — 82 keys across 15 groups",
+          "expectedScreen": "Settings page: left nav with a search box, '82 settings' count and group list; Model & reasoning rows with typed controls",
+          "actions": [{ "type": "waitFor", "selector": "testid:settings-nav" }],
+          "assert": { "selector": "testid:settings-match-count", "text": "82 settings", "highlight": true },
+          "hold": 2800
+        },
+        {
+          "id": "search",
+          "caption": "Live search filters the whole catalog — one match: the Sandbox group",
+          "expectedScreen": "the nav showing '1 match' and only the Sandbox group section remaining in the content column",
+          "actions": [{ "type": "fill", "selector": "testid:settings-search", "text": "sandbox" }],
+          "assert": { "selector": "testid:settings-match-count", "text": "1 match", "highlight": true },
+          "hold": 2600
+        },
+        {
+          "id": "perm-rows",
+          "caption": "Permission rules are structured rows — tool + specifier, not a raw JSON blob",
+          "expectedScreen": "the Permissions section with Allow rules rendered as select+input rows (Bash / git add:*) and an Add rule control",
+          "actions": [
+            { "type": "fill", "selector": "testid:settings-search", "text": "" },
+            { "type": "click", "selector": "testid:snav-permissions" },
+            { "type": "waitFor", "selector": "testid:setting-permissions.allow.0.tool" }
+          ],
+          "assert": { "selector": "testid:setting-permissions.allow.0.tool", "highlight": true },
+          "hold": 3000
+        },
+        {
+          "id": "add-rule",
+          "caption": "Add an allow rule — validated against the official pattern, autosaved instantly",
+          "expectedScreen": "the Allow rules list with a NEW second Bash row (the added rule) highlighted under the seeded git add:* row",
+          "actions": [
+            { "type": "fill", "selector": "testid:setting-permissions.allow.add.spec", "text": "echo hello" },
+            { "type": "click", "selector": "testid:setting-permissions.allow.add" },
+            { "type": "waitFor", "selector": "testid:setting-permissions.allow.1.spec" },
+            { "type": "waitTimeout", "ms": 600 }
+          ],
+          "assert": { "selector": "testid:setting-permissions.allow.1.spec", "highlight": true },
+          "hold": 3000
+        },
+        {
+          "id": "sandbox-toggle",
+          "caption": "Object-forms edit nested keys — sandbox.enabled saves the whole object, unknown subkeys preserved",
+          "expectedScreen": "the Sandbox group object-form with its Enabled checkbox highlighted at the top of the form",
+          "actions": [
+            { "type": "click", "selector": "testid:snav-sandbox" },
+            { "type": "waitFor", "selector": "testid:setting-sandbox.enabled" },
+            { "type": "click", "selector": "testid:setting-sandbox.enabled" },
+            { "type": "waitTimeout", "ms": 600 }
+          ],
+          "assert": { "selector": "testid:setting-sandbox.enabled", "highlight": true },
+          "hold": 3000
+        },
+        {
+          "id": "enterprise",
+          "caption": "Managed-only keys are honest — they only bind in IT's managed-settings.json",
+          "expectedScreen": "the expanded Enterprise / managed-only group with its warning banner and managed-only pills on rows",
+          "actions": [
+            { "type": "click", "selector": "testid:snav-enterprise" },
+            { "type": "waitFor", "selector": "testid:enterprise-banner" }
+          ],
+          "assert": { "selector": "testid:enterprise-banner", "text": "managed-settings.json", "highlight": true },
+          "hold": 3200
+        },
+        {
+          "id": "bespoke",
+          "caption": "Bespoke keys Garrison does not know still round-trip untouched",
+          "expectedScreen": "the Advanced — unmanaged keys section with advisorModel and autoDreamEnabled shown as raw JSON",
+          "assert": { "selector": "testid:unknown-advisorModel", "highlight": true },
+          "hold": 3000
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Every key, a proper editor",
+      "subtitle": "merge-managed · patch only what you touch · never clobber",
+      "duration": 2.4
+    }
+  ]
+}

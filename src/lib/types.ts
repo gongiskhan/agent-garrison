@@ -122,6 +122,10 @@ export interface UiView {
   placement: UiPlacement;
   entry: string;
   route: string;
+  // "full-bleed": the surface page suppresses the fitting-overview header and
+  // width cap so the view owns the whole estate (e.g. the Workspaces tiling
+  // container). Default chrome keeps the overview above the view.
+  chrome?: "default" | "full-bleed";
 }
 
 export interface SpawnConfig {

@@ -1,0 +1,20 @@
+{
+  "slice": "W3-eager-boot",
+  "title": "Run-panel per-view-type toggles + server-start eager boot",
+  "updatedAt": "2026-06-10T03:25:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/eager-boot.test.ts", "exit": 0, "summary": "5 passed — EAGER_BOOT_OK eager-boot-fixture (real fixture own-port fitting spawned through startOwnPortFitting, rehydrated its persisted instance from the REAL view-state dir, marker asserted), LAZY_RESTORE_OK eager-boot-fixture (toggle off: not auto-started; lazy open still restores), prefs round-trip, invalid-id rejection. Full suite 493 passed / 3 skipped." },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "no warnings or errors" },
+    "build":     { "cmd": "NEXT_DIST_DIR=.next-build npm run build", "exit": 0, "summary": "isolated dist dir; instrumentation + eager-boot route compiled" },
+    "e2e":       { "exit": 0, "summary": "full e2e suite 34 passed / 5 skipped on the sandboxed harness (GARRISON_DISABLE_EAGER_BOOT=1 keeps the sandbox server from spawning real fittings). Webpack dev server verified by hand: all routes 200 with instrumentation active, eager-boot runner spawn line logged." },
+    "designAudit": { "verdict": "clean", "by": ["lead vision pass on live :7777 screenshots"], "notes": "Views card matches the existing Run card language (section/h3/mono labels, EAGER ON/OFF chip, honest always-on-persistence explainer); no emoji" },
+    "video":     { "status": "pending-consolidated", "note": "W-wave consolidated walkthrough shows toggle + boot + restore" }
+  },
+  "blockers": [],
+  "notes": "Retry 1 (integration): Next 14's webpack instrumentation compilation cannot handle node:-scheme imports ANYWHERE in the import graph — first attempt (dynamic import of eager-boot inside the runtime guard) 500'd every route (UnhandledSchemeError), second attempt (bare child_process dynamic import) failed module-not-found in the non-node compilation pass. Fix: register() spawns scripts/run-eager-boot.ts detached via tsx (boot chain fully outside webpack) with import(/* webpackIgnore: true */ \"node:child_process\"). Verified: scratch webpack dev server all routes 200, runner spawned. Honest asymmetry logged: eager boot starts processes for own-port fittings; for embedded (client React) views it only warms the instance index — they restore on open by design. own-port-lifecycle's status dir is hardcoded to real ~/.garrison (pre-existing; not changed this slice)."
+}

@@ -52,6 +52,55 @@ export function parseFrontmatter(text: string): Record<string, unknown> {
   }
 }
 
+export interface ParsedHookGroup {
+  event: string; // e.g. "SessionStart"
+  matcher: string; // "" when the group has no matcher
+  hooks: { type: string; command: string; timeout?: number }[];
+}
+
+// Read the UNTAGGED hook groups from ~/.claude/settings.json — the hand-authored
+// groups with no `_garrison` owner tag. These are the loose-hook analogue of a
+// loose skill: capturable as installable `component_shape: hook` fittings (S5
+// follow-up). Garrison-owned groups (tagged) are skipped; the keep-both decision
+// keeps the untagged originals on disk untouched — capture is emit-only.
+export async function readUntaggedHookGroups(home: string = claudeHome()): Promise<ParsedHookGroup[]> {
+  let settings: unknown;
+  try {
+    settings = JSON.parse(await fsp.readFile(path.join(home, "settings.json"), "utf8"));
+  } catch {
+    return [];
+  }
+  const hooks = (settings as { hooks?: Record<string, unknown> })?.hooks;
+  if (!hooks || typeof hooks !== "object") return [];
+
+  const out: ParsedHookGroup[] = [];
+  for (const [event, list] of Object.entries(hooks)) {
+    if (!Array.isArray(list)) continue;
+    for (const g of list) {
+      if (!g || typeof g !== "object") continue;
+      const group = g as { _garrison?: unknown; matcher?: unknown; hooks?: unknown };
+      if (group._garrison !== undefined) continue; // Garrison-owned -> not loose
+      const rawHooks = Array.isArray(group.hooks) ? group.hooks : [];
+      const parsed = rawHooks
+        .filter((h): h is { command: string; type?: unknown; timeout?: unknown } =>
+          Boolean(h) && typeof (h as { command?: unknown }).command === "string"
+        )
+        .map((h) => ({
+          type: typeof h.type === "string" ? h.type : "command",
+          command: String(h.command),
+          ...(typeof h.timeout === "number" ? { timeout: h.timeout } : {})
+        }));
+      if (parsed.length === 0) continue;
+      out.push({
+        event,
+        matcher: typeof group.matcher === "string" ? group.matcher : "",
+        hooks: parsed
+      });
+    }
+  }
+  return out;
+}
+
 // Content hash for echo suppression: the canonical file of the primitive.
 // Exported so state-transitions can snapshot the same hash into the ledger after
 // a Garrison-initiated write (pre-suppressing the watcher echo).

@@ -97,7 +97,8 @@ export const garrisonMetadataSchema = z.object({
               .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, "view id must be alphanumeric/-/_"),
             placement: z.enum(uiPlacements),
             entry: z.string().min(1),
-            route: z.string().min(1)
+            route: z.string().min(1),
+            chrome: z.enum(["default", "full-bleed"]).optional()
           })
         )
         .min(1, "ui.views must contain at least one view")

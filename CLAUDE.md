@@ -15,8 +15,20 @@ You compose an Operative by stationing **Fittings** (APM-packaged git
 repos) into **Faculty** slots, save the result as an APM manifest
 (`apm.yml` with an `x-garrison` block), and hit Run. Garrison shells
 out to Microsoft APM for install/audit/lockfile, materialises secrets
-from a local AES-256-GCM vault, assembles the orchestrator+soul system
-prompt, and spawns Claude Code via the Anthropic Agent SDK in-process.
+from a local AES-256-GCM vault, assembles the orchestrator system prompt,
+and spawns Claude Code via the Anthropic Agent SDK in-process.
+
+> **2026-06-07 Quarters pivot (in flight).** Garrison is being reframed from
+> "spawns its own Operative" into a transparent **control plane over the user's
+> real `~/.claude`**: APM is the single package writer; the owned/loose/parked
+> state model and 6 roles (down from the prior flat-Faculty list) ship; the
+> spawned Operative folds
+> into the user's real Claude Code, with the orchestrator projected to
+> `~/.claude/rules/garrison-orchestrator.md`. The hosted-session launcher (RC4)
+> is **not yet wired**, so the runner below still genuinely spawns a process —
+> that copy is accurate, not stale. See
+> [`docs/CLAUDE_CONFIG_PLANE_HANDOFF.md`](./docs/CLAUDE_CONFIG_PLANE_HANDOFF.md)
+> and the 2026-06-07 decision record.
 
 Positioning: **open-source, local-first, single-user, no auth, talks
 only to `localhost`**. v1 targets Claude Code. The Honesty Test in
@@ -45,7 +57,7 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe**. Anything beyond that lives in Fittings.
-- **Faculty** — a slot in a composition. 24 flat top-level Faculties + derived **Tasks**. A subset of Faculties (`terminal`, `screen-share`, `worktree-management`, `session-view`, `outposts`, `monitor`, `web-channel`, `browser`, `voice`) is **own-port** — their Fittings serve their own React UI (or a headless backend, for `voice`) on their own HTTP port (Monitor pattern). Garrison links to those views from the sidebar's Views section; it does not embed them.
+- **Faculty** — a **role** slot in a composition. Post-pivot there are **6 roles** (`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`); the former flat 24-Faculty list collapsed into them and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. A subset of runtime Fittings (`terminal`, `screen-share`, `worktree-management`, `session-view`, `outposts`, `monitor`, `web-channel`, `browser`, `voice`) is **own-port** — they serve their own React UI (or a headless backend, for `voice`) on their own HTTP port (Monitor pattern) under the `sessions`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section; it does not embed them.
 - **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`). Garrison knows that Fittings have **views**; it does not know about "tools".
 - **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted.
 - **Armory** — `/armory`, the Fitting registry browser.
@@ -102,17 +114,19 @@ no built-in Chat, Tools, or Operative test surface. Operative
 interaction goes through Channel Fittings; observability is the runtime
 log on `/run` plus per-Fitting logs under `/fitting/<id>`.
 
-### Faculties (24 flat top-level + derived Tasks)
+### Faculties — 6 roles (the 2026-06-07 Quarters pivot)
 
-All Faculties are flat siblings after the 2026-05-17 Workbench dissolution.
+Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):
+`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`.
+The flat 24-Faculty list was collapsed into these six. Everything else —
+Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans — is now a
+**Quarters platform primitive** surfaced over the real `~/.claude`, not a
+Faculty. Legacy faculty names are accepted as deprecation aliases. See
+[`docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md).
 
-**Cadence / Context / Action / Control:** `heartbeat`, `scheduler`, `data-sources`,
-`knowledge-base`, `automations`, `skills`, `memory`, `classifier`,
-`gateway`, `channels`, `observability`, `soul`, `orchestrator`,
-`artifact-store`, `sync`, `monitor`, `web-channel`, `browser`, `voice`. Tasks is *derived* from a
-data source and never declared by a Fitting.
-
-**Own-port Faculties** — `terminal` (default port 7078),
+**Own-port runtime residue** — survives at runtime under
+`sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
+flag (not a selectable faculty): `terminal` (default port 7078),
 `screen-share` (7079), `worktree-management` (7080),
 `session-view` (7081), `outposts` (7082), `monitor` (7077),
 `web-channel` (7083), `browser` (7084), and `voice` (7085). Their Fittings serve their own React UI on the
@@ -134,13 +148,12 @@ Orchestrator uses to **discover installed Fittings without
 hardcoding** — no Garrison code change is needed when a new Fitting
 is added.
 
-Current kinds (started at 5, grew across phases — workbench-family
-annotation removed 2026-05-17): `orchestrator`, `soul`,
-`agent-skill`, `memory-store`, `automation-runner`, `data-source`,
-`channel`, `artifact-store`, `vault`, `terminal-session`, `worktree`,
-`session-view`, `screen-share`, `outpost`, `mcp-gateway`, `monitor`.
-`vault` is always provided by the runtime synthetic node (`__runtime__`).
-`terminal-session` is singleton.
+Current kinds (shrunk by the 2026-06-07 Quarters pivot): `orchestrator`,
+`memory-store`, `channel`, `vault`, `artifact-store`, `terminal-session`,
+`worktree`, `session-view`, `screen-share`, `outpost`, `monitor`, `voice`.
+**Dropped in the pivot:** `soul`, `agent-skill`, `automation-runner`,
+`data-source`, `mcp-gateway`. `vault` is always provided by the runtime
+synthetic node (`__runtime__`). `terminal-session` is singleton.
 
 ### The runner (`src/lib/runner.ts`)
 
@@ -154,10 +167,12 @@ annotation removed 2026-05-17): `orchestrator`, `soul`,
    do not run.
 4. For each Fitting: run `x-garrison.verify`. Refuses silent
    success — no verify hook = hard failure.
-5. Assemble the system prompt: Orchestrator + Soul concatenation,
-   substitute the `{{capabilities}}` placeholder with one bullet
-   per resolved provider, with each provider's `for_consumers`
-   markdown indented underneath (falls back to `summary`). Write
+5. Assemble the system prompt: an identity prompt (the default
+   `.garrison/prompts/soul.md` — there is no separate soul Faculty
+   post-pivot) followed by the Orchestrator, substituting the
+   `{{capabilities}}` placeholder with one bullet per resolved
+   provider, each provider's `for_consumers` markdown indented
+   underneath (falls back to `summary`). Write
    `assembled-system-prompt.md`.
 6. Spawn the Operative via the Anthropic Agent SDK **in-process**;
    the assembled prompt is passed as `append`. Auth uses the user's

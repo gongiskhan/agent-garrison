@@ -105,6 +105,20 @@
     }
   },
   {
+    "id": "workspaces",
+    "name": "Workspaces",
+    "repo": "local:fittings/seed/workspaces",
+    "localPath": "fittings/seed/workspaces",
+    "summary": "Tiling pane workspace. References other Fittings' views (embedded or own-port) and arranges them side by side; the layout persists continuously.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.0,
+      "claude_code": 4.0
+    }
+  },
+  {
     "id": "terminal-armory-default",
     "name": "Terminal",
     "repo": "local:fittings/seed/terminal-armory-default",
