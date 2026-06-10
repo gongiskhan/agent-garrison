@@ -153,6 +153,22 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
                     {rec.fittingId ? (
                       <code style={{ fontSize: 11, color: "var(--mute)", marginLeft: 8 }}>{rec.fittingId}</code>
                     ) : null}
+                    {rec.preview ? (
+                      <code
+                        data-testid={`preview-${rec.id}`}
+                        style={{
+                          display: "block",
+                          fontSize: 11,
+                          color: "var(--mute)",
+                          marginTop: 3,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        {rec.preview}
+                      </code>
+                    ) : null}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <StateBadge state={rec.state} drifted={rec.driftedFromLock} />

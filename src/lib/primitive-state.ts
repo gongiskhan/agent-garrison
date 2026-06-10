@@ -1,7 +1,13 @@
 import { claudeHome } from "./claude-home";
 import { readGlobalLock } from "./global-composition";
 import { readSettingsRaw, type HookGroup } from "./claude-settings-file";
-import { scanClaudeFiles, hashFile, readMcpServerNames, type FileSurface } from "./claude-scan";
+import {
+  scanClaudeFiles,
+  hashFile,
+  readMcpServerNames,
+  readInstalledPlugins,
+  type FileSurface
+} from "./claude-scan";
 
 // The loose / owned / parked classifier.
 //
@@ -29,6 +35,7 @@ export interface PrimitiveRecord {
   path?: string; // claudeHome-relative, for file surfaces
   fittingId?: string; // owner when owned (lock dep name / hook owner tag)
   driftedFromLock?: boolean; // file surfaces with a lock hash: on-disk bytes != lock hash
+  preview?: string; // hooks: first command (falls back to matcher), as on the Settings page
 }
 
 export interface StateModel {
@@ -88,12 +95,16 @@ export async function computeStateModel(opts: { claudeHome?: string } = {}): Pro
     groups.forEach((group, index) => {
       const marker = group?._garrison;
       const owned = marker !== undefined;
+      const firstCommand = Array.isArray(group?.hooks)
+        ? group.hooks.find((h) => h && typeof h.command === "string" && h.command !== "")?.command
+        : undefined;
       records.push({
         id: `hook:${event}#${index}`,
         surface: "hook",
         name: group?.matcher ? `${event} (${group.matcher})` : event,
         state: owned ? "owned" : "loose",
-        fittingId: typeof marker === "string" ? marker : owned ? "legacy:_garrison" : undefined
+        fittingId: typeof marker === "string" ? marker : owned ? "legacy:_garrison" : undefined,
+        preview: firstCommand ?? (typeof group?.matcher === "string" ? group.matcher : undefined)
       });
     });
   }
@@ -101,6 +112,17 @@ export async function computeStateModel(opts: { claudeHome?: string } = {}): Pro
   // ---- mcp: mcp.json servers (no APM ownership model yet -> all loose; SP1) ----
   for (const name of await readMcpServerNames(home)) {
     records.push({ id: `mcp:${name}`, surface: "mcp", name, state: "loose" });
+  }
+
+  // ---- plugins: installed_plugins.json (Claude-Code-managed -> loose; SP6) ----
+  for (const p of await readInstalledPlugins(home)) {
+    records.push({
+      id: `plugin:${p.key}`,
+      surface: "plugin",
+      name: p.key,
+      state: "loose",
+      fittingId: p.version ? `v${p.version}` : undefined
+    });
   }
 
   return summarize(records);

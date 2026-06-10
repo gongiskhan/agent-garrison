@@ -77,7 +77,7 @@ describe("computeStateModel", () => {
         hooks: {
           SessionStart: [
             { _garrison: "fitting:session-view", matcher: "*", hooks: [] },
-            { hooks: [] }
+            { hooks: [{ type: "command", command: "echo hand-authored" }] }
           ]
         }
       })
@@ -97,7 +97,9 @@ describe("computeStateModel", () => {
 
     expect(byId(r, "hook:SessionStart#0")?.state).toBe("owned");
     expect(byId(r, "hook:SessionStart#0")?.fittingId).toBe("fitting:session-view");
+    expect(byId(r, "hook:SessionStart#0")?.preview).toBe("*"); // no command -> matcher fallback
     expect(byId(r, "hook:SessionStart#1")?.state).toBe("loose");
+    expect(byId(r, "hook:SessionStart#1")?.preview).toBe("echo hand-authored");
 
     expect(byId(r, "mcp:context7")?.state).toBe("loose"); // no APM ownership model yet
 
