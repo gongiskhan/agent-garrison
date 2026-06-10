@@ -191,10 +191,10 @@ anywhere. E1 resolution: parser **derives** a synthetic `view` capability from
 
 | id | title | kind | route | group | status |
 |----|-------|------|-------|-------|--------|
-| W1-instance-identity | Stable view-instance IDs + derived `view` capability kind (`view-instances.ts`, metadata derivation, capabilities) | automation | (lib) | W-serial | pending |
-| W2-view-state | Generic view-state store (`view-state.ts`, `/api/view-state`, `usePersistedViewState`) + terminal cwd/scrollback proof | mixed | (lib + terminal fitting) | W-serial (after W1) | pending |
-| W3-eager-boot | Run-panel per-view-type toggles + server-start eager boot (`src/instrumentation.ts`, `eager-boot.json`) | mixed | /run | W-A (after W2) | pending |
-| W4-workspaces | Workspaces Fitting — tiling resizable panes over referenced instances, layout persisted via Layer 2, top-of-menu Workspace/Garrison switch, chrome ≤28px | ui | /fitting/workspaces | W-A (after W2) | pending |
+| W1-instance-identity | Stable view-instance IDs + derived `view` capability kind (`view-instances.ts`, metadata derivation, capabilities) | automation | (lib) | W-serial | passed (tests 15/15 + full gates; prompt no-pollution asserted) |
+| W2-view-state | Generic view-state store (`view-state.ts`, `/api/view-state`, `usePersistedViewState`) + terminal cwd/scrollback proof | mixed | (lib + terminal fitting) | W-serial (after W1) | passed (PERSIST_OK + NO_SAVE_BUTTON_OK + live restart proof, same session id) |
+| W3-eager-boot | Run-panel per-view-type toggles + server-start eager boot (`src/instrumentation.ts`, `eager-boot.json`) | mixed | /run | W-A (after W2) | passed (EAGER_BOOT_OK + LAZY_RESTORE_OK; real npm-start boot verified; webpack/instrumentation landmine fixed via detached tsx runner) |
+| W4-workspaces | Workspaces Fitting — tiling resizable panes over referenced instances, layout persisted via Layer 2, top-of-menu Workspace/Garrison switch, chrome ≤28px | ui | /fitting/workspaces | W-A (after W2) | passed (WORKSPACE_LAYOUT_OK + WORKSPACE_PANES_OK + CHROME_OK 24; validate-fitting PASS; full-bleed chrome landed from design audit) |
 
 ### Parallel groups (disjoint-file reasoning — logged, not silent)
 - **W-serial (W1→W2):** W2's store keys on W1's instance IDs and both touch

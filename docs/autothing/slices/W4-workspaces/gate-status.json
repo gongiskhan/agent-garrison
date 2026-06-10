@@ -1,19 +1,53 @@
 {
   "slice": "W4-workspaces",
   "title": "Workspaces Fitting — tiling resizable panes over referenced view instances",
-  "updatedAt": "2026-06-10T03:25:00Z",
+  "updatedAt": "2026-06-10T03:16:00Z",
   "phase": "done",
   "status": "passed",
   "kind": "ui",
-  "retries": { "limit": 5, "used": 0 },
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
   "gates": {
-    "tests":     { "cmd": "npx vitest run tests/workspaces.test.ts", "exit": 0, "summary": "2 passed — WORKSPACE_LAYOUT_OK (2 instance refs + % geometry persisted via the real store, simulated restart, exact refs+geometry match) + metadata parses / descriptors derive / resolver matches view:any. validate-fitting: PASS all four checks. Full suite 493 passed / 3 skipped." },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
-    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "no warnings or errors" },
-    "build":     { "cmd": "NEXT_DIST_DIR=.next-build npm run build", "exit": 0, "summary": "isolated dist dir" },
-    "e2e":       { "cmd": "npx playwright test tests/e2e/workspaces.spec.ts", "exit": 0, "summary": "4 passed / 2 skipped (resize drag desktop-scoped by design; render+chrome on all 3 viewports). Sentinels printed: WORKSPACE_PANES_OK, SCREENSHOT docs/autothing/evidence/workspaces-panes.png, CHROME_OK 24 (header 24px <= 28 target). Resize assertion includes reload-persists (re-proves no-save-button in the browser). Zero console errors." },
-    "designAudit": { "verdict": "clean", "by": ["lead vision pass on live :7777 + e2e screenshots"], "notes": "pane headers thin (24px) in the shell's tan/rule language, hover-revealed close, segmented Garrison|Workspace switch consistent with shell chips. Audit FINDING fixed in-wave: the fitting-overview block above the workspace wasted prime estate — added declarative view-level chrome: full-bleed (UiView.chrome, metadata schema, FittingSurfacePanel) so the workspace owns the viewport; documented in METADATA.md." },
-    "video":     { "status": "pending-consolidated", "note": "W-wave consolidated walkthrough drives add-pane/resize/reload live" }
+    "tests": {
+      "cmd": "npx vitest run tests/workspaces.test.ts",
+      "exit": 0,
+      "summary": "2 passed — WORKSPACE_LAYOUT_OK (2 instance refs + % geometry persisted via the real store, simulated restart, exact refs+geometry match) + metadata parses / descriptors derive / resolver matches view:any. validate-fitting: PASS all four checks. Full suite 493 passed / 3 skipped."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "no warnings or errors"
+    },
+    "build": {
+      "cmd": "NEXT_DIST_DIR=.next-build npm run build",
+      "exit": 0,
+      "summary": "isolated dist dir"
+    },
+    "e2e": {
+      "cmd": "npx playwright test tests/e2e/workspaces.spec.ts",
+      "exit": 0,
+      "summary": "4 passed / 2 skipped (resize drag desktop-scoped by design; render+chrome on all 3 viewports). Sentinels printed: WORKSPACE_PANES_OK, SCREENSHOT docs/autothing/evidence/workspaces-panes.png, CHROME_OK 24 (header 24px <= 28 target). Resize assertion includes reload-persists (re-proves no-save-button in the browser). Zero console errors."
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "lead vision pass on live :7777 + e2e screenshots"
+      ],
+      "notes": "pane headers thin (24px) in the shell's tan/rule language, hover-revealed close, segmented Garrison|Workspace switch consistent with shell chips. Audit FINDING fixed in-wave: the fitting-overview block above the workspace wasted prime estate — added declarative view-level chrome: full-bleed (UiView.chrome, metadata schema, FittingSurfacePanel) so the workspace owns the viewport; documented in METADATA.md."
+    },
+    "video": {
+      "status": "verified",
+      "file": "docs/autothing/evidence/workspaces-wave-walkthrough.mp4",
+      "link": "http://100.108.210.116:8099/agent-garrison/2026-06-10_04-13-10/final.mp4",
+      "note": "W-wave consolidated walkthrough (11 beats, all vision-verified, unflagged). Per-slice beats: W1 instance refs visible in pane headers (beat 9); W2 toggles/no-save/restored session (beats 1-5); W3 eager toggles + server-boot terminal (beats 1-4); W4 workspace switch/add-pane/reload/live-terminal-pane (beats 6-9)."
+    }
   },
   "blockers": [],
   "notes": "Composes, never owns: panes reference (fittingId, viewId, instanceId); embedded refs mount the SAME registry components, own-port refs iframe the fitting's live url with an honest not-running placeholder; self-nesting refused. Layout is the workspace's own Layer-2 state (workspaces/default.json). Known limits logged: parameterized embedded views (documents:read /:id) show their own no-id empty state when tiled at the default instance; own-port panes require the fitting to be running (pair with W3 eager boot)."

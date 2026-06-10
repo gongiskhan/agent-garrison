@@ -1,9 +1,57 @@
 {
   "project": "agent-garrison",
-  "updatedAt": "2026-06-10T00:45:00Z",
+  "updatedAt": "2026-06-10T03:18:00Z",
   "galleryUrl": "http://100.108.210.116:8099/",
-  "galleryNote": "Newest: the S1b settings wave earned a VERIFIED 9-beat walkthrough (durable copy docs/autothing/evidence/settings-s1b-walkthrough.mp4). The Quarters-CRUD wave's verified 11-beat consolidated walkthrough and Q2's verified video remain. Per-surface screenshots (c1..c5, s1b-*) committed under docs/autothing/evidence/.",
+  "galleryNote": "Newest: the W wave (Workspaces / view-state persistence / eager boot) earned a VERIFIED 11-beat consolidated walkthrough (durable copy docs/autothing/evidence/workspaces-wave-walkthrough.mp4) covering all four W slices. Prior verified videos: S1b settings, Quarters-CRUD consolidated, Q2. Per-surface screenshots committed under docs/autothing/evidence/.",
   "slices": [
+    {
+      "slice": "W1-instance-identity",
+      "title": "Stable view-instance IDs + derived view capability kind",
+      "kind": "automation",
+      "status": "passed",
+      "video": "docs/autothing/evidence/workspaces-wave-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-10_04-13-10/final.mp4",
+      "videoStatus": "verified",
+      "screenshot": null,
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/W1-instance-identity/gate-status.json"
+    },
+    {
+      "slice": "W2-view-state",
+      "title": "Generic view-state store keyed (fitting, instanceId) + terminal cwd/scrollback proof",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/workspaces-wave-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-10_04-13-10/final.mp4",
+      "videoStatus": "verified",
+      "screenshot": null,
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/W2-view-state/gate-status.json"
+    },
+    {
+      "slice": "W3-eager-boot",
+      "title": "Run-panel per-view-type toggles + server-start eager boot",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "docs/autothing/evidence/workspaces-wave-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-10_04-13-10/final.mp4",
+      "videoStatus": "verified",
+      "screenshot": "docs/autothing/evidence/run-views-toggles.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/W3-eager-boot/gate-status.json"
+    },
+    {
+      "slice": "W4-workspaces",
+      "title": "Workspaces Fitting — tiling resizable panes over referenced view instances",
+      "kind": "ui",
+      "status": "passed",
+      "video": "docs/autothing/evidence/workspaces-wave-walkthrough.mp4",
+      "videoLink": "http://100.108.210.116:8099/agent-garrison/2026-06-10_04-13-10/final.mp4",
+      "videoStatus": "verified",
+      "screenshot": "docs/autothing/evidence/workspaces-panes.png",
+      "flagged": false,
+      "gateStatus": "docs/autothing/slices/W4-workspaces/gate-status.json"
+    },
     {
       "slice": "S1b-settings-complete",
       "title": "Full 82-key settings.json coverage: schema-synced catalog + typed editors + searchable group layout",
@@ -174,57 +222,15 @@
   ],
   "globalGate": {
     "status": "completed-with-blockers",
-    "wave": "S1b-settings-complete: full 82-key settings.json coverage with typed editors. S1-S5 + Q1-Q4 + C1-C5 previously gated.",
-    "unitTests": {
-      "cmd": "npm test",
-      "exit": 0,
-      "note": "462 passed, 3 skipped, 0 failed - the FULL suite with no exclusions: the stray :4777 live gateway that broke the C-wave gate is gone, so orchestrator-integration skips by default as designed. The slice added 29 specs: the 11-spec mechanical catalog<->vendored-schema sync gate and 18 validator/assembly specs; settings IO specs reworked (autoMode migrated out of the bespoke fixture, schema-dropped keys demotion proven, whole-object sandbox patch sibling-preservation proven)."
-    },
-    "typecheck": {
-      "cmd": "npm run typecheck",
-      "exit": 0
-    },
-    "lint": {
-      "cmd": "npm run lint",
-      "exit": 0,
-      "note": "No ESLint warnings or errors"
-    },
-    "build": {
-      "cmd": "npm run build",
-      "exit": 0
-    },
-    "e2eAll": {
-      "cmd": "npx playwright test",
-      "exit": 0,
-      "note": "30 passed, 3 skipped across ALL THREE viewport projects (desktop/tablet/mobile - stricter than the prior waves desktop-only gate). The 3 skips are the pre-existing unconditional armory-install.spec legacy skip. Includes the new S1b spec (search/match-count, structured rule add to disk, sandbox.enabled object-form flip to disk, enterprise collapse + banner + managed pill, hooks link, unset round-trip, no save button, zero console errors). Fixed forward: the C5 plugins spec consumed its seed and failed on tablet/mobile (never gated before) - now self-seeding."
-    },
-    "verifyApp": {
-      "via": "the committed e2e suite + a read-only smoke of the REAL ~/.claude through the live :7777 app: 82 known rows render, the 165-rule allow list renders as structured rows, the 7 genuinely-bespoke keys sit in the Advanced passthrough, the suggestions feed is live, and the drift banner honestly flags real external edits",
-      "verdict": "clean"
-    },
-    "designAudit": {
-      "verdict": "clean",
-      "by": [
-        "vision pass over s1b-settings-{top,permissions,enterprise,search,narrow}.png vs s1b-ref-{vault,armory}.png at 1440px + 1000px"
-      ],
-      "notes": "Same shell language as Vault/Armory: paper theme, serif headings, .text inputs, ghost buttons, mono pills, banner.warn for the Enterprise honesty copy; responsive stacked nav under 1100px; no emoji; zero console errors while driving."
-    },
-    "everySliceVideoVerified": false,
-    "everySliceVideoVerifiedNote": "S1b earned its OWN verified walkthrough (9 beats, every frame vision-verified, run not flagged), as did Q2; C1-C5 stay covered by the verified consolidated video; S1/S2/S4 flow videos predate the walkthrough verification pipeline; S3/S5/Q1/Q3/Q4 are backend/CLI/docs slices with justified null videos. That historical state is unchanged and is the sole reason the project-wide verdict stays completed-with-blockers - the S1b wave itself has zero blockers.",
-    "s1bVideo": {
-      "path": "docs/autothing/evidence/settings-s1b-walkthrough.mp4",
-      "link": "http://100.108.210.116:8099/agent-garrison/2026-06-10_01-31-32/final.mp4",
-      "verifiedAt": "2026-06-10T00:33:32Z",
-      "beats": 9,
-      "flagged": false
-    },
+    "decidedAt": "2026-06-10T03:18:00Z",
+    "wave": "W (Workspaces / view-state / eager boot)",
+    "summary": "All four W slices passed every gate (tests/e2e/typecheck/lint/build exit 0, design audit clean, consolidated walkthrough VERIFIED). Blockers are inherited/minor, none from this wave's acceptance criteria.",
     "blockers": [
-      "HISTORICAL (project-wide video coverage): not every past slice has its own vision-verified video - S1/S2/S4 predate the pipeline, C1-C5 share one verified consolidated video, backend/CLI/docs slices have justified nulls. S1b and Q2 each have their own verified video.",
-      "Plugin INSTALL from a marketplace is NOT built (C5 scope decision, stands) - only uninstall ships; install stays with Claude Code /plugin.",
-      "MCP env/headers are written as PLAINTEXT to mcp.json (matches Claude Code format; vault routing remains a deferred enhancement).",
-      "File-primitive RENAME remains out of scope.",
-      "Cooperative-ownership caveat stands for settings/hooks/mcp/plugins: a RUNNING Claude Code may rewrite these files; the drift banner + reload-before-edit is the standing mitigation.",
-      "S1b manual-verification nuance: the spec asked for a hand edit of one nested sandbox field against the REAL ~/.claude; performed READ-ONLY smoke only (82 rows / 165 structured rules / bespoke passthrough / live suggestions verified on :7777) - autonomously mutating the user real settings.json was deliberately skipped; the identical write path is proven by e2e against the sandbox."
+      "Historical per-slice video coverage: S1/S2/S4 (flow-videos, not walkthrough-verified), S3/S5/Q1/Q3/Q4/C1-C5 (no per-slice video) — pre-existing, unchanged by this wave",
+      "Unattributed SIGTERM killed the terminal fitting 3x during automation runs (never reproduced in isolation: close-all, title-render steps, idle 160s+ all innocent; final recording ran clean with the fitting surviving). Self-heals by design: eager boot re-arms on every server start, sessions rehydrate. Watch during daily use.",
+      "Parameterized embedded views (documents:read /:id) show their own empty state when tiled at the default instance — picker offers them regardless (v1)",
+      "own-port-lifecycle status dir hardcoded to real ~/.garrison (pre-existing; e2e mitigates via GARRISON_DISABLE_EAGER_BOOT)",
+      "Detach-reaped terminal sessions vanish from /sessions until next server boot rehydrates them (v1, logged in W2 notes)"
     ]
   }
 }

@@ -151,13 +151,16 @@ export default function WorkspaceView({ params }: FittingViewProps) {
     (ref: string) => {
       setLayout((prev) => {
         const n = prev.panes.length;
-        const offset = (n * 6) % 36;
-        return {
-          panes: [
-            ...prev.panes,
-            { ref, x: offset, y: offset, w: 46, h: 58 }
-          ]
-        };
+        // First two panes tile side by side (the common case); later panes
+        // cascade with an offset so none lands exactly on another. Existing
+        // panes are never moved — their geometry belongs to the user.
+        const slot =
+          n === 0
+            ? { x: 0, y: 0, w: 49.5, h: 96 }
+            : n === 1
+              ? { x: 50.5, y: 0, w: 49.5, h: 96 }
+              : { x: (n * 6) % 36, y: (n * 6) % 36, w: 46, h: 58 };
+        return { panes: [...prev.panes, { ref, ...slot }] };
       });
     },
     [setLayout]

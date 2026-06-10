@@ -1,0 +1,235 @@
+{
+  "title": "Walkthrough: Workspaces, view-state persistence & eager boot",
+  "project": "agent-garrison",
+  "video": {
+    "width": 1440,
+    "height": 900,
+    "fps": 30
+  },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Workspaces, view-state persistence & eager boot",
+      "subtitle": "agent-garrison · W wave · 2026-06-10",
+      "duration": 2.6,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/run",
+      "beats": [
+        {
+          "id": "run-views",
+          "caption": "Run → Views: persistence is always on; the toggle only controls eager boot",
+          "expectedScreen": "the Run page with a Views card listing fittings, each with an EAGER on/off control; Terminal row shows EAGER: ON",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "[aria-label=\"Eager boot for Artifact store\"]"
+            }
+          ],
+          "assert": {
+            "selector": "[aria-label=\"Eager boot for Terminal\"]",
+            "text": "ON",
+            "highlight": true
+          },
+          "hold": 3400
+        },
+        {
+          "id": "toggle-instant",
+          "caption": "Toggling persists instantly — there is no save button anywhere",
+          "expectedScreen": "the Views card with the Artifact store row's eager control just clicked (on), no save button visible anywhere",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "[aria-label=\"Eager boot for Artifact store\"]"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 900
+            }
+          ],
+          "assert": {
+            "selector": "[aria-label=\"Eager boot for Artifact store\"]",
+            "text": "ON",
+            "highlight": true
+          },
+          "hold": 2600
+        },
+        {
+          "id": "toggle-back",
+          "caption": "Off again — the preference lands on disk immediately, both times",
+          "expectedScreen": "the Artifact store row's eager control back to off",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "[aria-label=\"Eager boot for Artifact store\"]"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "[aria-label=\"Eager boot for Artifact store\"]",
+            "text": "OFF",
+            "highlight": true
+          },
+          "hold": 2400
+        },
+        {
+          "id": "terminal-live",
+          "caption": "Terminal is live — eager boot started it with the server, not by hand",
+          "expectedScreen": "the Run page; the Views card lists Terminal with EAGER: ON",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "link:Terminal"
+            }
+          ],
+          "assert": {
+            "selector": "[aria-label=\"Eager boot for Terminal\"]",
+            "text": "ON",
+            "highlight": true
+          },
+          "hold": 2800
+        },
+        {
+          "id": "terminal-restored",
+          "caption": "This session survived a real server restart — cwd and scrollback came back",
+          "expectedScreen": "the embedded terminal showing the garrison-dev session: WORKSPACES_WAVE_DEMO output, a git log, and the dim restore marker line saying the session was restored with a fresh shell",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "link:Terminal"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 3500
+            }
+          ],
+          "hold": 4200
+        },
+        {
+          "id": "workspace-switch",
+          "caption": "The top-of-menu switch jumps to the Workspace surface",
+          "expectedScreen": "the full-bleed Workspace surface: a thin toolbar with pane count and Add pane, an empty workspace area",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "link:Workspace"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:workspace-root"
+            }
+          ],
+          "assert": {
+            "selector": "testid:workspace-add-pane",
+            "highlight": true
+          },
+          "hold": 2800
+        },
+        {
+          "id": "add-artifact-pane",
+          "caption": "Add a pane — thin 24px chrome, the layout persists as you build it",
+          "expectedScreen": "the workspace with one Artifacts pane (thin header artifact-store:list) on the left half",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:workspace-add-pane"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:workspace-add-option-artifact-store:list"
+            },
+            {
+              "type": "click",
+              "selector": "testid:workspace-add-option-artifact-store:list"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "assert": {
+            "selector": "[data-ref=\"artifact-store:list\"]",
+            "highlight": true
+          },
+          "hold": 3200
+        },
+        {
+          "id": "reload-survives",
+          "caption": "Reload — the pane comes back exactly; nothing was ever saved by hand",
+          "expectedScreen": "the same workspace layout after a fresh page load: the Artifacts pane in the same position",
+          "actions": [
+            {
+              "type": "goto",
+              "path": "/"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 800
+            },
+            {
+              "type": "goto",
+              "path": "/fitting/workspaces"
+            },
+            {
+              "type": "waitFor",
+              "selector": "[data-ref=\"artifact-store:list\"]"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "assert": {
+            "selector": "[data-ref=\"artifact-store:list\"]",
+            "highlight": true
+          },
+          "hold": 3400
+        },
+        {
+          "id": "add-terminal-pane",
+          "caption": "Tile the live terminal beside it — the pane references the instance, it does not copy it",
+          "expectedScreen": "two panes side by side: the Artifacts pane and the terminal pane showing the same garrison-dev session",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:workspace-add-pane"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:workspace-add-option-terminal-armory-default:main#ca449d74-84c9-400c-90ef-77eed77f7611"
+            },
+            {
+              "type": "click",
+              "selector": "testid:workspace-add-option-terminal-armory-default:main#ca449d74-84c9-400c-90ef-77eed77f7611"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 2500
+            }
+          ],
+          "assert": {
+            "selector": "[data-ref^=\"terminal-armory-default\"]",
+            "highlight": true
+          },
+          "hold": 4000
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Every view persists. Toggled views boot with the server. Workspaces just reference them.",
+      "subtitle": "W1 identity · W2 persistence · W3 eager boot · W4 workspaces",
+      "duration": 3.2
+    }
+  ]
+}
