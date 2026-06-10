@@ -224,12 +224,11 @@
     "status": "completed-with-blockers",
     "decidedAt": "2026-06-10T03:18:00Z",
     "wave": "W (Workspaces / view-state / eager boot)",
-    "summary": "All four W slices passed every gate (tests/e2e/typecheck/lint/build exit 0, design audit clean, consolidated walkthrough VERIFIED). Blockers are inherited/minor, none from this wave's acceptance criteria.",
+    "summary": "All four W slices passed every gate (tests/e2e/typecheck/lint/build exit 0, design audit clean, consolidated walkthrough VERIFIED). Blockers are inherited/minor, none from this wave's acceptance criteria. Post-gate fix 0b29aeb: eager views survive the runner and boot with the operative.",
     "blockers": [
       "Historical per-slice video coverage: S1/S2/S4 (flow-videos, not walkthrough-verified), S3/S5/Q1/Q3/Q4/C1-C5 (no per-slice video) — pre-existing, unchanged by this wave",
-      "Unattributed SIGTERM killed the terminal fitting 3x during automation runs (never reproduced in isolation: close-all, title-render steps, idle 160s+ all innocent; final recording ran clean with the fitting surviving). Self-heals by design: eager boot re-arms on every server start, sessions rehydrate. Watch during daily use.",
+      "RESOLVED 2026-06-10 (commit 0b29aeb): the unattributed SIGTERM was the runner's startup orphan sweep reaping eager-booted fittings; eager-toggled fittings are now server-lifecycle (sweep + down skip them, up also eager-boots). The hardcoded own-port status dir is also fixed (garrisonDir()-aware).",
       "Parameterized embedded views (documents:read /:id) show their own empty state when tiled at the default instance — picker offers them regardless (v1)",
-      "own-port-lifecycle status dir hardcoded to real ~/.garrison (pre-existing; e2e mitigates via GARRISON_DISABLE_EAGER_BOOT)",
       "Detach-reaped terminal sessions vanish from /sessions until next server boot rehydrates them (v1, logged in W2 notes)"
     ]
   }
