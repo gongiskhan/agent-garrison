@@ -1,0 +1,20 @@
+{
+  "slice": "W2-view-state",
+  "title": "Generic view-state store keyed (fitting, instanceId) + terminal cwd/scrollback proof",
+  "updatedAt": "2026-06-10T02:41:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/view-state.test.ts", "exit": 0, "summary": "9 passed — PERSIST_OK roundtrip-1 (simulated restart via vi.resetModules, exact-match read from disk), NO_SAVE_BUTTON_OK (debounced auto-write only, coalesced last-wins), flush-on-shutdown, delete semantics, garbage-shape tolerance, terminal helper cwd+scrollback byte-identical base64 round-trip (PERSIST_OK sess-roundtrip). Full suite 486 passed / 3 skipped." },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (incl. hand-written .d.mts for the fitting helper)" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "summary": "no warnings or errors" },
+    "build":     { "cmd": "NEXT_DIST_DIR=.next-build npm run build", "exit": 0, "summary": "isolated dist dir; /api/view-state route compiled" },
+    "e2e":       { "exit": 0, "summary": "live boot proof in lieu of browser e2e for this backend slice: real terminal server in sandbox GARRISON_HOME — create session, emit output, SIGTERM (flush), reboot, session rehydrated with SAME instance id 4172ef57-…, name, cwd; scrollback contained the live marker. UI-level e2e lands with W4 which exercises /api/view-state from the browser." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no Garrison-shell UI change this slice"], "notes": "usePersistedViewState is a hook; first visual consumer is W4" },
+    "video":     { "status": "pending-consolidated", "note": "demonstrated in the W-wave consolidated walkthrough (terminal survives restart)" }
+  },
+  "blockers": [],
+  "notes": "Store: ~/.garrison/view-state/<fittingId>/<instanceId>.json, writeJsonAtomic + readFileTolerant, 500ms trailing debounce (server lib + client hook), flush on shutdown/unmount. Terminal (own-port, standalone package) mirrors the contract via its own view-state.mjs — same pattern as its ui-fittings status file. D1 honoured: PTY dies, fresh shell respawns at restored cwd (live cwd probed via lsof at persist time), scrollback replays with a dim restore marker, recorded command NOT re-run (destructive). State lifecycle: explicit kill/natural exit delete state; detach-reap + shutdown preserve it. Known v1 limit logged: a detach-reaped session disappears from /sessions until the next server boot rehydrates it."
+}

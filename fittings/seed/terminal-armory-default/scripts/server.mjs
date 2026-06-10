@@ -7,7 +7,7 @@
 
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import http from "node:http";
@@ -16,6 +16,12 @@ import path from "node:path";
 import url from "node:url";
 import { WebSocketServer } from "ws";
 import pty from "node-pty";
+import {
+  deleteInstance,
+  flushInstanceWrites,
+  readAllInstances,
+  scheduleInstanceWrite
+} from "./view-state.mjs";
 
 const DEFAULT_IDE_PATH = "/Applications/Rebased.app";
 
@@ -31,6 +37,43 @@ const sessions = new Map(); // id -> { id, name, cwd, shell, pty, ws, lastActivi
 // only hit on browser refresh / network blip.
 const OUTPUT_BUFFER_BYTES = 512 * 1024;
 const PTY_DETACHED_TIMEOUT_MS = 5 * 60 * 1000;
+
+// View-state persistence (Garrison Layer 2). Each session continuously
+// persists { name, cwd, shell, command, scrollback } keyed by its session id
+// (= the Garrison instance id). On boot the server rehydrates every persisted
+// session: a FRESH shell respawns at the restored cwd and the old scrollback
+// replays — the PTY itself does not survive a restart (D1; true process
+// survival is herdr's job). The persisted scrollback is a tail of the replay
+// buffer, base64-coded because raw PTY bytes are not valid JSON text.
+const FITTING_ID = "terminal-armory-default";
+const PERSIST_SCROLLBACK_BYTES = 128 * 1024;
+let shuttingDown = false;
+
+// Live cwd of the shell (the user cds around) — best-effort via lsof, falling
+// back to the spawn cwd. Runs only at debounced-persist time, never per-write.
+function probeCwd(session) {
+  return new Promise((resolve) => {
+    const pid = session.pty?.pid;
+    if (typeof pid !== "number") return resolve(null);
+    execFile("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { timeout: 1500 }, (err, stdout) => {
+      if (err) return resolve(null);
+      const line = String(stdout).split("\n").find((l) => l.startsWith("n"));
+      resolve(line ? line.slice(1) : null);
+    });
+  });
+}
+
+function persistSession(session) {
+  if (shuttingDown) return;
+  scheduleInstanceWrite(FITTING_ID, session.id, async () => ({
+    name: session.name,
+    cwd: (await probeCwd(session)) || session.cwd,
+    shell: session.shell,
+    command: session.command || null,
+    createdAt: session.createdAt,
+    scrollbackB64: session.buffer.slice(-PERSIST_SCROLLBACK_BYTES).toString("base64")
+  }));
+}
 
 function parseArgs(argv) {
   const out = {
@@ -72,8 +115,8 @@ function sessionSummary(s) {
   };
 }
 
-function createSession({ name, cwd, shell, command }) {
-  const id = randomUUID();
+function createSession({ id: explicitId, name, cwd, shell, command }) {
+  const id = explicitId || randomUUID();
   const finalShell = shell || process.env.SHELL || "/bin/zsh";
   const finalCwd = cwd && existsSync(cwd) ? cwd : process.env.HOME || "/tmp";
   const term = pty.spawn(finalShell, ["-l"], {
@@ -106,6 +149,7 @@ function createSession({ name, cwd, shell, command }) {
     if (session.ws && session.ws.readyState === 1) {
       try { session.ws.send(buf); } catch {}
     }
+    persistSession(session);
   });
 
   term.onExit(({ exitCode, signal }) => {
@@ -114,9 +158,16 @@ function createSession({ name, cwd, shell, command }) {
       try { session.ws.close(); } catch {}
     }
     sessions.delete(id);
+    // A shell that ended on its own (user typed exit) or was explicitly
+    // killed has nothing to restore. Shutdown and detach-reap preserve state
+    // — surviving restarts is the whole point.
+    if (!shuttingDown && !session.preserveState) {
+      void deleteInstance(FITTING_ID, id).catch(() => {});
+    }
   });
 
   sessions.set(id, session);
+  persistSession(session);
 
   if (command && typeof command === "string" && command.trim()) {
     setTimeout(() => {
@@ -127,13 +178,52 @@ function createSession({ name, cwd, shell, command }) {
   return session;
 }
 
-function killSession(id) {
+function killSession(id, { preserveState = false } = {}) {
   const s = sessions.get(id);
   if (!s) return false;
+  s.preserveState = preserveState;
   try { s.pty.kill(); } catch {}
   if (s.ws && s.ws.readyState === 1) { try { s.ws.close(); } catch {} }
   sessions.delete(id);
   return true;
+}
+
+// Boot-time rehydration: every persisted instance comes back as a fresh shell
+// at its restored cwd with the old scrollback replayed (a dim marker separates
+// past from present). The recorded `command` is kept for labeling but NOT
+// re-run — auto-rerunning arbitrary commands on boot would be destructive.
+async function rehydrateSessions() {
+  let envelopes = [];
+  try {
+    envelopes = await readAllInstances(FITTING_ID);
+  } catch (err) {
+    console.error("[terminal] view-state rehydrate scan failed:", err);
+    return 0;
+  }
+  for (const envelope of envelopes) {
+    const st = envelope.state && typeof envelope.state === "object" ? envelope.state : {};
+    try {
+      const session = createSession({
+        id: envelope.instanceId,
+        name: typeof st.name === "string" ? st.name : undefined,
+        cwd: typeof st.cwd === "string" ? st.cwd : undefined,
+        shell: typeof st.shell === "string" ? st.shell : undefined
+      });
+      session.command = typeof st.command === "string" ? st.command : null;
+      if (typeof st.scrollbackB64 === "string" && st.scrollbackB64) {
+        const restored = Buffer.from(st.scrollbackB64, "base64");
+        const marker = Buffer.from(
+          `\r\n\x1b[2m[garrison: session restored — fresh shell at ${session.cwd}]\x1b[0m\r\n`,
+          "utf8"
+        );
+        session.buffer = Buffer.concat([restored, marker]).slice(-OUTPUT_BUFFER_BYTES);
+      }
+      console.log(`[terminal] rehydrated session ${session.id} (${session.name}) at ${session.cwd}`);
+    } catch (err) {
+      console.error(`[terminal] rehydrate failed for ${envelope.instanceId}:`, err);
+    }
+  }
+  return envelopes.length;
 }
 
 function handleHealth(req, res, opts) {
@@ -437,10 +527,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const s = sessions.get(sessionId);
       if (!s) return;
       s.ws = null;
-      // Detach but keep alive for reconnect window
-      s.detachTimeout = setTimeout(() => { if (sessions.has(s.id)) killSession(s.id); }, PTY_DETACHED_TIMEOUT_MS);
+      // Detach but keep alive for reconnect window. Reaping preserves the
+      // persisted state — the session returns on the next server boot.
+      s.detachTimeout = setTimeout(() => {
+        if (sessions.has(s.id)) killSession(s.id, { preserveState: true });
+      }, PTY_DETACHED_TIMEOUT_MS);
     });
   });
+
+  // Eagerly restore persisted sessions before accepting traffic so the first
+  // /sessions response is already complete.
+  const restored = await rehydrateSessions();
+  if (restored > 0) console.log(`[terminal] restored ${restored} persisted session(s)`);
 
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
@@ -452,6 +550,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const shutdown = async (signal) => {
     console.log(`[terminal] shutdown (${signal})`);
+    shuttingDown = true;
+    // Land pending view-state writes while the ptys (and their buffers) are
+    // still alive — this is what makes sessions survive the restart.
+    try { await flushInstanceWrites(); } catch {}
     for (const s of sessions.values()) { try { s.pty.kill(); } catch {} }
     sessions.clear();
     await clearStatusFile();
