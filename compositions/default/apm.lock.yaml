@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-10T14:33:35.304492+00:00'
+generated_at: '2026-06-11T10:06:26.709419+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -18,6 +18,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/deepgram-voice
+- repo_url: _local/dev-env
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/dev-env
 - repo_url: _local/garrison-orchestrator
   package_type: apm_package
   deployed_files:
@@ -48,18 +52,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/screen-share-default
-- repo_url: _local/session-view-sequoias
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/session-view-sequoias
 - repo_url: _local/slack-channel
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/slack-channel
-- repo_url: _local/terminal-armory-default
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/terminal-armory-default
 - repo_url: _local/trello-data-source
   package_type: apm_package
   deployed_files:
@@ -73,11 +69,3 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/web-channel-default
-- repo_url: _local/workspaces
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/workspaces
-- repo_url: _local/worktree-management-sequoias
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/worktree-management-sequoias

@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // composition + library are the repo's real ones; the two fitting ids used
 // are genuinely operative-bound members of the default composition.
 
-const EAGER_ID = "terminal-armory-default";
+const EAGER_ID = "dev-env";
 const PLAIN_ID = "screen-share-default";
 
 let sandbox: string;

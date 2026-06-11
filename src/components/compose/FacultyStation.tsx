@@ -41,7 +41,7 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
   },
   sessions: {
     role: "Session records plus the own-port runtime surfaces.",
-    fit: "Holds the Session Viewer plus the own-port dev tools (terminal, screen-share, worktree, browser, outposts, artifact store), each detected via the own_port flag."
+    fit: "Holds the own-port dev surfaces (dev-env, screen-share, browser, outposts, artifact store), each detected via the own_port flag. Dev Env consolidates terminals, worktrees, and session status into one tabbed surface."
   }
 };
 

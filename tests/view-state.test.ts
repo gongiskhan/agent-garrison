@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// W2 gate — the generic view-state store + the terminal fitting proof.
+// W2 gate — the generic view-state store + the dev-env fitting proof.
 // Real on-disk store under a sandbox GARRISON_HOME; "simulated restart" =
 // vi.resetModules() + fresh import, so nothing in memory carries over and
 // the read can only come from disk. No mocking anywhere on the persistence
@@ -18,9 +18,9 @@ async function freshStore() {
   return await import("@/lib/view-state");
 }
 
-async function freshTerminalHelper() {
+async function freshDevEnvHelper() {
   vi.resetModules();
-  return await import("../fittings/seed/terminal-armory-default/scripts/view-state.mjs");
+  return await import("../fittings/seed/dev-env/scripts/view-state.mjs");
 }
 
 describe("generic view-state store (Layer 2)", () => {
@@ -115,12 +115,12 @@ describe("generic view-state store (Layer 2)", () => {
   });
 });
 
-describe("terminal fitting proof — cwd + scrollback round-trip (D1)", () => {
+describe("dev-env fitting proof — cwd + scrollback round-trip (D1)", () => {
   let sandbox: string;
   const priorHome = process.env.GARRISON_HOME;
 
   beforeEach(() => {
-    sandbox = mkdtempSync(path.join(tmpdir(), "garrison-terminal-state-"));
+    sandbox = mkdtempSync(path.join(tmpdir(), "garrison-dev-env-state-"));
     process.env.GARRISON_HOME = sandbox;
   });
 
@@ -133,19 +133,20 @@ describe("terminal fitting proof — cwd + scrollback round-trip (D1)", () => {
     rmSync(sandbox, { recursive: true, force: true });
   });
 
-  it("a terminal session's cwd + scrollback persist via debounced auto-write and rehydrate byte-identical", async () => {
-    const instanceId = "sess-roundtrip";
+  it("a PTY's cwd + scrollback persist via debounced auto-write and rehydrate byte-identical", async () => {
+    const instanceId = "sess-roundtrip-shell";
     // Raw PTY bytes (ANSI colors included) — base64 round-trip must be exact.
     const scrollback = Buffer.from("ls -la\r\ntotal 42\r\n\x1b[32mgarrison\x1b[0m\r\n$ ", "utf8");
 
-    const before = await freshTerminalHelper();
+    const before = await freshDevEnvHelper();
     // The server persists exactly like this: a debounced write whose factory
     // is evaluated at fire time (fresh cwd + buffer). No explicit save.
     before.scheduleInstanceWrite(
-      "terminal-armory-default",
+      "dev-env",
       instanceId,
       async () => ({
-        name: "build-terminal",
+        role: "shell",
+        sessionId: "sess-roundtrip",
         cwd: "/Users/ggomes/dev/garrison",
         shell: "/bin/zsh",
         command: null,
@@ -156,42 +157,44 @@ describe("terminal fitting proof — cwd + scrollback round-trip (D1)", () => {
     await sleep(250);
 
     // Simulated fitting-server restart.
-    const after = await freshTerminalHelper();
-    const all = await after.readAllInstances("terminal-armory-default");
+    const after = await freshDevEnvHelper();
+    const all = await after.readAllInstances("dev-env");
     expect(all).toHaveLength(1);
     expect(all[0].instanceId).toBe(instanceId);
     const state = all[0].state as {
-      name: string;
+      role: string;
+      sessionId: string;
       cwd: string;
       shell: string;
       scrollbackB64: string;
     };
     expect(state.cwd).toBe("/Users/ggomes/dev/garrison");
-    expect(state.name).toBe("build-terminal");
+    expect(state.role).toBe("shell");
+    expect(state.sessionId).toBe("sess-roundtrip");
     expect(state.shell).toBe("/bin/zsh");
     expect(Buffer.from(state.scrollbackB64, "base64").equals(scrollback)).toBe(true);
     console.log(`PERSIST_OK ${instanceId}`);
   });
 
-  it("explicit delete clears a session's persisted state; others survive", async () => {
-    const helper = await freshTerminalHelper();
-    await helper.writeInstanceState("terminal-armory-default", "sess-a", { cwd: "/a" });
-    await helper.writeInstanceState("terminal-armory-default", "sess-b", { cwd: "/b" });
-    expect(await helper.deleteInstance("terminal-armory-default", "sess-a")).toBe(true);
-    const remaining = await helper.readAllInstances("terminal-armory-default");
-    expect(remaining.map((r) => r.instanceId)).toEqual(["sess-b"]);
+  it("explicit delete clears a PTY's persisted state; others survive", async () => {
+    const helper = await freshDevEnvHelper();
+    await helper.writeInstanceState("dev-env", "sess-a-shell", { cwd: "/a" });
+    await helper.writeInstanceState("dev-env", "sess-b-shell", { cwd: "/b" });
+    expect(await helper.deleteInstance("dev-env", "sess-a-shell")).toBe(true);
+    const remaining = await helper.readAllInstances("dev-env");
+    expect(remaining.map((r) => r.instanceId)).toEqual(["sess-b-shell"]);
   });
 
   it("flushInstanceWrites lands a long-debounce write before shutdown kills the pty", async () => {
-    const helper = await freshTerminalHelper();
+    const helper = await freshDevEnvHelper();
     helper.scheduleInstanceWrite(
-      "terminal-armory-default",
-      "sess-shutdown",
+      "dev-env",
+      "sess-shutdown-shell",
       () => ({ cwd: "/live", scrollbackB64: Buffer.from("final output").toString("base64") }),
       60_000
     );
     await helper.flushInstanceWrites();
-    const all = await helper.readAllInstances("terminal-armory-default");
-    expect(all.map((r) => r.instanceId)).toContain("sess-shutdown");
+    const all = await helper.readAllInstances("dev-env");
+    expect(all.map((r) => r.instanceId)).toContain("sess-shutdown-shell");
   });
 });

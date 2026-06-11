@@ -162,11 +162,16 @@ text where applicable.
   the Orchestrator dispatches coding work to. CLI-shape so it
   looks like every other Fitting from outside.
 
-The Phase 5 / 5.5 Sequoias decomposition shipped — `worktrees-sequoias`,
-`session-view-sequoias`, and `terminal-armory-default` are in the
-seed set. The Workbench shell area was dissolved 2026-05-17; the
-four ex-Workbench Fittings became flat sibling Faculties whose
-own-port UIs the sidebar Views section surfaces.
+The Phase 5 / 5.5 Sequoias decomposition shipped `worktrees-sequoias`,
+`session-view-sequoias`, and `terminal-armory-default` into the seed
+set; the 2026-06-11 Dev Env consolidation replaced all three with a
+single `dev-env` Fitting (`fittings/seed/dev-env`, `sessions` role,
+own-port UI on `7086`, providing the singleton `dev-env` capability).
+Each Claude Code session is a tab pairing a Claude PTY and a shell PTY
+with the live browser pane, which consumes the separate `browser`
+Fitting. The Workbench shell area was dissolved 2026-05-17; the
+own-port UIs that survive it are surfaced by the sidebar Views
+section.
 
 The Monitor Faculty (2026-05-16) adds `monitor-default`, which is the
 first Fitting to ship with its own React UI on its own port (default

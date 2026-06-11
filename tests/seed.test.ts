@@ -20,10 +20,8 @@ const seedIds = [
   "web-channel-default",
   "deepgram-voice",
   "artifact-store",
-  "terminal-armory-default",
+  "dev-env",
   "screen-share-default",
-  "worktree-management-sequoias",
-  "session-view-sequoias",
   "outpost-tailscale-host",
   "monitor-default",
   "browser-default",
@@ -82,11 +80,21 @@ describe("seed Fittings", () => {
   });
 
   it("own-port runtime Fittings fold into roles + carry the own_port flag", async () => {
-    for (const id of ["terminal-armory-default", "session-view-sequoias", "monitor-default", "browser-default"]) {
+    for (const id of ["dev-env", "monitor-default", "browser-default"]) {
       const metadata = await loadSeed(id);
       expect(metadata.own_port).toBe(true);
       expect(["sessions", "observability", "channels"]).toContain(metadata.faculty);
     }
+  });
+
+  it("dev-env consolidates the dev-work surfaces under sessions on port 7086", async () => {
+    const metadata = await loadSeed("dev-env");
+    expect(metadata.faculty).toBe("sessions");
+    expect(metadata.own_port).toBe(true);
+    expect(metadata.default_port).toBe(7086);
+    expect(metadata.provides).toEqual([{ kind: "dev-env", name: "dev-env" }]);
+    expect(metadata.consumes).toContainEqual({ kind: "outpost", cardinality: "any" });
+    expect(metadata.setup?.command).toContain("install-hooks");
   });
 
   it("garrison-orchestrator provides the orchestrator capability (spawn retired)", async () => {

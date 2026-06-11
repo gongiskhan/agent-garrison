@@ -109,8 +109,8 @@ Agent-facing slots the Operative uses internally:
 Tool-facing (own-port) Faculties — Fittings serve their own React UI on their own port; the sidebar links to them:
 
 ```
-   terminal       screen-share  worktree-management   session-view
-   outposts       monitor       web-channel           browser
+   dev-env        screen-share  outposts        monitor
+   web-channel    browser       voice
 ```
 
 Long-form intent per Faculty: [`docs/FACULTIES.md`](./docs/FACULTIES.md).
@@ -133,12 +133,11 @@ Data sources                                 testing
 ─────────────        Plumbing
 trello-data-source   ────────                Workbench (own-port)
 google-calendar      http-gateway            ────────────────────
-                     mcp-gateway             terminal-armory-default
-Outposts             vault-sync              worktree-management-sequoias
-─────────                                    session-view-sequoias
-outpost-tailscale-host                       screen-share-default
-outpost-actions                              browser-default
-                                             monitor-default
+                     mcp-gateway             dev-env
+Outposts             vault-sync              screen-share-default
+─────────                                    browser-default
+outpost-tailscale-host                       monitor-default
+outpost-actions
 ```
 
 Each Fitting is a self-contained APM package under `fittings/seed/<id>/`. Pick what you want; the rest stays uninstalled.
@@ -148,7 +147,7 @@ Each Fitting is a self-contained APM package under `fittings/seed/<id>/`. Pick w
 A useful distinction:
 
 - **Agent-facing Fittings** ship skills, prompts, hooks, scripts, or MCP servers that the **running Operative** invokes during its work. Example: `tier-classifier`, `memory`, `trello-data-source`, `slack-channel`.
-- **Tool-facing Fittings** ship a React UI on their own HTTP port. The **human** uses them in a browser tab; Garrison links to them from the sidebar Views group. Example: `terminal-armory-default`, `worktree-management-sequoias`, `monitor-default`.
+- **Tool-facing Fittings** ship a React UI on their own HTTP port. The **human** uses them in a browser tab; Garrison links to them from the sidebar Views group. Example: `dev-env` (port 7086 — one tab per Claude Code session with a Claude PTY, a shell PTY, and the live browser pane), `screen-share-default`, `monitor-default`.
 
 Full breakdown with the third "embedded UI" middle ground: [`docs/GARRISON_EXPLAINED.md` §7](./docs/GARRISON_EXPLAINED.md#7-two-kinds-of-fitting-agent-facing-vs-tool-facing).
 
@@ -162,7 +161,7 @@ Full breakdown with the third "embedded UI" middle ground: [`docs/GARRISON_EXPLA
    2. materialise .env from vault  → AES-256-GCM secrets → per-composition .env
    3. setup hooks                  → side-effect prep (clone repos, uv sync, ...)
    4. verify hooks                 → read-only sanity check; no verify = no ship
-   5. start own-port Fittings      → terminals, monitor, browser, etc.
+   5. start own-port Fittings      → dev-env, monitor, browser, etc.
    6. assemble system prompt       → Orchestrator + Soul + {{capabilities}}
                                      (each provider's for_consumers indented
                                      under its capability line)

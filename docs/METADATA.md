@@ -100,7 +100,7 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `memory-store`, `channel`, `vault`, `artifact-store`, `terminal-session`, `worktree`, `session-view`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `automation-runner`, `data-source`, `mcp-gateway`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
+| `kind` | enum | yes | One of: `orchestrator`, `memory-store`, `data-source`, `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `automation-runner`, `mcp-gateway`; dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):
@@ -143,7 +143,7 @@ View schema:
 | `placement` | enum | yes | `faculty-tab` (renders inline on the Compose pane next to the Fitting's config form) or `sidebar-surface` (gets its own page under `/fitting/<fitting-id>/...` and a left-nav entry). |
 | `entry` | string | yes | Path relative to the Fitting root. Authoritative declaration; the host app does NOT load from disk in v2 (see [SPEC.md](./SPEC.md) §9). |
 | `route` | string | yes | Path fragment under the Fitting's prefix (`/<fitting-id>`). Supports react-router-style params (`/:id`, `/:id/edit`). The view resolver matches sub-paths against this template; first-match wins. |
-| `chrome` | enum | no | `default` (overview header above the view) or `full-bleed` (the surface page suppresses the fitting-overview header and width cap; the view owns the whole estate — e.g. the Workspaces tiling container). |
+| `chrome` | enum | no | `default` (overview header above the view) or `full-bleed` (the surface page suppresses the fitting-overview header and width cap; the view owns the whole estate). |
 
 ### v1 → v2 normalization
 

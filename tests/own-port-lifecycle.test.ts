@@ -124,7 +124,7 @@ describe("spawn record placement", () => {
 describe("fittingId validation", () => {
   it("accepts well-formed ids", () => {
     expect(isValidFittingId("monitor-default")).toBe(true);
-    expect(isValidFittingId("worktree-management-sequoias")).toBe(true);
+    expect(isValidFittingId("dev-env")).toBe(true);
     expect(isValidFittingId("a")).toBe(true);
   });
 

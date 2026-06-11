@@ -5,6 +5,7 @@ dependencies:
   apm:
     - path: ../../fittings/seed/artifact-store
     - path: ../../fittings/seed/coding-subagent
+    - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/documents
     - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
@@ -15,14 +16,10 @@ dependencies:
     - path: ../../fittings/seed/projects-index
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
-    - path: ../../fittings/seed/session-view-sequoias
     - path: ../../fittings/seed/soul-architect
     - path: ../../fittings/seed/soul-engineer
-    - path: ../../fittings/seed/terminal-armory-default
     - path: ../../fittings/seed/testing
     - path: ../../fittings/seed/tier-classifier
-    - path: ../../fittings/seed/workspaces
-    - path: ../../fittings/seed/worktree-management-sequoias
 x-garrison:
   composition:
     id: dogfood-orch
@@ -98,7 +95,11 @@ x-garrison:
         - id: mcp-gateway
           config: {}
       channels: []
-      observability: []
+      observability:
+        - id: monitor-default
+          config:
+            port: 7077
+            bind_host: 127.0.0.1
       soul: []
       orchestrator:
         - id: garrison-orchestrator
@@ -108,25 +109,11 @@ x-garrison:
           config:
             storage_root: artifacts
       sessions:
-        - id: workspaces
-          config: {}
-      terminal:
-        - id: terminal-armory-default
-          config: {}
-      screen-share:
+        - id: dev-env
+          config:
+            port: 7086
+            bind_host: 127.0.0.1
         - id: screen-share-default
           config: {}
-      worktree-management:
-        - id: worktree-management-sequoias
-          config:
-            repo_path: ~/dev/garrison
-      session-view:
-        - id: session-view-sequoias
-          config: {}
-      monitor:
-        - id: monitor-default
-          config:
-            port: 7077
-            bind_host: 127.0.0.1
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md

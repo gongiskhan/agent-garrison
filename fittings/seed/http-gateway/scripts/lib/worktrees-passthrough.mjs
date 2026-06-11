@@ -1,16 +1,16 @@
-// Worktree CRUD endpoints, now backed by the standalone worktree-management
-// Fitting on its own port (default 7080) instead of the deleted Garrison
-// Next.js (deleted) /api/worktrees routes. Configure the base URL via the
-// WORKTREE_FITTING_BASE_URL env var; default is http://127.0.0.1:7080.
+// Worktree CRUD endpoints, backed by the consolidated dev-env Fitting on its
+// own port (default 7086) — the standalone worktree-management Fitting was
+// folded into it. Configure the base URL via the WORKTREE_FITTING_BASE_URL
+// env var; default is http://127.0.0.1:7086.
 //
-// Endpoint shapes (from the worktree-management-sequoias Fitting server):
+// Endpoint shapes (gateway-compat aliases kept by the dev-env Fitting server):
 //   - GET    /worktrees?repoPath=<path>     - list
 //   - POST   /worktrees {repoPath, branch, baseBranch, title}  - create
 //   - DELETE /worktrees/:id                 - remove
 
 import { logEvent } from "./log.mjs";
 
-const DEFAULT_BASE = "http://127.0.0.1:7080";
+const DEFAULT_BASE = "http://127.0.0.1:7086";
 
 export class WorktreesProxy {
   constructor(_nextBaseUrl) {

@@ -36,7 +36,7 @@ function metadata(overrides: Partial<GarrisonMetadata> = {}): GarrisonMetadata {
 
 describe("instance ref codec", () => {
   it("round-trips a non-default instance ref", () => {
-    const ref = { fittingId: "terminal-armory-default", viewId: "main", instanceId: "sess-2" };
+    const ref = { fittingId: "dev-env", viewId: "main", instanceId: "sess-2" };
     expect(parseInstanceRef(formatInstanceRef(ref))).toEqual(ref);
   });
 
@@ -85,10 +85,10 @@ describe("view descriptor + provision derivation", () => {
   });
 
   it("derives a single own-port surface view", () => {
-    const descriptors = deriveViewDescriptors("terminal-armory-default", metadata({ own_port: true }));
+    const descriptors = deriveViewDescriptors("dev-env", metadata({ own_port: true }));
     expect(descriptors).toEqual([
       expect.objectContaining({
-        fittingId: "terminal-armory-default",
+        fittingId: "dev-env",
         viewId: OWN_PORT_VIEW_ID,
         surface: "own-port"
       })
@@ -123,14 +123,14 @@ describe("resolver exposes derived view capability", () => {
       })
     },
     {
-      id: "terminal-armory-default",
+      id: "dev-env",
       metadata: metadata({
-        provides: [{ kind: "terminal-session", name: "armory" }],
+        provides: [{ kind: "dev-env", name: "dev-env" }],
         own_port: true
       })
     },
     {
-      id: "workspaces",
+      id: "view-consumer",
       metadata: metadata({ consumes: [{ kind: "view", cardinality: "any" }] })
     }
   ];
@@ -138,22 +138,22 @@ describe("resolver exposes derived view capability", () => {
   it("a `view` consumer with cardinality any discovers every produced view without hardcoding", () => {
     const result = resolveCapabilities(selection);
     expect(result.ok).toBe(true);
-    const consumer = result.graph.consumers.find((c) => c.fittingId === "workspaces");
+    const consumer = result.graph.consumers.find((c) => c.fittingId === "view-consumer");
     expect(consumer).toBeTruthy();
     const matchedNames = consumer!.matched.map((node) => node.provision.name).sort();
-    expect(matchedNames).toEqual(["artifact-store:list", "terminal-armory-default:main"]);
+    expect(matchedNames).toEqual(["artifact-store:list", "dev-env:main"]);
   });
 
   it("a named view consumption targets one fitting's view", () => {
     const result = resolveCapabilities([
       ...selection.slice(0, 2),
       {
-        id: "workspaces",
+        id: "view-consumer",
         metadata: metadata({ consumes: [{ kind: "view", name: "artifact-store:list" }] })
       }
     ]);
     expect(result.ok).toBe(true);
-    const consumer = result.graph.consumers.find((c) => c.fittingId === "workspaces");
+    const consumer = result.graph.consumers.find((c) => c.fittingId === "view-consumer");
     expect(consumer!.matched).toHaveLength(1);
     expect(consumer!.matched[0].fittingId).toBe("artifact-store");
   });
@@ -161,7 +161,7 @@ describe("resolver exposes derived view capability", () => {
   it("backward compat: compositions without view consumers resolve exactly as before", () => {
     const result = resolveCapabilities(selection.slice(0, 2));
     expect(result.ok).toBe(true);
-    expect(result.graph.providers.get("terminal-session")).toHaveLength(1);
+    expect(result.graph.providers.get("dev-env")).toHaveLength(1);
     expect(result.graph.providers.get("artifact-store")).toHaveLength(1);
   });
 
@@ -180,7 +180,7 @@ describe("resolver exposes derived view capability", () => {
     );
     const block = renderCapabilitiesBlock(entries);
     expect(block).toContain("artifact-store:default");
-    expect(block).toContain("terminal-session:armory");
+    expect(block).toContain("dev-env:dev-env");
     expect(block).not.toContain("view:");
   });
 });
@@ -204,16 +204,16 @@ describe("instance enumeration from the view-state dir", () => {
   });
 
   it("returns [] for a fitting that has never persisted", async () => {
-    expect(await listInstanceIds("terminal-armory-default")).toEqual([]);
+    expect(await listInstanceIds("dev-env")).toEqual([]);
   });
 
   it("lists one id per *.json file, sorted, ignoring non-instance files", async () => {
-    const dir = path.join(sandbox, "view-state", "terminal-armory-default");
+    const dir = path.join(sandbox, "view-state", "dev-env");
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "sess-2.json"), "{}");
     writeFileSync(path.join(dir, "default.json"), "{}");
     writeFileSync(path.join(dir, "notes.txt"), "ignore me");
     writeFileSync(path.join(dir, ".tmp-half-write.json"), "{}");
-    expect(await listInstanceIds("terminal-armory-default")).toEqual(["default", "sess-2"]);
+    expect(await listInstanceIds("dev-env")).toEqual(["default", "sess-2"]);
   });
 });

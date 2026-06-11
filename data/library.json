@@ -120,25 +120,11 @@
     }
   },
   {
-    "id": "workspaces",
-    "name": "Workspaces",
-    "repo": "local:fittings/seed/workspaces",
-    "localPath": "fittings/seed/workspaces",
-    "summary": "Tiling pane workspace. References other Fittings' views (embedded or own-port) and arranges them side by side; the layout persists continuously.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.0,
-      "claude_code": 4.0
-    }
-  },
-  {
-    "id": "terminal-armory-default",
-    "name": "Terminal",
-    "repo": "local:fittings/seed/terminal-armory-default",
-    "localPath": "fittings/seed/terminal-armory-default",
-    "summary": "PTY-backed terminal sessions with SSH host support and Claude Code launch presets.",
+    "id": "dev-env",
+    "name": "Dev Env",
+    "repo": "local:fittings/seed/dev-env",
+    "localPath": "fittings/seed/dev-env",
+    "summary": "Consolidated dev surface on port 7086 — every Claude Code session is a tab with a Claude PTY + shell PTY and a live browser pane; worktree lifecycle and session status built in.",
     "platforms": [
       "claude-code"
     ],
@@ -159,34 +145,6 @@
     "ratings": {
       "global": 4.2,
       "claude_code": 4.2
-    }
-  },
-  {
-    "id": "worktree-management-sequoias",
-    "name": "Worktrees",
-    "repo": "local:fittings/seed/worktree-management-sequoias",
-    "localPath": "fittings/seed/worktree-management-sequoias",
-    "summary": "Git worktree lifecycle manager — create, list, and delete worktrees with per-branch isolation. Derived from Sequoias.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "session-view-sequoias",
-    "name": "Session view",
-    "repo": "local:fittings/seed/session-view-sequoias",
-    "localPath": "fittings/seed/session-view-sequoias",
-    "summary": "Claude Code session status dashboard across git worktrees.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.3,
-      "claude_code": 4.3
     }
   },
   {

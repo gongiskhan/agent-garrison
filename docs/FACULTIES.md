@@ -15,13 +15,17 @@ roles, enforced by `facultyIds` in `src/lib/types.ts`:
   holds external data sources (trello-data-source, revived with the
   `data-source` capability kind); `data-sources` is a deprecation alias for it.
 - **observability** — health, logs, runtime reporting (the read-only Logs view).
-- **sessions** — the runtime session/worktree/terminal/screen-share residue.
+- **sessions** — the runtime own-port residue, headlined since the 2026-06-11
+  Dev Env consolidation by the **dev-env** Fitting: a tabbed surface where each
+  Claude Code session gets a Claude PTY + shell PTY alongside a live browser
+  pane, with worktrees and session status built in. Screen-share, browser,
+  outposts, and the artifact store round out the role.
 
 Everything that used to be its own Faculty — Skills, Hooks, MCPs, Plugins,
 Scripts, Settings, Context, Plans — is now a **Quarters platform primitive**, not
 a Faculty (see [`decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./decisions/2026-06-07-faculties-as-roles-operative-folded.md)).
-The own-port runtime residue (terminal, screen-share, worktree, session-view,
-outposts, browser, monitor, web-channel, voice) survives under
+The own-port runtime residue (dev-env, screen-share, outposts, browser,
+monitor, web-channel, voice) survives under
 `sessions`/`channels`/`observability` via the metadata `own_port` flag, not as
 selectable faculties. Legacy faculty names are accepted as deprecation aliases.
 
@@ -193,7 +197,7 @@ The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary
 
 ## 17. Browser
 
-- Purpose: headless browser substrate Garrison owns and exposes over HTTP/WS. Hosts a Playwright-launched Chromium, streams per-tab JPEG screencast, dispatches mouse/key/touch input, and reverse-proxies Chromium's built-in DevTools so iPad Safari over Tailscale gets the full Chrome DevTools UI. Targets two consumers: the terminal Fitting's split-pane (replaces its old `<iframe>` pointed at the user's dev server) and future Operative-side Fittings that want to drive a browser via raw CDP.
+- Purpose: headless browser substrate Garrison owns and exposes over HTTP/WS. Hosts a Playwright-launched Chromium, streams per-tab JPEG screencast, dispatches mouse/key/touch input, and reverse-proxies Chromium's built-in DevTools so iPad Safari over Tailscale gets the full Chrome DevTools UI. Targets two consumers: the Dev Env Fitting's per-session browser pane (the successor to the retired terminal Fitting's split-pane, which replaced its old `<iframe>` pointed at the user's dev server) and future Operative-side Fittings that want to drive a browser via raw CDP.
 - Cardinality: single.
 - Shapes: `plugin`, `script`.
 - Config: bind port (default `7084`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose over Tailscale), viewport dimensions (default `1600x1200`), JPEG quality (default `70`), `every_nth_frame` (default `1`).

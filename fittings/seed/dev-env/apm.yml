@@ -1,0 +1,109 @@
+name: dev-env
+version: 0.1.0
+description: Consolidated Dev Env — every Claude Code session is a tab with a Claude PTY + shell PTY on the left and a live browser pane on the right; worktree lifecycle and session status are built in. Own React UI on port 7086.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: single
+  own_port: true
+  default_port: 7086
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: One dev surface (default port 7086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; git worktree create/delete, quick prompts, and PTY-driven PR/commit flows included.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7086
+      description: HTTP port the Dev Env UI binds to. Falls back to next free port (installed hooks keep POSTing to the baked default).
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: default_shell
+      type: string
+      default: ""
+      description: Shell to spawn for PTYs. Empty = $SHELL or /bin/zsh.
+    - key: dirty_check_ttl_ms
+      type: integer
+      default: 10000
+      description: TTL for the per-cwd `git status --porcelain` dirty cache (stale-while-revalidate).
+  provides:
+    - kind: dev-env
+      name: dev-env
+  consumes:
+    - kind: outpost
+      cardinality: any
+  setup:
+    command: node ui/build.mjs && node scripts/install-hooks.mjs
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: node apm_modules/_local/dev-env/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Consumers discover the Dev Env at runtime by reading:
+      ~/.garrison/ui-fittings/dev-env.json
+    Carries: { fittingId, port, url, pid, startedAt }.
+    Then `GET <url>/health` to confirm reachability before linking.
+
+    HTTP endpoints:
+      GET    /health                     - liveness { ok, port, pid, ptys }
+      GET    /sessions                   - { sessions: DevEnvSession[] }
+      POST   /sessions/:id/ptys          - { role: "claude"|"shell", resume? }
+                                           ensure a PTY for the session
+      POST   /sessions/:id/instruct      - { text, delayMs? } type text into
+                                           the running Claude PTY, pause,
+                                           then press Enter. 409 when no
+                                           running Claude PTY.
+      DELETE /sessions/:id               - remove session record + PTYs (and
+                                           the git worktree when the cwd
+                                           lives under ~/.worktrees)
+      POST   /sessions/cleanup           - purge missing-path AND stale/dead
+                                           records from the raw state file,
+                                           killing their PTYs
+      POST   /worktrees                  - { repoPath, branch, baseBranch?,
+                                           title? } create worktree + session
+                                           + both PTYs; 201 with the session
+      GET    /worktrees?repoPath=<path>  - list worktrees (gateway-compat)
+      DELETE /worktrees/:id              - alias of DELETE /sessions/:id
+      GET    /projects                   - git repos under the dev root
+      GET    /dev-root | PATCH /dev-root - read/set ~/.garrison/dev-root
+      POST   /_hook?event=<name>         - Claude Code hook payload
+                                           (session_id, cwd, ...) forwarded
+                                           verbatim from stdin. Tracked:
+                                           UserPromptSubmit | PostToolUse |
+                                           Stop | Notification.
+      GET    /app-port?cwd=<path>        - port from <cwd>/app.port
+      GET    /browser-target             - browser fitting's live URL
+      GET    /tailscale-ip               - this machine's Tailscale IPv4
+
+    DevEnvSession shape:
+      { id, branch, worktreePath, projectName, projectPath, lastStatus,
+        lastStatusAt, claudeSessionId, title, source, dirty, isWorktree,
+        external, claudePty, shellPty }
+    PTY summaries carry { id?, state: "running"|"exited"|"persisted"|"none",
+    exitCode?, claudeAlive? }. `external` means a Claude session detected via
+    hooks with no Claude PTY here (started outside Dev Env); take it over
+    with POST /sessions/:id/ptys { role: "claude", resume: true }.
+    `claudeSessionId` is the Claude Code session id captured from hook
+    payloads. Statuses: starting, working, waiting, idle, errored, dead,
+    stale.
+
+    WebSocket protocol on /io (per-PTY, id = "<sessionId>-claude" or
+    "<sessionId>-shell"):
+      client -> server JSON {type:"init", sessionId: <ptyId>}
+      server -> client JSON {type:"init_ack"} or {type:"error", message}
+      client -> server binary: stdin bytes
+      server -> client binary: stdout bytes
+      client -> server JSON {type:"resize", cols, rows}
+
+    Reads/writes ~/.garrison/sessions/state.json (dev-env is its writer).
+    Setup installs `_garrison`-tagged matcher groups into
+    ~/.claude/settings.json so Claude Code hooks POST status transitions to
+    /_hook; it also strips the retired session-view-sequoias groups.
+    Re-running setup is idempotent. To remove hooks:
+    `node scripts/uninstall-hooks.mjs`.

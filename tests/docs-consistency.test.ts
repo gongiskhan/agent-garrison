@@ -18,6 +18,11 @@ const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 // revived trello-data-source Fitting.
 const DROPPED_KINDS = ["soul", "agent-skill", "automation-runner", "mcp-gateway"];
 
+// The kinds the 2026-06 Dev Env consolidation retired — terminal,
+// worktree-management, and session-view collapsed into the single dev-env
+// Fitting/kind.
+const DROPPED_KINDS_2026_06 = ["terminal-session", "worktree", "session-view"];
+
 // The stale flat-Faculty count phrasings that must no longer appear as the
 // current model. (Historical references like "24-Faculty model" do not match.)
 const STALE_FACULTY_COUNT = /24 flat top-level|24 flat\b|24 Faculties/i;
@@ -32,7 +37,7 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
       "orchestrator",
       "sessions"
     ]);
-    for (const dropped of DROPPED_KINDS) {
+    for (const dropped of [...DROPPED_KINDS, ...DROPPED_KINDS_2026_06]) {
       expect(capabilityKinds as readonly string[], `${dropped} must not be a live kind`).not.toContain(
         dropped
       );
@@ -54,6 +59,21 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
     expect(
       droppedLine,
       "CAPABILITIES.md needs one line marking all four dropped kinds as dropped/removed/retired"
+    ).toBeTruthy();
+  });
+
+  it("CAPABILITIES.md explicitly marks the Dev Env consolidation's dropped kinds", () => {
+    const doc = read("docs/CAPABILITIES.md");
+    const droppedLine = doc
+      .split("\n")
+      .find(
+        (line) =>
+          /dropped|removed|retired|consolidat/i.test(line) &&
+          DROPPED_KINDS_2026_06.every((k) => line.includes(k))
+      );
+    expect(
+      droppedLine,
+      "CAPABILITIES.md needs one line marking terminal-session/worktree/session-view as dropped into dev-env"
     ).toBeTruthy();
   });
 

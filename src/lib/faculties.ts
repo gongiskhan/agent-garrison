@@ -1,9 +1,9 @@
 import type { FacultyDefinition, FacultyId, GarrisonMetadata } from "./types";
 
 // Faculties are ROLES (the Quarters pivot). Each is a slot a Fitting fills; the
-// own-port runtime residue (terminal, screen-share, worktree, session-view,
-// outposts, browser, monitor, web-channel, voice) folds under sessions /
-// channels / observability and is detected via the `own_port` metadata flag.
+// own-port runtime residue (dev-env, screen-share, outposts, browser, monitor,
+// web-channel, voice) folds under sessions / channels / observability and is
+// detected via the `own_port` metadata flag.
 // Legacy faculty names map here via metadata.ts normalizeDeprecations.
 export const faculties: FacultyDefinition[] = [
   {

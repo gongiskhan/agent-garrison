@@ -21,8 +21,9 @@ A single Operative running locally that:
 
 1. Hosts the user's full development workflow inside Garrison —
    worktrees, terminals, Claude Code sessions, an embedded browser
-   for both human and agent inspection, session-view, screen-share
-   — all as Fittings, all rendered as views in Garrison's shell.
+   for both human and agent inspection, session monitoring,
+   screen-share — all as Fittings, all rendered as views in
+   Garrison's shell.
    The user can do a full day of dev work without touching VS Code,
    iTerm, or a separate browser.
 1. Runs every dev task through a **disciplined pipeline**: classify
@@ -91,8 +92,8 @@ work.
   - **Sequoias** (sibling project on this machine) — fully
     decomposed into Workbench-style flat Faculties (terminal,
     worktrees, session-view) during the old Phase 5 and Phase 5.5.
-    The Sequoias standalone app is retired pending a 3-day
-    daily-use validation gate.
+    Those Fittings collapsed into the single `dev-env` Fitting on
+    2026-06-11; the Sequoias standalone app is fully retired.
   - **Harmonika** (sibling project on this machine) — provided the
     screen-share implementation and the terminal/PTY plumbing.
     Source code lifted wholesale during old Phase 5.
@@ -114,7 +115,9 @@ work.
   decision made `terminal`, `worktrees`, `session-view`,
   `screen-share` flat sibling Faculties at the top level. The shell
   renders Fittings whose Faculty appears in the active composition,
-  no special Workbench grouping.
+  no special Workbench grouping. (Since 2026-06-11, `terminal`,
+  `worktrees`, and `session-view` have collapsed further into the
+  single `dev-env` Fitting; `screen-share` stands alone.)
 - **"Views" is the canonical term for a Fitting's UI surface.**
   Fittings ship one or more views; the shell hosts them.
 - **Faculties terminology:** Faculties (slots), Fittings (concrete
@@ -324,19 +327,21 @@ IDE, terminal, or browser tooling needed for the dev workflow.
 ### What's shipped
 
 Per the old Phase 5 and Phase 5.5 work, fully decomposed after the
-2026-05-17 Workbench dissolution into flat sibling Faculties:
+2026-05-17 Workbench dissolution into flat sibling Faculties, then
+re-consolidated where noted (2026-06-11 Dev Env consolidation):
 
-- **`terminal` Faculty + `terminal-armory-default` Fitting** —
-  xterm.js + PTY backend, multi-session, busy/idle indicators, host
-  selector, "Open Claude Code" launch presets.
-- **`worktrees` Faculty + `worktrees-sequoias` Fitting** — git
-  worktree CRUD, deterministic port allocation, env-file rewriting,
-  `package.json` patching for frontend dev scripts, session-state
-  integration. Per Phase 5.5: full load-bearing parity with the
-  Sequoias standalone app.
-- **`session-view` Faculty + `session-view-sequoias` Fitting** —
-  reads `~/.garrison/sessions/state.json`, badges sessions by status
-  (working/waiting/idle/dead) driven by Claude Code hook events.
+- **`dev-env` Fitting (consolidated 2026-06-11, port 7086)** — the
+  former `terminal-armory-default` (xterm.js + PTY backend,
+  multi-session, busy/idle indicators, launch presets),
+  `worktree-management-sequoias` (git worktree CRUD, deterministic
+  port allocation, env-file rewriting, `package.json` patching),
+  and `session-view-sequoias` (`~/.garrison/sessions/state.json`
+  badges driven by Claude Code hook events) Fittings collapsed
+  into one tabbed surface: every Claude Code session is a tab
+  holding a Claude PTY + shell PTY (left) and the live browser
+  pane (right), with a quick-prompt bar and worktree / PR /
+  commit-and-push actions in the menu. The `workspaces` Fitting
+  was deleted outright with no successor.
 - **`screen-share` Faculty + `screen-share-default` Fitting** —
   macOS screen capture surface watchable from any Garrison client.
 - **Views terminology + contract v2 wiring.** Fittings ship views
@@ -362,10 +367,11 @@ Per the old Phase 5 and Phase 5.5 work, fully decomposed after the
    model), navigation between views inline, "this is the view that
    matters right now" affordances. The goal is to make the worktree
    view the natural starting point of every dev task.
-1. **Sequoias retirement (T8 from Phase 5).** 3-day daily-use
-   validation gate not yet met. Once met, the standalone Sequoias
-   app stops being used and Garrison's worktrees Fitting is the
-   only worktree manager.
+1. **Sequoias retirement (T8 from Phase 5) — landed 2026-06-11.**
+   The Dev Env consolidation closed this: terminal, worktree
+   management, and session view collapsed into the `dev-env`
+   Fitting, the standalone Sequoias app is no longer used, and
+   `dev-env` is the only worktree manager.
 1. **Daily-use smoke pass.** A deliberate week of working on
    agent-garrison entirely inside Garrison. Bugs surface, polish
    gets applied, the experience is real-world hardened.
@@ -373,12 +379,11 @@ Per the old Phase 5 and Phase 5.5 work, fully decomposed after the
 ### Stage 1 done when
 
 - I open Garrison in the morning. I create or pick a worktree from
-  the worktrees view. I open a terminal in that worktree's
-  directory. I open Claude Code in that terminal via the launch
-  preset. I open the browser view to test the running dev server.
-  Session-view tells me what's working and what's idle. I get
-  through the whole day without opening VS Code, iTerm, or Chrome
-  separately.
+  the dev-env view. Each Claude Code session is a tab with its
+  Claude PTY and a shell PTY, the browser pane alongside to test
+  the running dev server. Session status badges tell me what's
+  working and what's idle. I get through the whole day without
+  opening VS Code, iTerm, or Chrome separately.
 - The Browser Fitting handles both interactive browsing from the
   iPad over Tailscale AND CDP access from Operative-driven
   inspection, concurrently and reliably.
@@ -978,7 +983,8 @@ Anything raised in conversation but not yet resolved. Re-sectioned
   this).
 - Browser Fitting context isolation — one Chromium with many named
   contexts (lean) vs separate instances per worktree.
-- Sequoias retirement gate (3-day daily-use validation).
+- Sequoias retirement gate — closed 2026-06-11 by the Dev Env
+  consolidation; Sequoias retired outright.
 
 ### Stage 2
 

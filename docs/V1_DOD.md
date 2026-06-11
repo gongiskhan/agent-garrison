@@ -61,11 +61,14 @@ Per-phase evidence lives under [`phases/`](./phases/).
 See [`phases/PHASE5_VERIFICATION.md`](./phases/PHASE5_VERIFICATION.md)
 and [`phases/PHASE5_WORKBENCH_VERIFICATION.md`](./phases/PHASE5_WORKBENCH_VERIFICATION.md).
 Workbench shell area dissolved 2026-05-17 — `terminal`,
-`screen-share`, `worktree-management`, `session-view` are flat
-top-level Faculties whose Fittings serve their own React UI on their
-own HTTP port (Monitor pattern). Sequoias decomposition shipped under
-the 5.5 follow-up; the standalone Sequoias app is pending the 3-day
-daily-use validation gate before retirement.
+`screen-share`, `worktree-management`, `session-view` became flat
+top-level Faculties whose Fittings served their own React UI on their
+own HTTP port (Monitor pattern). The 2026-06-07 Quarters pivot
+collapsed the flat Faculties into 6 roles, and the 2026-06-11 Dev Env
+consolidation folded terminal/worktree-management/session-view into
+the single `dev-env` Fitting (port 7086); `screen-share` stands alone.
+Sequoias decomposition shipped under the 5.5 follow-up; the standalone
+Sequoias app is fully retired as of the consolidation.
 
 The Browser Fitting (Stage 1 finishing work per the 2026-05-26
 restructure) is still in flight.

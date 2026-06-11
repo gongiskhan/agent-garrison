@@ -6,18 +6,15 @@ dependencies:
     - path: ../../fittings/seed/artifact-store
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/deepgram-voice
+    - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/memory
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/screen-share-default
-    - path: ../../fittings/seed/session-view-sequoias
     - path: ../../fittings/seed/slack-channel
-    - path: ../../fittings/seed/terminal-armory-default
     - path: ../../fittings/seed/trello-data-source
     - path: ../../fittings/seed/web-channel-default
-    - path: ../../fittings/seed/workspaces
-    - path: ../../fittings/seed/worktree-management-sequoias
 x-garrison:
   composition:
     id: default
@@ -81,16 +78,11 @@ x-garrison:
         - id: artifact-store
           config:
             storage_root: artifacts
-        - id: workspaces
-          config: {}
-        - id: terminal-armory-default
-          config: {}
-        - id: screen-share-default
-          config: {}
-        - id: worktree-management-sequoias
+        - id: dev-env
           config:
-            repo_path: ~/Projects/agent-garrison
-        - id: session-view-sequoias
+            port: 7086
+            bind_host: 127.0.0.1
+        - id: screen-share-default
           config: {}
         - id: browser-default
           config:

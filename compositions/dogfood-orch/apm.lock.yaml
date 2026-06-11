@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-17T13:04:22.270578+00:00'
+generated_at: '2026-06-11T10:06:42.935061+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -14,6 +14,10 @@ dependencies:
   - .claude/skills/coding-subagent
   source: local
   local_path: ../../fittings/seed/coding-subagent
+- repo_url: _local/dev-env
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/dev-env
 - repo_url: _local/documents
   package_type: apm_package
   deployed_files:
@@ -25,7 +29,7 @@ dependencies:
   deployed_files:
   - .claude/commands/garrison-orchestrator.md
   deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:de996fd652c6f04cf5df8ba0e1094d79386f06e091cce77760126ca47d97fb9e
+    .claude/commands/garrison-orchestrator.md: sha256:b342b142520bbe5809dd2619feb9406a4add88fb78cb04d178fee6a4c12e3a46
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway
@@ -74,10 +78,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/screen-share-default
-- repo_url: _local/session-view-sequoias
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/session-view-sequoias
 - repo_url: _local/soul-architect
   package_type: apm_package
   deployed_files:
@@ -94,10 +94,6 @@ dependencies:
     .claude/commands/soul-engineer.md: sha256:58dbcdabc0b0a14d16670b7709dd5f5eac3de8a9b7bc2829c88cb327d6157e0b
   source: local
   local_path: ../../fittings/seed/soul-engineer
-- repo_url: _local/terminal-armory-default
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/terminal-armory-default
 - repo_url: _local/testing
   package_type: invalid
   source: local
@@ -108,7 +104,3 @@ dependencies:
   - .claude/skills/tier-classifier
   source: local
   local_path: ../../fittings/seed/tier-classifier
-- repo_url: _local/worktree-management-sequoias
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/worktree-management-sequoias

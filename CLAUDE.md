@@ -57,7 +57,7 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. Post-pivot there are **6 roles** (`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`); the former flat 24-Faculty list collapsed into them and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. A subset of runtime Fittings (`terminal`, `screen-share`, `worktree-management`, `session-view`, `outposts`, `monitor`, `web-channel`, `browser`, `voice`) is **own-port** — they serve their own React UI (or a headless backend, for `voice`) on their own HTTP port (Monitor pattern) under the `sessions`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section; it does not embed them.
+- **Faculty** — a **role** slot in a composition. Post-pivot there are **6 roles** (`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`); the former flat 24-Faculty list collapsed into them and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. A subset of runtime Fittings (`dev-env`, `screen-share`, `outposts`, `monitor`, `web-channel`, `browser`, `voice`) is **own-port** — they serve their own React UI (or a headless backend, for `voice`) on their own HTTP port (Monitor pattern) under the `sessions`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section; it does not embed them.
 - **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`). Garrison knows that Fittings have **views**; it does not know about "tools".
 - **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Two refinements: eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting that started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
 - **Armory** — `/armory`, the Fitting registry browser.
@@ -90,7 +90,7 @@ src/lib/             Backend runtime: runner.ts (lifecycle),
                      vault.ts (AES-256-GCM secret store),
                      artifact-store.ts, fitting-views.ts (UI contract
                      v2 router), preflight.ts, hosts.ts,
-                     worktrees.ts, sequoias-sessions.ts.
+                     own-port-lifecycle.ts, view-instances.ts.
 src/components/      React UI (Compose, Run, Vault, Chrome,
                      fitting-views registry + status hook, armory,
                      garrison home).
@@ -126,10 +126,12 @@ Faculty. Legacy faculty names are accepted as deprecation aliases. See
 
 **Own-port runtime residue** — survives at runtime under
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
-flag (not a selectable faculty): `terminal` (default port 7078),
-`screen-share` (7079), `worktree-management` (7080),
-`session-view` (7081), `outposts` (7082), `monitor` (7077),
-`web-channel` (7083), `browser` (7084), and `voice` (7085). Their Fittings serve their own React UI on the
+flag (not a selectable faculty): `dev-env` (default port 7086),
+`screen-share` (7079), `outposts` (7082), `monitor` (7077),
+`web-channel` (7083), `browser` (7084), and `voice` (7085). The Dev Env
+Fitting (2026-06-11 consolidation) folds the former terminal (7078),
+worktree-management (7080), and session-view (7081) Fittings into one tabbed
+surface. Their Fittings serve their own React UI on the
 listed port (Monitor pattern, though `voice` is a headless backend) and register themselves at runtime via
 `~/.garrison/ui-fittings/<id>.json`. The sidebar Views section
 surfaces them; Garrison does not embed them. See
@@ -150,14 +152,16 @@ is added.
 
 Current kinds (per `capabilityKinds` in `src/lib/types.ts`): `orchestrator`,
 `memory-store`, `data-source`, `channel`, `vault`, `artifact-store`,
-`terminal-session`, `worktree`, `session-view`, `screen-share`, `outpost`,
+`dev-env`, `screen-share`, `outpost`,
 `monitor`, `voice`, `view` (derived by the resolver from `ui.views[]` /
 `own_port`, never declared in `provides`).
 **Dropped in the 2026-06-07 Quarters pivot:** `soul`, `agent-skill`,
 `automation-runner`, `mcp-gateway`. `data-source` was dropped with them but
 re-added 2026-06-10 for the revived trello-data-source Fitting (memory role).
+**Dropped in the 2026-06-11 Dev Env consolidation:** `terminal-session`,
+`worktree`, `session-view` — collapsed into the singleton `dev-env` kind.
 `vault` is always provided by the runtime synthetic node (`__runtime__`).
-`terminal-session` is singleton.
+`dev-env` is singleton.
 
 ### The runner (`src/lib/runner.ts`)
 

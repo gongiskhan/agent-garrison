@@ -64,6 +64,8 @@ const ORCHESTRATOR_MODE = Boolean(SOULS_CONFIG_RAW);
 const registry = new SessionRegistry();
 const channels = new ChannelHub();
 const watcher = new JsonlWatcher();
+// Proxies the dev-env Fitting's /worktrees endpoints (default 7086); the
+// NEXT_BASE_URL argument is legacy and ignored by the proxy.
 const worktrees = new WorktreesProxy(NEXT_BASE_URL);
 
 let soulsConfig = null;

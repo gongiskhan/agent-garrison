@@ -28,14 +28,13 @@ of the Quarters pivot:
 | gateway       | http-gateway                                                             |
 | memory        | memory, trello-data-source                                               |
 | observability | monitor-default                                                          |
-| sessions      | artifact-store, workspaces, browser-default, terminal-armory-default, screen-share-default, worktree-management-sequoias, session-view-sequoias, outpost-tailscale-host |
+| sessions      | artifact-store, dev-env, browser-default, screen-share-default, outpost-tailscale-host |
 
 The own-port Fittings (the `own_port` metadata flag — Monitor pattern)
 serve their own UI/backend on their own port: monitor-default (7077),
-terminal-armory-default (7078), screen-share-default (7079),
-worktree-management-sequoias (7080), session-view-sequoias (7081),
-outpost-tailscale-host (7082), web-channel-default (7083),
-browser-default (7084), deepgram-voice (7085, headless backend).
+screen-share-default (7079), outpost-tailscale-host (7082),
+web-channel-default (7083), browser-default (7084),
+deepgram-voice (7085, headless backend), dev-env (7086).
 
 ## Capability wiring
 
@@ -55,27 +54,31 @@ Fittings and refuses to mark Compose ready until the wiring resolves.
 | monitor-default              | monitor:monitor                           | —                                                                              |
 | artifact-store               | artifact-store:fs-store                   | —                                                                              |
 | browser-default              | —                                         | —                                                                              |
-| workspaces                   | —                                         | view (any)                                                                     |
-| terminal-armory-default      | terminal-session:terminal-armory-default  | outpost (any)                                                                  |
+| dev-env                      | dev-env:dev-env                           | outpost (any)                                                                  |
 | screen-share-default         | screen-share:screen-share-default         | —                                                                              |
-| worktree-management-sequoias | worktree:worktree-management-sequoias     | outpost (any)                                                                  |
-| session-view-sequoias        | session-view:session-view-sequoias        | worktree (optional-one), terminal-session (optional-one), outpost (any)        |
 | outpost-tailscale-host       | outpost:outpost-tailscale-host            | —                                                                              |
 
 Notes:
 
 - The capability-kind vocabulary is `capabilityKinds` in
   `src/lib/types.ts`: `orchestrator`, `memory-store`, `data-source`,
-  `channel`, `vault`, `artifact-store`, `terminal-session`, `worktree`,
-  `session-view`, `screen-share`, `outpost`, `monitor`, `voice`, `view`.
+  `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`,
+  `outpost`, `monitor`, `voice`, `view`.
 - The `vault` capability is satisfied by the runtime-synthetic provider
   (`__runtime__`), so vault consumers always resolve. Own-port Fittings
   that consume `vault` get the secrets injected into their spawn env
   (`vaultEnvForEntry`); a keyless start is healed via the spawn-record
   contract (see [`docs/UI-FITTINGS.md`](../../docs/UI-FITTINGS.md)).
 - `view` is **derived, never declared**: the resolver synthesises one
-  `view` provision per produced view, which is how Workspaces discovers
-  tileable views with cardinality `any`.
+  `view` provision per produced view, which is how the sidebar Views
+  section is populated.
+- `dev-env` is a **singleton** kind. The Fitting's setup is
+  `node ui/build.mjs && node scripts/install-hooks.mjs` (build the UI,
+  install the Claude Code hook groups tagged `fitting:dev-env`); verify
+  is `probe.mjs`. It owns `~/.garrison/sessions/state.json`, and
+  http-gateway's `/worktrees` passthrough now defaults to it
+  (`http://127.0.0.1:7086` — dev-env keeps the GET/POST `/worktrees`
+  and DELETE `/worktrees/:id` gateway-compat aliases).
 - `deepgram-voice` provides `voice` to `web-channel-default` (push-to-talk
   STT, read-aloud TTS, live `/stream` endpointing); the Deepgram key
   stays server-side.

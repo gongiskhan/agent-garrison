@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -119,7 +119,6 @@ export function Sidebar() {
       <div style={{ borderBottom: "1px solid var(--rule)", marginBottom: 0 }} />
 
       <nav className="tabs">
-        <SurfaceSwitch pathname={pathname} />
         <NavLink href="/" pathname={pathname} icon={<Home aria-hidden />} label="Garrison" />
         <NavLink
           href="/compose"
@@ -184,44 +183,6 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
-  );
-}
-
-// Two-segment surface switch at the top of the nav: the Garrison shell vs the
-// Workspaces tiling surface (the workspaces Fitting's view). It only marks
-// which surface is active — both stay one click away.
-function SurfaceSwitch({ pathname }: { pathname: string }) {
-  const workspaceActive =
-    pathname === "/fitting/workspaces" || pathname.startsWith("/fitting/workspaces/");
-  const segment = (active: boolean): CSSProperties => ({
-    display: "block",
-    textAlign: "center",
-    padding: "5px 0",
-    fontSize: 10.5,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    textDecoration: "none",
-    color: active ? "var(--paper)" : "var(--mute)",
-    background: active ? "var(--ink)" : "transparent"
-  });
-  return (
-    <div
-      data-testid="surface-switch"
-      className="font-mono"
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        border: "1px solid var(--rule)",
-        marginBottom: 8
-      }}
-    >
-      <Link href="/" style={segment(!workspaceActive)}>
-        Garrison
-      </Link>
-      <Link href="/fitting/workspaces" style={segment(workspaceActive)}>
-        Workspace
-      </Link>
-    </div>
   );
 }
 

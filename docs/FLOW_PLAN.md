@@ -227,5 +227,25 @@ anywhere. E1 resolution: parser **derives** a synthetic `view` capability from
   asserts geometry changed, saves a screenshot and prints its path → print
   `WORKSPACE_PANES_OK`; pane title-bar height ≤ 28px → print `CHROME_OK <px>`.
 
+## DE wave — Dev Env consolidation (2026-06-11)
+
+One slice: the three retired session surfaces collapse into a single own-port
+**dev-env** Fitting on :7086 (Claude PTY + shell PTY + browser pane per
+hook-detected Claude Code session); the workspaces Fitting is deleted outright
+with no successor. dev-env takes over `~/.garrison/sessions/state.json` and the
+4 owner-tagged Claude Code hook groups; http-gateway's worktrees passthrough
+now defaults to :7086.
+
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| DE1-dev-env | Dev Env consolidation — terminal + worktrees + session-view collapse into the dev-env fitting; workspaces deleted | ui (own-port fitting) | (own-port :7086) | DE-serial | done (2026-06-11) |
+
+### Acceptance
+- **DE1:** `tsx scripts/validate-fitting.ts fittings/seed/dev-env` passes all
+  four checks; `npm run typecheck` clean; vitest green including
+  `tests/dev-env.test.ts` + `tests/dev-env-hooks-install.test.ts`; the
+  http-gateway `/worktrees` passthrough round-trips (GET/POST `/worktrees`,
+  DELETE `/worktrees/:id`) against dev-env on :7086.
+
 ## Status legend
 pending · in_progress · passed · blocked

@@ -1,10 +1,10 @@
 // Faculties are ROLES only (the Quarters pivot). Skills/Hooks/MCPs/Plugins/
 // Scripts/Settings are no longer faculties — they are platform primitives
-// surfaced in Quarters. The own-port runtime residue (terminal, screen-share,
-// worktree, session-view, outposts, browser, monitor, web-channel, voice) folds
-// under these roles (sessions/channels/observability) and is detected via the
-// `own_port` metadata flag, not a dedicated faculty. Legacy faculty names are
-// accepted as deprecation aliases (see metadata.ts normalizeDeprecations).
+// surfaced in Quarters. The own-port runtime residue (dev-env, screen-share,
+// outposts, browser, monitor, web-channel, voice) folds under these roles
+// (sessions/channels/observability) and is detected via the `own_port`
+// metadata flag, not a dedicated faculty. Legacy faculty names are accepted
+// as deprecation aliases (see metadata.ts normalizeDeprecations).
 // Vault is the runtime vault surface (/vault + the synthetic vault capability),
 // not a composition faculty.
 export const facultyIds = [
@@ -42,9 +42,9 @@ export type FittingShape = (typeof fittingShapes)[number];
 //
 // `view` is never declared in a fitting's `provides` — the resolver derives
 // one provision per produced view from `ui.views[]` / `own_port` (see
-// view-instances.ts), so a consumer like Workspaces can discover views with
-// cardinality `any` without any per-fitting manifest churn. Only `consumes`
-// entries name it explicitly.
+// view-instances.ts), so any consumer can discover views with cardinality
+// `any` without per-fitting manifest churn. Only `consumes` entries name it
+// explicitly.
 export const capabilityKinds = [
   "orchestrator",
   "memory-store",
@@ -53,9 +53,10 @@ export const capabilityKinds = [
   "channel",
   "vault",
   "artifact-store",
-  "terminal-session",
-  "worktree",
-  "session-view",
+  // dev-env: the consolidated Dev Env surface (2026-06-11). Replaces the
+  // dropped terminal-session / worktree / session-view kinds, whose three
+  // Fittings collapsed into the single dev-env Fitting.
+  "dev-env",
   "screen-share",
   "outpost",
   "monitor",
@@ -81,10 +82,8 @@ export interface CapabilityConsumption {
 export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "orchestrator",
   "vault",
-  "terminal-session",
+  "dev-env",
   "screen-share",
-  "worktree",
-  "session-view",
   "monitor",
   "voice"
 ];
@@ -125,8 +124,8 @@ export interface UiView {
   entry: string;
   route: string;
   // "full-bleed": the surface page suppresses the fitting-overview header and
-  // width cap so the view owns the whole estate (e.g. the Workspaces tiling
-  // container). Default chrome keeps the overview above the view.
+  // width cap so the view owns the whole estate. Default chrome keeps the
+  // overview above the view.
   chrome?: "default" | "full-bleed";
 }
 

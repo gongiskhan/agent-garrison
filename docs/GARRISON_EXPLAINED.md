@@ -197,7 +197,7 @@ The Operative is *one Claude Code session per composition* in v1. Multi-session 
 
 ## 5. Faculties — the named slots
 
-A **Faculty** is a slot in a composition. It has a name, a cardinality (`single` or `multi`), a closed set of accepted **Fitting shapes**, and an intent. There are **23 top-level Faculties** plus one derived (Tasks).
+A **Faculty** is a slot in a composition. It has a name, a cardinality (`single` or `multi`), a closed set of accepted **Fitting shapes**, and an intent. There are **21 top-level Faculties** plus one derived (Tasks).
 
 ### The full Faculty roster
 
@@ -219,13 +219,11 @@ A **Faculty** is a slot in a composition. It has a name, a cardinality (`single`
 | 14 | `artifact-store` | single | Filesystem-backed storage for files Fittings produce. |
 | 15 | `sync` | single | Periodic mirroring (e.g. vault sync to outposts). |
 | 16 | `monitor` | single | Read-only visibility into spawned PIDs/ports/logs. |
-| 17 | `terminal` | single (own-port) | PTY-backed terminal sessions. |
+| 17 | `sessions` | single (own-port) | Claude Code dev environment — session tabs, terminals, worktrees, browser pane. |
 | 18 | `screen-share` | single (own-port) | Screen-capture relay. |
-| 19 | `worktree-management` | single (own-port) | Git worktree lifecycle. |
-| 20 | `session-view` | single (own-port) | Claude Code session dashboard. |
-| 21 | `outposts` | single (own-port) | Multi-machine bridge to other Macs over Tailscale. |
-| 22 | `web-channel` | single (own-port) | Browser chat surface. |
-| 23 | `browser` | single (own-port) | Headless Chromium substrate over HTTP/WS. |
+| 19 | `outposts` | single (own-port) | Multi-machine bridge to other Macs over Tailscale. |
+| 20 | `web-channel` | single (own-port) | Browser chat surface. |
+| 21 | `browser` | single (own-port) | Headless Chromium substrate over HTTP/WS. |
 | — | `tasks` (derived) | — | Surfaces automatically when a data-source declares a task source. Not user-selected. |
 
 ### Two breeds of Faculty
@@ -234,10 +232,10 @@ A **Faculty** is a slot in a composition. It has a name, a cardinality (`single`
 ┌────────────────────────────────────┐    ┌───────────────────────────────────┐
 │   AGENT-FACING Faculties           │    │  TOOL-FACING (own-port) Faculties │
 │                                    │    │                                   │
-│   orchestrator, soul, memory,      │    │   terminal, screen-share,         │
-│   heartbeat, scheduler, classifier,│    │   worktree-management,            │
-│   gateway, data-sources, channels, │    │   session-view, outposts,         │
-│   automations, skills, knowledge-  │    │   web-channel, browser, monitor   │
+│   orchestrator, soul, memory,      │    │   sessions, screen-share,         │
+│   heartbeat, scheduler, classifier,│    │   outposts, web-channel,          │
+│   gateway, data-sources, channels, │    │   browser, monitor                │
+│   automations, skills, knowledge-  │    │                                   │
 │   base, observability,             │    │                                   │
 │   artifact-store, sync             │    │   Fittings here own their own     │
 │                                    │    │   HTTP port and React UI.         │
@@ -391,9 +389,7 @@ These ship a React UI on their own HTTP port. The **human** opens them in a brow
 
 Examples:
 
-- `terminal-armory-default` — PTY terminals with SSH host support.
-- `worktree-management-sequoias` — git worktree lifecycle UI.
-- `session-view-sequoias` — Claude Code session dashboard.
+- `dev-env` — per-session Claude Code dev environment (Claude + shell PTYs, browser pane, worktree lifecycle).
 - `screen-share-default` — macOS screen-capture viewer.
 - `outpost-tailscale-host` — remote-Mac bridge management.
 - `web-channel-default` — mobile-friendly chat surface.
@@ -408,8 +404,7 @@ All tool-facing Fittings live under **own-port Faculties** (see [§5](#5-faculti
         │  sidebar:                         │
         │   ┌──────────────────────────┐    │
         │   │ Views                    │    │
-        │   │  • Terminal (7078)  →────┼────┼──→ http://127.0.0.1:7078
-        │   │  • Worktrees (7080) →────┼────┼──→ http://127.0.0.1:7080
+        │   │  • Dev Env   (7086) →────┼────┼──→ http://127.0.0.1:7086
         │   │  • Monitor   (7077) →────┼────┼──→ http://127.0.0.1:7077
         │   └──────────────────────────┘    │
         └───────────────────────────────────┘
@@ -443,7 +438,7 @@ renders inside Garrison shell      renders on its own port
 static React registry              independent HTTP server
 build-time bundled                 ships its own dist/
 faculty-tab or sidebar-surface     sidebar Views link (external open)
-Documents, Artifact Store          Monitor, Terminal, Worktrees, ...
+Documents, Artifact Store          Monitor, Dev Env, Browser, ...
 ```
 
 The two patterns coexist and serve different use cases. Embedded for things that want tight integration with the Garrison shell. Own-port for things that benefit from being independently launchable, restartable, and writable in any framework.
@@ -469,9 +464,9 @@ The current full set, enforced by the parser via `src/lib/types.ts`:
 orchestrator   soul              agent-skill        memory-store
 automation-    data-source       channel            vault
 runner
-artifact-      terminal-session  worktree           session-view
+artifact-      dev-env           screen-share       outpost
 store
-screen-share   outpost           mcp-gateway        monitor
+mcp-gateway    monitor
 ```
 
 Each kind has well-understood semantics, documented in [CAPABILITIES.md](./CAPABILITIES.md). `vault` is special — it is provided synthetically by the runtime (`__runtime__` node), so any `optional-one vault` consumer always resolves.
@@ -577,8 +572,7 @@ The sidebar **Views** group in Garrison's chrome auto-populates per composition.
    │  Views ▼            │
    │   • Documents       │  ← embedded sidebar-surface (contract v2)
    │   • Artifact Store  │  ← embedded sidebar-surface (contract v2)
-   │   • Terminal      ⤴ │  ← own-port link (port 7078)
-   │   • Worktrees     ⤴ │  ← own-port link (port 7080)
+   │   • Dev Env       ⤴ │  ← own-port link (port 7086)
    │   • Monitor       ⤴ │  ← own-port link (port 7077)
    │   • Browser       ⤴ │  ← own-port link (port 7084)
    └─────────────────────┘
@@ -768,9 +762,7 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 
 | Fitting | Faculty | Port | What it does |
 |---|---|---|---|
-| `terminal-armory-default` | terminal | 7078 | PTY-backed terminals with SSH host support + Claude Code launch presets. |
-| `worktree-management-sequoias` | worktree-management | 7080 | Git worktree lifecycle UI. Derived from Sequoias. |
-| `session-view-sequoias` | session-view | 7081 | Claude Code session status dashboard across git worktrees. |
+| `dev-env` | sessions | 7086 | Per-session Claude Code dev environment — Claude + shell PTYs, quick-prompt bar, live browser pane, git worktree lifecycle, session dashboard. |
 | `screen-share-default` | screen-share | 7079 | macOS screen-capture — ~2fps JPEG polling for phone/remote access. |
 | `browser-default` | browser | 7084 | Headless Chromium with screencast, input, raw CDP, and DevTools reverse-proxy. |
 | `monitor-default` | monitor | 7077 | Read-only PID/port/log dashboard. |
@@ -911,7 +903,7 @@ The ring buffer of logs persists. Reopen the tab and you see what happened.
 | **APM** | Microsoft's open-source Agent Package Manager. Owns manifest, install, audit, pack, lockfile. |
 | **`x-garrison`** | The metadata block inside an APM `apm.yml` where Garrison's declarations live. |
 | **Armory** | The `/armory` Fittings registry browser. |
-| **Workbench** | The grouping of tool-facing, own-port Faculties (terminal, worktrees, etc.). |
+| **Workbench** | The grouping of tool-facing, own-port Faculties (sessions, screen-share, etc.). |
 | **View** | A UI surface a Fitting declares — either embedded (`faculty-tab` / `sidebar-surface`) or own-port. |
 | **Channel** | A Fitting in the `channels` Faculty. External-world message surface (Slack, Web Channel). |
 | **Capability** | A typed contract between Fittings. Declared via `provides` / `consumes`. |

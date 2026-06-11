@@ -74,15 +74,6 @@ const REGISTRY: Record<string, FittingViewComponent> = {
         <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
       )
     }
-  ),
-  "workspaces:main": dynamic(
-    () => import("./workspaces/WorkspaceView"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
-      )
-    }
   )
 };
 
