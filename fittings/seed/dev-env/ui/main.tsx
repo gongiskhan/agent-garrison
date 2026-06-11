@@ -65,8 +65,16 @@ function basename(p: string): string {
   return parts[parts.length - 1] ?? p;
 }
 
+// Label priority: explicit title; on a default/detached branch the folder
+// name (projectName carries repo/subdir for hook-created rows); otherwise
+// the worktree dir name for worktrees, else the branch name.
 function tabLabel(s: DevEnvSession): string {
-  const raw = s.title || s.branch || basename(s.worktreePath) || s.id;
+  const folder = s.projectName || basename(s.worktreePath) || s.id;
+  let raw: string;
+  if (s.title) raw = s.title;
+  else if (!s.branch || s.branch === "main" || s.branch === "master" || s.branch === "detached") raw = folder;
+  else if (s.isWorktree) raw = basename(s.worktreePath) || s.branch;
+  else raw = s.branch;
   return raw.length > 30 ? raw.slice(0, 29) + "…" : raw;
 }
 
