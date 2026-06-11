@@ -28,6 +28,15 @@ Deepgram API key. Voice controls are hidden when no voice Fitting is running
 (`GET /api/voice` reports `available:false`). A batch `POST /api/voice/stt` path
 remains as a fallback when the browser can't stream (no AudioContext).
 
+Two URL query params for testing/tuning:
+
+- `?silence_ms=<n>` — override the streaming silence-endpointing window
+  (default 5000 ms, clamped to Deepgram's 1000–20000);
+- `?voice=batch` — force the batch MediaRecorder fallback even in a browser
+  that could stream (tap mic to record, tap again to stop → `/api/voice/stt`
+  → auto-send). Used by `scripts/spike/voice-e2e.mjs` to drive the fallback;
+  without it the batch path is unreachable in any capable browser.
+
 ## Mobile / phone voice input needs HTTPS
 
 `getUserMedia` (mic capture) only works in a **secure context**. `localhost` /

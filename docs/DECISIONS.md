@@ -252,3 +252,40 @@ and consumer-feature naming. A new
 codifies the rule.
 **Source:** [`docs/decisions/2026-05-20-lean-garrison-trim.md`](./decisions/2026-05-20-lean-garrison-trim.md).
 **Status:** Settled.
+
+## 2026-06-10 · `data-source` kind re-added; trello-data-source revived under `memory`; own-port secrets-heal contract
+
+Three linked changes. (1) The `data-source` capability kind returns to
+`capabilityKinds` in [`src/lib/types.ts`](../src/lib/types.ts),
+reversing part of the 2026-06-07 Quarters-pivot drop, on the standing
+real-Fitting justification: trello-data-source cannot be expressed
+without it, and kinds are only added (or kept) when a real Fitting
+needs one. The other dropped kinds (`soul`, `agent-skill`,
+`automation-runner`, `mcp-gateway`) stay dropped. (2)
+trello-data-source is revived under the `memory` role — external data
+the Operative recalls and manipulates, with its Trello-backed derived
+Tasks truth file — and rejoins `data/library.json` and
+`compositions/default/apm.yml`; `memory` becomes a multi-cardinality
+role accepting the `cli` shape, and `data-sources` is a deprecation
+alias for it. (3) Own-port spawns now write a Garrison-side record at
+`~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`;
+`startOwnPortFitting` heals a running keyless vault consumer by
+restarting it with the secrets once they are available, and vault
+unlock, runner `up`, and eager boot all heal through that one seam
+(fixing the eager-boot keyless start — eager boot runs in a detached
+child that cannot read the in-process unlocked vault).
+A same-day truth pass restored the `{{capabilities}}` placeholder to
+the orchestrator Fitting's prompt — the Quarters-pivot rewrite had
+shipped without it, silently severing every provider's `for_consumers`
+from the Operative (the locality principle) — and the runner now logs
+a loud warning when an orchestrator prompt lacks it. The heal path was
+also hardened: per-fitting start/stop locks plus the orphan-sweep memo
+moved to `globalThis` (hot-reload-safe), the sweep never reaps
+fittings of a composition whose runner record is running, heal
+failures surface in `failed[]` with a warn, and the fitting servers
+and spike drivers became `GARRISON_HOME`-aware so spikes cannot
+clobber real status files.
+**Source:** [`docs/VOICE_TRELLO_HANDOFF.md`](./VOICE_TRELLO_HANDOFF.md)
+(status header, §4, §7); [`docs/UI-FITTINGS.md`](./UI-FITTINGS.md)
+§"Runner lifecycle".
+**Status:** Settled.

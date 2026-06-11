@@ -4,18 +4,38 @@ These Fittings ship inside the Garrison repo as the bootstrap stack.
 They are functional reference implementations and the targets of every
 test in the codebase.
 
-| Faculty       | Fitting              |
-|---------------|----------------------|
-| heartbeat     | loop-heartbeat       |
-| classifier    | tier-classifier      |
-| memory        | memory               |
-| gateway       | http-gateway         |
-| automations   | browser-automation   |
-| data-sources  | trello-data-source   |
-| channels      | slack-channel        |
-| web-channel   | web-channel-default  |
-| soul          | soul                 |
-| orchestrator  | personal-operative   |
+The directory holds more Fittings than the live stack: the 2026-06-07
+Quarters pivot parked the personal-assistant generation (souls,
+`personal-operative`, `loop-heartbeat`, `tier-classifier`, `scheduler`,
+`coding-subagent`, `documents`, `projects-index`, `testing`,
+`mcp-gateway`, `browser-automation`, `google-calendar`,
+`morning-briefing`, `outpost-actions`, `vault-sync`). Those directories
+stay on disk for history but are de-listed from `data/library.json` —
+they carry dropped capability kinds and no longer parse against the
+shrunk schema. `trello-data-source` was parked with them and **revived
+2026-06-10** under the `memory` role (the `data-source` kind came back
+with it).
+
+## Roles
+
+Survivor Fittings (the `data/library.json` set) by role — the six roles
+of the Quarters pivot:
+
+| Role          | Fittings                                                                 |
+|---------------|--------------------------------------------------------------------------|
+| orchestrator  | garrison-orchestrator                                                    |
+| channels      | slack-channel, web-channel-default, deepgram-voice                      |
+| gateway       | http-gateway                                                             |
+| memory        | memory, trello-data-source                                               |
+| observability | monitor-default                                                          |
+| sessions      | artifact-store, workspaces, browser-default, terminal-armory-default, screen-share-default, worktree-management-sequoias, session-view-sequoias, outpost-tailscale-host |
+
+The own-port Fittings (the `own_port` metadata flag — Monitor pattern)
+serve their own UI/backend on their own port: monitor-default (7077),
+terminal-armory-default (7078), screen-share-default (7079),
+worktree-management-sequoias (7080), session-view-sequoias (7081),
+outpost-tailscale-host (7082), web-channel-default (7083),
+browser-default (7084), deepgram-voice (7085, headless backend).
 
 ## Capability wiring
 
@@ -23,50 +43,43 @@ Each seed declares `provides` and/or `consumes` in its `x-garrison`
 block. The composer runs the resolver over the union of selected
 Fittings and refuses to mark Compose ready until the wiring resolves.
 
-| Fitting             | Provides                              | Consumes                                          |
-|---------------------|---------------------------------------|---------------------------------------------------|
-| loop-heartbeat      | automation-runner:loop-heartbeat      | orchestrator (one)                                |
-| tier-classifier     | agent-skill:tier-classifier           | —                                                 |
-| memory              | memory-store:garrison-memory          | vault (optional-one)                              |
-| http-gateway        | —                                     | orchestrator (one)                                |
-| browser-automation  | —                                     | vault (optional-one)                              |
-| trello-data-source  | data-source:trello                    | vault (one)                                       |
-| slack-channel       | channel:slack                         | vault (one)                                       |
-| web-channel-default | channel:web                           | —                                                 |
-| soul                | soul:personal-operative-soul          | —                                                 |
-| personal-operative  | orchestrator:personal-operative       | soul (one), agent-skill (any), memory-store (any), automation-runner (any), data-source (any), channel (any), vault (optional-one) |
+| Fitting                      | Provides                                  | Consumes                                                                      |
+|------------------------------|-------------------------------------------|--------------------------------------------------------------------------------|
+| garrison-orchestrator        | orchestrator:garrison-orchestrator        | —                                                                              |
+| http-gateway                 | —                                         | orchestrator (one)                                                             |
+| memory                       | memory-store:garrison-memory              | vault (optional-one)                                                           |
+| trello-data-source           | data-source:trello                        | vault (one)                                                                    |
+| slack-channel                | channel:slack                             | vault (one)                                                                    |
+| web-channel-default          | channel:web                               | voice (optional-one)                                                           |
+| deepgram-voice               | voice:deepgram                            | vault (one)                                                                    |
+| monitor-default              | monitor:monitor                           | —                                                                              |
+| artifact-store               | artifact-store:fs-store                   | —                                                                              |
+| browser-default              | —                                         | —                                                                              |
+| workspaces                   | —                                         | view (any)                                                                     |
+| terminal-armory-default      | terminal-session:terminal-armory-default  | outpost (any)                                                                  |
+| screen-share-default         | screen-share:screen-share-default         | —                                                                              |
+| worktree-management-sequoias | worktree:worktree-management-sequoias     | outpost (any)                                                                  |
+| session-view-sequoias        | session-view:session-view-sequoias        | worktree (optional-one), terminal-session (optional-one), outpost (any)        |
+| outpost-tailscale-host       | outpost:outpost-tailscale-host            | —                                                                              |
 
-The vault capability is satisfied by the runtime-synthetic provider
-(`__runtime__`) so `optional-one` consumers always resolve.
+Notes:
 
-## Personal Operative — the default Orchestrator
-
-`personal-operative` is the seed Orchestrator Fitting. It encodes the
-heartbeat-driven personal-agent pattern that OpenClaw, Hermes Agent, and
-similar projects converge on:
-
-1. Wake on a heartbeat tick.
-2. Triage a single ranked queue from inbox (Channels), scheduled jobs
-   (Scheduler), and tasks (Data sources).
-3. Route each item through the Classifier — T1–T2 execute directly,
-   T3+ forces plan-then-route.
-4. Honour the global guardrails (`max_tasks_per_tick`,
-   `max_tool_calls_per_tick`, `max_spend_per_day`).
-5. Verify before claiming success.
-6. Persist context to compiled memory at the configured cadence.
-7. Sleep until the next tick.
-
-Tunable via four knobs in `x-garrison.config_schema`:
-
-- `tone` — terse / conversational / formal.
-- `idle_behavior` — passive (sleep when queue is empty) or proactive
-  (one light-weight chore per idle tick).
-- `priority_label` — task label name that jumps an item to the head of
-  the queue.
-- `silent_when_no_work` — when true, no "nothing to do" updates land in
-  channels.
-- `report_channel` — optional Channels Fitting id for end-of-day
-  summaries and escalations.
-
-The full Orchestrator system prompt lives at
-`personal-operative/.apm/prompts/personal-operative.prompt.md`.
+- The capability-kind vocabulary is `capabilityKinds` in
+  `src/lib/types.ts`: `orchestrator`, `memory-store`, `data-source`,
+  `channel`, `vault`, `artifact-store`, `terminal-session`, `worktree`,
+  `session-view`, `screen-share`, `outpost`, `monitor`, `voice`, `view`.
+- The `vault` capability is satisfied by the runtime-synthetic provider
+  (`__runtime__`), so vault consumers always resolve. Own-port Fittings
+  that consume `vault` get the secrets injected into their spawn env
+  (`vaultEnvForEntry`); a keyless start is healed via the spawn-record
+  contract (see [`docs/UI-FITTINGS.md`](../../docs/UI-FITTINGS.md)).
+- `view` is **derived, never declared**: the resolver synthesises one
+  `view` provision per produced view, which is how Workspaces discovers
+  tileable views with cardinality `any`.
+- `deepgram-voice` provides `voice` to `web-channel-default` (push-to-talk
+  STT, read-aloud TTS, live `/stream` endpointing); the Deepgram key
+  stays server-side.
+- `trello-data-source` pairs `data-source:trello` with a Trello-backed
+  derived Tasks truth file (`tasks/trello.md`); its `for_consumers`
+  block teaches the Operative the `trello.py` CLI verbs at prompt
+  assembly time.

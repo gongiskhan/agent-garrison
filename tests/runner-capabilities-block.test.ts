@@ -1,6 +1,15 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { renderCapabilitiesBlock } from "@/lib/runner";
+import {
+  capabilitiesPlaceholderWarning,
+  MISSING_CAPABILITIES_PLACEHOLDER_WARNING,
+  renderCapabilitiesBlock,
+  substituteCapabilitiesPlaceholder
+} from "@/lib/runner";
 import type { LibraryEntry, GarrisonMetadata } from "@/lib/types";
+
+const REPO_ROOT = path.resolve(__dirname, "..");
 
 function entry(
   id: string,
@@ -45,10 +54,10 @@ describe("renderCapabilitiesBlock", () => {
     const entries = [
       entry(
         "trello-data-source",
-        "sessions",
+        "memory",
         "cli",
         "multi",
-        [{ kind: "channel", name: "trello" }],
+        [{ kind: "data-source", name: "trello" }],
         "Trello board access"
       ),
       entry(
@@ -62,9 +71,9 @@ describe("renderCapabilitiesBlock", () => {
     ];
     const block = renderCapabilitiesBlock(entries);
     expect(block).toContain("- channel:slack — Slack inbound/outbound");
-    expect(block).toContain("- channel:trello — Trello board access");
+    expect(block).toContain("- data-source:trello — Trello board access");
     const channelIdx = block.indexOf("channel:slack");
-    const dataIdx = block.indexOf("channel:trello");
+    const dataIdx = block.indexOf("data-source:trello");
     expect(channelIdx).toBeLessThan(dataIdx);
   });
 
@@ -88,23 +97,23 @@ describe("renderCapabilitiesBlock", () => {
   it("falls back to the summary line when for_consumers is absent", () => {
     const trello = entry(
       "trello-data-source",
-      "sessions",
+      "memory",
       "cli",
       "multi",
-      [{ kind: "channel", name: "trello" }],
+      [{ kind: "data-source", name: "trello" }],
       "Trello board access"
     );
     const block = renderCapabilitiesBlock([trello]);
-    expect(block).toBe("- channel:trello — Trello board access");
+    expect(block).toBe("- data-source:trello — Trello board access");
   });
 
   it("separates entries with a blank line when any provider ships for_consumers", () => {
     const trello = entry(
       "trello-data-source",
-      "sessions",
+      "memory",
       "cli",
       "multi",
-      [{ kind: "channel", name: "trello" }],
+      [{ kind: "data-source", name: "trello" }],
       "Trello board access"
     );
     const docs = entry(
@@ -117,10 +126,10 @@ describe("renderCapabilitiesBlock", () => {
       "Use this when capturing decisions."
     );
     const block = renderCapabilitiesBlock([trello, docs]);
-    // Sorted by kind: agent-skill comes before data-source. The blank line
+    // Sorted by kind: channel comes before data-source. The blank line
     // separator only kicks in once at least one provider ships for_consumers.
     expect(block).toContain(
-      "  Use this when capturing decisions.\n\n- channel:trello — Trello board access"
+      "  Use this when capturing decisions.\n\n- data-source:trello — Trello board access"
     );
   });
 
@@ -128,16 +137,86 @@ describe("renderCapabilitiesBlock", () => {
     const entries = [
       entry(
         "trello-data-source",
-        "sessions",
+        "memory",
         "cli",
         "multi",
-        [{ kind: "channel", name: "trello" }],
+        [{ kind: "data-source", name: "trello" }],
         "Trello"
       ),
       entry("personal-operative", "orchestrator", "system-prompt", "single", [], "Orchestrator")
     ];
     const block = renderCapabilitiesBlock(entries);
-    expect(block).toContain("channel:trello");
+    expect(block).toContain("data-source:trello");
     expect(block).not.toContain("personal-operative");
+  });
+});
+
+// The 2026-06 Quarters pivot shipped a routing prompt without the
+// {{capabilities}} placeholder, silently severing provider for_consumers
+// from the assembled Operative prompt. These specs pin the placeholder into
+// every orchestrator prompt source the runner can resolve.
+describe("substituteCapabilitiesPlaceholder", () => {
+  it("inserts fitting-authored $-patterns verbatim, never as replacement directives", () => {
+    // for_consumers is arbitrary fitting markdown; shell snippets full of
+    // $&, $', $$ and $` must land in the prompt untouched. A string
+    // replacement argument would expand them ($' splices in the rest of the
+    // prompt).
+    const provider = entry(
+      "dollar-fitting",
+      "memory",
+      "script",
+      "single",
+      [{ kind: "memory-store", name: "dollar" }],
+      "summary",
+      "Use $$ for the shell pid, $& and $' in regex docs, and $`backtick`."
+    );
+    const prompt = "before\n{{capabilities}}\nafter";
+    const result = substituteCapabilitiesPlaceholder(prompt, [provider]);
+    expect(result).toContain("Use $$ for the shell pid, $& and $' in regex docs, and $`backtick`.");
+    expect(result.endsWith("\nafter")).toBe(true);
+    // No accidental duplication of the surrounding prompt (the $' failure mode).
+    expect(result.match(/after/g)).toHaveLength(1);
+  });
+});
+
+describe("orchestrator prompt sources keep the {{capabilities}} placeholder", () => {
+  it("the seed garrison-orchestrator prompt declares {{capabilities}}", async () => {
+    const raw = await fs.readFile(
+      path.join(
+        REPO_ROOT,
+        "fittings",
+        "seed",
+        "garrison-orchestrator",
+        ".apm",
+        "prompts",
+        "garrison-orchestrator.prompt.md"
+      ),
+      "utf8"
+    );
+    expect(raw).toContain("{{capabilities}}");
+  });
+
+  it("the composition fallback orchestrator prompts declare {{capabilities}}", async () => {
+    for (const compositionId of ["default", "dogfood-orch"]) {
+      const raw = await fs.readFile(
+        path.join(REPO_ROOT, "compositions", compositionId, ".garrison", "prompts", "orchestrator.md"),
+        "utf8"
+      );
+      expect(raw, `compositions/${compositionId} fallback orchestrator prompt`).toContain(
+        "{{capabilities}}"
+      );
+    }
+  });
+});
+
+describe("capabilitiesPlaceholderWarning", () => {
+  it("returns the loud runner warning when the prompt lacks the placeholder", () => {
+    const warning = capabilitiesPlaceholderWarning("# Orchestrator\n\nNo capabilities block here.\n");
+    expect(warning).toBe(MISSING_CAPABILITIES_PLACEHOLDER_WARNING);
+    expect(warning).toContain("for_consumers will NOT reach the Operative");
+  });
+
+  it("returns null when the placeholder is present", () => {
+    expect(capabilitiesPlaceholderWarning("Tools:\n\n{{capabilities}}\n")).toBeNull();
   });
 });

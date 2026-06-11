@@ -14,6 +14,7 @@ dependencies:
     - path: ../../fittings/seed/session-view-sequoias
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/terminal-armory-default
+    - path: ../../fittings/seed/trello-data-source
     - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/workspaces
     - path: ../../fittings/seed/worktree-management-sequoias
@@ -65,6 +66,10 @@ x-garrison:
             persistence_cadence: hourly
             compiled_memory_dir: ~/Projects/ekus/obsidian-vault/Compiled
             compiler_repo_url: https://github.com/coleam00/claude-memory-compiler
+        - id: trello-data-source
+          config:
+            tasks_truth_file: tasks/trello.md
+            board_id: vl1Z8KFH
       observability:
         - id: monitor-default
           config:

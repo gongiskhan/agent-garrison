@@ -1,7 +1,11 @@
 # Voice (Deepgram) + Trello task management — handoff / starting point
 
 **Status:** shipped and committed on `main` (commits `7bb93fe`, `22f3804`,
-`cedcde3`). Validated live (real Deepgram key, fake-audio Playwright drivers,
+`cedcde3`), then **re-synced 2026-06-10** after the Quarters pivot:
+trello-data-source revived under the `memory` role (the `data-source` kind
+re-added), the own-port secrets-heal contract landed (fixing an eager-boot
+keyless bug), and the batch voice e2e driver was repaired via a `?voice=batch`
+override. Validated live (real Deepgram key, fake-audio Playwright drivers,
 and a real composition round-trip that created + verified a Trello card). This
 doc is the starting point for continuing the feature on a worktree.
 
@@ -13,7 +17,11 @@ doc is the starting point for continuing the feature on a worktree.
 > `faculty: channels`, `own_port: true`, `default_port: 7085`). The runtime
 > behaviour is unchanged; only the metadata classification moved. Where this doc
 > says "voice Faculty", read "channels-role own-port voice Fitting" on merged
-> `main`.
+> `main`. The pivot also dropped the `data-source` capability kind and parked
+> trello-data-source; **2026-06-10 the kind was re-added** and the Fitting
+> revived under the `memory` role (`data-sources` is now a deprecation alias for
+> `memory`) — Trello is back in `data/library.json` and
+> `compositions/default/apm.yml`.
 
 ---
 
@@ -56,7 +64,8 @@ web-channel server (scripts/server.mjs)
 - **`web-channel-default`** consumes voice and exposes same-origin proxies so the
   browser never sees the key. It also proxies chat to the `http-gateway`, which
   routes to the real Operative.
-- **`trello-data-source`** provides the `trello` CLI the Operative shells out to.
+- **`trello-data-source`** (memory role, provides `data-source:trello`,
+  consumes `vault`) provides the `trello` CLI the Operative shells out to.
 
 ---
 
@@ -96,9 +105,15 @@ web-channel server (scripts/server.mjs)
 - `src/lib/own-port-lifecycle.ts` — **`vaultEnvForEntry(entry)`**: injects vault
   secrets into an own-port spawn **only** when the Fitting declares
   `consumes: vault` (no leakage); tolerant of a locked vault. This is how the
-  Deepgram key reaches the voice Fitting.
-- `src/lib/runner.ts` (`startOperativeBoundFittings`) and
-  `src/app/api/fittings/[id]/start/route.ts` — both call `vaultEnvForEntry`.
+  Deepgram key reaches the voice Fitting. Since 2026-06-10 it also owns the
+  **secrets-heal contract**: every spawn writes
+  `~/.garrison/ui-fittings/spawn/<id>.json` with `secretsDelivered`, and
+  `startOwnPortFitting` restarts a running keyless vault consumer once secrets
+  are available; `healVaultConsumingFittings` runs the pass after vault unlock.
+- `src/lib/runner.ts` (`startOperativeBoundFittings`),
+  `src/lib/eager-boot.ts` (`runEagerBoot`), and
+  `src/app/api/fittings/[id]/start/route.ts` — all call `vaultEnvForEntry`;
+  `src/app/api/vault/unlock/route.ts` fires the heal pass on unlock.
 - `src/lib/types.ts`, `src/lib/faculties.ts` — originally added the `voice`
   faculty + capability kind (since folded into `channels` by the Quarters pivot).
 
@@ -111,7 +126,9 @@ web-channel server (scripts/server.mjs)
   (phrase+silence → `utterance_end` with transcript; pure silence → nothing).
 - `voice-stream-e2e.mjs` — fake-audio Chromium driving the full streaming chain
   incl. the hands-free loop (`listening→speaking→arming→listening`).
-- `voice-e2e.mjs` — batch-path browser e2e.
+- `voice-e2e.mjs` — batch-path browser e2e; loads the page with `?voice=batch`
+  to force the MediaRecorder fallback (otherwise unreachable in a
+  streaming-capable browser).
 - `voice-vault-check.ts` — proves `vaultEnvForEntry → startOwnPortFitting`
   delivers the key (`keyConfigured:true`).
 - `fake-audio-webaudio-check.mjs` — isolation check that fake audio flows
@@ -120,6 +137,11 @@ web-channel server (scripts/server.mjs)
   gateway) for testing the voice loop without booting the real Operative.
 - `fixtures/` — `voice-input.wav` (TTS phrase), `voice-input-silence.wav`
   (phrase + 2.5 s silence), `silence.wav`.
+
+As of 2026-06-10 the two fitting servers and the spike drivers are
+`GARRISON_HOME`-aware: each driver spawns its fittings under a fresh temp
+`.garrison` root, so spike runs can no longer clobber the real
+`~/.garrison/ui-fittings/` status files.
 
 ---
 
@@ -131,6 +153,14 @@ web-channel server (scripts/server.mjs)
   Deepgram key is stored in the vault as `DEEPGRAM_API_KEY`; on `up` (or manual
   start) it's injected into the voice Fitting's env. `GET /health` reports
   `keyConfigured`.
+- **Keyless-start heal (2026-06-10).** A spawn by a process that can't read the
+  vault (locked vault, or the detached eager-boot child) leaves the Fitting
+  running keyless and "already running" used to mask it forever. Now every
+  spawn records `secretsDelivered` in `~/.garrison/ui-fittings/spawn/<id>.json`
+  (a missing record counts as not-delivered, healing pre-fix spawns);
+  `startOwnPortFitting` detects running + non-empty vault env + not-delivered
+  and restarts the process with the secrets. Vault unlock, runner `up`, and
+  eager boot all heal through this one seam.
 - **Streaming + silence endpointing.** The browser captures at the device's
   native rate (don't fight iOS, which ignores a requested 16 kHz),
   **resamples to 16 kHz in JS**, and streams linear16 PCM. Deepgram emits
@@ -170,6 +200,16 @@ The Operative is a real Claude Code instance with Bash, so it just runs the
 `trello.py` CLI. What makes it *know* it can: the `for_consumers` block on
 `trello-data-source/apm.yml` is injected into the assembled prompt under the
 `data-source:trello` capability line (verified present in the rendered block).
+The injection point is the `{{capabilities}}` placeholder, which lives in the
+orchestrator Fitting's prompt
+(`fittings/seed/garrison-orchestrator/.apm/prompts/garrison-orchestrator.prompt.md`,
+mirrored in each composition's `.garrison/prompts/orchestrator.md`). The
+Quarters-pivot prompt rewrite shipped without it — silently severing this
+chain — and it was **restored 2026-06-10**; the runner now emits a loud run-log
+warning at assembly time when an orchestrator prompt lacks the placeholder
+(`capabilitiesPlaceholderWarning` in `src/lib/runner.ts`: "provider
+for_consumers will NOT reach the Operative") instead of dropping the block
+silently.
 
 **Proven live round-trip** (default composition, real Operative): a web-channel
 message *"add a task to the 'A Fazer' list named X"* → the Operative ran
@@ -208,6 +248,8 @@ DEEPGRAM_API_KEY=<key> node scripts/spike/voice-phone-demo.mjs     # phone demo 
 
 ## 7. Known limitations / next steps
 
+Still open:
+
 - **Mobile mic needs HTTPS.** Handled via `tailscale serve` (or the
   `tls_cert`/`tls_key` option). Plain-http LAN cannot capture audio (TTS is
   unaffected). Funnel (public) would also work but exposes publicly.
@@ -218,9 +260,26 @@ DEEPGRAM_API_KEY=<key> node scripts/spike/voice-phone-demo.mjs     # phone demo 
 - **The streaming e2e is harness-bound:** the mobile autoplay-unlock itself
   can't be reproduced headless (it needs a real mobile gesture) — verified by
   reasoning + the standard pattern, with the phone as the real check.
-- **Roles-pivot follow-through:** confirm the voice/web-channel Fittings behave
-  correctly as `channels`-role own-port Fittings after the Quarters merge
-  (runtime own-port start/stop is driven by the `own_port` metadata flag now,
-  not a faculty membership set).
 - **Possible enhancement:** wire the Trello-backed derived Tasks truth file
   (`tasks/trello.md`) to refresh after the Operative mutates cards.
+
+Resolved 2026-06-10:
+
+- **Roles-pivot follow-through — done.** The voice/web-channel Fittings behave
+  correctly as `channels`-role own-port Fittings after the Quarters merge
+  (runtime own-port start/stop is driven by the `own_port` metadata flag, not a
+  faculty membership set). Validated statically (the seed/faculty/capability
+  vitest suites) and live.
+- **Eager-boot keyless start — found and fixed.** Eager boot runs in a
+  detached tsx child (`scripts/run-eager-boot.ts`) that cannot read the
+  in-process unlocked vault, so an eager-toggled `deepgram-voice` always booted
+  keyless — and "already running" masked it indefinitely. Fixed by the
+  spawn-record / secrets-heal contract in `src/lib/own-port-lifecycle.ts` (see
+  §4); vault unlock, runner `up`, and eager boot all heal the keyless process
+  by restarting it with the secrets.
+- **Batch voice e2e driver repaired.** Streaming becoming the primary path made
+  the batch MediaRecorder fallback unreachable in any capable browser, which
+  silently broke `scripts/spike/voice-e2e.mjs`. The web channel now honours a
+  `?voice=batch` URL override that forces the fallback, and the driver uses it
+  (and asserts the streaming-only toggles are hidden, proving the override
+  engaged).

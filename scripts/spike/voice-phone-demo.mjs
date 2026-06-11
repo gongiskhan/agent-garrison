@@ -6,7 +6,9 @@
 //
 // Usage: DEEPGRAM_API_KEY=... node scripts/spike/voice-phone-demo.mjs
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 
@@ -16,6 +18,10 @@ const KEY = process.env.DEEPGRAM_API_KEY || "";
 const GATEWAY_PORT = 4779;
 const VOICE_PORT = 7085;
 const WEB_PORT = 7083;
+
+// Fresh .garrison root for the spawned fittings (shared, so web-channel still
+// discovers the voice instance) — never touch the live ~/.garrison status files.
+const GARRISON_HOME = mkdtempSync(path.join(os.tmpdir(), "voice-phone-demo-garrison-"));
 
 if (!KEY) { console.error("DEEPGRAM_API_KEY required"); process.exit(2); }
 
@@ -47,7 +53,7 @@ http.createServer((req, res) => {
 function start(name, script, env) {
   const child = spawn(process.execPath, [script], {
     cwd: path.dirname(path.dirname(script)),
-    env: { ...process.env, ...env },
+    env: { ...process.env, GARRISON_HOME, ...env },
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stdout.on("data", (d) => process.stdout.write(`[${name}] ${d}`));

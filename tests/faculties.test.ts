@@ -23,4 +23,10 @@ describe("faculty definitions", () => {
       expect(ids).not.toContain(gone);
     }
   });
+
+  it("memory is a multi role that accepts the cli shape (trello-data-source rejoined it)", () => {
+    const memory = faculties.find((f) => f.id === "memory");
+    expect(memory?.cardinality).toBe("multi");
+    expect(memory?.shapes).toContain("cli");
+  });
 });

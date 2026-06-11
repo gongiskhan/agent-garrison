@@ -36,7 +36,7 @@ export const fittingShapes = [
 export type FittingShape = (typeof fittingShapes)[number];
 
 // The capability-kind vocabulary shrinks with the Quarters pivot: soul,
-// agent-skill, automation-runner, data-source, and mcp-gateway are dropped
+// agent-skill, automation-runner, and mcp-gateway are dropped
 // (Skills/automations become platform primitives; the spawned-operative
 // machinery is retired). The own-port runtime wiring kinds are kept.
 //
@@ -48,6 +48,8 @@ export type FittingShape = (typeof fittingShapes)[number];
 export const capabilityKinds = [
   "orchestrator",
   "memory-store",
+  // data-source: re-added 2026-06-10 because trello-data-source is a real Fitting that cannot be expressed without it (Honesty-Test convention) — it was dropped 2026-06-07 with the parked PA fittings.
+  "data-source",
   "channel",
   "vault",
   "artifact-store",

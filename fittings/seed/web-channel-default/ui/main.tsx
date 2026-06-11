@@ -18,6 +18,16 @@ const SILENCE_MS = (() => {
   return 5000;
 })();
 
+// Streaming is primary in any capable browser, which makes the batch
+// MediaRecorder fallback unreachable on demand. ?voice=batch forces it so the
+// fallback stays drivable (scripts/spike/voice-e2e.mjs) and debuggable.
+const FORCE_BATCH = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("voice") === "batch";
+  } catch {}
+  return false;
+})();
+
 // A tiny valid silent WAV. Played once inside a user gesture (a toggle/mic/send
 // tap) to UNLOCK mobile audio playback, so read-aloud can auto-play replies
 // later without the user first tapping a speaker button (mobile autoplay policy).
@@ -218,7 +228,7 @@ function App() {
     voiceStateRef.current = s;
     setVoiceStateRaw(s);
   }, []);
-  const streamingSupported = voice.available && micCaptureAllowed() &&
+  const streamingSupported = !FORCE_BATCH && voice.available && micCaptureAllowed() &&
     typeof (window.AudioContext || (window as any).webkitAudioContext) === "function";
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -620,8 +630,11 @@ function App() {
   // click again to stop; on stop we POST the captured audio to /api/voice/stt
   // and auto-send the transcript. Used only when streaming isn't supported.
   const toggleRecording = useCallback(async () => {
-    if (recording) {
-      try { mediaRecorderRef.current?.stop(); } catch {}
+    // Gate on the ref, not `recording` state: micAction memoizes over this
+    // callback (see its NB), so a state read here would be stale-false on the
+    // stop tap and start a second recorder instead of stopping the first.
+    if (mediaRecorderRef.current) {
+      try { mediaRecorderRef.current.stop(); } catch {}
       return;
     }
     if (!micCaptureAllowed()) return;
@@ -661,7 +674,7 @@ function App() {
     };
     mr.start();
     setRecording(true);
-  }, [recording, send]);
+  }, [send]);
 
   const onKeyDown = useCallback((ev: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (ev.key !== "Enter") return;
@@ -766,15 +779,16 @@ function App() {
         {voice.available ? (
           <button
             type="button"
-            className={`mic-button state-${voiceState}`}
+            className={`mic-button state-${voiceState}${recording ? " recording" : ""}`}
             title={!micCaptureAllowed()
               ? "Mic needs a secure context (https or localhost)"
+              : recording ? "Stop recording"
               : voiceState === "listening" ? "Stop listening"
               : voiceState === "arming" ? "Cancel"
               : voiceState === "speaking" ? "Stop"
               : "Talk"}
             aria-label="Voice"
-            aria-pressed={voiceState === "listening"}
+            aria-pressed={voiceState === "listening" || recording}
             data-testid="mic-button"
             disabled={!micCaptureAllowed() || (sending && voiceState === "idle")}
             onClick={micAction}

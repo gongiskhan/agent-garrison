@@ -30,6 +30,21 @@
     }
   },
   {
+    "id": "trello-data-source",
+    "name": "Trello data source",
+    "repo": "local:fittings/seed/trello-data-source",
+    "localPath": "fittings/seed/trello-data-source",
+    "summary": "One-way Trello fetch with Trello-backed derived Tasks.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-trello-data-source",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
     "id": "slack-channel",
     "name": "Slack channel",
     "repo": "local:fittings/seed/slack-channel",

@@ -10,7 +10,7 @@ import { runEagerBoot } from "../src/lib/eager-boot";
 
 async function main(): Promise<void> {
   const summary = await runEagerBoot();
-  const line = `${new Date().toISOString()} eager-boot booted=[${summary.booted.join(",")}] warmed=[${summary.warmed.join(",")}] skipped=[${summary.skipped.join(",")}]\n`;
+  const line = `${new Date().toISOString()} eager-boot booted=[${summary.booted.join(",")}] warmed=[${summary.warmed.join(",")}] skipped=[${summary.skipped.join(",")}] failed=[${summary.failed.map((f) => `${f.id}: ${f.error}`).join("; ")}]\n`;
   try {
     const logDir = path.join(garrisonDir(), "logs");
     mkdirSync(logDir, { recursive: true });

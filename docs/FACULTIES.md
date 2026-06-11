@@ -11,7 +11,9 @@ roles, enforced by `facultyIds` in `src/lib/types.ts`:
 - **channels** — user-facing message surfaces (Slack, web-channel, …).
 - **gateway** — the MCP/HTTP entry point inbound channels and runtime route to.
 - **memory** — within-session and cross-session recall; the compiler that
-  *produces* the durable Context (CLAUDE.md) document.
+  *produces* the durable Context (CLAUDE.md) document. Since 2026-06-10 it also
+  holds external data sources (trello-data-source, revived with the
+  `data-source` capability kind); `data-sources` is a deprecation alias for it.
 - **observability** — health, logs, runtime reporting (the read-only Logs view).
 - **sessions** — the runtime session/worktree/terminal/screen-share residue.
 

@@ -93,6 +93,9 @@ export interface EagerBootSummary {
   booted: string[];
   warmed: string[];
   skipped: string[];
+  // Start failures, kept apart from benign skips (not-in-library, already
+  // running) so a fitting the boot just failed to bring up is never invisible.
+  failed: Array<{ id: string; error: string }>;
 }
 
 export interface EagerBootOptions {
@@ -112,7 +115,7 @@ export interface EagerBootOptions {
 // the actual state restore happens in the browser when the view opens, and it
 // does so regardless of this toggle. That asymmetry is honest, not a gap.
 export async function runEagerBoot(options: EagerBootOptions = {}): Promise<EagerBootSummary> {
-  const summary: EagerBootSummary = { booted: [], warmed: [], skipped: [] };
+  const summary: EagerBootSummary = { booted: [], warmed: [], skipped: [], failed: [] };
   const prefs = await readEagerBootPrefs();
   const eagerIds = Object.keys(prefs.eager).sort();
   if (eagerIds.length === 0) {
@@ -131,11 +134,17 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
     if (isOwnPortFitting(entry)) {
       const result = await startOwnPortFitting(entry, await vaultEnvForEntry(entry));
       if (!result.ok) {
-        summary.skipped.push(fittingId);
-        console.log(`[garrison] eager-boot: skipped ${fittingId} (${result.error})`);
+        const error = result.error ?? "start failed";
+        summary.failed.push({ id: fittingId, error });
+        console.warn(`[garrison] eager-boot: FAILED ${fittingId} (${error})`);
       } else if (result.alreadyRunning) {
         summary.skipped.push(fittingId);
         console.log(`[garrison] eager-boot: skipped ${fittingId} (already running)`);
+      } else if (result.healed) {
+        summary.booted.push(fittingId);
+        console.log(
+          `[garrison] eager-boot: restarted ${fittingId} with vault secrets${result.pid ? ` (pid ${result.pid})` : ""}`
+        );
       } else {
         summary.booted.push(fittingId);
         console.log(

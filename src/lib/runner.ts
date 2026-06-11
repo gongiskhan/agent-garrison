@@ -47,6 +47,11 @@ interface RunnerRecord {
 
 interface RunnerRuntime {
   records: Map<string, RunnerRecord>;
+  // Startup orphan-sweep memo. Lives on globalThis next to the records map —
+  // NOT module-local — because Next.js dev hot reloads re-instantiate this
+  // module while globalThis persists. A module-local memo reset on every
+  // reload and re-ran the sweep against a live operative's fittings.
+  reconciliation?: Promise<void>;
 }
 
 declare global {
@@ -169,6 +174,9 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           `eager views: booted [${eager.booted.join(", ") || "none"}], warmed [${eager.warmed.join(", ") || "none"}]`
         );
       }
+      for (const failure of eager.failed) {
+        appendLog(compositionId, "stderr", `eager boot FAILED for ${failure.id}: ${failure.error}`);
+      }
     } catch (error) {
       appendLog(
         compositionId,
@@ -211,13 +219,12 @@ export async function down(compositionId: string): Promise<RunnerState> {
   return getRunnerState(compositionId);
 }
 
-let reconciliationPromise: Promise<void> | null = null;
-
 // Exported for the eager-lifecycle vitest gate (sandbox GARRISON_HOME); the
 // app itself only reaches this through getRunnerState/up.
 export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
-  if (reconciliationPromise) return reconciliationPromise;
-  reconciliationPromise = (async () => {
+  const rt = runtime();
+  if (rt.reconciliation) return rt.reconciliation;
+  rt.reconciliation = (async () => {
     try {
       const compositions = await listCompositions();
       // Eager-toggled fittings are NOT orphans: eager boot (Layer 3) owns
@@ -228,30 +235,43 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
       // bundle across Garrison restarts; toggle eager off (or stop it
       // explicitly) when developing the fitting itself.
       const prefs = await readEagerBootPrefs();
-      const seen = new Set<string>();
+      // Fittings of a composition whose persisted runner record says
+      // "running" are NOT orphans either: the records map survives dev-server
+      // hot reloads on globalThis even though this module is re-instantiated,
+      // so a post-reload sweep (should the memo above ever be cleared) must
+      // not reap the live operative's fittings. On a genuinely fresh process
+      // the records map is empty, so true orphans from a previous process
+      // still get reaped.
+      const protectedIds = new Set<string>();
+      const sweepable = new Set<string>();
       for (const composition of compositions) {
         const entries = await selectedLibraryEntries(composition.selections);
+        const running = rt.records.get(composition.id)?.state.status === "running";
         for (const entry of entries) {
           if (!isOperativeBound(entry)) continue;
-          if (seen.has(entry.id)) continue;
-          seen.add(entry.id);
-          if (prefs.eager[entry.id]) {
-            continue;
+          if (running) {
+            protectedIds.add(entry.id);
+          } else {
+            sweepable.add(entry.id);
           }
-          const result = await stopOwnPortFitting(entry.id);
-          if (result.ok && result.wasRunning) {
-            console.log(
-              `[runner] reconciled orphan own-port fitting: ${entry.id}` +
-                (result.pid ? ` (was pid ${result.pid})` : "")
-            );
-          }
+        }
+      }
+      for (const fittingId of sweepable) {
+        if (protectedIds.has(fittingId)) continue;
+        if (prefs.eager[fittingId]) continue;
+        const result = await stopOwnPortFitting(fittingId);
+        if (result.ok && result.wasRunning) {
+          console.log(
+            `[runner] reconciled orphan own-port fitting: ${fittingId}` +
+              (result.pid ? ` (was pid ${result.pid})` : "")
+          );
         }
       }
     } catch (err) {
       console.warn(`[runner] startup reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   })();
-  return reconciliationPromise;
+  return rt.reconciliation;
 }
 
 async function startOperativeBoundFittings(compositionId: string): Promise<void> {
@@ -265,7 +285,9 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
       continue;
     }
-    if (result.alreadyRunning) {
+    if (result.healed) {
+      appendLog(compositionId, "runner", `own-port ${entry.id} restarted to deliver vault secrets${result.pid ? ` (pid ${result.pid})` : ""}`);
+    } else if (result.alreadyRunning) {
       appendLog(compositionId, "runner", `own-port ${entry.id} already running; left in place`);
     } else {
       appendLog(compositionId, "runner", `own-port ${entry.id} started${result.pid ? ` (pid ${result.pid})` : ""}`);
@@ -532,10 +554,17 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
     path.join(composition.directory, ".garrison", "prompts", "soul.md"),
     "utf8"
   );
-  const orchestrator = substituteCapabilitiesPlaceholder(
-    orchestratorRaw ?? fallbackOrchestrator,
-    entries
-  );
+  const orchestratorSource = orchestratorRaw ?? fallbackOrchestrator;
+  // Loud, not silent: provider for_consumers reaches the Operative ONLY
+  // through the {{capabilities}} placeholder, and prompt rewrites have
+  // shipped without it before (the 2026-06 Quarters pivot's routing prompt).
+  // We warn rather than auto-append the block so prompt authors keep control
+  // of where it lands.
+  const placeholderWarning = capabilitiesPlaceholderWarning(orchestratorSource);
+  if (placeholderWarning) {
+    appendLog(compositionId, "stderr", placeholderWarning);
+  }
+  const orchestrator = substituteCapabilitiesPlaceholder(orchestratorSource, entries);
   // Identity first, Orchestrator (behavior) second — identity lands before the
   // long behavior section buries it.
   const prompt = [fallbackSoul, "", orchestrator].join("\n");
@@ -549,7 +578,18 @@ export function substituteCapabilitiesPlaceholder(
   prompt: string,
   entries: LibraryEntry[]
 ): string {
-  return prompt.replace(/{{capabilities}}/g, renderCapabilitiesBlock(entries));
+  // Function replacement: the block embeds fitting-authored for_consumers
+  // markdown verbatim, and a string second argument would expand $-patterns
+  // ($&, $', $$) found in it as replacement directives.
+  const block = renderCapabilitiesBlock(entries);
+  return prompt.replace(/{{capabilities}}/g, () => block);
+}
+
+export const MISSING_CAPABILITIES_PLACEHOLDER_WARNING =
+  "WARNING: orchestrator prompt has no {{capabilities}} placeholder — provider for_consumers will NOT reach the Operative";
+
+export function capabilitiesPlaceholderWarning(prompt: string): string | null {
+  return prompt.includes("{{capabilities}}") ? null : MISSING_CAPABILITIES_PLACEHOLDER_WARNING;
 }
 
 export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {

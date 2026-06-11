@@ -18,7 +18,7 @@ fi
 missing=0
 for var in TRELLO_KEY TRELLO_TOKEN TRELLO_BOARD_ID; do
   if [ -z "${!var:-}" ]; then
-    echo "${var} is not set; resolve via vault or composition config" >&2
+    echo "${var} is not set; add it to the vault (materialized into the composition .env on up)" >&2
     missing=1
   fi
 done

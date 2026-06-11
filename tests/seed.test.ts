@@ -6,13 +6,15 @@ import type { GarrisonMetadata } from "@/lib/types";
 import { readYamlFile } from "@/lib/yaml";
 
 const SEED_DIR = path.resolve(__dirname, "..", "fittings", "seed");
-// The 14 survivor Fittings after the faculties-as-roles pivot. The operative/PA
+// The survivor Fittings after the faculties-as-roles pivot. The operative/PA
 // Fittings (souls, coding-subagent, tier-classifier, loop-heartbeat, scheduler,
-// trello-data-source, documents, projects-index, testing, mcp-gateway, …) were
-// de-listed from data/library.json — they carry the dropped capability kinds and
-// no longer parse against the shrunk schema.
+// documents, projects-index, testing, mcp-gateway, …) were de-listed from
+// data/library.json — they carry the dropped capability kinds and no longer
+// parse against the shrunk schema. trello-data-source was revived 2026-06-10
+// under the memory role (the data-source kind came back with it).
 const seedIds = [
   "memory",
+  "trello-data-source",
   "http-gateway",
   "slack-channel",
   "web-channel-default",
@@ -52,6 +54,15 @@ describe("seed Fittings", () => {
     expect(metadata.faculty).toBe("memory");
     expect(metadata.provides).toContainEqual({ kind: "memory-store", name: "garrison-memory" });
     expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "optional-one" });
+  });
+
+  it("trello-data-source rejoins the memory role with its Trello-backed derived Tasks", async () => {
+    const metadata = await loadSeed("trello-data-source");
+    expect(metadata.faculty).toBe("memory");
+    expect(metadata.component_shape).toBe("cli");
+    expect(metadata.provides).toContainEqual({ kind: "data-source", name: "trello" });
+    expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
+    expect(metadata.tasks).toEqual({ source: "trello", truth_file: "tasks/trello.md" });
   });
 
   it("web-channel-default folds into the channels role and provides channel:web", async () => {

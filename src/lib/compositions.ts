@@ -35,6 +35,17 @@ const DEFAULT_ORCHESTRATOR_PROMPT = [
   "- If a request is ambiguous, ask one focused question rather than guessing.",
   "- If you cannot complete something, say so directly and explain what's blocking you.",
   "",
+  "## Tools and Faculties available in this Operative",
+  "",
+  "Treat this list as the authoritative inventory of what's installed in this Composition — each provider's usage guidance is indented under its line:",
+  "",
+  // Load-bearing: the runner substitutes the resolved providers (with their
+  // for_consumers guidance) here at assembly time — the locality principle.
+  // Without it, assembleSystemPrompt warns and the Operative flies blind.
+  "{{capabilities}}",
+  "",
+  "If a Faculty isn't in that list, the capability is not installed — say so and surface the missing Faculty as an installation suggestion. Don't fabricate tools.",
+  "",
   "## Reply contract",
   "",
   "End every reply with the following token on its own line:",

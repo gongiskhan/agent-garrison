@@ -5,7 +5,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: data-sources
+  faculty: memory
   cardinality_hint: multi
   component_shape: cli
   platforms:

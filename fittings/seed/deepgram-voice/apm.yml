@@ -1,6 +1,6 @@
 name: deepgram-voice
 version: 0.1.0
-description: Voice Faculty Fitting. Stand-alone server on port 7085 that proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side. Channels consume it for push-to-talk and read-aloud.
+description: Voice Fitting (channels role, own-port). Stand-alone server on port 7085 that proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side. Channels consume it for push-to-talk and read-aloud.
 target: claude
 type: hybrid
 includes: auto
@@ -53,12 +53,17 @@ x-garrison:
                                              "format": "mp3" | "wav" } (default mp3).
                                              Returns: audio bytes (audio/mpeg or audio/wav).
       WS   /stream?sample_rate=<n>         - live streaming STT. Send linear16 mono
-                                             PCM frames at <n> Hz; receive JSON events:
+              &utterance_end_ms=<ms>         PCM frames at <n> Hz; receive JSON events:
                                              {type:"ready"} | {type:"speech_started"}
                                              | {type:"transcript", text, isFinal, speechFinal}
                                              | {type:"utterance_end", transcript}
-                                             | {type:"error", error}. Deepgram endpointing
-                                             emits utterance_end after ~1s of silence — use
-                                             it to auto-finalize/send hands-free.
+                                             | {type:"error", error}.
+                                             Query params: sample_rate = PCM rate in Hz
+                                             (8000-48000; defaults to 16000);
+                                             utterance_end_ms = silence window before
+                                             utterance_end fires (server default 5000 ms;
+                                             pass 1000-20000 to override). utterance_end
+                                             fires after that much silence — use it to
+                                             auto-finalize/send hands-free.
     The Deepgram API key stays on the host (read from the vault as DEEPGRAM_API_KEY);
     callers never see it. When the key is missing, /stt and /tts return HTTP 503.

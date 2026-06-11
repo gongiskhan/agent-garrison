@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 // Standalone end-to-end DRIVER (not a test stub) for the web-channel voice
-// feature. The mic flow needs Chromium launched with fake-audio flags, which
-// the playwright-cli MCP can't set — hence a raw playwright driver.
+// feature's batch FALLBACK path, forced via ?voice=batch. Streaming (Deepgram
+// live + silence endpointing) is the primary path and is covered by
+// scripts/spike/voice-stream-e2e.mjs; this driver keeps the MediaRecorder
+// push-to-talk fallback honest. The mic flow needs Chromium launched with
+// fake-audio flags, which the playwright-cli MCP can't set — hence a raw
+// playwright driver.
 //
 // It stands up: the deepgram-voice Fitting (real Deepgram key), a mock gateway
 // (so /api/chat returns a deterministic reply without a live Operative), and
 // the web-channel server; then drives a fake-audio Chromium through:
-//   1. push-to-talk: mic → /api/voice/stt → transcript → auto-send → reply
+//   1. push-to-talk (batch): mic → MediaRecorder → /api/voice/stt →
+//      transcript → auto-send → reply
 //   2. read-aloud toggle: completed reply auto-spoken via /api/voice/tts
 //   3. per-reply speaker button → /api/voice/tts
 //
@@ -15,7 +20,9 @@
 
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 
@@ -23,6 +30,11 @@ const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..");
 const KEY = process.env.DEEPGRAM_API_KEY || "";
 const WAV = path.join(HERE, "fixtures", "voice-input.wav");
+
+// Fresh .garrison root for the spawned fittings (both share it, so the
+// web-channel still discovers the voice instance) — spike runs must never
+// touch the live ~/.garrison/ui-fittings status files.
+const GARRISON_HOME = mkdtempSync(path.join(os.tmpdir(), "voice-e2e-garrison-"));
 
 const VOICE_PORT = 7185;
 const GATEWAY_PORT = 4877;
@@ -85,7 +97,7 @@ function startMockGateway() {
 function startProc(name, script, env) {
   const child = spawn(process.execPath, [script], {
     cwd: path.dirname(path.dirname(script)),
-    env: { ...process.env, ...env },
+    env: { ...process.env, GARRISON_HOME, ...env },
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stdout.on("data", (d) => process.stdout.write(`[${name}] ${d}`));
@@ -148,7 +160,10 @@ async function main() {
   });
   page.on("console", (m) => { if (m.type() === "error") console.log(`[page-console-error] ${m.text()}`); });
 
-  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  // ?voice=batch forces the batch MediaRecorder fallback. Without it any
+  // capable Chromium routes the mic to the streaming state machine and the
+  // batch path (what this driver proves) is unreachable.
+  await page.goto(`${origin}/?voice=batch`, { waitUntil: "domcontentloaded" });
 
   const checks = [];
   const assert = (cond, label) => { checks.push({ ok: Boolean(cond), label }); log(`${cond ? "OK  " : "BAD "} ${label}`); };
@@ -159,13 +174,19 @@ async function main() {
   await page.waitForSelector('[data-testid="mic-button"]', { timeout: 5000 });
   assert(true, "mic button rendered (voice available)");
   assert(await page.locator('[data-testid="read-aloud-toggle"]').count() > 0, "read-aloud toggle rendered");
+  // Streaming-only toggles (auto-send / hands-free) are hidden when the batch
+  // override is active — proves ?voice=batch actually engaged the fallback.
+  assert(await page.locator('[data-testid="auto-send-toggle"]').count() === 0, "?voice=batch engaged (streaming toggles hidden)");
 
-  // 1) Push-to-talk: start, let fake audio play, stop.
-  log("recording (push-to-talk)…");
+  // 1) Push-to-talk (batch): start, let fake audio play, stop.
+  log("recording (push-to-talk, batch)…");
   await page.click('[data-testid="mic-button"]');
   await page.waitForSelector('[data-testid="mic-button"].recording', { timeout: 3000 });
+  assert(true, "mic button shows .recording while batch-recording");
   await page.waitForTimeout(2600);
   await page.click('[data-testid="mic-button"]'); // stop → STT → auto-send
+  await page.waitForSelector('[data-testid="mic-button"]:not(.recording)', { timeout: 3000 });
+  assert(true, "recording stopped on second tap");
 
   // Wait for STT to resolve.
   await page.waitForFunction(() => true);

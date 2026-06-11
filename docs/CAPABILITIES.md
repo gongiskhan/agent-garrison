@@ -12,9 +12,9 @@ Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
 via the `capabilityKinds` array in `src/lib/types.ts`: `orchestrator`,
-`memory-store`, `channel`, `vault`, `artifact-store`, `terminal-session`,
-`worktree`, `session-view`, `screen-share`, `outpost`, `monitor`, `voice`,
-`view`.
+`memory-store`, `data-source`, `channel`, `vault`, `artifact-store`,
+`terminal-session`, `worktree`, `session-view`, `screen-share`, `outpost`,
+`monitor`, `voice`, `view`.
 
 `view` is **derived, never declared**: fittings do not list it in `provides` —
 the resolver synthesises one `view` provision per produced view (each
@@ -25,9 +25,12 @@ it explicitly — e.g. the Workspaces Fitting consumes `view` with
 hardcoding. Derived provisions live only in the capability graph; they never
 appear in the assembled prompt's capabilities block.
 
-Dropped in the Quarters pivot (no longer valid kinds): `soul`, `agent-skill`, `automation-runner`, `data-source`, `mcp-gateway`.
+Dropped in the Quarters pivot (no longer valid kinds): `soul`, `agent-skill`, `automation-runner`, `mcp-gateway`.
 Sections for these are kept below under *Dropped kinds (historical)* for readers
-tracing old manifests; the resolver rejects them.
+tracing old manifests; the resolver rejects them. `data-source` was dropped with
+them but re-added 2026-06-10: trello-data-source is a real Fitting that cannot
+be expressed without it (the Honesty-Test working convention), and it rejoined
+the `memory` role with the kind.
 
 ## Cardinality literals
 
@@ -104,6 +107,25 @@ own HTTP port (the Monitor pattern) and are surfaced under the `sessions` /
 multi. Consumers link by URL after a `GET /health` check rather than sharing
 state.
 
+## data-source
+
+A read or read/write surface against an external system the
+operative needs to inspect — Trello boards, Calendar events, GitHub
+issues, etc. Dropped in the Quarters pivot, re-added 2026-06-10 when
+trello-data-source was revived (a real Fitting that cannot be
+expressed without it).
+
+- **Cardinality:** any number; a composition can pull from many
+  sources.
+- **Typically provides:** Fittings in the `memory` role (external
+  data the Operative recalls and manipulates — e.g.
+  trello-data-source, whose derived Tasks truth file is
+  cross-session recall material).
+- **Typically consumes:** `vault` for the relevant API credentials.
+- **Interface (TBD — runtime SDK milestone):** must expose a
+  read API the orchestrator can call directly or via a CLI/skill;
+  optionally a write API for sources that support mutation.
+
 ## Dropped kinds (historical)
 
 The following kinds were retired in the 2026-06-07 Quarters pivot. They are kept
@@ -166,20 +188,6 @@ direct user prompt. The heartbeat is the canonical example.
 - **Interface (TBD — runtime SDK milestone):** must dispatch a
   job-like payload to the orchestrator's input boundary and surface
   outcomes the observability layer can record.
-
-## data-source
-
-A read or read/write surface against an external system the
-operative needs to inspect — Trello boards, Calendar events, GitHub
-issues, etc.
-
-- **Cardinality:** any number; a composition can pull from many
-  sources.
-- **Typically provides:** Fittings in the `data-sources` Faculty.
-- **Typically consumes:** `vault` for the relevant API credentials.
-- **Interface (TBD — runtime SDK milestone):** must expose a
-  read API the orchestrator can call directly or via a CLI/skill;
-  optionally a write API for sources that support mutation.
 
 ## channel
 

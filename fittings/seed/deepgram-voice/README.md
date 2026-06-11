@@ -1,6 +1,7 @@
 # deepgram-voice
 
-Voice Faculty Fitting. A stand-alone server (default port **7085**) that proxies
+Voice Fitting (channels role, own-port). A stand-alone server (default port
+**7085**) that proxies
 [Deepgram](https://deepgram.com) speech-to-text and text-to-speech so the API
 key stays on the host and never reaches the browser.
 
@@ -25,7 +26,11 @@ Discover the live URL at `~/.garrison/ui-fittings/deepgram-voice.json`.
 | GET    | `/`       | —                                               | status HTML                  |
 | POST   | `/stt`    | raw audio bytes (`Content-Type` = recording mime, e.g. `audio/webm`) | `{ transcript, confidence }` |
 | POST   | `/tts`    | `{ "text": "...", "format": "mp3" \| "wav" }` (default `mp3`) | audio bytes (`audio/mpeg` or `audio/wav`) |
-| WS     | `/stream?sample_rate=<n>` | linear16 mono PCM frames | JSON events: `ready`, `speech_started`, `transcript`, `utterance_end` (Deepgram live + silence endpointing) |
+| WS     | `/stream?sample_rate=<n>&utterance_end_ms=<ms>` | linear16 mono PCM frames | JSON events: `ready`, `speech_started`, `transcript`, `utterance_end` (Deepgram live + silence endpointing) |
+
+WS query params: `sample_rate` is the PCM rate in Hz (8000–48000, default 16000);
+`utterance_end_ms` is the silence window before `utterance_end` fires (server
+default 5000 ms; pass 1000–20000 to override).
 
 When `DEEPGRAM_API_KEY` is absent, `/stt` and `/tts` return HTTP 503; `/health`
 still reports `keyConfigured: false`.

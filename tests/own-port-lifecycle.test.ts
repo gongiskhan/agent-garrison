@@ -1,5 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
-import { isOperativeBound, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  isOperativeBound,
+  isValidFittingId,
+  logFilePath,
+  spawnRecordPath,
+  statusFilePath,
+  vaultEnvForEntry
+} from "@/lib/own-port-lifecycle";
 import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry } from "@/lib/types";
 
 // Mock the vault so the positive injection path is testable without touching
@@ -71,6 +79,45 @@ describe("vaultEnvForEntry (own-port secret injection gating)", () => {
     const noVault = makeEntry(true, undefined, [{ kind: "voice", cardinality: "optional-one" }]);
     const env = await vaultEnvForEntry(noVault);
     expect(env).toEqual({});
+  });
+});
+
+describe("spawn record placement", () => {
+  const priorHome = process.env.GARRISON_HOME;
+
+  beforeEach(() => {
+    process.env.GARRISON_HOME = "/tmp/garrison-spawn-record-test";
+  });
+
+  afterEach(() => {
+    if (priorHome === undefined) {
+      delete process.env.GARRISON_HOME;
+    } else {
+      process.env.GARRISON_HOME = priorHome;
+    }
+  });
+
+  it("lives in a spawn/ SUBDIR of the status dir, honouring GARRISON_HOME", () => {
+    expect(spawnRecordPath("deepgram-voice")).toBe(
+      path.join("/tmp/garrison-spawn-record-test", "ui-fittings", "spawn", "deepgram-voice.json")
+    );
+    // Never a sibling of the flat <id>.json status files — the *.json status
+    // enumeration must be unable to mistake a spawn record for a status file.
+    expect(path.dirname(spawnRecordPath("deepgram-voice"))).not.toBe(
+      path.dirname(statusFilePath("deepgram-voice"))
+    );
+    expect(path.dirname(path.dirname(spawnRecordPath("deepgram-voice")))).toBe(
+      path.dirname(statusFilePath("deepgram-voice"))
+    );
+  });
+
+  it("logFilePath sits beside the status file, honouring GARRISON_HOME (the logs route reads it)", () => {
+    expect(logFilePath("deepgram-voice")).toBe(
+      path.join("/tmp/garrison-spawn-record-test", "ui-fittings", "deepgram-voice.log")
+    );
+    expect(path.dirname(logFilePath("deepgram-voice"))).toBe(
+      path.dirname(statusFilePath("deepgram-voice"))
+    );
   });
 });
 

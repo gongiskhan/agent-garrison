@@ -36,12 +36,15 @@ describe("x-garrison metadata", () => {
   });
 
   it("rejects too many single-cardinality selections", () => {
+    // memory became a multi role when trello-data-source rejoined it
+    // (2026-06-10), so the single-cardinality case uses orchestrator.
     const metadata = parseGarrisonMetadata({
       ...baseMetadata,
-      faculty: "memory"
+      faculty: "orchestrator",
+      component_shape: "system-prompt"
     });
 
-    expect(() => validateSelection("memory", 2, [metadata, metadata])).toThrow(/accepts one/);
+    expect(() => validateSelection("orchestrator", 2, [metadata, metadata])).toThrow(/accepts one/);
   });
 
   it("accepts the deprecated `primitive` alias and normalizes to `faculty`", () => {
@@ -57,6 +60,27 @@ describe("x-garrison metadata", () => {
         verify: { command: "echo ok", expect: "ok" }
       });
       expect(metadata.faculty).toBe("memory");
+      expect(calls.length).toBeGreaterThan(0);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it("folds the deprecated data-sources faculty into memory", () => {
+    const warn = console.warn;
+    const calls: unknown[] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      const metadata = parseGarrisonMetadata({
+        faculty: "data-sources",
+        cardinality_hint: "multi",
+        component_shape: "cli",
+        platforms: ["claude-code"],
+        provides: [{ kind: "data-source", name: "trello" }],
+        verify: { command: "echo ok", expect: "ok" }
+      });
+      expect(metadata.faculty).toBe("memory");
+      expect(metadata.provides).toContainEqual({ kind: "data-source", name: "trello" });
       expect(calls.length).toBeGreaterThan(0);
     } finally {
       console.warn = warn;

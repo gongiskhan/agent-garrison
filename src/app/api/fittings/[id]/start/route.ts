@@ -23,10 +23,13 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? "start failed" }, { status: result.status ?? 500 });
     }
-    if (result.alreadyRunning) {
-      return NextResponse.json({ ok: true, alreadyRunning: true });
-    }
-    return NextResponse.json({ ok: true, pid: result.pid });
+    // pid is undefined (and serialized away) on the alreadyRunning path.
+    return NextResponse.json({
+      ok: true,
+      pid: result.pid,
+      alreadyRunning: result.alreadyRunning === true,
+      healed: result.healed === true
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });

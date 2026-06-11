@@ -59,7 +59,7 @@ validators land in the runtime SDK milestone.
 - **Garrison** — the platform (this app). Its job is **compose · run · observe**. Anything beyond that lives in Fittings.
 - **Faculty** — a **role** slot in a composition. Post-pivot there are **6 roles** (`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`); the former flat 24-Faculty list collapsed into them and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. A subset of runtime Fittings (`terminal`, `screen-share`, `worktree-management`, `session-view`, `outposts`, `monitor`, `web-channel`, `browser`, `voice`) is **own-port** — they serve their own React UI (or a headless backend, for `voice`) on their own HTTP port (Monitor pattern) under the `sessions`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section; it does not embed them.
 - **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`). Garrison knows that Fittings have **views**; it does not know about "tools".
-- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted.
+- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Two refinements: eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting that started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
 - **Armory** — `/armory`, the Fitting registry browser.
 - **Fitting** — the concrete component installed into a slot.
 - **Operative** — the composed, running agent.
@@ -148,12 +148,16 @@ Orchestrator uses to **discover installed Fittings without
 hardcoding** — no Garrison code change is needed when a new Fitting
 is added.
 
-Current kinds (shrunk by the 2026-06-07 Quarters pivot): `orchestrator`,
-`memory-store`, `channel`, `vault`, `artifact-store`, `terminal-session`,
-`worktree`, `session-view`, `screen-share`, `outpost`, `monitor`, `voice`.
-**Dropped in the pivot:** `soul`, `agent-skill`, `automation-runner`,
-`data-source`, `mcp-gateway`. `vault` is always provided by the runtime
-synthetic node (`__runtime__`). `terminal-session` is singleton.
+Current kinds (per `capabilityKinds` in `src/lib/types.ts`): `orchestrator`,
+`memory-store`, `data-source`, `channel`, `vault`, `artifact-store`,
+`terminal-session`, `worktree`, `session-view`, `screen-share`, `outpost`,
+`monitor`, `voice`, `view` (derived by the resolver from `ui.views[]` /
+`own_port`, never declared in `provides`).
+**Dropped in the 2026-06-07 Quarters pivot:** `soul`, `agent-skill`,
+`automation-runner`, `mcp-gateway`. `data-source` was dropped with them but
+re-added 2026-06-10 for the revived trello-data-source Fitting (memory role).
+`vault` is always provided by the runtime synthetic node (`__runtime__`).
+`terminal-session` is singleton.
 
 ### The runner (`src/lib/runner.ts`)
 

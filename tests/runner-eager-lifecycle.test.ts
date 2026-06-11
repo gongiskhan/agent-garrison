@@ -56,8 +56,10 @@ const waitGone = async (pid: number) => {
 };
 
 async function freshRunner() {
-  // Fresh module instance: resets the memoized reconciliation promise, which
-  // is exactly the "first state read of a new Garrison process" condition.
+  // "New Garrison process" condition: both the module instance AND the
+  // globalThis runtime (records map + sweep memo, which lives there so dev
+  // hot reloads don't re-trigger the sweep) are reset. A module reset alone
+  // simulates a hot reload, not a fresh process.
   vi.resetModules();
   delete (globalThis as Record<string, unknown>).__agentGarrisonRunner;
   return await import("@/lib/runner");
@@ -83,6 +85,9 @@ afterEach(() => {
   } else {
     process.env.GARRISON_HOME = priorHome;
   }
+  // The sweep memo and records map live on globalThis — drop them so one
+  // test's "process" state can't leak into the next.
+  delete (globalThis as Record<string, unknown>).__agentGarrisonRunner;
   rmSync(sandbox, { recursive: true, force: true });
 });
 
@@ -129,5 +134,76 @@ describe("runner respects eager lifecycle", () => {
     await waitGone(eagerProc.pid!);
 
     expect(alive(eagerProc.pid!), "untoggled fitting is an orphan again").toBe(false);
+  });
+});
+
+// Regression gate for the hot-reload incident: minutes after a dev-server
+// hot reload, the startup orphan sweep SIGTERM-reaped all non-eager
+// operative-bound fittings of a RUNNING operative. Two halves: (a) the sweep
+// memo now lives on globalThis (__agentGarrisonRunner), so a re-instantiated
+// module doesn't re-run it; (b) the sweep skips fittings of any composition
+// whose persisted record says "running". vi.resetModules() while keeping
+// globalThis is exactly the production hot-reload mechanics.
+describe("orphan sweep across dev-server hot reloads", () => {
+  it("a hot reload (module reset, persisted globalThis) does not re-run the sweep", async () => {
+    // First sweep of the "process": nothing on disk to reap, but the memo
+    // lands on globalThis.
+    const first = await freshRunner();
+    await first.reconcileOrphanedOwnPortFittings();
+
+    const plainProc = spawnSleeper();
+    writeStatusFile(PLAIN_ID, plainProc.pid!);
+
+    vi.resetModules();
+    const reloaded = await import("@/lib/runner");
+    await reloaded.reconcileOrphanedOwnPortFittings();
+    // Grace window: a regressed sweep would SIGTERM within milliseconds.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(alive(plainProc.pid!), "hot reload must not re-trigger the orphan sweep").toBe(true);
+    expect(existsSync(path.join(sandbox, "ui-fittings", `${PLAIN_ID}.json`))).toBe(true);
+  });
+
+  it("the sweep skips operative-bound fittings of a composition whose record is running", async () => {
+    const plainProc = spawnSleeper();
+    writeStatusFile(PLAIN_ID, plainProc.pid!);
+
+    // Post-hot-reload world with the memo cleared: fresh module instance, but
+    // globalThis carries a persisted runner record saying the default
+    // composition (which PLAIN_ID belongs to) is running. The runtime object
+    // is a plain global, so seed it directly.
+    vi.resetModules();
+    (globalThis as Record<string, unknown>).__agentGarrisonRunner = {
+      records: new Map([
+        [
+          "default",
+          {
+            state: { compositionId: "default", status: "running", devMode: false, verifyResults: [] },
+            logs: [],
+            logBytes: 0,
+            subscribers: new Set()
+          }
+        ]
+      ])
+    };
+    const runner = await import("@/lib/runner");
+    await runner.reconcileOrphanedOwnPortFittings();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(alive(plainProc.pid!), "a running composition's fittings must survive the sweep").toBe(true);
+    expect(existsSync(path.join(sandbox, "ui-fittings", `${PLAIN_ID}.json`))).toBe(true);
+  });
+
+  it("with no persisted records the sweep still reaps a true orphan", async () => {
+    const plainProc = spawnSleeper();
+    writeStatusFile(PLAIN_ID, plainProc.pid!);
+
+    // Genuinely fresh process: empty records map, no memo.
+    const runner = await freshRunner();
+    await runner.reconcileOrphanedOwnPortFittings();
+    await waitGone(plainProc.pid!);
+
+    expect(alive(plainProc.pid!), "true orphan must still be reaped on a fresh process").toBe(false);
+    expect(existsSync(path.join(sandbox, "ui-fittings", `${PLAIN_ID}.json`))).toBe(false);
   });
 });

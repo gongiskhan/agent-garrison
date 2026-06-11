@@ -18,8 +18,17 @@ import path from "node:path";
 import url from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 
-const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
+// IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
+// it so their spawned instances never touch the live install's status files;
+// voice/monitor discovery below reads the same root, so a sandboxed voice
+// instance is still found by a sandboxed web-channel.
+function garrisonDir() {
+  const override = process.env.GARRISON_HOME?.trim();
+  return override && override.length > 0 ? override : path.join(os.homedir(), ".garrison");
+}
+
+const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "web-channel-default.json");
 const MONITOR_STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
 const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");

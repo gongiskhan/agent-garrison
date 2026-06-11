@@ -37,6 +37,19 @@ describe("capability resolver", () => {
     }
   });
 
+  it("a provider with no consumer resolves ok (unconsumed data-source)", () => {
+    const result = resolveCapabilities([
+      fitting("trello-data-source", {
+        provides: [{ kind: "data-source", name: "trello" }],
+        consumes: [{ kind: "vault", cardinality: "one" }]
+      })
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.graph.providers.has("data-source:trello")).toBe(true);
+    }
+  });
+
   it("matches a single provider against a single consumer", () => {
     const result = resolveCapabilities([
       fitting("orch", { provides: [{ kind: "orchestrator", name: "default" }] }),

@@ -120,6 +120,7 @@ export const garrisonMetadataSchema = z.object({
 // own-port residue keeps working — its Fittings just declare a role faculty + the
 // own_port flag. Parked config-projection faculties (heartbeat/scheduler/skills/…)
 // are not aliased; their Fittings are de-listed from the library and never parsed.
+// Exception: data-sources folds into memory (trello-data-source revived 2026-06-10).
 const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
   terminal: "sessions",
   "screen-share": "sessions",
@@ -131,7 +132,8 @@ const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
   "web-channel": "channels",
   voice: "channels",
   monitor: "observability",
-  "testing-framework": "sessions"
+  "testing-framework": "sessions",
+  "data-sources": "memory"
 };
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {

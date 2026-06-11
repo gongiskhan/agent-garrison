@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-10T08:32:30.800257+00:00'
+generated_at: '2026-06-10T14:33:35.304492+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -23,7 +23,7 @@ dependencies:
   deployed_files:
   - .claude/commands/garrison-orchestrator.md
   deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:de996fd652c6f04cf5df8ba0e1094d79386f06e091cce77760126ca47d97fb9e
+    .claude/commands/garrison-orchestrator.md: sha256:b342b142520bbe5809dd2619feb9406a4add88fb78cb04d178fee6a4c12e3a46
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway
@@ -60,6 +60,15 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/terminal-armory-default
+- repo_url: _local/trello-data-source
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/trello-data-source.md
+  - .claude/skills/trello
+  deployed_file_hashes:
+    .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
+  source: local
+  local_path: ../../fittings/seed/trello-data-source
 - repo_url: _local/web-channel-default
   package_type: invalid
   source: local

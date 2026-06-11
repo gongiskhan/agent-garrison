@@ -35,9 +35,12 @@ export const faculties: FacultyDefinition[] = [
     id: "memory",
     order: 4,
     name: "Memory",
-    cardinality: "single",
-    shapes: ["skill", "system-prompt", "hook"],
-    notes: "Produces the Context document; unified with the local memory-compiler."
+    // multi + cli since 2026-06-10: trello-data-source (component_shape: cli)
+    // joins this role alongside the memory compiler — external data the
+    // Operative recalls and manipulates, with a derived Tasks truth file.
+    cardinality: "multi",
+    shapes: ["skill", "system-prompt", "hook", "cli"],
+    notes: "Produces the Context document; unified with the local memory-compiler. Also holds external recall sources (e.g. Trello-backed derived Tasks)."
   },
   {
     id: "observability",

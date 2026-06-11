@@ -10,8 +10,9 @@
 // fires. Not a .spec.ts stub — a raw driver (fake-audio needs launch flags).
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 
@@ -21,6 +22,10 @@ const FIX = path.join(HERE, "fixtures");
 const KEY = process.env.DEEPGRAM_API_KEY || "";
 const VOICE_PORT = 7188, GATEWAY_PORT = 4880, WEB_PORT = 7187;
 if (!KEY) { console.error("DEEPGRAM_API_KEY required"); process.exit(2); }
+
+// Fresh .garrison root for the spawned fittings (shared, so web-channel still
+// discovers the voice instance) — never touch the live ~/.garrison status files.
+const GARRISON_HOME = mkdtempSync(path.join(os.tmpdir(), "voice-stream-e2e-garrison-"));
 
 // Ensure phrase+silence fixture exists (built by voice-stream-check; rebuild if missing).
 const wav = path.join(FIX, "voice-input-silence.wav");
@@ -42,7 +47,7 @@ if (!existsSync(wav)) {
 const procs = [];
 let mockGateway, browser;
 function startProc(name, script, env) {
-  const c = spawn(process.execPath, [script], { cwd: path.dirname(path.dirname(script)), env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+  const c = spawn(process.execPath, [script], { cwd: path.dirname(path.dirname(script)), env: { ...process.env, GARRISON_HOME, ...env }, stdio: ["ignore", "pipe", "pipe"] });
   c.stdout.on("data", (d) => process.stdout.write(`[${name}] ${d}`));
   c.stderr.on("data", (d) => process.stderr.write(`[${name}] ${d}`));
   procs.push(c); return c;

@@ -175,8 +175,9 @@ describe("eager boot (Layer 3)", () => {
 
   afterAll(() => {
     rmSync(fixtureRoot, { recursive: true, force: true });
-    // startOwnPortFitting writes the spawn log to the REAL ~/.garrison
-    // (its status dir does not honour GARRISON_HOME); don't leave it behind.
+    // Defensive: the status dir honours GARRISON_HOME (garrisonDir()), so
+    // spawn logs land in the sandbox — but if a spec ever runs without the
+    // override, don't leave a stray log in the real ~/.garrison.
     rmSync(logFilePath(FIXTURE_ID), { force: true });
   });
 
@@ -316,6 +317,6 @@ describe("eager boot (Layer 3)", () => {
     writeFileSync(eagerBootPrefsPath(), "{ not json ");
     expect(await readEagerBootPrefs()).toEqual({ version: 1, eager: {} });
     const summary = await runEagerBoot({ library: [ownPortEntry] });
-    expect(summary).toEqual({ booted: [], warmed: [], skipped: [] });
+    expect(summary).toEqual({ booted: [], warmed: [], skipped: [], failed: [] });
   });
 });
