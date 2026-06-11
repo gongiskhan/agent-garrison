@@ -39,8 +39,26 @@ interface DevEnvSession {
 
 const LS_SELECTED = "garrison.devenv.selected";
 const LS_SPLIT_RATIO = "garrison.devenv.splitRatio";
+const LS_SHOW_ALL = "garrison.devenv.showAll";
 const POLL_MS = 3000;
 const MOBILE_QUERY = "(max-width: 720px)";
+const ACTIVE_WINDOW_MS = 90 * 60 * 1000;
+
+// The state file is a ledger of every session the hooks ever saw, not a list
+// of live ones. A tab is shown by default only when the session is plausibly
+// active: a PTY exists here (running, exited, or parked for resume), hooks
+// say it's working right now, or it fired any hook in the last 90 minutes.
+// `waiting` is NOT inherently active — the server never decays it, so a
+// days-old unanswered Notification would pin a tab forever; recency covers
+// the live case. Same for worktree rows: adopted-but-untouched worktrees are
+// exactly the ledger noise, and Dev-Env-created ones stay visible through
+// their PTYs. Everything else hides behind the menu's Show-all toggle.
+function isActiveSession(s: DevEnvSession): boolean {
+  if (s.claudePty.state !== "none" || s.shellPty.state !== "none") return true;
+  if (s.lastStatus === "working" || s.lastStatus === "starting") return true;
+  const t = Date.parse(s.lastStatusAt || "");
+  return Number.isFinite(t) && Date.now() - t < ACTIVE_WINDOW_MS;
+}
 
 function basename(p: string): string {
   const parts = (p || "").split("/").filter(Boolean);
@@ -262,6 +280,7 @@ function App() {
   );
   const [visited, setVisited] = useState<Set<string>>(() => new Set());
   const [mobilePane, setMobilePane] = useState<"claude" | "shell">("claude");
+  const [showAll, setShowAll] = useState(() => localStorage.getItem(LS_SHOW_ALL) === "1");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<null | "new-worktree" | "confirm-delete">(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -302,16 +321,30 @@ function App() {
   }, [refresh]);
 
   // Auto-select: keep the stored selection while it exists; fall back to the
-  // first session.
+  // first VISIBLE session. The selected session always stays visible even
+  // when it fails the active filter, so toggling Show-all off never yanks
+  // the workspace out from under you.
   const selected = sessions.find((s) => s.id === selectedId) ?? null;
+  const visibleSessions = sessions.filter(
+    (s) => showAll || s.id === selectedId || isActiveSession(s)
+  );
+  const hiddenCount = sessions.length - visibleSessions.length;
   useEffect(() => {
-    if (sessions.length === 0) return;
+    if (visibleSessions.length === 0) return;
     if (!selected) {
-      const first = sessions[0];
+      const first = visibleSessions[0];
       setSelectedId(first.id);
       setVisited((v) => new Set(v).add(first.id));
     }
-  }, [sessions, selected]);
+  }, [visibleSessions, selected]);
+
+  function toggleShowAll() {
+    setShowAll((prev) => {
+      const next = !prev;
+      localStorage.setItem(LS_SHOW_ALL, next ? "1" : "0");
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (selectedId) {
@@ -509,6 +542,11 @@ function App() {
               <button type="button" onClick={() => void clearStale()}>
                 Clear stale sessions
               </button>
+              <button type="button" onClick={() => { setMenuOpen(false); toggleShowAll(); }}>
+                {showAll
+                  ? "Show active only"
+                  : `Show all sessions${hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ""}`}
+              </button>
               <div className="menu-sep" />
               <button
                 type="button"
@@ -547,7 +585,7 @@ function App() {
           )}
         </div>
         <div className="tabs">
-          {sessions.map((s) => (
+          {visibleSessions.map((s) => (
             <span
               key={s.id}
               className={`tab ${s.id === selectedId ? "active" : ""} ${s.lastStatus === "stale" ? "stale" : ""}`}
@@ -561,6 +599,9 @@ function App() {
             </span>
           ))}
           {sessions.length === 0 && <span className="tabs-empty">No sessions — create a worktree or start claude anywhere.</span>}
+          {sessions.length > 0 && visibleSessions.length === 0 && (
+            <span className="tabs-empty">No active sessions — {hiddenCount} hidden.</span>
+          )}
         </div>
         {isMobile && selected && (
           <div className="segmented" role="tablist" aria-label="Pane">
@@ -599,12 +640,19 @@ function App() {
             onInstruct={instruct}
           />
         ))}
-        {sessions.length === 0 && (
+        {visibleSessions.length === 0 && (
           <div className="empty-state">
             <p>No active sessions.</p>
-            <button type="button" className="btn primary" onClick={() => setDialog("new-worktree")}>
-              New worktree…
-            </button>
+            <div className="pane-overlay-row">
+              <button type="button" className="btn primary" onClick={() => setDialog("new-worktree")}>
+                New worktree…
+              </button>
+              {hiddenCount > 0 && (
+                <button type="button" className="btn" onClick={() => toggleShowAll()}>
+                  Show all sessions ({hiddenCount} hidden)
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
