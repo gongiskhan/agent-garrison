@@ -20,6 +20,7 @@ export function TerminalPane({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const tmuxModeRef = useRef(false);
   const onPtyDataRef = useRef(onPtyData);
   onPtyDataRef.current = onPtyData;
   const [bridgeMsg, setBridgeMsg] = useState<string | null>(null);
@@ -57,12 +58,18 @@ export function TerminalPane({
     // with their own buffer, so xterm has nothing to scroll. Translate vertical
     // wheel motion into arrow-key escape sequences so the embedded TUI can
     // scroll its own contents.
+    //
+    // Under tmux (tmuxModeRef, set from init_ack) this is skipped entirely: the
+    // outer xterm is ALWAYS in the alternate screen, so the heuristic would
+    // hijack every scroll. tmux's own mouse mode handles wheel→history instead
+    // (and Shift+drag still does native text selection).
     type WheelHandlerHost = {
       attachCustomWheelEventHandler?: (handler: (ev: WheelEvent) => boolean) => void;
     };
     const wheelHost = term as unknown as WheelHandlerHost;
     if (typeof wheelHost.attachCustomWheelEventHandler === "function") {
       wheelHost.attachCustomWheelEventHandler((ev: WheelEvent) => {
+        if (tmuxModeRef.current) return true; // tmux owns scrolling
         if (term.buffer.active.type !== "alternate") return true;
         const sock = socketRef.current;
         if (!sock || sock.readyState !== WebSocket.OPEN) return false;
@@ -88,7 +95,7 @@ export function TerminalPane({
           try {
             const msg = JSON.parse(ev.data);
             if (msg && typeof msg.type === "string") {
-              if (msg.type === "init_ack") return;
+              if (msg.type === "init_ack") { tmuxModeRef.current = msg.tmux === true; return; }
               if (msg.type === "pong") return;
               if (msg.type === "error") { term.writeln(`\r\n[error: ${msg.message}]`); return; }
               if (msg.type === "exit") { term.writeln(`\r\n[exit code=${msg.exitCode}]`); return; }

@@ -1,14 +1,15 @@
 {
   "name": "garrison-http-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Agent Garrison HTTP gateway (Agent SDK in-process).",
+  "description": "Agent Garrison HTTP gateway. Single-Operative mode drives the interactive Claude Code TUI via @garrison/claude-pty; the in-process Agent SDK path is a rollback behind GARRISON_GATEWAY_ENGINE=sdk.",
   "main": "scripts/gateway.mjs",
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {
+  "dependencies": {},
+  "optionalDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.0"
   }
 }

@@ -10,7 +10,7 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Local HTTP gateway. Orchestrator+souls mode spawns Claude CLI subprocesses with stream-JSON I/O, channels, worktree passthroughs. Falls back to in-process Agent SDK when GARRISON_SOULS_CONFIG is absent.
+  summary: Local HTTP gateway. Single-Operative mode drives an interactive Claude Code TUI via @garrison/claude-pty (node-pty + headless xterm); set GARRISON_GATEWAY_ENGINE=sdk to roll back to the in-process Agent SDK. Orchestrator+souls mode spawns Claude CLI subprocesses with stream-JSON I/O, channels, worktree passthroughs.
   config_schema:
     - key: port
       type: integer
@@ -24,9 +24,9 @@ x-garrison:
     - kind: orchestrator
       cardinality: one
   verify:
-    command: test -f apm_modules/_local/http-gateway/scripts/gateway.mjs && echo ok
+    command: test -f apm_modules/_local/http-gateway/scripts/gateway-pty.mjs && node --input-type=module -e "await import('@garrison/claude-pty')" && command -v claude >/dev/null 2>&1 && echo ok
     expect: ok
-    timeout_ms: 10000
+    timeout_ms: 15000
   for_consumers: |
     Endpoints (orchestrator+souls mode, set GARRISON_SOULS_CONFIG to enable):
       POST /chat, /chat/stream           — user message → Orchestrator stdin (X-Garrison-Origin: ui-tab|channel header sets prefix)
@@ -40,4 +40,4 @@ x-garrison:
       GET  /worktrees?[project|id]        — proxy to the worktree-management Fitting on its own port (default 7080)
       POST /worktrees                     — create worktree (project, task_title, branch_name?, base_branch?)
       POST /worktrees/:id/close           — merge|discard|leave_open via gh pr create
-    Legacy single-Operative mode (no GARRISON_SOULS_CONFIG): only POST /chat, /chat/stream, /jobs, /attachments are supported (in-process Agent SDK).
+    Single-Operative mode (no GARRISON_SOULS_CONFIG): POST /chat, /chat/stream, /jobs, /attachments + GET /health. Default engine is the PTY-backed interactive claude TUI (gateway-pty.mjs); GARRISON_GATEWAY_ENGINE=sdk rolls back to the in-process Agent SDK (gateway-legacy.mjs). /chat/stream emits the same SSE shapes in both engines: open, chunk {text}, tool {name, input}, done {reply, session_id}, error.

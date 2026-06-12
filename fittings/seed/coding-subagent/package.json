@@ -1,14 +1,12 @@
 {
   "name": "garrison-coding-subagent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Plan-then-execute coding sub-agent skill for Agent Garrison.",
+  "description": "Plan-then-execute coding sub-agent skill for Agent Garrison (runs through @garrison/claude-pty).",
   "main": "scripts/coding-subagent.mjs",
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.0"
-  }
+  "dependencies": {}
 }

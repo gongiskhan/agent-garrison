@@ -8,6 +8,24 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { TerminalPane } from "./terminal-pane";
+import { ChatPane } from "./chat-pane";
+
+// Per-session claude-view preference (terminal | chat), with a global default.
+// localStorage matches the existing split-ratio / show-all precedent; two
+// browser tabs can legitimately view the same PTY differently.
+const LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
+function readClaudeView(sessionId: string): "terminal" | "chat" {
+  try {
+    const per = localStorage.getItem(`${LS_CLAUDE_VIEW}.${sessionId}`);
+    if (per === "terminal" || per === "chat") return per;
+    const def = localStorage.getItem(LS_CLAUDE_VIEW);
+    if (def === "chat") return "chat";
+  } catch {}
+  return "terminal";
+}
+function writeClaudeView(sessionId: string, v: "terminal" | "chat") {
+  try { localStorage.setItem(`${LS_CLAUDE_VIEW}.${sessionId}`, v); } catch {}
+}
 import { BrowserPane, type WiredInfo } from "./browser-pane";
 import { NewWorktreeDialog, StartSessionDialog, ConfirmDeleteDialog, Toast } from "./dialogs";
 
@@ -244,6 +262,15 @@ function SessionWorkspace({
   const showClaude = !isMobile || mobilePane === "claude";
   const showShell = !isMobile || mobilePane === "shell";
 
+  const [claudeView, setClaudeViewState] = useState<"terminal" | "chat">(() => readClaudeView(session.id));
+  const setClaudeView = useCallback(
+    (v: "terminal" | "chat") => {
+      setClaudeViewState(v);
+      writeClaudeView(session.id, v);
+    },
+    [session.id]
+  );
+
   // The browser pane only opens by default while an app.port is detected for
   // this cwd; "open"/"closed" prefs (menu Open browser / pane ×) override.
   // Hiding needs 3 consecutive misses so a dev-server restart (brief app.port
@@ -283,11 +310,31 @@ function SessionWorkspace({
       >
         <div className="claude-pane" style={{ display: showClaude ? "flex" : "none" }}>
           <div className="quick-prompt-row">
-            <QuickPromptBar
-              sessionId={session.id}
-              disabled={!claudeRunning || session.claudePty.claudeAlive === false}
-              onSend={onInstruct}
-            />
+            <div className="claude-view-toggle" role="group" aria-label="Claude view">
+              <button
+                type="button"
+                className={claudeView === "terminal" ? "active" : ""}
+                onClick={() => setClaudeView("terminal")}
+                title="Terminal view"
+              >
+                Terminal
+              </button>
+              <button
+                type="button"
+                className={claudeView === "chat" ? "active" : ""}
+                onClick={() => setClaudeView("chat")}
+                title="Chat view (rich)"
+              >
+                Chat
+              </button>
+            </div>
+            {claudeView === "terminal" && (
+              <QuickPromptBar
+                sessionId={session.id}
+                disabled={!claudeRunning || session.claudePty.claudeAlive === false}
+                onSend={onInstruct}
+              />
+            )}
             {session.claudePty.state !== "none" && (
               <button
                 type="button"
@@ -300,10 +347,16 @@ function SessionWorkspace({
             )}
           </div>
           <div className="pane-body">
-            {claudeRunning && (
-              <TerminalPane key={claudeKey} ptyId={session.claudePty.id!} isActive={active && showClaude} />
+            {claudeView === "chat" && claudeRunning ? (
+              <ChatPane sessionId={session.id} branch={session.branch} />
+            ) : (
+              <>
+                {claudeRunning && (
+                  <TerminalPane key={claudeKey} ptyId={session.claudePty.id!} isActive={active && showClaude} />
+                )}
+                <ClaudePaneOverlay session={session} onEnsureClaude={onEnsureClaude} />
+              </>
             )}
-            <ClaudePaneOverlay session={session} onEnsureClaude={onEnsureClaude} />
           </div>
         </div>
         <div className="shell-pane" style={{ display: showShell ? "flex" : "none" }}>

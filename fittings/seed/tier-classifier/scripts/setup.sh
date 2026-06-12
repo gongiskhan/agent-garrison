@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
-# tier-classifier setup — reuse the http-gateway SDK install if available.
+# tier-classifier setup. The model is reached via @garrison/claude-pty, which
+# resolves from the repo-root node_modules (walk-up) — no per-fitting install
+# needed. Verify it's importable.
 set -euo pipefail
 
 FITTING_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-COMPOSITION_DIR="$(cd "$FITTING_DIR/../../.." && pwd)"
-GATEWAY_NM="$COMPOSITION_DIR/apm_modules/_local/http-gateway/node_modules"
 
 cd "$FITTING_DIR"
-if [ -d "node_modules/@anthropic-ai/claude-agent-sdk" ]; then
+if node --input-type=module -e "await import('@garrison/claude-pty')" >/dev/null 2>&1; then
   echo "ok"
   exit 0
 fi
 
-if [ -d "$GATEWAY_NM/@anthropic-ai/claude-agent-sdk" ]; then
-  ln -snf "$GATEWAY_NM" node_modules
-  echo "ok"
-  exit 0
-fi
-
-if command -v npm >/dev/null 2>&1; then
-  npm install --omit=dev --no-audit --no-fund >/dev/null
-  echo "ok"
-  exit 0
-fi
-
-echo "tier-classifier setup: no SDK install path available" >&2
+echo "tier-classifier setup: @garrison/claude-pty not resolvable from $FITTING_DIR" >&2
 exit 1

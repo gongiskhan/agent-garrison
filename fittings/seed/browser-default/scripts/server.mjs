@@ -695,8 +695,10 @@ function proxyDevtools(req, res) {
 
 function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url || "/").pathname || "/";
-  // SPA fallback: route /canvas/:tabId and / to index.html
-  if (pathname === "/" || pathname.startsWith("/canvas/")) pathname = "/index.html";
+  // SPA fallback: route /canvas/:tabId, /devtools-shell/:tabId and / to
+  // index.html. (/devtools-shell/ does not collide with the /devtools/ CDP
+  // proxy — that branch matches "/devtools/" with the trailing slash.)
+  if (pathname === "/" || pathname.startsWith("/canvas/") || pathname.startsWith("/devtools-shell/")) pathname = "/index.html";
   const filePath = path.join(distDir, pathname.replace(/^\/+/, ""));
   if (!filePath.startsWith(distDir)) { res.statusCode = 403; return res.end("forbidden"); }
   if (!existsSync(filePath)) {

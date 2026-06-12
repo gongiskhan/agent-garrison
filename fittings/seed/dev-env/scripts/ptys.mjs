@@ -18,6 +18,10 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import url from "node:url";
 import pty from "node-pty";
+import xtermHeadless from "@xterm/headless";
+
+// @xterm/headless v6 is CJS with a default export; pull Terminal off it.
+const HeadlessTerminal = xtermHeadless.Terminal;
 import {
   deleteInstance,
   cancelInstanceWrite,
@@ -25,6 +29,16 @@ import {
   readAllInstances,
   scheduleInstanceWrite
 } from "./view-state.mjs";
+import {
+  attachOrCreateArgs,
+  isShellCommand,
+  listGarrisonSessions,
+  sessionIdRoleFromName,
+  tmuxHasSession,
+  tmuxKillSession,
+  tmuxPaneCommand,
+  tmuxSessionName
+} from "./tmux.mjs";
 
 const FITTING_ID = "dev-env";
 // Big enough to replay a full alt-screen redraw (Claude Code, vim, less etc.)
@@ -46,6 +60,21 @@ const parked = new Map(); // ptyId -> persisted claude envelope state (never spa
 
 let shuttingDown = false;
 let defaultShell = process.env.SHELL || "/bin/zsh";
+
+// When true, each PTY's node-pty child is a `tmux attach` client rather than
+// the shell itself — the shell/claude live in the tmux server and survive a
+// restart of this process. Resolved once at startup (see setTmuxMode). When
+// false the legacy direct-spawn path (and its view-state scrollback persistence
+// + claude parking) is used unchanged.
+let tmuxMode = false;
+
+export function setTmuxMode(on) {
+  tmuxMode = Boolean(on);
+}
+
+export function isTmuxMode() {
+  return tmuxMode;
+}
 
 export function setDefaultShell(shell) {
   if (shell && typeof shell === "string") defaultShell = shell;
@@ -79,6 +108,10 @@ function probeCwd(rec) {
 }
 
 function persistPty(rec) {
+  // In tmux mode the durable scrollback authority is the tmux server, and
+  // rehydration reconciles from `tmux list-sessions` — so the disk view-state
+  // envelope (a 128 KB base64 write on every burst of output) is dead weight.
+  if (tmuxMode) return;
   // `forgotten` blocks the final onData flush of a killed PTY from
   // re-creating the envelope after killPty's deleteInstance.
   if (shuttingDown || rec.forgotten) return;
@@ -99,6 +132,17 @@ function refreshClaudeAlive(rec) {
   if (now - rec.spawnedAtMs < CLAUDE_ALIVE_GRACE_MS) return;
   if (rec.claudeCheckedAt && now - rec.claudeCheckedAt < CLAUDE_ALIVE_TTL_MS) return;
   rec.claudeCheckedAt = now;
+  if (tmuxMode) {
+    // Under tmux, claude is a child of the tmux server (not our attach client),
+    // so pgrep -P would never see it. The pane's foreground command is the
+    // truth: anything that isn't a plain shell means claude is running.
+    // A null read (transient tmux error) leaves the prior verdict untouched.
+    tmuxPaneCommand(rec.tmuxSession).then((cmd) => {
+      if (rec.state !== "running") return;
+      if (cmd !== null) rec.claudeAlive = !isShellCommand(cmd);
+    });
+    return;
+  }
   execFile("pgrep", ["-P", String(rec.pty.pid), "-f", "claude"], { timeout: 1500 }, (err, stdout) => {
     if (rec.state !== "running") return;
     rec.claudeAlive = !err && String(stdout).trim().length > 0;
@@ -116,13 +160,51 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
 
   const finalShell = shell || defaultShell;
   const finalCwd = cwd && existsSync(cwd) ? cwd : process.env.HOME || "/tmp";
-  const term = pty.spawn(finalShell, ["-l"], {
-    name: "xterm-256color",
-    cols: 100,
-    rows: 30,
-    cwd: finalCwd,
-    env: { ...process.env, TERM: "xterm-256color" }
-  });
+
+  // tmux mode: spawn an attach-or-create client. The shell (`<shell> -l`) runs
+  // inside the tmux server as the CREATE command; on a pre-existing session
+  // this just re-attaches to the live pane. We record whether we created it so
+  // the command-injection below (claude etc.) only fires on first create —
+  // re-attaching must never relaunch claude over a running one.
+  let tmuxSession = null;
+  let createdTmuxSession = false;
+  let term;
+  if (tmuxMode) {
+    tmuxSession = tmuxSessionName(id);
+    createdTmuxSession = !tmuxHasSession(tmuxSession);
+    term = pty.spawn("tmux", attachOrCreateArgs({
+      name: tmuxSession,
+      cwd: finalCwd,
+      cols: 100,
+      rows: 30,
+      createCommand: `${finalShell} -l`
+    }), {
+      name: "xterm-256color",
+      cols: 100,
+      rows: 30,
+      cwd: finalCwd,
+      env: { ...process.env, TERM: "xterm-256color" }
+    });
+  } else {
+    term = pty.spawn(finalShell, ["-l"], {
+      name: "xterm-256color",
+      cols: 100,
+      rows: 30,
+      cwd: finalCwd,
+      env: { ...process.env, TERM: "xterm-256color" }
+    });
+  }
+
+  // Claude PTYs get a headless xterm mirror so the rich chat view (Phase 2) can
+  // read structured screen state (reply, status line, mode) off the same PTY
+  // that the terminal view streams raw. Shell PTYs don't need it.
+  // Mirror dims MUST track the PTY's (the browser terminal resizes it), else
+  // the reconstructed screen mis-wraps. Start at the spawn dims; resizePty()
+  // keeps them in sync.
+  const mirror =
+    role === "claude"
+      ? new HeadlessTerminal({ cols: 100, rows: 30, allowProposedApi: true })
+      : null;
 
   const rec = {
     id,
@@ -132,6 +214,8 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
     shell: finalShell,
     command: command && typeof command === "string" ? command : null,
     pty: term,
+    mirror,
+    tmuxSession,
     ws: null,
     state: "running",
     exitCode: null,
@@ -143,19 +227,27 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
     claudeCheckedAt: 0
   };
 
-  if (typeof restoredScrollbackB64 === "string" && restoredScrollbackB64) {
+  // tmux repaints the live screen on attach, so there is nothing to replay —
+  // the scrollback restore path is legacy (direct-spawn) only.
+  if (!tmuxMode && typeof restoredScrollbackB64 === "string" && restoredScrollbackB64) {
     const restored = Buffer.from(restoredScrollbackB64, "base64");
     const marker = Buffer.from(
       restoredMarker ?? `\r\n\x1b[2m[garrison: session restored — fresh shell at ${rec.cwd}]\x1b[0m\r\n`,
       "utf8"
     );
     rec.buffer = Buffer.concat([restored, marker]).slice(-OUTPUT_BUFFER_BYTES);
+    if (rec.mirror) {
+      try { rec.mirror.write(rec.buffer.toString("utf8")); } catch {}
+    }
   }
 
   term.onData((data) => {
     rec.lastActivity = Date.now();
     const buf = Buffer.from(data, "utf8");
     rec.buffer = Buffer.concat([rec.buffer, buf]).slice(-OUTPUT_BUFFER_BYTES);
+    if (rec.mirror) {
+      try { rec.mirror.write(data); } catch {}
+    }
     if (rec.ws && rec.ws.readyState === 1) {
       try { rec.ws.send(buf); } catch {}
     }
@@ -175,7 +267,12 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
   ptys.set(id, rec);
   persistPty(rec);
 
-  if (rec.command && rec.command.trim()) {
+  // Inject the command (the claude launch line) by typing it into the shell,
+  // 250ms after spawn so a slow login shell is ready. In tmux mode this fires
+  // only on a freshly CREATED session — re-attaching lands on the already
+  // running claude (or the shell it dropped back to), which must not be
+  // clobbered with a second launch.
+  if (rec.command && rec.command.trim() && (!tmuxMode || createdTmuxSession)) {
     setTimeout(() => {
       try { term.write(rec.command + "\r"); } catch {}
     }, 250);
@@ -242,6 +339,28 @@ export function getPty(id) {
   return ptys.get(id) ?? null;
 }
 
+// Resize the PTY and its headless mirror together so the rich view's screen
+// reconstruction stays consistent with the terminal view.
+export function resizePty(rec, cols, rows) {
+  if (!rec) return;
+  try { rec.pty.resize(cols, rows); } catch {}
+  if (rec.mirror) {
+    try { rec.mirror.resize(cols, rows); } catch {}
+  }
+}
+
+// A screen.mjs-compatible handle over a claude PTY's mirror: { term, writeRaw }.
+// Returns null for shell PTYs or claude PTYs without a mirror.
+export function mirrorHandle(rec) {
+  if (!rec || !rec.mirror) return null;
+  return {
+    term: rec.mirror,
+    writeRaw: (bytes) => {
+      try { rec.pty.write(bytes); rec.lastActivity = Date.now(); } catch {}
+    }
+  };
+}
+
 export function listPtys() {
   return [...ptys.values()];
 }
@@ -280,6 +399,12 @@ export function killPty(id, { forget = false } = {}) {
     parked.delete(id);
     cancelInstanceWrite(FITTING_ID, id);
     void deleteInstance(FITTING_ID, id).catch(() => {});
+    // The attach client we just killed only detached the session — the durable
+    // shell/claude lives in the tmux server. `forget` (pane/tab close, session
+    // delete, orphan sweep) means really gone, so destroy the session too. The
+    // ptyId resolves to a session name whether or not we had a live `rec`,
+    // covering sessions that exist in tmux but were never attached here.
+    if (tmuxMode) void tmuxKillSession(tmuxSessionName(id));
   }
   return Boolean(rec);
 }
@@ -289,10 +414,19 @@ export function killSessionPtys(sessionId, { forget = false } = {}) {
 }
 
 // Boot-time rehydration. `liveSessionIds` is the set of session UUIDs present
-// in the RAW state file — envelopes for vanished sessions are orphans and get
-// deleted. Shell envelopes respawn (fresh shell + scrollback replay); claude
-// envelopes are parked for an explicit user Resume.
+// in the RAW state file.
+//
+// tmux mode: tmux IS the durable store, so we reconcile against
+// `tmux list-sessions` — re-attach to every garrison session whose record is
+// still live (re-attaching connects to the running shell/claude; it does not
+// relaunch anything), and kill sessions whose record vanished while we were
+// down.
+//
+// legacy mode: envelopes for vanished sessions are orphans and get deleted.
+// Shell envelopes respawn (fresh shell + scrollback replay); claude envelopes
+// are parked for an explicit user Resume.
 export async function rehydratePtys(liveSessionIds) {
+  if (tmuxMode) return rehydrateTmux(liveSessionIds);
   let envelopes = [];
   try {
     envelopes = await readAllInstances(FITTING_ID);
@@ -331,8 +465,32 @@ export async function rehydratePtys(liveSessionIds) {
   return restored;
 }
 
-// Shutdown path: land pending view-state writes while the ptys (and their
-// buffers) are still alive — this is what makes sessions survive the restart.
+// Re-attach to live tmux sessions on boot; reap orphans whose record is gone.
+async function rehydrateTmux(liveSessionIds) {
+  let restored = 0;
+  for (const name of listGarrisonSessions()) {
+    const parsed = sessionIdRoleFromName(name);
+    if (!parsed || !liveSessionIds.has(parsed.sessionId)) {
+      void tmuxKillSession(name); // unparseable or record vanished → orphan
+      continue;
+    }
+    try {
+      // No command/scrollback: this re-attaches to the running pane. claude
+      // (if it was running) is still running and shows on first repaint.
+      spawnPty({ sessionId: parsed.sessionId, role: parsed.role });
+      restored++;
+    } catch (err) {
+      console.error(`[dev-env] tmux re-attach failed for ${name}:`, err);
+    }
+  }
+  return restored;
+}
+
+// Shutdown path. In tmux mode killing each node-pty only kills the ATTACH
+// CLIENT — the session detaches and keeps running in the tmux server, which is
+// exactly what makes the work survive this process dying; we re-attach on the
+// next boot. In legacy mode this kills the real shells, so we first land
+// pending view-state writes (scrollback) while the buffers are still alive.
 export async function shutdownPtys() {
   shuttingDown = true;
   try { await flushInstanceWrites(); } catch {}

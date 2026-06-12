@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import url from "node:url";
 
@@ -23,7 +23,22 @@ await build({
 });
 
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
-copyFileSync(path.join(HERE, "styles.css"), path.join(DIST, "dev-env.css"));
+
+// dev-env.css = base styles + the shared claude-chat stylesheet (for the rich
+// Chat view), so the single <link> in index.html covers both.
+{
+  const baseCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
+  let chatCss = "";
+  let d = HERE;
+  for (let i = 0; i < 8 && d !== path.dirname(d); i++) {
+    const inRepo = path.join(d, "packages", "claude-chat", "src", "claude-chat.css");
+    const inNm = path.join(d, "node_modules", "@garrison", "claude-chat", "src", "claude-chat.css");
+    if (existsSync(inRepo)) { chatCss = readFileSync(inRepo, "utf8"); break; }
+    if (existsSync(inNm)) { chatCss = readFileSync(inNm, "utf8"); break; }
+    d = path.dirname(d);
+  }
+  writeFileSync(path.join(DIST, "dev-env.css"), `${baseCss}\n\n/* === @garrison/claude-chat === */\n${chatCss}\n`);
+}
 
 // Copy xterm CSS so the UI can be served stand-alone without a CSS-in-JS
 // pipeline. Walk up from here — the fitting may be built in-repo or from an

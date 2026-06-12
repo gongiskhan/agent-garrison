@@ -1,0 +1,17 @@
+{
+  "name": "@garrison/claude-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared rich Claude Code chat UI (React, source-only TSX) for the web-channel and dev-env fittings.",
+  "main": "src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./styles.css": "./src/claude-chat.css"
+  },
+  "peerDependencies": {
+    "marked": "*",
+    "react": "*",
+    "react-dom": "*"
+  }
+}

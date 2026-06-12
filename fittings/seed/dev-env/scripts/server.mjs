@@ -18,16 +18,28 @@ import { WebSocketServer } from "ws";
 import {
   ensurePty,
   getPty,
+  isTmuxMode,
   killPty,
   killSessionPtys,
   listParked,
   listPtys,
+  mirrorHandle,
   ptyIdFor,
   ptySummary,
   rehydratePtys,
+  resizePty,
   setDefaultShell,
+  setTmuxMode,
   shutdownPtys
 } from "./ptys.mjs";
+import { tmuxAvailable } from "./tmux.mjs";
+import {
+  openRichStream,
+  richStatus,
+  keySequence,
+  cycleMode,
+  enumerateCommandsCached
+} from "@garrison/claude-pty";
 import {
   aggregateSessions,
   applyHookEvent,
@@ -67,15 +79,34 @@ function parseArgs(argv) {
     port: Number(process.env.DEV_ENV_PORT || DEFAULT_PORT),
     host: process.env.DEV_ENV_HOST || "127.0.0.1",
     defaultShell: process.env.DEV_ENV_SHELL || process.env.SHELL || "/bin/zsh",
-    dirtyTtlMs: Number(process.env.DEV_ENV_DIRTY_TTL_MS || 10_000)
+    dirtyTtlMs: Number(process.env.DEV_ENV_DIRTY_TTL_MS || 10_000),
+    // PTY backing: auto (tmux if installed, else direct), on (require tmux),
+    // off (direct node-pty). tmux keeps shells/claude alive across restarts.
+    useTmux: String(process.env.DEV_ENV_USE_TMUX || "auto").toLowerCase()
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--port") out.port = Number(argv[++i]);
     else if (a === "--host") out.host = argv[++i];
     else if (a === "--shell") out.defaultShell = argv[++i];
+    else if (a === "--use-tmux") out.useTmux = String(argv[++i] || "auto").toLowerCase();
   }
   return out;
+}
+
+// Resolve the requested PTY backing into a concrete on/off decision. `on`
+// hard-fails when tmux is missing (the operator explicitly asked for
+// persistence); `auto` silently falls back to direct spawning.
+function resolveTmuxMode(useTmux) {
+  if (useTmux === "off") return false;
+  if (useTmux === "on") {
+    if (!tmuxAvailable()) {
+      console.error("[dev-env] use_tmux=on but tmux is not installed — refusing to start without it");
+      process.exit(1);
+    }
+    return true;
+  }
+  return tmuxAvailable(); // auto
 }
 
 function jsonRes(res, status, body) {
@@ -162,6 +193,7 @@ function handleHealth(req, res, opts) {
     port: opts.port,
     pid: process.pid,
     host: opts.host,
+    tmux: isTmuxMode(),
     ptys: listPtys().length
   });
 }
@@ -413,6 +445,84 @@ async function handlePatchDevRoot(req, res) {
   jsonRes(res, 200, { devRoot: expanded, exists: existsSync(expanded) });
 }
 
+// ─────────────────────────── rich chat surface (/sessions/:id/claude/*)
+// Backed by the claude PTY's headless mirror; same protocol as the gateway, so
+// the shared @garrison/claude-chat component works against either.
+
+function claudeRecFor(sessionId) {
+  const rec = getPty(ptyIdFor(sessionId, "claude"));
+  if (!rec || rec.state !== "running") return null;
+  return rec;
+}
+
+function handleClaudeStream(req, res, sessionId) {
+  const rec = claudeRecFor(sessionId);
+  if (!rec) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream");
+    res.flushHeaders?.();
+    res.write(`event: error\ndata: ${JSON.stringify({ message: "no running claude PTY" })}\n\n`);
+    return;
+  }
+  openRichStream(mirrorHandle(rec), res);
+}
+
+function handleClaudeStatus(req, res, sessionId) {
+  const rec = claudeRecFor(sessionId);
+  if (!rec) return jsonRes(res, 409, { error: "no running claude PTY" });
+  jsonRes(res, 200, richStatus(mirrorHandle(rec)));
+}
+
+function handleClaudeCommands(req, res, sessionId) {
+  const found = findSessionById(sessionId);
+  const cwd = found?.worktreePath;
+  jsonRes(res, 200, { commands: enumerateCommandsCached(cwd ? { cwd } : {}) });
+}
+
+async function handleClaudeMessage(req, res, sessionId) {
+  const rec = claudeRecFor(sessionId);
+  if (!rec) return jsonRes(res, 409, { error: "no running claude PTY" });
+  const body = (await readBody(req)) || {};
+  const text = typeof body.text === "string" ? body.text : typeof body.message === "string" ? body.message : "";
+  if (!text.trim()) return jsonRes(res, 400, { error: "text required" });
+  try {
+    rec.pty.write(text);
+    const delayMs = Number.isFinite(body.delayMs) ? Math.max(0, Math.min(5000, body.delayMs)) : 600;
+    await sleep(delayMs);
+    rec.pty.write("\r");
+    jsonRes(res, 202, { ack: true });
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleClaudeKeys(req, res, sessionId) {
+  const rec = claudeRecFor(sessionId);
+  if (!rec) return jsonRes(res, 409, { error: "no running claude PTY" });
+  const body = (await readBody(req)) || {};
+  const seq = keySequence(String(body.key ?? ""));
+  if (!seq) return jsonRes(res, 400, { error: "unknown key" });
+  try { rec.pty.write(seq); } catch {}
+  jsonRes(res, 200, { ok: true });
+}
+
+async function handleClaudeMode(req, res, sessionId) {
+  const rec = claudeRecFor(sessionId);
+  if (!rec) return jsonRes(res, 409, { error: "no running claude PTY" });
+  const body = (await readBody(req)) || {};
+  const result = await cycleMode(mirrorHandle(rec), String(body.mode ?? ""), (b) => {
+    try { rec.pty.write(b); } catch {}
+  });
+  jsonRes(res, 200, result);
+}
+
+function handleClaudeInterrupt(req, res, sessionId) {
+  const rec = claudeRecFor(sessionId);
+  if (!rec) return jsonRes(res, 409, { error: "no running claude PTY" });
+  try { rec.pty.write("\x1b"); } catch {}
+  jsonRes(res, 200, { ok: true });
+}
+
 function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
@@ -481,6 +591,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(here, "..", "dist");
   setDefaultShell(opts.defaultShell);
   setDirtyCheckTtl(opts.dirtyTtlMs);
+  const tmuxOn = resolveTmuxMode(opts.useTmux);
+  setTmuxMode(tmuxOn);
+  console.log(`[dev-env] PTY backing: ${tmuxOn ? "tmux (sessions survive restarts)" : "node-pty (direct)"}`);
   const free = await findFreePort(opts.port);
   if (free === null) { console.error(`[dev-env] no free port from ${opts.port}`); process.exit(1); }
   const liveOpts = { ...opts, port: free };
@@ -538,6 +651,20 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const instructMatch = pathname.match(/^\/sessions\/([^/]+)\/instruct$/);
       if (instructMatch && method === "POST") return await handleInstruct(req, res, decodeURIComponent(instructMatch[1]));
 
+      // Rich chat surface over the claude PTY mirror.
+      const claudeMatch = pathname.match(/^\/sessions\/([^/]+)\/claude\/([a-z]+)$/);
+      if (claudeMatch) {
+        const sid = decodeURIComponent(claudeMatch[1]);
+        const action = claudeMatch[2];
+        if (action === "stream" && method === "GET") return handleClaudeStream(req, res, sid);
+        if (action === "status" && method === "GET") return handleClaudeStatus(req, res, sid);
+        if (action === "commands" && method === "GET") return handleClaudeCommands(req, res, sid);
+        if (action === "message" && method === "POST") return await handleClaudeMessage(req, res, sid);
+        if (action === "keys" && method === "POST") return await handleClaudeKeys(req, res, sid);
+        if (action === "mode" && method === "POST") return await handleClaudeMode(req, res, sid);
+        if (action === "interrupt" && method === "POST") return handleClaudeInterrupt(req, res, sid);
+      }
+
       const sessDelMatch = pathname.match(/^\/sessions\/([^/]+)$/);
       if (sessDelMatch && method === "DELETE") return await handleDeleteSession(req, res, decodeURIComponent(sessDelMatch[1]));
 
@@ -576,7 +703,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           rec.ws = ws;
           ptyId = rec.id;
           try {
-            ws.send(JSON.stringify({ type: "init_ack", id: rec.id, cwd: rec.cwd, shell: rec.shell }));
+            // `tmux: true` tells the client to stop converting wheel→arrows
+            // (the outer xterm is permanently in the alternate screen under
+            // tmux); tmux's own mouse mode scrolls the pane history instead.
+            ws.send(JSON.stringify({ type: "init_ack", id: rec.id, cwd: rec.cwd, shell: rec.shell, tmux: isTmuxMode() }));
             if (rec.buffer.length > 0) ws.send(rec.buffer);
           } catch {}
         }
@@ -600,7 +730,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
       if (frame && typeof frame === "object" && typeof frame.type === "string") {
         if (frame.type === "resize" && Number.isFinite(frame.cols) && Number.isFinite(frame.rows)) {
-          try { rec.pty.resize(frame.cols, frame.rows); } catch {}
+          resizePty(rec, frame.cols, frame.rows);
         } else if (frame.type === "ping") {
           try { ws.send(JSON.stringify({ type: "pong", ts: Date.now() })); } catch {}
         } else if (frame.type === "stdin" && typeof frame.data === "string") {

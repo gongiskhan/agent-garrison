@@ -8,10 +8,15 @@ interface TabSummary {
   requestedUrl?: string;
 }
 
-function useRoute(): { kind: "list" } | { kind: "canvas"; initialTabId: string } {
+function useRoute():
+  | { kind: "list" }
+  | { kind: "canvas"; initialTabId: string }
+  | { kind: "devtools-shell"; initialTabId: string } {
   const [path] = useState(() => window.location.pathname);
   const canvasMatch = path.match(/^\/canvas\/([^/?#]+)/);
   if (canvasMatch) return { kind: "canvas", initialTabId: decodeURIComponent(canvasMatch[1]) };
+  const shellMatch = path.match(/^\/devtools-shell\/([^/?#]+)/);
+  if (shellMatch) return { kind: "devtools-shell", initialTabId: decodeURIComponent(shellMatch[1]) };
   return { kind: "list" };
 }
 
@@ -92,7 +97,7 @@ function TabsList() {
               <div className="url">{tab.url}</div>
             </div>
             <a href={`/canvas/${encodeURIComponent(tab.tabId)}`}>View</a>
-            <a href={`/devtools/inspector.html?ws=${encodeURIComponent(`${window.location.host}/cdp/${tab.tabId}`)}`} target="_blank" rel="noreferrer">DevTools</a>
+            <a href={`/devtools-shell/${encodeURIComponent(tab.tabId)}`} target="_blank" rel="noreferrer">DevTools</a>
             <button onClick={() => void onClose(tab.tabId)}>Close</button>
           </div>
         ))
@@ -109,7 +114,7 @@ const SPECIAL_KEYS = new Set([
   "Home", "End", "PageUp", "PageDown"
 ]);
 
-function CanvasPage({ initialTabId }: { initialTabId: string }) {
+function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; inShell?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
@@ -137,6 +142,11 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [connState, setConnState] = useState<"connecting" | "open" | "closed">("connecting");
   const [quality, setQuality] = useState<QualityLevel>(() => loadQuality());
+  // Set when the server reports the tab is gone (e.g. the Fitting restarted
+  // and this id no longer exists). Suppresses the reconnect loop — retrying
+  // a dead id can never succeed.
+  const [fatalError, setFatalError] = useState<string | null>(null);
+  const fatalRef = useRef<string | null>(null);
 
   const sendInput = useCallback((msg: object) => {
     const ws = inputWsRef.current;
@@ -149,7 +159,11 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
 
   // Push the canvas wrapper's display size to the server so Chromium resizes
   // its viewport to match. The next screencast frame comes at the new size.
+  // Only the client that holds the screencast may steer the shared Chromium
+  // viewport: a stolen-from pane keeps a live input WS (input allows many
+  // clients) and would otherwise reflow the page under the live viewer.
   const pushViewport = useCallback((force = false) => {
+    if (viewportWsRef.current?.readyState !== WebSocket.OPEN) return;
     const wrap = wrapperRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
@@ -212,9 +226,19 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
   const connect = useCallback(() => {
     if (unmountedRef.current) return;
     cancelReconnect();
-    try { viewportWsRef.current?.close(); } catch { /* noop */ }
-    try { inputWsRef.current?.close(); } catch { /* noop */ }
+    // Detach handlers before closing: a discarded socket's close event can
+    // land AFTER the replacement's onopen, and its stale onclose would flip
+    // connState to "closed" over a live stream (where the reconnect overlay
+    // would then intercept all canvas input).
+    for (const ref of [viewportWsRef, inputWsRef]) {
+      const old = ref.current;
+      if (!old) continue;
+      old.onopen = null; old.onclose = null; old.onerror = null; old.onmessage = null;
+      try { old.close(); } catch { /* noop */ }
+    }
 
+    fatalRef.current = null;
+    setFatalError(null);
     setConnState("connecting");
     lastSentViewportRef.current = null;
     qualitySentRef.current = null;
@@ -225,11 +249,26 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
     console.log(`[swap-timing] connect() tabId=${tabId} +${sinceSwap}ms since swap`);
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+
+    // Initial sync needs BOTH sockets open (viewport ownership gates the
+    // push; the input WS carries it) — run from whichever onopen fires last.
+    const syncOnOpen = () => {
+      if (viewportWsRef.current?.readyState !== WebSocket.OPEN) return;
+      const iw = inputWsRef.current;
+      if (!iw || iw.readyState !== WebSocket.OPEN) return;
+      pushViewport(true);
+      iw.send(JSON.stringify({ type: "quality", level: quality }));
+      qualitySentRef.current = quality;
+      // Unblock any frame that arrived before the input WS was ready.
+      if (pendingAckRef.current) flushAck();
+    };
+
     const vws = new WebSocket(`${proto}//${window.location.host}/viewport/${encodeURIComponent(tabId)}`);
     vws.binaryType = "arraybuffer";
     vws.onopen = () => {
       reconnectAttemptRef.current = 0;
       setConnState("open");
+      syncOnOpen();
       // TEMP: tab-swap timing instrumentation.
       const sinceConnect = (performance.now() - connectStart).toFixed(1);
       const sinceSwap2 = (performance.now() - swapStartRef.current).toFixed(1);
@@ -265,7 +304,14 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
       // Fallback: legacy JSON+base64 frames. Drop after the binary path proves out.
       if (typeof data === "string") {
         try {
-          const msg = JSON.parse(data) as { type: string; b64?: string };
+          const msg = JSON.parse(data) as { type: string; b64?: string; message?: string };
+          if (msg.type === "error") {
+            // Server-side hard failure ("tab not found" after a Fitting
+            // restart) — retrying this id can never succeed.
+            fatalRef.current = msg.message || "connection refused";
+            setFatalError(fatalRef.current);
+            return;
+          }
           if (msg.type === "frame" && msg.b64) {
             const img = new Image();
             img.onload = () => { const c = canvasRef.current; if (c) {
@@ -284,13 +330,7 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
     const iws = new WebSocket(`${proto}//${window.location.host}/input/${encodeURIComponent(tabId)}`);
     iws.onopen = () => {
       reconnectAttemptRef.current = 0;
-      // First thing: sync viewport size and quality so frames come at the
-      // right resolution / preset from the very first paint.
-      pushViewport(true);
-      iws.send(JSON.stringify({ type: "quality", level: quality }));
-      qualitySentRef.current = quality;
-      // Unblock any frame that arrived before the input WS was ready.
-      if (pendingAckRef.current) flushAck();
+      syncOnOpen();
     };
     iws.onclose = (e) => {
       // TEMP: tab-swap timing instrumentation — capture disconnect reasons.
@@ -298,13 +338,25 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
       scheduleReconnect();
     };
     iws.onmessage = (e) => {
-      let msg: { type: string; editable?: boolean };
+      let msg: { type: string; editable?: boolean; message?: string };
       try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.type === "error") {
+        fatalRef.current = msg.message || "connection refused";
+        setFatalError(fatalRef.current);
+        return;
+      }
       if (msg.type === "focusedField") {
         const el = hiddenInputRef.current;
         if (!el) return;
-        if (msg.editable) el.focus();
-        else el.blur();
+        if (msg.editable) {
+          // Don't yank keyboard focus when we don't hold the screencast, or
+          // while the user is working in an embedded iframe (the DevTools
+          // pane in the shell) — the page autofocusing a field after e.g. an
+          // HMR reload must not steal the console mid-typing.
+          if (viewportWsRef.current?.readyState !== WebSocket.OPEN) return;
+          if (document.activeElement?.tagName === "IFRAME") return;
+          el.focus();
+        } else el.blur();
       }
     };
     inputWsRef.current = iws;
@@ -314,6 +366,7 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
   // Exponential backoff: 500ms → 1s → 2s → 3.5s → 5s (cap). Reset on onopen.
   const scheduleReconnect = useCallback(() => {
     if (unmountedRef.current) return;
+    if (fatalRef.current) return; // dead tab id — retrying can't succeed
     if (reconnectTimerRef.current != null) return;
     // Both viewport AND input must be down before we schedule — otherwise
     // we'd churn the live one.
@@ -394,10 +447,13 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
     return () => window.removeEventListener("message", onMsg);
   }, [tabId]);
 
-  // Persist quality + push to server when it changes mid-session.
+  // Persist quality + push to server when it changes mid-session. Same
+  // ownership rule as pushViewport: only the screencast holder may restart
+  // the stream at a new preset.
   useEffect(() => {
     try { window.localStorage.setItem(QUALITY_LS_KEY, quality); } catch {}
     if (qualitySentRef.current === quality) return;
+    if (viewportWsRef.current?.readyState !== WebSocket.OPEN) return;
     const ws = inputWsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "quality", level: quality }));
@@ -571,9 +627,7 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
   };
 
   const openDevTools = () => {
-    const wsTarget = `${window.location.host}/cdp/${tabId}`;
-    const href = `/devtools/inspector.html?ws=${encodeURIComponent(wsTarget)}`;
-    window.open(href, "_blank", "noopener");
+    window.open(`/devtools-shell/${encodeURIComponent(tabId)}`, "_blank", "noopener");
   };
 
   const inIframe = useMemo(() => {
@@ -618,7 +672,7 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
             >{lvl.toUpperCase()}</button>
           ))}
         </div>
-        <button onClick={openDevTools} title="Chrome DevTools">DevTools</button>
+        {!inShell && <button onClick={openDevTools} title="Chrome DevTools">DevTools</button>}
         {nativeUrl && (
           <a
             className="opt native-link"
@@ -657,9 +711,24 @@ function CanvasPage({ initialTabId }: { initialTabId: string }) {
           onKeyDown={onHiddenKeyDown}
           onInput={onHiddenInput}
         />
-        {connState !== "open" && (
-          <div className="conn-overlay">
-            {connState === "connecting" ? "Connecting…" : "Disconnected — tap or switch tabs to reconnect"}
+        {connState !== "open" && fatalError && (
+          <div className="conn-overlay error">
+            <div>
+              <div className="title">
+                {fatalError === "tab not found" ? "This browser tab no longer exists" : fatalError}
+              </div>
+              <div className="subtitle">
+                The Browser Fitting may have restarted. Reopen DevTools from the Dev Env pane.
+              </div>
+            </div>
+          </div>
+        )}
+        {connState !== "open" && !fatalError && (
+          <div
+            className={`conn-overlay ${connState === "closed" ? "reconnect" : ""}`}
+            onClick={connState === "closed" ? () => connect() : undefined}
+          >
+            {connState === "connecting" ? "Connecting…" : "Disconnected — tap to reconnect"}
           </div>
         )}
         {connState === "open" && loadError && (
@@ -684,11 +753,97 @@ function modifierMask(e: React.KeyboardEvent): number {
   return m;
 }
 
+// ─── DevTools shell (/devtools-shell/:tabId) ──────────────────
+//
+// Side-by-side surface: the interactive canvas on the left (the page reflows
+// to fill the pane — no letterboxed screencast), the official Chrome DevTools
+// frontend on the right. DevTools' own screencast is redundant here, so it's
+// seeded off.
+
+// DevTools (same origin as this app — it's reverse-proxied at /devtools/*)
+// persists its settings in localStorage with JSON-encoded values. Each key
+// is read once at frontend boot, so seeding must happen before the iframe
+// mounts. Seeded on every shell open: the shell's contract is "opens on
+// Network with the Console drawer at half height", not "remembers last time".
+function seedDevtoolsDefaults() {
+  try {
+    const halfHeight = Math.max(200, Math.round(window.innerHeight / 2));
+    window.localStorage.setItem("screencast-enabled", JSON.stringify(false));
+    window.localStorage.setItem("panel-selected-tab", JSON.stringify("network"));
+    // "console-view" is the drawer Console's view id ("console" is the
+    // main-panel Console — a drawer location never has that tab).
+    window.localStorage.setItem("drawer-view-selected-tab", JSON.stringify("console-view"));
+    // Seed BOTH orientation slots: the drawer SplitWidget reads `horizontal`
+    // when the drawer is horizontal (the default) and `vertical` after the
+    // user toggles drawer orientation (Shift+Esc) — a missing slot falls
+    // back to the pre-restore "OnlyMain" showMode and the drawer never
+    // auto-opens. showMode "Both" = drawer visible.
+    window.localStorage.setItem(
+      "inspector.drawer-split-view-state",
+      JSON.stringify({
+        horizontal: { size: halfHeight, showMode: "Both" },
+        vertical: { size: 400, showMode: "Both" }
+      })
+    );
+  } catch { /* localStorage unavailable — DevTools falls back to its defaults */ }
+}
+
+function DevtoolsShell({ initialTabId }: { initialTabId: string }) {
+  // useState initializer = synchronous, once, before the iframe ever renders.
+  useState(() => { seedDevtoolsDefaults(); return true; });
+  const [leftPct, setLeftPct] = useState(55);
+  const [dragging, setDragging] = useState(false);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+
+  const devtoolsSrc = useMemo(() => {
+    const wsTarget = `${window.location.host}/cdp/${initialTabId}`;
+    // ?panel= overrides the persisted tab selection at boot.
+    return `/devtools/inspector.html?ws=${encodeURIComponent(wsTarget)}&panel=network`;
+  }, [initialTabId]);
+
+  useEffect(() => { document.title = "Garrison DevTools"; }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: PointerEvent) => {
+      const el = shellRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      setLeftPct(Math.min(80, Math.max(20, pct)));
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [dragging]);
+
+  return (
+    <div className={`devtools-shell ${dragging ? "dragging" : ""}`} ref={shellRef}>
+      <div className="shell-left" style={{ width: `${leftPct}%` }}>
+        <CanvasPage initialTabId={initialTabId} inShell />
+      </div>
+      <div
+        className="shell-divider"
+        onPointerDown={(e) => { e.preventDefault(); setDragging(true); }}
+        title="Drag to resize"
+      />
+      <div className="shell-right">
+        <iframe className="devtools-frame" src={devtoolsSrc} title="Chrome DevTools" />
+      </div>
+    </div>
+  );
+}
+
 // ─── Root ──────────────────────────────────────────────────────
 
 function App() {
   const route = useRoute();
   if (route.kind === "canvas") return <CanvasPage initialTabId={route.initialTabId} />;
+  if (route.kind === "devtools-shell") return <DevtoolsShell initialTabId={route.initialTabId} />;
   return <TabsList />;
 }
 

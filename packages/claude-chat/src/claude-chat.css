@@ -1,0 +1,110 @@
+/* Rich Claude chat — shared by web-channel and dev-env. Mobile-first. */
+/* When ClaudeChat is the whole page (web-channel), fill the viewport. dev-env
+   mounts it inside a pane, where the pane sets the height instead. */
+html:has(> body > #root > .cc-root),
+body:has(> #root > .cc-root) { height: 100%; margin: 0; }
+#root:has(> .cc-root) { height: 100dvh; }
+
+.cc-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #0d1117;
+  color: #e6edf3;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.cc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  border-bottom: 1px solid #21262d;
+  background: #161b22;
+  font-size: 12px;
+}
+.cc-title { font-weight: 600; }
+.cc-spacer { flex: 1; }
+.cc-model, .cc-ctx { color: #8b949e; font-variant-numeric: tabular-nums; }
+.cc-conn { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+.cc-conn-reconnecting { background: #d29922; }
+.cc-conn-closed { background: #f85149; }
+.cc-rawtoggle, .cc-mode, .cc-send, .cc-stop {
+  background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.cc-rawtoggle:hover, .cc-mode:hover { background: #30363d; }
+
+.cc-scroll { flex: 1; overflow-y: auto; padding: 12px; min-height: 0; -webkit-overflow-scrolling: touch; }
+.cc-empty { color: #6e7681; text-align: center; margin-top: 24px; }
+
+.cc-turn { margin-bottom: 16px; }
+.cc-user {
+  background: #1f6feb; color: #fff; border-radius: 12px 12px 4px 12px;
+  padding: 8px 12px; margin-left: auto; max-width: 85%; width: fit-content;
+  white-space: pre-wrap; word-break: break-word;
+}
+.cc-assistant { margin-top: 8px; max-width: 95%; }
+.cc-md { word-break: break-word; }
+.cc-md p { margin: 0 0 8px; }
+.cc-md pre {
+  background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+  padding: 10px; overflow-x: auto; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cc-md code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: #161b22; padding: 1px 4px; border-radius: 4px; }
+.cc-md pre code { background: none; padding: 0; }
+.cc-md ul, .cc-md ol { margin: 0 0 8px; padding-left: 20px; }
+.cc-typing { color: #6e7681; }
+
+.cc-raw {
+  background: #010409; border: 1px solid #21262d; border-radius: 8px; color: #b1bac4;
+  padding: 10px; overflow-x: auto; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre; margin-top: 8px;
+}
+
+.cc-statusstrip {
+  border-top: 1px solid #21262d; background: #010409; color: #8b949e;
+  padding: 4px 12px; overflow-x: auto; white-space: nowrap;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cc-statusrow { white-space: pre; }
+.cc-dim { opacity: 0.6; }
+
+.cc-modes { display: flex; gap: 6px; padding: 6px 12px; border-top: 1px solid #21262d; background: #0d1117; flex-wrap: wrap; }
+.cc-mode { font-size: 11px; padding: 3px 8px; }
+.cc-mode-active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.cc-mode:disabled { opacity: 0.4; cursor: default; }
+
+.cc-composer { position: relative; border-top: 1px solid #21262d; background: #161b22; padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+.cc-composerrow { display: flex; gap: 8px; align-items: flex-end; }
+.cc-input {
+  flex: 1; resize: none; max-height: 160px; min-height: 38px;
+  background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
+  padding: 9px 12px; font: 14px/1.4 inherit; outline: none;
+}
+.cc-input:focus { border-color: #1f6feb; }
+.cc-send, .cc-stop { min-height: 38px; padding: 0 16px; font-weight: 600; }
+.cc-send:disabled { opacity: 0.4; cursor: default; }
+.cc-stop { background: #8b2c2c; border-color: #b34141; display: inline-flex; align-items: center; gap: 6px; }
+.cc-stopsq { width: 9px; height: 9px; background: #fff; border-radius: 2px; display: inline-block; }
+
+.cc-slashmenu {
+  position: absolute; left: 8px; right: 8px; bottom: calc(100% - 2px);
+  background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+  max-height: 45dvh; overflow-y: auto; box-shadow: 0 -8px 24px rgba(0,0,0,0.4); z-index: 10;
+}
+.cc-slashitem { display: flex; flex-direction: column; width: 100%; text-align: left; gap: 2px;
+  background: none; border: none; border-bottom: 1px solid #21262d; padding: 8px 12px; cursor: pointer; color: #e6edf3; }
+.cc-slashitem-active { background: #1f2937; }
+.cc-slashname { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; display: flex; align-items: center; gap: 8px; }
+.cc-slashdesc { font-size: 11px; color: #8b949e; }
+.cc-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 4px; background: #30363d; color: #8b949e; }
+.cc-badge-skill { background: #3b2d57; color: #d2b8ff; }
+.cc-badge-project { background: #163a2b; color: #7ee2b8; }
+.cc-badge-user { background: #1d3a57; color: #9ecbff; }
+
+@media (min-width: 760px) {
+  .cc-slashmenu { left: 8px; right: auto; min-width: 420px; max-width: 560px; }
+}

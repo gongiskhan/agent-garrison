@@ -1,0 +1,19 @@
+{
+  "name": "@garrison/claude-pty",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Drive the interactive Claude Code TUI under node-pty + @xterm/headless. Garrison's single substrate for talking to the model.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./*": "./src/*"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@xterm/headless": "^6.0.0",
+    "node-pty": "^1.1.0"
+  }
+}

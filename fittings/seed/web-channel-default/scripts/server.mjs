@@ -279,6 +279,49 @@ function handleStream(req, res, opts) {
   });
 }
 
+// Rich chat surface: proxy /api/claude/* to the gateway's /claude/*. The SSE
+// stream uses pipeUpstreamSse; the JSON actions buffer + forward.
+function handleClaudeStream(req, res, opts) {
+  const target = new URL("/claude/stream", opts.gatewayUrl);
+  pipeUpstreamSse(req, res, {
+    method: "GET",
+    hostname: target.hostname,
+    port: target.port,
+    path: target.pathname,
+    headers: { Accept: "text/event-stream" }
+  });
+}
+
+async function handleClaudeProxy(req, res, opts, subpath, method) {
+  let payload;
+  if (method === "POST") {
+    try {
+      payload = JSON.stringify(await readJsonBody(req));
+    } catch (err) {
+      return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+    }
+  }
+  const target = new URL(`/claude/${subpath}`, opts.gatewayUrl);
+  const headers = { Accept: "application/json" };
+  if (payload !== undefined) {
+    headers["Content-Type"] = "application/json";
+    headers["Content-Length"] = Buffer.byteLength(payload);
+  }
+  const upstream = http.request(
+    { method, hostname: target.hostname, port: target.port, path: target.pathname + (target.search || ""), headers },
+    (up) => {
+      res.statusCode = up.statusCode || 502;
+      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
+      up.pipe(res);
+    }
+  );
+  upstream.on("error", (err) => {
+    try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
+  });
+  if (payload !== undefined) upstream.write(payload);
+  upstream.end();
+}
+
 async function readJsonBody(req, limit = 256 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -430,6 +473,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
+      if (pathname === "/api/claude/stream" && method === "GET") return handleClaudeStream(req, res, liveOpts);
+      if (pathname === "/api/claude/status" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "status", "GET");
+      if (pathname === "/api/claude/commands" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "commands", "GET");
+      if (pathname === "/api/claude/message" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "message", "POST");
+      if (pathname === "/api/claude/keys" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "keys", "POST");
+      if (pathname === "/api/claude/mode" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "mode", "POST");
+      if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;

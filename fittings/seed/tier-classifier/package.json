@@ -1,13 +1,11 @@
 {
   "name": "garrison-tier-classifier",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Tier classifier Fitting for Agent Garrison.",
+  "description": "Tier classifier Fitting for Agent Garrison (talks to the model via @garrison/claude-pty).",
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.0"
-  }
+  "dependencies": {}
 }

@@ -262,15 +262,13 @@ export function BrowserPane({
 
   function openDevTools() {
     if (!browserBase || !browserTabId) return;
-    try {
-      const base = new URL(browserBase);
-      const wsTarget = `${base.host}/cdp/${browserTabId}`;
-      window.open(
-        `${browserBase}/devtools/inspector.html?ws=${encodeURIComponent(wsTarget)}`,
-        "_blank",
-        "noopener"
-      );
-    } catch {}
+    // The Browser Fitting's DevTools shell: interactive canvas (page reflows
+    // to fill it) + DevTools opened on Network with the Console drawer.
+    window.open(
+      `${browserBase}/devtools-shell/${encodeURIComponent(browserTabId)}`,
+      "_blank",
+      "noopener"
+    );
   }
 
   return (

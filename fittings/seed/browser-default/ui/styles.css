@@ -279,3 +279,67 @@ html, body, #root {
   font-size: 12px;
   color: #aaa;
 }
+
+.conn-overlay.reconnect {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* ─── DevTools shell (/devtools-shell/:tabId) ───────────────── */
+
+.devtools-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: #1a1a1a;
+}
+
+/* CanvasPage is position:fixed full-viewport on /canvas — contain it to the
+   shell's left pane instead. */
+.devtools-shell .canvas-page {
+  position: relative;
+  inset: auto;
+  height: 100%;
+}
+
+.devtools-shell .shell-left {
+  min-width: 0;
+  flex: none;
+}
+
+.devtools-shell .shell-divider {
+  width: 5px;
+  flex: none;
+  cursor: col-resize;
+  background: #2a2a2a;
+}
+
+.devtools-shell .shell-divider:hover {
+  background: #444;
+}
+
+.devtools-shell .shell-right {
+  flex: 1;
+  min-width: 0;
+  background: #fff;
+}
+
+.devtools-shell .devtools-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* While dragging the divider, the iframe/canvas must not swallow pointer
+   events or the drag sticks. */
+.devtools-shell.dragging {
+  cursor: col-resize;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.devtools-shell.dragging .shell-left,
+.devtools-shell.dragging .shell-right {
+  pointer-events: none;
+}

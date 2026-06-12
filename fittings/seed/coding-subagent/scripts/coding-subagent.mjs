@@ -28,9 +28,12 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const tmpdirPath = () => tmpdir();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,10 +56,10 @@ const STATE_FILE = path.join(DATA_DIR, "coding-subagent-executions.json");
 const SUBAGENT_MODEL = process.env.GARRISON_SUBAGENT_MODEL ?? "opus";
 const SUBAGENT_PERMISSION_MODE =
   process.env.GARRISON_SUBAGENT_PERMISSION_MODE ?? "bypassPermissions";
-const MAX_PLAN_TURNS = Number(process.env.GARRISON_SUBAGENT_MAX_PLAN_TURNS ?? "30");
-const MAX_EXECUTE_TURNS = Number(
-  process.env.GARRISON_SUBAGENT_MAX_EXECUTE_TURNS ?? "200"
-);
+// The interactive TUI runs one user turn (with unbounded internal tool calls),
+// so the former SDK per-turn caps become wall-clock timeouts.
+const PLAN_TIMEOUT_MS = Number(process.env.GARRISON_SUBAGENT_PLAN_TIMEOUT_MS ?? String(5 * 60 * 1000));
+const EXECUTE_TIMEOUT_MS = Number(process.env.GARRISON_SUBAGENT_EXECUTE_TIMEOUT_MS ?? String(20 * 60 * 1000));
 
 // ───────────────────────────────────────────── helpers
 
@@ -180,131 +183,99 @@ function readDocument(id) {
 
 // ───────────────────────────────────────────── subagent runner
 
-// Active sub-agent handle for signal-driven interrupts. Set by
+// Active sub-agent session for signal-driven interrupts. Set by
 // runSubAgent; consumed by the SIGTERM/SIGINT handler installed by
 // installAbortHandlers.
-let activeQuery = null;
+let activeSession = null;
 
 function installAbortHandlers(executionId, logStream) {
-  const onSignal = async (signal) => {
+  const onSignal = (signal) => {
     logTo(logStream, { kind: "killed-by-signal", signal });
     patchIfRunning(executionId, {
       status: "killed",
       ended_at: new Date().toISOString()
     });
-    if (activeQuery && typeof activeQuery.interrupt === "function") {
+    if (activeSession) {
       try {
-        await activeQuery.interrupt();
+        // Esc interrupts the in-flight turn in the interactive TUI; then
+        // dispose the PTY.
+        activeSession.writeKeys("\x1b");
+        activeSession.dispose();
       } catch {
         /* sub-agent already gone */
       }
     }
-    // Give the SDK a beat to flush its child processes. interrupt()
-    // signals the in-flight Claude session; the for-await in
-    // runSubAgent will end on its own. Force-exit if cleanup hangs.
     setTimeout(() => process.exit(143), 2000).unref();
   };
   process.on("SIGTERM", onSignal);
   process.on("SIGINT", onSignal);
 }
 
-async function runSubAgent({
-  prompt,
-  systemPrompt,
-  cwd,
-  maxTurns,
-  logStream
-}) {
-  let query;
+// Run a one-shot coding turn through @garrison/claude-pty (interactive Claude
+// Code TUI driven via node-pty) — the same substrate as the gateway. The model
+// does as many internal tool calls as it needs within the single turn; the
+// former SDK `maxTurns` cap becomes a wall-clock timeout. Streams the growing
+// assistant reply into the per-execution log.
+async function runSubAgent({ prompt, systemPrompt, cwd, timeoutMs, logStream }) {
+  let OperativePtySession;
+  let extractReply;
   try {
-    ({ query } = await import("@anthropic-ai/claude-agent-sdk"));
+    ({ OperativePtySession, extractReply } = await import("@garrison/claude-pty"));
   } catch {
-    throw new Error(
-      "coding-subagent requires @anthropic-ai/claude-agent-sdk — " +
-      "run `npm install @anthropic-ai/claude-agent-sdk` in the composition directory"
-    );
+    throw new Error("coding-subagent requires @garrison/claude-pty — run setup first");
   }
   const start = Date.now();
-  let assistantText = "";
-  let resultSubtype = null;
-  let toolUseCount = 0;
-  let costUsd = null;
+
+  const promptDir = mkdtempSync(path.join(tmpdirPath(), "garrison-subagent-"));
+  const promptFile = path.join(promptDir, "system-prompt.md");
+  writeFileSync(promptFile, systemPrompt, "utf8");
 
   logTo(logStream, {
     kind: "subagent-start",
     cwd,
     model: SUBAGENT_MODEL,
     permission_mode: SUBAGENT_PERMISSION_MODE,
-    max_turns: maxTurns
+    timeout_ms: timeoutMs
   });
 
-  const queryHandle = query({
-    prompt,
-    options: {
-      cwd,
-      systemPrompt,
-      model: SUBAGENT_MODEL,
-      permissionMode: SUBAGENT_PERMISSION_MODE,
-      maxTurns: maxTurns
-    }
+  const session = await OperativePtySession.spawn({
+    compositionDir: cwd,
+    appendSystemPromptFile: promptFile,
+    model: SUBAGENT_MODEL,
+    permissionMode: SUBAGENT_PERMISSION_MODE
   });
-  activeQuery = queryHandle;
+  activeSession = session;
+  logTo(logStream, { kind: "subagent-session-init", session_id: session.getClaudeSessionId() });
 
-  for await (const event of queryHandle) {
-    if (event.type === "system" && event.subtype === "init") {
-      logTo(logStream, {
-        kind: "subagent-session-init",
-        session_id: event.session_id
-      });
-    } else if (event.type === "assistant" && event.message?.content) {
-      const blocks = Array.isArray(event.message.content)
-        ? event.message.content
-        : [];
-      for (const block of blocks) {
-        if (block.type === "text" && block.text) {
-          assistantText += block.text;
-          logTo(logStream, { kind: "assistant-text", text: block.text });
-        } else if (block.type === "tool_use") {
-          toolUseCount++;
-          logTo(logStream, {
-            kind: "tool-use",
-            name: block.name,
-            input: block.input
-          });
-        }
+  let lastLen = 0;
+  let outcome;
+  try {
+    outcome = await session.runTurn({
+      message: prompt,
+      timeoutMs,
+      onScreen: () => {
+        // Best-effort streaming: log the growing assistant reply.
+        try {
+          const cur = extractReply(session.handle, prompt);
+          if (typeof cur === "string" && cur.length > lastLen) {
+            logTo(logStream, { kind: "assistant-text", text: cur.slice(lastLen) });
+            lastLen = cur.length;
+          }
+        } catch { /* screen mid-render */ }
       }
-    } else if (event.type === "result") {
-      resultSubtype = event.subtype;
-      costUsd = event.total_cost_usd ?? null;
-      logTo(logStream, {
-        kind: "turn-result",
-        subtype: resultSubtype,
-        cost_usd: costUsd
-      });
-    }
+    });
+  } catch (err) {
+    activeSession = null;
+    try { session.dispose(); } catch { /* ignore */ }
+    throw err;
   }
 
   const totalMs = Date.now() - start;
-  logTo(logStream, {
-    kind: "subagent-end",
-    result_subtype: resultSubtype,
-    total_ms: totalMs,
-    tool_uses: toolUseCount,
-    cost_usd: costUsd
-  });
+  logTo(logStream, { kind: "subagent-end", total_ms: totalMs });
+  activeSession = null;
+  try { session.dispose(); } catch { /* ignore */ }
 
-  activeQuery = null;
-
-  if (resultSubtype && resultSubtype !== "success") {
-    throw new Error(`sub-agent ended with subtype="${resultSubtype}"`);
-  }
-
-  return {
-    text: assistantText.trim(),
-    totalMs,
-    toolUseCount,
-    costUsd
-  };
+  return { text: (outcome.reply ?? "").trim(), totalMs, toolUseCount: 0, costUsd: null };
 }
 
 // ───────────────────────────────────────────── prompts
@@ -417,7 +388,7 @@ Read the codebase and produce a plan as instructed.`;
       prompt: userPrompt,
       systemPrompt: PLAN_SYSTEM_PROMPT,
       cwd: projectPath,
-      maxTurns: MAX_PLAN_TURNS,
+      timeoutMs: PLAN_TIMEOUT_MS,
       logStream
     });
     plan = result.text;
@@ -503,7 +474,7 @@ Now execute the plan and produce the concluding summary.`;
       prompt: userPrompt,
       systemPrompt: EXECUTE_SYSTEM_PROMPT,
       cwd: projectPath,
-      maxTurns: MAX_EXECUTE_TURNS,
+      timeoutMs: EXECUTE_TIMEOUT_MS,
       logStream
     });
     summary = result.text;
@@ -579,6 +550,12 @@ function cmdKill(flags) {
 
 async function main(argv) {
   if (argv.includes("--probe")) {
+    try {
+      await import("@garrison/claude-pty");
+    } catch {
+      process.stderr.write("coding-subagent: @garrison/claude-pty not installed\n");
+      return 1;
+    }
     process.stdout.write("ok\n");
     return 0;
   }

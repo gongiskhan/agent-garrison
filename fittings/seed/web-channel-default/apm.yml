@@ -49,11 +49,18 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    The web-channel Fitting is the Operative's mobile surface. The
-    Orchestrator does not call it directly — the browser drives. The
-    web-channel relays browser POSTs to the http-gateway's /chat/stream,
-    and subscribes to /channels/web/stream so that replies (and the
-    last 100 events on reconnect) reach the browser.
+    The web-channel Fitting is the Operative's mobile surface — now a rich
+    Claude Code chat (markdown replies, real status line, mode switcher,
+    slash/skill autocomplete, collapsible raw terminal). The UI is the shared
+    @garrison/claude-chat component talking to the http-gateway's PTY-backed
+    /claude/* surface, proxied here as /api/claude/* (stream SSE + status,
+    commands, message, keys, mode, interrupt). The legacy bubble+voice UI is
+    preserved as ui/legacy-voice.tsx for a future voice re-integration via the
+    component's composerAdornment slot.
+
+    The Orchestrator does not call it directly — the browser drives. The
+    legacy /api/chat → /chat/stream and /api/stream → /channels/web/stream
+    relays remain for compatibility.
 
     Channel id: "web" — set as the `channel` field on inbound /chat/stream
     requests. When the Orchestrator publishes assistant replies, they

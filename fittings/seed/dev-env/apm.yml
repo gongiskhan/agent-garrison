@@ -12,7 +12,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: One dev surface (default port 7086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; git worktree create/delete, quick prompts, and PTY-driven PR/commit flows included.
+  summary: One dev surface (default port 7086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; the Claude pane toggles between a raw Terminal view and a rich Chat view (markdown, status line, mode switcher, slash/skill autocomplete) backed by a headless mirror of the same PTY. Git worktree create/delete, quick prompts, and PTY-driven PR/commit flows included.
   config_schema:
     - key: port
       type: integer
@@ -30,6 +30,15 @@ x-garrison:
       type: integer
       default: 10000
       description: TTL for the per-cwd `git status --porcelain` dirty cache (stale-while-revalidate).
+    - key: use_tmux
+      type: string
+      default: auto
+      description: >-
+        PTY backing. auto = use tmux when installed (each session's shell +
+        claude run in a dedicated tmux server on socket `garrison`, so they
+        survive a dev-env restart — closing the server only detaches), else
+        direct node-pty. on = require tmux (fail fast if absent). off = always
+        direct node-pty (legacy: fresh shell + scrollback replay on restart).
   provides:
     - kind: dev-env
       name: dev-env
@@ -51,7 +60,9 @@ x-garrison:
     Then `GET <url>/health` to confirm reachability before linking.
 
     HTTP endpoints:
-      GET    /health                     - liveness { ok, port, pid, ptys }
+      GET    /health                     - liveness { ok, port, pid, tmux, ptys }
+                                           (`tmux`: true when sessions are
+                                           tmux-backed / crash-persistent)
       GET    /sessions                   - { sessions: DevEnvSession[] }
       POST   /sessions                   - { path, title? } start a session
                                            (record + both PTYs) for a project
@@ -66,6 +77,21 @@ x-garrison:
                                            the running Claude PTY, pause,
                                            then press Enter. 409 when no
                                            running Claude PTY.
+      .../sessions/:id/claude/*          - rich chat surface over the claude
+                                           PTY's headless mirror (Phase 2),
+                                           same protocol as the gateway so the
+                                           shared @garrison/claude-chat
+                                           component works against either:
+                                             GET  /claude/stream   (SSE)
+                                             GET  /claude/status
+                                             GET  /claude/commands
+                                             POST /claude/message {text}
+                                             POST /claude/keys {key}
+                                             POST /claude/mode {mode}
+                                             POST /claude/interrupt
+                                           The UI toggles a claude pane between
+                                           Terminal and Chat (localStorage
+                                           garrison.devenv.claudeView).
       DELETE /sessions/:id               - remove session record + PTYs (and
                                            the git worktree when the cwd
                                            lives under ~/.worktrees)
@@ -103,7 +129,9 @@ x-garrison:
     WebSocket protocol on /io (per-PTY, id = "<sessionId>-claude" or
     "<sessionId>-shell"):
       client -> server JSON {type:"init", sessionId: <ptyId>}
-      server -> client JSON {type:"init_ack"} or {type:"error", message}
+      server -> client JSON {type:"init_ack", tmux} or {type:"error", message}
+                            (`tmux:true` => the pane is tmux-backed; the client
+                            leaves wheel scrolling to tmux's mouse mode)
       client -> server binary: stdin bytes
       server -> client binary: stdout bytes
       client -> server JSON {type:"resize", cols, rows}

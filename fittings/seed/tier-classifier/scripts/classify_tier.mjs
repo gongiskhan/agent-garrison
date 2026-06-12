@@ -7,12 +7,17 @@
 //
 // Output: { "tier": N, "reason": "..." }
 //
+// Talks to the model through @garrison/claude-pty (interactive Claude Code TUI
+// driven via node-pty), one-shot — the same substrate as the gateway. No Agent
+// SDK.
+//
 // Environment:
 //   GARRISON_TIER_FLOOR       minimum tier (default 3)
 //   GARRISON_PLAN_THRESHOLD   tier that triggers plan-before-execute (default 3)
+//   GARRISON_TIER_MODEL       model to classify with (default haiku)
 
-import { createRequire } from "node:module";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +29,7 @@ const SKILL_MD_PATH = path.join(FITTING_DIR, ".apm", "skills", "tier-classifier"
 
 const TIER_FLOOR = Number(process.env.GARRISON_TIER_FLOOR ?? "3");
 const PLAN_THRESHOLD = Number(process.env.GARRISON_PLAN_THRESHOLD ?? "3");
+const TIER_MODEL = process.env.GARRISON_TIER_MODEL ?? "haiku";
 
 async function readStdin() {
   const chunks = [];
@@ -31,22 +37,14 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function loadQuery() {
-  // Dynamic import so --probe doesn't fail if the SDK isn't installed yet.
-  const require = createRequire(import.meta.url);
-  const paths = [
-    path.join(FITTING_DIR, "node_modules", "@anthropic-ai", "claude-agent-sdk", "index.js"),
-    // Sibling http-gateway symlink path
-    path.join(FITTING_DIR, "node_modules", "@anthropic-ai", "claude-agent-sdk"),
-  ];
-  for (const p of paths) {
-    if (existsSync(p)) {
-      try { return require(p).query; } catch { /* try next */ }
-    }
+async function loadOneShot() {
+  // Dynamic import so --probe doesn't hard-fail if the package isn't linked.
+  try {
+    const mod = await import("@garrison/claude-pty");
+    return mod.oneShotTurn;
+  } catch {
+    return null;
   }
-  // Standard resolution
-  try { return require("@anthropic-ai/claude-agent-sdk").query; } catch { /* fall through */ }
-  return null;
 }
 
 async function classify(prompt) {
@@ -55,9 +53,9 @@ async function classify(prompt) {
   }
   const skillMd = readFileSync(SKILL_MD_PATH, "utf8");
 
-  const query = loadQuery();
-  if (!query) {
-    throw new Error("@anthropic-ai/claude-agent-sdk not found — run setup first");
+  const oneShotTurn = await loadOneShot();
+  if (!oneShotTurn) {
+    throw new Error("@garrison/claude-pty not found — run setup first");
   }
 
   const systemPrompt = [
@@ -66,32 +64,25 @@ async function classify(prompt) {
     `Config: tier_floor=${TIER_FLOOR}, plan_threshold=${PLAN_THRESHOLD}.`,
     "",
     "Respond with ONLY valid JSON on one line, no markdown fences:",
-    '{"tier": <integer 1-7>, "reason": "<one sentence>"}'
+    '{"tier": <integer 1-7>, "reason": "<one sentence>"}',
   ].join("\n");
 
-  let assistantText = "";
-  const queryHandle = query({
-    prompt: `Classify this prompt:\n\n${prompt}`,
-    options: {
-      systemPrompt,
-      maxTurns: 1,
-      allowedTools: [],
-      permissionMode: "default"
-    }
+  const promptDir = mkdtempSync(path.join(tmpdir(), "garrison-tier-"));
+  const promptFile = path.join(promptDir, "system-prompt.md");
+  writeFileSync(promptFile, systemPrompt, "utf8");
+
+  const { reply } = await oneShotTurn({
+    cwd: promptDir,
+    appendSystemPromptFile: promptFile,
+    model: TIER_MODEL,
+    permissionMode: "bypassPermissions",
+    message: `Classify this prompt:\n\n${prompt}`,
+    timeoutMs: 90_000,
   });
 
-  for await (const event of queryHandle) {
-    if (event.type === "assistant" && event.message?.content) {
-      for (const block of (event.message.content ?? [])) {
-        if (block.type === "text") assistantText += block.text;
-      }
-    }
-  }
-
-  // Extract JSON — may be wrapped in prose
-  const jsonMatch = assistantText.match(/\{[^}]*"tier"\s*:\s*\d+[^}]*\}/);
+  const jsonMatch = reply.match(/\{[^}]*"tier"\s*:\s*\d+[^}]*\}/);
   if (!jsonMatch) {
-    throw new Error(`could not parse tier JSON from model output: ${assistantText.slice(0, 200)}`);
+    throw new Error(`could not parse tier JSON from model output: ${reply.slice(0, 200)}`);
   }
   const parsed = JSON.parse(jsonMatch[0]);
   const tier = Math.max(TIER_FLOOR, Math.min(7, Number(parsed.tier)));
@@ -100,14 +91,13 @@ async function classify(prompt) {
 
 async function main(argv) {
   if (argv[0] === "--probe") {
-    // Verify SKILL.md exists and SDK is loadable
     if (!existsSync(SKILL_MD_PATH)) {
       process.stderr.write(`classify_tier: SKILL.md not found at ${SKILL_MD_PATH}\n`);
       return 1;
     }
-    const q = loadQuery();
-    if (!q) {
-      process.stderr.write("classify_tier: SDK not installed\n");
+    const f = await loadOneShot();
+    if (!f) {
+      process.stderr.write("classify_tier: @garrison/claude-pty not installed\n");
       return 1;
     }
     process.stdout.write("ok\n");
@@ -138,7 +128,9 @@ async function main(argv) {
   }
 }
 
-main(process.argv.slice(2)).then((code) => process.exit(code)).catch((err) => {
-  process.stderr.write(`classify_tier: ${err.message}\n`);
-  process.exit(1);
-});
+main(process.argv.slice(2))
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    process.stderr.write(`classify_tier: ${err.message}\n`);
+    process.exit(1);
+  });
