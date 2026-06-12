@@ -14,22 +14,38 @@ export interface WiredInfo {
   canvasUrl: string;
 }
 
+// Browser-Fitting tab ids per cwd, module-scoped so they survive pane
+// unmount/remount (close + reopen, app.port flapping). Without this, every
+// remount would open a brand-new tab in the shared headless browser and the
+// old ones would accumulate forever.
+const tabIdByCwd = new Map<string, string>();
+
 export function BrowserPane({
   cwd,
   active,
-  onWired
+  onWired,
+  onManualNav,
+  onClose
 }: {
   cwd: string;
   active: boolean;
   onWired?: (info: WiredInfo) => void;
+  onManualNav?: () => void;
+  onClose?: () => void;
 }) {
   const [appUrl, setAppUrl] = useState<string | null>(null);
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
-  const [browserTabId, setBrowserTabId] = useState<string | null>(null);
+  const [browserTabId, setBrowserTabId] = useState<string | null>(() => tabIdByCwd.get(cwd) ?? null);
   const [browserBase, setBrowserBase] = useState<string | null>(null);
   const [splitError, setSplitError] = useState<string | null>(null);
   const [iframeNonce, setIframeNonce] = useState(0);
   const [iframeBaseUrl, setIframeBaseUrl] = useState<string | null>(null);
+  // The URL bar is editable: Enter navigates the Browser-Fitting tab to the
+  // typed URL and switches to manual mode, which suspends the app.port
+  // auto-repoint until Refresh hands control back.
+  const [urlInput, setUrlInput] = useState("");
+  const [manual, setManual] = useState(false);
+  const urlEditedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const onWiredRef = useRef(onWired);
   onWiredRef.current = onWired;
@@ -37,6 +53,8 @@ export function BrowserPane({
   tabIdRef.current = browserTabId;
   const appUrlRef = useRef<string | null>(null);
   appUrlRef.current = appUrl;
+  const manualRef = useRef(false);
+  manualRef.current = manual;
 
   async function resolveAppUrl(opts: { silent?: boolean } = {}): Promise<string | null> {
     const setErr = opts.silent ? () => {} : setSplitError;
@@ -130,17 +148,19 @@ export function BrowserPane({
     wired: { tabId: string; canvasUrl: string; browserUrl: string },
     url: string
   ) {
+    tabIdByCwd.set(cwd, wired.tabId);
     setBrowserBase((prev) => prev ?? wired.browserUrl);
     setBrowserTabId(wired.tabId);
     setAppUrl(url);
+    if (!urlEditedRef.current) setUrlInput(url);
     setCanvasUrl(wired.canvasUrl);
     onWiredRef.current?.({ cwd, appUrl: url, canvasUrl: wired.canvasUrl });
   }
 
   // Initial wire (and re-wire whenever the pane becomes active again with no
-  // canvas yet).
+  // canvas yet). Skipped in manual mode — the typed URL owns the tab.
   useEffect(() => {
-    if (!active || canvasUrl) return;
+    if (!active || canvasUrl || manual) return;
     let cancelled = false;
     void (async () => {
       const url = await resolveAppUrl({ silent: true });
@@ -150,7 +170,7 @@ export function BrowserPane({
       applyWired(wired, url);
     })();
     return () => { cancelled = true; };
-  }, [active, canvasUrl, cwd]);
+  }, [active, canvasUrl, cwd, manual]);
 
   // Initialize the sticky iframe src once we know our first tab — after that
   // the src never changes outside of explicit Refresh.
@@ -188,40 +208,103 @@ export function BrowserPane({
 
   // Auto-poll app.port for this cwd while active. When the dev server
   // restarts on a different port, navigate this cwd's tab silently — no UI
-  // churn.
+  // churn. Suspended in manual mode; manualRef is re-checked after every
+  // await so a mid-tick Enter on the URL bar cannot be clobbered by an
+  // in-flight tick, and `cancelled` covers unmount.
   useEffect(() => {
-    if (!active) return;
+    if (!active || manual) return;
+    let cancelled = false;
     const id = window.setInterval(async () => {
+      if (cancelled || manualRef.current) return;
       const url = await resolveAppUrl({ silent: true });
-      if (!url) return;
+      if (cancelled || manualRef.current || !url) return;
       if (url === appUrlRef.current) return;
+      const wired = await ensureBrowserTab(url, tabIdRef.current);
+      if (cancelled || manualRef.current || !wired) return;
+      applyWired(wired, url);
+    }, 4000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [active, cwd, manual]);
+
+  async function navigateToInput() {
+    let target = urlInput.trim();
+    if (!target) return;
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) target = `http://${target}`;
+    setManual(true);
+    urlEditedRef.current = false;
+    // Pin the pane open: manual browsing must not be unmounted by the
+    // app.port visibility poll.
+    onManualNav?.();
+    const wired = await ensureBrowserTab(target, tabIdRef.current);
+    if (!wired) return;
+    applyWired(wired, target);
+  }
+
+  async function refreshIframe() {
+    // Refresh hands control back to app.port auto-resolution.
+    setManual(false);
+    urlEditedRef.current = false;
+    const url = await resolveAppUrl();
+    if (url) {
       const wired = await ensureBrowserTab(url, tabIdRef.current);
       if (!wired) return;
       applyWired(wired, url);
-    }, 4000);
-    return () => window.clearInterval(id);
-  }, [active, cwd]);
+      setIframeBaseUrl(wired.canvasUrl);
+      setIframeNonce((n) => n + 1);
+      return;
+    }
+    // No app.port: just remount the canvas for the current tab, if any.
+    if (canvasUrl) {
+      setIframeBaseUrl(canvasUrl);
+      setIframeNonce((n) => n + 1);
+    }
+  }
 
-  async function refreshIframe() {
-    // Re-resolve in case app.port changed, then navigate the existing tab.
-    const url = await resolveAppUrl();
-    if (!url) return;
-    const wired = await ensureBrowserTab(url, tabIdRef.current);
-    if (!wired) return;
-    applyWired(wired, url);
-    // Explicit Refresh: bump the sticky src and the iframe key so the
-    // canvas page remounts cleanly.
-    setIframeBaseUrl(wired.canvasUrl);
-    setIframeNonce((n) => n + 1);
+  function openDevTools() {
+    if (!browserBase || !browserTabId) return;
+    try {
+      const base = new URL(browserBase);
+      const wsTarget = `${base.host}/cdp/${browserTabId}`;
+      window.open(
+        `${browserBase}/devtools/inspector.html?ws=${encodeURIComponent(wsTarget)}`,
+        "_blank",
+        "noopener"
+      );
+    } catch {}
   }
 
   return (
     <div className="app-pane">
       <div className="app-pane-header">
-        <span className="app-pane-url" title={appUrl ?? ""}>{appUrl ?? "no app.port detected"}</span>
+        <input
+          type="text"
+          className="app-pane-url-input"
+          value={urlInput}
+          placeholder={appUrl ?? "no app.port — enter a URL"}
+          title={appUrl ?? ""}
+          onChange={(e) => {
+            urlEditedRef.current = true;
+            setUrlInput(e.target.value);
+          }}
+          onKeyDown={(e) => { if (e.key === "Enter") void navigateToInput(); }}
+        />
+        <button
+          type="button"
+          className="btn"
+          onClick={openDevTools}
+          disabled={!browserTabId || !browserBase}
+          title="Open Chrome DevTools for this tab"
+        >
+          DevTools
+        </button>
         <button type="button" className="btn" onClick={() => void refreshIframe()} title="Re-resolve app.port and reload the canvas">
           Refresh
         </button>
+        {onClose && (
+          <button type="button" className="btn pane-close" onClick={onClose} title="Close browser pane">
+            ×
+          </button>
+        )}
       </div>
       {splitError && <div className="alert">{splitError}</div>}
       {iframeBaseUrl ? (
@@ -240,7 +323,7 @@ export function BrowserPane({
         />
       ) : (
         <div className="app-pane-empty">
-          Waiting for an <code>app.port</code> file in {cwd}…
+          No <code>app.port</code> in {cwd} — type a URL above to browse.
         </div>
       )}
     </div>

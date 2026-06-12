@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { readStateFile, writeStateAtomic } from "./state.mjs";
+import { readStateFile, realResolve, tombstoneCwd, writeStateAtomic } from "./state.mjs";
 
 const execP = promisify(exec);
 const HOME = os.homedir();
@@ -102,7 +102,10 @@ export async function listWorktreesEnriched(repoPath) {
       baseBranch: existing?.baseBranch ?? null,
       status: existing?.status ?? "active",
       lastStatus: existing?.lastStatus ?? "idle",
-      lastStatusAt: existing?.lastStatusAt ?? new Date().toISOString(),
+      // Epoch, not now: a fresh adoption is ledger bookkeeping, not activity.
+      // Stamping now would make every routine GET /worktrees (gateway proxy)
+      // resurrect closed worktree tabs through the 90-min recency filter.
+      lastStatusAt: existing?.lastStatusAt ?? new Date(0).toISOString(),
       createdAt: existing?.createdAt ?? null,
       bindings: existing?.bindings ?? [],
       adopted: existing ? Boolean(existing.adopted) : true
@@ -202,6 +205,101 @@ export async function createWorktree({ repoPath: rawRepoPath, branch: rawBranch,
   };
 }
 
+// Create (or reuse) a session record for an arbitrary project directory —
+// the menu's "Start session" path. No worktree is created: the record keys
+// by the directory itself, like hook auto-create, but with source "dev-env".
+export async function createProjectSession({ path: rawPath, title: rawTitle }) {
+  const projectPath = expandHome(String(rawPath || "").trim());
+  const title = rawTitle ? String(rawTitle) : null;
+  if (!projectPath || !projectPath.startsWith("/")) {
+    throw httpError(400, "path (absolute) required");
+  }
+  if (!existsSync(projectPath)) {
+    throw httpError(404, `path does not exist: ${projectPath}`);
+  }
+  // realResolve: ~/dev and ~/Projects alias each other on some machines —
+  // lexical comparison would create two sessions (two claudes) for one
+  // physical directory.
+  const normalized = realResolve(projectPath);
+
+  // Reuse an existing record whose worktreePath is this directory. Rows whose
+  // project key vanished from disk are skipped: the aggregate hides them, so
+  // reusing one would hand back a session the orphan sweep immediately kills.
+  const state = readStateFile() || { version: 1, projects: {} };
+  for (const [projectKey, project] of Object.entries(state.projects ?? {})) {
+    const projectExists = !projectKey.startsWith("/") || existsSync(projectKey);
+    if (!projectExists) continue;
+    for (const session of Object.values(project?.sessions ?? {})) {
+      if (session?.worktreePath && realResolve(session.worktreePath) === normalized && session.id) {
+        return { session, existed: true };
+      }
+    }
+  }
+
+  let branch = "detached";
+  try {
+    const { stdout } = await execP("git rev-parse --abbrev-ref HEAD", { cwd: normalized, timeout: 1500 });
+    branch = stdout.trim() || "detached";
+  } catch {}
+
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  const project = ensureProject(state, normalized);
+  project.sessions[branch] = {
+    branch,
+    worktreePath: normalized,
+    id,
+    title,
+    baseBranch: null,
+    status: "active",
+    lastStatus: "idle",
+    lastStatusAt: now,
+    createdAt: now,
+    bindings: [],
+    source: "dev-env"
+  };
+  try {
+    await writeStateAtomic(state);
+  } catch (err) {
+    throw httpError(500, `state write failed: ${err.message}`);
+  }
+  return { session: project.sessions[branch], existed: false };
+}
+
+// Remove ONLY the session record — the tab-close path. The directory and any
+// git worktree stay untouched; hooks or worktree adoption will recreate the
+// record if the session comes back to life. The tombstone stops the dying
+// claude's last hooks from resurrecting the row immediately.
+export async function removeSessionRecord(id) {
+  const found = findSessionById(id);
+  if (!found) throw httpError(404, `session id not found: ${id}`);
+  tombstoneCwd(found.worktreePath);
+  const state = readStateFile();
+  const project = state?.projects?.[found.projectPath];
+  if (project?.sessions) {
+    delete project.sessions[found.branch];
+    await writeStateAtomic(state);
+  }
+  return found;
+}
+
+// Per-pane closed markers live on the session record so every connected
+// Dev Env client (desktop + iPad) sees the same close state — a client-local
+// flag would let the other client's lazy shell-spawn resurrect the pane.
+export async function setPaneClosed(id, role, closed) {
+  const found = findSessionById(id);
+  if (!found) return null;
+  const state = readStateFile();
+  const session = state?.projects?.[found.projectPath]?.sessions?.[found.branch];
+  if (!session) return null;
+  const panes = session.panesClosed && typeof session.panesClosed === "object" ? session.panesClosed : {};
+  if (closed) panes[role] = true;
+  else delete panes[role];
+  session.panesClosed = panes;
+  await writeStateAtomic(state);
+  return session;
+}
+
 // Find a session record by id in the raw state file.
 export function findSessionById(id) {
   const state = readStateFile();
@@ -226,6 +324,7 @@ export function findSessionById(id) {
 export async function deleteSession(id) {
   const found = findSessionById(id);
   if (!found) throw httpError(404, `session id not found: ${id}`);
+  tombstoneCwd(found.worktreePath);
 
   if (isWorktreePath(found.worktreePath)) {
     try {

@@ -7,7 +7,7 @@
 // missing-path rows, so cleanup must not go through it.
 
 import { exec, execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +28,44 @@ const WORKING_IDLE_FALLBACK_MS = 60_000; // working with no further hook for 60s
 // In-memory branch cache, keyed by cwd (used by auto-create-on-hook)
 const branchCache = new Map(); // cwd -> { value, expiresAt }
 const BRANCH_CACHE_TTL_MS = 30_000;
+
+// Symlink-safe path identity: ~/dev and ~/Projects are symlinked on some of
+// the user's machines, so lexical path.resolve comparison would treat one
+// physical directory as two sessions. Falls back to resolve when the path
+// does not exist.
+export function realResolve(p) {
+  const resolved = path.resolve(p);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+// Close tombstones: closing/deleting a session races the dying claude's
+// last hooks (PostToolUse/Stop), which would auto-create a fresh row for the
+// same cwd within seconds. Tombstoned cwds drop hook events for a grace
+// window. A genuinely still-running external claude resurrects the row after
+// the window — which is honest.
+const closeTombstones = new Map(); // realResolve(cwd) -> expiresAt
+const TOMBSTONE_MS = 20_000;
+
+export function tombstoneCwd(cwd, ms = TOMBSTONE_MS) {
+  if (!cwd) return;
+  closeTombstones.set(realResolve(cwd), Date.now() + ms);
+}
+
+export function isTombstoned(cwd) {
+  if (!cwd) return false;
+  const key = realResolve(cwd);
+  const expires = closeTombstones.get(key);
+  if (!expires) return false;
+  if (Date.now() > expires) {
+    closeTombstones.delete(key);
+    return false;
+  }
+  return true;
+}
 
 export function statusFromHookEvent(event) {
   switch (event) {
@@ -126,7 +164,8 @@ export function aggregateSessions() {
         projectPath,
         claudeSessionId: session?.claudeSessionId ?? null,
         title: session?.title ?? null,
-        source: session?.source ?? "state"
+        source: session?.source ?? "state",
+        panesClosed: session?.panesClosed ?? null
       });
     }
   }
@@ -151,6 +190,10 @@ export async function setSessionStatus(projectPath, branch, status, hookEvent, o
   let session = project.sessions[branch];
   const now = new Date().toISOString();
   if (!session) {
+    // A just-closed cwd must not be re-created by the dying claude's last
+    // hooks — including via the read-modify-write path where the hook read
+    // the state before the close landed.
+    if (isTombstoned(opts.worktreePath || projectPath)) return null;
     session = project.sessions[branch] = {
       branch,
       worktreePath: opts.worktreePath || projectPath,
@@ -195,16 +238,20 @@ export async function applyHookEvent(event, body) {
   if (!status) {
     return { ok: true, matched: false, reason: `untracked event: ${event}` };
   }
-  const normalized = path.resolve(cwd);
+  const normalized = realResolve(cwd);
+  if (isTombstoned(normalized)) {
+    return { ok: true, matched: false, dropped: true, reason: "cwd recently closed" };
+  }
 
   // Try to match an existing session by worktreePath (covers both
   // worktree-created sessions and previously hook-autocreated ones).
+  // realResolve keeps symlink aliases (~/dev vs ~/Projects) on one row.
   const state = readStateFile() || { version: 1, projects: {} };
   let matchedProject = null;
   let matchedBranch = null;
   for (const [projectPath, project] of Object.entries(state.projects ?? {})) {
     for (const [branchKey, session] of Object.entries(project?.sessions ?? {})) {
-      if (session?.worktreePath && path.resolve(session.worktreePath) === normalized) {
+      if (session?.worktreePath && realResolve(session.worktreePath) === normalized) {
         matchedProject = projectPath;
         matchedBranch = session.branch || branchKey;
         break;

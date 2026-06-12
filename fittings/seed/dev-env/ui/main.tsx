@@ -9,7 +9,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { TerminalPane } from "./terminal-pane";
 import { BrowserPane, type WiredInfo } from "./browser-pane";
-import { NewWorktreeDialog, ConfirmDeleteDialog, Toast } from "./dialogs";
+import { NewWorktreeDialog, StartSessionDialog, ConfirmDeleteDialog, Toast } from "./dialogs";
 
 interface PtySummary {
   id?: string;
@@ -33,6 +33,8 @@ interface DevEnvSession {
   dirty: boolean | null;
   isWorktree: boolean;
   external: boolean;
+  claudeClosed: boolean;
+  shellClosed: boolean;
   claudePty: PtySummary;
   shellPty: PtySummary;
 }
@@ -205,44 +207,98 @@ function SessionWorkspace({
   isMobile,
   mobilePane,
   splitRatio,
+  browserPref,
   onDividerPointerDown,
   onDividerPointerMove,
   onDividerPointerUp,
   onWired,
   onEnsureClaude,
-  onInstruct
+  onInstruct,
+  onClosePty,
+  onStartShell,
+  onCloseBrowser,
+  onPinBrowserOpen
 }: {
   session: DevEnvSession;
   active: boolean;
   isMobile: boolean;
   mobilePane: "claude" | "shell";
   splitRatio: number;
+  browserPref: "open" | "closed" | undefined;
   onDividerPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
   onDividerPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
   onDividerPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
   onWired: (info: WiredInfo) => void;
   onEnsureClaude: (sessionId: string, resume: boolean) => void;
   onInstruct: (sessionId: string, text: string) => Promise<boolean>;
+  onClosePty: (sessionId: string, role: "claude" | "shell") => void;
+  onStartShell: (sessionId: string) => void;
+  onCloseBrowser: (sessionId: string) => void;
+  onPinBrowserOpen: (sessionId: string) => void;
 }) {
   const claudeRunning = session.claudePty.state === "running";
   const shellRunning = session.shellPty.state === "running";
+  const shellClosed = session.shellClosed;
   const claudeKey = `${session.claudePty.id ?? "none"}:${session.claudePty.createdAt ?? ""}`;
   const shellKey = `${session.shellPty.id ?? "none"}:${session.shellPty.createdAt ?? ""}`;
   const showClaude = !isMobile || mobilePane === "claude";
   const showShell = !isMobile || mobilePane === "shell";
 
+  // The browser pane only opens by default while an app.port is detected for
+  // this cwd; "open"/"closed" prefs (menu Open browser / pane ×) override.
+  // Hiding needs 3 consecutive misses so a dev-server restart (brief app.port
+  // gap) or a flaky Tailscale fetch doesn't unmount the pane mid-use.
+  const [hasAppPort, setHasAppPort] = useState(false);
+  const missesRef = useRef(0);
+  useEffect(() => {
+    if (isMobile || !active || browserPref !== undefined) return;
+    let cancelled = false;
+    const check = async () => {
+      let ok = false;
+      try {
+        const res = await fetch(`/app-port?cwd=${encodeURIComponent(session.worktreePath)}`);
+        ok = res.ok;
+      } catch {}
+      if (cancelled) return;
+      if (ok) {
+        missesRef.current = 0;
+        setHasAppPort(true);
+      } else {
+        missesRef.current += 1;
+        if (missesRef.current >= 3) setHasAppPort(false);
+      }
+    };
+    void check();
+    const id = window.setInterval(check, 4000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [active, isMobile, browserPref, session.worktreePath]);
+  const browserVisible =
+    !isMobile && (browserPref === "open" || (browserPref !== "closed" && hasAppPort));
+
   return (
     <div className="workspace" style={{ display: active ? "flex" : "none" }}>
       <div
         className="terminals-col"
-        style={!isMobile ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : undefined}
+        style={!isMobile && browserVisible ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : undefined}
       >
         <div className="claude-pane" style={{ display: showClaude ? "flex" : "none" }}>
-          <QuickPromptBar
-            sessionId={session.id}
-            disabled={!claudeRunning || session.claudePty.claudeAlive === false}
-            onSend={onInstruct}
-          />
+          <div className="quick-prompt-row">
+            <QuickPromptBar
+              sessionId={session.id}
+              disabled={!claudeRunning || session.claudePty.claudeAlive === false}
+              onSend={onInstruct}
+            />
+            {session.claudePty.state !== "none" && (
+              <button
+                type="button"
+                className="pane-close"
+                onClick={() => onClosePty(session.id, "claude")}
+                title="Close Claude terminal"
+              >
+                ×
+              </button>
+            )}
+          </div>
           <div className="pane-body">
             {claudeRunning && (
               <TerminalPane key={claudeKey} ptyId={session.claudePty.id!} isActive={active && showClaude} />
@@ -251,18 +307,42 @@ function SessionWorkspace({
           </div>
         </div>
         <div className="shell-pane" style={{ display: showShell ? "flex" : "none" }}>
+          {session.shellPty.state !== "none" && (
+            <div className="pane-strip">
+              <span>shell</span>
+              <button
+                type="button"
+                className="pane-close"
+                onClick={() => onClosePty(session.id, "shell")}
+                title="Close shell terminal"
+              >
+                ×
+              </button>
+            </div>
+          )}
           <div className="pane-body">
             {shellRunning ? (
               <TerminalPane key={shellKey} ptyId={session.shellPty.id!} isActive={active && showShell} />
             ) : (
               <div className="pane-overlay">
-                <p>Starting shell…</p>
+                {session.shellPty.state === "exited" ? (
+                  <p>Terminal exited with code {session.shellPty.exitCode ?? "?"}.</p>
+                ) : shellClosed ? (
+                  <p>Shell terminal closed.</p>
+                ) : (
+                  <p>Starting shell…</p>
+                )}
+                {(session.shellPty.state === "exited" || shellClosed) && (
+                  <button type="button" className="btn primary" onClick={() => onStartShell(session.id)}>
+                    Start terminal
+                  </button>
+                )}
               </div>
             )}
           </div>
         </div>
       </div>
-      {!isMobile && (
+      {browserVisible && (
         <>
           <div
             className="split-divider"
@@ -274,7 +354,13 @@ function SessionWorkspace({
             aria-orientation="vertical"
             title="Drag to resize"
           />
-          <BrowserPane cwd={session.worktreePath} active={active} onWired={onWired} />
+          <BrowserPane
+            cwd={session.worktreePath}
+            active={active}
+            onWired={onWired}
+            onManualNav={() => onPinBrowserOpen(session.id)}
+            onClose={() => onCloseBrowser(session.id)}
+          />
         </>
       )}
     </div>
@@ -289,8 +375,13 @@ function App() {
   const [visited, setVisited] = useState<Set<string>>(() => new Set());
   const [mobilePane, setMobilePane] = useState<"claude" | "shell">("claude");
   const [showAll, setShowAll] = useState(() => localStorage.getItem(LS_SHOW_ALL) === "1");
+  // Per-session browser override ("open" = forced visible, "closed" = forced
+  // hidden; unset = auto, i.e. visible only while an app.port is detected).
+  // Shell-closed state is SERVER-side (session.shellClosed) so a second
+  // connected client cannot resurrect a pane this one just closed.
+  const [browserPref, setBrowserPref] = useState<Record<string, "open" | "closed">>({});
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dialog, setDialog] = useState<null | "new-worktree" | "confirm-delete">(null);
+  const [dialog, setDialog] = useState<null | "new-worktree" | "start-session" | "confirm-delete">(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const toastTimer = useRef<number | null>(null);
@@ -385,13 +476,93 @@ function App() {
     [refresh, toast]
   );
 
-  // Selecting a tab lazily ensures its shell PTY.
+  // Selecting a tab lazily spawns its shell PTY — but only the first time
+  // (state "none"): an exited shell shows a Start-terminal overlay instead of
+  // auto-respawning, and an explicitly closed one (server-side marker) stays
+  // closed across every connected client.
   useEffect(() => {
     if (!selected) return;
-    if (selected.shellPty.state !== "running") {
+    if (selected.shellPty.state === "none" && !selected.shellClosed) {
       void ensurePty(selected.id, "shell");
     }
-  }, [selected?.id, selected?.shellPty.state, ensurePty]);
+  }, [selected?.id, selected?.shellPty.state, selected?.shellClosed, ensurePty]);
+
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+
+  const closePty = useCallback(
+    async (sessionId: string, role: "claude" | "shell") => {
+      try {
+        await fetch(`/sessions/${encodeURIComponent(sessionId)}/ptys/${role}`, { method: "DELETE" });
+      } catch {}
+      ensuredRef.current.delete(`${sessionId}:${role}`);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const startShell = useCallback(
+    (sessionId: string) => {
+      ensuredRef.current.delete(`${sessionId}:shell`);
+      void ensurePty(sessionId, "shell");
+    },
+    [ensurePty]
+  );
+
+  const closeTab = useCallback(
+    async (sessionId: string) => {
+      const idx = visibleSessions.findIndex((s) => s.id === sessionId);
+      try {
+        const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/close`, { method: "POST" });
+        // 404 = already gone (double-click ×, another client) — treat as
+        // success and proceed with local cleanup.
+        if (!res.ok && res.status !== 404) {
+          const data = await res.json().catch(() => ({}));
+          toast(data?.error ?? `close failed: HTTP ${res.status}`);
+          return;
+        }
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      setVisited((v) => {
+        const next = new Set(v);
+        next.delete(sessionId);
+        return next;
+      });
+      setBrowserPref((p) => {
+        if (!(sessionId in p)) return p;
+        const next = { ...p };
+        delete next[sessionId];
+        return next;
+      });
+      // Re-read the selection at resolution time: the user may have clicked
+      // another tab while the close round-trip was in flight.
+      if (selectedIdRef.current === sessionId) {
+        const neighbors = visibleSessions.filter((s) => s.id !== sessionId);
+        const neighbor = neighbors[idx] ?? neighbors[idx - 1] ?? null;
+        setSelectedId(neighbor ? neighbor.id : null);
+      }
+      await refresh();
+    },
+    [visibleSessions, refresh, toast]
+  );
+
+  const closeBrowser = useCallback((sessionId: string) => {
+    setBrowserPref((p) => ({ ...p, [sessionId]: "closed" }));
+  }, []);
+
+  // Manual URL navigation pins the pane open — otherwise the app.port
+  // visibility poll could unmount it mid-browse.
+  const pinBrowserOpen = useCallback((sessionId: string) => {
+    setBrowserPref((p) => (p[sessionId] === "open" ? p : { ...p, [sessionId]: "open" }));
+  }, []);
+
+  function openBrowser() {
+    setMenuOpen(false);
+    if (!selected) return;
+    setBrowserPref((p) => ({ ...p, [selected.id]: "open" }));
+  }
 
   const onEnsureClaude = useCallback(
     (sessionId: string, resume: boolean) => {
@@ -544,6 +715,9 @@ function App() {
           </button>
           {menuOpen && (
             <div className="menu">
+              <button type="button" onClick={() => { setMenuOpen(false); setDialog("start-session"); }}>
+                Start session…
+              </button>
               <button type="button" onClick={() => { setMenuOpen(false); setDialog("new-worktree"); }}>
                 New worktree…
               </button>
@@ -578,6 +752,21 @@ function App() {
                 Run
               </button>
               <div className="menu-sep" />
+              <button
+                type="button"
+                disabled={!selected || selected.shellPty.state === "running"}
+                onClick={() => { setMenuOpen(false); if (selected) startShell(selected.id); }}
+              >
+                Start terminal
+              </button>
+              <button
+                type="button"
+                disabled={!selected || isMobile || browserPref[selected.id] === "open"}
+                onClick={openBrowser}
+                title={isMobile ? "Browser pane is desktop-only" : "Show the browser pane for this tab"}
+              >
+                Open browser
+              </button>
               <button type="button" disabled={!selected} onClick={() => void openAppInNewTab()}>
                 Open app in browser tab
               </button>
@@ -604,6 +793,13 @@ function App() {
               {s.lastStatus === "waiting" && <span className="badge-waiting" aria-hidden="true" />}
               <span className="tab-label">{tabLabel(s)}</span>
               {s.dirty === true && <span className="dirty-dot" title="Uncommitted changes" />}
+              <span
+                className="close"
+                title="Close tab (terminals die; the directory and worktree stay)"
+                onClick={(e) => { e.stopPropagation(); void closeTab(s.id); }}
+              >
+                ×
+              </span>
             </span>
           ))}
           {sessions.length === 0 && <span className="tabs-empty">No sessions — create a worktree or start claude anywhere.</span>}
@@ -640,12 +836,17 @@ function App() {
             isMobile={isMobile}
             mobilePane={mobilePane}
             splitRatio={splitRatio}
+            browserPref={browserPref[s.id]}
             onDividerPointerDown={onDividerPointerDown}
             onDividerPointerMove={onDividerPointerMove}
             onDividerPointerUp={onDividerPointerUp}
             onWired={onWired}
             onEnsureClaude={onEnsureClaude}
             onInstruct={instruct}
+            onClosePty={(sid, role) => void closePty(sid, role)}
+            onStartShell={startShell}
+            onCloseBrowser={closeBrowser}
+            onPinBrowserOpen={pinBrowserOpen}
           />
         ))}
         {visibleSessions.length === 0 && (
@@ -667,6 +868,17 @@ function App() {
 
       {dialog === "new-worktree" && (
         <NewWorktreeDialog
+          onClose={() => setDialog(null)}
+          onCreated={(id) => {
+            setSelectedId(id);
+            setVisited((v) => new Set(v).add(id));
+            void refresh();
+          }}
+          onError={(m) => toast(m)}
+        />
+      )}
+      {dialog === "start-session" && (
+        <StartSessionDialog
           onClose={() => setDialog(null)}
           onCreated={(id) => {
             setSelectedId(id);

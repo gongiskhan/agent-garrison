@@ -38,6 +38,7 @@ import {
   setDirtyCheckTtl
 } from "./state.mjs";
 import {
+  createProjectSession,
   createWorktree,
   deleteSession,
   expandHome,
@@ -46,6 +47,8 @@ import {
   listProjects,
   listWorktreesEnriched,
   readDevRoot,
+  removeSessionRecord,
+  setPaneClosed,
   writeDevRoot
 } from "./worktrees.mjs";
 
@@ -92,6 +95,22 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// CSRF guard for mutating routes. This server spawns
+// `claude --dangerously-skip-permissions` in arbitrary directories, so a
+// drive-by web page must not be able to POST to it. Browsers attach an
+// Origin header to cross-site requests; our own UI is same-origin (Origin
+// host === Host), and server-to-server consumers (gateway passthrough, curl)
+// send no Origin at all. Anything else is rejected.
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true; // non-browser caller (gateway passthrough, curl)
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false; // includes "Origin: null" (sandboxed/opaque origins)
+  }
+}
+
 // DevEnvSession assembly: one row per aggregate session, decorated with PTY
 // summaries, git-dirty, and the external flag. Also the orphan sweep — PTYs
 // (and parked claude envelopes) whose session row vanished (deleted cwd,
@@ -120,6 +139,8 @@ function assembleSessions() {
       dirty: getDirty(row.worktreePath),
       isWorktree: isWorktreePath(row.worktreePath),
       external,
+      claudeClosed: Boolean(row.panesClosed?.claude),
+      shellClosed: Boolean(row.panesClosed?.shell),
       claudePty,
       shellPty
     });
@@ -224,6 +245,8 @@ async function handleEnsurePty(req, res, sessionId) {
       role,
       resume: body.resume === true
     });
+    // Starting a pane clears its closed marker for every connected client.
+    await setPaneClosed(sessionId, role, false);
     jsonRes(res, 200, { ok: true, pty: ptySummary(sessionId, role) });
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -262,6 +285,56 @@ async function handleDeleteSession(req, res, sessionId) {
   } catch (err) {
     jsonRes(res, err.status ?? 500, { error: err.message });
   }
+}
+
+// POST /sessions — "Start session": record + both PTYs for an arbitrary
+// project directory. Reuses an existing record for the same cwd; claude
+// resumes (--continue) when the reused record already saw a claude session.
+// EXCEPT when the reused record looks external (claude running elsewhere,
+// hooks busy): silently double-attaching a second `claude --continue` is
+// exactly what the UI's Take-over overlay exists to warn about, so only the
+// shell spawns and the overlay handles the rest.
+async function handleCreateSession(req, res) {
+  const body = (await readBody(req)) || {};
+  try {
+    const { session, existed } = await createProjectSession({ path: body.path, title: body.title });
+    const stub = { id: session.id, worktreePath: session.worktreePath };
+    const externalNow =
+      existed &&
+      ptySummary(session.id, "claude").state !== "running" &&
+      EXTERNAL_STATUSES.has(session.lastStatus);
+    if (!externalNow) {
+      ensurePty({ session: stub, role: "claude", resume: existed && Boolean(session.claudeSessionId) });
+    }
+    ensurePty({ session: stub, role: "shell" });
+    await setPaneClosed(session.id, "shell", false);
+    await setPaneClosed(session.id, "claude", false);
+    const assembled = assembleSessions().find((s) => s.id === session.id) ?? null;
+    jsonRes(res, existed ? 200 : 201, { id: session.id, existed, session: assembled });
+  } catch (err) {
+    jsonRes(res, err.status ?? 500, { error: err.message });
+  }
+}
+
+// POST /sessions/:id/close — tab close: PTYs die, record goes, the
+// directory and any git worktree stay.
+async function handleCloseSession(req, res, sessionId) {
+  try {
+    killSessionPtys(sessionId, { forget: true });
+    const removed = await removeSessionRecord(sessionId);
+    jsonRes(res, 200, { ok: true, id: sessionId, removed });
+  } catch (err) {
+    jsonRes(res, err.status ?? 500, { error: err.message });
+  }
+}
+
+// DELETE /sessions/:id/ptys/:role — close a single pane's PTY. The closed
+// marker is server-side state so other connected clients' lazy shell-spawn
+// cannot resurrect a pane the user just closed.
+async function handleKillPty(req, res, sessionId, role) {
+  const existed = killPty(ptyIdFor(sessionId, role), { forget: true });
+  await setPaneClosed(sessionId, role, true);
+  jsonRes(res, 200, { ok: true, existed });
 }
 
 async function handleCleanup(req, res) {
@@ -429,8 +502,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
 
+      // Mutations require same-origin (or no Origin, i.e. non-browser).
+      if (method !== "GET" && !originAllowed(req)) {
+        return jsonRes(res, 403, { error: "cross-origin mutation rejected" });
+      }
+
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/sessions" && method === "GET") return handleListSessions(req, res);
+      if (pathname === "/sessions" && method === "POST") return await handleCreateSession(req, res);
       if (pathname === "/sessions/cleanup" && method === "POST") return await handleCleanup(req, res);
       if (pathname === "/_hook" && method === "POST") return await handleHook(req, res, parsed.query);
       if (pathname === "/projects" && method === "GET") return await handleListProjects(req, res, parsed.query);
@@ -445,8 +524,16 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const wtDelMatch = pathname.match(/^\/worktrees\/([^/]+)$/);
       if (wtDelMatch && method === "DELETE") return await handleDeleteSession(req, res, decodeURIComponent(wtDelMatch[1]));
 
+      const ptyKillMatch = pathname.match(/^\/sessions\/([^/]+)\/ptys\/(claude|shell)$/);
+      if (ptyKillMatch && method === "DELETE") {
+        return await handleKillPty(req, res, decodeURIComponent(ptyKillMatch[1]), ptyKillMatch[2]);
+      }
+
       const ptysMatch = pathname.match(/^\/sessions\/([^/]+)\/ptys$/);
       if (ptysMatch && method === "POST") return await handleEnsurePty(req, res, decodeURIComponent(ptysMatch[1]));
+
+      const closeMatch = pathname.match(/^\/sessions\/([^/]+)\/close$/);
+      if (closeMatch && method === "POST") return await handleCloseSession(req, res, decodeURIComponent(closeMatch[1]));
 
       const instructMatch = pathname.match(/^\/sessions\/([^/]+)\/instruct$/);
       if (instructMatch && method === "POST") return await handleInstruct(req, res, decodeURIComponent(instructMatch[1]));

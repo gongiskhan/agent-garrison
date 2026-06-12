@@ -53,8 +53,15 @@ x-garrison:
     HTTP endpoints:
       GET    /health                     - liveness { ok, port, pid, ptys }
       GET    /sessions                   - { sessions: DevEnvSession[] }
+      POST   /sessions                   - { path, title? } start a session
+                                           (record + both PTYs) for a project
+                                           directory; reuses an existing
+                                           record for the same cwd
+      POST   /sessions/:id/close         - kill PTYs + remove the record;
+                                           directory and worktree stay
       POST   /sessions/:id/ptys          - { role: "claude"|"shell", resume? }
                                            ensure a PTY for the session
+      DELETE /sessions/:id/ptys/:role    - kill one PTY (claude|shell)
       POST   /sessions/:id/instruct      - { text, delayMs? } type text into
                                            the running Claude PTY, pause,
                                            then press Enter. 409 when no
