@@ -239,3 +239,38 @@ describe("claude-pty: trust", () => {
     expect(fs.readFileSync(tmpCfg, "utf8")).toBe("{not json");
   });
 });
+
+describe("claude-pty: warm pool", () => {
+  it("spawns a warm pool and checkout rotates a replacement", async () => {
+    const { WarmPtySessionPool } = await import(PKG);
+    let spawned = 0;
+    const sessions: any[] = [];
+    const spawnFn = async () => {
+      spawned += 1;
+      const session = {
+        id: `s${spawned}`,
+        disposed: false,
+        lastActivityAt: Date.now(),
+        isDisposed() { return this.disposed; },
+        isAlive() { return !this.disposed; },
+        dispose() { this.disposed = true; },
+        getClaudeSessionId() { return this.id; },
+        status() { return { tokens: 0 }; }
+      };
+      sessions.push(session);
+      return session;
+    };
+    const pool = new WarmPtySessionPool({ size: 2, spawnFn, idleTimeoutMs: 60_000 });
+    await pool.start();
+    expect(pool.status().available).toBe(2);
+    const a = await pool.checkout();
+    const b = await pool.checkout();
+    expect(a.session.getClaudeSessionId()).not.toBe(b.session.getClaudeSessionId());
+    expect(spawned).toBeGreaterThanOrEqual(3);
+    a.release();
+    b.release();
+    expect(pool.status().available).toBeLessThanOrEqual(2);
+    pool.shutdown();
+    expect(sessions.some((s) => s.disposed)).toBe(true);
+  });
+});

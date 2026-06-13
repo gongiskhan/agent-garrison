@@ -50,4 +50,5 @@ export {
 } from "./rich-stream.mjs";
 export { OperativePtySession, oneShotTurn, buildClaudeArgs } from "./session.mjs";
 export { PtySessionManager } from "./session-manager.mjs";
+export { WarmPtySessionPool, measureIdleCost } from "./warm-pool.mjs";
 export { claudeProjectDirForCwd, claudeProjectsDir, claudeGlobalConfigPath } from "./paths.mjs";

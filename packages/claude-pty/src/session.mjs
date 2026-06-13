@@ -63,6 +63,7 @@ export function buildClaudeArgs({
   // session JSONL we can read; `--resume <id>` is unreliable for sessions that
   // never got a readable transcript, so the gateway uses --continue.
   continueSession = false,
+  sessionUuid: providedSessionUuid,
   // Omit --setting-sources by default so the operative discovers the user's
   // and the project's commands + skills (~/.claude/commands, .claude/commands,
   // skills) — Garrison is a control plane over the real ~/.claude, and Phase 2
@@ -77,7 +78,7 @@ export function buildClaudeArgs({
   } else if (resumeSessionId) {
     argv.push("--resume", resumeSessionId);
   } else {
-    sessionUuid = randomUUID();
+    sessionUuid = providedSessionUuid ?? randomUUID();
     argv.push("--session-id", sessionUuid);
   }
   if (appendSystemPromptFile) {
@@ -108,6 +109,7 @@ export class OperativePtySession {
       model: opts.model,
       resumeSessionId: opts.resumeSessionId,
       continueSession: opts.continueSession,
+      sessionUuid: opts.sessionUuid,
       settingSources: opts.settingSources,
       extraArgs: opts.extraArgs,
     });

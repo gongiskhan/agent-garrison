@@ -3,13 +3,10 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Agent Garrison HTTP gateway. Single-Operative mode drives the interactive Claude Code TUI via @garrison/claude-pty; the in-process Agent SDK path is a rollback behind GARRISON_GATEWAY_ENGINE=sdk.",
+  "description": "Agent Garrison HTTP gateway. All model turns drive the interactive Claude Code TUI via @garrison/claude-pty.",
   "main": "scripts/gateway.mjs",
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {},
-  "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.0"
-  }
+  "dependencies": {}
 }

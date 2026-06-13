@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 /**
- * Agent Garrison HTTP gateway (Phase 9 reshape).
+ * Agent Garrison HTTP gateway.
  *
  * When GARRISON_SOULS_CONFIG is set, this gateway operates in
  * "orchestrator + souls" mode:
- *   - Boots a `claude` CLI subprocess for the Orchestrator.
- *   - On demand, spawns Soul subprocesses (headless stream-JSON) or opens
+ *   - Boots an interactive Claude Code PTY session for the Orchestrator.
+ *   - On demand, spawns Soul PTY sessions or opens
  *     a TrenchesPanel-style tab via Garrison Next.js (interactive mode).
  *   - Multiplexes events to channel SSE subscribers.
  *   - Exposes /sessions/* and /worktrees/* endpoints used by the
  *     garrison-control MCP tools.
  *
- * When GARRISON_SOULS_CONFIG is not set, the gateway falls back to the
- * legacy in-process Agent SDK behaviour for single-Operative compositions.
+ * When GARRISON_SOULS_CONFIG is not set, the gateway runs gateway-pty.mjs.
  *
  * Environment (orchestrator mode):
  *   GARRISON_SOULS_CONFIG          JSON blob with orchestratorFittingId, orchestrator, souls
@@ -24,7 +23,7 @@
  *   GARRISON_GATEWAY_HOST          (default 127.0.0.1)
  *   GARRISON_GATEWAY_PORT          (default 4777)
  *
- * Legacy mode still respects:
+ * Single-operative mode respects:
  *   GARRISON_SYSTEM_PROMPT_PATH, GARRISON_MODEL, GARRISON_PERMISSION_MODE
  */
 
@@ -723,22 +722,11 @@ const server = http.createServer(async (request, response) => {
 
 async function main() {
   if (!ORCHESTRATOR_MODE) {
-    // Single-Operative mode. Default engine is the PTY-backed interactive
-    // claude TUI (gateway-pty.mjs). GARRISON_GATEWAY_ENGINE=sdk falls back to
-    // the legacy in-process Agent SDK (gateway-legacy.mjs) as a rollback path.
-    const engine = (process.env.GARRISON_GATEWAY_ENGINE ?? "pty").toLowerCase();
-    if (engine === "sdk") {
-      logEvent("stdout", { kind: "engine-select", engine: "sdk", message: "GARRISON_GATEWAY_ENGINE=sdk; running gateway-legacy.mjs" });
-      await import("./gateway-legacy.mjs");
-    } else {
-      logEvent("stdout", { kind: "engine-select", engine: "pty", message: "running gateway-pty.mjs (interactive claude TUI)" });
-      await import("./gateway-pty.mjs");
-    }
+    logEvent("stdout", { kind: "engine-select", engine: "pty", message: "running gateway-pty.mjs (interactive claude TUI)" });
+    await import("./gateway-pty.mjs");
     return;
   }
-  // Orchestrator mode still uses the stream-json souls path (spawn-soul.mjs).
-  // Migration of souls onto the PTY session-manager is Phase 2.
-  logEvent("stdout", { kind: "orchestrator-mode-note", message: "souls use stream-json; PTY migration is Phase 2" });
+  logEvent("stdout", { kind: "orchestrator-mode-note", message: "souls use PTY-backed sessions" });
   soulsConfig = await loadSoulsConfig();
   mcpConfigPath = await writeSharedMcpConfig();
   server.listen(PORT, HOST, async () => {

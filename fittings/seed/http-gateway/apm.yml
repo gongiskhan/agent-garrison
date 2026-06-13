@@ -10,7 +10,7 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Local HTTP gateway. Single-Operative mode drives an interactive Claude Code TUI via @garrison/claude-pty (node-pty + headless xterm); set GARRISON_GATEWAY_ENGINE=sdk to roll back to the in-process Agent SDK. Orchestrator+souls mode spawns Claude CLI subprocesses with stream-JSON I/O, channels, worktree passthroughs.
+  summary: Local HTTP gateway. All model turns drive interactive Claude Code TUI sessions via @garrison/claude-pty (node-pty + headless xterm). Orchestrator+souls mode uses PTY-backed sessions, channels, worktree passthroughs.
   config_schema:
     - key: port
       type: integer
@@ -31,13 +31,13 @@ x-garrison:
     Endpoints (orchestrator+souls mode, set GARRISON_SOULS_CONFIG to enable):
       POST /chat, /chat/stream           — user message → Orchestrator stdin (X-Garrison-Origin: ui-tab|channel header sets prefix)
       POST /jobs                          — heartbeat dispatch → Orchestrator
-      POST /sessions/spawn                — spawn a Soul subprocess (headless or interactive mode)
+      POST /sessions/spawn                — spawn a Soul PTY session (headless orchestration or interactive mode)
       POST /sessions/:id/wait             — block until result (chunked timeout, default 30s)
       POST /sessions/by-soul/:soul/end    — kill a Soul's active subprocess
       GET  /sessions                      — list active sessions (filters: parent, worktree_id, mode, soul)
       GET  /channels/:id/stream           — SSE multiplex; replays last 100 events on connect, then live
       GET  /workdirs?soul=<name>          — list directories under the Soul's base_path
-      GET  /worktrees?[project|id]        — proxy to the worktree-management Fitting on its own port (default 7080)
+      GET  /worktrees?[project|id]        — proxy to the dev-env Fitting on its own port (default 7086)
       POST /worktrees                     — create worktree (project, task_title, branch_name?, base_branch?)
       POST /worktrees/:id/close           — merge|discard|leave_open via gh pr create
-    Single-Operative mode (no GARRISON_SOULS_CONFIG): POST /chat, /chat/stream, /jobs, /attachments + GET /health. Default engine is the PTY-backed interactive claude TUI (gateway-pty.mjs); GARRISON_GATEWAY_ENGINE=sdk rolls back to the in-process Agent SDK (gateway-legacy.mjs). /chat/stream emits the same SSE shapes in both engines: open, chunk {text}, tool {name, input}, done {reply, session_id}, error.
+    Single-Operative mode (no GARRISON_SOULS_CONFIG): POST /chat, /chat/stream, /jobs, /attachments + GET /health. The engine is the PTY-backed interactive claude TUI (gateway-pty.mjs). /chat/stream emits: open, chunk {text}, done {reply, session_id}, error.

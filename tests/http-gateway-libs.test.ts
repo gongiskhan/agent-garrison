@@ -103,4 +103,24 @@ describe("http-gateway libs (Phase 9B)", () => {
       expect(out).toContain("fixed bug");
     });
   });
+
+  describe("spawn-soul", () => {
+    it("builds interactive Claude args without print or stream-json flags", async () => {
+      const mod = await import(path.join(LIB_DIR, "spawn-soul.mjs"));
+      const args = mod.buildClaudeArgs({
+        sessionUuid: "abc",
+        spawnConfig: { preset: "claude_code", allowed_tools: ["Read"] },
+        resume: false,
+        tierFlags: ["--model", "sonnet"],
+        mcpConfigPath: "/tmp/mcp.json",
+        isOrchestrator: false,
+        promptPath: "/tmp/prompt.md"
+      });
+      expect(args).toContain("--session-id");
+      expect(args).toContain("--append-system-prompt-file");
+      expect(args).not.toContain("--print");
+      expect(args).not.toContain("--output-format");
+      expect(args).not.toContain("stream-json");
+    });
+  });
 });

@@ -1,25 +1,18 @@
-// Spawn a Claude Code subprocess for a Soul (or the Orchestrator).
+// Spawn a Claude Code PTY session for a Soul (or the Orchestrator).
 // Two modes:
-//   - "headless": spawn `claude` CLI directly here with stream-JSON I/O.
-//                 Stdout events republish to the channel hub; on `result`,
-//                 resolve waiters and set lastSummary.
+//   - "headless": drive the interactive Claude Code TUI through
+//                 @garrison/claude-pty. Synthetic assistant events republish
+//                 to the channel hub after each turn.
 //   - "interactive": delegate to Garrison Next.js's /api/interactive/spawn-soul-tab
 //                  which opens a PTY in the Interactive panel. We then install
 //                  a JSONL watcher to extract summary feedback.
 
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import fsp from "node:fs/promises";
+import { OperativePtySession } from "@garrison/claude-pty";
 import { logEvent } from "./log.mjs";
 
-const COMMON_FLAGS = [
-  "--print",
-  "--input-format", "stream-json",
-  "--output-format", "stream-json",
-  "--verbose",
-  "--permission-mode", "bypassPermissions"
-];
+const COMMON_FLAGS = ["--permission-mode", "bypassPermissions"];
 
 const GARRISON_TOOLS_DISALLOWED_FOR_SOULS = [
   "mcp__garrison__talk_to",
@@ -43,8 +36,8 @@ export function disallowedToolsForOrchestrator(spawnConfig) {
 }
 
 /**
- * Build the claude CLI argument list for a given soul SpawnConfig + tier flags.
- * The returned array is what gets passed to spawn("claude", ...).
+ * Build the interactive claude CLI argument list for a given soul SpawnConfig
+ * + tier flags. Used only by interactive-tab delegations.
  */
 export function buildClaudeArgs({
   sessionUuid,
@@ -85,10 +78,6 @@ export function buildClaudeArgs({
   return args;
 }
 
-/**
- * Spawn a headless claude subprocess. Wires stdout → stream-JSON parser →
- * channels.publish + session lifecycle hooks. Returns the child handle.
- */
 export function spawnHeadless({
   sessionUuid,
   spawnConfig,
@@ -102,71 +91,94 @@ export function spawnHeadless({
   onResult,
   onExit
 }) {
-  const args = buildClaudeArgs({
+  return new PtySoulAdapter({
     sessionUuid,
     spawnConfig,
-    resume,
+    promptPath,
+    cwd,
     tierFlags,
     mcpConfigPath,
     isOrchestrator,
-    promptPath
+    resume,
+    onEvent,
+    onResult,
+    onExit
   });
-  const env = { ...process.env };
-  if (cwd === undefined) {
-    logEvent("stderr", { kind: "spawn-soul-warn", message: "no cwd provided", session: sessionUuid });
+}
+
+class PtySoulAdapter {
+  constructor(opts) {
+    this.opts = opts;
+    this.session = null;
+    this.exitCode = null;
+    this.killed = false;
+    this.queue = Promise.resolve();
+    this.ready = this.#start();
   }
-  const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
 
-  let stdoutBuf = "";
-  child.stdout.on("data", (chunk) => {
-    stdoutBuf += chunk.toString("utf8");
-    let nl;
-    while ((nl = stdoutBuf.indexOf("\n")) !== -1) {
-      const line = stdoutBuf.slice(0, nl);
-      stdoutBuf = stdoutBuf.slice(nl + 1);
-      if (!line.trim()) continue;
-      let ev;
-      try { ev = JSON.parse(line); } catch {
-        logEvent("stdout", { kind: "non-json-line", session: sessionUuid, line: line.slice(0, 200) });
-        continue;
-      }
-      try { onEvent?.(ev); } catch (err) {
-        logEvent("stderr", { kind: "on-event-failed", session: sessionUuid, error: err.message });
-      }
-      if (ev.type === "result") {
-        const text = extractResultText(ev);
-        try { onResult?.(text, ev); } catch (err) {
-          logEvent("stderr", { kind: "on-result-failed", session: sessionUuid, error: err.message });
-        }
-      }
+  async #start() {
+    const {
+      sessionUuid,
+      spawnConfig,
+      promptPath,
+      cwd,
+      tierFlags,
+      mcpConfigPath,
+      isOrchestrator,
+      resume
+    } = this.opts;
+    if (cwd === undefined) {
+      logEvent("stderr", { kind: "spawn-soul-warn", message: "no cwd provided", session: sessionUuid });
     }
-  });
+    const extraArgs = buildExtraArgs({ spawnConfig, tierFlags, mcpConfigPath, isOrchestrator });
+    this.session = await OperativePtySession.spawn({
+      compositionDir: cwd ?? process.cwd(),
+      appendSystemPromptFile: promptPath,
+      sessionUuid: resume ? undefined : sessionUuid,
+      resumeSessionId: resume ? sessionUuid : undefined,
+      permissionMode: "bypassPermissions",
+      extraArgs,
+      cols: 140,
+      rows: 42
+    });
+    logEvent("stdout", { kind: "soul-ready", session: sessionUuid, claude_session: this.session.getClaudeSessionId() });
+  }
 
-  child.stderr.on("data", (chunk) => {
-    logEvent("stderr", { kind: "soul-stderr", session: sessionUuid, line: chunk.toString().slice(0, 500) });
-  });
+  write(content) {
+    if (this.killed) return false;
+    this.queue = this.queue.then(() => this.#turn(content));
+    this.queue.catch((err) => {
+      logEvent("stderr", { kind: "soul-turn-error", session: this.opts.sessionUuid, error: err.message });
+    });
+    return true;
+  }
 
-  child.on("exit", (code, signal) => {
-    logEvent("stdout", { kind: "soul-exit", session: sessionUuid, code, signal });
-    try { onExit?.(code, signal); } catch { /* ignore */ }
-  });
+  async #turn(content) {
+    await this.ready;
+    if (this.killed || !this.session) return;
+    const outcome = await this.session.runTurn({ message: content });
+    const text = outcome.reply ?? "";
+    const ev = { type: "assistant", message: { content: [{ type: "text", text }] } };
+    try { this.opts.onEvent?.(ev); } catch (err) {
+      logEvent("stderr", { kind: "on-event-failed", session: this.opts.sessionUuid, error: err.message });
+    }
+    try { this.opts.onResult?.(text, { type: "result", result: text }); } catch (err) {
+      logEvent("stderr", { kind: "on-result-failed", session: this.opts.sessionUuid, error: err.message });
+    }
+  }
 
-  child.on("error", (err) => {
-    logEvent("stderr", { kind: "soul-error", session: sessionUuid, error: err.message });
-  });
-
-  return child;
+  kill(signal = "SIGTERM") {
+    this.killed = true;
+    this.exitCode = signal === "SIGKILL" ? 137 : 143;
+    try { this.session?.dispose(); } catch { /* ignore */ }
+    logEvent("stdout", { kind: "soul-exit", session: this.opts.sessionUuid, code: this.exitCode, signal });
+    try { this.opts.onExit?.(this.exitCode, signal); } catch { /* ignore */ }
+  }
 }
 
 export function writeUserTurn(child, content) {
-  if (!child?.stdin || child.stdin.destroyed) return false;
-  const line = JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
-  return child.stdin.write(line);
-}
-
-function extractResultText(ev) {
-  if (typeof ev.result === "string") return ev.result;
-  return "";
+  if (typeof child?.write === "function") return child.write(content);
+  return false;
 }
 
 /**
@@ -220,6 +232,21 @@ export async function spawnInteractiveTab({
     throw new Error(`spawn-soul-tab failed: ${response.status} ${text.slice(0, 200)}`);
   }
   return await response.json();
+}
+
+function buildExtraArgs({ spawnConfig, tierFlags = [], mcpConfigPath, isOrchestrator }) {
+  const args = [];
+  if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath, "--strict-mcp-config");
+  if (spawnConfig?.exclude_dynamic_sections) args.push("--exclude-dynamic-system-prompt-sections");
+  if (spawnConfig?.allowed_tools && spawnConfig.allowed_tools.length > 0) {
+    args.push("--allowedTools", spawnConfig.allowed_tools.join(","));
+  }
+  const disallowed = isOrchestrator
+    ? disallowedToolsForOrchestrator(spawnConfig)
+    : disallowedToolsForSoul(spawnConfig);
+  if (disallowed.length > 0) args.push("--disallowedTools", disallowed.join(","));
+  args.push(...tierFlags);
+  return args;
 }
 
 export async function respawnInteractiveTab({

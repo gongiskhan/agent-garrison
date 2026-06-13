@@ -812,41 +812,30 @@ async function spawnGateway(
 
 function spawnClaude(compositionId: string, cwd: string, promptPath: string): ChildProcessWithoutNullStreams {
   const compositionName = `garrison-${compositionId}`;
-  const args = [
-    "--append-system-prompt-file", promptPath,
-    "--permission-mode", "bypassPermissions",
-    "--name", compositionName,
-    "--input-format", "stream-json",
-    "--output-format", "stream-json",
-    "--print",
-    "--verbose"
-  ];
+  const scriptPath = path.join(ROOT_DIR, "scripts", "pty-operative.mjs");
+  const args = [scriptPath];
   appendLog(
     compositionId,
     "runner",
-    `Fallback: claude ${args.join(" ")} (no gateway fitting selected)`
+    `Fallback: node ${path.relative(ROOT_DIR, scriptPath)} (${compositionName}, no gateway fitting selected)`
   );
   const { child } = spawnTracked(
-    "claude",
+    process.execPath,
     args,
     {
       cwd,
-      env: { ...process.env, AGENT_GARRISON_COMPOSITION: compositionId }
+      env: {
+        ...process.env,
+        AGENT_GARRISON_COMPOSITION: compositionId,
+        GARRISON_SYSTEM_PROMPT_PATH: promptPath,
+        GARRISON_MODEL: "opus",
+        GARRISON_PERMISSION_MODE: "bypassPermissions"
+      }
     },
     { spawnSite: "runner:spawnClaude", description: `fallback claude (${compositionName})` }
   );
 
-  let stdoutBuffer = "";
-  child.stdout.on("data", (chunk) => {
-    stdoutBuffer += chunk.toString();
-    let nl: number;
-    while ((nl = stdoutBuffer.indexOf("\n")) !== -1) {
-      const line = stdoutBuffer.slice(0, nl).trim();
-      stdoutBuffer = stdoutBuffer.slice(nl + 1);
-      if (!line) continue;
-      handleClaudeStreamEvent(compositionId, line);
-    }
-  });
+  child.stdout.on("data", (chunk) => appendLog(compositionId, "stdout", chunk.toString()));
   child.stderr.on("data", (chunk) => appendLog(compositionId, "stderr", chunk.toString()));
   child.on("exit", (code, signal) => {
     const record = getRecord(compositionId);
@@ -868,40 +857,7 @@ function spawnClaude(compositionId: string, cwd: string, promptPath: string): Ch
     updateState(compositionId, { status: "failed", lastError: error.message });
   });
 
-  const initial = {
-    type: "user",
-    message: {
-      role: "user",
-      content: "You are now online as an Agent Garrison operative. Acknowledge briefly."
-    }
-  };
-  child.stdin.write(JSON.stringify(initial) + "\n");
-
   return child;
-}
-
-function handleClaudeStreamEvent(compositionId: string, line: string): void {
-  let event: { type?: string; subtype?: string; message?: { content?: Array<{ type?: string; text?: string; name?: string }> } };
-  try {
-    event = JSON.parse(line);
-  } catch {
-    appendLog(compositionId, "stdout", line);
-    return;
-  }
-  if (event.type === "assistant" && event.message?.content) {
-    const blocks = Array.isArray(event.message.content) ? event.message.content : [];
-    for (const block of blocks) {
-      if (block.type === "text" && block.text) {
-        appendLog(compositionId, "stdout", `assistant: ${block.text}`);
-      } else if (block.type === "tool_use" && block.name) {
-        appendLog(compositionId, "stdout", `tool_use: ${block.name}`);
-      }
-    }
-  } else if (event.type === "system") {
-    appendLog(compositionId, "runner", `claude system: ${event.subtype ?? "event"}`);
-  } else if (event.type === "result") {
-    appendLog(compositionId, "runner", `claude turn result: ${event.subtype ?? ""}`);
-  }
 }
 
 async function requireCommand(compositionId: string, command: string): Promise<void> {
