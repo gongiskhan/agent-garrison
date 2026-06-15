@@ -26,6 +26,7 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   OperativePtySession,
   extractReply,
@@ -35,6 +36,7 @@ import {
   cycleMode,
   enumerateCommandsCached,
 } from "@garrison/claude-pty";
+import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -52,10 +54,72 @@ let session = null;
 let ptyStatus = "spawning"; // spawning | ready | failed
 let ptyError = null;
 let inflight = null; // promise chain — turns serialize
+let router = null; // Stage-A live routing layer (BRIEF U1), null = legacy single-session
 let readyResolve;
 const readyPromise = new Promise((resolve) => {
   readyResolve = resolve;
 });
+
+// Routing is ON whenever the model-router fitting is resolvable, unless
+// explicitly disabled. The gateway then pre-routes every inbound message.
+const ROUTING_ENABLED = process.env.GARRISON_ROUTING !== "0";
+// Documented test seam: a module path exporting `spawnFn(config) -> session`.
+// Lets the HTTP integration test drive the REAL gateway with a deterministic
+// fake runtime (no live model). Production leaves it unset → real claude TUI.
+const RUNTIME_STUB = process.env.GARRISON_GATEWAY_RUNTIME_STUB ?? "";
+
+async function loadStubSpawnFn() {
+  if (!RUNTIME_STUB) return null;
+  try {
+    const mod = await import(pathToFileURL(path.resolve(RUNTIME_STUB)).href);
+    return mod.spawnFn ?? mod.default ?? null;
+  } catch (err) {
+    logEvent("stderr", { kind: "runtime-stub-load-failed", error: err.message });
+    return null;
+  }
+}
+
+// Build + start the routing layer. Returns true when the operative is served by
+// the routing pool; false when routing is unavailable (caller falls back to the
+// legacy single-session spawn).
+async function initRouting() {
+  if (!resolveModelRouterDir(COMPOSITION_DIR)) {
+    logEvent("stdout", { kind: "routing-absent", message: "model-router fitting not found — legacy single-session" });
+    return false;
+  }
+  await fs.mkdir(path.join(COMPOSITION_DIR, ".garrison"), { recursive: true });
+  const spawnFn = await loadStubSpawnFn();
+  const continueSession = await hasPriorSession();
+  router = await createRoutedGateway({
+    compositionDir: COMPOSITION_DIR,
+    appendSystemPromptFile: SYSTEM_PROMPT_PATH || undefined,
+    permissionMode: PERMISSION_MODE,
+    decisionsFile: path.join(COMPOSITION_DIR, ".garrison", "decisions.jsonl"),
+    spawnFn,
+    operativeSpawnConfig: {
+      compositionDir: COMPOSITION_DIR,
+      appendSystemPromptFile: SYSTEM_PROMPT_PATH || undefined,
+      model: MODEL,
+      permissionMode: PERMISSION_MODE,
+      continueSession,
+      claudeBinary: CLAUDE_BINARY,
+    },
+    classifierSpawnConfig: {
+      compositionDir: COMPOSITION_DIR,
+      model: process.env.GARRISON_CLASSIFIER_MODEL ?? "haiku",
+      permissionMode: PERMISSION_MODE,
+      claudeBinary: CLAUDE_BINARY,
+    },
+    initialTarget: { provider: "anthropic-plan", model: MODEL, effort: null },
+    logFn: (e) => logEvent("stdout", { kind: "routing", ...e }),
+  });
+  await router.start();
+  session = router.getOperativeSession();
+  ptyStatus = "ready";
+  await markPriorSession();
+  logEvent("stdout", { kind: "routing-ready", model: MODEL, profile: router.config?.activeProfile });
+  return true;
+}
 
 function logEvent(stream, payload) {
   const line = JSON.stringify({ ts: new Date().toISOString(), component: "http-gateway-pty", stream, ...payload });
@@ -110,9 +174,44 @@ async function spawnOperative({ resume = true } = {}) {
   readyResolve();
 }
 
+/** Run one turn through Stage-A routing: classify → resolve → log → switch →
+ *  turn → honored check. The operative session is served by the routing pool. */
+async function runRoutedTurn(message, onChunk) {
+  await router.ensureOperative();
+  const pre = await router.preRoute(message); // classify + resolve + LOG + switch
+  session = router.getOperativeSession();
+  const annotated = `${pre.annotation}\n${message}`;
+  let lastEmitted = "";
+  const onScreen =
+    onChunk && session.handle
+      ? () => {
+          const current = extractReply(session.handle, annotated);
+          if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
+            onChunk(current.slice(lastEmitted.length));
+            lastEmitted = current;
+          } else if (current && current !== lastEmitted) {
+            onChunk(current, true);
+            lastEmitted = current;
+          }
+        }
+      : undefined;
+  const outcome = await session.runTurn({ message: annotated, onScreen });
+  const honored = await router.postTurn(pre.route, pre.decision, outcome.reply);
+  await markPriorSession();
+  logEvent("stdout", { kind: "routed-turn", target: pre.route.targetId, role: pre.route.role, honored: honored.honored });
+  return {
+    reply: outcome.reply,
+    session_id: outcome.sessionId,
+    cost_usd: null,
+    route: pre.route.targetId,
+    honored: honored.honored,
+  };
+}
+
 /** Run one turn against the live operative. Spawns/respawns on demand.
  *  onChunk(text) streams the growing assistant reply (screen-derived). */
 async function runTurn(message, onChunk) {
+  if (router) return runRoutedTurn(message, onChunk);
   if (!session || session.isDisposed() || !session.isAlive()) {
     logEvent("stdout", { kind: "respawn-before-turn" });
     ptyStatus = "spawning";
@@ -365,13 +464,21 @@ async function main() {
       permission_mode: PERMISSION_MODE,
       composition_dir: COMPOSITION_DIR,
     });
-    spawnOperative({ resume: true }).catch((err) => {
-      ptyStatus = "failed";
-      ptyError = err.message;
-      logEvent("stderr", { kind: "spawn-failed", error: err.message });
-      // Unblock waiters so pending /chat calls fail fast instead of hanging.
-      readyResolve();
-    });
+    (async () => {
+      try {
+        if (ROUTING_ENABLED && (await initRouting())) {
+          readyResolve();
+          return;
+        }
+        await spawnOperative({ resume: true }); // calls readyResolve internally
+      } catch (err) {
+        ptyStatus = "failed";
+        ptyError = err.message;
+        logEvent("stderr", { kind: "spawn-failed", error: err.message });
+        // Unblock waiters so pending /chat calls fail fast instead of hanging.
+        readyResolve();
+      }
+    })();
   });
 }
 
@@ -388,6 +495,11 @@ async function shutdown(signal) {
     }
   } catch {
     /* best effort */
+  }
+  try {
+    router?.shutdown();
+  } catch {
+    /* ignore */
   }
   try {
     session?.dispose();

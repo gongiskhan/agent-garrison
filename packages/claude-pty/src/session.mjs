@@ -118,7 +118,11 @@ export class OperativePtySession {
 
     const handle = spawnClaudePty(claudeBinary, argv, {
       cwd: compositionDir,
-      env: stripNestingMarkers(opts.env ?? process.env),
+      // providerLaunch keeps the explicitly-set ANTHROPIC_BASE_URL/AUTH_TOKEN
+      // (e.g. ollama-local / a cloud OSS provider from buildLaunchEnv); the
+      // default path strips an INHERITED base URL so the operative rides the Max
+      // plan (billing ban).
+      env: stripNestingMarkers(opts.env ?? process.env, { keepProvider: opts.providerLaunch === true }),
       cols: opts.cols,
       rows: opts.rows,
       spawnImpl: opts.spawnImpl,
@@ -251,11 +255,17 @@ export class OperativePtySession {
   }
 }
 
-function stripNestingMarkers(env) {
+function stripNestingMarkers(env, { keepProvider = false } = {}) {
   const out = { ...env };
   delete out.CLAUDECODE;
+  // Never ride an inherited raw API key (would bill the API instead of the plan).
   delete out.ANTHROPIC_API_KEY;
-  delete out.ANTHROPIC_BASE_URL;
+  // Default: scrub an inherited base URL so the operative uses the Max plan. A
+  // provider launch (keepProvider) sets ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN
+  // deliberately (buildLaunchEnv) — keep them so the launch actually reaches the
+  // local/cloud-OSS provider. (ANTHROPIC_AUTH_TOKEN is never stripped — matches
+  // the original default; it is only ever set intentionally.)
+  if (!keepProvider) delete out.ANTHROPIC_BASE_URL;
   return out;
 }
 

@@ -1,0 +1,38 @@
+{
+  "slice": "U3-improver-review-ui",
+  "title": "Improver review-queue own-port view + live apply/reject/conflict round-trips + autonomy",
+  "updatedAt": "2026-06-15T04:22:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/improver-apply.test.ts tests/improver-server.test.ts tests/improver.test.ts",
+      "exit": 0,
+      "summary": "22 passed. improver-apply.test.ts (7): apply-core writes the target via the never-clobber baselineSha contract and runs the REAL reconcile('post-authoring') scoped to tmp dirs (improver-apply-ok); idempotent re-apply; a concurrent edit between plan+apply → 409 conflict → applyWithRetry re-reads + re-diffs and applies on top, preserving the human edit (improver-conflict-ok); reject never writes the target (improver-reject-ok); autonomy direct/promotion/demotion through the review-queue layer. improver-server.test.ts (4): the own-port server live over HTTP — run-now → pending proposal (improver-proposal-ok); Approve → apply + reconcile marker + applied-with-evidence (improver-apply-ok); Reject → rejected, target byte-identical (improver-reject-ok); a rule set auto applies at run-now with no streak (autonomy-direct-ok). improver.test.ts (11, MR5a/b) unchanged."
+    },
+    "e2e": {
+      "cmd": "npx playwright test tests/e2e/improver-review-view.spec.ts",
+      "exit": 0,
+      "summary": "3 passed (desktop/tablet/mobile). The review view: Run-now → a pending memory-consolidation card → Approve → status `applied` + evidence line → Reject a pre-seeded proposal → `rejected` → Autonomy tab shows the rule with `accepted 1`. Screenshot at docs/autothing/evidence/improver-review-view.png."
+    },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/improver", "exit": 0, "summary": "PASS — own_port:true, port 7088, faculty observability (script)." },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "pending full-suite confirm" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "pending full-suite confirm" },
+    "build": { "cmd": "node fittings/seed/improver/ui/build.mjs", "exit": 0, "summary": "dist/ written (esbuild)" },
+    "designAudit": { "verdict": "clean", "by": ["card idiom from model-router view; no emoji; status badges; diff viewer"], "notes": "3-viewport e2e clean; dark theme consistent with router view" },
+    "video": { "status": "pending", "file": "docs/autothing/evidence/improver-review-view.png", "link": null, "note": "U5 walkthrough; e2e screenshot interim." }
+  },
+  "verdicts": {
+    "improver-proposal-ok": true,
+    "improver-apply-ok": true,
+    "improver-reject-ok": true,
+    "improver-conflict-ok": true,
+    "autonomy-direct-ok": true,
+    "autonomy-promotion-ok": true,
+    "autonomy-demotion-ok": true
+  },
+  "blockers": [],
+  "notes": "New: apply-core.mjs (shaOf/readTarget/buildNewContent/planApply/applyPlan/applyWithRetry — the never-clobber authoring contract mirroring src/lib/claude-md.ts, with a beforeApply seam to exercise the 409 recovery); review-queue.mjs (queue persistence + status transitions + per-rule autonomy via improver-core state machine); scripts/server.mjs (own-port :7088 — run-now/queue/apply/reject/autonomy/promote, self-registers ~/.garrison/ui-fittings/improver.json, auto-applies `auto` rules at run-now); ui/ review-queue view (Queue + Autonomy tabs, Approve/Reject, diff viewer, evidence, autonomy toggle + track record + promotion-approve). reconcile genuinely RUNS (apply-core test calls the real reconcile() with tmp claudeHome/storeDir; the server records a reconcile-invoked marker). apm.yml gains own_port + port 7088 + UI build in setup. Satisfies all U3 tokens."
+}

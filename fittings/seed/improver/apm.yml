@@ -1,0 +1,55 @@
+name: improver
+version: 0.1.0
+description: Nightly self-improvement runner — reads telemetry, transcripts, evidence, and pool stats; produces proposal diffs into a review queue; applies approved proposals only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion + instant demotion.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: observability
+  cardinality_hint: single
+  component_shape: script
+  own_port: true
+  platforms:
+    - all
+  summary: >-
+    A nightly automation-runner with an own-port review-queue view (default
+    7088). The seed end-to-end rule is memory consolidation (MEMORY.md learned
+    hints → a reviewable proposal to promote canonical vault conventions).
+    Skill/automation/router-config/garrison rules ship as disabled examples
+    (incl. a garrison pool-tuning rule wired to decisions.jsonl + pool stats).
+    Needs no HTTP to RUN (reads inputs, writes proposal diffs + a queue index);
+    APPLY happens only through the never-clobber authoring contract (baselineSha
+    → 409, then reconcile) from the review UI. Vault-locked / server-down records
+    `skipped`, never fails silently.
+  config_schema:
+    - key: cron
+      type: string
+      default: 30 3 * * *
+      description: Nightly run schedule (registered via the scheduler CLI in setup.sh).
+    - key: port
+      type: integer
+      default: 7088
+      description: HTTP port the review-queue view + apply API binds to. Falls back to next free port when in use.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+  provides:
+    - kind: automation-runner
+      name: improver
+  consumes: []
+  setup:
+    command: node ui/build.mjs && bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 90000
+  verify:
+    command: node apm_modules/_local/improver/scripts/improver.mjs --probe
+    expect: ok
+    timeout_ms: 15000
+  for_consumers: |
+    The Improver runs nightly (default 30 3 * * *, registered via the scheduler).
+    It proposes — it never applies behind the owner's back. Proposals are a
+    plain-language claim + evidence + a diff + ONE decision; approval (from the
+    review UI) applies via the hosted authoring APIs (POST /api/quarters file.*,
+    PUT /api/claude-md with baselineSha, PUT /api/settings, the router's PUT
+    /routing) and runs reconcile. Run manually: scheduler.mjs run-now improver-nightly.

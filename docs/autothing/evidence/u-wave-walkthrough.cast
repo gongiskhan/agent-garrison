@@ -1,0 +1,12 @@
+{"version":3,"term":{"cols":80,"rows":24},"timestamp":1781498608,"command":"bash scripts/walkthrough-u-wave.sh","env":{"SHELL":"/bin/zsh"}}
+[0.009, "o", "\r\n\u001b[1;36m===== U1 — gateway Stage-A live routing (committed gate) =====\u001b[0m\r\n"]
+[1.253, "o", "\r\n Test Files  1 passed (1)\r\n      Tests  3 passed (3)\r\n   Start at  05:43:29\r\n   Duration  652ms (transform 77ms, setup 0ms, collect 130ms, tests 28ms, environment 0ms, prepare 49ms)\r\n\r\n"]
+[0.000, "o", "\r\n\u001b[1;36m===== U2 — codegraph + serena answering LIVE through the wired MCP (committed gate) =====\u001b[0m\r\n"]
+[3.408, "o", "\r\n Test Files  1 passed (1)\r\n      Tests  3 passed (3)\r\n   Start at  05:43:30\r\n   Duration  2.95s (transform 32ms, setup 0ms, collect 45ms, tests 2.59s, environment 0ms, prepare 38ms)\r\n\r\n"]
+[0.000, "o", "\r\n\u001b[1;36m===== U3 — Improver review-queue: apply / reject / 409-conflict + autonomy (committed gate) =====\u001b[0m\r\n"]
+[1.048, "o", "\r\n Test Files  2 passed (2)\r\n      Tests  11 passed (11)\r\n   Start at  05:43:33\r\n   Duration  588ms (transform 80ms, setup 0ms, collect 120ms, tests 216ms, environment 0ms, prepare 78ms)\r\n\r\n"]
+[0.000, "o", "\r\n\u001b[1;36m===== U4 — soul-switch carryover fallback + runtime contracts (committed gate) =====\u001b[0m\r\n"]
+[0.848, "o", " Test Files  1 passed (1)\r\n      Tests  5 passed (5)\r\n   Start at  05:43:34\r\n   Duration  393ms (transform 66ms, setup 0ms, collect 116ms, tests 13ms, environment 0ms, prepare 31ms)\r\n\r\n"]
+[0.001, "o", "\r\n\u001b[1;36m===== U-wave gates green =====\u001b[0m\r\n"]
+[0.000, "o", "live-route-ok · codegraph-ok · serena-ok · improver-apply-ok · improver-conflict-ok · soul-switch-ok\r\n"]
+[0.000, "x", "0"]

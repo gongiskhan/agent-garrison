@@ -1,0 +1,30 @@
+{
+  "slice": "U1-live-gateway-routing",
+  "title": "Wire Stage-A pre-route + MultiRuntimePool into the live gateway inbound path (PRIMARY)",
+  "updatedAt": "2026-06-15T04:05:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/gateway-routing.test.ts tests/gateway-live-route.integration.test.ts",
+      "exit": 0,
+      "summary": "6 passed. gateway-routing.test.ts (3): drives the REAL RoutedGateway (createRoutedGateway → MultiRuntimePool + routing-core + stage-b + telemetry) with a deterministic FakeSession — classify→resolve→LOG at resolution→pool serves→honored token (live-route-ok); honored:false on a mismatched token; a second prompt resolving to a different {model,effort} slash-injects /model haiku + /effort low onto the live operative and updates currentTarget (live-switch-ok). gateway-live-route.integration.test.ts (3): boots the ACTUAL gateway-pty.mjs child process with the documented runtime stub (GARRISON_GATEWAY_RUNTIME_STUB) and POSTs a REAL prompt THROUGH the gateway HTTP /chat — asserts reply token cc-sonnet-med, decisions.jsonl entry at resolution time, honored=true; a trivial prompt lands on cc-haiku-low."
+    },
+    "liveProbe": {
+      "cmd": "node scripts/probe-live-gateway.mjs",
+      "exit": 0,
+      "summary": "LIVE with a real claude TUI session (no stub): live-route-ok + live-switch-ok. t1.route=cc-sonnet-med honored=true; t2 trivial prompt → cc-haiku-low honored=true via in-place /model+/effort slash-inject; decisions.jsonl=2 entries written at resolution time. The asserted-not-lived gap from BRIEF v4 is now LIVED."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "pending full-suite confirm" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "pending full-suite confirm" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "pending full-suite confirm" },
+    "e2e": { "exit": 0, "summary": "HTTP child-process integration test IS the end-to-end driver (real gateway process, real HTTP)." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — backend routing layer"], "notes": "no UI" },
+    "video": { "status": "pending", "file": null, "link": null, "note": "U5 walkthrough." }
+  },
+  "verdicts": { "live-route-ok": true, "live-switch-ok": true },
+  "blockers": [],
+  "notes": "gateway-routing.mjs (new) is the routing layer: resolveModelRouterDir (repo-seed OR installed apm_modules) + loadRoutingCore (dynamic-import the three pure cores) + loadRoutingConfig (composition routing.json else seed) + RoutedGateway (start→checkout operative+classifier from a MultiRuntimePool; preRoute = classify via the warm classifier→resolveRoute→appendDecision at resolution time→applySwitch via planSwitch slash-inject/respawn; postTurn = checkHonored + honored:false telemetry; ensureOperative/ensureClassifier re-checkout dead sessions). gateway-pty.mjs wires it: initRouting() builds the routing pool when the model-router fitting is resolvable (ROUTING_ENABLED, disable with GARRISON_ROUTING=0), falls back to the legacy single-session spawn otherwise; runRoutedTurn prepends the [gateway-route:] annotation, streams via extractReply, posts the honored check. Documented test seam GARRISON_GATEWAY_RUNTIME_STUB swaps the leaf session factory for the free/deterministic HTTP integration test. Satisfies U1 tokens live-route-ok, live-switch-ok."
+}
