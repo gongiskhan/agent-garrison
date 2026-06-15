@@ -1,0 +1,36 @@
+{
+  "slice": "MR0b-kind-scheduler",
+  "title": "Re-add automation-runner capability kind + repair scheduler manifest (and its automation ecosystem) to the 6-roles schema",
+  "updatedAt": "2026-06-13T08:08:26Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/automation-runner-kind.test.ts",
+      "exit": 0,
+      "summary": "3 passed — automation-runner ∈ capabilityKinds; scheduler parses+validates+selectable (faculty observability, provides automation-runner); the 4 ecosystem fittings parse under shape-driven roles (loop-heartbeat→observability; morning-briefing/google-calendar/vault-sync→sessions). Full suite 506 passed / 9 skipped / 0 failed (docs-consistency updated for the re-add)."
+    },
+    "probe": {
+      "cmd": "node fittings/seed/scheduler/scripts/scheduler.mjs --probe",
+      "exit": 0,
+      "summary": "prints 'ok'"
+    },
+    "validateFitting": {
+      "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/scheduler",
+      "exit": 0,
+      "summary": "PASS — architecture/security/prompt-injection/quality; parsed faculty observability as script, provides 1 capability"
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled, all routes rendered" },
+    "e2e": { "exit": 0, "summary": "N/A — manifest + lib + enum slice; proof is the committed vitest gate + validate-fitting" },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI surface"], "notes": "manifest/enum/docs only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "No UI behavior to film." }
+  },
+  "blockers": [
+    "personal-operative remains de-listed (out of scope): it consumes the dropped `soul` + `agent-skill` kinds, which the pivot retired and the MR wave does NOT restore. It is a parked PA-bucket fitting — re-adding automation-runner alone cannot heal it. Logged, not silently dropped."
+  ],
+  "notes": "Re-added `automation-runner` to capabilityKinds (src/lib/types.ts) on the data-source (2026-06-10) precedent — a kind is added only when a real Fitting needs one (here: the scheduler + the nightly Improver). Repaired the scheduler manifest's faculty (the dropped `scheduler` role → `observability`) and re-homed the 4 ecosystem fittings to VALID roles, driven by validateFacultyCompatibility's shape + cardinality constraints: only `observability` accepts script-shaped single runners (scheduler, loop-heartbeat) and only `sessions` accepts cli-skill multi runners (morning-briefing, google-calendar, vault-sync). Updated docs/CAPABILITIES.md + tests/docs-consistency.test.ts (the code-derived RC5 gate) to move automation-runner from the dropped list to live+re-added. Satisfies brief §3 token scheduler-manifest-ok."
+}

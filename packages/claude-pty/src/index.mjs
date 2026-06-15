@@ -51,4 +51,7 @@ export {
 export { OperativePtySession, oneShotTurn, buildClaudeArgs } from "./session.mjs";
 export { PtySessionManager } from "./session-manager.mjs";
 export { WarmPtySessionPool, measureIdleCost } from "./warm-pool.mjs";
+export { ClaudeCodeAdapter, runAdapterConformance, ADAPTER_METHODS } from "./runtime-adapter.mjs";
+export { delegate, validateTaskSpec, parseTaskSpec, validateDelegationResult, DelegationError } from "./runtime-bridge.mjs";
+export { MultiRuntimePool } from "./multi-runtime-pool.mjs";
 export { claudeProjectDirForCwd, claudeProjectsDir, claudeGlobalConfigPath } from "./paths.mjs";

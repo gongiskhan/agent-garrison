@@ -1,0 +1,39 @@
+{
+  "slice": "MRk-knowledge",
+  "title": "Knowledge faculty (composite) — canonical vault + cross-runtime projections (CLAUDE.md/AGENTS.md/GEMINI.md) + idempotent provisioning/harvest + MCP wiring + minimal recall MCP server",
+  "updatedAt": "2026-06-14T23:30:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/knowledge-faculty.test.ts",
+      "exit": 0,
+      "summary": "8 passed — projectAll emits AGENTS.md (canonical, sentinel + vault content) + CLAUDE.md + GEMINI.md (thin @AGENTS.md imports, sentinels) (projection-ok); projection is deterministic; provision writes projections + wires the knowledge/codegraph/serena MCP servers, second run is a no-op (provisioning-idempotent-ok) + .mcp.json lists all three endpoints (knowledge-mcp-wired baseline); parseMemoryIndex + harvest twice on the same MEMORY.md adds nothing the second time (harvest-idempotent-ok); the recall MCP tool searches the vault. Full suite 593 passed / 9 skipped / 0 failed."
+    },
+    "probe": {
+      "cmd": "node scripts/knowledge.mjs --probe  +  node scripts/mcp-server.mjs --probe",
+      "exit": 0,
+      "summary": "knowledge --probe → ok (seed vault projects cleanly, sentinels + @AGENTS.md import present); mcp-server --probe → {ok:true, tools:[recall]} (knowledge-probe-ok)."
+    },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/knowledge", "exit": 0, "summary": "PASS — faculty memory (cli), provides memory-store:knowledge, consumes data-source:any" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged — knowledge is .mjs + fitting files, not the Next bundle" },
+    "e2e": { "exit": 0, "summary": "N/A — pure projection/harvest/provision + a stdio MCP server; committed unit tests + probes are the re-runnable gate." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "projections + harvest + provisioning + MCP server" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": {
+    "knowledge-probe-ok": true,
+    "projection-ok": true,
+    "provisioning-idempotent-ok": true,
+    "harvest-idempotent-ok": true,
+    "knowledge-mcp-wired-ok": "wiring proven (.mcp.json lists knowledge/codegraph/serena); a live spawned-session MCP handshake is the MRk-mcp-wire integration"
+  },
+  "blockers": [
+    "codegraph-ok + serena-ok (the sub-fittings ANSWER a query via their MCP) are BLOCKED on absent tools: `codegraph` and `serena` are not installed on this machine (uvx IS present). The Knowledge provisioning already WIRES them (.mcp.json references `codegraph mcp` + `serena start-mcp-server`), so they activate when installed; live query-verification is deferred. Logged, not silently dropped — these are MRk-codegraph / MRk-serena, gated on the installs the brief calls 'mostly install + wire'."
+  ],
+  "notes": "The Knowledge composite fills the memory role and is independent of Runtime (the portability lever). Two memory flows: PRESCRIPTIVE (vault → AGENTS.md canonical, CLAUDE.md/GEMINI.md thin @AGENTS.md imports — a single vault edit re-projects everywhere, no drift) and LEARNED (MEMORY.md harvested into a harvested/ namespace, idempotently, as pending hints to validate). Two read paths: projection at session start (writeProjections, idempotent) + MCP mid-task (the minimal stdio `recall` server + the wired codegraph/serena). Provisioning is idempotent first-touch (projections + MCP wiring + sentinel verify; second run noop). RETRY 1: the CLI/MCP modules ran main()/readline on import, breaking the test — guarded both behind a direct-invocation check. Honest unknown confirmed: codegraph/serena absent → their query-answer tokens deferred (wiring in place). Satisfies brief §3 tokens knowledge-probe-ok, projection-ok, provisioning-idempotent-ok, harvest-idempotent-ok + the knowledge-mcp-wired wiring."
+}

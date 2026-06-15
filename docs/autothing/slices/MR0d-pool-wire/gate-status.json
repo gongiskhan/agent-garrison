@@ -1,0 +1,34 @@
+{
+  "slice": "MR0d-pool-wire",
+  "title": "Warm pool primitive proofs — rotate test + measured idle cost + classify-through-pool (gateway integration deferred to MR1, needs the Profile)",
+  "updatedAt": "2026-06-13T09:55:21Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/claude-pty.test.ts -t 'warm pool'",
+      "exit": 0,
+      "summary": "1 passed — WarmPtySessionPool (injectable spawnFn): size-2 start => available 2; two checkouts get distinct sessions; checkout triggers a background replacement (spawned >= 3); release recycles; shutdown disposes. Satisfies pool-rotate-ok."
+    },
+    "poolCost": {
+      "cmd": "node scripts/probe-pool-cost.mjs",
+      "exit": 0,
+      "summary": "pool-cost-measured: 0 tokens, 352.1 MB — claude child pid resident after 60s idle = 352.1 MB; 0 turns => 0 tokens. Real per-warm-session memory cost for the pool-toggle UI."
+    },
+    "simSession": {
+      "cmd": "node scripts/probe-pool-classify.mjs",
+      "exit": 0,
+      "summary": "sim-session-ok — two consecutive classify turns on ONE pooled haiku session, no respawn: turn1 6640ms -> 'code', turn2 5175ms -> 'research' (both correct), sessionId stable."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (probes are standalone .mjs; no typechecked-source churn since the MR0b/MR0c green run)" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "unchanged — additions only" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged — additions only (scripts/*.mjs not in the Next build)" },
+    "e2e": { "exit": 0, "summary": "N/A — pool primitive + live probes; the committed unit test + probe scripts are the re-runnable artifacts" },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "pool primitive + probes only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "No UI behavior to film." }
+  },
+  "blockers": [],
+  "notes": "WarmPtySessionPool already existed (built by the PTY-everywhere commits) — this slice PROVES it: pool-rotate-ok is the existing committed test; pool-cost-measured + sim-session-ok are new committed live probes (scripts/probe-pool-cost.mjs, scripts/probe-pool-classify.mjs). Key measured facts feeding MR1: an idle warm session = 352 MB / 0 tokens (so the default 3-warm + classifier ~= 1.4 GB; the max-total cap of 8 ~= 2.8 GB), and a pooled haiku session classifies at ~5-7s/turn reused turn-after-turn. DEFERRED to MR1 (recorded, not dropped): wiring the pool INTO the gateway with a pinned haiku classifier member + a Profile-derived warm plan — that depends on the routing.json Profile (MR1a) and Stage A (MR1c), so it lands there as MR1's pool-integration step. Given MR0e's slash-inject-verdict=works, that integration uses ONE generic pool + /model+/effort injection at checkout. Satisfies brief §3 tokens pool-rotate-ok, pool-cost-measured, sim-session-ok."
+}

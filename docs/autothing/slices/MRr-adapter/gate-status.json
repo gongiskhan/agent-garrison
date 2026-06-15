@@ -1,0 +1,25 @@
+{
+  "slice": "MRr-adapter",
+  "title": "RuntimeAdapter contract + ClaudeCodeAdapter reference + conformance harness (the runtime polymorphism the pool/bridge build on)",
+  "updatedAt": "2026-06-14T23:10:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/runtime-adapter.test.ts",
+      "exit": 0,
+      "summary": "4 passed — runAdapterConformance drives a StubAdapter through spawn→awaitReady→sendTurn→awaitResponse→teardown (all ok, spawned=1/torndown=1); awaitResponse returns per-turn text (the hardest primitive); conformance fails loudly when a method is missing; the ClaudeCodeAdapter reference implements every ADAPTER_METHODS method. (adapter-contract-ok)"
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged — packages/claude-pty .mjs addition + test, not in the Next bundle" },
+    "e2e": { "exit": 0, "summary": "N/A — contract + conformance harness; the committed conformance test (stub adapter, no live model) is the re-runnable gate." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI surface"], "notes": "contract module only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": { "adapter-contract-ok": true },
+  "blockers": [],
+  "notes": "packages/claude-pty/src/runtime-adapter.mjs defines the runtime-agnostic RuntimeAdapter contract (spawn/awaitReady/sendTurn/awaitResponse/setModel/setEffort/resume/teardown) — sendTurn + awaitResponse are split deliberately because turn-boundary detection (knowing a TUI turn FINISHED by scraping output) is the HARDEST per-adapter primitive (the brief's flagged main risk for Codex/Gemini). ClaudeCodeAdapter is the reference (both faces): wraps OperativePtySession (claude-pty), sendTurn stores the in-flight runTurn promise, awaitResponse resolves {text, artifacts}, setModel/setEffort slash-inject (MR0e verdict works), resume uses --continue. runAdapterConformance(adapter) drives the full lifecycle + asserts the contract shape, returning a structured report — used by tests with a stub (deterministic, no live model) and by integration checks with a real adapter. The generic pool (MRr-pool-multi) + bridge (MRr-bridge) + the Codex/Gemini adapters build ON this contract. Satisfies brief §3 token adapter-contract-ok."
+}

@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
+import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
@@ -565,9 +566,17 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
     appendLog(compositionId, "stderr", placeholderWarning);
   }
   const orchestrator = substituteCapabilitiesPlaceholder(orchestratorSource, entries);
+  // BRIEF v4 MR1b: inject the compiled Model Router policy via {{routing}}.
+  // No-op when the orchestrator prompt has no placeholder (e.g. the live
+  // garrison-orchestrator), so the default composition is untouched.
+  const routingSection = await resolveRoutingSection(composition.directory);
+  if (orchestrator.includes("{{routing}}") && routingSection == null) {
+    appendLog(compositionId, "stderr", MISSING_ROUTING_CONFIG_WARNING);
+  }
+  const orchestratorRouted = substituteRoutingPlaceholder(orchestrator, routingSection);
   // Identity first, Orchestrator (behavior) second — identity lands before the
   // long behavior section buries it.
-  const prompt = [fallbackSoul, "", orchestrator].join("\n");
+  const prompt = [fallbackSoul, "", orchestratorRouted].join("\n");
   const promptPath = path.join(composition.directory, ".garrison", "assembled-system-prompt.md");
   await fs.writeFile(promptPath, prompt, "utf8");
   appendLog(compositionId, "runner", `Assembled system prompt at ${path.relative(ROOT_DIR, promptPath)}`);
@@ -590,6 +599,63 @@ export const MISSING_CAPABILITIES_PLACEHOLDER_WARNING =
 
 export function capabilitiesPlaceholderWarning(prompt: string): string | null {
   return prompt.includes("{{capabilities}}") ? null : MISSING_CAPABILITIES_PLACEHOLDER_WARNING;
+}
+
+// ── Model Router routing section (BRIEF v4 MR1b) ─────────────────────────────
+// The Model Router fitting owns routing.json (composition-scoped). At assembly
+// the runner compiles the active Profile into a routing.md section and injects
+// it via the {{routing}} placeholder. The compiler is the fitting's pure,
+// dependency-free routing-core.mjs (single source of truth, also imported by
+// the bare-node own-port view and vitest). We dynamic-import it by file URL at
+// runtime so it is never pulled into the Next webpack bundle.
+const ROUTING_CORE_PATH = path.join(ROOT_DIR, "fittings/seed/model-router/lib/routing-core.mjs");
+const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/model-router/config/routing.seed.json");
+
+export const MISSING_ROUTING_CONFIG_WARNING =
+  "WARNING: orchestrator prompt has a {{routing}} placeholder but no valid routing.json was found — the routing section will be empty";
+
+// Pure: replace {{routing}} with the compiled section (or strip it cleanly when
+// unavailable, so the placeholder never leaks into the assembled prompt).
+export function substituteRoutingPlaceholder(prompt: string, section: string | null): string {
+  if (!prompt.includes("{{routing}}")) return prompt;
+  const block = section ?? "";
+  return prompt.replace(/{{routing}}/g, () => block);
+}
+
+// Resolve + compile the routing section for a composition. Prefers a
+// composition-scoped <dir>/.garrison/routing.json (written by the fitting's
+// view PUT /routing), falling back to the model-router seed config. Returns
+// null (and the caller warns) when no valid config is found.
+export async function resolveRoutingSection(compositionDir: string): Promise<string | null> {
+  const scoped = path.join(compositionDir, ".garrison", "routing.json");
+  let raw: string | null = null;
+  try {
+    raw = await fs.readFile(scoped, "utf8");
+  } catch {
+    try {
+      raw = await fs.readFile(SEED_ROUTING_PATH, "utf8");
+    } catch {
+      return null;
+    }
+  }
+  let config: unknown;
+  try {
+    config = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  try {
+    const mod = (await import(pathToFileURL(ROUTING_CORE_PATH).href)) as {
+      compileRouting: (c: unknown, p?: string | null) => string;
+      validateRoutingConfig: (c: unknown) => string[];
+    };
+    const errors = mod.validateRoutingConfig(config);
+    if (errors.length) return null;
+    const activeProfile = (config as { activeProfile?: string }).activeProfile ?? null;
+    return mod.compileRouting(config, activeProfile);
+  } catch {
+    return null;
+  }
 }
 
 export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {

@@ -289,3 +289,76 @@ clobber real status files.
 (status header, §4, §7); [`docs/UI-FITTINGS.md`](./UI-FITTINGS.md)
 §"Runner lifecycle".
 **Status:** Settled.
+
+## 2026-06-13 · Model Router + Improver wave (MR) kickoff
+
+The routing-orchestrator + nightly-improver build per BRIEF v2. The brief was
+written against `7836f85`, but the PTY-everywhere commits (`1fdd49f`/`c562ac9`)
+already shipped the warm-pool class, the `gateway-legacy.mjs` deletion, and the
+`spawnClaude`/`spawn-soul.mjs` PTY migration — so P0 **wires and finishes** the
+substrate rather than rebuilding it. Two-stage routing (gateway pre-route →
+act), Profile-based policy, a compiled `{{routing}}` section in the orchestrator
+prompt, an own-port view + simulator, three provider skills, a nightly Improver,
+and a Workflows Quarters category.
+**Source:** `~/.claude/plans/brief-v2-model-swift-neumann.md` (brief §2/§3
+verbatim + substrate-delta adaptations); `EXPLORATION_REPORT_router_improver.md`.
+**Status:** Settled (build in progress).
+
+## 2026-06-13 · `automation-runner` capability kind re-added
+
+`automation-runner` was dropped in the 2026-06-07 Quarters pivot but the
+scheduler, the new Improver, and four other fittings (`morning-briefing`,
+`google-calendar`, `vault-sync`, `loop-heartbeat`, `personal-operative`) cannot
+be expressed without it. Re-added on the same Claude-Code-justified, add-a-kind-
+only-when-a-real-Fitting-needs-one rule that re-added `data-source` on
+2026-06-10. **Source:** brief §2 (Improver); slice MR0b. **Status:** Settled.
+
+## 2026-06-13 · Model Router fills the singleton `orchestrator` Faculty (FLAGGED)
+
+The brief says the Model Router "fills the Orchestrator Faculty (singleton)".
+Since `garrison-orchestrator` already holds that slot, the router **supersedes**
+it: the router carries the existing orchestrator behavior forward verbatim —
+preserving the `[orchestrator-active]` reply contract (4 enforcement points) and
+the `{{capabilities}}` placeholder — and adds a compiled `{{routing}}` section;
+`garrison-orchestrator` and `tier-classifier` are parked. This is an
+*interpretation* of the brief, not an instruction, so it is flagged. It is
+reversible (park) and gated by P1 `assembly-ok` (the assembled prompt must still
+contain the routing section AND `[orchestrator-active]`, and `integration-check`
+must pass). If the intent was a separate routing-contributor fitting leaving
+`garrison-orchestrator` in place, flip the assembly approach.
+**Source:** brief §0/§2; plan "Locked decisions #3". **Status:** Open
+(proceeding; gated).
+
+## 2026-06-13 · Programmatic-path purge finished (slice MR0a)
+
+Deleted `scripts/spike/*` (22 disconnected POC files, zero production imports)
+and the vestigial `compositions/dogfood-orch/.../gateway-legacy.mjs` install
+artifact; tidied three stale comments that named `@anthropic-ai`/`--print`
+(`coding-subagent.mjs`, `orchestrator-projection.ts`, `legacy-voice.tsx`).
+Committed `tests/programmatic-purge.test.ts` as the regression guard: it scans
+tracked production source (`src`/`packages`/`fittings`/`scripts`) for
+`--print`, headless `stream-json`, `@anthropic-ai/`, and `api.anthropic.com`
+and fails on any reappearance. **Source:** brief §1; user decision 2026-06-13.
+**Status:** Settled.
+
+## 2026-06-13 · MR0e empirical verdicts: slash-inject WORKS, JSONL ABSENT
+
+Two live-`claude` probes (committed at `scripts/probe-slash-inject.mjs` and
+`scripts/probe-jsonl.mjs`) settled the brief's P0 empirical forks:
+
+- **`slash-inject-verdict: works`.** Injecting `/model haiku` (raw `writeKeys`)
+  into a live operative session moved the status-line model
+  `Sonnet 4.6@high → Haiku 4.5`. The status line also surfaces effort (`@high`).
+  **Consequence:** Stage B (MR1d) and the warm pool (MR0d) switch model/effort by
+  PTY-injecting `/model` + `/effort` at checkout (~1s) on ONE generic pool — not
+  per-`{model,effort}` respawn. (Effort applies only where the model supports it:
+  haiku reported "auto mode unavailable for this model".)
+- **`jsonl-verdict: absent`.** A claude-pty operative turn scraped its reply from
+  the screen ("PONG") but claude 2.1.175 wrote no conversation transcript — the
+  project dir was created (holds only `memory/`) with no `<sessionId>.jsonl`. This
+  confirms `screen.mjs`'s claim for this spawn shape. **Consequence:** route
+  telemetry stays script-call-primary (gateway writes `decisions.jsonl` at
+  resolution time; the reply `[route:]` token is read from the screen scrape,
+  never transcript-parsed).
+
+**Source:** brief §3 (P0); slice MR0e. **Status:** Settled.

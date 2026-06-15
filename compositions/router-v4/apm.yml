@@ -1,0 +1,31 @@
+name: router-v4-operative
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../fittings/seed/model-router
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/artifact-store
+x-garrison:
+  composition:
+    id: router-v4
+    name: Router v4 Operative
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      orchestrator:
+        - id: model-router
+          config: {}
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4778
+      memory:
+        - id: memory
+          config: {}

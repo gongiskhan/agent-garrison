@@ -1,0 +1,30 @@
+{
+  "slice": "MRr-bridge",
+  "title": "Generic runtime-bridge — delegate(task_spec) -> {summary, artifacts} contract (stdin spec, allowlist, artifact write, schema-validated return, delegation log, retry-once)",
+  "updatedAt": "2026-06-14T23:20:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/runtime-bridge.test.ts",
+      "exit": 0,
+      "summary": "6 passed — validateTaskSpec rejects missing task + out-of-allowlist model; parseTaskSpec fails loudly on invalid JSON; delegate runs the secondary via its RuntimeAdapter, writes FULL output to the Artifact Store, returns a schema-valid {summary, artifacts[]}; logs the delegation; loud locked-vs-absent missing-key; retry-once-then-fail (initial + 1 retry)."
+    },
+    "probe": {
+      "cmd": "node fittings/seed/codex-runtime/scripts/bridge.mjs --probe",
+      "exit": 0,
+      "summary": "ok — the Codex runtime-bridge entrypoint health-checks the codex binary + prints ok (codex CLI present)."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged — packages/claude-pty .mjs + fitting scripts, not the Next bundle" },
+    "e2e": { "exit": 0, "summary": "N/A — bridge contract; committed unit tests + the codex bridge --probe are the re-runnable gate." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "bridge contract only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": { "runtime-bridge-ok": true },
+  "blockers": [],
+  "notes": "packages/claude-pty/src/runtime-bridge.mjs is the generic, runtime-agnostic bridge CORE built on the RuntimeAdapter contract. The channel is MCP (the per-runtime fitting wraps this core in a stdio MCP server / CLI); the core's delegate() runs the secondary in ITS OWN loop via the adapter (a pooled TUI session for Claude-as-secondary — never -p), writes full output to the Artifact Store, returns a schema-validated summary + artifact paths, and appends the delegation to decisions.jsonl. Hardening: task spec via stdin/temp (parseTaskSpec, never argv), model per-provider allowlist, loud DelegationError distinguishing vault-locked vs secret-absent, retry-once-then-fail-loudly. The Codex bridge (fittings/seed/codex-runtime/scripts/bridge.mjs) wraps it with --probe + artifacts.py write + decisions.jsonl. Satisfies brief §3 token runtime-bridge-ok."
+}

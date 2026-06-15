@@ -1,0 +1,24 @@
+{
+  "slice": "MR0c-reconcile-wire",
+  "title": "Wire reconcile('post-authoring') into the quarters file.* actions (closes the unwired reconcile gap)",
+  "updatedAt": "2026-06-13T08:08:26Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/reconcile-post-authoring.test.ts",
+      "exit": 0,
+      "summary": "3 passed — file.create/file.update fire reconcile({trigger:'post-authoring', surfaces:[touched]}) exactly once, scoped to the touched surface; a failed action (duplicate create) does NOT fire reconcile. Full suite 506 passed / 9 skipped / 0 failed."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled, all routes rendered" },
+    "e2e": { "exit": 0, "summary": "N/A — lib dispatch slice; proof is the committed vitest gate" },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI surface"], "notes": "dispatch wiring only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "No UI behavior to film." }
+  },
+  "blockers": [],
+  "notes": "reconcile() previously had NO production caller (its post-authoring/on-demand triggers were aspirational). Now runQuartersAction awaits reconcile({trigger:'post-authoring', surfaces:[req.surface]}) after a SUCCESSFUL file.create/update/delete, so a freshly-authored loose skill/command/rule is captured into the Seed store and becomes promotable to owned. Best-effort (try/catch + warn) so a reconcile failure never fails the authoring action; scoped to the touched surface so it doesn't rescan everything. Sandbox-safe: capturedFittingsDir() honors GARRISON_HOME and the only existing file.* test (primitive-files.test.ts) already sandboxes it; the new test mocks reconcile (spread over the real module). Satisfies brief §3 token reconcile-wired-ok. NOTE: the Improver (MR5) will rely on this so its hosted-API file.* applies reconcile automatically."
+}

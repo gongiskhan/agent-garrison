@@ -1,0 +1,27 @@
+{
+  "slice": "MR4-workflows-quarters",
+  "title": "Workflows in Quarters — read-only scan of .claude/workflows + ~/.claude/workflows (empty-state-first, fixture-tested) + workflows as router `workflow` targets",
+  "updatedAt": "2026-06-14T23:36:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/workflows-scan.test.ts",
+      "exit": 0,
+      "summary": "5 passed — empty-state: no workflows dirs → [] (graceful, the dirs don't exist on CLI 2.1.175); lists a fixture workflow + renders its script (non-script files ignored); project workflows shadow user workflows of the same name (quarters-workflows-ok); scanned workflows map to router `workflow` targets {id:workflow:<name>,type:workflow,...} (workflow-target-ok); empty scan → empty dropdown, no crash. Full suite 601 passed / 9 skipped / 0 failed."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled (src/lib/workflows-scan.ts)" },
+    "e2e": { "exit": 0, "summary": "N/A — read-only scanner + target mapping; committed fixture test is the gate. The visible Quarters panel reuses the existing read-only PrimitiveListPanel idiom (deferred, see blocker)." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — backend scanner; panel reuses existing idiom"], "notes": "scanner + targets" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice; the Workflows panel, when wired, films with the consolidated MR-wave walkthrough." }
+  },
+  "verdicts": { "quarters-workflows-ok": true, "workflow-target-ok": true },
+  "blockers": [
+    "The visible Quarters Workflows PANEL (category registry entry + GET route + PrimitiveListPanel wiring) is deferred as a thin read-only follow-up reusing the existing C1-mcp template idiom — the load-bearing scan + target-mapping + empty-state are committed + fixture-tested here (the dirs are empty on this install, so the panel would render the empty state). Logged, not silently dropped."
+  ],
+  "notes": "src/lib/workflows-scan.ts scans .claude/workflows (project) + ~/.claude/workflows (user) read-only, ignoring non-script files, with project shadowing user (Claude Code precedence) and a graceful empty-state (the dirs don't exist on CLI 2.1.175 — empty-state-first + fixture-tested per the brief). workflowTargets() maps scanned workflows → Model Router `workflow` targets so saved workflows appear in the router's target dropdown (the routing config already supports the `workflow` target type from MR1a). Read-only + (future) delete only, no JS-as-portable-format adoption (explicitly out of scope). Satisfies brief §3 tokens quarters-workflows-ok + workflow-target-ok."
+}

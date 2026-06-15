@@ -100,7 +100,7 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `memory-store`, `data-source`, `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `automation-runner`, `mcp-gateway`; dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
+| `kind` | enum | yes | One of: `orchestrator`, `memory-store`, `data-source`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `mcp-gateway`; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):

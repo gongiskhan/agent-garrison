@@ -1,0 +1,31 @@
+{
+  "slice": "MR1e-telemetry",
+  "title": "Route telemetry — decisions.jsonl at resolution time + reply [route:] token honored diff-check",
+  "updatedAt": "2026-06-14T22:52:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/routing-telemetry.test.ts",
+      "exit": 0,
+      "summary": "10 passed — promptDigest stable+truncated; decisionRecord captures taskType/tier/role/ruleId/targetId/profile at decision time; formatRouteToken matches the compiled reply-duty format; parseRouteToken extracts the LAST token (+ null when absent); checkHonored true on match, false (misroute signal) on target mismatch + on no-token; appendDecision/readDecisions round-trip JSONL + tolerate missing/corrupt. Full suite 556 passed / 9 skipped / 0 failed."
+    },
+    "liveProbe": {
+      "cmd": "node scripts/probe-route-telemetry.mjs",
+      "exit": 0,
+      "summary": "decisions-log-ok + route-token-ok — ONE operative turn through the full path: classify 'fix the failing login unit test' (warm haiku → code/T1) → resolve (row:code → standard → cc-sonnet-med) → wrote 1 decision row to decisions.jsonl at resolution time → operative (router-v4 assembled prompt + gateway annotation) replied ending with '[route: cc-sonnet-med | rule: row:code | profile: balanced]' → checkHonored honored=true."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged since MR1b — telemetry is .mjs core + scripts/tests" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/model-router", "exit": 0, "summary": "PASS" },
+    "e2e": { "exit": 0, "summary": "N/A — the live end-to-end probe IS the full-path verification; committed unit test + probe are the re-runnable artifacts." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI surface"], "notes": "telemetry writer + token check only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice; MR-wave consolidated walkthrough filmed at MR2." }
+  },
+  "verdicts": { "decisions-log-ok": true, "route-token-ok": true },
+  "blockers": [],
+  "notes": "routing-telemetry.mjs: the gateway is SOURCE OF TRUTH (it makes the decision), so decisionRecord is written to decisions.jsonl at RESOLUTION time — no transcript scraping (MR0e jsonl-verdict=absent). The operative still ends every reply with [route: <target-id> | rule: <rule-id> | profile: <name>]; checkHonored diff-checks it against the resolved route and flags honored:false — the misroute signal the Improver (MR5) feeds on. parseRouteToken reads the LAST token (the operative ends with it). The live probe proved the FULL path end-to-end (classify→resolve→log→reply-token→honored) on real sessions. RETRY 1: a multi-line .mjs import tripped TS7016 under @ts-ignore (the directive lands on the wrong line); collapsed to a single-line import (matching the stage-b pattern). Wiring this into gateway-pty.mjs's live request path (Stage A pre-route writing decisions.jsonl on every inbound message) is the MR-integration step that lands with the gateway pool-integration; the load-bearing pure telemetry pieces are done + live-proven here. Satisfies brief §3 tokens decisions-log-ok, route-token-ok."
+}

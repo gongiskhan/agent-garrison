@@ -1,0 +1,25 @@
+{
+  "slice": "MRr-pool-multi",
+  "title": "Generic multi-runtime warm pool — warms the primary AND every active secondary over the RuntimeAdapter contract, with a global max-total cap",
+  "updatedAt": "2026-06-14T23:33:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/multi-runtime-pool.test.ts",
+      "exit": 0,
+      "summary": "3 passed — at start, warms a pool for the primary AND every active secondary (claude-code role=primary size 2; codex + gemini role=secondary size 1 each; warmedRuntimes lists all three) (multi-runtime-pool-ok); checkout draws from the named runtime's pool + drives its adapter, unknown runtime throws; the global max-total cap (8 default) is respected across runtimes (a secondary is trimmed to the remaining budget). Full suite 596 passed / 9 skipped / 0 failed."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged — packages/claude-pty .mjs + test" },
+    "e2e": { "exit": 0, "summary": "N/A — generic pool over the adapter; committed unit test with stub adapters (no live runtime) is the gate." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "pool manager only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": { "multi-runtime-pool-ok": true },
+  "blockers": [],
+  "notes": "MultiRuntimePool (packages/claude-pty/src/multi-runtime-pool.mjs) is built ONCE on the RuntimeAdapter contract + the existing WarmPtySessionPool: given a set of runtimes (each an adapter + warm size + role), it warms one WarmPtySessionPool per runtime via adapter.spawn — runtime-agnostic, so adding a runtime is just passing its adapter. At operative start it warms the primary AND every active secondary (Codex, Gemini), honoring a global max-total cap (default 8, matching the router-view pool-toggle default). status() exposes per-runtime warm/checked-out for the router view's Sessions section. The pool primitive itself (rotate, idle-cost, classify-through-pool) was already proven in MR0d; this slice makes it multi-runtime. Satisfies brief §3 token multi-runtime-pool-ok."
+}

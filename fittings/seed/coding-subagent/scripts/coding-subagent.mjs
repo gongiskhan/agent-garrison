@@ -10,7 +10,7 @@
  *   --probe                           # health check, prints "ok"
  *
  * Non-trivial design points:
- * - Sub-agent runs in-process via @anthropic-ai/claude-agent-sdk. The
+ * - Sub-agent runs a one-shot turn via @garrison/claude-pty (PTY). The
  *   parent (gateway) is undisturbed because we run as a child process
  *   spawned by the Operative's Bash tool.
  * - Project path resolution defers to the consumed projects-index

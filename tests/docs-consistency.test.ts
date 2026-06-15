@@ -14,9 +14,10 @@ const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 
 // The kinds the Quarters pivot retired. Asserted absent from `capabilityKinds`
 // (source truth) and required to be explicitly marked "dropped" in the docs.
-// data-source left this list 2026-06-10 — re-added as a live kind for the
-// revived trello-data-source Fitting.
-const DROPPED_KINDS = ["soul", "agent-skill", "automation-runner", "mcp-gateway"];
+// data-source left this list 2026-06-10 and automation-runner left it
+// 2026-06-13 (MR wave) — both re-added as live kinds for real Fittings
+// (trello-data-source; the scheduler + the nightly Improver).
+const DROPPED_KINDS = ["soul", "agent-skill", "mcp-gateway"];
 
 // The kinds the 2026-06 Dev Env consolidation retired — terminal,
 // worktree-management, and session-view collapsed into the single dev-env

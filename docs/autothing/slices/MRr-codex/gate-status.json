@@ -1,0 +1,34 @@
+{
+  "slice": "MRr-codex",
+  "title": "Codex runtime fitting (full secondary) — CodexAdapter over `codex exec` (clean non-PTY, prompt via stdin) + runtime kind + primary→secondary coding delegation",
+  "updatedAt": "2026-06-14T23:20:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 2 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/codex-runtime.test.ts",
+      "exit": 0,
+      "summary": "9 passed — buildExecArgs: `codex exec`, model via `-c model=`, cwd via `--cd`, prompt via STDIN ('-', never argv); CodexAdapter passes the RuntimeAdapter conformance harness (stub exec); the adapter feeds the prompt to codex exec via stdin (asserted prompt NEVER in argv); the Codex secondary validates the spec + returns schema-valid {summary, artifacts} + writes output to the Artifact Store + logs the delegation (runtime-bridge-ok); the primary integrates the Codex summary (secondary-delegate-ok); rejects a model outside the Codex allowlist (loud). Full suite 580 passed / 9 skipped / 0 failed."
+    },
+    "validateFitting": {
+      "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/codex-runtime",
+      "exit": 0,
+      "summary": "PASS — faculty sessions (cli-skill), provides runtime:codex; the new `runtime` capability kind added to src/lib/types.ts + CAPABILITIES.md + METADATA.md (docs-consistency green)."
+    },
+    "probe": { "cmd": "node fittings/seed/codex-runtime/scripts/bridge.mjs --probe", "exit": 0, "summary": "ok (codex CLI present)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled — runtime kind enum change is in src/lib/types.ts, all routes render" },
+    "e2e": { "exit": 0, "summary": "N/A — delegation asserted via env/args + stub exec (brief: no live third-party round-trip required); committed tests + --probe are the re-runnable gate." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI (Quarters-Codex base is MRr-quarters)"], "notes": "adapter + bridge + manifest" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": { "secondary-delegate-ok": true, "runtime-bridge-ok": true, "mix-and-match-ok": "contract-level (runtime kind is symmetric; explicit composition primary/secondary wiring deferred)" },
+  "blockers": [
+    "mix-and-match-ok (Codex primary + Claude-Code secondary) is supported at the CONTRACT level — the `runtime` capability kind + RuntimeAdapter + runtime-bridge are symmetric, so any runtime can be primary or secondary. The explicit composition `primary`/`secondary` role field + wiring the secondaries' bridges into the primary's pooled sessions is the runtime-pool integration step (MRr-pool-multi), deferred. Logged, not silently dropped.",
+    "Live codex exec round-trips are asserted via argv/env + stub exec (the brief explicitly permits this — 'no real provider calls required to pass'); a live codex delegation is available via the bridge CLI but not run in the gated suite."
+  ],
+  "notes": "codex-runtime is a SECONDARY runtime fitting proving coding delegation. CodexAdapter implements the RuntimeAdapter contract over `codex exec` — a CLEAN non-PTY channel (the brief's 'a future runtime with a cleaner channel than PTY may use it'): prompt via stdin (shell-injection-safe under bypassPermissions), no TUI scraping. buildExecArgs is pure/asserted; runExec is injectable so tests are deterministic without a live codex. The bridge CLI (scripts/bridge.mjs) reads the task spec from stdin, runs the generic delegate() core with the CodexAdapter, writes to the Artifact Store (artifacts.py when present, else local), logs to decisions.jsonl, --probe. The `runtime` capability kind was added (data-source/automation-runner precedent) — codex-runtime provides runtime:codex under the sessions role. RETRY 1: YAML colon-in-unquoted-command parse error. RETRY 2: faculty sessions rejects shape `cli`; switched to `cli-skill`. Satisfies brief §3 tokens secondary-delegate-ok + runtime-bridge-ok (via the Codex secondary); mix-and-match-ok at contract level."
+}

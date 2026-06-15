@@ -5,7 +5,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: automations
+  faculty: sessions
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:

@@ -1,0 +1,47 @@
+name: codex-runtime
+version: 0.1.0
+description: Codex runtime (Runtime Faculty) — a secondary runtime that proves coding delegation. Drives `codex exec` (non-interactive, prompt via stdin) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A secondary Runtime fitting. Implements the RuntimeAdapter contract over
+    `codex exec` (clean non-PTY channel — prompt via stdin, never argv) and ships
+    a runtime-bridge exposing the uniform delegate(task_spec) -> {summary,
+    artifacts} tool. The orchestrator routes `secondary:codex` tasks here; the
+    primary calls the bridge, Codex does the work in its own loop, and returns a
+    self-contained result + artifact paths.
+  config_schema:
+    - key: model
+      type: string
+      default: gpt-5-codex
+      description: Default Codex model for delegated tasks (validated against the per-provider allowlist).
+  provides:
+    - kind: runtime
+      name: codex
+  consumes: []
+  setup:
+    command: echo codex-runtime-ready
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/codex-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    Codex-as-secondary. When the orchestrator resolves a task to
+    `secondary:codex`, the primary calls this fitting's runtime-bridge tool:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON: task, paths, constraints, model, expectedSchema) is
+    passed via STDIN (never argv). `model` is validated against the per-provider
+    allowlist; a missing model / API key fails loudly (locked vs absent). Full
+    output lands in the Artifact Store; the return is a schema-validated summary
+    + artifact paths; every delegation is appended to decisions.jsonl.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   → prints "ok"

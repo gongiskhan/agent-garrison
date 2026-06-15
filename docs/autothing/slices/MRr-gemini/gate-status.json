@@ -1,0 +1,29 @@
+{
+  "slice": "MRr-gemini",
+  "title": "Gemini-CLI runtime fitting (capability secondary, incl. image) — GeminiAdapter over `gemini -p` + image-delegation artifact path",
+  "updatedAt": "2026-06-14T23:24:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/gemini-runtime.test.ts",
+      "exit": 0,
+      "summary": "5 passed — buildArgs: `gemini -m <model> -y -p ''` (headless), prompt via STDIN (never argv); scrapeArtifactPaths pulls image paths from output; passes the RuntimeAdapter conformance harness (stub exec); feeds the prompt via stdin not argv; the primary delegates an IMAGE task to the Gemini runtime and receives the image artifact path /workspace/out/logo.png (gemini-runtime-ok). Full suite 585 passed / 9 skipped / 0 failed."
+    },
+    "probe": { "cmd": "node fittings/seed/gemini-runtime/scripts/bridge.mjs --probe", "exit": 0, "summary": "ok (gemini CLI present)" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/gemini-runtime", "exit": 0, "summary": "PASS — faculty sessions (cli-skill), provides runtime:gemini" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled" },
+    "e2e": { "exit": 0, "summary": "N/A — capability delegation asserted via env/args + stub exec (brief: no live round-trip required); committed tests + --probe are the gate." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "adapter + bridge + manifest" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": { "gemini-runtime-ok": true },
+  "blockers": [
+    "Live gemini image generation is asserted via the artifact-path scrape + stub exec (brief permits asserting delegation via env/args, no real provider call). A live gemini -p round-trip is available via the bridge CLI but not run in the gated suite."
+  ],
+  "notes": "gemini-runtime is the CAPABILITY secondary — there is NO separate image skill; the orchestrator's image/video roles resolve to secondary:gemini (the seed routing.json maps image/video → sec-gemini). GeminiAdapter implements the RuntimeAdapter contract over `gemini -p` (headless, prompt via stdin — shell-injection safe), scrapes generated artifact paths (png/jpg/mp4/…) from output into the delegation `artifacts`. Mirrors the codex-runtime shape (shared runtime-bridge core, shared `runtime` capability kind). Completes the BRIEF v4 adapter trio: Claude Code (primary, multi-provider, both faces) + Codex (coding secondary) + Gemini (capability secondary). Satisfies brief §3 token gemini-runtime-ok."
+}

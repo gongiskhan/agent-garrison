@@ -1,0 +1,53 @@
+{
+  "slice": "MR0a-purge",
+  "title": "Programmatic-path purge finish — delete scripts/spike + vestigial dogfood gateway-legacy + tidy comments; committed banned-pattern guard test",
+  "updatedAt": "2026-06-13T03:54:35Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/programmatic-purge.test.ts",
+      "exit": 0,
+      "summary": "2 passed — guard scans >50 tracked production source files and asserts zero banned programmatic-invocation patterns (--print, headless stream-json, @anthropic-ai/, api.anthropic.com). Full suite 500 passed / 9 skipped / 0 failed (deletions broke nothing)."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": 0,
+      "summary": "Next build compiled + all routes rendered (static + dynamic); shared JS 87.6 kB"
+    },
+    "e2e": {
+      "exit": 0,
+      "summary": "N/A — deletion + lib slice, no UI route changed; behavioral proof is the committed vitest guard"
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "N/A — no UI surface"
+      ],
+      "notes": "purge touches scripts/comments/tests only"
+    },
+    "video": {
+      "status": "n/a",
+      "file": null,
+      "link": null,
+      "note": "No UI behavior to film — a code/file deletion + a committed regression guard. The MR-wave's demonstrable behavior (router view, simulator) is filmed at MR2; this slice's evidence is the green guard test."
+    }
+  },
+  "blockers": [],
+  "notes": "Substrate already 95% purged by the PTY-everywhere commits (gateway-legacy deleted, GARRISON_GATEWAY_ENGINE gone, spawnClaude/spawn-soul on PTY). This slice finished the tail: deleted scripts/spike/* (22 disconnected POC files, zero production imports), removed the vestigial compositions/dogfood-orch/.../gateway-legacy.mjs install artifact, and tidied 3 stale comments naming @anthropic-ai/--print (coding-subagent.mjs, orchestrator-projection.ts, legacy-voice.tsx). tests/programmatic-purge.test.ts is the durable regression guard (scans src/packages/fittings/scripts via git ls-files; tests/ and docs/ are tests-of-the-ban, excluded by construction). Satisfies brief §3 token programmatic-purge-ok."
+}

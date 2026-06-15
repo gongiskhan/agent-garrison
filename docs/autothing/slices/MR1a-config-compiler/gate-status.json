@@ -1,0 +1,46 @@
+{
+  "slice": "MR1a-config-compiler",
+  "title": "routing.json v4 schema (roles → profile roleMap → target, shared matrix) + seed 3 Profiles + pure byte-stable compiler (--check) + resolver core",
+  "updatedAt": "2026-06-14T22:12:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/routing-compiler.test.ts",
+      "exit": 0,
+      "summary": "13 passed — compiler: active-profile marker + byte-stability; economy compiles to different byte-stable bytes (ollama-local vs opus); both seeded continuations rendered; reply-token duty + discipline + matrix rendered. Resolver: exception→role, cell→role, row-default, column-default, global-default, AND profile roleMap role→target (same matrix, balanced→cc-opus-high vs economy→cc-ollama-qwen) + discipline overrides. Full suite 517 passed / 9 skipped / 2 env-flaky."
+    },
+    "compileCheck": {
+      "cmd": "node fittings/seed/model-router/scripts/compile.mjs --check (+ --profile economy --check)",
+      "exit": 0,
+      "summary": "routing-compile-ok profile=balanced bytes=3411; routing-compile-ok profile=economy bytes=3409 (byte-stable, different). Markers grep clean: '<!-- garrison:routing v1 profile=balanced -->' / '=economy'."
+    },
+    "probe": {
+      "cmd": "node fittings/seed/model-router/scripts/probe.mjs --probe",
+      "exit": 0,
+      "summary": "prints 'ok' — validates config + asserts compile byte-stability (read-only verify hook)."
+    },
+    "validateFitting": {
+      "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/model-router",
+      "exit": 0,
+      "summary": "PASS — architecture (faculty orchestrator as system-prompt, provides 1) / security / prompt-injection / quality."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (routing-core.d.mts types the .mjs core for runner/view/test consumers)" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled, all routes rendered" },
+    "e2e": { "exit": 0, "summary": "N/A — config + pure-compiler + resolver slice; the view + e2e land in MR2. Re-runnable proof is the committed vitest gate + compile --check." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI surface (view is MR2)"], "notes": "config/compiler/resolver only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice; the MR-wave consolidated walkthrough is filmed at MR2 (router view + simulator)." }
+  },
+  "verdicts": {
+    "routing-compile-ok": true,
+    "profiles-compile-ok": true,
+    "continuations-compile-ok": true,
+    "resolve-ok (core)": true,
+    "rolemap-ok (core)": true
+  },
+  "blockers": [],
+  "notes": "BRIEF v4 ADAPTATION (recorded per brief §intro 'adapt the mechanism but preserve each decision's intent, and record the adaptation'): the v2 FLOW_PLAN scoped MR1a as 'routing.json + 3 Profiles + compiler', resolving matrix→target. BRIEF v4 inserts the ROLE layer: the matrix + exceptions resolve to a fixed-vocabulary ROLE (expert|standard|fast|image|video|review), the matrix/exceptions/tierDefinitions/continuations/discipline are SHARED across Profiles, and a Profile is just its roleMap (role→target-id) + disciplineOverrides. routing.json now carries {version, activeProfile, roles, taskTypes, tiers, tierDefinitions, exceptions[], matrix{defaults,columns,rows}, discipline{tier→fields}, continuations[], targets[] (runtime-target | secondary | workflow), profiles{<name>:{preRoute, roleMap, disciplineOverrides}}}. Seed targets include multi-provider runtime-targets (anthropic-plan opus/sonnet/haiku + ollama-local qwen/deepseek + a pinned haiku classifier) and secondary:gemini/codex (image/video/coding delegation), realising the v4 'no capability skills — every model/capability is a runtime' decision in the config vocabulary. The pure core lives at fittings/seed/model-router/lib/routing-core.mjs (dependency-free so the bare-node own-port server in MR2 imports it directly; typed by routing-core.d.mts for the runner's MR1b assembly + vitest). This slice also lands the resolver (resolveRole/resolveRoute/resolveDiscipline) that MR1c's Stage A wires to the warm classifier — its unit coverage is here. The orphaned gitignored fittings/seed/model-router/dist/ stray was left untouched (not part of this fitting's source). Satisfies brief §3 tokens routing-compile-ok, profiles-compile-ok, continuations-compile-ok."
+}

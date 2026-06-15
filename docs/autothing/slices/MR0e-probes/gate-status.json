@@ -1,0 +1,28 @@
+{
+  "slice": "MR0e-probes",
+  "title": "Empirical model/effort slash-inject + JSONL-persistence probes (live claude sessions)",
+  "updatedAt": "2026-06-13T09:47:34Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "node scripts/probe-slash-inject.mjs && node scripts/probe-jsonl.mjs",
+      "exit": 0,
+      "summary": "Two committed, re-runnable live-session probes. slash-inject: spawned Sonnet 4.6@high, injected '/model haiku' -> status line moved to 'Haiku 4.5' (switch confirmed). jsonl: ran one turn (scraped reply 'PONG'), session project dir created but contains NO <sid>.jsonl (only a memory/ subdir) and no transcript written anywhere in the window."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (probes are standalone .mjs; no existing-code churn)" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "unchanged — additions only" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged — additions only" },
+    "e2e": { "exit": 0, "summary": "N/A — the probes ARE the live verification; committed scripts are the re-runnable artifacts" },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI"], "notes": "probe scripts only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "No UI behavior to film." }
+  },
+  "verdicts": {
+    "slashInject": "works",
+    "jsonl": "absent"
+  },
+  "blockers": [],
+  "notes": "slash-inject-verdict: WORKS — injecting `/model haiku` via writeKeys into a live operative session moved the status-line model Sonnet 4.6@high -> Haiku 4.5. The status line also exposes effort (e.g. 'Sonnet 4.6@high'). DESIGN CONSEQUENCE: Stage B (MR1d) and the warm pool (MR0d) use ONE generic pool with `/model` + `/effort` injection at checkout (~1s), NOT per-{model,effort} respawn. (haiku showed 'auto mode unavailable for this model' — effort tiers apply only where the model supports them, matching the brief.) jsonl-verdict: ABSENT — a claude-pty-spawned operative turn scraped its reply from the screen ('PONG') but claude 2.1.175 wrote NO conversation transcript: the project dir ~/.claude/projects/<encoded-cwd>/ was created (holds only memory/) but no <sessionId>.jsonl. This confirms screen.mjs's empirical claim and resolves the exploration's open contradiction for THIS spawn shape. DESIGN CONSEQUENCE: route telemetry stays script-call-primary (the gateway writes decisions.jsonl at resolution time; the reply `[route:]` token is read from the screen scrape, never transcript-parsed). Satisfies brief §3 tokens slash-inject-verdict + jsonl-verdict."
+}

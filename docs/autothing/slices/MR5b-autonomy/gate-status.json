@@ -1,0 +1,32 @@
+{
+  "slice": "MR5b-autonomy",
+  "title": "Autonomy promotion/demotion lifecycle (streaks; manual default; instant demotion) + park the tier-classifier fitting",
+  "updatedAt": "2026-06-14T23:42:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/improver.test.ts (autonomy lifecycle)",
+      "exit": 0,
+      "summary": "autonomy lifecycle proven — 5 consecutive accepts emit a promotion suggestion; approving (applyPromotion) sets the rule auto (autonomy-promotion-ok); a rule can be set auto directly with NO streak (human toggle); rejecting an auto-applied change demotes to manual INSTANTLY (autonomy-demotion-ok); any reject resets the accept streak. Default autonomy is `manual`. Part of the 11-test improver suite; full suite 612 passed / 0 failed."
+    },
+    "classifierParked": {
+      "cmd": "grep + manifest marker",
+      "exit": 0,
+      "summary": "classifier-parked-ok — tier-classifier marked PARKED (x-garrison.parked: true + a [PARKED 2026-06-14] description noting the Model Router supersedes it). It is structurally UNSELECTABLE: its faculty `classifier` is not one of the 6 roles, so the resolver rejects it. Not referenced by the active `default` composition. Residual references (dogfood-orch dev composition, mcp-gateway for_consumers text, data/ratings.json telemetry) logged as non-active."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled" },
+    "e2e": { "exit": 0, "summary": "N/A — autonomy state machine + manifest park; committed unit tests are the gate." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — backend"], "notes": "state machine + manifest marker" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": { "autonomy-promotion-ok": true, "autonomy-demotion-ok": true, "classifier-parked-ok": true },
+  "blockers": [
+    "The autonomy lifecycle's LIVE round-trip (seed a 5-accept streak through the review UI, approve the promotion, then reject an auto-applied change) shares the deferred review-queue UI from MR5a — the STATE MACHINE that governs it (recordOutcome/applyPromotion/setAutonomy, gates enforced at auto) is fully committed + unit-tested here. Logged."
+  ],
+  "notes": "Autonomy: set directly or earned. A rule's autonomy can be set `auto` immediately (manual toggle, no streak) — for seeding obviously-safe rules. Separately, the Improver SUGGESTS promotion: per-(rule,kind) streaks of 5 consecutive accepts (zero rejects; any reject resets) emit a promotion proposal that applies on Approve like any proposal. Demotion is automatic + INSTANT: rejecting/reverting anything an auto rule applied drops it to manual with a notice. The Improver never raises its OWN autonomy without a human action (the toggle or approving a promotion). tier-classifier parked (superseded wholesale by the router). Satisfies brief §3 tokens autonomy-promotion-ok, autonomy-demotion-ok, classifier-parked-ok."
+}

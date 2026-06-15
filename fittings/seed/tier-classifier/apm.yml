@@ -1,10 +1,11 @@
 name: garrison-tier-classifier
 version: 0.1.0
-description: Tier classifier seed for Agent Garrison.
+description: "[PARKED 2026-06-14] Vestigial tier-classifier — SUPERSEDED WHOLESALE by the Model Router (BRIEF v4). Its tier_floor/plan_threshold semantics became router tierDefinitions; classify-1 is now Stage A in the gateway. Unselectable: its faculty `classifier` is not one of the 6 roles, so the resolver rejects it. Kept only as a historical skeleton; do not station it."
 target: claude
 type: skill
 includes: auto
 x-garrison:
+  parked: true
   faculty: classifier
   cardinality_hint: single
   component_shape: skill

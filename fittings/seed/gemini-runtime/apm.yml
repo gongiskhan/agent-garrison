@@ -1,0 +1,44 @@
+name: gemini-runtime
+version: 0.1.0
+description: Gemini-CLI runtime (Runtime Faculty) — a secondary runtime proving capability delegation incl. image. Drives `gemini -p` (non-interactive, prompt via stdin) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. There is NO separate image skill; the image/video roles map here.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A secondary Runtime fitting for capability delegation (incl. image/video).
+    Implements the RuntimeAdapter contract over `gemini -p` (headless; prompt via
+    stdin) and ships a runtime-bridge exposing delegate(task_spec) -> {summary,
+    artifacts}. The orchestrator's image/video roles resolve to secondary:gemini;
+    the primary calls the bridge and receives the artifact path(s).
+  config_schema:
+    - key: model
+      type: string
+      default: gemini-2.5-flash
+      description: Default Gemini model for delegated tasks (validated against the per-provider allowlist).
+  provides:
+    - kind: runtime
+      name: gemini
+  consumes: []
+  setup:
+    command: echo gemini-runtime-ready
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/gemini-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    Gemini-as-secondary (capability delegation, incl. image). When the
+    orchestrator resolves a task to `secondary:gemini` (e.g. the image/video
+    roles), the primary calls this fitting's runtime-bridge:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON) is passed via STDIN (never argv). Generated artifact
+    paths (images, etc.) are scraped from output and returned in `artifacts`.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   → prints "ok"

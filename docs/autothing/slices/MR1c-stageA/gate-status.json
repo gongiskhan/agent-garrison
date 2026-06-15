@@ -1,0 +1,31 @@
+{
+  "slice": "MR1c-stageA",
+  "title": "Stage A classify (warm classifier prompt + response parser) → pure-code resolve (exceptions → cell → inheritance → default → role → profile roleMap → target)",
+  "updatedAt": "2026-06-14T22:32:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/routing-classify.test.ts tests/routing-compiler.test.ts",
+      "exit": 0,
+      "summary": "22 passed — classify: buildClassifierPrompt lists every task type/tier(+def)/exception + the task + asks JSON, truncates long tasks; parseClassification handles clean JSON / JSON-in-prose / fenced ```json / valid+unknown matchedException / out-of-vocab clamp (taskType→other, tier→T1) / null on no-JSON; classify→resolve composes. resolve: exception→role, cell→role, row-default, column-default, global-default (resolve-ok). rolemap: same classification, different profile, different target, same matrix (rolemap-ok). Full suite 534 passed / 9 skipped / 0 failed (one first-run vault-heal env-flake from the live probe's claude child; clean on rerun)."
+    },
+    "classifyProbe": {
+      "cmd": "node scripts/probe-classify.mjs",
+      "exit": 0,
+      "summary": "classify-ok — 3 fixtures through ONE pinned warm haiku session (real buildClassifierPrompt + parseClassification): 'fix the failing login unit test'→code/T1-standard (17.1s); 'survey recent papers on RAG'→research/T1-standard (14.9s); 'rename foo to bar in utils.ts'→code/T0-trivial (8.1s). All valid {taskType,tier}."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "unchanged since MR1b — classifier additions are in the .mjs core + scripts/tests, not the Next bundle" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/model-router", "exit": 0, "summary": "PASS" },
+    "e2e": { "exit": 0, "summary": "N/A — Stage A is classifier (live probe) + pure resolver (vitest); the gateway wiring of Stage A→B lands with MR1d/MR1e + MR2 view simulator." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI surface"], "notes": "classifier + resolver only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice; MR-wave consolidated walkthrough filmed at MR2." }
+  },
+  "verdicts": { "classify-ok": true, "resolve-ok": true, "rolemap-ok": true },
+  "blockers": [],
+  "notes": "Stage A = warm-classifier (the LLM only classifies) + pure-code resolution (deterministic). buildClassifierPrompt/parseClassification added to routing-core.mjs (single source of truth, also drives the MR2 simulator — 'the simulator IS Stage A'). The resolver (resolveRole/resolveRoute) shipped + was unit-tested in MR1a; its resolve-ok/rolemap-ok coverage lives in tests/routing-compiler.test.ts. parseClassification clamps out-of-vocabulary values to safe defaults (LLM near-misses) and returns null only on total JSON failure (gateway then routes the `default` role). The live classify-ok probe (scripts/probe-classify.mjs) is committed + re-runnable. DEFERRED to MR1e: persisting each Stage-A decision to decisions.jsonl at resolution time (the gateway is the writer); the classifier prompt/parse + resolver are the load-bearing pure pieces and are done here. Satisfies brief §3 tokens classify-ok, resolve-ok, rolemap-ok."
+}

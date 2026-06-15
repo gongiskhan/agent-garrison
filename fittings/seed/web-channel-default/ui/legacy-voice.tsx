@@ -20,7 +20,7 @@ const SILENCE_MS = (() => {
 
 // Streaming is primary in any capable browser, which makes the batch
 // MediaRecorder fallback unreachable on demand. ?voice=batch forces it so the
-// fallback stays drivable (scripts/spike/voice-e2e.mjs) and debuggable.
+// fallback stays drivable and debuggable.
 const FORCE_BATCH = (() => {
   try {
     return new URLSearchParams(window.location.search).get("voice") === "batch";

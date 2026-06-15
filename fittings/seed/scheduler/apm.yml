@@ -5,7 +5,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: scheduler
+  faculty: observability
   cardinality_hint: single
   component_shape: script
   platforms:

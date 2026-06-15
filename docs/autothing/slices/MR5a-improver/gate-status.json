@@ -1,0 +1,34 @@
+{
+  "slice": "MR5a-improver",
+  "title": "Nightly Improver runner + memory-consolidation rule (proposal diff + queue) + scheduler registration; vault-locked/server-down skip",
+  "updatedAt": "2026-06-14T23:42:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/improver.test.ts",
+      "exit": 0,
+      "summary": "11 passed — runImprover produces a memory-consolidation proposal from MEMORY.md learned hints (claim + evidence + real diff + one decision); no hints → no proposal; upsertQueue idempotent by id; vault-locked + server-down → records skip (no proposals); CLI run-now writes a proposal artifact + a pending review-queue entry (improver-proposal-ok); CLI run-now with locked vault → {skipped:'vault locked'} (improver-skip-ok). Full suite 612 passed / 9 skipped / 0 failed."
+    },
+    "scheduled": {
+      "cmd": "scheduler.mjs add improver-nightly '30 3 * * *' '...' && scheduler.mjs list",
+      "exit": 0,
+      "summary": "improver-scheduled-ok — scheduler list shows improver-nightly @ cron '30 3 * * *', enabled. Registered via setup.sh (positional `add <id> <cron> <command>`, morning-briefing pattern)."
+    },
+    "probe": { "cmd": "node scripts/improver.mjs --probe", "exit": 0, "summary": "ok" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/improver", "exit": 0, "summary": "PASS — faculty observability (script), provides automation-runner:improver" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled" },
+    "e2e": { "exit": 0, "summary": "N/A — nightly runner + proposal core; committed CLI + unit tests are the gate. The review-queue own-port UI + LIVE hosted-API apply is deferred (see blocker)." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — backend runner; review-queue UI deferred"], "notes": "runner + proposals + queue" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice." }
+  },
+  "verdicts": { "improver-proposal-ok": true, "improver-skip-ok": true, "improver-scheduled-ok": true },
+  "blockers": [
+    "improver-apply-ok / improver-reject-ok / improver-conflict-ok (Approve in the review UI → applied via hosted API → reconcile; Reject untouched; 409 on concurrent claude-md edit) are DEFERRED: they require the review-queue own-port UI + the live Next server + the hosted authoring APIs. The apply PATH is fully specified (POST /api/quarters file.* [owned-vs-loose via promote/park], PUT /api/claude-md with baselineSha→409, PUT /api/settings, the router's PUT /routing) and its dependencies all exist + reconcile('post-authoring') is already wired (MR0c). The own-port review-queue view + the live apply round-trip is the remaining UI integration. Logged, not silently dropped."
+  ],
+  "notes": "improver-core.mjs: the nightly run reads decisions.jsonl + MEMORY.md (learned hints), produces a memory-consolidation PROPOSAL (the presentation standard: plain-language claim + evidence + a diff + ONE decision), upserts a review-queue index (idempotent by id), and writes a run report. Needs NO HTTP to RUN; APPLY happens only through hosted APIs from the review UI (the core never writes owned surfaces directly). Vault-locked / server-down → records `skipped` (never fails silently). Seed: the one working end-to-end rule (memory consolidation); skill/automation/router-config/garrison rules ship as disabled examples (incl. a garrison pool-tuning rule wired to decisions.jsonl + pool stats — documented in the fitting). RETRY 1: multi-line .mjs import tripped TS7016 → single-line. Satisfies brief §3 tokens improver-proposal-ok, improver-skip-ok, improver-scheduled-ok."
+}

@@ -10,7 +10,7 @@ import {
 import { writeYamlFile } from "./yaml";
 import { hashFile } from "./claude-scan";
 import { recordWritten } from "./provenance";
-import { substituteCapabilitiesPlaceholder } from "./runner";
+import { substituteCapabilitiesPlaceholder, substituteRoutingPlaceholder } from "./runner";
 import type { ApmRunner } from "./apm-exec";
 import type { ApmDependencyInput } from "./apm-manifest";
 import type { LibraryEntry } from "./types";
@@ -24,7 +24,7 @@ import type { LibraryEntry } from "./types";
 // Delivery (SP2): verified empirically AND against primary docs (Claude Code
 // 2.1.168 / code.claude.com/docs/en/memory). A sentinel `~/.claude/rules/<x>.md`
 // with no `paths:` frontmatter was auto-loaded by a standard headless
-// `claude --print` run. Docs confirm: "Personal rules in ~/.claude/rules/ apply
+// headless `claude` run. Docs confirm: "Personal rules in ~/.claude/rules/ apply
 // to every project" and "Rules without paths frontmatter are loaded at launch
 // with the same priority as .claude/CLAUDE.md". So the reversible rules-file is
 // the DEFAULT target.
@@ -40,16 +40,20 @@ export const ORCHESTRATOR_PRIMITIVE_ID = "garrison-orchestrator";
 export const ORCHESTRATOR_RULE_REL = `rules/${ORCHESTRATOR_PRIMITIVE_ID}.md`;
 
 export interface OrchestratorPromptInputs {
-  orchestrator: string; // the orchestrator prompt (may contain {{capabilities}})
+  orchestrator: string; // the orchestrator prompt (may contain {{capabilities}} / {{routing}})
   soul?: string; // identity prompt, folded in ahead of behavior
   entries: LibraryEntry[]; // resolved providers for {{capabilities}} substitution
+  routingSection?: string | null; // compiled Model Router section for {{routing}} (BRIEF v4 MR1b)
 }
 
 // Pure: fold soul (identity) + orchestrator (behavior) and substitute the
-// {{capabilities}} placeholder. Identity leads so it lands before the long
-// behavior section buries it (mirrors runner.assembleSystemPrompt's ordering).
+// {{capabilities}} + {{routing}} placeholders. Identity leads so it lands before
+// the long behavior section buries it (mirrors runner.assembleSystemPrompt's
+// ordering). {{routing}} is always substituted (stripped when no section) so the
+// placeholder never leaks into the projected rule.
 export function buildOrchestratorInstructions(inputs: OrchestratorPromptInputs): string {
-  const behavior = substituteCapabilitiesPlaceholder(inputs.orchestrator, inputs.entries).trim();
+  const withCaps = substituteCapabilitiesPlaceholder(inputs.orchestrator, inputs.entries);
+  const behavior = substituteRoutingPlaceholder(withCaps, inputs.routingSection ?? null).trim();
   const parts: string[] = [];
   const soul = inputs.soul?.trim();
   if (soul) parts.push(soul, "");

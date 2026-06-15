@@ -12,8 +12,16 @@ Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
 via the `capabilityKinds` array in `src/lib/types.ts`: `orchestrator`,
-`memory-store`, `data-source`, `channel`, `vault`, `artifact-store`,
+`memory-store`, `data-source`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`,
 `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`.
+
+`runtime` (added 2026-06-14, BRIEF v4 Runtime faculty) is a Fitting that hosts the
+agent loop and exposes a uniform `delegate(task_spec) -> {summary, artifacts}`
+bridge. Multiple runtimes (Claude Code, Codex, Gemini-CLI) may coexist under the
+`sessions` role; the composition names one **primary** (drives user sessions) and
+others **secondary** (invocable via their bridge). Same "add a kind only when a
+real Fitting needs one" precedent as `data-source`/`automation-runner`
+(codex-runtime / gemini-runtime need it).
 
 `view` is **derived, never declared**: fittings do not list it in `provides` —
 the resolver synthesises one `view` provision per produced view (each
@@ -23,13 +31,16 @@ it explicitly — a consumer declares `view` with `cardinality: any` to
 discover every view in the composition without hardcoding. Derived provisions live only in the capability graph; they never
 appear in the assembled prompt's capabilities block.
 
-Dropped in the Quarters pivot (no longer valid kinds): `soul`, `agent-skill`, `automation-runner`, `mcp-gateway`.
+Dropped in the Quarters pivot (no longer valid kinds): `soul`, `agent-skill`, `mcp-gateway`.
 Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — their three Fittings collapsed into the single `dev-env` Fitting/kind (Workspaces was deleted outright).
 Sections for these are kept below under *Dropped kinds (historical)* for readers
 tracing old manifests; the resolver rejects them. `data-source` was dropped with
 them but re-added 2026-06-10: trello-data-source is a real Fitting that cannot
 be expressed without it (the Honesty-Test working convention), and it rejoined
-the `memory` role with the kind.
+the `memory` role with the kind. `automation-runner` was likewise re-added
+2026-06-13 (MR wave): the scheduler Fitting and the nightly Improver both need
+it; its runners re-home to a role faculty (script-shaped under `observability`,
+cli-skill under `sessions`).
 
 ## Cardinality literals
 
@@ -187,10 +198,17 @@ Within-session and cross-session recall for the operative.
 A scheduled or event-driven driver that wakes the operative without a
 direct user prompt. The heartbeat is the canonical example.
 
+> Re-added 2026-06-13 (MR wave): dropped in the 2026-06-07 pivot, restored
+> for the scheduler Fitting + the nightly Improver (the data-source precedent).
+> The former `heartbeat`/`scheduler`/`automations` faculties are gone — runners
+> re-home to a role faculty.
+
 - **Cardinality:** any number; a composition can have multiple drivers
   on different cadences.
-- **Typically provides:** Fittings in the `heartbeat`, `scheduler`, or
-  `automations` Faculty.
+- **Typically provides:** Fittings re-homed to a role faculty —
+  script-shaped runners (scheduler, loop-heartbeat) under `observability`;
+  cli-skill runners (morning-briefing, google-calendar, vault-sync) under
+  `sessions`.
 - **Typically consumes:** the orchestrator (a runner needs something
   to dispatch to).
 - **Interface (TBD — runtime SDK milestone):** must dispatch a

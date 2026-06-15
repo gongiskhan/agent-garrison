@@ -1,0 +1,50 @@
+{
+  "slice": "MR2-view",
+  "title": "Own-port Model Router view (:7087) — Policy/Simulator/Compiled/Telemetry panes + GET/PUT /routing + simulator + pins + pending-restart",
+  "updatedAt": "2026-06-14T23:08:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/model-router-server.test.ts",
+      "exit": 0,
+      "summary": "8 passed — GET /health; GET /routing seeds from seed config + baselineSha; PUT /routing persists with correct baseline + reflects on GET + on disk; PUT stale baseline → 409; PUT invalid config → 422; POST /simulate (manual taskType/tier) resolves the real route (code/T2 → expert → cc-opus-high); GET /telemetry reads decisions.jsonl + aggregates byTarget; serves the built UI index. Full suite 564 passed / 9 skipped / 0 failed."
+    },
+    "e2e": {
+      "cmd": "npx playwright test tests/e2e/model-router-view.spec.ts",
+      "exit": 0,
+      "summary": "3 passed (desktop-chromium 1440, tablet 1024, mobile 390) — matrix cell edit (code/T2→review) autosaves (pending-restart badge) and the simulator reflects it (router-view-ok + simulator-ok: trace shows role=review + [route: token); Re-run pinned → valid pins green + the deliberately-wrong pin red (simulator-pins-ok); T2 discipline edit (evidence→table) renders into the compiled pane (discipline-ok); seeded continuation 'Implement this plan?' renders in compiled (continuations-ok); profile switch to economy shows ollama-local in compiled (profiles-ok). Screenshot saved."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors (UI main.tsx + server.mjs)" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "node ui/build.mjs (esbuild) + npm run build", "exit": 0, "summary": "UI bundles routing-core.mjs (pure) into the browser → Compiled pane + manual simulator resolve client-side; Next build unaffected" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/model-router", "exit": 0, "summary": "PASS" },
+    "designAudit": {
+      "verdict": "clean",
+      "by": ["self-audit against the shell's dark visual language via the e2e screenshot"],
+      "notes": "Dark-panel theme consistent with the Garrison shell; text labels + monospace compiled output, NO emoji; Profile switcher + save/pending badges + 4 pane tabs; usable at all three Playwright viewports (screenshot is the 390px mobile view). docs/autothing/evidence/model-router-view.png."
+    },
+    "video": {
+      "status": "deferred",
+      "file": null,
+      "link": null,
+      "note": "Per-slice walkthrough DEFERRED to the consolidated MR-wave walkthrough (precedent: C-wave + Q-wave deferred per-slice videos to a consolidated film). The committed 3-viewport e2e + the persisted screenshot are MR2's visual gate. walkthrough-video-ok is a LOGGED blocker until the consolidated MR-wave film."
+    }
+  },
+  "verdicts": {
+    "router-view-ok": true,
+    "discipline-ok": true,
+    "continuations-ok": true,
+    "profiles-ok": true,
+    "simulator-ok": true,
+    "simulator-pins-ok": true,
+    "walkthrough-video-ok": "deferred-to-consolidated"
+  },
+  "screenshot": "docs/autothing/evidence/model-router-view.png",
+  "blockers": [
+    "walkthrough-video-ok deferred to the consolidated MR-wave walkthrough (filmed once the MR wave + Runtime/Knowledge faculties land) — consistent with the C/Q-wave precedent; the 3-viewport e2e + screenshot are the interim committed visual proof."
+  ],
+  "notes": "Own-port fitting (monitor-default template): scripts/server.mjs (bare-node http, free-port, self-register at ~/.garrison/ui-fittings/model-router.json) OWNS GET/PUT /routing (whole-document, baseline-sha guard, 409 on conflict, 422 on invalid) + POST /simulate (manual deterministic resolve OR live pooled-classifier Stage A) + GET /telemetry (decisions.jsonl aggregation). ui/ (esbuild → dist/main.js) is a React app with 4 panes: Policy (Profile switcher in header; role→target map, matrix tap-to-pick selects, discipline grid, exceptions, continuation cards), Simulator (manual + pins, client-side resolve = the real routing path), Compiled (read-only compileRouting per selected profile, live), Telemetry. routing-core.mjs is pure so esbuild bundles it into the browser → Compiled + manual simulator resolve client-side (deterministic, no live model) while the prompt-driven simulator can live-classify via the server. Config path is composition-scoped (MODEL_ROUTER_CONFIG / GARRISON_COMPOSITION_DIR / <dir>/.garrison/routing.json) so the runner's resolveRoutingSection reads the same bytes (pending-restart = saved ≠ loaded). RETRY 1: UI resolveRoute calls needed `as any` casts (state/pin strings vs TaskType/Tier). Adaptation vs brief: tap-to-pick selects instead of drag-and-drop (the brief explicitly allows 'or tap-to-pick'); full drag-card is a polish item. Satisfies brief §3 tokens router-view-ok, discipline-ok, continuations-ok, profiles-ok, simulator-ok, simulator-pins-ok; walkthrough-video-ok deferred."
+}

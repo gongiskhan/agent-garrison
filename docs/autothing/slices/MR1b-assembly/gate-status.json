@@ -1,0 +1,35 @@
+{
+  "slice": "MR1b-assembly",
+  "title": "{{routing}} placeholder in the assembly pipeline (runner + projection); model-router ships the v4 orchestrator prompt preserving [orchestrator-active] + {{capabilities}}; integration-check passes",
+  "updatedAt": "2026-06-14T22:27:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/routing-assembly.test.ts (+ full suite)",
+      "exit": 0,
+      "summary": "6 passed — assembled orchestrator instructions contain the routing section (marker exactly once) AND [orchestrator-active] AND the Verity identity, with no {{routing}}/{{capabilities}} leak; substituteRoutingPlaceholder strips cleanly when no section + is a no-op without the placeholder (default-composition safety); resolveRoutingSection falls back to seed, prefers composition-scoped routing.json (active profile honored), returns null on invalid config. Full suite 525 passed / 9 skipped / 0 failed."
+    },
+    "integrationCheck": {
+      "cmd": "node scripts/integration-check.mjs router-v4 (and default)",
+      "exit": 0,
+      "summary": "router-v4 (selects model-router as orchestrator): [PASS] Assembled system prompt — contains the orchestrator marker + Verity identity; the assembled prompt holds '<!-- garrison:routing v1 profile=balanced -->' + '## Routing policy' (once each) + [orchestrator-active], 0 placeholder leaks. default (garrison-orchestrator, no {{routing}}): [PASS] unchanged — no regression. (Network/gateway checks require a live operative, out of scope for the gated build.)"
+    },
+    "validateFitting": {
+      "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/model-router",
+      "exit": 0,
+      "summary": "PASS — architecture/security/prompt-injection/quality, now with the .apm/prompts/model-router.prompt.md orchestrator prompt."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "No ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled — the runtime dynamic-import of routing-core.mjs (pathToFileURL) is NOT bundled, no webpack breakage" },
+    "e2e": { "exit": 0, "summary": "N/A — assembly-pipeline slice; the committed vitest + the regenerable router-v4 assembled prompt + integration-check are the re-runnable artifacts. The own-port view e2e lands in MR2." },
+    "designAudit": { "verdict": "clean", "by": ["N/A — no UI surface (view is MR2)"], "notes": "assembly wiring + prompt only" },
+    "video": { "status": "n/a", "file": null, "link": null, "note": "Backend slice; MR-wave consolidated walkthrough filmed at MR2." }
+  },
+  "verdicts": { "assembly-ok": true },
+  "blockers": [],
+  "notes": "BRIEF v4 ADAPTATION (recorded): the {{routing}} section is injected through the SAME assembly pipeline as {{capabilities}}. New runner.ts exports: substituteRoutingPlaceholder (pure replace; strips cleanly when no section so the placeholder never leaks) + resolveRoutingSection (composition-scoped <dir>/.garrison/routing.json, falling back to the model-router seed config; compiled via a RUNTIME dynamic import of the fitting's pure routing-core.mjs by file URL — never pulled into the Next webpack bundle). assembleSystemPrompt calls it after {{capabilities}}; buildOrchestratorInstructions (the ~/.claude rules projection path) substitutes it too, so neither path leaks the placeholder. model-router ships .apm/prompts/model-router.prompt.md — a v4 routing-aware orchestrator carrying {{routing}} + {{capabilities}} + the dual reply contract ([route: …] + [orchestrator-active]). The live `default` composition still selects garrison-orchestrator (no {{routing}} placeholder → substitution is a no-op), so it is UNTOUCHED — proven by integration-check default still PASS. A new committed `compositions/router-v4/` fixture selects model-router and carries the generated assembled prompt (reused by MR1c/MR2). RETRY 1: a literal {{routing}} mention inside the prompt's explanatory HTML comment was being re-expanded by the global replace (duplicating the whole section + breaking the comment); reworded the comment to drop literal placeholders and added a 'marker appears exactly once' regression assertion. Satisfies brief §3 token assembly-ok."
+}

@@ -1,0 +1,8 @@
+[
+  {
+    "id": "improver-nightly",
+    "cron": "30 3 * * *",
+    "command": "node fittings/seed/improver/scripts/improver.mjs run-now improver-nightly",
+    "enabled": true
+  }
+]

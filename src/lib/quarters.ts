@@ -21,6 +21,7 @@ import {
   type HookCrudResult
 } from "./hooks-crud";
 import { removePlugin, type PluginRemoveResult } from "./plugin-writer";
+import { reconcile } from "./reconcile";
 
 // Backend for the Quarters surface: a read (the loose/owned StateModel over the
 // real ~/.claude), the promote/park/unpark transition dispatch, AND the CRUD
@@ -91,6 +92,21 @@ async function guardedFileDelete(surface: FilePrimitiveSurface, name: string): P
   return fromFile(await deleteFilePrimitive(surface, name));
 }
 
+// After Garrison authors a loose file primitive (skill/command/rule), capture it
+// into the Seed store so it can be promoted to owned — this closes the previously
+// unwired reconcile("post-authoring") gap (reconcile() had no production caller).
+// Best-effort: a reconcile failure must never fail the authoring action. Scoped
+// to the touched surface so it doesn't rescan every surface.
+async function reconcilePostAuthoring(surface: FilePrimitiveSurface): Promise<void> {
+  try {
+    await reconcile({ trigger: "post-authoring", surfaces: [surface] });
+  } catch (err) {
+    console.warn(
+      `[garrison] post-authoring reconcile failed for ${surface}: ${(err as Error).message}`
+    );
+  }
+}
+
 export async function runQuartersAction(
   req: QuartersActionRequest
 ): Promise<TransitionResult | CrudResult> {
@@ -110,12 +126,21 @@ export async function runQuartersAction(
       return fromMcp(await updateMcpServer(req.name, req.config, undefined, req.newName));
     case "mcp.remove":
       return fromMcp(await removeMcpServer(req.name));
-    case "file.create":
-      return fromFile(await createFilePrimitive(req.surface, req.name, req.content));
-    case "file.update":
-      return fromFile(await updateFilePrimitive(req.surface, req.name, req.content));
-    case "file.delete":
-      return guardedFileDelete(req.surface, req.name);
+    case "file.create": {
+      const r = fromFile(await createFilePrimitive(req.surface, req.name, req.content));
+      if (r.ok) await reconcilePostAuthoring(req.surface);
+      return r;
+    }
+    case "file.update": {
+      const r = fromFile(await updateFilePrimitive(req.surface, req.name, req.content));
+      if (r.ok) await reconcilePostAuthoring(req.surface);
+      return r;
+    }
+    case "file.delete": {
+      const r = await guardedFileDelete(req.surface, req.name);
+      if (r.ok) await reconcilePostAuthoring(req.surface);
+      return r;
+    }
     case "hook.create":
       return fromHook(await createHandHook({ event: req.event, matcher: req.matcher, command: req.command, timeout: req.timeout }));
     case "hook.update":

@@ -36,9 +36,11 @@ export const fittingShapes = [
 export type FittingShape = (typeof fittingShapes)[number];
 
 // The capability-kind vocabulary shrinks with the Quarters pivot: soul,
-// agent-skill, automation-runner, and mcp-gateway are dropped
-// (Skills/automations become platform primitives; the spawned-operative
-// machinery is retired). The own-port runtime wiring kinds are kept.
+// agent-skill, and mcp-gateway are dropped (Skills become platform
+// primitives; the spawned-operative machinery is retired). automation-runner
+// was dropped 2026-06-07 then re-added 2026-06-13 (MR wave) for the scheduler
+// + the Improver, same data-source precedent. The own-port runtime wiring
+// kinds are kept.
 //
 // `view` is never declared in a fitting's `provides` — the resolver derives
 // one provision per produced view from `ui.views[]` / `own_port` (see
@@ -50,6 +52,10 @@ export const capabilityKinds = [
   "memory-store",
   // data-source: re-added 2026-06-10 because trello-data-source is a real Fitting that cannot be expressed without it (Honesty-Test convention) — it was dropped 2026-06-07 with the parked PA fittings.
   "data-source",
+  // automation-runner: re-added 2026-06-13 (MR wave) — the scheduler Fitting and the new Improver both need it; dropped 2026-06-07, re-added on the same data-source precedent (add a kind only when a real Fitting needs one).
+  "automation-runner",
+  // runtime: added 2026-06-14 (BRIEF v4 Runtime faculty) — a runtime Fitting (Claude Code, Codex, Gemini-CLI) hosts the agent loop and exposes a uniform delegate() bridge. Multiple may coexist; the composition names one primary, others secondary. Same "add a kind when a real Fitting needs one" precedent (codex-runtime / gemini-runtime need it).
+  "runtime",
   "channel",
   "vault",
   "artifact-store",
