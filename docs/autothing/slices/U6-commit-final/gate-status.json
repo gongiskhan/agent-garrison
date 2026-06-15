@@ -1,0 +1,20 @@
+{
+  "slice": "U6-commit-final",
+  "title": "Commit the v4 stack + the U-wave completion; final verdict",
+  "updatedAt": "2026-06-15T05:50:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "fullSuite": { "cmd": "npx vitest run", "exit": 0, "summary": "635 passed | 13 skipped (88 files) | 0 failed. Skips are the env-gated live blocks (GARRISON_LIVE_THIRDPARTY / GARRISON_LIVE_TOOLS / GARRISON_INTEGRATION) + intentional skips." },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "no ESLint warnings or errors" },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "Next build compiled" },
+    "commit": { "cmd": "git commit (two coherent commits)", "exit": 0, "summary": "2f91440 feat(v4): the orchestrator/runtime/knowledge/improver stack; 562a561 feat(u-wave): make routing live + verify the asserted paths. Working tree clean." },
+    "evidenceIndex": { "cmd": "evidence-index.json globalGate", "exit": 0, "summary": "globalGate=passed, buildableRemaining 0, 45 slices recorded." }
+  },
+  "verdicts": { "GARRISON-V2-COMPLETE": true },
+  "blockers": [],
+  "notes": "Committed to main (solo-machine convention authorized in CLAUDE.md). Two coherent commits: the BRIEF-v4 stack, then the U-wave completion. FLOW_PLAN + evidence-index updated; buildable-remaining 0."
+}
