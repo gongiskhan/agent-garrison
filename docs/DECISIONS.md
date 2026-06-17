@@ -253,6 +253,36 @@ codifies the rule.
 **Source:** [`docs/decisions/2026-05-20-lean-garrison-trim.md`](./decisions/2026-05-20-lean-garrison-trim.md).
 **Status:** Settled.
 
+## 2026-06-07 · Quarters pivot — Faculties 24 → 6 roles; Operative folds into real Claude Code
+
+Garrison is reframed from "spawns its own Operative" into a transparent
+**control plane over the user's real `~/.claude`**. APM becomes the single
+writer for the package surface; the composed Operative is no longer a
+separately-spawned SDK agent but the user's real Claude Code session.
+
+- **Faculties 24 → 6 roles:** `orchestrator`, `channels`, `gateway`, `memory`,
+  `observability`, `sessions`. The former flat list collapsed; Skills/Hooks/MCPs/
+  Plugins/Scripts/Settings/Context/Plans become Quarters **platform primitives**,
+  not Faculties. Own-port residue (dev-env, screen-share, outposts, monitor,
+  web-channel, browser, voice) survives under the roles via the metadata
+  `own_port` flag.
+- **Capability kinds shrank:** dropped `soul`, `agent-skill`, `mcp-gateway`
+  (re-added data-source and automation-runner later on real-Fitting evidence; see
+  2026-06-10 and 2026-06-13 entries).
+- **Global composition:** symlink-confined at `~/.garrison/global-composition/`
+  with `.claude` → `~/.claude`. `apm install` writes through. State model:
+  owned / loose / parked. APM is non-destructive to loose primitives.
+- **Orchestrator projection:** soul + orchestrator + `{{capabilities}}` fold
+  projected to `~/.claude/rules/garrison-orchestrator.md` (reversible; higher-
+  authority `--append-system-prompt` fallback per-launch).
+- **No Save buttons:** Quarters autosaves; drift is surfaced via
+  `/api/settings/drift`.
+- **RC4 deferred:** hosted-session launcher not yet wired; `up()` still spawns
+  via `spawnGateway`/`spawnClaude` until it lands.
+
+**Source:** [`docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./decisions/2026-06-07-faculties-as-roles-operative-folded.md).
+**Status:** Largely settled (RC4 open).
+
 ## 2026-06-10 · `data-source` kind re-added; trello-data-source revived under `memory`; own-port secrets-heal contract
 
 Three linked changes. (1) The `data-source` capability kind returns to

@@ -1,17 +1,19 @@
 # Agent Garrison Seed Fittings
 
-v1 started with six seed Fittings as local APM packages under
-`fittings/seed/`. They are local-path dependencies during bootstrap
-and can be split into standalone git repos after the runner flow is
-proven. Capability wiring (`provides` / `consumes`) is summarised in
-`fittings/seed/README.md`.
+Seed Fittings are local APM packages under `fittings/seed/`. They are
+local-path dependencies during bootstrap and can be split into standalone
+git repos after the runner flow is proven. Capability wiring (`provides` /
+`consumes`) is summarised in `fittings/seed/README.md`.
 
-Phases 1–4 added more seeds to fill out the personal-assistant
-shape. The original six are catalogued below in detail; the
-additions are inventoried at the end of this file under "Phase 1+
-additions" with a short purpose line each. See
-[GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md) for the per-phase
-context.
+The original six Fittings below are catalogued in detail; later additions
+are inventoried at the end under "Later additions". See
+[GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md) for stage context.
+
+> **2026-06-07 Quarters pivot:** Faculties are now 6 roles. Faculty names
+> like `classifier`, `heartbeat`, `automations`, `data-sources` in the
+> original catalogue below are **deprecated aliases** still accepted by the
+> parser with a warning. Current role names: `orchestrator`, `channels`,
+> `gateway`, `memory`, `observability`, `sessions`.
 
 ## Tier Classifier
 
@@ -126,7 +128,7 @@ Only the files needed by each Fitting are present. Verify hooks must
 prove installed output exists after `apm install`, not merely that the
 source package exists.
 
-## Phase 1+ additions
+## Later additions
 
 Inventoried, not yet specced at the same depth as the original six.
 Each one lives at `fittings/seed/<id>/` with an `apm.yml`,
@@ -134,33 +136,49 @@ Each one lives at `fittings/seed/<id>/` with an `apm.yml`,
 config schema, `provides`/`consumes` wiring, and `for_consumers`
 text where applicable.
 
-- `personal-operative` (Phase 1) — orchestrator Fitting that owns
-  global config (`projects_root`, `personas`, hat-detection rules,
-  memory usage discipline). Composition-aware via
-  `cardinality: any` consumes on every capability kind.
-- `soul` (Phase 1) — the real PM-plus-Architect-plus-PA persona,
-  replacing the dogfood placeholder.
-- `slack-channel` (Phase 1) — webhook-based inbound channel ported
-  from `~/Projects/awc-gateway-slack/`. Provides
-  `channel:slack`.
-- `morning-briefing` (Phase 2) — scheduled cron Fitting that posts
-  the day's plan to the report channel. Wrapper-script shape
-  (validator exception: `automations + cli-skill`).
-- `google-calendar` (Phase 2) — bidirectional calendar sync.
-  Provides `data-source:google-calendar`.
-- `projects-index` (Phase 2) — shallow index of `projects_root`
-  for dev-hat context. Skill shape.
-- `scheduler` (Phase 2) — cron Faculty Fitting that hosts
-  `morning-briefing` and future scheduled work.
-- `artifact-store` (Phase 3) — filesystem-backed artifact storage
-  with namespaces (`documents/`, `automations/`, `voice/`).
-  Provides `artifact-store:filesystem`.
-- `documents` (Phase 3) — markdown Documents workspace layered on
-  Artifact Store, with sidebar-surface UI (read + edit views,
-  textarea editor for v1, tiptap deferred).
-- `coding-subagent` (Phase 4) — Variant A sub-agent Fitting that
-  the Orchestrator dispatches coding work to. CLI-shape so it
-  looks like every other Fitting from outside.
+### Stage 1 / original PA shape
+
+- `personal-operative` — orchestrator Fitting that owns global config
+  (`projects_root`, `personas`, hat-detection rules, memory usage discipline).
+  Composition-aware via `cardinality: any` consumes on every capability kind.
+- `soul` / `soul-engineer` / `soul-architect` / `soul-assistant` / `soul-researcher` / `soul-companion`
+  — persona Fittings with different hats. All project to the orchestrator
+  assembly via `soul` shape.
+- `slack-channel` — webhook-based inbound channel. Provides `channel:slack`.
+- `morning-briefing` — scheduled cron Fitting that posts the day's plan to
+  the report channel. Provides `automation-runner:morning-briefing`.
+- `google-calendar` — bidirectional calendar sync. Provides
+  `data-source:google-calendar`.
+- `projects-index` — shallow index of `projects_root` for dev-hat context.
+  Skill shape.
+- `scheduler` — cron runner Fitting. Provides `automation-runner:scheduler`.
+- `artifact-store` — filesystem-backed artifact storage with namespaces
+  (`documents/`, `automations/`, `voice/`). Provides
+  `artifact-store:filesystem`.
+- `documents` — markdown Documents workspace layered on Artifact Store, with
+  sidebar-surface UI (read + edit views, textarea editor for v1).
+- `coding-subagent` — Variant A sub-agent Fitting dispatched by the
+  Orchestrator. CLI-shape so it looks like every other Fitting from outside.
+- `knowledge` — static reference material (docs, codebases, notes). Skill
+  shape under `memory` role.
+
+### Model Router wave (2026-06-13)
+
+- `model-router` — fills the singleton `orchestrator` Faculty; adds
+  two-stage routing (gateway pre-route → act), profile-based policy,
+  compiled `{{routing}}` section, own-port view + simulator. Supersedes
+  `garrison-orchestrator` + `tier-classifier` (both parked).
+- `improver` — nightly Improver Fitting: reviews skill/fitting quality against
+  the live codebase and emits improvement proposals. Provides
+  `automation-runner:improver`. Runs under `observability`.
+- `agent-sdk-runtime` — runtime Fitting hosting the Anthropic Agent SDK loop.
+  Provides `runtime:agent-sdk`.
+- `codex-runtime` — runtime Fitting bridging Codex CLI. Provides
+  `runtime:codex`.
+- `gemini-runtime` — runtime Fitting bridging Gemini CLI. Provides
+  `runtime:gemini`.
+- `deepgram-voice` — voice channel Fitting using Deepgram STT/TTS. Provides
+  `voice:deepgram`. Own-port headless backend on `7085`.
 
 The Phase 5 / 5.5 Sequoias decomposition shipped `worktrees-sequoias`,
 `session-view-sequoias`, and `terminal-armory-default` into the seed
