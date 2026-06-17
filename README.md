@@ -17,7 +17,7 @@ Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks on
    ───────                         ───                       ───────
 
    pick Fittings                   apm install               live logs (SSE)
-   for each Faculty                materialise vault         per-Fitting status
+   for each role                   materialise vault         per-Fitting status
    wire capabilities               run setup + verify        sidebar Views
    save to apm.yml                 assemble system prompt    embedded surfaces
                                    spawn via Agent SDK       own-port tools
@@ -28,19 +28,26 @@ Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks on
                                             ↓
                                    reachable via Channel
                                    Fittings (Slack, Web)
+
+   QUARTERS (parallel)
+   ───────────────────
+   Skills · Hooks · MCPs · Plugins
+   Scripts · Settings · Context · Plans
+   (APM-managed, written to ~/.claude)
 ```
 
 ---
 
-## The five words you need
+## The six words you need
 
 | Word | Meaning |
 |---|---|
-| **Garrison** | The platform — this app. Composes, runs, observes. |
-| **Operative** | The running autonomous agent. |
-| **Faculty** | A named slot in a composition (`orchestrator`, `memory`, `channels`, ...). 23 of them + derived Tasks. |
-| **Fitting** | The thing you install into a Faculty. A git-backed APM package with an `x-garrison` block. |
+| **Garrison** | The platform — this app. Composes, runs, observes, and manages Quarters. |
+| **Operative** | The running autonomous agent — your real Claude Code session. |
+| **Faculty** | A role slot in a composition. Six roles: `orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`. |
+| **Fitting** | The thing you install into a role slot. A git-backed APM package with an `x-garrison` block. |
 | **APM** | [Microsoft Agent Package Manager](https://github.com/microsoft/apm). Owns manifest, install, audit, lockfile. Garrison adds `x-garrison`. |
+| **Quarters** | The `~/.claude` config surface — Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans — managed by Garrison via APM. |
 
 ---
 
@@ -48,7 +55,7 @@ Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks on
 
 ### Control for practitioners who already have opinions
 
-Platforms like OpenClaw and Hermes make reasonable defaults for newcomers, but practitioners who have already formed views about how their agent should behave keep running into those defaults — rate limiting that isn't theirs to tune, routing baked into the runtime, memory strategies they didn't pick. Garrison removes these constraints. Every Faculty is filled by a Fitting you chose. Nothing gets decided for you.
+Platforms like OpenClaw and Hermes make reasonable defaults for newcomers, but practitioners who have already formed views about how their agent should behave keep running into those defaults — rate limiting that isn't theirs to tune, routing baked into the runtime, memory strategies they didn't pick. Garrison removes these constraints. Every role is filled by a Fitting you chose. Nothing gets decided for you.
 
 ### Transparency that makes customisation practical
 
@@ -77,7 +84,7 @@ npm install
 npm start
 ```
 
-Open [http://localhost:7777](http://localhost:7777). The Compose tab is where you build an Operative; the Run tab is where you start one and watch it work.
+Open [http://localhost:7777](http://localhost:7777). The Compose tab is where you build an Operative; the Run tab is where you start one and watch it work. The Quarters section surfaces your real `~/.claude` configuration managed via APM.
 
 ### Common commands
 
@@ -95,49 +102,66 @@ tsx scripts/validate-fitting.ts fittings/seed/<id>   # four-check validation pip
 
 ## What's in the box
 
-### Faculties (23 + derived Tasks)
+### Faculties — 6 roles
 
-Agent-facing slots the Operative uses internally:
-
-```
-   orchestrator   soul          heartbeat       scheduler
-   classifier     memory        gateway         data-sources
-   knowledge-base automations   skills          channels
-   observability  artifact-store sync
-```
-
-Tool-facing (own-port) Faculties — Fittings serve their own React UI on their own port; the sidebar links to them:
+Post-2026-06-07 Quarters pivot, Faculties are **roles only**. The former flat 24-Faculty list collapsed into six:
 
 ```
-   dev-env        screen-share  outposts        monitor
-   web-channel    browser       voice
+   orchestrator   channels   gateway
+   memory         observability   sessions
 ```
 
-Long-form intent per Faculty: [`docs/FACULTIES.md`](./docs/FACULTIES.md).
+Everything else — Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans — is now a **Quarters platform primitive** surfaced over your real `~/.claude` via APM, not a Faculty.
+
+**Own-port Fittings** (serving their own React UI on their own port) survive at runtime under `sessions`, `channels`, and `observability` via the `own_port` metadata flag. Garrison links to them from the sidebar Views section:
+
+```
+   dev-env (7086)        screen-share (7079)   browser (7084)
+   monitor (7077)        web-channel (7083)    outposts (7082)
+   voice (7085)
+```
+
+Long-form intent per role: [`docs/FACULTIES.md`](./docs/FACULTIES.md).
+
+### Quarters
+
+The Quarters section (`/quarters`) gives you a live 10-category index over your real `~/.claude`:
+
+```
+   Skills     Hooks      MCPs       Plugins    Scripts
+   Settings   Context    Plans      Commands   Rules
+```
+
+APM is the single writer for package-file surface. Garrison autosaves every change (no Save buttons). A drift poll surfaces any settings drift against the last-known baseline.
 
 ### Seed Fittings shipped in this repo
 
 ```
-Brain                Routing & cadence       Memory & knowledge
-─────                ─────────────────       ──────────────────
-personal-operative   tier-classifier         memory
-garrison-orchestrator loop-heartbeat         projects-index
-soul                 scheduler               documents
-soul-engineer        morning-briefing        artifact-store
-soul-architect
-soul-assistant       Channels                Doing stuff
-soul-researcher      ────────                ─────────────
-soul-companion       slack-channel           browser-automation
-                     web-channel-default     coding-subagent
-Data sources                                 testing
-─────────────        Plumbing
-trello-data-source   ────────                Workbench (own-port)
-google-calendar      http-gateway            ────────────────────
-                     mcp-gateway             dev-env
-Outposts             vault-sync              screen-share-default
-─────────                                    browser-default
-outpost-tailscale-host                       monitor-default
-outpost-actions
+Brain                    Routing & cadence       Memory & knowledge
+─────                    ─────────────────       ──────────────────
+personal-operative       tier-classifier         memory
+garrison-orchestrator    loop-heartbeat          projects-index
+soul                     scheduler               documents
+soul-engineer            morning-briefing        artifact-store
+soul-architect                                   knowledge
+soul-assistant           Channels                improver
+soul-researcher          ────────
+soul-companion           slack-channel           Data sources
+                         web-channel-default     ─────────────
+Runtimes                                         trello-data-source
+────────                 Plumbing                google-calendar
+agent-sdk-runtime        ────────
+codex-runtime            http-gateway            Doing stuff
+gemini-runtime           mcp-gateway             ─────────────
+deepgram-voice           model-router            browser-automation
+                         vault-sync              coding-subagent
+Outposts                                         testing
+─────────                Own-port (views)
+outpost-tailscale-host   ────────────────
+outpost-actions          dev-env
+                         screen-share-default
+                         browser-default
+                         monitor-default
 ```
 
 Each Fitting is a self-contained APM package under `fittings/seed/<id>/`. Pick what you want; the rest stays uninstalled.
@@ -149,7 +173,7 @@ A useful distinction:
 - **Agent-facing Fittings** ship skills, prompts, hooks, scripts, or MCP servers that the **running Operative** invokes during its work. Example: `tier-classifier`, `memory`, `trello-data-source`, `slack-channel`.
 - **Tool-facing Fittings** ship a React UI on their own HTTP port. The **human** uses them in a browser tab; Garrison links to them from the sidebar Views group. Example: `dev-env` (port 7086 — one tab per Claude Code session with a Claude PTY, a shell PTY, and the live browser pane), `screen-share-default`, `monitor-default`.
 
-Full breakdown with the third "embedded UI" middle ground: [`docs/GARRISON_EXPLAINED.md` §7](./docs/GARRISON_EXPLAINED.md#7-two-kinds-of-fitting-agent-facing-vs-tool-facing).
+Full breakdown: [`docs/GARRISON_EXPLAINED.md` §7](./docs/GARRISON_EXPLAINED.md#7-two-kinds-of-fitting-agent-facing-vs-tool-facing).
 
 ---
 
@@ -164,7 +188,8 @@ Full breakdown with the third "embedded UI" middle ground: [`docs/GARRISON_EXPLA
    5. start own-port Fittings      → dev-env, monitor, browser, etc.
    6. assemble system prompt       → Orchestrator + Soul + {{capabilities}}
                                      (each provider's for_consumers indented
-                                     under its capability line)
+                                     under its capability line); also projected
+                                     to ~/.claude/rules/garrison-orchestrator.md
    7. spawn Operative              → @anthropic-ai/claude-agent-sdk, in-process
 ```
 
@@ -186,10 +211,7 @@ provides:
 
 # personal-operative consumes
 consumes:
-  - { kind: soul,              cardinality: one }
-  - { kind: agent-skill,       cardinality: any }    # ← discovers anything
   - { kind: memory-store,      cardinality: any }
-  - { kind: automation-runner, cardinality: any }
   - { kind: data-source,       cardinality: any }
   - { kind: channel,           cardinality: any }
   - { kind: vault,             cardinality: optional-one }
@@ -207,16 +229,21 @@ Full vocabulary: [`docs/CAPABILITIES.md`](./docs/CAPABILITIES.md).
 
 ```
 src/app/             Next.js routes — Compose, Run, Vault, Armory,
-                     /fitting/<id>/... per-Fitting routes. API under
-                     src/app/api/.
+                     Quarters (/quarters), /fitting/<id>/... per-Fitting
+                     routes. API under src/app/api/.
 src/lib/             Backend runtime: runner.ts (lifecycle),
                      capabilities.ts (provides/consumes resolver),
                      metadata.ts (x-garrison parser + validator),
                      vault.ts (AES-256-GCM secret store),
                      artifact-store.ts, fitting-views.ts (UI contract v2
-                     resolver), faculties.ts, hosts.ts, worktrees.ts.
+                     resolver), quarters/ (Quarters engine: global-
+                     composition, primitive-state, claude-scan, reconcile,
+                     state-transitions, orchestrator-projection).
 src/components/      React UI: Compose, Run, Vault, Chrome, Armory,
-                     fitting-views registry + status hook.
+                     Quarters panels, fitting-views registry + status hook.
+packages/claude-pty/ PTY substrate — rich streaming, warm pool, xterm
+                     screen reader. Used by dev-env Fitting.
+packages/claude-chat/ Chat client built on claude-pty.
 compositions/<id>/   apm.yml per composition. Filesystem is authoritative.
 fittings/seed/       Local seed Fittings. Each is a self-contained APM
                      package; new ones ship as standalone git repos.
@@ -226,29 +253,30 @@ scripts/             validate-fitting.ts, integration-check.mjs,
                      refresh-default-prompts.ts.
 tests/               Vitest suite: runner, capabilities, metadata,
                      fitting-view resolver, validation, seeds.
-docs/                Spec, roadmap, per-phase records, decisions.
+docs/                Spec, roadmap, per-stage records, decisions.
 ```
 
 ---
 
 ## Status
 
-Garrison is in active development. Phases below reflect what works today; the live journal is [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md).
+Garrison is in active development. The live journal is [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md).
 
-| Phase | What shipped | Status |
+| Stage | Goal | Status |
 |---|---|---|
-| **1 — PA-shaped seed Operative** | Gateway, Memory (compiler wrapper), Soul, Orchestrator, Classifier, Heartbeat, Trello, Slack | **Done** (2026-05-06) |
-| **2 — Real PA function** | Project index, calendar, scheduler, two-hat behaviour, heartbeat-driven triage | In progress |
-| **3 — Documents + Artifact Store + UI contract v2** | Documents Fitting, Artifact Store Faculty, sidebar-surface views, `garrison://` linking | **Done** (2026-05-08) |
-| **4 — Plan-then-execute** | Coding sub-agent Fitting, SDK `Query.interrupt()` kill switch, Variant A CLI shape | **Done** (2026-05-08) |
-| **5 — Workbench Faculties (own-port pattern)** | 4 Workbench Faculties + Sequoias decomposition, port allocation, env rewriting, Claude Code hook → session status | **Done** (2026-05-11) |
-| **5.5–6 — Outposts (multi-machine)** | Tailscale-bridged remote Macs, Outpost Protocol, vault-sync | In progress |
-| **7 — Tasks Faculty** | Kanban-as-control-plane | Not started |
+| **1 — Replace IDE + CLI** | dev-env Fitting (PTY + shell + browser pane per session), worktree CRUD, session badges, screen-share, Documents + Artifact Store | Largely shipped; refining for daily use |
+| **2 — Disciplined dev pipeline** | classify → plan → execute under `/goal` → validate → test → evidence → report | Design locked 2026-05-26; implementation pending |
+| **3 — Mobile / orchestrator-driven** | Web channel polish, orchestrator spawns worktrees + pipelines, cross-surface continuity | Scoped; depends on Stage 2 |
+| **4 — Replace claude.ai discussions** | PM/Architect hat, document-during-conversation, chat UX for long-form | Substrate shipped (Documents + Artifact Store); behaviour missing |
+| **5 — Autonomous loop** | Tasks Faculty, heartbeat-driven pickup, plan-then-approve gate, evidence return | Depends on Stages 2–4 |
 
-Some context-relevant things **not implemented yet**:
+The **Quarters pivot** (2026-06-07) also shipped: Faculties shrank from 24 to 6 roles; Quarters config surface over `~/.claude`; orchestrator projection to `~/.claude/rules/garrison-orchestrator.md`; APM as single package writer via symlink-confined global composition. RC4 (hosted-session launcher) is deferred; the runner still genuinely spawns a process until it lands.
+
+Some things **not implemented yet**:
 
 - **Native cross-session memory.** The Memory Fitting wraps the existing memory-compiler tool at `~/.claude/memory-compiler/`. First-class memory primitives are deferred.
 - **AI-driven Fitting validators.** The validation pipeline runs architecture + quality checks for real; security + prompt-injection are placeholder pattern scanners pending the runtime SDK milestone.
+- **RC4 hosted-session launcher.** Until it lands, `up()` spawns a Claude process via `spawnGateway`/`spawnClaude`; the projected orchestrator rules-file is the durable default.
 
 ---
 
@@ -262,8 +290,8 @@ See [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md) and [`docs/GOVERNANCE.md`](
 
 - **[`docs/GARRISON_EXPLAINED.md`](./docs/GARRISON_EXPLAINED.md)** — single-doc primer for new developers (start here)
 - [`docs/SPEC.md`](./docs/SPEC.md) — the authoritative v1 spec
-- [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md) — live phase journal
-- [`docs/FACULTIES.md`](./docs/FACULTIES.md) — per-Faculty long form
+- [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md) — live stage journal
+- [`docs/FACULTIES.md`](./docs/FACULTIES.md) — per-role long form
 - [`docs/FITTINGS.md`](./docs/FITTINGS.md) — Fitting authoring + seed catalogue
 - [`docs/CAPABILITIES.md`](./docs/CAPABILITIES.md) — capability vocabulary
 - [`docs/METADATA.md`](./docs/METADATA.md) — `x-garrison` schema
