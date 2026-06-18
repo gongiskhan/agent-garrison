@@ -29,8 +29,23 @@ export interface SlashCommand {
 }
 
 export interface ChatTransport {
+  /**
+   * The base path this transport posts to (e.g. "/sessions/:id" in dev-env, ""
+   * for a root-mounted host). Exposed so sibling same-origin features (voice)
+   * can derive their own proxy path under the same prefix. Optional for back-
+   * compat with transports that don't set it.
+   */
+  base?: string;
   connect(onEvent: (ev: ChatEvent) => void): () => void; // returns an unsubscribe/close fn
   sendMessage(text: string): Promise<void>;
+  /**
+   * Submit a line into the live Claude PTY WITHOUT it being rendered as a user
+   * turn in the chat transcript — used for slash commands that drive the TUI
+   * directly (e.g. `/model <id>`, `/compact`, `/clear`). Same wire path as
+   * sendMessage (POST /claude/message); the distinction is purely client-side
+   * (no Turn is appended). Optional so older transports stay valid.
+   */
+  sendCommand?(text: string): Promise<void>;
   sendKey(key: "escape" | "shift-tab" | "up" | "down" | "enter" | "tab" | "ctrl-c"): Promise<void>;
   setMode(mode: PermissionMode): Promise<{ mode: PermissionMode; reached: boolean }>;
   interrupt(): Promise<void>;
@@ -50,6 +65,7 @@ export function createHttpTransport(base = "/api"): ChatTransport {
     return res.json().catch(() => ({}));
   };
   return {
+    base: b,
     connect(onEvent) {
       let es: EventSource | null = null;
       let closed = false;
@@ -88,6 +104,13 @@ export function createHttpTransport(base = "/api"): ChatTransport {
       };
     },
     async sendMessage(text) {
+      await post("message", { text });
+    },
+    async sendCommand(text) {
+      // Identical wire call to sendMessage; the caller chooses this variant only
+      // to suppress the chat-transcript turn. The dev-env server's /message
+      // route already does the two-phase (text, pause, Enter) write that the
+      // Claude Code TUI needs for a slash command to register.
       await post("message", { text });
     },
     async sendKey(key) {

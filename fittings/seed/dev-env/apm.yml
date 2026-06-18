@@ -105,6 +105,12 @@ x-garrison:
       DELETE /worktrees/:id              - alias of DELETE /sessions/:id
       GET    /projects                   - git repos under the dev root
       GET    /dev-root | PATCH /dev-root - read/set ~/.garrison/dev-root
+      GET    /settings/excludes          - { patterns, defaults } tab-monitoring
+                                           exclusions (system/internal cwds kept
+                                           out of the tab strip)
+      PUT    /settings/excludes          - { patterns } replace the exclusion
+                                           list (persisted to
+                                           ~/.garrison/dev-env/tab-excludes.json)
       POST   /_hook?event=<name>         - Claude Code hook payload
                                            (session_id, cwd, ...) forwarded
                                            verbatim from stdin. Tracked:

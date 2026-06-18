@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { currentTheme, subscribe as subscribeTheme } from "./terminal-theme";
 
 export function TerminalPane({
   ptyId,
@@ -37,14 +38,13 @@ export function TerminalPane({
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       scrollback: 10_000,
       convertEol: false,
-      theme: {
-        background: "#0e0e0e",
-        foreground: "#e5e5e5",
-        cursor: "#e5e5e5",
-        cursorAccent: "#0e0e0e",
-        selectionBackground: "#3b3b3b"
-      },
+      theme: currentTheme(),
       allowProposedApi: true
+    });
+    // Re-theme in place when the user switches light/dark/system (or the OS
+    // changes while following system) — never remount the live PTY.
+    const unsubscribeTheme = subscribeTheme(() => {
+      try { term.options.theme = currentTheme(); } catch {}
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -53,6 +53,41 @@ export function TerminalPane({
     termRef.current = term;
     fitRef.current = fit;
     try { fit.fit(); } catch {}
+
+    // xterm.js renders its selection in its own layer (not the DOM), and its
+    // hidden helper textarea is empty, so the browser's native Cmd/Ctrl+C copies
+    // nothing — the host app must wire copy itself. Bind the platform copy combo
+    // (Cmd+C on macOS, Ctrl+Shift+C elsewhere) to write the current selection to
+    // the clipboard. Plain Ctrl+C is left alone so it still sends SIGINT to the
+    // PTY, and native right-click / paste are untouched.
+    const isMac = typeof navigator !== "undefined" &&
+      /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || "");
+    const copyToClipboard = (text: string) => {
+      if (!text) return;
+      try {
+        if (navigator.clipboard?.writeText) { void navigator.clipboard.writeText(text); return; }
+      } catch {}
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {}
+    };
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== "keydown") return true;
+      const key = ev.key.toLowerCase();
+      const isCopy = key === "c" && (isMac ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && ev.shiftKey);
+      if (isCopy) {
+        const sel = term.getSelection();
+        if (sel) { copyToClipboard(sel); ev.preventDefault(); return false; }
+      }
+      return true;
+    });
 
     // Alt-screen TUIs (Claude Code, vim, less, ...) replace xterm's scrollback
     // with their own buffer, so xterm has nothing to scroll. Translate vertical
@@ -142,6 +177,7 @@ export function TerminalPane({
 
     return () => {
       cancelled = true;
+      unsubscribeTheme();
       window.removeEventListener("resize", refit);
       resizeObs?.disconnect();
       try { socket.close(); } catch {}

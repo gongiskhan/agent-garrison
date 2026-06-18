@@ -42,3 +42,4 @@ public/phase-1-demo/.playwright-artifacts/
 **/.codegraph/
 .serena/
 **/.serena/
+scripts/spike/chat-harness/out/

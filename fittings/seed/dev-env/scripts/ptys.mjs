@@ -467,11 +467,32 @@ export async function rehydratePtys(liveSessionIds) {
 
 // Re-attach to live tmux sessions on boot; reap orphans whose record is gone.
 async function rehydrateTmux(liveSessionIds) {
+  const names = listGarrisonSessions();
+  // Safety net against catastrophic restart loss. An EMPTY live set while tmux
+  // sessions are alive does not mean "every session was closed" — closing a
+  // session forgets its tmux session, so a clean shutdown leaves no orphans.
+  // It means the session ledger (state.json) was missing, empty, or unreadable
+  // at boot (a transient read failure, a half-written file). Reaping against an
+  // untrustworthy ledger would kill in-flight work — exactly the "I restarted
+  // and lost my sessions" failure. So when the ledger is empty we re-attach
+  // everything parseable and reap nothing this pass; the ledger heals and the
+  // next sweep handles any genuine orphan.
+  const trustLedger = liveSessionIds.size > 0;
+  if (!trustLedger && names.length > 0) {
+    console.warn(
+      `[dev-env] session ledger empty but ${names.length} tmux session(s) live — ` +
+      "re-attaching all, reaping none (ledger unreadable/empty; not destroying work)"
+    );
+  }
   let restored = 0;
-  for (const name of listGarrisonSessions()) {
+  for (const name of names) {
     const parsed = sessionIdRoleFromName(name);
-    if (!parsed || !liveSessionIds.has(parsed.sessionId)) {
-      void tmuxKillSession(name); // unparseable or record vanished → orphan
+    if (!parsed) {
+      void tmuxKillSession(name); // unparseable junk name → always an orphan
+      continue;
+    }
+    if (trustLedger && !liveSessionIds.has(parsed.sessionId)) {
+      void tmuxKillSession(name); // record genuinely vanished while we were down
       continue;
     }
     try {

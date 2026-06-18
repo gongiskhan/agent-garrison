@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { isExcluded } from "./excludes.mjs";
 
 const execP = promisify(exec);
 
@@ -263,6 +264,14 @@ export async function applyHookEvent(event, body) {
   if (matchedProject) {
     await setSessionStatus(matchedProject, matchedBranch, status, event, { claudeSessionId });
     return { ok: true, matched: true, autoCreated: false };
+  }
+
+  // Excluded system / internal dir with no existing record → don't start
+  // monitoring it (this is what keeps the Fitting packages, memory-compiler,
+  // ~/.claude, etc. out of the tab strip). An already-tracked path still
+  // updates above; only fresh auto-creation is suppressed.
+  if (isExcluded(normalized)) {
+    return { ok: true, matched: false, autoCreated: false, excluded: true };
   }
 
   // Auto-create: key the project by the actual cwd so multiple Claude

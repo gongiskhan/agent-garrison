@@ -1,0 +1,32 @@
+{
+  "slice": "dev-env-chat",
+  "title": "Richer dev-env chat: model + effort switchers, light/dark/system theme, voice (read-aloud + talk)",
+  "kind": "ui",
+  "status": "passed",
+  "updatedAt": "2026-06-18",
+  "covers": ["rich-chat (S5)", "chat-theme (S6)", "chat-voice (S7)"],
+  "gates": {
+    "buildDevEnv": { "command": "node fittings/seed/dev-env/ui/build.mjs", "exit": 0 },
+    "buildWebChannel": { "command": "node fittings/seed/web-channel-default/ui/build.mjs", "exit": 0, "note": "web-channel mounts <ClaudeChat> with no features prop -> toolbar/theme/voice never render; data-theme never set -> original dark look preserved. Provably unaffected." },
+    "serverSyntax": { "command": "node --check fittings/seed/dev-env/scripts/server.mjs", "exit": 0 },
+    "typecheck": { "command": "npm run typecheck", "exit": 0 },
+    "emojiScan": { "result": "clean", "note": "no emoji codepoints in any agent-touched UI file (user rule)" },
+    "visual": {
+      "evidence": ["docs/autothing/evidence/refit/s5-chat-dark.png", "docs/autothing/evidence/refit/s5-chat-light.png"],
+      "note": "rendered ClaudeChat standalone (stub transport) with all features on. Toolbar text verified: 'Model Opus/Sonnet/Haiku · Effort Normal/Think/Think hard/Ultrathink · Compact · Copy last · Read aloud'. data-theme flips dark(default)->light. Fixed a light-mode specificity bug where the active chip accent was washed out (added light-scoped .cc-chip-active/.cc-mode-active overrides)."
+    }
+  },
+  "mechanisms": {
+    "model": "selecting a chip submits `/model <id>` into the live Claude PTY via transport.sendCommand (no transcript turn); status line reflects the active model",
+    "effort": "the chosen directive (think / think hard / ultrathink) is prepended to the wire text of the next message only; Normal = nothing; persisted in localStorage",
+    "theme": "chat shares the terminal's localStorage key (garrison.devenv.termTheme) + a window CustomEvent so both re-theme in lockstep; default dark keeps web-channel unchanged",
+    "voice": "dev-env server proxies /voice/{health,tts,stt} to the deepgram-voice fitting (discovered from ~/.garrison/ui-fittings/deepgram-voice.json); UI gates voice controls on /voice/health and disables them gracefully on 503"
+  },
+  "knownLimits": [
+    "voice controls require the deepgram-voice fitting running + DEEPGRAM_API_KEY set; degrade to disabled otherwise (verified down-path)",
+    "live microphone (MediaRecorder/getUserMedia) not exercised in a real browser; the STT forward path was verified with synthetic audio through the proxy",
+    "the rich toolbar was verified via a standalone render harness, not an in-session dev-env screenshot (the dev-env chat needs a live Claude PTY session)"
+  ],
+  "crossModel": { "status": "pending-consolidated" },
+  "video": { "status": "pending" }
+}

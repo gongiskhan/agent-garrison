@@ -33,6 +33,7 @@ import {
   shutdownPtys
 } from "./ptys.mjs";
 import { tmuxAvailable } from "./tmux.mjs";
+import { DEFAULT_EXCLUDES, getExcludes, isExcluded, loadExcludes, saveExcludes } from "./excludes.mjs";
 import {
   openRichStream,
   richStatus,
@@ -71,6 +72,7 @@ const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
+const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
 
 const EXTERNAL_STATUSES = new Set(["working", "waiting", "starting"]);
 
@@ -148,11 +150,9 @@ function originAllowed(req) {
 // cleared record) are killed + forgotten here.
 function assembleSessions() {
   const rows = aggregateSessions();
-  const live = new Set();
   const out = [];
   for (const row of rows) {
     if (!row.id) continue; // legacy rows without an id cannot be addressed
-    live.add(row.id);
     const claudePty = ptySummary(row.id, "claude");
     const shellPty = ptySummary(row.id, "shell");
     const external = claudePty.state !== "running" && EXTERNAL_STATUSES.has(row.lastStatus);
@@ -170,18 +170,31 @@ function assembleSessions() {
       dirty: getDirty(row.worktreePath),
       isWorktree: isWorktreePath(row.worktreePath),
       external,
+      excluded: isExcluded(row.worktreePath),
       claudeClosed: Boolean(row.panesClosed?.claude),
       shellClosed: Boolean(row.panesClosed?.shell),
       claudePty,
       shellPty
     });
   }
-  for (const rec of listPtys()) {
-    if (!live.has(rec.sessionId)) killPty(rec.id, { forget: true });
-  }
-  for (const parkedId of listParked()) {
-    const m = parkedId.match(/^(.+)-(claude|shell)$/);
-    if (m && !live.has(m[1])) killPty(parkedId, { forget: true });
+  // Orphan sweep. A PTY (and, under tmux, its crash-persistent session) is an
+  // orphan only when its session record is GONE from the ledger entirely — not
+  // when the aggregate merely HID it (a missing / temporarily-unmounted cwd),
+  // and not when state.json was transiently unreadable. Both of those would
+  // empty/shrink `rows` without the session being truly deleted, and killing on
+  // that signal silently stops live Claude sessions. So reap against the RAW
+  // id set, and never when it's empty (empty ⇒ untrustworthy ⇒ reap nothing;
+  // a genuine no-sessions state also has no PTYs to reap). Real deletions go
+  // through deleteSession / close / cleanup, which forget their PTYs directly.
+  const rawIds = rawSessionIds();
+  if (rawIds.size > 0) {
+    for (const rec of listPtys()) {
+      if (!rawIds.has(rec.sessionId)) killPty(rec.id, { forget: true });
+    }
+    for (const parkedId of listParked()) {
+      const m = parkedId.match(/^(.+)-(claude|shell)$/);
+      if (m && !rawIds.has(m[1])) killPty(parkedId, { forget: true });
+    }
   }
   return out;
 }
@@ -445,6 +458,27 @@ async function handlePatchDevRoot(req, res) {
   jsonRes(res, 200, { devRoot: expanded, exists: existsSync(expanded) });
 }
 
+// Tab-monitoring exclusions (Dev Env → menu → Settings…). GET returns the
+// effective patterns plus the baked defaults (so the UI can offer a reset);
+// PUT replaces the list. Excluded cwds are not auto-created from hooks and are
+// hidden from the tab list unless a terminal is live there.
+function handleGetExcludes(req, res) {
+  jsonRes(res, 200, { patterns: getExcludes(), defaults: DEFAULT_EXCLUDES });
+}
+
+async function handlePutExcludes(req, res) {
+  const body = await readBody(req);
+  if (!body || !Array.isArray(body.patterns)) {
+    return jsonRes(res, 400, { error: "patterns array required" });
+  }
+  try {
+    const saved = await saveExcludes(body.patterns);
+    jsonRes(res, 200, { patterns: saved, defaults: DEFAULT_EXCLUDES });
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 // ─────────────────────────── rich chat surface (/sessions/:id/claude/*)
 // Backed by the claude PTY's headless mirror; same protocol as the gateway, so
 // the shared @garrison/claude-chat component works against either.
@@ -523,6 +557,112 @@ function handleClaudeInterrupt(req, res, sessionId) {
   jsonRes(res, 200, { ok: true });
 }
 
+// ─────────────────────────── voice proxy (/voice/* and /sessions/:id/voice/*)
+// Thin same-origin bridge to the deepgram-voice fitting (port 7085) so the
+// browser never needs to cross-origin to it. The voice URL is rediscovered from
+// the status file on EVERY request (the port can change / the fitting can come
+// and go); if the file is missing or its /health fails we return 503 with a
+// clear body and the UI disables voice. The Deepgram API key stays server-side
+// in the voice fitting — this proxy only forwards bytes.
+
+async function readVoiceUrl() {
+  const raw = await readFile(VOICE_STATUS_FILE, "utf8");
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed.url !== "string") throw new Error("voice status file invalid");
+  return parsed.url.replace(/\/$/, "");
+}
+
+async function readRawBody(req, limit = 25 * 1024 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > limit) throw new Error("payload too large");
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks);
+}
+
+// GET /voice/health -> { available, url?, keyConfigured? }. Never throws to the
+// client: any failure (no status file, fitting down, key missing) collapses to
+// available:false so the UI degrades gracefully.
+async function handleVoiceHealth(req, res) {
+  let voiceUrl;
+  try {
+    voiceUrl = await readVoiceUrl();
+  } catch {
+    return jsonRes(res, 200, { available: false });
+  }
+  try {
+    const probe = await fetch(`${voiceUrl}/health`, { signal: AbortSignal.timeout(2500) });
+    if (!probe.ok) return jsonRes(res, 200, { available: false, url: voiceUrl });
+    const h = await probe.json().catch(() => ({}));
+    return jsonRes(res, 200, {
+      available: true,
+      url: voiceUrl,
+      keyConfigured: h.keyConfigured !== false
+    });
+  } catch {
+    return jsonRes(res, 200, { available: false, url: voiceUrl });
+  }
+}
+
+// POST /voice/tts -> forward JSON {text,format?} to <voiceUrl>/tts, stream the
+// audio bytes back with the upstream content-type.
+async function handleVoiceTts(req, res) {
+  let voiceUrl;
+  try { voiceUrl = await readVoiceUrl(); }
+  catch { return jsonRes(res, 503, { error: "voice fitting not running" }); }
+  let body;
+  try { body = await readRawBody(req, 1 * 1024 * 1024); }
+  catch (err) { return jsonRes(res, 400, { error: `bad body: ${err.message}` }); }
+  try {
+    const up = await fetch(`${voiceUrl}/tts`, {
+      method: "POST",
+      headers: { "content-type": req.headers["content-type"] || "application/json" },
+      body
+    });
+    const buf = Buffer.from(await up.arrayBuffer());
+    if (!up.ok) {
+      // Bubble the upstream status (e.g. 503 = key missing) and body verbatim.
+      res.statusCode = up.status;
+      res.setHeader("Content-Type", up.headers.get("content-type") || "application/json");
+      return res.end(buf);
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Type", up.headers.get("content-type") || "audio/mpeg");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader("Cache-Control", "no-store");
+    res.end(buf);
+  } catch (err) {
+    jsonRes(res, 502, { error: `voice tts failed: ${err.message}` });
+  }
+}
+
+// POST /voice/stt -> forward raw audio bytes to <voiceUrl>/stt, return the JSON
+// { transcript, confidence }.
+async function handleVoiceStt(req, res) {
+  let voiceUrl;
+  try { voiceUrl = await readVoiceUrl(); }
+  catch { return jsonRes(res, 503, { error: "voice fitting not running" }); }
+  let body;
+  try { body = await readRawBody(req); }
+  catch (err) { return jsonRes(res, 400, { error: `bad audio body: ${err.message}` }); }
+  try {
+    const up = await fetch(`${voiceUrl}/stt`, {
+      method: "POST",
+      headers: { "content-type": req.headers["content-type"] || "audio/webm" },
+      body
+    });
+    const text = await up.text();
+    res.statusCode = up.status;
+    res.setHeader("Content-Type", up.headers.get("content-type") || "application/json");
+    res.end(text);
+  } catch (err) {
+    jsonRes(res, 502, { error: `voice stt failed: ${err.message}` });
+  }
+}
+
 function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
@@ -594,6 +734,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const tmuxOn = resolveTmuxMode(opts.useTmux);
   setTmuxMode(tmuxOn);
   console.log(`[dev-env] PTY backing: ${tmuxOn ? "tmux (sessions survive restarts)" : "node-pty (direct)"}`);
+  console.log(`[dev-env] tab exclusions: ${loadExcludes().length} pattern(s) active`);
   const free = await findFreePort(opts.port);
   if (free === null) { console.error(`[dev-env] no free port from ${opts.port}`); process.exit(1); }
   const liveOpts = { ...opts, port: free };
@@ -628,9 +769,23 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/projects" && method === "GET") return await handleListProjects(req, res, parsed.query);
       if (pathname === "/dev-root" && method === "GET") return await handleGetDevRoot(req, res);
       if (pathname === "/dev-root" && method === "PATCH") return await handlePatchDevRoot(req, res);
+      if (pathname === "/settings/excludes" && method === "GET") return handleGetExcludes(req, res);
+      if (pathname === "/settings/excludes" && method === "PUT") return await handlePutExcludes(req, res);
       if (pathname === "/tailscale-ip" && method === "GET") return handleTailscaleIp(req, res);
       if (pathname === "/app-port" && method === "GET") return await handleAppPort(req, res, parsed.query);
       if (pathname === "/browser-target" && method === "GET") return await handleBrowserTarget(req, res);
+
+      // Voice proxy. Accept it both bare (/voice/*) and under the chat
+      // transport's session prefix (/sessions/:id/voice/*) — the session id is
+      // irrelevant to voice; it's just the base path the rich chat posts under.
+      const voiceMatch = pathname.match(/^(?:\/sessions\/[^/]+)?\/voice\/(health|tts|stt)$/);
+      if (voiceMatch) {
+        const action = voiceMatch[1];
+        if (action === "health" && method === "GET") return await handleVoiceHealth(req, res);
+        if (action === "tts" && method === "POST") return await handleVoiceTts(req, res);
+        if (action === "stt" && method === "POST") return await handleVoiceStt(req, res);
+      }
+
       if (pathname === "/worktrees" && method === "GET") return await handleListWorktrees(req, res, parsed.query);
       if (pathname === "/worktrees" && method === "POST") return await handleCreateWorktree(req, res);
 

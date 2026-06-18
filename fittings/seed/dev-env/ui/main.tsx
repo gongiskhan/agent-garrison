@@ -27,7 +27,69 @@ function writeClaudeView(sessionId: string, v: "terminal" | "chat") {
   try { localStorage.setItem(`${LS_CLAUDE_VIEW}.${sessionId}`, v); } catch {}
 }
 import { BrowserPane, type WiredInfo } from "./browser-pane";
-import { NewWorktreeDialog, StartSessionDialog, ConfirmDeleteDialog, Toast } from "./dialogs";
+import { NewWorktreeDialog, StartSessionDialog, ConfirmDeleteDialog, SettingsDialog, Toast } from "./dialogs";
+import { getMode, setMode, type TermMode } from "./terminal-theme";
+
+// Light / Dark / System control for the terminal colour theme. Three-state
+// segmented control in the header; the choice is a global preference and
+// re-themes every live terminal at once (see terminal-theme.ts).
+const THEME_OPTIONS: { mode: TermMode; label: string; icon: React.ReactNode }[] = [
+  {
+    mode: "light",
+    label: "Light",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+          <line x1="8" y1="1" x2="8" y2="2.8" /><line x1="8" y1="13.2" x2="8" y2="15" />
+          <line x1="1" y1="8" x2="2.8" y2="8" /><line x1="13.2" y1="8" x2="15" y2="8" />
+          <line x1="3.1" y1="3.1" x2="4.3" y2="4.3" /><line x1="11.7" y1="11.7" x2="12.9" y2="12.9" />
+          <line x1="12.9" y1="3.1" x2="11.7" y2="4.3" /><line x1="4.3" y1="11.7" x2="3.1" y2="12.9" />
+        </g>
+      </svg>
+    )
+  },
+  {
+    mode: "dark",
+    label: "Dark",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" fill="currentColor" />
+      </svg>
+    )
+  },
+  {
+    mode: "system",
+    label: "System",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.5" y="2.5" width="13" height="8.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <line x1="5.5" y1="13.5" x2="10.5" y2="13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    )
+  }
+];
+
+function TermThemeToggle() {
+  const [mode, setLocalMode] = useState<TermMode>(() => getMode());
+  return (
+    <div className="term-theme" role="group" aria-label="Terminal theme">
+      {THEME_OPTIONS.map((opt) => (
+        <button
+          key={opt.mode}
+          type="button"
+          className={mode === opt.mode ? "active" : ""}
+          aria-pressed={mode === opt.mode}
+          title={`${opt.label} terminal theme`}
+          aria-label={`${opt.label} terminal theme`}
+          onClick={() => { setMode(opt.mode); setLocalMode(opt.mode); }}
+        >
+          {opt.icon}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface PtySummary {
   id?: string;
@@ -51,6 +113,7 @@ interface DevEnvSession {
   dirty: boolean | null;
   isWorktree: boolean;
   external: boolean;
+  excluded?: boolean;
   claudeClosed: boolean;
   shellClosed: boolean;
   claudePty: PtySummary;
@@ -434,7 +497,7 @@ function App() {
   // connected client cannot resurrect a pane this one just closed.
   const [browserPref, setBrowserPref] = useState<Record<string, "open" | "closed">>({});
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dialog, setDialog] = useState<null | "new-worktree" | "start-session" | "confirm-delete">(null);
+  const [dialog, setDialog] = useState<null | "new-worktree" | "start-session" | "confirm-delete" | "settings">(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const toastTimer = useRef<number | null>(null);
@@ -477,8 +540,10 @@ function App() {
   // when it fails the active filter, so toggling Show-all off never yanks
   // the workspace out from under you.
   const selected = sessions.find((s) => s.id === selectedId) ?? null;
+  // Excluded (system/internal) sessions hide by default — but never the one
+  // you're actively viewing, and "Show all" reveals them like any hidden row.
   const visibleSessions = sessions.filter(
-    (s) => showAll || s.id === selectedId || isActiveSession(s)
+    (s) => showAll || s.id === selectedId || (isActiveSession(s) && !s.excluded)
   );
   const hiddenCount = sessions.length - visibleSessions.length;
   useEffect(() => {
@@ -782,6 +847,9 @@ function App() {
                   ? "Show active only"
                   : `Show all sessions${hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ""}`}
               </button>
+              <button type="button" onClick={() => { setMenuOpen(false); setDialog("settings"); }}>
+                Settings…
+              </button>
               <div className="menu-sep" />
               <button
                 type="button"
@@ -860,6 +928,7 @@ function App() {
             <span className="tabs-empty">No active sessions — {hiddenCount} hidden.</span>
           )}
         </div>
+        <TermThemeToggle />
         {isMobile && selected && (
           <div className="segmented" role="tablist" aria-label="Pane">
             <button
@@ -947,6 +1016,12 @@ function App() {
           detail={selected.worktreePath}
           onClose={() => setDialog(null)}
           onConfirm={() => void deleteSelected()}
+        />
+      )}
+      {dialog === "settings" && (
+        <SettingsDialog
+          onClose={() => { setDialog(null); void refresh(); }}
+          onError={(m) => toast(m)}
         />
       )}
       <Toast message={toastMsg} />

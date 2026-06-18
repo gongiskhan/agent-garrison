@@ -248,6 +248,113 @@ export function ConfirmDeleteDialog({
   );
 }
 
+// Dev Env settings — tab-monitoring exclusions. One glob/segment pattern per
+// line; cwds matching any line are kept out of the tab strip (and not
+// auto-created from hooks). Server-persisted, so it applies across every
+// client. Autosaves on edit (debounced) — no Save button, per the Garrison
+// config convention; "Done" just closes.
+export function SettingsDialog({
+  onClose,
+  onError
+}: {
+  onClose: () => void;
+  onError: (message: string) => void;
+}) {
+  const [text, setText] = useState<string>("");
+  const [defaults, setDefaults] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/settings/excludes");
+        const data = await res.json();
+        if (Array.isArray(data.patterns)) setText(data.patterns.join("\n"));
+        if (Array.isArray(data.defaults)) setDefaults(data.defaults);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoaded(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced autosave once the initial load has happened.
+  useEffect(() => {
+    if (!loaded) return;
+    setSaveState("saving");
+    const handle = window.setTimeout(() => { void save(text); }, 500);
+    return () => window.clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, loaded]);
+
+  async function save(value: string) {
+    const patterns = value.split("\n").map((l) => l.trim()).filter(Boolean);
+    try {
+      const res = await fetch("/settings/excludes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patterns })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        onError(data?.error ?? `HTTP ${res.status}`);
+        setSaveState("idle");
+        return;
+      }
+      setSaveState("saved");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      setSaveState("idle");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Settings</h2>
+        <p className="modal-help">
+          Tab exclusions — cwds matching any line stay out of the tab strip and
+          aren't tracked from hooks. One pattern per line. <code>**</code>/<code>*</code>{" "}
+          are globs; a plain word (e.g. <code>memory-compiler</code>) matches that
+          path segment anywhere. A session with a live terminal here always shows,
+          regardless. Changes save automatically.
+        </p>
+        <label className="modal-label">
+          Excluded paths
+          <textarea
+            className="settings-textarea"
+            spellCheck={false}
+            value={text}
+            placeholder={"**/fittings/**\nmemory-compiler\n.claude"}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+            rows={10}
+          />
+        </label>
+        <div className="settings-foot">
+          <span className="settings-status">
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : ""}
+          </span>
+          {defaults.length > 0 && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setText(defaults.join("\n"))}
+              title="Reset to the built-in default exclusions"
+            >
+              Reset to defaults
+            </button>
+          )}
+          <button type="button" className="btn primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Toast({ message }: { message: string | null }) {
   if (!message) return null;
   return <div className="toast">{message}</div>;
