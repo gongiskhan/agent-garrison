@@ -1,6 +1,6 @@
 ---
 name: garrison-browser
-description: Inspect the browser tab running side-by-side in the Garrison Browser Fitting — take screenshots, read console messages, read network requests, dump DOM, run JS — without asking the user to paste them. Triggers when the user references the browser pane / the canvas / the app they're viewing, mentions a console message or network error they can see, asks "what's on the page", or is iterating on a UI change and wants verification.
+description: Inspect the browser tab running side-by-side in the Garrison Browser Fitting — take screenshots, read console messages, read network requests, dump DOM, run JS, and read what the user pointed at on the page — without asking them to paste or describe it. Triggers when the user references the browser pane / the canvas / the app they're viewing, mentions a console message or network error they can see, asks "what's on the page", says "this"/"that"/"here"/"remove this"/"change this" about the page, or is iterating on a UI change and wants verification.
 allowed-tools: Bash(~/.garrison/bin/garrison-browser:*) Bash(garrison-browser:*) Read
 ---
 
@@ -46,7 +46,35 @@ garrison-browser dom                               # full HTML
 garrison-browser dom --selector main               # outerHTML of a selector
 garrison-browser eval 'document.title'             # run JS, get the value back
 garrison-browser nav https://example.com           # navigate the tab
+garrison-browser selection                         # what the user pointed at
+garrison-browser selection --clear                 # clear the current selection
 ```
+
+## Pattern: the user pointed at something ("remove this")
+
+The canvas has **Select** and **Region** buttons. The user clicks an element
+(or drags a box) to mark what they mean, instead of describing it. When the
+user says "this", "that", "here", "remove this", "make this bigger", etc.
+about the page, resolve the reference with:
+
+```
+$ garrison-browser selection
+element  div.card > button.btn-primary
+  text:  "Add"
+  box:   320,210 84x32
+  page:  http://localhost:3002/
+  screenshot: /tmp/garrison-browser-selection-<tab>.png   (Read this to see it)
+  html:
+    <button class="btn-primary">Add</button>
+```
+
+Use the `selector`, `text`, and `html` to find the element in the source, and
+`Read` the screenshot to confirm visually. For a **region**, you get the box
+plus the elements inside it (their selectors + text) — treat those as the
+candidate set the user is gesturing at.
+
+If `selection` reports "(no selection …)", the user hasn't marked anything —
+ask them to click Select/Region and point, or fall back to describing.
 
 ## Pattern: see the page
 

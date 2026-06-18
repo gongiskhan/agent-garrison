@@ -70,7 +70,8 @@ let chromiumLaunching = null;
  *   qualityLevel: "low" | "med" | "high" | "ultra",
  *   inputClients: Set<import("ws").WebSocket>,
  *   focusedEditable: boolean,
- *   focusWatcher: NodeJS.Timeout | null
+ *   focusWatcher: NodeJS.Timeout | null,
+ *   selection: object | null
  * }} TabState
  */
 
@@ -144,6 +145,15 @@ async function attachInstrumentation(tab) {
   }
   cdp.on("Page.fileChooserOpened", () => {
     // No-op: interception alone keeps the native dialog from appearing.
+  });
+
+  // A real main-frame navigation makes any prior pick/region stale — drop it so
+  // the Operative never resolves "this" against a page that's gone.
+  cdp.on("Page.frameNavigated", (e) => {
+    if (e.frame && !e.frame.parentId && tab.selection) {
+      tab.selection = null;
+      broadcastToInput(tab, { type: "selection", selection: null });
+    }
   });
 
   // Console: console.log/warn/error/info/debug
@@ -463,7 +473,11 @@ async function openTab(initialUrl) {
     qualityLevel: "low",
     inputClients: new Set(),
     focusedEditable: false,
-    focusWatcher: null
+    focusWatcher: null,
+    // Most recent user "pointing" — an element pick or a drawn region — that the
+    // Operative session can read via GET /selection (the garrison-browser CLI),
+    // so "remove this" resolves to whatever the user marked on the canvas.
+    selection: null
   };
   tabs.set(tabId, tab);
   await attachInstrumentation(tab);
@@ -707,6 +721,20 @@ async function handleDom(_req, res, tabId, query) {
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
+}
+
+function handleGetSelection(_req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab) return jsonRes(res, 404, { error: "tab not found" });
+  jsonRes(res, 200, { selection: tab.selection });
+}
+
+function handleClearSelection(_req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab) return jsonRes(res, 404, { error: "tab not found" });
+  tab.selection = null;
+  broadcastToInput(tab, { type: "selection", selection: null });
+  jsonRes(res, 200, { ok: true });
 }
 
 async function handleEval(req, res, tabId) {
@@ -968,6 +996,165 @@ async function applyQuality(tab, level) {
   await restartScreencast(tab);
 }
 
+// ─── Selection (element pick / region draw) ─────────────────────────────
+//
+// The canvas can put the page into a "pick" or "region" mode. The client
+// forwards the cursor; the server hit-tests the page (elementFromPoint) and
+// reports a box + synthesised CSS selector so the canvas can highlight. On
+// commit it captures the element/region — selector, text, outerHTML, a cropped
+// PNG — into tab.selection, which the Operative reads via `garrison-browser
+// selection`. This is how "remove this" resolves without the user describing it.
+
+// In-page helpers, embedded into each Runtime.evaluate. Build a short, mostly
+// stable CSS path and a human label/text for an element.
+const SELECTION_HELPERS = `
+  function __gEsc(s){ try { return CSS.escape(s); } catch(e){ return String(s).replace(/[^a-zA-Z0-9_-]/g,'\\\\$&'); } }
+  function __gSel(e){
+    if(!e||e.nodeType!==1) return '';
+    if(e.id) return '#'+__gEsc(e.id);
+    var s=e.tagName.toLowerCase();
+    var cls=(e.getAttribute('class')||'').trim().split(/\\s+/).filter(Boolean).slice(0,3);
+    if(cls.length) s+='.'+cls.map(__gEsc).join('.');
+    var p=e.parentElement;
+    if(p){ var same=Array.prototype.filter.call(p.children,function(c){return c.tagName===e.tagName;}); if(same.length>1){ s+=':nth-of-type('+(Array.prototype.indexOf.call(p.children,e)+1)+')'; } }
+    return s;
+  }
+  function __gPath(e){
+    var parts=[],cur=e,depth=0;
+    while(cur&&cur.nodeType===1&&cur!==document.body&&cur!==document.documentElement&&depth<5){
+      parts.unshift(__gSel(cur));
+      if(cur.id) break;
+      cur=cur.parentElement; depth++;
+    }
+    return parts.join(' > ');
+  }
+  function __gLabel(e){
+    var cls=(e.getAttribute('class')||'').trim();
+    return e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+(cls?'.'+cls.split(/\\s+/).slice(0,2).join('.'):'');
+  }
+  function __gText(e){ return (e.innerText||e.textContent||'').replace(/\\s+/g,' ').trim(); }
+`;
+
+function elementInfoExpr(x, y) {
+  return `(function(){${SELECTION_HELPERS}
+    var el=document.elementFromPoint(${Number(x)},${Number(y)});
+    if(!el||el===document.body||el===document.documentElement) return null;
+    var r=el.getBoundingClientRect();
+    return { box:{x:r.x,y:r.y,w:r.width,h:r.height}, label:__gLabel(el), text:__gText(el).slice(0,160),
+      selector:__gPath(el), html:el.outerHTML.slice(0,2000), scrollX:window.scrollX, scrollY:window.scrollY };
+  })()`;
+}
+
+function regionInfoExpr(x, y, w, h) {
+  return `(function(){${SELECTION_HELPERS}
+    var R={x:${Number(x)},y:${Number(y)},w:${Number(w)},h:${Number(h)}};
+    var out=[],seen={};
+    var all=document.body?document.body.querySelectorAll('*'):[];
+    for(var i=0;i<all.length;i++){
+      var el=all[i],r=el.getBoundingClientRect();
+      if(r.width===0||r.height===0) continue;
+      var ix=Math.min(r.right,R.x+R.w)-Math.max(r.left,R.x);
+      var iy=Math.min(r.bottom,R.y+R.h)-Math.max(r.top,R.y);
+      if(ix<=0||iy<=0) continue;
+      if((ix*iy)/(r.width*r.height)<0.6) continue;
+      var interactive=/^(A|BUTTON|INPUT|SELECT|TEXTAREA|IMG|SVG|LABEL|H1|H2|H3|H4|LI|TD|TH|P|SPAN)$/.test(el.tagName);
+      var text=__gText(el);
+      if(!interactive&&!text) continue;
+      var sel=__gPath(el);
+      if(seen[sel]) continue; seen[sel]=1;
+      out.push({selector:sel,label:__gLabel(el),text:text.slice(0,60)});
+      if(out.length>=20) break;
+    }
+    return { elements:out, scrollX:window.scrollX, scrollY:window.scrollY };
+  })()`;
+}
+
+async function evalValue(tab, expression) {
+  if (!tab.cdpSession) return null;
+  try {
+    const { result } = await tab.cdpSession.send("Runtime.evaluate", { expression, returnByValue: true });
+    return result?.value ?? null;
+  } catch (err) {
+    console.warn(`[browser] selection eval failed: ${err.message}`);
+    return null;
+  }
+}
+
+// Crop a box (viewport CSS px + page scroll) to a PNG the Operative can Read.
+// One stable path per tab so the latest selection always overwrites the last.
+async function captureSelectionCrop(tab, box, scrollX = 0, scrollY = 0) {
+  if (!tab.cdpSession) return null;
+  const pad = 6;
+  const clip = {
+    x: Math.max(0, box.x + scrollX - pad),
+    y: Math.max(0, box.y + scrollY - pad),
+    width: Math.max(1, box.w + pad * 2),
+    height: Math.max(1, box.h + pad * 2),
+    scale: 1
+  };
+  try {
+    const { data } = await tab.cdpSession.send("Page.captureScreenshot", {
+      format: "png", clip, captureBeyondViewport: true
+    });
+    const file = path.join(tmpdir(), `garrison-browser-selection-${tab.tabId}.png`);
+    await writeFile(file, Buffer.from(data, "base64"));
+    return file;
+  } catch (err) {
+    console.warn(`[browser] selection crop failed: ${err.message}`);
+    return null;
+  }
+}
+
+function broadcastToInput(tab, payload) {
+  const data = JSON.stringify(payload);
+  for (const ws of tab.inputClients) {
+    if (ws.readyState === WebSocket.OPEN) { try { ws.send(data); } catch {} }
+  }
+}
+
+async function commitElementSelection(tab, x, y) {
+  const info = await evalValue(tab, elementInfoExpr(x, y));
+  if (!info) return;
+  const screenshotPath = await captureSelectionCrop(tab, info.box, info.scrollX, info.scrollY);
+  let pageUrl = ""; try { pageUrl = tab.page.url(); } catch {}
+  tab.selection = {
+    kind: "element",
+    selector: info.selector,
+    label: info.label,
+    text: info.text,
+    html: info.html,
+    box: info.box,
+    url: pageUrl,
+    ts: Date.now(),
+    screenshotPath
+  };
+  tab.lastActivityAt = Date.now();
+  broadcastToInput(tab, { type: "selection", selection: publicSelection(tab.selection) });
+}
+
+async function commitRegionSelection(tab, box) {
+  const info = await evalValue(tab, regionInfoExpr(box.x, box.y, box.w, box.h)) || { elements: [], scrollX: 0, scrollY: 0 };
+  const screenshotPath = await captureSelectionCrop(tab, box, info.scrollX, info.scrollY);
+  let pageUrl = ""; try { pageUrl = tab.page.url(); } catch {}
+  tab.selection = {
+    kind: "region",
+    box,
+    elements: info.elements || [],
+    url: pageUrl,
+    ts: Date.now(),
+    screenshotPath
+  };
+  tab.lastActivityAt = Date.now();
+  broadcastToInput(tab, { type: "selection", selection: publicSelection(tab.selection) });
+}
+
+// Slim view pushed to the canvas (it doesn't need the full outerHTML).
+function publicSelection(sel) {
+  if (!sel) return null;
+  return { kind: sel.kind, label: sel.label, text: sel.text, box: sel.box,
+    count: sel.elements ? sel.elements.length : undefined };
+}
+
 async function attachInput(ws, tab) {
   tab.inputClients.add(ws);
   setupHeartbeat(ws, `input tabId=${tab.tabId}`);
@@ -994,6 +1181,29 @@ async function attachInput(ws, tab) {
     }
     if (msg.type === "quality") {
       await applyQuality(tab, msg.level);
+      return;
+    }
+    // Selection modes — pick an element or draw a region for the Operative.
+    if (msg.type === "pick-hover") {
+      const info = await evalValue(tab, elementInfoExpr(Number(msg.x) || 0, Number(msg.y) || 0));
+      try { ws.send(JSON.stringify({ type: "pick-target", target: info && { box: info.box, label: info.label, text: info.text, selector: info.selector } })); } catch {}
+      return;
+    }
+    if (msg.type === "pick-commit") {
+      await commitElementSelection(tab, Number(msg.x) || 0, Number(msg.y) || 0);
+      return;
+    }
+    if (msg.type === "region-commit") {
+      const box = {
+        x: Number(msg.x) || 0, y: Number(msg.y) || 0,
+        w: Math.max(1, Number(msg.w) || 0), h: Math.max(1, Number(msg.h) || 0)
+      };
+      await commitRegionSelection(tab, box);
+      return;
+    }
+    if (msg.type === "selection-clear") {
+      tab.selection = null;
+      broadcastToInput(tab, { type: "selection", selection: null });
       return;
     }
     await dispatchInput(tab, msg);
@@ -1175,6 +1385,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
       const evalMatch = pathname.match(/^\/tabs\/([^/]+)\/eval$/);
       if (evalMatch && method === "POST") return await handleEval(req, res, decodeURIComponent(evalMatch[1]));
+
+      const selMatch = pathname.match(/^\/tabs\/([^/]+)\/selection$/);
+      if (selMatch && method === "GET") return handleGetSelection(req, res, decodeURIComponent(selMatch[1]));
+      if (selMatch && method === "DELETE") return handleClearSelection(req, res, decodeURIComponent(selMatch[1]));
 
       const delMatch = pathname.match(/^\/tabs\/([^/]+)$/);
       if (delMatch && method === "DELETE") return await handleDeleteTab(req, res, decodeURIComponent(delMatch[1]));
