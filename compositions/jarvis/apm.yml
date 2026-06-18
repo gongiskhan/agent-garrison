@@ -7,7 +7,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/local-voice
-    - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/knowledge
 x-garrison:
   composition:
     id: jarvis
@@ -38,7 +38,7 @@ x-garrison:
             port: 7090
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
-            whisper_model: small.en
+            whisper_model: small
             wake_word: "off"
         - id: jarvis-os
           config:
@@ -46,7 +46,6 @@ x-garrison:
             bind_host: 127.0.0.1
             gateway_url: ''
       memory:
-        - id: memory
+        - id: knowledge
           config:
-            recency_window: 20
-            persistence_cadence: hourly
+            vault_dir: vault

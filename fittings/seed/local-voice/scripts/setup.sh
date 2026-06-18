@@ -56,4 +56,12 @@ fetch() {
 fetch "$REL/kokoro-v1.0.onnx" "$KOKORO_ONNX"
 fetch "$REL/voices-v1.0.bin"  "$KOKORO_VOICES"
 
-echo "[local-voice:setup] done — venv + deps + Kokoro models ready"
+# 4. Piper voices (native accents Kokoro lacks). pt_PT = European Portuguese
+#    (~63MB .onnx + small .json), fetched from rhasspy/piper-voices on HF.
+PIPER_DIR="$VS/piper-voices"
+mkdir -p "$PIPER_DIR"
+PIPER_PT_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_PT/tug%C3%A3o/medium"
+fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx"      "$PIPER_DIR/pt_PT-tugao-medium.onnx"
+fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx.json" "$PIPER_DIR/pt_PT-tugao-medium.onnx.json"
+
+echo "[local-voice:setup] done — venv + deps + Kokoro + Piper(pt_PT) models ready"

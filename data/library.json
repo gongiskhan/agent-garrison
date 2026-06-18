@@ -109,7 +109,7 @@
     "name": "Voice (Local)",
     "repo": "local:fittings/seed/local-voice",
     "localPath": "fittings/seed/local-voice",
-    "summary": "Fully local speech I/O on port 7090. No cloud, no API key: a Node wrapper supervises a Kokoro TTS + faster-whisper STT voice-server and exposes the same kind:voice contract as deepgram-voice, so channels consume it unchanged for push-to-talk and read-aloud.",
+    "summary": "Fully local, multilingual speech I/O on port 7090. No cloud, no API key: a Node wrapper supervises a faster-whisper STT + Kokoro/Piper TTS voice-server and exposes the same kind:voice contract as deepgram-voice. STT auto-detects the spoken language (PT/FR/EN/ES/IT) and TTS replies in that language's own voice — Portuguese via Piper's native European pt_PT voice, the rest via Kokoro — so channels consume it unchanged for push-to-talk and read-aloud.",
     "platforms": [
       "claude-code"
     ],

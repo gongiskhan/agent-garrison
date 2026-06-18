@@ -47,7 +47,12 @@ function parseArgs(argv) {
     // push-to-talk and the mic would hear our own TTS).
     kokoroVoice: process.env.KOKORO_VOICE || "bm_george",
     kokoroSpeed: process.env.KOKORO_SPEED || "1.0",
-    whisperModel: process.env.WHISPER_MODEL || "small.en",
+    // Multilingual by default — `small` auto-detects the spoken language so the
+    // Operative can be addressed in PT/FR/EN/… (use `small.en` for English-only).
+    whisperModel: process.env.WHISPER_MODEL || "small",
+    // JSON map ISO-lang → { voice, klang } for per-language TTS voice. Empty =
+    // the voice-server's built-in defaults (en/pt/fr/es/it).
+    langVoices: process.env.LANG_VOICES || "",
     wakeWord: process.env.WAKE_WORD || "off"
   };
   for (let i = 0; i < argv.length; i++) {
@@ -114,7 +119,7 @@ async function readJsonBody(req, limit = 1 * 1024 * 1024) {
 
 // Probe the supervised Python /health. Resolves true only once the models are
 // warm and uvicorn is serving (server.py warms the models before listening).
-function pyHealth(pyPort, timeoutMs = 800) {
+function pyHealth(pyPort, timeoutMs = 2500) {
   return new Promise((resolve) => {
     let settled = false;
     const settle = (ok) => { if (!settled) { settled = true; resolve(ok); } };
@@ -190,10 +195,14 @@ async function handleStt(req, res, ctx) {
         }
         let data = {};
         try { data = JSON.parse(raw); } catch {}
-        // Translate the Fable shape { text, ms } → Garrison { transcript, confidence }.
+        // Translate the voice-server shape { text, ms, language, language_probability }
+        // → the Garrison voice contract { transcript, confidence, detected_language }.
+        // confidence stays null (whisper gives no transcript-level confidence);
+        // detected_language is the auto-detected spoken language (ISO-639-1).
         jsonRes(res, 200, {
           transcript: typeof data.text === "string" ? data.text : "",
-          confidence: null
+          confidence: null,
+          detected_language: typeof data.language === "string" ? data.language : null
         });
       });
     }
@@ -239,6 +248,10 @@ async function handleTts(req, res, ctx) {
       res.statusCode = 200;
       res.setHeader("Content-Type", "audio/wav");
       res.setHeader("Cache-Control", "no-store");
+      // Surface the language/voice the voice-server actually chose from the text,
+      // so consumers can log which voice spoke (X-Voice-Lang = ISO-639-1).
+      if (up.headers["x-voice-lang"]) res.setHeader("X-Voice-Lang", up.headers["x-voice-lang"]);
+      if (up.headers["x-voice"]) res.setHeader("X-Voice", up.headers["x-voice"]);
       up.pipe(res);
     }
   );
@@ -259,6 +272,7 @@ function spawnPython(ctx) {
       KOKORO_VOICE: ctx.kokoroVoice,
       KOKORO_SPEED: ctx.kokoroSpeed,
       WHISPER_MODEL: ctx.whisperModel,
+      ...(ctx.langVoices ? { LANG_VOICES: ctx.langVoices } : {}),
       WAKE_WORD: ctx.wakeWord
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -317,13 +331,29 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     clearStatusFile().finally(() => process.exit(1));
   });
 
-  // Poll the Python until it warms up; flip enginesReady on. Keep polling so a
-  // late crash/restart is reflected.
+  // Poll the Python until it warms up; flip enginesReady on. `pyReady` is
+  // STICKY: once the engines are confirmed up, a single slow /health (the
+  // Python is busy synthesizing on CPU and can't answer within the timeout)
+  // must NOT gate real requests — only sustained misses flip it back to
+  // not-ready. A genuine Python death is caught separately by pyChild.on(exit),
+  // which shuts the whole wrapper down, so this poll is purely warmup +
+  // liveness, never the crash detector.
+  let healthMisses = 0;
+  const HEALTH_MISS_LIMIT = 3;
   const healthTimer = setInterval(async () => {
     const ok = await pyHealth(pyPort);
-    if (ok !== ctx.pyReady) {
-      ctx.pyReady = ok;
-      if (ok) console.log("[local-voice] voice engines ready");
+    if (ok) {
+      healthMisses = 0;
+      if (!ctx.pyReady) {
+        ctx.pyReady = true;
+        console.log("[local-voice] voice engines ready");
+      }
+    } else {
+      healthMisses++;
+      if (ctx.pyReady && healthMisses >= HEALTH_MISS_LIMIT) {
+        ctx.pyReady = false;
+        console.log(`[local-voice] voice engines unresponsive (${healthMisses} missed health checks)`);
+      }
     }
   }, 1500);
 

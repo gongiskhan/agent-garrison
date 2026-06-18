@@ -28,6 +28,7 @@ import struct
 import sys
 import threading
 import time
+from typing import Optional
 
 # ctranslate2 (faster-whisper) needs cuDNN/cuBLAS DLLs from the pip
 # nvidia-* wheels on the DLL search path BEFORE import. Windows-only API —
@@ -51,17 +52,125 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # free internal port and passes it via VOICE_PY_PORT; defaults to the Fable
 # canonical 3108 when run standalone. Only line changed in this Fable file.
 PORT = int(os.environ.get("VOICE_PY_PORT", "3108"))
-VOICE = os.environ.get("KOKORO_VOICE", "bm_george")  # calm British male
+VOICE = os.environ.get("KOKORO_VOICE", "bm_george")  # calm British male (en fallback)
 SPEED = float(os.environ.get("KOKORO_SPEED", "1.0"))
 SAMPLE_RATE = 24000  # kokoro output rate
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small.en")
-# domain vocab bias — keeps acronyms like MRR from coming out "M.R.A."
-WHISPER_PROMPT = os.environ.get(
-    "WHISPER_PROMPT",
-    "Jarvis dashboard voice commands: MRR, revenue, YouTube subscribers, "
-    "TikTok, Instagram, metrics pull, morning report, inbox brief, GitHub "
-    "trending, trend scan, daily briefing, runner, queue, top three priorities.",
-)
+# Multilingual by default: the plain `small` checkpoint auto-detects the spoken
+# language (PT/FR/EN/…). `small.en` is English-only — set WHISPER_MODEL back to
+# it only if you never speak anything but English.
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
+# Optional initial_prompt to bias vocabulary (e.g. domain acronyms). EMPTY by
+# default: an English prompt skews whisper's language auto-detection toward
+# English, which would defeat the multilingual goal. Set WHISPER_PROMPT only on
+# an English-pinned deployment.
+WHISPER_PROMPT = os.environ.get("WHISPER_PROMPT", "").strip()
+
+# --- multilingual TTS voice routing ---------------------------------------
+# The spoken voice is chosen from the language of the RESPONSE TEXT (detected
+# locally with lingua, ~ms) — not from what was heard — so the voice matches
+# what Claude actually wrote ("heard PT, asked for the answer in EN" → EN voice).
+# Map: ISO-639-1 → { voice: Kokoro voice id, klang: Kokoro lang code }.
+# All five pairs below are verified to synthesize on this host. FR ships only a
+# female voice (ff_siwis) in Kokoro v1.0 — the voice changing with the language
+# is an accepted consequence (see the brief). Override the whole map via the
+# LANG_VOICES env var (JSON), e.g. {"pt":{"voice":"pf_dora","klang":"pt-br"}}.
+DEFAULT_LANG_VOICES = {
+    "en": {"voice": VOICE, "klang": "en-gb"},
+    "pt": {"voice": "pm_alex", "klang": "pt-br"},
+    "fr": {"voice": "ff_siwis", "klang": "fr-fr"},
+    "es": {"voice": "em_alex", "klang": "es"},
+    "it": {"voice": "im_nicola", "klang": "it"},
+}
+try:
+    _override = json.loads(os.environ.get("LANG_VOICES", "") or "{}")
+    LANG_VOICES = {**DEFAULT_LANG_VOICES, **_override}
+except Exception as e:  # malformed env JSON must not take voice down
+    print(f"bad LANG_VOICES json ({e}); using defaults")
+    LANG_VOICES = dict(DEFAULT_LANG_VOICES)
+# Voice used when text-language detection is unsure (short replies) or returns a
+# language we have no voice for.
+DEFAULT_TTS_LANG = os.environ.get("TTS_DEFAULT_LANG", "en")
+if DEFAULT_TTS_LANG not in LANG_VOICES:
+    DEFAULT_TTS_LANG = next(iter(LANG_VOICES))
+
+# lingua text language ID, constrained to the languages we can actually voice
+# (a small candidate set is both faster and more accurate on short strings).
+# Built lazily so import cost is paid on the first /speak, not at module load.
+_ISO_TO_LINGUA = {
+    "en": "ENGLISH", "pt": "PORTUGUESE", "fr": "FRENCH",
+    "es": "SPANISH", "it": "ITALIAN", "de": "GERMAN", "nl": "DUTCH",
+}
+_lang_detector = None
+
+
+def detect_text_lang(text: str) -> str:
+    """ISO-639-1 of `text`, restricted to the LANG_VOICES candidates. Falls back
+    to DEFAULT_TTS_LANG when lingua is unsure or unavailable."""
+    global _lang_detector
+    if _lang_detector is False:
+        return DEFAULT_TTS_LANG
+    if _lang_detector is None:
+        try:
+            from lingua import Language, LanguageDetectorBuilder
+            cands = [
+                getattr(Language, _ISO_TO_LINGUA[k])
+                for k in LANG_VOICES
+                if k in _ISO_TO_LINGUA and hasattr(Language, _ISO_TO_LINGUA[k])
+            ]
+            if len(cands) < 2:  # builder needs ≥2 languages
+                _lang_detector = False
+                return DEFAULT_TTS_LANG
+            _lang_detector = LanguageDetectorBuilder.from_languages(*cands).build()
+        except Exception as e:
+            print(f"lingua unavailable ({e}); TTS will use {DEFAULT_TTS_LANG}")
+            _lang_detector = False
+            return DEFAULT_TTS_LANG
+    try:
+        lang = _lang_detector.detect_language_of(text)
+        if lang is not None:
+            code = lang.iso_code_639_1.name.lower()
+            if code in LANG_VOICES:
+                return code
+    except Exception:
+        pass
+    return DEFAULT_TTS_LANG
+
+
+# --- Piper TTS (native voices Kokoro lacks, e.g. European Portuguese) -------
+# Kokoro v1.0 only ships Brazilian pt voices; for a pt_PT (European) speaker that
+# sounds non-native. Piper has a pt_PT voice AND is faster (RTF ~0.12 vs ~0.45),
+# so for any language with a Piper voice, /tts uses Piper instead of Kokoro.
+# Map ISO-639-1 → Piper .onnx path; override via PIPER_VOICES (JSON).
+_PIPER_DIR = os.path.join(HERE, "piper-voices")
+DEFAULT_PIPER_VOICES = {
+    "pt": os.path.join(_PIPER_DIR, "pt_PT-tugao-medium.onnx"),
+}
+try:
+    _pv_override = json.loads(os.environ.get("PIPER_VOICES", "") or "{}")
+    PIPER_VOICE_PATHS = {**DEFAULT_PIPER_VOICES, **_pv_override}
+except Exception as e:
+    print(f"bad PIPER_VOICES json ({e}); using defaults")
+    PIPER_VOICE_PATHS = dict(DEFAULT_PIPER_VOICES)
+
+piper_voices = {}  # iso-639-1 -> loaded PiperVoice
+
+
+def load_piper():
+    """Load every Piper voice whose model file is present. A missing model or a
+    missing piper-tts package is non-fatal — that language just stays on Kokoro."""
+    try:
+        from piper import PiperVoice
+    except Exception as e:
+        print(f"piper-tts unavailable ({e}); all languages stay on Kokoro")
+        return
+    for code, path in PIPER_VOICE_PATHS.items():
+        if path and os.path.exists(path):
+            try:
+                piper_voices[code] = PiperVoice.load(path)
+                print(f"piper voice loaded: {code} <- {os.path.basename(path)}")
+            except Exception as e:
+                print(f"piper load failed for {code} ({e}); staying on Kokoro for {code}")
+
 
 app = FastAPI()
 
@@ -100,17 +209,19 @@ def load_whisper():
     return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8"), "cpu"
 
 whisper, WHISPER_DEVICE = load_whisper()
+load_piper()
 
 # one whisper model, two callers (/stt route + wake-word thread) — serialize
 whisper_lock = threading.Lock()
 
 
 def transcribe_pcm(audio_f32):
-    """float32 mono 16k -> text. Shared by the wake-word capture path."""
+    """float32 mono 16k -> text. Shared by the wake-word capture path. Language
+    is auto-detected (no `language=` hint) so non-English speech transcribes."""
     with whisper_lock:
         segments, _info = whisper.transcribe(
-            audio_f32, beam_size=1, language="en", vad_filter=False,
-            initial_prompt=WHISPER_PROMPT,
+            audio_f32, beam_size=1, vad_filter=False,
+            initial_prompt=WHISPER_PROMPT or None,
         )
         # segments is a lazy generator — consume INSIDE the lock or the
         # actual decode runs unguarded
@@ -209,7 +320,19 @@ def health():
         "engine": "kokoro",
         "voice": VOICE,
         "device": KOKORO_DEVICE,
-        "stt": {"ok": True, "model": WHISPER_MODEL, "device": WHISPER_DEVICE},
+        "languages": sorted(set(LANG_VOICES) | set(piper_voices)),
+        "lang_voices": {
+            **{k: f"kokoro:{v['voice']}" for k, v in LANG_VOICES.items()},
+            **{k: f"piper:{k}" for k in piper_voices},  # piper overrides per language
+        },
+        "piper_languages": sorted(piper_voices.keys()),
+        "stt": {
+            "ok": True,
+            "model": WHISPER_MODEL,
+            "device": WHISPER_DEVICE,
+            # `small.en` (or any *.en) is English-only; everything else auto-detects.
+            "multilingual": not WHISPER_MODEL.endswith(".en"),
+        },
         "wake": {
             "enabled": WAKE_ENABLED,
             "ok": bool(wake and wake.ok),
@@ -226,33 +349,65 @@ async def stt(req: Request):
     if len(audio) < 1000:
         return Response(status_code=400, content="clip too short")
     t0 = time.time()
-    # faster-whisper decodes webm/opus/wav via PyAV from a file-like object
+    # faster-whisper decodes webm/opus/wav via PyAV from a file-like object.
+    # No `language=` hint → whisper detects it and reports it on `info`, so the
+    # spoken language travels with the transcript (the brief's anti-delay rule:
+    # no separate language-detection round-trip).
     with whisper_lock:
-        segments, _info = whisper.transcribe(
-            io.BytesIO(audio), beam_size=1, language="en", vad_filter=False,
-            initial_prompt=WHISPER_PROMPT,
+        segments, info = whisper.transcribe(
+            io.BytesIO(audio), beam_size=1, vad_filter=False,
+            initial_prompt=WHISPER_PROMPT or None,
         )
         text = " ".join(s.text.strip() for s in segments).strip()
-    return {"text": text, "ms": int((time.time() - t0) * 1000)}
+    return {
+        "text": text,
+        "ms": int((time.time() - t0) * 1000),
+        "language": info.language,
+        "language_probability": round(float(info.language_probability), 3),
+    }
 
 
 @app.get("/speak")
-def speak(text: str = ""):
+def speak(text: str = "", lang: Optional[str] = None):
     text = text.strip()[:900]
     if not text:
         return Response(status_code=400, content="empty text")
 
-    def gen():
-        yield wav_header(SAMPLE_RATE)
-        for chunk in chunks_of(text):
-            samples, sr = kokoro.create(chunk, voice=VOICE, speed=SPEED, lang="en-gb")
-            pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-            yield pcm.tobytes()
-            # short breath between sentences
-            yield b"\x00" * int(SAMPLE_RATE * 0.12) * 2
+    # Pick the voice from the response text's language (local, ~ms). A caller
+    # may override by passing ?lang=pt to force a specific voice.
+    known = set(LANG_VOICES) | set(piper_voices)
+    code = lang.lower() if (lang and lang.lower() in known) else detect_text_lang(text)
 
+    # Piper wins for any language it has a voice for (native accent + faster);
+    # otherwise fall back to Kokoro. The sample rate differs per engine, so it's
+    # fixed for this whole response (one call = one language = one engine).
+    pvoice = piper_voices.get(code)
+    if pvoice is not None:
+        out_sr = pvoice.config.sample_rate
+        engine, voice_label = "piper", code
+    else:
+        vmap = LANG_VOICES.get(code, LANG_VOICES[DEFAULT_TTS_LANG])
+        voice, klang = vmap["voice"], vmap["klang"]
+        out_sr = SAMPLE_RATE
+        engine, voice_label = "kokoro", voice
+
+    def gen():
+        yield wav_header(out_sr)
+        for chunk in chunks_of(text):
+            if pvoice is not None:
+                for audio in pvoice.synthesize(chunk):
+                    yield audio.audio_int16_bytes
+            else:
+                samples, sr = kokoro.create(chunk, voice=voice, speed=SPEED, lang=klang)
+                pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+                yield pcm.tobytes()
+            # short breath between sentences
+            yield b"\x00" * int(out_sr * 0.12) * 2
+
+    # Surface the chosen engine/voice/language for logging on the consumer side.
     return StreamingResponse(gen(), media_type="audio/wav",
-                             headers={"Cache-Control": "no-store"})
+                             headers={"Cache-Control": "no-store",
+                                      "X-Voice-Lang": code, "X-Voice": f"{engine}:{voice_label}"})
 
 
 if __name__ == "__main__":
@@ -264,6 +419,13 @@ if __name__ == "__main__":
     import soundfile as sf
     sf.write(warm, samples, SAMPLE_RATE, format="WAV")
     warm.seek(0)
-    list(whisper.transcribe(warm, beam_size=1, language="en")[0])
-    print(f"kokoro({KOKORO_DEVICE}) + whisper({WHISPER_MODEL}/{WHISPER_DEVICE}) warm — serving :{PORT} voice={VOICE}")
+    list(whisper.transcribe(warm, beam_size=1)[0])  # warm the auto-detect path
+    detect_text_lang("warmup")  # build the lingua detector before first /speak
+    for _pv in piper_voices.values():  # warm each Piper voice's onnx graph
+        try:
+            list(_pv.synthesize("Olá."))
+        except Exception:
+            pass
+    print(f"kokoro({KOKORO_DEVICE}) + whisper({WHISPER_MODEL}/{WHISPER_DEVICE}) "
+          f"warm — serving :{PORT} langs={sorted(LANG_VOICES)} default={DEFAULT_TTS_LANG}")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")

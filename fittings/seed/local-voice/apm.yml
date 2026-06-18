@@ -1,6 +1,6 @@
 name: local-voice
 version: 0.1.0
-description: Local Voice Fitting (channels role, own-port). Fully local speech I/O — no cloud, no API key. A Node own-port wrapper supervises the Fable voice-server (Kokoro TTS + faster-whisper STT, MIT/Apache) and exposes the Garrison voice contract on port 7090, so any channel that consumes `voice` works against it unchanged (drop-in alternative to deepgram-voice).
+description: Local Voice Fitting (channels role, own-port). Fully local, multilingual speech I/O — no cloud, no API key. A Node own-port wrapper supervises the voice-server (faster-whisper STT + Kokoro/Piper TTS, MIT/Apache) and exposes the Garrison voice contract on port 7090, so any channel that consumes `voice` works against it unchanged (drop-in alternative to deepgram-voice). STT auto-detects the spoken language (PT/FR/EN/ES/IT/…) and TTS speaks the response back in its own language — Portuguese uses Piper's native European pt_PT voice, the rest use Kokoro.
 target: claude
 type: hybrid
 includes: auto
@@ -12,7 +12,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Key-free local speech I/O. POST audio to /stt for a transcript; POST text to /tts for spoken audio. STT = faster-whisper, TTS = Kokoro, both running on the host via a supervised Python voice-server. Nothing leaves the machine.
+  summary: Key-free local, multilingual speech I/O. POST audio to /stt for a transcript plus the auto-detected language; POST text to /tts for spoken audio in the response text's own language. STT = faster-whisper (multilingual), TTS = Kokoro (per-language voice), both running on the host via a supervised Python voice-server. Nothing leaves the machine.
   config_schema:
     - key: port
       type: integer
@@ -32,8 +32,16 @@ x-garrison:
       description: Kokoro TTS speech rate multiplier.
     - key: whisper_model
       type: string
-      default: small.en
-      description: faster-whisper model used by /stt (e.g. tiny.en, base.en, small.en).
+      default: small
+      description: faster-whisper model used by /stt. Multilingual checkpoints (tiny, base, small, medium, large-v3) auto-detect the spoken language; the *.en variants (small.en…) are English-only and faster. Default small auto-detects PT/FR/EN/… in ~1.7s on CPU.
+    - key: lang_voices
+      type: string
+      default: ""
+      description: 'Optional JSON map ISO-639-1 → { voice, klang } overriding the per-language Kokoro voice used by /tts. Empty uses the built-in defaults (en=bm_george/en-gb, fr=ff_siwis/fr-fr, es=em_alex/es, it=im_nicola/it). Note: pt is served by Piper (see piper_voices), not Kokoro.'
+    - key: piper_voices
+      type: string
+      default: ""
+      description: 'Optional JSON map ISO-639-1 → Piper .onnx path. Languages here use Piper instead of Kokoro (native accent + faster). Default: pt → voice-server/piper-voices/pt_PT-tugao-medium.onnx (European Portuguese), since Kokoro only has Brazilian pt voices. Set to {} to disable Piper and fall back to Kokoro for everything.'
     - key: wake_word
       type: select
       default: "off"
@@ -69,11 +77,18 @@ x-garrison:
                        503 until ready.
       POST /stt      - speech-to-text. Body: raw audio bytes (Content-Type =
                        the recording's mime, e.g. audio/webm or audio/wav).
-                       Returns: { transcript, confidence }. (confidence is
-                       null — faster-whisper does not return one.)
+                       Returns: { transcript, confidence, detected_language }.
+                       confidence is null (faster-whisper gives none);
+                       detected_language is the auto-detected spoken language
+                       as an ISO-639-1 code (pt, fr, en, …).
       POST /tts      - text-to-speech. Body: { "text": "...", "format": "wav" }.
                        Returns: audio bytes (audio/wav), streamed
-                       sentence-by-sentence so playback can start early.
-    Everything runs on the host (Kokoro + faster-whisper); no key, no network.
+                       sentence-by-sentence so playback can start early. The
+                       voice is chosen from the TEXT's own language, so a reply
+                       written in PT is spoken in a PT voice without any extra
+                       call. Pass it the Operative's reply text verbatim.
+    The Operative replies in the language it was addressed in; this Fitting then
+    speaks that reply back in the same language. Everything runs on the host
+    (Kokoro + faster-whisper); no key, no network.
     The WS /stream incremental-STT endpoint is not implemented in v1 — use the
     batch /stt with push-to-talk.
