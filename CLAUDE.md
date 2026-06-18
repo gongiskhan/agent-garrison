@@ -267,6 +267,12 @@ than this file.
 
 ## Working conventions
 
+- **HARD RULE — never create a git branch unless explicitly told to.**
+  No `git checkout -b`, `git branch <new>`, `git switch -c`, or
+  worktree/agent isolation that spawns a branch. Switching to an
+  **existing** branch is fine. Work stays on the current/specified
+  branch; to recover "lost" work, check existing branches / reflog /
+  stash and `git checkout` the existing branch — don't invent one.
 - **Don't optimise the Faculty list further before §10 DoD is
   observable.** New Faculties land only when a real Fitting needs one.
 - **Don't add a new capability kind speculatively.** Add one when a Fitting
