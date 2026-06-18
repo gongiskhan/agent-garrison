@@ -105,6 +105,36 @@
     }
   },
   {
+    "id": "local-voice",
+    "name": "Voice (Local)",
+    "repo": "local:fittings/seed/local-voice",
+    "localPath": "fittings/seed/local-voice",
+    "summary": "Fully local speech I/O on port 7090. No cloud, no API key: a Node wrapper supervises a Kokoro TTS + faster-whisper STT voice-server and exposes the same kind:voice contract as deepgram-voice, so channels consume it unchanged for push-to-talk and read-aloud.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-local-voice",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "jarvis-os",
+    "name": "Jarvis Agentic OS",
+    "repo": "local:fittings/seed/jarvis-os",
+    "localPath": "fittings/seed/jarvis-os",
+    "summary": "Voice-first Jarvis-style HUD on port 7092. Central audio-reactive core (DitherCore), hold-to-talk → Orchestrator (via the gateway) → reply read aloud. Consumes a kind:voice Fitting. Visual layer reused from the Fable jarvis-hud reference.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-jarvis-os",
+      "global": 4.6,
+      "claude_code": 4.6
+    }
+  },
+  {
     "id": "artifact-store",
     "name": "Artifact store",
     "repo": "local:fittings/seed/artifact-store",

@@ -1,0 +1,14 @@
+# Local Voice — Python deps for the Fable voice-server (Kokoro TTS + faster-whisper STT).
+# Derived from the Fable jarvis-hud README. CPU build (Apple Silicon / no CUDA):
+# the README's onnxruntime-gpu + nvidia-* wheels are Linux/Windows-GPU only.
+kokoro-onnx
+faster-whisper
+fastapi
+uvicorn
+soundfile
+numpy
+onnxruntime
+# Wake word (optional; off by default in v1 — speaker bleed). Install separately
+# per the Fable README if you want hands-free:
+#   pip install --no-deps openwakeword
+#   pip install sounddevice requests tqdm scikit-learn websockets

@@ -1,0 +1,52 @@
+name: jarvis-operative
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../fittings/seed/garrison-orchestrator
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/jarvis-os
+    - path: ../../fittings/seed/local-voice
+    - path: ../../fittings/seed/memory
+x-garrison:
+  composition:
+    id: jarvis
+    name: Jarvis Agentic OS
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 10
+        max_spend_per_day: 250
+        max_tool_calls_per_tick: 300
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      orchestrator:
+        - id: garrison-orchestrator
+          config: {}
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4777
+            bind_host: 127.0.0.1
+      channels:
+        - id: local-voice
+          config:
+            port: 7090
+            bind_host: 127.0.0.1
+            kokoro_voice: bm_george
+            whisper_model: small.en
+            wake_word: "off"
+        - id: jarvis-os
+          config:
+            port: 7092
+            bind_host: 127.0.0.1
+            gateway_url: ''
+      memory:
+        - id: memory
+          config:
+            recency_window: 20
+            persistence_cadence: hourly

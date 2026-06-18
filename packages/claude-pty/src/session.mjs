@@ -216,10 +216,30 @@ export class OperativePtySession {
    * retries never accumulate "messagemessage". Verified against the live TUI.
    * @returns {Promise<boolean>}
    */
+  // Claude Code 2.1.179 shows a "Bypass Permissions mode" confirm modal on first
+  // launch that swallows stdin until accepted (❯ 1. No, exit / 2. Yes, I accept).
+  // Accept it (arrow-down → Enter) so the TUI starts taking input. Idempotent:
+  // does nothing once the modal is gone.
   async #submitAndConfirm(message, settleMs) {
-    const deadline = Date.now() + 30_000;
+    // Wider deadline: a lazily-spawned session needs ~10-15s to boot before it
+    // even paints the bypass-mode confirm modal.
+    const deadline = Date.now() + 45_000;
     let first = true;
     while (Date.now() < deadline && !this.disposed) {
+      // Claude Code 2.1.179 shows a "Bypass Permissions mode" confirm modal a
+      // few seconds into startup that swallows input until accepted. Whenever
+      // it's visible, select option 2 ("Yes, I accept") and confirm. Digit "2"
+      // is unambiguous (no risk of confirming the default "No, exit").
+      const s = this.screen().join("\n"); // screen() returns an array of lines
+      if (/Bypass Permissions mode/i.test(s) && /Yes, I accept/i.test(s)) {
+        if (process.env.GARRISON_PTY_DEBUG) console.error("[pty-debug] bypass modal up → selecting '2' (Yes)");
+        this.handle.writeRaw("2");
+        await sleep(250);
+        this.handle.writeRaw("\r");
+        await sleep(1000);
+        first = true; // nothing typed yet — don't Ctrl-U next pass
+        continue;
+      }
       if (!first) this.handle.writeRaw("\x15"); // Ctrl-U clear before resend
       first = false;
       await this.handle.sendInput(message, settleMs);

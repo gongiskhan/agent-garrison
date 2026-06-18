@@ -150,24 +150,52 @@ async function markPriorSession() {
   }
 }
 
+// Claude 2.1.x prints this and parks the TUI (process stays alive but rejects
+// all input) when `--continue` is asked to resume a conversation that no longer
+// exists — e.g. an orphan operative-session-id marker whose conversation was
+// never persisted/was pruned. Detect it and re-spawn fresh so the gateway heals
+// itself instead of every turn failing with "message never registered".
+function screenHasNoConversation(s) {
+  try {
+    return s.screen().some((l) => /No conversation found to continue/i.test(l));
+  } catch {
+    return false;
+  }
+}
+
 async function spawnOperative({ resume = true } = {}) {
-  const continueSession = resume && (await hasPriorSession());
+  let continueSession = resume && (await hasPriorSession());
   const appendSystemPromptFile = SYSTEM_PROMPT_PATH || undefined;
-  logEvent("stdout", {
-    kind: "spawning",
-    model: MODEL,
-    permission_mode: PERMISSION_MODE,
-    continue: continueSession,
-    composition_dir: COMPOSITION_DIR,
-  });
-  session = await OperativePtySession.spawn({
-    compositionDir: COMPOSITION_DIR,
-    appendSystemPromptFile,
-    model: MODEL,
-    permissionMode: PERMISSION_MODE,
-    continueSession,
-    claudeBinary: CLAUDE_BINARY,
-  });
+  const doSpawn = (cont) => {
+    logEvent("stdout", {
+      kind: "spawning",
+      model: MODEL,
+      permission_mode: PERMISSION_MODE,
+      continue: cont,
+      composition_dir: COMPOSITION_DIR,
+    });
+    return OperativePtySession.spawn({
+      compositionDir: COMPOSITION_DIR,
+      appendSystemPromptFile,
+      model: MODEL,
+      permissionMode: PERMISSION_MODE,
+      continueSession: cont,
+      claudeBinary: CLAUDE_BINARY,
+    });
+  };
+
+  session = await doSpawn(continueSession);
+
+  // Heal an orphan --continue: if the resumed conversation doesn't exist, drop
+  // the stale marker and re-spawn fresh (new --session-id).
+  if (continueSession && screenHasNoConversation(session)) {
+    logEvent("stderr", { kind: "continue-orphan", message: "no conversation to continue; re-spawning fresh" });
+    try { session.dispose(); } catch {}
+    try { await fs.rm(SESSION_ID_FILE, { force: true }); } catch {}
+    continueSession = false;
+    session = await doSpawn(false);
+  }
+
   ptyStatus = "ready";
   await markPriorSession();
   logEvent("stdout", { kind: "ready", session_id: session.getClaudeSessionId(), continued: continueSession });

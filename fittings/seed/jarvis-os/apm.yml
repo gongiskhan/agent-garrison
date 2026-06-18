@@ -1,0 +1,76 @@
+name: jarvis-os
+version: 0.1.0
+description: Jarvis Agentic OS — a voice-first, Jarvis-style HUD (channels role, own-port). Serves a React HUD on its own port (default 7092) with a central audio-reactive core (DitherCore), push-to-talk, and reply read-aloud. Talks to the Operative through the http-gateway (same proven path as web-channel) and to a kind:voice Fitting for STT/TTS. Visual layer reused from the Fable jarvis-hud reference.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: channels
+  cardinality_hint: single
+  own_port: true
+  default_port: 7092
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Voice-first Jarvis HUD on its own port (default 7092). Hold-to-talk → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes a kind:voice Fitting (local-voice or deepgram-voice); never spawns Claude itself.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7092
+      description: HTTP port the Jarvis HUD server binds to. Falls back to next free port when in use.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address. Set to 0.0.0.0 to expose to the LAN (e.g. phone access).
+    - key: gateway_url
+      type: string
+      default: ""
+      description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:4777.
+    - key: tls_cert
+      type: path
+      default: ""
+      description: Optional TLS certificate path. When set with tls_key, serves https so mobile browsers get a secure context (required for mic capture over a LAN IP). Prefer `tailscale serve`; this is the in-app fallback.
+    - key: tls_key
+      type: path
+      default: ""
+      description: Optional TLS private key path; pairs with tls_cert.
+  provides:
+    - kind: channel
+      name: jarvis
+  consumes:
+    - kind: voice
+      cardinality: one
+  setup:
+    command: node ui/build.mjs
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: node apm_modules/_local/jarvis-os/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The Jarvis HUD is a voice-first front-end to the Operative. The browser
+    drives; the Orchestrator does not call it directly. It reuses the proven
+    web-channel path: POST /api/chat → gateway /chat/stream, and assistant
+    replies are read aloud via the stationed voice Fitting.
+
+    Channel id: "web" — replies multiplexed into the gateway's "web" ring
+    buffer. Station EITHER jarvis-os OR web-channel-default, not both (they
+    share the channel).
+
+    Status file at ~/.garrison/ui-fittings/jarvis-os.json:
+      { fittingId, port, url, pid, startedAt }
+
+    Endpoints (served by this Fitting on its own port):
+      GET  /health            → liveness
+      GET  /api/stream        → SSE proxy of gateway /channels/web/stream
+      POST /api/chat          → SSE proxy of gateway /chat/stream (body: {message})
+      GET  /api/voice         → { available, url? } — voice Fitting discovery
+      POST /api/voice/stt     → binary proxy to the voice Fitting's /stt
+      POST /api/voice/tts     → binary proxy to the voice Fitting's /tts
+      GET  /                  → React Jarvis HUD (dist/index.html)
+
+    Voice (push-to-talk) needs a kind:voice Fitting stationed — local-voice
+    (fully local) or deepgram-voice. The HUD discovers it via the voice status
+    file; STT keeps the recording, TTS streams audio back, and the central core
+    pulses to both (mic while listening, TTS while speaking).

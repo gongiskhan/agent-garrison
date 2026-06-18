@@ -1,0 +1,9 @@
+# Python venv + bytecode — recreated by scripts/setup.sh
+voice-server/.venv/
+voice-server/__pycache__/
+**/*.pyc
+
+# Kokoro model files (~337MB) — fetched by scripts/setup.sh from the upstream
+# release, never committed.
+voice-server/*.onnx
+voice-server/*.bin

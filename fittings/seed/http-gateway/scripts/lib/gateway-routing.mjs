@@ -28,6 +28,58 @@ import { MultiRuntimePool, ClaudeCodeAdapter } from "@garrison/claude-pty";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// True when the TUI shows an idle empty ❯ prompt with no busy spinner.
+function promptIdle(lines) {
+  if (lines.some((l) => /\(esc to interrupt\)/i.test(l))) return false;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^\s*❯\s?(.*)$/.exec(lines[i]);
+    if (m) return m[1].trim().length === 0;
+  }
+  return false;
+}
+
+// Inject a slash command and drive it to completion. Claude Code ≥2.1.181 turns
+// `/model <x>` (and similar) into a confirm modal that swallows all input until
+// answered — e.g.:
+//   Switch model?
+//   ❯ 1. Yes, switch to Haiku 4.5
+//     2. No, go back
+// A fixed sleep leaves the TUI stuck on that modal, so the next real message is
+// never registered. Here we: send the command, then poll the screen; if a
+// confirm modal is up, accept it ("1" + Enter); return once the ❯ prompt is idle
+// again. Escape is the last-resort fallback for an unrecognised picker.
+async function injectSlash(session, command, timeoutMs) {
+  session.writeKeys(command + "\r");
+  const end = Date.now() + timeoutMs;
+  let escaped = false;
+  while (Date.now() < end) {
+    await sleep(150);
+    const lines = session.screen();
+    const screen = lines.join("\n");
+    // Confirm modal for /model (and any future "Yes, switch/continue" prompt):
+    // option 1 is the affirmative. Accept it.
+    if (/Switch model\?/i.test(screen) || /\bYes,\s+(switch|continue|enable)/i.test(screen)) {
+      session.writeKeys("1");
+      await sleep(200);
+      session.writeKeys("\r");
+      await sleep(400);
+      continue;
+    }
+    if (promptIdle(lines)) return true;
+  }
+  // Unknown picker still up — dismiss it so the next message can register.
+  if (!escaped) {
+    session.writeKeys("\x1b");
+    escaped = true;
+    const end2 = Date.now() + 2000;
+    while (Date.now() < end2) {
+      await sleep(150);
+      if (promptIdle(session.screen())) return true;
+    }
+  }
+  return false;
+}
+
 // ── locate the model-router fitting (repo seed OR installed composition) ──────
 export function resolveModelRouterDir(compositionDir) {
   const candidates = [
@@ -166,10 +218,30 @@ export class RoutedGateway {
   }
 
   // classify → resolve role → resolve target → LOG at resolution time → switch.
+  //
+  // When the active profile sets `preRoute: "off"`, the per-turn classifier turn
+  // is SKIPPED entirely (it costs ~5s) and every turn is pinned to the profile's
+  // `fast` target. The slash-inject in applySwitch still fires once to move the
+  // operative onto that target, then no-ops. This is the latency path for
+  // conversational channels (e.g. Jarvis voice) where every turn is short.
   async preRoute(message) {
     this._lastUserMessage = message;
-    const classification = await this.classify(message);
-    const route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
+    const profile = (this.config.profiles || {})[this.config.activeProfile] || {};
+    const preRouteOff = (profile.preRoute ?? "on") === "off";
+    let classification;
+    let route;
+    if (preRouteOff) {
+      // No classifier turn. Pin to the profile's `fast` target (config-driven —
+      // change roleMap.fast to pin elsewhere).
+      classification = { taskType: "other", tier: "T0-trivial", matchedException: null };
+      const targetId = (profile.roleMap || {}).fast || null;
+      const target = (this.config.targets || []).find((t) => t.id === targetId) || null;
+      route = { profile: this.config.activeProfile, role: "fast", ruleId: "preroute-off", via: "preroute-off", targetId, target };
+      this.lastClassification = classification;
+    } else {
+      classification = await this.classify(message);
+      route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
+    }
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
@@ -200,8 +272,7 @@ export class RoutedGateway {
     });
     if (plan.path === "slash-inject") {
       for (const inj of plan.injections) {
-        this.operative.session.writeKeys(inj + "\r");
-        await sleep(this.injectSettleMs ?? 250);
+        await injectSlash(this.operative.session, inj, 8000);
       }
       this.currentTarget = route.target;
     } else if (plan.path === "respawn-resume") {

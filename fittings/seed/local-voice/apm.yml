@@ -1,0 +1,79 @@
+name: local-voice
+version: 0.1.0
+description: Local Voice Fitting (channels role, own-port). Fully local speech I/O — no cloud, no API key. A Node own-port wrapper supervises the Fable voice-server (Kokoro TTS + faster-whisper STT, MIT/Apache) and exposes the Garrison voice contract on port 7090, so any channel that consumes `voice` works against it unchanged (drop-in alternative to deepgram-voice).
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: channels
+  cardinality_hint: single
+  own_port: true
+  default_port: 7090
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Key-free local speech I/O. POST audio to /stt for a transcript; POST text to /tts for spoken audio. STT = faster-whisper, TTS = Kokoro, both running on the host via a supervised Python voice-server. Nothing leaves the machine.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7090
+      description: HTTP port the Node voice wrapper binds to. Falls back to the next free port if busy.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over the LAN/Tailscale.
+    - key: kokoro_voice
+      type: string
+      default: bm_george
+      description: Kokoro TTS voice used by /tts (e.g. bm_george = calm British male). Run voice-server/make_samples.py to audition others.
+    - key: kokoro_speed
+      type: number
+      default: 1.0
+      description: Kokoro TTS speech rate multiplier.
+    - key: whisper_model
+      type: string
+      default: small.en
+      description: faster-whisper model used by /stt (e.g. tiny.en, base.en, small.en).
+    - key: wake_word
+      type: select
+      default: "off"
+      description: Hands-free "hey jarvis" wake word. Off by default in v1 (without headphones the mic hears the host's own TTS).
+      options:
+        - "off"
+        - "on"
+    - key: python_bin
+      type: string
+      default: ""
+      description: Override the Python interpreter. Empty = use the venv created by setup (voice-server/.venv), else fall back to python3.
+  provides:
+    - kind: voice
+      name: local
+  consumes: []
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 600000
+  verify:
+    command: node apm_modules/_local/local-voice/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Consumers discover this Fitting at runtime by reading:
+      ~/.garrison/ui-fittings/local-voice.json   ({ fittingId, port, url, pid })
+    It speaks the same contract as deepgram-voice, so a channel coded against
+    one works against the other (voice is a singleton — only one is stationed).
+    Endpoints (all on that url):
+      GET  /health   - liveness: { ok, port, pid, host, enginesReady }.
+                       enginesReady=false while the Python models warm up
+                       (first boot JITs whisper, ~10s); /stt and /tts return
+                       503 until ready.
+      POST /stt      - speech-to-text. Body: raw audio bytes (Content-Type =
+                       the recording's mime, e.g. audio/webm or audio/wav).
+                       Returns: { transcript, confidence }. (confidence is
+                       null — faster-whisper does not return one.)
+      POST /tts      - text-to-speech. Body: { "text": "...", "format": "wav" }.
+                       Returns: audio bytes (audio/wav), streamed
+                       sentence-by-sentence so playback can start early.
+    Everything runs on the host (Kokoro + faster-whisper); no key, no network.
+    The WS /stream incremental-STT endpoint is not implemented in v1 — use the
+    batch /stt with push-to-talk.
