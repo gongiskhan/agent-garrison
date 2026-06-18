@@ -1,0 +1,18 @@
+{
+  "slice": "dashboard-merge",
+  "title": "Merge the Run panel into the Garrison dashboard; redirect /run -> /",
+  "kind": "ui",
+  "status": "passed",
+  "updatedAt": "2026-06-18",
+  "gates": {
+    "typecheck": { "command": "npm run typecheck", "exit": 0 },
+    "routes": { "/": 200, "/run": 307, "note": "/run redirects to / (next redirect)" },
+    "visual": {
+      "evidence": "docs/autothing/evidence/refit/s2-dashboard.png",
+      "note": "dashboard shows hero + Run-the-Operative CTA, composition card, readiness sidebar, and the embedded Run console (Dispatch/Verify/Views/5k live log). All four prior Run-panel widgets preserved. Emoji glyphs replaced with lucide icons per the no-emoji UI rule."
+    }
+  },
+  "preserved": ["dispatch up/down/verify/dev", "verify-hook detail list", "views eager-boot toggles", "runtime log 5000-line ring buffer"],
+  "crossModel": { "status": "pending-consolidated" },
+  "video": { "status": "pending" }
+}
