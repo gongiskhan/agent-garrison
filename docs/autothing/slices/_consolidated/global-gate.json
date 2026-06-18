@@ -1,0 +1,30 @@
+{
+  "run": "ui/shell-and-chat-refit",
+  "date": "2026-06-18",
+  "buildableRemaining": 0,
+  "slices": [
+    { "slice": "sessions-split", "status": "passed", "commit": "380185e" },
+    { "slice": "dashboard-merge", "status": "passed", "commit": "b66a7c7" },
+    { "slice": "composition-fold", "status": "passed", "commit": "b3bcd84" },
+    { "slice": "sidebar-chrome", "status": "passed", "commit": "2bbc81e" },
+    { "slice": "dev-env-chat", "status": "passed", "commit": "684e786" },
+    { "slice": "cross-model-fixes", "status": "passed", "commit": "dd12d29" }
+  ],
+  "objectiveGates": {
+    "typecheck": "exit 0 (final, whole tree)",
+    "devEnvBuild": "exit 0",
+    "webChannelBuild": "exit 0 (unaffected)",
+    "vitest": "all refit-relevant specs green (faculties, metadata, seed, docs-consistency, capabilities, compositions, composition-migration); 3 pre-existing reds remain, all proven byte-identical to main (gemini-runtime stale --skip-trust assertion, orchestrator-integration live-gateway, spawn-tracked flaky-under-concurrency)"
+  },
+  "crossModel": {
+    "reviewAllApproved": true,
+    "pwTestAllPassed": true,
+    "note": "Codex 3A approve after 4 rounds (found+fixed 4 real bugs); Codex 3B playwright pass on the live shell with 0 console errors. Consolidated over the branch rather than per-slice."
+  },
+  "video": {
+    "status": "not-produced",
+    "substitute": "committed screenshots (docs/autothing/evidence/refit/*.png: dashboard, composition+search, sidebar expanded/collapsed, chat dark+light) + my own Playwright DOM assertions + an INDEPENDENT cross-model (Codex/playwright-cli) live-drive of the exact acceptance flows",
+    "reason": "per-slice narrated walkthrough videos were not recorded; the dev-env chat cannot be filmed live without an active Claude PTY session, and the shell flows were instead independently re-driven by a second model. A consolidated walkthrough can be recorded on request."
+  },
+  "verdict": "complete-and-verified (objective + cross-model); narrated-video artifact substituted with screenshots + independent cross-model live-drive. NOT claiming the autothing video-gated 'passed' since per-slice videos were not produced."
+}

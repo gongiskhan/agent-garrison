@@ -1,0 +1,24 @@
+{
+  "scope": "consolidated cross-model review of the whole ui/shell-and-chat-refit branch",
+  "rationale": "the refit is one cohesive change across two disjoint trees; a single adversarial review over the branch diff is more effective than 7 thin per-slice reviews and keeps Codex calls serialized.",
+  "codexReview": {
+    "verdict": "approve",
+    "rounds": 4,
+    "by": "codex/gpt-5.x (codex-cli 0.139.0)",
+    "lastReport": "docs/autothing/slices/_consolidated/codex-review-r4.json",
+    "findingsFoundAndFixed": [
+      { "round": 1, "sev": "medium", "what": "voice TTS/STT proxy fetches had no timeout", "fix": "AbortSignal.timeout(20000) + 504 on TimeoutError/AbortError in dev-env server.mjs" },
+      { "round": 1, "sev": "high", "what": "push-to-talk mic could outlive the chat pane (no unmount cleanup)", "fix": "streamRef + unmount cleanup stops recorder + all tracks" },
+      { "round": 2, "sev": "high", "what": "mic could start after unmount (pending getUserMedia race)", "fix": "voiceMountedRef cancelled-guard after the await; onstop bails before state/network" },
+      { "round": 2, "sev": "medium", "what": "sessions split left pre-existing compositions grouped under stale faculty keys", "fix": "migrateSelectionsByFaculty re-buckets by current library faculty on every read + regression test" },
+      { "round": 3, "sev": "high", "what": "rapid double-start could orphan a live mic stream (re-entrancy)", "fix": "synchronous recBusyRef guard set before the await, cleared on every exit" }
+    ],
+    "round4": "approve — no findings; the re-entrancy fix confirmed and no new ship-blocker."
+  },
+  "codexPwTest": {
+    "result": "pass",
+    "by": "codex/gpt-5.x via playwright-cli",
+    "report": "docs/autothing/slices/_consolidated/codex-pwtest.json",
+    "note": "independent live-browser drive of the shell: sidebar nav (no Armory/Run), /run->/, /armory->/compose, /compose counts+cross-faculty search (4 fittings/3 faculties), Quarters collapse/expand. 0 console errors/warnings, 0 failures."
+  }
+}
