@@ -86,6 +86,11 @@ x-garrison:
           config:
             port: 7088
             bind_host: 127.0.0.1
+      runtimes:
+        - id: codex-runtime
+          config: {}
+        - id: gemini-runtime
+          config: {}
       sessions:
         - id: artifact-store
           config:
@@ -94,6 +99,7 @@ x-garrison:
           config:
             port: 7086
             bind_host: 127.0.0.1
+      surfaces:
         - id: screen-share-default
           config: {}
         - id: browser-default
@@ -104,10 +110,6 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
-        - id: codex-runtime
-          config: {}
-        - id: gemini-runtime
-          config: {}
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

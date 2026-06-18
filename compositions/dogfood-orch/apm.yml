@@ -113,6 +113,7 @@ x-garrison:
           config:
             port: 7086
             bind_host: 127.0.0.1
+      surfaces:
         - id: screen-share-default
           config: {}
     prompt_sources:

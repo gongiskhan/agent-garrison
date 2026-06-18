@@ -273,10 +273,10 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
             </div>
             <p style={{ color: "var(--mute)", fontSize: 13, margin: "0 0 14px" }}>
               The registry doesn&apos;t have an entry for {faculty.name} in v1. Add one through{" "}
-              <code>CONTRIBUTING.md</code> or check the Armory for community submissions.
+              <code>CONTRIBUTING.md</code>, or search the Composition for Fittings in other Faculties.
             </p>
-            <Link className="btn ghost small" href="/armory">
-              Open Armory →
+            <Link className="btn ghost small" href="/compose">
+              Search all Fittings →
             </Link>
           </div>
         ) : (

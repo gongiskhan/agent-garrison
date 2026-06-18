@@ -2,10 +2,18 @@
 
 import Link from "next/link";
 import clsx from "clsx";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { faculties } from "@/lib/faculties";
-import type { FacultyDefinition, FacultyId, LibraryEntry, SelectedFitting, VerifyResult } from "@/lib/types";
+import type {
+  FacultyDefinition,
+  FacultyId,
+  FittingSelectionMap,
+  LibraryEntry,
+  SelectedFitting,
+  VerifyResult
+} from "@/lib/types";
 
 export function StationGrid() {
   const {
@@ -17,18 +25,76 @@ export function StationGrid() {
     vaultNeedsPassword
   } = useAppShell();
 
+  const params = useSearchParams();
+  const router = useRouter();
+  const [search, setSearch] = useState(params?.get("q") ?? "");
+
   const verifyResults = runnerState?.verifyResults ?? [];
 
-  const stationedCount = useMemo(() => {
+  // Two genuinely different numbers that the old UI conflated under the
+  // "fittings" label: how many faculty stations have at least one Fitting, and
+  // how many Fittings are stationed in total.
+  const stationedFaculties = useMemo(() => {
     if (!composition) return 0;
-    return Object.values(composition.selections).reduce((acc, sels) => {
-      return acc + ((sels?.length ?? 0) > 0 ? 1 : 0);
-    }, 0);
+    return Object.values(composition.selections).reduce(
+      (acc, sels) => acc + ((sels?.length ?? 0) > 0 ? 1 : 0),
+      0
+    );
+  }, [composition]);
+  const totalFittings = useMemo(() => {
+    if (!composition) return 0;
+    return Object.values(composition.selections).reduce((acc, sels) => acc + (sels?.length ?? 0), 0);
   }, [composition]);
 
   const verifyTotal = verifyResults.length;
   const verifyOk = verifyResults.filter((r) => r.ok).length;
   const isRunning = runnerState?.status === "running";
+
+  const query = search.trim().toLowerCase();
+  const searching = query.length > 0;
+  const results = useMemo(() => {
+    if (!searching) return [];
+    return library
+      .filter((entry) => {
+        const fac = faculties.find((f) => f.id === entry.faculty);
+        const haystack = `${entry.name} ${entry.summary} ${entry.id} ${entry.faculty} ${fac?.name ?? ""}`.toLowerCase();
+        return haystack.includes(query);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [library, searching, query]);
+
+  function updateSearch(next: string) {
+    setSearch(next);
+    const sp = new URLSearchParams(Array.from(params?.entries() ?? []));
+    if (next.trim()) sp.set("q", next.trim());
+    else sp.delete("q");
+    const qs = sp.toString();
+    router.replace(qs ? `/compose?${qs}` : "/compose", { scroll: false });
+  }
+
+  function isSelected(entry: LibraryEntry): boolean {
+    if (!composition) return false;
+    return (composition.selections[entry.faculty] ?? []).some((s) => s.id === entry.id);
+  }
+
+  function toggleSelection(entry: LibraryEntry) {
+    if (!composition) return;
+    const faculty = faculties.find((f) => f.id === entry.faculty);
+    const current = composition.selections[entry.faculty] ?? [];
+    const exists = current.some((s) => s.id === entry.id);
+    const selections: FittingSelectionMap = { ...composition.selections };
+    if (faculty?.cardinality === "single") {
+      if (exists) delete selections[entry.faculty];
+      else selections[entry.faculty] = [defaultSelection(entry)];
+    } else {
+      const next = exists
+        ? current.filter((s) => s.id !== entry.id)
+        : [...current, defaultSelection(entry)];
+      if (next.length === 0) delete selections[entry.faculty];
+      else selections[entry.faculty] = next;
+    }
+    void saveComposition({ selections });
+  }
 
   if (!composition) {
     return (
@@ -47,15 +113,14 @@ export function StationGrid() {
   return (
     <main>
       <div className="crumbs">
-        Compose · <b>Overview</b>
+        Composition · <b>Overview</b>
       </div>
       <div className="page">
         <div className="head">
           <h1>{composition.name}</h1>
           <p className="ld">
-            {faculties.length} Faculty stations. {stationedCount} stationed. Click any tile to configure that station —
-            long-form copy, Fitting picker, capability wiring, and per-Fitting extensions live on the
-            station&apos;s own page, not here.
+            {faculties.length} Faculty stations · {totalFittings} Fitting{totalFittings === 1 ? "" : "s"} stationed.
+            Click a tile to configure that station, or search to find Fittings across every Faculty.
           </p>
         </div>
 
@@ -66,7 +131,10 @@ export function StationGrid() {
           </span>
           <span className="sep" />
           <span>
-            fittings · <b>{stationedCount}</b>
+            faculties · <b>{stationedFaculties} / {faculties.length}</b>
+          </span>
+          <span>
+            fittings · <b>{totalFittings}</b>
           </span>
           <span>
             verify · <b>{verifyTotal ? `${verifyOk} / ${verifyTotal}` : "—"}</b>
@@ -93,7 +161,47 @@ export function StationGrid() {
           ) : null}
         </div>
 
-        {orchestratorMissing ? (
+        <div className="compose-search" style={{ position: "relative", margin: "0 0 18px" }}>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => updateSearch(e.target.value)}
+            placeholder="Search every Faculty · Fitting name, summary, capability…"
+            aria-label="Search Fittings across all Faculties"
+            style={{
+              width: "100%",
+              padding: "11px 14px",
+              fontSize: 14,
+              border: "1px solid var(--rule)",
+              background: "white",
+              color: "var(--ink)",
+              fontFamily: "inherit"
+            }}
+          />
+          {searching ? (
+            <button
+              type="button"
+              onClick={() => updateSearch("")}
+              className="font-mono"
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                border: "1px solid var(--rule)",
+                background: "var(--paper)",
+                color: "var(--mute)",
+                fontSize: 11,
+                padding: "3px 8px",
+                cursor: "pointer"
+              }}
+            >
+              clear
+            </button>
+          ) : null}
+        </div>
+
+        {!searching && orchestratorMissing ? (
           <div className="banner alarm">
             <span className="glyph">!</span>
             <div style={{ flex: 1 }}>
@@ -104,13 +212,15 @@ export function StationGrid() {
               </p>
               <div className="actions">
                 <Link href="/compose/orchestrator">Open Orchestrator station →</Link>
-                <Link href="/armory?faculty=orchestrator">Browse Orchestrator Fittings</Link>
+                <button type="button" className="linklike" onClick={() => updateSearch("orchestrator")}>
+                  Search Orchestrator Fittings
+                </button>
               </div>
             </div>
           </div>
         ) : null}
 
-        {composition.capabilityIssues.length > 0 ? (
+        {!searching && composition.capabilityIssues.length > 0 ? (
           <div className="banner warn">
             <span className="glyph">!</span>
             <div style={{ flex: 1 }}>
@@ -135,59 +245,159 @@ export function StationGrid() {
           </div>
         ) : null}
 
-        <div
-          className="compose-station-grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
-            gap: 10
-          }}
-        >
-          {faculties.map((faculty) => (
-            <StationTile
-              key={faculty.id}
-              faculty={faculty}
-              selections={composition.selections[faculty.id] ?? []}
-              library={library}
-              verifyResults={verifyResults}
-            />
-          ))}
+        {searching ? (
+          <SearchResults
+            results={results}
+            isSelected={isSelected}
+            toggleSelection={toggleSelection}
+            busy={Boolean(busy)}
+          />
+        ) : (
+          <div
+            className="compose-station-grid"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
+              gap: 10
+            }}
+          >
+            {faculties.map((faculty) => (
+              <StationTile
+                key={faculty.id}
+                faculty={faculty}
+                selections={composition.selections[faculty.id] ?? []}
+                library={library}
+                verifyResults={verifyResults}
+              />
+            ))}
 
-          {composition.derivedTasks ? (
-            <div
-              style={{
-                gridColumn: "span 2",
-                background: "var(--paper-2)",
-                border: "1px dashed var(--rule-2)",
-                padding: "20px 18px",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center"
-              }}
-            >
+            {composition.derivedTasks ? (
               <div
-                className="font-mono"
                 style={{
-                  fontSize: 10,
-                  letterSpacing: "0.16em",
-                  textTransform: "uppercase",
-                  color: "var(--mute)",
-                  marginBottom: 6
+                  gridColumn: "span 2",
+                  background: "var(--paper-2)",
+                  border: "1px dashed var(--rule-2)",
+                  padding: "20px 18px",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center"
                 }}
               >
-                Tasks · derived
+                <div
+                  className="font-mono"
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: "0.16em",
+                    textTransform: "uppercase",
+                    color: "var(--mute)",
+                    marginBottom: 6
+                  }}
+                >
+                  Tasks · derived
+                </div>
+                <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
+                  Tasks flow through {prettySource(composition.derivedTasks.source)}
+                </div>
+                <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", marginTop: 6 }}>
+                  truth file · <b style={{ color: "var(--ink)" }}>{composition.derivedTasks.truthFile}</b>
+                </div>
               </div>
-              <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
-                Tasks flow through {prettySource(composition.derivedTasks.source)}
-              </div>
-              <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", marginTop: 6 }}>
-                truth file · <b style={{ color: "var(--ink)" }}>{composition.derivedTasks.truthFile}</b>
-              </div>
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        )}
       </div>
     </main>
+  );
+}
+
+function SearchResults({
+  results,
+  isSelected,
+  toggleSelection,
+  busy
+}: {
+  results: LibraryEntry[];
+  isSelected: (entry: LibraryEntry) => boolean;
+  toggleSelection: (entry: LibraryEntry) => void;
+  busy: boolean;
+}) {
+  if (results.length === 0) {
+    return (
+      <div style={{ padding: 36, textAlign: "center", color: "var(--mute)", border: "1px solid var(--rule)", background: "white" }}>
+        No Fittings match that search.
+      </div>
+    );
+  }
+  return (
+    <>
+      <div className="font-mono" style={{ fontSize: 11, color: "var(--mute)", margin: "0 0 10px", letterSpacing: "0.04em" }}>
+        {results.length} Fitting{results.length === 1 ? "" : "s"} across {new Set(results.map((r) => r.faculty)).size} Facult
+        {new Set(results.map((r) => r.faculty)).size === 1 ? "y" : "ies"}
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))",
+          gap: 12
+        }}
+      >
+        {results.map((entry) => {
+          const selected = isSelected(entry);
+          const fac = faculties.find((f) => f.id === entry.faculty);
+          return (
+            <div
+              key={entry.id}
+              style={{
+                border: `1px solid ${selected ? "var(--sage)" : "var(--rule)"}`,
+                background: "white",
+                padding: "14px 16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <div className="font-display" style={{ fontWeight: 600, fontSize: 15 }}>
+                  {entry.name}
+                </div>
+                <span
+                  className="font-mono"
+                  style={{
+                    fontSize: 9.5,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    color: "var(--brass)",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {fac?.name ?? entry.faculty}
+                </span>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--mute)", lineHeight: 1.5, flex: 1 }}>
+                {entry.summary}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 2 }}>
+                <Link
+                  href={`/compose/${entry.faculty}`}
+                  className="font-mono"
+                  style={{ fontSize: 11, color: "var(--ink)", textDecoration: "underline" }}
+                >
+                  open station →
+                </Link>
+                <button
+                  type="button"
+                  className={clsx("btn small", selected ? "ghost" : "primary")}
+                  disabled={busy}
+                  onClick={() => toggleSelection(entry)}
+                >
+                  {selected ? "Remove" : "Add"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -203,6 +413,7 @@ function StationTile({
   verifyResults: VerifyResult[];
 }) {
   const stationed = selections.length > 0;
+  const available = library.filter((e) => e.faculty === faculty.id).length;
   const isCapstone = faculty.governing;
   const orchestratorMissing = faculty.id === "orchestrator" && !stationed;
 
@@ -247,8 +458,26 @@ function StationTile({
       </div>
       <div className="t-nm">{primaryName}</div>
       <div className="t-fit" dangerouslySetInnerHTML={{ __html: sub }} />
+      <div
+        className="font-mono t-count"
+        title={`${selections.length} selected of ${available} available`}
+        style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 8, letterSpacing: "0.06em" }}
+      >
+        <b style={{ color: stationed ? "var(--ink)" : "var(--mute)" }}>{selections.length}</b> selected · {available} available
+      </div>
     </Link>
   );
+}
+
+function defaultSelection(entry: LibraryEntry): SelectedFitting {
+  return {
+    id: entry.id,
+    config: Object.fromEntries(
+      entry.metadata.config_schema
+        .filter((field) => field.default !== undefined)
+        .map((field) => [field.key, field.default as string | number | boolean])
+    )
+  };
 }
 
 function humanName(library: LibraryEntry[], id: string): string {
@@ -296,4 +525,3 @@ function issueDetail(issue: { code: string; fittingId: string }): string {
       return `${issue.fittingId}: ${issue.code}`;
   }
 }
-

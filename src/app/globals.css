@@ -326,6 +326,18 @@ main {
   cursor: pointer;
   font-size: 12px;
 }
+/* button that reads as an inline link (used where an action is a handler,
+   not a navigation) — matches .banner .actions a. */
+.linklike {
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+}
 
 .lab {
   font-family: var(--font-mono), 'JetBrains Mono', monospace;
