@@ -14,8 +14,10 @@ const groupForFaculty: Record<FacultyId, string> = {
   observability: "Control",
   memory: "Context",
   gateway: "Action",
+  runtimes: "Action",
   channels: "Action",
-  sessions: "Tools"
+  sessions: "Tools",
+  surfaces: "Tools"
 };
 
 export function ArmoryPanel() {

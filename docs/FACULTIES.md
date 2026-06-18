@@ -1,33 +1,46 @@
 # Agent Garrison Faculties
 
-## Current model: 6 roles (the 2026-06-07 Quarters pivot)
+## Current model: 8 roles (Quarters pivot + the 2026-06-18 sessions split)
 
 Faculties are now **roles only**. The flat 24-Faculty list was collapsed to six
-roles, enforced by `facultyIds` in `src/lib/types.ts`:
+roles in the 2026-06-07 Quarters pivot; on 2026-06-18 the overloaded `sessions`
+role was split into three (sessions / runtimes / surfaces), bringing the total
+to eight, enforced by `facultyIds` in `src/lib/types.ts`:
 
 - **orchestrator** — the governing behaviour spine; projected to
   `~/.claude/rules/garrison-orchestrator.md` as an APM instructions primitive
   (the Operative folded into the user's real Claude Code).
 - **channels** — user-facing message surfaces (Slack, web-channel, …).
 - **gateway** — the MCP/HTTP entry point inbound channels and runtime route to.
+- **runtimes** — alternative execution engines behind the uniform runtime
+  bridge: Agent SDK, Codex, Gemini. The composition names one primary; others
+  are secondary `delegate()` targets the Orchestrator routes work to. Split out
+  of `sessions` on 2026-06-18.
 - **memory** — within-session and cross-session recall; the compiler that
   *produces* the durable Context (CLAUDE.md) document. Since 2026-06-10 it also
   holds external data sources (trello-data-source, revived with the
   `data-source` capability kind); `data-sources` is a deprecation alias for it.
 - **observability** — health, logs, runtime reporting (the read-only Logs view).
-- **sessions** — the runtime own-port residue, headlined since the 2026-06-11
-  Dev Env consolidation by the **dev-env** Fitting: a tabbed surface where each
-  Claude Code session gets a Claude PTY + shell PTY alongside a live browser
-  pane, with worktrees and session status built in. Screen-share, browser,
-  outposts, and the artifact store round out the role.
+- **sessions** — the working dev session and its records, headlined since the
+  2026-06-11 Dev Env consolidation by the **dev-env** Fitting: a tabbed surface
+  where each Claude Code session gets a Claude PTY + shell PTY alongside a live
+  browser pane, with worktrees and session status built in. The artifact store
+  backs it.
+- **surfaces** — the auxiliary own-port live viewers split out of `sessions` on
+  2026-06-18: screen-share, the standalone browser, and remote Outpost bridges.
+  Each is detected via the `own_port` flag and linked from the sidebar Views
+  group. `screen-share`, `browser`, and `outposts` are deprecation aliases for
+  this role.
 
 Everything that used to be its own Faculty — Skills, Hooks, MCPs, Plugins,
 Scripts, Settings, Context, Plans — is now a **Quarters platform primitive**, not
 a Faculty (see [`decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./decisions/2026-06-07-faculties-as-roles-operative-folded.md)).
 The own-port runtime residue (dev-env, screen-share, outposts, browser,
 monitor, web-channel, voice) survives under
-`sessions`/`channels`/`observability` via the metadata `own_port` flag, not as
-selectable faculties. Legacy faculty names are accepted as deprecation aliases.
+`sessions`/`surfaces`/`channels`/`observability` via the metadata `own_port`
+flag, not as selectable faculties. Legacy faculty names are accepted as
+deprecation aliases. The sessions split is recorded in
+[`decisions/2026-06-18-sessions-split-runtimes-surfaces.md`](./decisions/2026-06-18-sessions-split-runtimes-surfaces.md).
 
 ---
 

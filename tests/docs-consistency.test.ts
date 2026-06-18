@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 import { facultyIds, capabilityKinds } from "@/lib/types";
 
 // RC5 docs-sync gate. This test derives the ground truth from SOURCE
-// (`src/lib/types.ts`) and asserts the canonical docs reflect the Quarters
-// pivot — 6 roles (was 24 faculties), the shrunk capability-kind vocabulary,
-// and the dropped kinds explicitly marked dropped. It is code-derived (not a
-// hardcoded string list) so it keeps catching doc drift as the source evolves.
+// (`src/lib/types.ts`) and asserts the canonical docs reflect the current
+// role model — 8 roles after the 2026-06-18 sessions split (was 24 flat
+// faculties before the Quarters pivot), the shrunk capability-kind
+// vocabulary, and the dropped kinds explicitly marked dropped. It is
+// code-derived (not a hardcoded string list) so it keeps catching doc drift
+// as the source evolves.
 
 const ROOT = path.resolve(__dirname, "..");
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -36,7 +38,9 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
       "memory",
       "observability",
       "orchestrator",
-      "sessions"
+      "runtimes",
+      "sessions",
+      "surfaces"
     ]);
     for (const dropped of [...DROPPED_KINDS, ...DROPPED_KINDS_2026_06]) {
       expect(capabilityKinds as readonly string[], `${dropped} must not be a live kind`).not.toContain(

@@ -32,8 +32,22 @@ export const faculties: FacultyDefinition[] = [
     notes: "The Claude Code execution path (stream-JSON). Garrison-side runtime."
   },
   {
-    id: "memory",
+    id: "runtimes",
     order: 4,
+    name: "Runtimes",
+    // Split out of sessions 2026-06-18: the alternative execution engines
+    // (Agent SDK, Codex, Gemini) are an execution concern of their own — peers
+    // to the gateway, not session surfaces. Each drives the uniform
+    // RuntimeAdapter + runtime-bridge delegate() contract. The seed runtimes
+    // ship as cli-skill packages (they wrap an external CLI behind a skill).
+    cardinality: "multi",
+    shapes: ["cli-skill", "script"],
+    notes:
+      "Alternative execution engines behind the uniform runtime bridge (Agent SDK, Codex, Gemini). The composition names one primary; others are secondary delegate targets."
+  },
+  {
+    id: "memory",
+    order: 5,
     name: "Memory",
     // multi + cli since 2026-06-10: trello-data-source (component_shape: cli)
     // joins this role alongside the memory compiler — external data the
@@ -44,7 +58,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "observability",
-    order: 5,
+    order: 6,
     name: "Observability",
     cardinality: "multi",
     shapes: ["hook", "script", "plugin"],
@@ -52,12 +66,24 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "sessions",
-    order: 6,
+    order: 7,
     name: "Sessions",
     cardinality: "multi",
     shapes: ["plugin", "script", "cli-skill"],
     notes:
-      "Session records + own-port runtime surfaces (terminal, screen-share, worktree, session view, browser, outposts, artifact store). Surfaces the Sessions record."
+      "The working dev session and its records — Dev Env (the consolidated tabbed terminal + browser surface) plus the artifact store. Surfaces the Sessions record."
+  },
+  {
+    id: "surfaces",
+    order: 8,
+    name: "Surfaces",
+    // Split out of sessions 2026-06-18: the auxiliary own-port live viewers
+    // (screen share, standalone browser, remote Outpost bridge) are ways to
+    // *see/reach* the machine, distinct from the primary dev session.
+    cardinality: "multi",
+    shapes: ["plugin", "script"],
+    notes:
+      "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Views group."
   }
 ];
 

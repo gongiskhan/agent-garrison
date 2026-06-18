@@ -39,9 +39,17 @@ const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
     role: "Reports health, errors, and runtime state; surfaces the Logs record.",
     fit: "Collection is Garrison-side; an own-port Monitor Fitting surfaces it read-only."
   },
+  runtimes: {
+    role: "Alternative execution engines behind the uniform runtime bridge.",
+    fit: "Agent SDK, Codex, and Gemini runtimes. The composition names one primary; others are secondary delegate targets the Orchestrator routes work to."
+  },
   sessions: {
-    role: "Session records plus the own-port runtime surfaces.",
-    fit: "Holds the own-port dev surfaces (dev-env, screen-share, browser, outposts, artifact store), each detected via the own_port flag. Dev Env consolidates terminals, worktrees, and session status into one tabbed surface."
+    role: "The working dev session and its records.",
+    fit: "Dev Env consolidates terminals, worktrees, and session status into one tabbed surface; the artifact store backs it."
+  },
+  surfaces: {
+    role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",
+    fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Views group."
   }
 };
 

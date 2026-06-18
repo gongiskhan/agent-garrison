@@ -11,9 +11,16 @@ export const facultyIds = [
   "orchestrator",
   "channels",
   "gateway",
+  // runtimes + surfaces split out of the overloaded `sessions` role
+  // (2026-06-18): runtimes = alternative execution engines (Agent SDK, Codex,
+  // Gemini) behind the uniform runtime bridge; surfaces = the auxiliary
+  // own-port live viewers (screen share, standalone browser, remote Outpost).
+  // `sessions` keeps the primary Dev Env surface + artifact store.
+  "runtimes",
   "memory",
   "observability",
-  "sessions"
+  "sessions",
+  "surfaces"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
