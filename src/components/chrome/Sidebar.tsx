@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Home,
   Layers,
-  Library,
-  Play,
   Lock,
   Component,
   ExternalLink,
@@ -31,17 +30,36 @@ import type {
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
   const { composition, library, runnerState, sidebarCollapsed, toggleSidebar } = useAppShell();
+  const { entries: viewStatuses } = useFittingViewStatus();
 
   const stationedCount = countStationed(composition);
   const totalFaculties = faculties.length;
-  const armoryCount = library.length;
   const verifyResults = runnerState?.verifyResults ?? [];
   const verifyTotal = verifyResults.length;
   const verifyOk = verifyResults.filter((r) => r.ok).length;
   const status = runnerState?.status ?? "idle";
   const isRunning = status === "running";
+  const liveViews = viewStatuses.filter((s) => s.healthy === true).length;
+  const knownViews = viewStatuses.length;
 
   const isCompose = pathname === "/compose" || pathname.startsWith("/compose/");
+
+  // Live-ticking uptime while the operative is up. Recomputed each second so
+  // the footer reads like a running clock rather than a stale snapshot.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isRunning || !runnerState?.startedAt) {
+      setNow(null);
+      return;
+    }
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isRunning, runnerState?.startedAt]);
+  const uptime =
+    isRunning && runnerState?.startedAt && now
+      ? formatUptime(now - new Date(runnerState.startedAt).getTime())
+      : "—";
 
   if (sidebarCollapsed) {
     return (
@@ -124,24 +142,9 @@ export function Sidebar() {
           href="/compose"
           pathname={pathname}
           icon={<Layers aria-hidden />}
-          label="Compose"
+          label="Composition"
           ct={`${stationedCount}/${totalFaculties}`}
           active={isCompose}
-        />
-
-        <NavLink
-          href="/armory"
-          pathname={pathname}
-          icon={<Library aria-hidden />}
-          label="Armory"
-          ct={armoryCount > 0 ? String(armoryCount) : undefined}
-        />
-        <NavLink
-          href="/run"
-          pathname={pathname}
-          icon={<Play aria-hidden />}
-          label="Run"
-          ct={isRunning ? "live" : undefined}
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
         <NavLink
@@ -158,6 +161,7 @@ export function Sidebar() {
           composition={composition}
           library={library}
           pathname={pathname}
+          viewStatuses={viewStatuses}
         />
       </nav>
 
@@ -174,12 +178,23 @@ export function Sidebar() {
           </span>
         </div>
         <div className="row">
+          <span>uptime</span>
+          <b>{uptime}</b>
+        </div>
+        <div className="row">
           <span>verify</span>
           <b>{verifyTotal ? `${verifyOk}/${verifyTotal}` : "—"}</b>
         </div>
         <div className="row">
-          <span>pid</span>
-          <b>{runnerState?.pid ?? "—"}</b>
+          <span>views</span>
+          <b>{knownViews ? `${liveViews}/${knownViews} live` : "—"}</b>
+        </div>
+        <div className="row">
+          <span>dev · pid</span>
+          <b>
+            {runnerState?.devMode ? "dev · " : ""}
+            {runnerState?.pid ?? "—"}
+          </b>
         </div>
       </div>
     </aside>
@@ -205,17 +220,72 @@ function useIsMobileViewport(): boolean {
   return isMobile;
 }
 
+// Persisted collapse state for a sidebar group. SSR-safe: starts expanded on
+// the server, then reconciles with localStorage after hydration (the same
+// pattern AppShell uses for the whole-sidebar collapse).
+function useGroupCollapsed(key: string): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(key) === "1");
+    } catch {
+      /* localStorage unavailable — stay expanded */
+    }
+  }, [key]);
+  const toggle = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(key, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, [key]);
+  return [collapsed, toggle];
+}
+
+function GroupHeader({
+  title,
+  collapsed,
+  onToggle,
+  count
+}: {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  count?: number;
+}) {
+  return (
+    <button
+      type="button"
+      className="group-h group-toggle"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+    >
+      <span>
+        {title}
+        {typeof count === "number" ? <span className="group-count">{count}</span> : null}
+      </span>
+      {collapsed ? <ChevronRight size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
+    </button>
+  );
+}
+
 function FittingViewsLinks({
   composition,
   library,
-  pathname
+  pathname,
+  viewStatuses
 }: {
   composition: Composition | null;
   library: LibraryEntry[];
   pathname: string;
+  viewStatuses: FittingViewStatus[];
 }) {
-  const { entries: viewStatuses } = useFittingViewStatus();
   const isMobile = useIsMobileViewport();
+  const [collapsed, toggle] = useGroupCollapsed("garrison.sidebar.group.views");
 
   if (!composition) return null;
 
@@ -261,102 +331,112 @@ function FittingViewsLinks({
 
   return (
     <div className="nested" style={{ marginTop: 12 }}>
-      <div className="group-h">Views</div>
-      {rows.map((row) => {
-        if (row.kind === "embedded") {
-          const href = `/fitting/${row.entry.id}`;
-          const isActive =
-            pathname === href || pathname.startsWith(`${href}/`);
-          return (
-            <Link
-              key={`embedded:${row.entry.id}`}
-              href={href}
-              className={clsx("leaf", "verified", isActive && "active")}
-            >
-              <span className="glyph">
-                <Component size={14} aria-hidden />
-              </span>
-              <span>{row.entry.name}</span>
-            </Link>
-          );
-        }
-        const status = row.status;
-        const healthy = status?.healthy === true;
-        const statusClass = healthy ? "verified" : status?.healthy === false ? "alarm" : "empty";
-        if (healthy && status) {
-          if (isMobile) {
+      <GroupHeader title="Views" collapsed={collapsed} onToggle={toggle} count={rows.length} />
+      {collapsed
+        ? null
+        : rows.map((row) => {
+            if (row.kind === "embedded") {
+              const href = `/fitting/${row.entry.id}`;
+              const isActive =
+                pathname === href || pathname.startsWith(`${href}/`);
+              return (
+                <Link
+                  key={`embedded:${row.entry.id}`}
+                  href={href}
+                  className={clsx("leaf", "verified", isActive && "active")}
+                >
+                  <span className="glyph">
+                    <Component size={14} aria-hidden />
+                  </span>
+                  <span>{row.entry.name}</span>
+                </Link>
+              );
+            }
+            const status = row.status;
+            const healthy = status?.healthy === true;
+            const statusClass = healthy ? "verified" : status?.healthy === false ? "alarm" : "empty";
+            if (healthy && status) {
+              if (isMobile) {
+                return (
+                  <a
+                    key={`own-port:${row.entry.id}`}
+                    href={status.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={clsx("leaf", statusClass)}
+                    title={`Open ${row.entry.name} in new tab (${status.url})`}
+                  >
+                    <span className="glyph">
+                      <ExternalLink size={14} aria-hidden />
+                    </span>
+                    <span>{row.entry.name}</span>
+                  </a>
+                );
+              }
+              const embedHref = `/embed/${row.entry.id}`;
+              const isActive = pathname === embedHref;
+              return (
+                <Link
+                  key={`own-port:${row.entry.id}`}
+                  href={embedHref}
+                  className={clsx("leaf", statusClass, isActive && "active")}
+                  title={`Open ${row.entry.name} embedded (${status.url})`}
+                >
+                  <span className="glyph">
+                    <ExternalLink size={14} aria-hidden />
+                  </span>
+                  <span>{row.entry.name}</span>
+                </Link>
+              );
+            }
+            const fallbackHref = `/fitting/${row.entry.id}`;
+            const isActive =
+              pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
             return (
-              <a
+              <Link
                 key={`own-port:${row.entry.id}`}
-                href={status.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={clsx("leaf", statusClass)}
-                title={`Open ${row.entry.name} in new tab (${status.url})`}
+                href={fallbackHref}
+                className={clsx("leaf", statusClass, isActive && "active")}
+                title={status?.healthy === false ? "View is unreachable" : "View is not running"}
               >
                 <span className="glyph">
                   <ExternalLink size={14} aria-hidden />
                 </span>
                 <span>{row.entry.name}</span>
-              </a>
+                <span className="badge">{status?.healthy === false ? "down" : "off"}</span>
+              </Link>
             );
-          }
-          const embedHref = `/embed/${row.entry.id}`;
-          const isActive = pathname === embedHref;
-          return (
-            <Link
-              key={`own-port:${row.entry.id}`}
-              href={embedHref}
-              className={clsx("leaf", statusClass, isActive && "active")}
-              title={`Open ${row.entry.name} embedded (${status.url})`}
-            >
-              <span className="glyph">
-                <ExternalLink size={14} aria-hidden />
-              </span>
-              <span>{row.entry.name}</span>
-            </Link>
-          );
-        }
-        const fallbackHref = `/fitting/${row.entry.id}`;
-        const isActive =
-          pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
-        return (
-          <Link
-            key={`own-port:${row.entry.id}`}
-            href={fallbackHref}
-            className={clsx("leaf", statusClass, isActive && "active")}
-            title={status?.healthy === false ? "View is unreachable" : "View is not running"}
-          >
-            <span className="glyph">
-              <ExternalLink size={14} aria-hidden />
-            </span>
-            <span>{row.entry.name}</span>
-            <span className="badge">{status?.healthy === false ? "down" : "off"}</span>
-          </Link>
-        );
-      })}
+          })}
     </div>
   );
 }
 
 function QuartersLinks({ pathname }: { pathname: string }) {
+  const [collapsed, toggle] = useGroupCollapsed("garrison.sidebar.group.quarters");
   return (
     <div className="nested" style={{ marginTop: 12 }}>
-      <div className="group-h">Quarters</div>
-      {QUARTERS_CATEGORIES.map((cat) => {
-        const Icon =
-          (LucideIcons as unknown as Record<string, LucideIcon>)[cat.icon] ?? LucideIcons.Square;
-        const href = `/quarters/${cat.slug}`;
-        const isActive = pathname === href;
-        return (
-          <Link key={cat.slug} href={href} className={clsx("leaf", isActive && "active")}>
-            <span className="glyph">
-              <Icon size={14} aria-hidden />
-            </span>
-            <span>{cat.label}</span>
-          </Link>
-        );
-      })}
+      <GroupHeader
+        title="Quarters"
+        collapsed={collapsed}
+        onToggle={toggle}
+        count={QUARTERS_CATEGORIES.length}
+      />
+      {collapsed
+        ? null
+        : QUARTERS_CATEGORIES.map((cat) => {
+            const Icon =
+              (LucideIcons as unknown as Record<string, LucideIcon>)[cat.icon] ?? LucideIcons.Square;
+            const href = `/quarters/${cat.slug}`;
+            const isActive = pathname === href;
+            return (
+              <Link key={cat.slug} href={href} className={clsx("leaf", isActive && "active")}>
+                <span className="glyph">
+                  <Icon size={14} aria-hidden />
+                </span>
+                <span>{cat.label}</span>
+              </Link>
+            );
+          })}
     </div>
   );
 }
@@ -402,4 +482,14 @@ function statusToneClass(status: string): string {
   if (status === "failed") return "alarm";
   if (status === "starting" || status === "verifying" || status === "stopping") return "warn";
   return "idle";
+}
+
+function formatUptime(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }

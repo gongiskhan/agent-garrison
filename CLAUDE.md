@@ -123,11 +123,15 @@ tests/               Vitest suite — runner, capabilities, metadata,
                      fitting-view-resolver, validation, seeds, etc.
 ```
 
-The visible shell surfaces are **Garrison · Compose · Armory · Run ·
-Vault · Quarters**, plus the sidebar **Views** group (auto-populated per
-composition) and per-Fitting routes under `/fitting/<id>/...`. There is
+The visible shell surfaces are **Garrison · Composition · Vault ·
+Quarters**, plus the collapsible sidebar **Quarters** and **Views** groups
+(Views auto-populated per composition) and per-Fitting routes under
+`/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
+merged into the Garrison dashboard** (the home route; `/run` redirects to
+`/`) and the **Armory folded into Composition** (Fitting discovery is the
+cross-Faculty search box on `/compose`; `/armory` redirects there). There is
 no built-in Chat surface. Operative interaction goes through Channel
-Fittings; observability is the runtime log on `/run` plus per-Fitting
+Fittings; observability is the runtime log on the dashboard plus per-Fitting
 logs under `/fitting/<id>`.
 
 ### Faculties — 8 roles (Quarters pivot + 2026-06-18 sessions split)

@@ -1,0 +1,24 @@
+{
+  "slice": "sidebar-chrome",
+  "title": "Sidebar: collapsible Quarters + Views, enriched footer, remove Armory/Run nav, rename Compose->Composition",
+  "kind": "ui",
+  "status": "passed",
+  "updatedAt": "2026-06-18",
+  "gates": {
+    "typecheck": { "command": "npm run typecheck", "exit": 0 },
+    "domAssertions": {
+      "nav": "Garrison | Composition 8/8 | Vault | Quarters (Armory + Run removed)",
+      "groupHeaders": "QUARTERS 11, VIEWS 9 — both with chevron + count",
+      "collapseWorks": "clicking Quarters header removed 'Settings' from the DOM (true)",
+      "footer": "operative | status | uptime | verify | views 1/1 live | dev · pid"
+    },
+    "visual": {
+      "evidence": ["docs/autothing/evidence/refit/s4-sidebar-expanded.png", "docs/autothing/evidence/refit/s4-sidebar-collapsed.png"]
+    }
+  },
+  "decisions": {
+    "footer": "added uptime (live-ticking from startedAt), views (healthy/known own-port views), and a dev-mode flag folded into the pid row"
+  },
+  "crossModel": { "status": "pending-consolidated" },
+  "video": { "status": "pending" }
+}
