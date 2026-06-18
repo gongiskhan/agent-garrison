@@ -247,6 +247,35 @@ main {
 }
 @media (max-width: 720px) {
   .hero { grid-template-columns: 1fr; }
+  .hero > * { justify-self: start; }
+}
+
+/* Dashboard (home) — wider canvas + responsive card grids so the surface
+   fills desktop widths and reflows down to phone instead of staying on a
+   fixed two-column rail. */
+.page.dash { max-width: 1480px; }
+
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--rule);
+  border-top: 1px solid var(--rule);
+}
+.dash-stats > * { background: white; }
+@media (max-width: 880px) {
+  .dash-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 420px) {
+  .dash-stats { grid-template-columns: 1fr; }
+}
+
+.dash-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 264px), 1fr));
+  gap: 18px;
+  align-items: start;
+  margin-top: 22px;
 }
 
 .head { padding: 8px 0 24px; }

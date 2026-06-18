@@ -43,7 +43,7 @@ export function GarrisonHome() {
       <div className="crumbs">
         <b>Garrison</b>
       </div>
-      <div className="page wide">
+      <div className="page dash">
         <div className="hero">
           <div>
             <div className="font-mono" style={{ color: "var(--mute)", letterSpacing: "0.16em", fontSize: 10.5, textTransform: "uppercase" }}>
@@ -103,138 +103,121 @@ export function GarrisonHome() {
           </div>
         ) : null}
 
-        <div
+        <article
           style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 380px",
-            gap: 24,
-            alignItems: "start"
+            border: "1px solid var(--rule)",
+            background: "white"
           }}
         >
-          <div>
-            <article
-              style={{
-                border: "1px solid var(--rule)",
-                background: "white"
-              }}
-            >
-              <div
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              alignItems: "center",
+              gap: 16,
+              padding: "18px 22px"
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <h2
+                className="font-display"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto",
-                  alignItems: "center",
-                  padding: "18px 22px",
-                  borderBottom: "1px solid var(--rule)"
+                  fontWeight: 600,
+                  fontSize: 22,
+                  letterSpacing: "-0.008em",
+                  margin: 0
                 }}
               >
-                <div>
-                  <h2
-                    className="font-display"
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 22,
-                      letterSpacing: "-0.008em",
-                      margin: 0
-                    }}
-                  >
-                    {composition.name}
-                  </h2>
-                  <div
-                    className="font-mono"
-                    style={{
-                      fontSize: 11,
-                      color: "var(--mute)",
-                      marginTop: 4,
-                      letterSpacing: "0.04em",
-                      wordBreak: "break-all"
-                    }}
-                  >
-                    composition · {composition.manifestPath}
-                  </div>
-                </div>
-                <span className={clsx("pill", isRunning && "live", statusToneClass(status))}>
-                  {isRunning ? <span className="dot" /> : null}
-                  {status}
-                </span>
-              </div>
-
+                {composition.name}
+              </h2>
               <div
+                className="font-mono"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)"
+                  fontSize: 11,
+                  color: "var(--mute)",
+                  marginTop: 4,
+                  letterSpacing: "0.04em",
+                  wordBreak: "break-all"
                 }}
               >
-                <Stat
-                  label="Status"
-                  value={status}
-                  tone={isRunning ? "ok" : "default"}
-                  sub={runnerState?.startedAt ? `since ${shortTime(runnerState.startedAt)}` : undefined}
-                />
-                <Stat
-                  label="Verify"
-                  value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "—"}
-                  tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
-                  sub={verifyTotal ? "all hooks pass" : "not run"}
-                />
-                <Stat
-                  label="Faculties"
-                  value={`${stationed} / ${faculties.length}`}
-                  sub="stationed"
-                />
-                <Stat
-                  label="PID"
-                  value={runnerState?.pid ? String(runnerState.pid) : "—"}
-                  mono
-                  sub="claude code"
-                  last
-                />
+                composition · {composition.manifestPath}
               </div>
-            </article>
+            </div>
+            <span className={clsx("pill", isRunning && "live", statusToneClass(status))}>
+              {isRunning ? <span className="dot" /> : null}
+              {status}
+            </span>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <Panel title="Quick actions" tight>
-              <Quick href="/compose" nm="Tune the composition" sm={`Add or change Fittings · ${faculties.length} stations`} />
-              <Quick href="/quarters" nm="Quarters" sm="Skills, hooks, MCPs, settings" />
-              <Quick
-                href="/vault"
-                nm="Vault"
-                sm={vaultNeedsPassword ? "Password not set" : "Secrets are encrypted"}
-                alarm={vaultNeedsPassword}
-              />
-            </Panel>
-
-            <Panel title="Composition · readiness">
-              <ReadyRow label="Faculties stationed" value={`${stationed} / ${faculties.length}`} />
-              <ReadyRow
-                label="Capability wiring"
-                value={composition.capabilityIssues.length === 0 ? "resolved" : `${composition.capabilityIssues.length} issue${composition.capabilityIssues.length === 1 ? "" : "s"}`}
-                tone={composition.capabilityIssues.length === 0 ? "ok" : "alarm"}
-              />
-              <ReadyRow
-                label="Vault password"
-                value={vaultNeedsPassword ? "not set" : "set"}
-                tone={vaultNeedsPassword ? "alarm" : "ok"}
-              />
-              <ReadyRow
-                label="Verify hooks"
-                value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "not run"}
-                tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
-              />
-            </Panel>
-
-            {composition.derivedTasks ? (
-              <Panel title={`Tasks · derived from ${prettySource(composition.derivedTasks.source)}`}>
-                <div className="font-mono" style={{ color: "var(--mute)", fontSize: 11.5, marginBottom: 8 }}>
-                  truth file · {composition.derivedTasks.truthFile}
-                </div>
-                <div style={{ fontSize: 13, color: "var(--mute)" }}>
-                  The stationed data source declares the truth file; the derived Tasks Faculty
-                  follows it automatically.
-                </div>
-              </Panel>
-            ) : null}
+          <div className="dash-stats">
+            <Stat
+              label="Status"
+              value={status}
+              tone={isRunning ? "ok" : "default"}
+              sub={runnerState?.startedAt ? `since ${shortTime(runnerState.startedAt)}` : undefined}
+            />
+            <Stat
+              label="Verify"
+              value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "—"}
+              tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
+              sub={verifyTotal ? "all hooks pass" : "not run"}
+            />
+            <Stat
+              label="Faculties"
+              value={`${stationed} / ${faculties.length}`}
+              sub="stationed"
+            />
+            <Stat
+              label="PID"
+              value={runnerState?.pid ? String(runnerState.pid) : "—"}
+              mono
+              sub="claude code"
+            />
           </div>
+        </article>
+
+        <div className="dash-panels">
+          <Panel title="Quick actions" tight>
+            <Quick href="/compose" nm="Tune the composition" sm={`Add or change Fittings · ${faculties.length} stations`} />
+            <Quick href="/quarters" nm="Quarters" sm="Skills, hooks, MCPs, settings" />
+            <Quick
+              href="/vault"
+              nm="Vault"
+              sm={vaultNeedsPassword ? "Password not set" : "Secrets are encrypted"}
+              alarm={vaultNeedsPassword}
+            />
+          </Panel>
+
+          <Panel title="Composition · readiness">
+            <ReadyRow label="Faculties stationed" value={`${stationed} / ${faculties.length}`} />
+            <ReadyRow
+              label="Capability wiring"
+              value={composition.capabilityIssues.length === 0 ? "resolved" : `${composition.capabilityIssues.length} issue${composition.capabilityIssues.length === 1 ? "" : "s"}`}
+              tone={composition.capabilityIssues.length === 0 ? "ok" : "alarm"}
+            />
+            <ReadyRow
+              label="Vault password"
+              value={vaultNeedsPassword ? "not set" : "set"}
+              tone={vaultNeedsPassword ? "alarm" : "ok"}
+            />
+            <ReadyRow
+              label="Verify hooks"
+              value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "not run"}
+              tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
+            />
+          </Panel>
+
+          {composition.derivedTasks ? (
+            <Panel title={`Tasks · derived from ${prettySource(composition.derivedTasks.source)}`}>
+              <div className="font-mono" style={{ color: "var(--mute)", fontSize: 11.5, marginBottom: 8 }}>
+                truth file · {composition.derivedTasks.truthFile}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--mute)" }}>
+                The stationed data source declares the truth file; the derived Tasks Faculty
+                follows it automatically.
+              </div>
+            </Panel>
+          ) : null}
         </div>
 
         <hr style={{ border: "none", borderTop: "1px solid var(--rule)", margin: "26px 0 22px" }} />
@@ -250,18 +233,16 @@ function Stat({
   value,
   tone,
   sub,
-  mono,
-  last
+  mono
 }: {
   label: string;
   value: string;
   tone?: "ok" | "default";
   sub?: string;
   mono?: boolean;
-  last?: boolean;
 }) {
   return (
-    <div style={{ padding: "14px 22px", borderRight: last ? undefined : "1px solid var(--rule)" }}>
+    <div style={{ padding: "14px 22px" }}>
       <div
         className="font-mono"
         style={{
