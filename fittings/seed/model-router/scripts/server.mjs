@@ -130,7 +130,7 @@ async function handleSimulate(req, res) {
 let _pool = null;
 async function liveClassify(config, prompt) {
   try {
-    const { WarmPtySessionPool, OperativePtySession } = await import("../../../../packages/claude-pty/src/index.mjs");
+    const { WarmPtySessionPool, OperativePtySession } = await import("@garrison/claude-pty");
     if (!_pool) {
       const cwd = path.join(GARRISON_HOME, "model-router", "classifier-cwd");
       await mkdir(cwd, { recursive: true });

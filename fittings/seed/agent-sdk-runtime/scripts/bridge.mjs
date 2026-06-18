@@ -15,7 +15,7 @@ import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync } fr
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
-import { delegate, parseTaskSpec } from "../../../../packages/claude-pty/src/runtime-bridge.mjs";
+import { delegate, parseTaskSpec } from "@garrison/claude-pty";
 import { AgentSdkAdapter } from "../lib/agent-sdk-adapter.mjs";
 import { assertFence, FenceViolation } from "../lib/fence.mjs";
 import { buildHarness } from "../lib/harness.mjs";

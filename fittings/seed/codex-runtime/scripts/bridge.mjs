@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { delegate, parseTaskSpec } from "../../../../packages/claude-pty/src/runtime-bridge.mjs";
+import { delegate, parseTaskSpec } from "@garrison/claude-pty";
 import { CodexAdapter } from "../lib/codex-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

@@ -6,7 +6,7 @@ import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync } fr
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
-import { delegate, parseTaskSpec } from "../../../../packages/claude-pty/src/runtime-bridge.mjs";
+import { delegate, parseTaskSpec } from "@garrison/claude-pty";
 import { GeminiAdapter } from "../lib/gemini-adapter.mjs";
 
 const DATA_DIR = process.env.GEMINI_RUNTIME_DATA || path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "gemini-runtime");
