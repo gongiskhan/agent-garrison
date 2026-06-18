@@ -1,0 +1,133 @@
+{
+  "title": "Orchestrated build workflow — one channel, six runtimes",
+  "project": "agent-garrison",
+  "folder": "runtime/build-workflow",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Orchestrated build workflow",
+      "subtitle": "agent-garrison · the orchestrator routes each step to a fit-for-purpose runtime: Sonnet · Ollama · Opus · GPT (Codex) · Gemini · Opus · 2026-06-17",
+      "duration": 3.2,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "router",
+      "baseURL": "http://127.0.0.1:7087",
+      "startPath": "/",
+      "runTimeoutMs": 60000,
+      "beats": [
+        {
+          "id": "policy",
+          "caption": "The orchestrator's policy (profile: build) — each task-type role maps to a fit-for-purpose runtime/model",
+          "expectedScreen": "the Model Router 'Role → target (build)' table: standard→cc-sonnet-med, fast→sdk-ollama-chat, expert→cc-opus-high, review→sec-codex, image→sec-gemini, video→cc-opus-high, with an 'ollama-local' badge",
+          "actions": [{ "type": "waitFor", "selector": "testid:rolemap" }],
+          "assert": { "selector": "testid:rolemap", "highlight": true },
+          "hold": 6000
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "workflow",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
+      "runTimeoutMs": 560000,
+      "beats": [
+        {
+          "id": "step1-sonnet",
+          "caption": "Step 1 — build the data model → Claude Sonnet (a bounded build task)",
+          "expectedScreen": "the chat with the data-model reply (fields/types for a token-bucket rate limiter) and the status strip showing model: sonnet",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Build step 1 — define the data model: the fields and types for a token-bucket rate limiter. About 5 lines." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:model: sonnet", "timeout": 150000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step2-ollama",
+          "caption": "Step 2 — a trivial helper → local Ollama via the Agent SDK (free, fenced, non-Anthropic)",
+          "expectedScreen": "the chat with a one-line helper reply and the status strip showing runtime: agent-sdk · provider: ollama-local · model: qwen3:0.6b",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Build step 2 — write a small, simple helper function that returns the current time in milliseconds. One line." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:runtime: agent-sdk", "timeout": 120000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step3-opus",
+          "caption": "Step 3 — the complex core algorithm → Claude Opus (the hard build task)",
+          "expectedScreen": "the chat with the core token-bucket algorithm code and the status strip showing model: opus",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Build step 3 — implement the complex core token-bucket refill-and-consume algorithm. About 8 lines." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:model: opus", "timeout": 175000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step4-codex",
+          "caption": "Step 4 — code review → GPT via the Codex runtime",
+          "expectedScreen": "the chat with a code-review reply listing correctness issues, and the status strip showing runtime: codex · provider: openai · model: gpt-5-codex",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Review step — review this token-bucket rate limiter for correctness bugs: it refills tokens as elapsed*rate without capping at capacity, and reads the clock twice per request. List 2 concrete issues, briefly." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:runtime: codex", "timeout": 175000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step5-gemini",
+          "caption": "Step 5 — apply the review fixes → Gemini",
+          "expectedScreen": "the chat with corrected code for the two issues, and the status strip showing runtime: gemini · provider: google · model: gemini-2.5-flash",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Implement the code-review fixes for the rate limiter. The review found: (1) token refill is not capped at capacity; (2) the clock is read twice per request. Reply with ONLY the corrected one-line code for each fix. Do not use any tools and do not read or edit files." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:runtime: gemini", "timeout": 175000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step6-opus",
+          "caption": "Step 6 — write the tests → Claude Opus (back to the orchestrator)",
+          "expectedScreen": "the chat with a short test suite (about 6 cases) for the rate limiter, and the status strip showing model: opus",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Write tests for the token-bucket rate limiter: list about 6 test cases as a short test suite." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:model: opus", "timeout": 175000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        }
+      ]
+    },
+    {
+      "type": "terminal",
+      "id": "logs",
+      "mode": "scripted",
+      "caption": "The orchestrator's decision log — six steps, six runtime/model choices",
+      "tag": "DECISIONS LOG",
+      "expectedScreen": "terminal listing the 6 steps: build data model → cc-sonnet-med (claude-code/sonnet); helper → sdk-ollama-chat (agent-sdk/qwen3:0.6b); core algo → cc-opus-high (opus); review → sec-codex (codex/gpt-5-codex); apply fixes → sec-gemini (gemini); test → cc-opus-high (opus)",
+      "commands": ["bash /Users/ggomes/dev/garrison/.walkthrough/show-build-routing.sh"],
+      "commandPause": "1200ms",
+      "hold": "7000ms"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "One channel · one orchestrator · six runtimes",
+      "subtitle": "build → Sonnet / Ollama / Opus · review → GPT (Codex) · fixes → Gemini · test → Opus · runtime+model logged per step",
+      "duration": 3.2
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "title": "The v2 stack — wired into the composition",
+  "project": "agent-garrison",
+  "folder": "overview",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "The v2 stack, wired in",
+      "subtitle": "agent-garrison · orchestrator · runtimes · knowledge · improver · 2026-06-15",
+      "duration": 2.8,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "shell",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/compose",
+      "runTimeoutMs": 180000,
+      "beats": [
+        {
+          "id": "compose",
+          "caption": "Compose: Model Router fills the Orchestrator slot; the whole composition resolves clean",
+          "expectedScreen": "Compose overview, station 01 Orchestrator = Model Router, header capabilities resolved, Armory 18, sidebar Views lists Improver and Model Router",
+          "actions": [ { "type": "waitFor", "selector": "text:resolved" } ],
+          "assert": { "selector": "text:resolved", "text": "resolved", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "armory",
+          "caption": "Armory: 18 Fittings — the new Model Router, Improver, Knowledge and Codex / Gemini runtimes",
+          "expectedScreen": "the Armory grid with the Knowledge card highlighted, alongside Gemini runtime, Improver, Model Router cards",
+          "actions": [ { "type": "goto", "path": "/armory" }, { "type": "waitFor", "selector": "text:Knowledge" } ],
+          "assert": { "selector": "text:Knowledge", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "codex",
+          "caption": "Codex & Gemini are stationed as invocable runtimes — routed to as secondary targets, no UI of their own",
+          "expectedScreen": "the Codex runtime per-Fitting overview page, heading 'Codex runtime', PROVIDES runtime, VIEWS section noting it ships no UI",
+          "actions": [ { "type": "goto", "path": "/fitting/codex-runtime" }, { "type": "waitFor", "selector": "role:heading:Codex runtime" } ],
+          "assert": { "selector": "role:heading:Codex runtime", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "knowledge",
+          "caption": "Knowledge federates memory + projections behind one contract — switch the runtime, never lose context",
+          "expectedScreen": "the Knowledge per-Fitting overview page, heading 'Knowledge', PROVIDES including memory-store",
+          "actions": [ { "type": "goto", "path": "/fitting/knowledge" }, { "type": "waitFor", "selector": "text:memory-store" } ],
+          "assert": { "selector": "text:memory-store", "highlight": true },
+          "hold": 4200
+        }
+      ]
+    },
+    {
+      "type": "terminal",
+      "id": "live",
+      "mode": "scripted",
+      "caption": "Live: the own-port views are registered, and the composition resolves with zero capability issues",
+      "tag": "LIVE",
+      "expectedScreen": "terminal: the views API lists model-router and improver among registered fittings, and the composition's capabilityIssues is an empty array []",
+      "commands": [
+        "curl -s http://127.0.0.1:7777/api/fittings/views | jq -r '.views[].fittingId'",
+        "curl -s http://127.0.0.1:7777/api/compositions/default | jq -c '.composition.capabilityIssues'"
+      ],
+      "commandPause": "1500ms",
+      "hold": "3600ms"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "One composition: orchestrator, runtimes, knowledge, improver",
+      "subtitle": "every piece visible in the UI and resolving clean",
+      "duration": 2.6
+    }
+  ]
+}

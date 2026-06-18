@@ -1,0 +1,99 @@
+{
+  "title": "Agent SDK Runtime — live through the orchestrator",
+  "project": "agent-garrison",
+  "folder": "runtime/agent-sdk-orchestrated",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Agent SDK Runtime — live",
+      "subtitle": "agent-garrison · the orchestrator routes per task: Ollama via the Agent SDK vs Claude on the Max plan · 2026-06-17",
+      "duration": 3.0,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "router",
+      "baseURL": "http://127.0.0.1:7087",
+      "startPath": "/",
+      "runTimeoutMs": 60000,
+      "beats": [
+        {
+          "id": "selection",
+          "caption": "The orchestrator's runtime selection (profile: demo) — fast work → agent-sdk/ollama, expert work → claude-code/anthropic",
+          "expectedScreen": "the Model Router 'Role → target (demo)' table: the fast row's target is sdk-ollama-chat and the expert row's is cc-opus-high, with an 'ollama-local' badge in the header",
+          "actions": [{ "type": "waitFor", "selector": "testid:rolemap" }],
+          "assert": { "selector": "testid:rolemap", "highlight": true },
+          "hold": 5500
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "chat",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
+      "runTimeoutMs": 220000,
+      "beats": [
+        {
+          "id": "trivial-send",
+          "caption": "Web channel → a trivial question. The orchestrator will route this to the local Ollama model via the Agent SDK.",
+          "expectedScreen": "the Operative web-channel chat with 'What is the capital of France?' typed into the composer, ready to send",
+          "actions": [{ "type": "fill", "selector": ".cc-input", "text": "What is the capital of France? Answer in one short sentence." }],
+          "assert": { "selector": ".cc-input", "highlight": true },
+          "hold": 2400
+        },
+        {
+          "id": "trivial-reply",
+          "caption": "Ollama (qwen3:0.6b) answers via the Agent SDK runtime — the status badge reads agent-sdk/ollama-local",
+          "expectedScreen": "the chat showing the assistant reply 'The capital of France is Paris.' and a status badge reading 'qwen3:0.6b · agent-sdk/ollama-local'",
+          "actions": [
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:Paris", "timeout": 90000 }
+          ],
+          "assert": { "selector": "text:Paris", "highlight": true, "timeout": 90000 },
+          "hold": 5500
+        },
+        {
+          "id": "hard-send",
+          "caption": "A harder question in the SAME channel — the orchestrator will route this one to Claude on the Max plan",
+          "expectedScreen": "the chat composer with the database-locking question typed in; the previous 'Paris' reply still visible above",
+          "actions": [{ "type": "fill", "selector": ".cc-input", "text": "Explain in 3 sentences the key trade-offs between optimistic and pessimistic locking in databases." }],
+          "assert": { "selector": ".cc-input", "highlight": true },
+          "hold": 2400
+        },
+        {
+          "id": "hard-reply",
+          "caption": "Claude (Opus) answers via the claude-code PTY runtime — same channel, a different runtime chosen per task",
+          "expectedScreen": "the chat showing a substantive Claude answer about optimistic vs pessimistic locking (mentioning conflicts / commit time / deadlocks)",
+          "actions": [
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:conflicts", "timeout": 120000 }
+          ],
+          "assert": { "selector": "text:conflicts", "highlight": true, "timeout": 120000 },
+          "hold": 5500
+        }
+      ]
+    },
+    {
+      "type": "terminal",
+      "id": "logs",
+      "mode": "scripted",
+      "caption": "The orchestrator's decision log — which runtime and model handled each turn",
+      "tag": "DECISIONS LOG",
+      "expectedScreen": "terminal output listing the recent decisions: role=fast -> sdk-ollama-chat runtime=agent-sdk provider=ollama-local model=qwen3:0.6b, and role=expert -> cc-opus-high runtime=claude-code provider=anthropic-plan model=opus",
+      "commands": ["bash /Users/ggomes/dev/garrison/.walkthrough/show-routing-log.sh"],
+      "commandPause": "1200ms",
+      "hold": "6000ms"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "One channel, one orchestrator, two runtimes",
+      "subtitle": "trivial → Ollama via the Agent SDK (fenced, non-Anthropic) · hard → Claude on the Max plan · runtime+model logged per turn",
+      "duration": 3.0
+    }
+  ]
+}

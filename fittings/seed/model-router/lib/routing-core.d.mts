@@ -17,6 +17,20 @@ export interface RuntimeTarget {
   effort?: "low" | "medium" | "high" | "xhigh" | "ultracode";
   soul?: string;
   pinned?: boolean;
+  // agent-sdk runtime additions (BRIEF: Agent SDK Runtime). promptMode picks the
+  // claude_code preset (full) vs a lean string; capabilities is the per-target
+  // capability record the orchestrator reads before routing a block type.
+  promptMode?: "full" | "lean";
+  baseUrl?: string;
+  acceptApiBilling?: boolean;
+  capabilities?: {
+    text?: boolean;
+    toolUse?: boolean;
+    image?: boolean;
+    document?: boolean;
+    webSearch?: boolean;
+    mcp?: boolean;
+  };
 }
 export interface SecondaryTarget {
   id: string;

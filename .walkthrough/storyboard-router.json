@@ -1,0 +1,112 @@
+{
+  "title": "Model Router — policy, profiles & live routing",
+  "project": "agent-garrison",
+  "folder": "model-router",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Model Router — end to end",
+      "subtitle": "agent-garrison · policy · profiles · live Stage-A routing · 2026-06-15",
+      "duration": 2.8,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "router",
+      "baseURL": "http://127.0.0.1:7087",
+      "startPath": "/",
+      "runTimeoutMs": 240000,
+      "beats": [
+        {
+          "id": "policy-roles",
+          "caption": "Policy → Role-to-Target: each role resolves to one concrete runtime target",
+          "expectedScreen": "the Model Router Policy tab, ROLE → TARGET (BALANCED) table: expert→cc-opus-high, standard→cc-sonnet-med, fast→cc-haiku-low, image/video→sec-gemini, review→sec-codex",
+          "actions": [ { "type": "waitFor", "selector": "text:ROLE → TARGET" } ],
+          "assert": { "selector": "text:ROLE → TARGET", "highlight": true },
+          "hold": 4800
+        },
+        {
+          "id": "policy-matrix",
+          "caption": "One shared matrix maps every task-type × tier to a role — authored once, used by all Profiles",
+          "expectedScreen": "the MATRIX (TASK-TYPE × TIER → ROLE) grid: rows code/review/research/image/video/writing/ops/other across T0-trivial, T1-standard, T2-deep",
+          "assert": { "selector": "text:MATRIX", "highlight": true },
+          "hold": 4800
+        },
+        {
+          "id": "profile-premium",
+          "caption": "Switch the Profile to premium — same policy, the role map re-resolves to premium targets",
+          "expectedScreen": "the heading now reads ROLE → TARGET (PREMIUM); the role→target selects have updated for the premium profile",
+          "actions": [ { "type": "select", "selector": "select", "value": "premium" }, { "type": "waitFor", "selector": "text:ROLE → TARGET (PREMIUM)" } ],
+          "assert": { "selector": "text:ROLE → TARGET (PREMIUM)", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "profile-economy",
+          "caption": "Switch to economy — expert now maps to a LOCAL ollama target (cc-ollama-qwen), zero cloud spend",
+          "expectedScreen": "the heading reads ROLE → TARGET (ECONOMY); the expert row's target is now cc-ollama-qwen, a local ollama runtime-target",
+          "actions": [ { "type": "select", "selector": "select", "value": "economy" }, { "type": "waitFor", "selector": "text:ROLE → TARGET (ECONOMY)" } ],
+          "assert": { "selector": "text:ROLE → TARGET (ECONOMY)", "highlight": true },
+          "hold": 5200
+        },
+        {
+          "id": "profile-balanced",
+          "caption": "Back to the balanced Profile for a live route",
+          "expectedScreen": "the heading reads ROLE → TARGET (BALANCED) again",
+          "actions": [ { "type": "select", "selector": "select", "value": "balanced" }, { "type": "waitFor", "selector": "text:ROLE → TARGET (BALANCED)" } ],
+          "assert": { "selector": "text:ROLE → TARGET (BALANCED)", "highlight": true },
+          "hold": 2800
+        },
+        {
+          "id": "simulator",
+          "caption": "Simulator: classify a real prompt live (haiku), then resolve the role → the concrete target",
+          "expectedScreen": "the Simulator tab after running a prompt: a result line reading taskType=code tier=T2-deep role=expert via=cell, plus [route: cc-opus-high | rule: cell:code/T2-deep | profile: balanced]",
+          "actions": [
+            { "type": "click", "selector": "text:Simulator" },
+            { "type": "fill", "selector": "input[placeholder='prompt']", "text": "write unit tests for the auth module" },
+            { "type": "click", "selector": "button:Simulate" },
+            { "type": "waitFor", "selector": "text:via=cell", "timeout": 100000 }
+          ],
+          "assert": { "selector": "text:via=cell", "highlight": true, "timeout": 100000 },
+          "hold": 5200
+        },
+        {
+          "id": "compiled",
+          "caption": "Compiled: the exact routing.md block the gateway injects into the operative's prompt",
+          "expectedScreen": "the Compiled tab showing COMPILED ROUTING.MD with the garrison:routing v1 markdown for the active profile",
+          "actions": [ { "type": "click", "selector": "text:Compiled" }, { "type": "waitFor", "selector": "text:COMPILED" } ],
+          "assert": { "selector": "text:COMPILED", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "telemetry",
+          "caption": "Telemetry: every routing decision is logged — this is the signal the Improver learns from",
+          "expectedScreen": "the Telemetry tab showing a DECISIONS panel with a target-hits breakdown",
+          "actions": [ { "type": "click", "selector": "text:Telemetry" }, { "type": "waitFor", "selector": "text:DECISIONS" } ],
+          "assert": { "selector": "text:DECISIONS", "highlight": true },
+          "hold": 3800
+        }
+      ]
+    },
+    {
+      "type": "terminal",
+      "id": "api",
+      "mode": "scripted",
+      "caption": "The same resolution over the live config API — active profile + role→target for each cell",
+      "tag": "LIVE API",
+      "expectedScreen": "terminal: active profile balanced, profiles balanced/economy/premium, then code/T2-deep→expert→cc-opus-high, review/T1→review→sec-codex, image/T1→image→sec-gemini",
+      "commands": [ "bash /Users/ggomes/dev/garrison/.walkthrough/router-live.sh" ],
+      "commandPause": "1200ms",
+      "hold": "4200ms"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Routing: visible policy, swappable profiles, live classification",
+      "subtitle": "role → target · matrix authored once · economy goes fully local",
+      "duration": 2.6
+    }
+  ]
+}

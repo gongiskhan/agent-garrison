@@ -7,10 +7,14 @@ dependencies:
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/garrison-orchestrator
+    - path: ../../fittings/seed/model-router
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/trello-data-source
@@ -32,8 +36,10 @@ x-garrison:
         log_sink: runner
     selections:
       orchestrator:
-        - id: garrison-orchestrator
-          config: {}
+        - id: model-router
+          config:
+            port: 7087
+            bind_host: 127.0.0.1
       gateway:
         - id: http-gateway
           config:
@@ -67,6 +73,8 @@ x-garrison:
           config:
             tasks_truth_file: tasks/trello.md
             board_id: vl1Z8KFH
+        - id: knowledge
+          config: {}
       observability:
         - id: monitor-default
           config:
@@ -74,6 +82,10 @@ x-garrison:
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
+        - id: improver
+          config:
+            port: 7088
+            bind_host: 127.0.0.1
       sessions:
         - id: artifact-store
           config:
@@ -92,6 +104,10 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
+        - id: codex-runtime
+          config: {}
+        - id: gemini-runtime
+          config: {}
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

@@ -1,0 +1,20 @@
+{
+  "slice": "AS-pool",
+  "title": "MultiRuntimePool warms agent-sdk sessions keyed incl promptMode; heterogeneous with PTY; status visible",
+  "updatedAt": "2026-06-16T22:22:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/agent-sdk-runtime.test.ts",
+      "exit": 0,
+      "summary": "sdk-pool-ok — Pool block (2 tests) green: agentSdkPoolKey includes provider+model+promptMode so full != lean ('agent-sdk:ollama-local:qwen3:8b:full'); a MultiRuntimePool warms a full pool AND a lean pool as DISTINCT pools alongside a PTY-style stub (heterogeneous in one pool); pool.status() exposes each agent-sdk pool with its role; checkout draws a warm agent-sdk session whose harness.promptMode matches its key. No pool rewrite — the pool is adapter-agnostic; the composite runtime id carries promptMode."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean (run with the full suite gate)." }
+  },
+  "verdicts": { "sdk-pool-ok": true },
+  "blockers": [],
+  "notes": "MultiRuntimePool keys by runtime id and drives rt.adapter.spawn(rt.spawnConfig); WarmPtySessionPool tolerates non-PTY sessions (its isAlive treats a missing method as alive). One stateless AgentSdkAdapter backs both keyed pools. Auto-sizing from the active Profile is the pool's existing per-entry size budget; live pool wiring into the gateway is AS-route/AS-ollama-live territory."
+}

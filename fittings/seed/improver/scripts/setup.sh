@@ -6,7 +6,9 @@ set -euo pipefail
 CRON="${IMPROVER_CRON:-30 3 * * *}"
 SCHEDULER="${GARRISON_SCHEDULER_CLI:-../scheduler/scripts/scheduler.mjs}"
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-RUN_CMD="node ${SELF_DIR}/improver.mjs run-now improver-nightly"
+# IMPROVER_PROJECTS_DIR activates the skills two-phase loop (maintenance + the
+# capped PTY model pass). Without it the runner falls back to the memory rule only.
+RUN_CMD="IMPROVER_PROJECTS_DIR=\$HOME/.claude/projects node ${SELF_DIR}/improver.mjs run-now improver-nightly"
 
 if [ -f "$SCHEDULER" ]; then
   node "$SCHEDULER" remove improver-nightly >/dev/null 2>&1 || true

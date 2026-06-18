@@ -1,0 +1,20 @@
+{
+  "slice": "AS-adapter",
+  "title": "AgentSdkAdapter — RuntimeAdapter conformance; structured awaitResponse + tool-use, no scraping",
+  "updatedAt": "2026-06-16T22:17:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/agent-sdk-runtime.test.ts",
+      "exit": 0,
+      "summary": "sdk-adapter-ok — AgentSdkAdapter block (5 tests) green: passes runAdapterConformance (the shared harness: spawn→awaitReady→sendTurn→awaitResponse→teardown) with runtime id 'agent-sdk' and an injected fake SDK client; awaitResponse reads the SDK's structured messages directly (text + tool_use blocks, session_id) with NO scraping; buildQueryOptions wires the harness (preset/settingSources/maxTurns/cwd) + the fenced env (ANTHROPIC_BASE_URL non-Anthropic, ANTHROPIC_API_KEY ''); spawn ENFORCES the fence (Anthropic target without acceptApiBilling throws before any model call); setModel updates within the endpoint family; setEffort records effortApplied:false where the endpoint does not map effort."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean." }
+  },
+  "verdicts": { "sdk-adapter-ok": true },
+  "blockers": [],
+  "notes": "No PTY, no xterm. The real @anthropic-ai SDK is reached only via the default client factory, which lazy dynamic-imports lib/sdk-client.mjs AFTER assertFence() passes; tests inject createClient so the unit-test path never loads the SDK. The SDK was confirmed installable (npm view @anthropic-ai/claude-agent-sdk → 0.3.179, pinned in the fitting package.json)."
+}

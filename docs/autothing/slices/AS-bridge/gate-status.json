@@ -1,0 +1,25 @@
+{
+  "slice": "AS-bridge",
+  "title": "agent-sdk as secondary answers delegate() → schema-valid {summary, artifacts} + artifact write + decision log",
+  "updatedAt": "2026-06-16T22:17:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/agent-sdk-runtime.test.ts",
+      "exit": 0,
+      "summary": "sdk-bridge-ok — Bridge block (1 test) green: agent-sdk as a secondary answers delegate() with the injected fake client; validateDelegationResult() == [] (schema-valid {summary, artifacts}); summary carries the model output; artifacts[0] matches artifacts/delegations/; the full output is written to the Artifact Store (writeArtifact called once); the delegation is appended via logDecision with {kind:'delegation', runtime:'agent-sdk'}."
+    },
+    "probe": {
+      "cmd": "node fittings/seed/agent-sdk-runtime/scripts/bridge.mjs --probe",
+      "exit": 0,
+      "summary": "The fitting verify hook runs the bridge self-test (read-only, no SDK import, no network): fence default-deny holds, harness full/lean wire correctly and never load user settings, every static provider base URL is non-Anthropic, deepseek caps text+tool-use only → prints 'ok'."
+    },
+    "validate-fitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/agent-sdk-runtime", "exit": 0, "summary": "PASS — all four checks." }
+  },
+  "verdicts": { "sdk-bridge-ok": true },
+  "blockers": [],
+  "notes": "Cloned from the codex-runtime bridge pattern: task spec via STDIN (never argv), broad model allowlist (any proxied/native model string), requiredKey wired per-provider so a missing cloud key fails loudly. The bridge reuses the shared delegate() core in packages/claude-pty/src/runtime-bridge.mjs unchanged."
+}

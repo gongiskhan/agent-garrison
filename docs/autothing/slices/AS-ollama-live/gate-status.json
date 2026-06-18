@@ -1,0 +1,30 @@
+{
+  "slice": "AS-ollama-live",
+  "title": "Live agent-sdk + ollama-local — one real tool-call round trip end to end",
+  "updatedAt": "2026-06-16T22:30:00Z",
+  "phase": "blocked",
+  "status": "blocked",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 3 },
+  "gates": {
+    "live-connection": {
+      "cmd": "node fittings/seed/agent-sdk-runtime/scripts/probe-ollama.mjs (PROBE_MODEL=qwen3:8b, promptMode=full)",
+      "exit": 4,
+      "summary": "PROVEN LIVE against the REAL Agent SDK (0.3.179) + real Ollama (0.14.3): fence=non-anthropic, baseUrl=http://localhost:11434, preset=claude_code, settingSources=['project'], caps.mcp=true; a real tool_use was emitted and detected by the adapter (no scraping); token accounting worked (874 tokens). The adapter↔SDK↔Ollama path is end-to-end live."
+    },
+    "live-tool-roundtrip": {
+      "cmd": "node .../probe-ollama.mjs across qwen3:8b/full, qwen2.5:7b/full, qwen2.5:7b/lean",
+      "exit": 137,
+      "summary": "BLOCKED — a CLEAN tool-result round trip (Read → reply with first line) could not complete on the locally-pulled models over Ollama's Anthropic-compat endpoint. qwen3:8b returned 'API Error: Content block not found' on the tool-result block and called the wrong tool; qwen2.5:7b stalled under both full (the ~14k claude_code preset floor) and lean (machine load ~13, hard-killed at 150s/200s)."
+    }
+  },
+  "verdicts": { "sdk-ollama-live-ok": false },
+  "blockers": [
+    {
+      "cause": "external/environmental — the local models pulled in Ollama (qwen3:0.6b, qwen3:8b, qwen2.5:7b) cannot cleanly complete the Claude-Code tool-result round-trip over Ollama's Anthropic-compatible endpoint (content-block protocol mismatch on qwen3:8b; too slow under the preset token floor + machine load ~13 on qwen2.5:7b).",
+      "attemptedRemediation": "Tried the live round trip THREE times varying both levers: PROBE_MODEL=qwen3:8b promptMode=full (→ 'API Error: Content block not found'); PROBE_MODEL=qwen2.5:7b promptMode=full (→ stall, killed 200s); PROBE_MODEL=qwen2.5:7b promptMode=lean (→ stall, killed 150s).",
+      "realFix": "A tool-tuned local model capable of the Claude-Code tool protocol over Ollama (e.g. a 30B+ model — not pulled; pulling+running multi-GB under load ~13 is itself the failed-remediation path and the brief's env note warns load >30 crashes headless work), OR a cloud provider key in the Vault (DeepSeek/Z.ai/MiniMax — absent; note DeepSeek's capability record is text+tool-use only, no MCP)."
+    }
+  ],
+  "notes": "This is NOT an adapter defect — the committed conformance + structured-awaitResponse + tool_use-detection gates are green, and the live connection proved fence/harness/baseUrl/preset/settingSources/tokens correct against the real SDK. The brief itself directs the operator to 'have Ollama running with one model pulled'; the pulled models are too small/incompatible for the clean tool protocol. Env-gated probe (GARRISON_LIVE_THIRDPARTY) so it never runs in the normal suite."
+}

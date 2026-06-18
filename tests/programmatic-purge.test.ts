@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 
 // Guard for the billing ban (BRIEF v2 §1 / slice MR0a-purge).
@@ -28,6 +28,24 @@ const BANNED: Array<{ label: string; re: RegExp }> = [
   { label: "direct Anthropic API host", re: /api\.anthropic\.com/ },
 ];
 
+// THE FENCE exception (BRIEF: Agent SDK Runtime §"THE FENCE"). The agent-sdk
+// runtime is the ONE billing-fenced reintroduction of the Agent SDK: it MAY
+// import @anthropic-ai, but ONLY in a single isolated file that pairs with THE
+// FENCE (lib/fence.mjs), which hard-refuses to launch against Anthropic billing.
+// Every other ban — including the direct Anthropic API host — still applies even
+// inside the fitting. If fence.mjs is ever removed, the exception lapses and the
+// import becomes an offender again.
+const FENCED_SDK_IMPORT = "fittings/seed/agent-sdk-runtime/lib/sdk-client.mjs";
+const FENCE_MODULE = "fittings/seed/agent-sdk-runtime/lib/fence.mjs";
+
+function isFencedSdkImport(rel: string, re: RegExp): boolean {
+  return (
+    re.source === /@anthropic-ai\//.source &&
+    rel === FENCED_SDK_IMPORT &&
+    existsSync(path.join(ROOT, FENCE_MODULE))
+  );
+}
+
 function trackedSourceFiles(): string[] {
   const out = execSync(`git ls-files ${TARGET_DIRS.join(" ")}`, {
     cwd: ROOT,
@@ -50,7 +68,9 @@ describe("programmatic-path purge — billing ban guard", () => {
     for (const rel of trackedSourceFiles()) {
       const text = readFileSync(path.join(ROOT, rel), "utf8");
       for (const { label, re } of BANNED) {
-        if (re.test(text)) offenders.push(`${rel} :: ${label} (${re})`);
+        if (!re.test(text)) continue;
+        if (isFencedSdkImport(rel, re)) continue; // THE FENCE: the single fenced SDK import
+        offenders.push(`${rel} :: ${label} (${re})`);
       }
     }
     expect(

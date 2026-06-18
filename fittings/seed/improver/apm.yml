@@ -13,14 +13,20 @@ x-garrison:
     - all
   summary: >-
     A nightly automation-runner with an own-port review-queue view (default
-    7088). The seed end-to-end rule is memory consolidation (MEMORY.md learned
-    hints → a reviewable proposal to promote canonical vault conventions).
-    Skill/automation/router-config/garrison rules ship as disabled examples
-    (incl. a garrison pool-tuning rule wired to decisions.jsonl + pool stats).
-    Needs no HTTP to RUN (reads inputs, writes proposal diffs + a queue index);
-    APPLY happens only through the never-clobber authoring contract (baselineSha
-    → 409, then reconcile) from the review UI. Vault-locked / server-down records
-    `skipped`, never fails silently.
+    7088). Two live rules: memory consolidation (MEMORY.md learned hints → a
+    reviewable proposal to promote canonical vault conventions) and the SKILLS
+    rule — a two-phase self-improvement loop over the Operative's skills:
+    (1) deterministic maintenance (stale/archive of owned, unpinned skills,
+    reversible) and (2) ONE capped, evidence-cited PTY model pass
+    (@garrison/claude-pty#oneShotTurn — never the Agent SDK, never the warm pool)
+    proposing body-append-only skill edits for human approval. Each skill
+    proposal cites a real sessionId validated against telemetry. Snapshot-before-
+    apply + byte-identical rollback + provenance/pinning gates protect owned
+    surfaces; loose/pinned skills are never touched. Automation/router-config/
+    garrison rules remain disabled examples. Needs no HTTP to RUN (reads inputs,
+    writes proposal diffs + a queue index); APPLY happens only through the
+    never-clobber authoring contract (baselineSha → 409, then reconcile) from the
+    review UI. Vault-locked / server-down records `skipped`, never fails silently.
   config_schema:
     - key: cron
       type: string
@@ -34,6 +40,26 @@ x-garrison:
       type: string
       default: 127.0.0.1
       description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: stale_days
+      type: integer
+      default: 30
+      description: Days a skill must go unused before maintenance marks it `stale` (reversible). Skills rule.
+    - key: archive_days
+      type: integer
+      default: 90
+      description: Days a skill must go unused before maintenance `archive`s it (reversible move off-disk). Skills rule.
+    - key: max_proposals
+      type: integer
+      default: 8
+      description: Hard cap on skill-improvement proposals per run (enforced by slice + dedupe-by-skill; the model's own count is never trusted).
+    - key: skill_size_limit
+      type: integer
+      default: 65536
+      description: Maximum SKILL.md byte size a proposed edit may produce; over-limit fails the apply gate.
+    - key: model
+      type: string
+      default: haiku
+      description: Model the capped PTY improvement pass classifies with (via @garrison/claude-pty#oneShotTurn).
   provides:
     - kind: automation-runner
       name: improver
@@ -53,3 +79,14 @@ x-garrison:
     review UI) applies via the hosted authoring APIs (POST /api/quarters file.*,
     PUT /api/claude-md with baselineSha, PUT /api/settings, the router's PUT
     /routing) and runs reconcile. Run manually: scheduler.mjs run-now improver-nightly.
+
+    The SKILLS rule (v1) only acts on OWNED, UNPINNED skills (provenance from the
+    composition apm.lock; pins via pinned.json / IMPROVER_PINNED). It runs ONE
+    capped PTY model pass — @garrison/claude-pty#oneShotTurn, never the Agent SDK,
+    never the warm pool — and drops any proposal whose cited sessionId is not in
+    telemetry. Edits are body-append-only (frontmatter is gated byte-identical);
+    every apply is snapshotted first and rolls back byte-for-byte on a gate
+    failure. Maintenance (stale/archive) is deterministic and reversible. Hermetic
+    acceptance: `IMPROVER_PROJECTS_DIR=<fixtures> GARRISON_CLAUDE_HOME=<sandbox>
+    IMPROVER_LOCK=<lock> IMPROVER_MODEL_FIXTURE=<reply> node scripts/improver.mjs
+    run-now` prints FINDING 1..6 + `IMPROVER-V1 OK`.

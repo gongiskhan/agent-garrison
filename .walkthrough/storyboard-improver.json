@@ -1,0 +1,100 @@
+{
+  "title": "Improver — propose → review → approve → applied",
+  "project": "agent-garrison",
+  "folder": "improver",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Improver — end to end",
+      "subtitle": "agent-garrison · run → propose → diff → approve → applied · 2026-06-15",
+      "duration": 2.8,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "improver",
+      "baseURL": "http://127.0.0.1:7088",
+      "startPath": "/",
+      "runTimeoutMs": 180000,
+      "beats": [
+        {
+          "id": "empty",
+          "caption": "The review queue starts empty — the Improver proposes, a human approves or rejects",
+          "expectedScreen": "the Improver — Review Queue view, Queue tab, empty-state reading No proposals yet. Run the Improver to populate the queue.",
+          "actions": [ { "type": "waitFor", "selector": "text:No proposals yet" } ],
+          "assert": { "selector": "text:No proposals yet", "highlight": true },
+          "hold": 3600
+        },
+        {
+          "id": "run",
+          "caption": "Run the Improver now — it reads real memory and proposes promoting stable notes to the vault",
+          "expectedScreen": "a proposal card appears: claim '… learned note(s) in MEMORY.md are stable enough to promote to canonical vault conventions', a PENDING badge, rule memory-consolidation",
+          "actions": [
+            { "type": "click", "selector": "button:Run Improver now" },
+            { "type": "waitFor", "selector": "text:stable enough to promote", "timeout": 40000 }
+          ],
+          "assert": { "selector": "text:stable enough to promote", "highlight": true, "timeout": 40000 },
+          "hold": 4400
+        },
+        {
+          "id": "diff",
+          "caption": "Show the diff — exactly which notes it wants to promote, as an additive change",
+          "expectedScreen": "the proposal diff is expanded, showing added lines for the memory notes (e.g. '## claude-pty screen detection')",
+          "actions": [
+            { "type": "click", "selector": "button:Show diff" },
+            { "type": "waitFor", "selector": "text:screen detection" }
+          ],
+          "assert": { "selector": "text:screen detection", "highlight": true },
+          "hold": 4800
+        },
+        {
+          "id": "approve",
+          "caption": "Approve — applied through the authoring contract, then reconcile('post-authoring') runs",
+          "expectedScreen": "the proposal card now shows an APPLIED status with evidence (bytes written); the pending count drops to 0",
+          "actions": [
+            { "type": "click", "selector": "button:Approve" },
+            { "type": "waitFor", "selector": "text:APPLIED", "timeout": 40000 }
+          ],
+          "assert": { "selector": "text:APPLIED", "highlight": true, "timeout": 40000 },
+          "hold": 4400
+        },
+        {
+          "id": "autonomy",
+          "caption": "Per-rule autonomy: memory-consolidation now carries a 1/5 accept streak toward auto-apply",
+          "expectedScreen": "the Autonomy tab listing the memory-consolidation rule with an accept streak (1 of 5) — promotion is streak-gated, demotion is instant",
+          "actions": [
+            { "type": "click", "selector": "text:Autonomy" },
+            { "type": "waitFor", "selector": "text:memory-consolidation" }
+          ],
+          "assert": { "selector": "text:memory-consolidation", "highlight": true },
+          "hold": 4000
+        }
+      ]
+    },
+    {
+      "type": "terminal",
+      "id": "proof",
+      "mode": "scripted",
+      "caption": "Proof it really applied: queue status, the written vault file, and the reconcile record",
+      "tag": "LIVE",
+      "expectedScreen": "terminal: queue status 'applied', the applied-conventions.md file now containing the improver-marked promoted notes, and a reconcile record with trigger=post-authoring",
+      "commands": [
+        "curl -s http://127.0.0.1:7088/api/queue | jq -r '.queue[].status'",
+        "cat /tmp/improver-demo/applied-conventions.md",
+        "cat /tmp/improver-demo/reconcile-invoked.json | jq -c '.[0]'"
+      ],
+      "commandPause": "1400ms",
+      "hold": "3800ms"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Improver: real proposals, reviewed, applied & reconciled",
+      "subtitle": "never-clobber authoring · per-rule autonomy · streak-gated promotion",
+      "duration": 2.6
+    }
+  ]
+}

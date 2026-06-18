@@ -1,0 +1,20 @@
+{
+  "slice": "AS-quarters",
+  "title": "Quarters-AgentSDK view — provider/capability records, FENCE state, HARNESS state",
+  "updatedAt": "2026-06-16T22:47:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 3 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/agentsdk-state.test.ts", "exit": 0, "summary": "5/5 — getAgentSdkState() returns the 5-provider table with capability records (deepseek text+tools only, ollama mcp true), THE HARNESS state (full=claude_code preset+settingSources[project]+CLAUDE.md+skills, lean=none, neither loads user settings), THE FENCE state (default-deny verdicts computed by the REAL fence: no-URL blocked, non-Anthropic allowed, Anthropic blocked, acceptApiBilling override allowed, #217 blocked), and the SDK + LiteLLM version pins." },
+    "e2e": { "cmd": "npx playwright test tests/e2e/agentsdk-quarters.spec.ts --project=desktop-chromium", "exit": 0, "summary": "sdk-quarters-ok — the COMMITTED, re-runnable correctness gate: drives the live /quarters/agentsdk route and asserts the panel renders THE FENCE state (incl a BLOCKED row), THE HARNESS state (claude_code preset), and the provider/capability table (deepseek + ollama-local); zero app console errors. 1 passed (8.9s)." },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean." },
+    "lint": { "cmd": "npm run lint", "exit": 0, "summary": "next lint clean." },
+    "build": { "cmd": "npm run build", "exit": 0, "summary": "next build exit 0 — /quarters/[type] + /api/quarters/agentsdk bundle cleanly; the cross-boundary src/lib → fitting .mjs import (providers/harness/fence, none pull the SDK) bundles through webpack." },
+    "video": { "status": "verified", "file": "/Users/ggomes/.walkthrough/runs/agent-garrison/runtime/agent-sdk/2026-06-16_23-00-25/final.mp4", "link": "http://100.108.210.116:8099/agent-garrison/runtime/agent-sdk/2026-06-16_23-00-25/final.mp4", "note": "46s narrated walkthrough, BOTH gates passed: per-beat vision (header, FENCE verdict table with BLOCKED/ALLOWED rows incl #217, HARNESS full/lean cards, provider capability table, version pins, outro) + holistic claude-video review PASS. Full-res frames confirm every verdict + capability record legible. Recorded against live :7777 (read-only view, touches nothing in ~/.claude — per the notes' W-wave live-film exception)." }
+  },
+  "verdicts": { "sdk-quarters-ok": true },
+  "blockers": [],
+  "notes": "Self-contained Quarters view: a new category in quartersTypes.ts + a branch in quarters/[type]/page.tsx + a dedicated /api/quarters/agentsdk route + src/lib/agentsdk-state.ts that computes the state by calling the REAL fitting functions (single source of truth). src/ is purge-scanned, so the view code avoids the banned @anthropic-ai import and Anthropic host literal (the FENCE demos use a hostname-suffix host). Status in_progress: the committed correctness gate is green; only the walkthrough evidence video remains."
+}

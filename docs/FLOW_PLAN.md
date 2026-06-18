@@ -393,3 +393,56 @@ interactive `claude` TUI submit window flaked for RE-runs of the claude-PTY
 probes. Not a logic regression — the deterministic committed gates are green and
 the live tokens were captured when load was normal. Heavy live round-trips are
 gated behind env flags so the normal suite stays deterministic.
+
+---
+
+## AS-wave — Agent SDK Runtime (base-URL / non-Anthropic models)
+
+Adds a new runtime fitting `agent-sdk` to the v4 Runtime faculty, reachable ONLY
+via a non-Anthropic base URL (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy).
+One more adapter cloned from the Codex/Gemini pattern — NOT a faculty re-arch —
+with two load-bearing properties built and tested FIRST: **THE FENCE**
+(default-deny Anthropic billing; assert on the effective resolved base URL,
+settings.json #217-aware) and **THE HARNESS** (per-target `promptMode` full/lean).
+Max-plan Claude stays on the Claude Code PTY runtime; everything reached by base
+URL runs here (structured request/response, native tool-calls, no terminal
+scraping). Home: `fittings/seed/agent-sdk-runtime/` + a Quarters-AgentSDK view.
+
+SDK pin: `@anthropic-ai/claude-agent-sdk@0.3.179` (bundled CLI pinned
+transitively). Verified vs docs: `systemPrompt:{type:"preset",preset:"claude_code"
+,append}` (not the deprecated `appendSystemPrompt`), `settingSources:["project"]`
+loads CLAUDE.md (preset alone does not), skills auto-mount from `.claude/skills`,
+`ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` via `options.env`, `maxTurns` →
+`error_max_turns`, `setModel()`/`applyFlagSettings({model})`.
+
+| id | title | kind | route | group | status | tokens |
+|----|-------|------|-------|-------|--------|--------|
+| AS-fence | THE FENCE — default-deny Anthropic billing; effective-URL assert (#217); scoped purge exception | automation | (fitting lib) | AS-A | passed | `fence-ok` |
+| AS-harness | THE HARNESS — promptMode full (preset+settingSources+skills) vs lean string; never user-settings | automation | (fitting lib) | AS-A | passed | `harness-ok` |
+| AS-adapter | AgentSdkAdapter — RuntimeAdapter conformance; structured awaitResponse + tool-use, no scraping | automation | (fitting lib) | AS-A | passed | `sdk-adapter-ok` |
+| AS-budget | maxTurns / token-budget ceiling stops and reports (no loop on paid credits) | automation | (fitting lib) | AS-A | passed | `sdk-budget-ok` |
+| AS-providers | provider table + capability records (DeepSeek text+tooluse only); env asserted; LiteLLM pin | automation | (fitting lib) | AS-A | passed | `sdk-providers-ok` |
+| AS-bridge | agent-sdk as secondary answers delegate() → schema-valid {summary,artifacts} + artifact + log | automation | (fitting) | AS-A | passed | `sdk-bridge-ok` |
+| AS-pool | MultiRuntimePool warms agent-sdk sessions keyed incl promptMode; status visible | automation | (gateway + claude-pty) | AS-B | passed | `sdk-pool-ok` |
+| AS-route | orchestrator routing-target {agent-sdk,…} resolves; capability-incompatible route (MCP@deepseek) refused | automation | (router + gateway) | AS-B | blocked (resolution+gating passed 5/5; LIVE route blocked — shared local-model limitation) | `sdk-route-live-ok` |
+| AS-ollama-live | real agent-sdk + ollama-local, one tool-call round trip end-to-end | automation | (live) | AS-C | blocked (adapter PROVEN live; clean tool round trip blocked by local models — see decisions.md) | `sdk-ollama-live-ok` |
+| AS-quarters | Quarters-AgentSDK view — config, capability record, FENCE state, HARNESS state | ui | /quarters/agentsdk | AS-D | passed (committed e2e + unit + build; verified walkthrough video) | `sdk-quarters-ok` |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **Group AS-A (fence/harness/adapter/budget/providers/bridge): serial, lead-authored, ONE fitting.** All six live in the new fitting's disjoint module files and a single self-contained `tests/agent-sdk-runtime.test.ts`. The adapter imports fence+harness+providers, so authoring order is fence→harness→providers→adapter→bridge; no worktree fan-out (the adapter depends on the others, and the shared purge-test edit must not race). Built + green in one pass this session.
+- **Group AS-B (pool, route): serial after AS-A.** Both touch shared code outside the fitting (`multi-runtime-pool.mjs` composite keys; `routing-core`/`stage-b`/`gateway-routing` for resolution + capability gating). Serialized to avoid contention on a daily-use repo.
+- **AS-C (ollama-live): after the adapter + SDK install.** Needs the real `@anthropic-ai/claude-agent-sdk` + Ollama running (env-flag gated like the U-wave live tests, so the normal suite stays deterministic).
+- **AS-D (quarters): UI, after route.** Touches `src/components/quarters/` + `src/app` + an api route; the design audit + walkthrough serialize on the shared dev-server.
+
+### Acceptance per slice (tokens lifted verbatim from the brief)
+- **AS-fence:** launching with no base URL, or an Anthropic base URL (incl. one injected via settings.json), without `acceptApiBilling` is a fatal error asserted on the effective resolved base URL; only `lib/sdk-client.mjs` imports the SDK and it pairs with `lib/fence.mjs` → `fence-ok`.
+- **AS-harness:** a full target spawns with the `claude_code` preset, `settingSources:["project"]`, skills mounted; a lean target spawns with the minimal string and none of the above; asserted, not scraped → `harness-ok`.
+- **AS-adapter:** passes the RuntimeAdapter conformance harness; `awaitResponse` returns structured text + tool-use with no scraping → `sdk-adapter-ok`.
+- **AS-budget:** a session hitting maxTurns / its budget ceiling stops and reports rather than looping → `sdk-budget-ok`.
+- **AS-providers:** zai-glm / deepseek / minimax / llm-proxy build correct base URL + Vault auth (argv/env asserted); each carries a capability record; LiteLLM pin enforced (≤1.82.6, never 1.82.7/1.82.8) → `sdk-providers-ok`.
+- **AS-bridge:** agent-sdk as a secondary answers a delegate() task, schema-valid return, artifact written, logged → `sdk-bridge-ok`.
+- **AS-pool:** SDK sessions warm in the MultiRuntimePool alongside PTY sessions, keyed including promptMode; status visible → `sdk-pool-ok`.
+- **AS-route:** a Profile roleMap pointing a role at {agent-sdk, ollama-local} resolves and routes live through the gateway; a capability-incompatible route (MCP role @ deepseek) is refused/redirected → `sdk-route-live-ok`.
+- **AS-ollama-live:** a real agent-sdk + ollama-local session handles one turn with a real tool-call round trip end to end → `sdk-ollama-live-ok`.
+- **AS-quarters:** Quarters-AgentSDK renders base config, capability record, FENCE state, HARNESS state → `sdk-quarters-ok`.
+- **Final:** print each token once, then `AGENT-SDK-RUNTIME-COMPLETE`.

@@ -1,0 +1,10 @@
+{
+  "name": "agent-sdk-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent SDK runtime fitting — a non-Anthropic-only RuntimeAdapter over the Claude Agent SDK (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy).",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.179"
+  }
+}

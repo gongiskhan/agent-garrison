@@ -11,12 +11,10 @@ import { spawn } from "node:child_process";
 export function buildArgs(config = {}) {
   const argv = [];
   if (config.model) argv.push("-m", config.model);
-  argv.push("-y"); // non-interactive auto-accept (YOLO)
-  // Without this, gemini DOWNGRADES YOLO to "default" in an untrusted folder and
-  // exits 55 on the first tool call; delegations run in throwaway cwds, so trust
-  // the workspace for the session (verified live U4).
-  argv.push("--skip-trust");
-  argv.push("-p", ""); // headless; the real prompt arrives on stdin
+  // gemini CLI 0.46+: `--approval-mode yolo` replaces the old `-y` + `--skip-trust`
+  // pair (auto-approve every tool call + trust the workspace). The prompt arrives
+  // on stdin (verified live: `printf '<prompt>' | gemini --approval-mode yolo`).
+  argv.push("--approval-mode", "yolo");
   return { bin: config.bin || "gemini", argv, stdinFromPrompt: true };
 }
 

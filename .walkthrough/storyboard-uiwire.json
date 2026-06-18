@@ -1,0 +1,104 @@
+{
+  "title": "Walkthrough: wiring the v2 stack into the UI",
+  "project": "agent-garrison",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Wiring the v2 stack into the UI",
+      "subtitle": "agent-garrison · Model Router · Improver · runtimes · 2026-06-15",
+      "duration": 2.8,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "shell",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/compose",
+      "beats": [
+        {
+          "id": "compose",
+          "caption": "Compose: Model Router now fills the Orchestrator slot — capabilities resolve clean",
+          "expectedScreen": "the Compose overview for Dogfood Operative; station 01 Orchestrator shows Model Router; the header reads capabilities resolved; the sidebar Views group lists Improver and Model Router",
+          "actions": [ { "type": "waitFor", "selector": "text:resolved" } ],
+          "assert": { "selector": "text:resolved", "text": "resolved", "highlight": true },
+          "hold": 3600
+        },
+        {
+          "id": "armory",
+          "caption": "Armory lists 18 Fittings now — Model Router, Improver, Knowledge, and the Codex / Gemini runtimes",
+          "expectedScreen": "the Armory registry grid showing 18 Fittings, with the Knowledge card highlighted among cards like Codex runtime and Gemini runtime",
+          "actions": [
+            { "type": "goto", "path": "/armory" },
+            { "type": "waitFor", "selector": "text:Knowledge" }
+          ],
+          "assert": { "selector": "text:Knowledge", "highlight": true },
+          "hold": 3400
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "router",
+      "baseURL": "http://127.0.0.1:7087",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "policy",
+          "caption": "The Model Router view: each role maps to a concrete target through the active Profile",
+          "expectedScreen": "the Model Router Policy tab showing the ROLE to TARGET (BALANCED) table — expert maps to cc-opus-high, image and video map to sec-gemini",
+          "actions": [ { "type": "waitFor", "selector": "text:ROLE → TARGET" } ],
+          "assert": { "selector": "text:ROLE → TARGET", "highlight": true },
+          "hold": 3600
+        },
+        {
+          "id": "matrix",
+          "caption": "One shared matrix resolves every task-type × tier to a role — authored once, used by every Profile",
+          "expectedScreen": "the task-type by tier to role matrix grid with rows code, review, research, image, video, writing, ops, other",
+          "assert": { "selector": "text:MATRIX", "highlight": true },
+          "hold": 3400
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "improver",
+      "baseURL": "http://127.0.0.1:7088",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "queue",
+          "caption": "The Improver review queue: nightly proposals land here to approve or reject, with per-rule autonomy",
+          "expectedScreen": "the Improver — Review Queue view with Queue and Autonomy tabs and a Run Improver now button",
+          "actions": [ { "type": "waitFor", "selector": "button:Run Improver now" } ],
+          "assert": { "selector": "button:Run Improver now", "highlight": true },
+          "hold": 3600
+        }
+      ]
+    },
+    {
+      "type": "terminal",
+      "id": "live",
+      "mode": "scripted",
+      "caption": "Both views are live own-port servers — registered with Garrison and healthy",
+      "tag": "LIVE",
+      "expectedScreen": "terminal: the views API lists model-router and improver among the registered own-port fittings, and both /health endpoints return ok:true",
+      "commands": [
+        "curl -s http://127.0.0.1:7777/api/fittings/views | jq -r '.views[].fittingId'",
+        "curl -s http://127.0.0.1:7087/health",
+        "curl -s http://127.0.0.1:7088/health"
+      ],
+      "commandPause": "1500ms",
+      "hold": "3400ms"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "v2 stack: wired, visible, live",
+      "subtitle": "orchestrator · model routing · runtimes · improver",
+      "duration": 2.4
+    }
+  ]
+}

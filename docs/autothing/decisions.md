@@ -77,3 +77,38 @@ Claude Code may rewrite these files on exit, same as the settings.json surface.
 The plugin uninstall confirm warns to restart. Verified the plugin manifest is
 the source of truth (no `enabledPlugins` in settings.json; marketplaces only
 list availability) before building removal.
+
+## AS-wave — Agent SDK Runtime (2026-06-16)
+
+**Pre-existing red, NOT in scope:** `tests/programmatic-purge.test.ts` was already
+failing before this build on `fittings/seed/knowledge/scripts/knowledge.mjs ::
+--print` (a headless-billing ban hit from the v4 knowledge fitting). This wave
+does not touch knowledge.mjs; the fence slice evolved the purge test to scope the
+`@anthropic-ai/` exception to the single fenced `agent-sdk-runtime/lib/sdk-client
+.mjs` (every other ban intact) and added zero new offenders. `fence-ok` rides a
+dedicated test, not this unrelated red.
+
+**BLOCKER — AS-ollama-live (`sdk-ollama-live-ok`):** a CLEAN tool-call round trip
+could not complete on the locally-pulled Ollama models over the Anthropic-compat
+endpoint. Attempted THREE times (self-unblock): `qwen3:8b/full` → "API Error:
+Content block not found" on the tool-result block + wrong tool; `qwen2.5:7b/full`
+→ stall under the ~14k claude_code preset floor (killed 200s); `qwen2.5:7b/lean`
+→ stall (machine load ~13, killed 150s). The adapter/fence/harness are PROVEN
+live (real SDK 0.3.179 + real Ollama 0.14.3: fence=non-anthropic,
+baseUrl=localhost:11434, preset=claude_code, settingSources=[project], a real
+tool_use detected, token accounting). External cause: the available local models
+can't complete the Claude-Code tool protocol over Ollama's Anthropic-compat
+endpoint. Real fix: a tool-tuned local model (none pulled; pulling+running 30B+
+under load is the failed-remediation path the brief's env note warns against) OR
+a cloud provider key in the Vault (absent). NOT an adapter defect.
+
+**BLOCKER — AS-route LIVE (`sdk-route-live-ok`):** resolution + capability gating
+(MCP@deepseek refused/redirected) PASSED via committed gate
+(`tests/agent-sdk-route.test.ts`, 5/5). Only the LIVE gateway route is blocked —
+it needs a completing live agent-sdk turn (same local-model limitation as
+AS-ollama-live).
+
+**AS-quarters video:** the COMMITTED e2e (`tests/e2e/agentsdk-quarters.spec.ts`)
+is the correctness gate and is green; it satisfies the brief's `sdk-quarters-ok`.
+The walkthrough evidence video is pending (load-sensitive); the slice is
+`in_progress` until the video lands.

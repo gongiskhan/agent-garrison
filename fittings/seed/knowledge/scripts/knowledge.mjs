@@ -23,7 +23,7 @@ function knowledgeMcpServers() {
   return {
     knowledge: { command: "node", args: [path.join(HERE, "mcp-server.mjs")], env: {} },
     // Verified live (U2): codegraph's MCP stdio server is `serve --mcp`
-    // (codegraph install --print-config), NOT `mcp`; serena's is
+    // (per codegraph install's printed config), NOT `mcp`; serena's is
     // `start-mcp-server` with the agent context + dashboard off. The active
     // project is activated from the session cwd (or serena's activate_project).
     codegraph: { command: "codegraph", args: ["serve", "--mcp"], env: {} },

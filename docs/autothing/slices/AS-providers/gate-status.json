@@ -1,0 +1,20 @@
+{
+  "slice": "AS-providers",
+  "title": "Provider table + capability records (DeepSeek text+tool-use only); env asserted; LiteLLM supply-chain pin",
+  "updatedAt": "2026-06-16T22:17:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/agent-sdk-runtime.test.ts",
+      "exit": 0,
+      "summary": "sdk-providers-ok — Providers block (8 tests) green: all 5 providers present (ollama-local/zai-glm/deepseek/minimax/llm-proxy); every static base URL is non-Anthropic; buildSdkEnv wires the non-Anthropic ANTHROPIC_BASE_URL + Vault ANTHROPIC_AUTH_TOKEN and clears inherited Anthropic vars (ANTHROPIC_API_KEY forced to ''); missing key fails loudly (ABSENT vs LOCKED); DeepSeek capability record is text+toolUse ONLY (no image/document/web-search/MCP); assertSupportsBlocks refuses MCP@deepseek and allows MCP@ollama; llm-proxy requires an explicit per-target baseUrl; per-target capability override (new-model onboarding) wins; LiteLLM pin enforced (1.82.7/1.82.8 FORBIDDEN, >1.82.6 exceeds, 1.82.6 allowed)."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean." }
+  },
+  "verdicts": { "sdk-providers-ok": true },
+  "blockers": [],
+  "notes": "env/argv asserted without spawning (Garrison's pure-factory seam). Live provider round-trips (where a key is present) belong to AS-ollama-live + AS-route and are env-flag gated. minimax clears pre-existing Anthropic env first (precedence trap). The base URLs mirror the model-router PROVIDERS registry; capability records are SDK-specific."
+}

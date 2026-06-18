@@ -60,6 +60,20 @@ const readyPromise = new Promise((resolve) => {
   readyResolve = resolve;
 });
 
+// Active rich /claude/stream emitters. An agent-sdk turn runs OFF the PTY operative
+// screen, so its reply is INJECTED into these connections (the rich UI renders an
+// `assistant {text}` event the same whether screen-derived or injected).
+const richClients = new Set();
+function broadcastRich(event, data) {
+  for (const emit of richClients) {
+    try {
+      emit(event, data);
+    } catch {
+      /* client gone */
+    }
+  }
+}
+
 // Routing is ON whenever the model-router fitting is resolvable, unless
 // explicitly disabled. The gateway then pre-routes every inbound message.
 const ROUTING_ENABLED = process.env.GARRISON_ROUTING !== "0";
@@ -179,6 +193,55 @@ async function spawnOperative({ resume = true } = {}) {
 async function runRoutedTurn(message, onChunk) {
   await router.ensureOperative();
   const pre = await router.preRoute(message); // classify + resolve + LOG + switch
+  // Agent SDK runtime (non-Anthropic model via the Claude Agent SDK): the turn
+  // runs on the SDK adapter session, NOT the claude-code PTY operative.
+  if (router.isAgentSdkTarget(pre.route)) {
+    broadcastRich("turn", { active: true }); // rich UI shows "thinking"
+    const r = await router.runAgentSdkTurn(pre.route, message, onChunk);
+    // Inject the off-screen agent-sdk reply + a status badge into rich clients so
+    // the channel UI clearly shows the routed runtime/model (not the idle operative).
+    broadcastRich("status", {
+      rows: [`Garrison orchestrator → runtime: agent-sdk · provider: ${r.provider} · model: ${r.model} · fenced (non-Anthropic)`],
+      mode: "agent-sdk",
+      contextPct: null,
+      model: `${r.model} · agent-sdk/${r.provider}`,
+    });
+    broadcastRich("assistant", { text: r.reply });
+    broadcastRich("turn", { active: false });
+    logEvent("stdout", {
+      kind: "routed-turn",
+      target: pre.route.targetId,
+      role: pre.route.role,
+      runtime: "agent-sdk",
+      provider: r.provider,
+      model: r.model,
+    });
+    return { reply: r.reply, session_id: r.session_id, cost_usd: null, route: pre.route.targetId, runtime: "agent-sdk", model: r.model };
+  }
+  // Secondary runtime (gpt/codex or gemini): the orchestrator delegates this step
+  // to the secondary; the gateway executes it directly (not the PTY operative).
+  if (router.isSecondaryTarget(pre.route)) {
+    broadcastRich("turn", { active: true });
+    const r = await router.runSecondaryTurn(pre.route, message);
+    broadcastRich("status", {
+      rows: [`Garrison orchestrator → runtime: ${r.runtime} · provider: ${r.provider} · model: ${r.model}`],
+      mode: r.runtime,
+      contextPct: null,
+      model: `${r.model} · ${r.runtime}`,
+    });
+    broadcastRich("assistant", { text: r.reply });
+    broadcastRich("turn", { active: false });
+    if (onChunk && r.reply) onChunk(r.reply, true);
+    logEvent("stdout", {
+      kind: "routed-turn",
+      target: pre.route.targetId,
+      role: pre.route.role,
+      runtime: r.runtime,
+      provider: r.provider,
+      model: r.model,
+    });
+    return { reply: r.reply, session_id: null, cost_usd: null, route: pre.route.targetId, runtime: r.runtime, model: r.model };
+  }
   session = router.getOperativeSession();
   const annotated = `${pre.annotation}\n${message}`;
   let lastEmitted = "";
@@ -198,10 +261,30 @@ async function runRoutedTurn(message, onChunk) {
   const outcome = await session.runTurn({ message: annotated, onScreen });
   const honored = await router.postTurn(pre.route, pre.decision, outcome.reply);
   await markPriorSession();
-  logEvent("stdout", { kind: "routed-turn", target: pre.route.targetId, role: pre.route.role, honored: honored.honored });
+  // Inject a consistent runtime/model status badge for the channel UI (the
+  // secondary/agent-sdk branches do the same), so every routed turn shows which
+  // model handled it.
+  {
+    const m = pre.route?.target?.model ?? MODEL;
+    broadcastRich("status", {
+      rows: [`Garrison orchestrator → runtime: claude-code · provider: anthropic-plan · model: ${m}`],
+      mode: "claude-code",
+      contextPct: null,
+      model: `${m} · claude-code`,
+    });
+    // Inject the reply + idle the turn explicitly. The rich screen-poll can leave a
+    // routed claude turn rendering as "…" with busy stuck on (so the next channel
+    // send hits the Stop button) — injecting outcome.reply makes the reply render
+    // and clears busy reliably, same as the agent-sdk/secondary paths.
+    broadcastRich("assistant", { text: outcome.reply });
+    broadcastRich("turn", { active: false });
+  }
+  logEvent("stdout", { kind: "routed-turn", target: pre.route.targetId, role: pre.route.role, runtime: "claude-code", model: pre.route?.target?.model ?? MODEL, honored: honored.honored });
   return {
+    // Fall back to the operative's claude session id so a routed turn always
+    // reports a session (outcome.sessionId is null for the pooled PTY operative).
     reply: outcome.reply,
-    session_id: outcome.sessionId,
+    session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
     cost_usd: null,
     route: pre.route.targetId,
     honored: honored.honored,
@@ -408,7 +491,12 @@ const server = http.createServer(async (request, response) => {
         return sendJson(response, 503, { error: "operative not ready", pty_status: ptyStatus });
       }
       if (request.method === "GET" && url.pathname === "/claude/stream") {
-        openRichStream(session.handle, response);
+        openRichStream(session.handle, response, {
+          onEmit: (emit) => {
+            richClients.add(emit);
+            response.on("close", () => richClients.delete(emit));
+          },
+        });
         return;
       }
       if (request.method === "GET" && url.pathname === "/claude/status") {

@@ -109,6 +109,14 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
     writer: "readonly",
     kind: "readonly",
     icon: "History"
+  },
+  {
+    slug: "agentsdk",
+    label: "AgentSDK",
+    blurb: "Agent SDK runtime (non-Anthropic models) — provider/capability records, THE FENCE state, THE HARNESS state.",
+    writer: "readonly",
+    kind: "readonly",
+    icon: "Cpu"
   }
 ];
 

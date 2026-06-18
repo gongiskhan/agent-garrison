@@ -190,5 +190,80 @@
       "global": 4.5,
       "claude_code": 4.5
     }
+  },
+  {
+    "id": "model-router",
+    "name": "Model Router",
+    "repo": "local:fittings/seed/model-router",
+    "localPath": "fittings/seed/model-router",
+    "summary": "Orchestrator Faculty — a visible routing policy (Exceptions / Matrix / Continuations) that resolves each prompt to a role + discipline + continuation, then maps the role to a concrete runtime-target via the active Profile. Serves a Policy / Simulator view on its own port (default 7087).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-model-router",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "knowledge",
+    "name": "Knowledge",
+    "repo": "local:fittings/seed/knowledge",
+    "localPath": "fittings/seed/knowledge",
+    "summary": "Knowledge Faculty (composite) — federates memory + context projections + code graph + symbol-nav behind one contract. Owns the canonical vault, emits cross-runtime projections (CLAUDE.md/AGENTS.md/GEMINI.md), and wires the shared MCPs (CodeGraph, Serena) into every runtime session, so switching the runtime never loses memory.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-knowledge",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "improver",
+    "name": "Improver",
+    "repo": "local:fittings/seed/improver",
+    "localPath": "fittings/seed/improver",
+    "summary": "Nightly self-improvement runner — reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 7088). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-improver",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "codex-runtime",
+    "name": "Codex runtime",
+    "repo": "local:fittings/seed/codex-runtime",
+    "localPath": "fittings/seed/codex-runtime",
+    "summary": "Runtime Faculty (secondary) — drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-codex-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "gemini-runtime",
+    "name": "Gemini runtime",
+    "repo": "local:fittings/seed/gemini-runtime",
+    "localPath": "fittings/seed/gemini-runtime",
+    "summary": "Runtime Faculty (secondary) — drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-gemini-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
   }
 ]
