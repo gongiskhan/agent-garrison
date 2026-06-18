@@ -620,7 +620,9 @@ async function handleVoiceTts(req, res) {
     const up = await fetch(`${voiceUrl}/tts`, {
       method: "POST",
       headers: { "content-type": req.headers["content-type"] || "application/json" },
-      body
+      body,
+      // Bounded: a hung voice fitting must not hang this request forever.
+      signal: AbortSignal.timeout(20000)
     });
     const buf = Buffer.from(await up.arrayBuffer());
     if (!up.ok) {
@@ -635,7 +637,8 @@ async function handleVoiceTts(req, res) {
     res.setHeader("Cache-Control", "no-store");
     res.end(buf);
   } catch (err) {
-    jsonRes(res, 502, { error: `voice tts failed: ${err.message}` });
+    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+    jsonRes(res, timedOut ? 504 : 502, { error: `voice tts ${timedOut ? "timed out" : "failed"}: ${err.message}` });
   }
 }
 
@@ -652,14 +655,17 @@ async function handleVoiceStt(req, res) {
     const up = await fetch(`${voiceUrl}/stt`, {
       method: "POST",
       headers: { "content-type": req.headers["content-type"] || "audio/webm" },
-      body
+      body,
+      // Bounded: a hung voice fitting must not hang this request forever.
+      signal: AbortSignal.timeout(20000)
     });
     const text = await up.text();
     res.statusCode = up.status;
     res.setHeader("Content-Type", up.headers.get("content-type") || "application/json");
     res.end(text);
   } catch (err) {
-    jsonRes(res, 502, { error: `voice stt failed: ${err.message}` });
+    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+    jsonRes(res, timedOut ? 504 : 502, { error: `voice stt ${timedOut ? "timed out" : "failed"}: ${err.message}` });
   }
 }
 

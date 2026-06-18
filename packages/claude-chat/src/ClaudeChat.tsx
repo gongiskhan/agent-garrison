@@ -181,6 +181,9 @@ export function ClaudeChat({ transport, composerAdornment, title, features }: Cl
   const [recording, setRecording] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recBusyRef = useRef(false);
+  const voiceMountedRef = useRef(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenRef = useRef<string>("");
 
@@ -371,14 +374,31 @@ export function ClaudeChat({ transport, composerAdornment, title, features }: Cl
   // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
   // and drop the transcript into the composer for review/edit. ──
   const startRecording = useCallback(async () => {
-    if (!voiceClient || recording) return;
+    // recBusyRef is a SYNCHRONOUS guard set before the await — the `recording`
+    // state flips only after getUserMedia resolves, so two rapid clicks would
+    // otherwise both pass and the second would orphan the first recorder/stream
+    // (leaking a live mic). The ref stays set through the active recording and
+    // clears on stop / bail / error.
+    if (!voiceClient || recBusyRef.current) return;
+    recBusyRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!voiceMountedRef.current) {
+        // Unmounted while the permission prompt was pending — release the mic
+        // and bail before constructing/starting the recorder.
+        stream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+        recBusyRef.current = false;
+        return;
+      }
+      streamRef.current = stream;
       const rec = new MediaRecorder(stream);
       const chunks: Blob[] = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        recBusyRef.current = false;
+        if (!voiceMountedRef.current) return; // unmounted — don't touch state/network
         setRecording(false);
         const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
         if (!blob.size) return;
@@ -396,13 +416,28 @@ export function ClaudeChat({ transport, composerAdornment, title, features }: Cl
       rec.start();
       setRecording(true);
     } catch {
+      recBusyRef.current = false;
       setRecording(false);
     }
-  }, [voiceClient, recording]);
+  }, [voiceClient]);
 
   const stopRecording = useCallback(() => {
     const rec = recorderRef.current;
     if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
+  }, []);
+
+  // Release the microphone if the chat pane unmounts mid-recording (dev-env can
+  // swap ChatPane for the Terminal view, or switch sessions, while recording).
+  // Without this the MediaRecorder + mic tracks would keep the mic open.
+  useEffect(() => {
+    return () => {
+      voiceMountedRef.current = false;
+      recBusyRef.current = false;
+      const rec = recorderRef.current;
+      if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
+      streamRef.current?.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      streamRef.current = null;
+    };
   }, []);
 
   const pickCommand = useCallback(
