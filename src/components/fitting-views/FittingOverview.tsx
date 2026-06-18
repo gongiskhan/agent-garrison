@@ -357,10 +357,10 @@ function OwnPortControls({
   logsOpen: boolean;
   onToggleLogs: () => void;
 }) {
-  const [busy, setBusy] = useState<"start" | "stop" | null>(null);
+  const [busy, setBusy] = useState<"start" | "stop" | "restart" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function callAction(action: "start" | "stop") {
+  async function callAction(action: "start" | "stop" | "restart") {
     setBusy(action);
     setError(null);
     try {
@@ -405,6 +405,15 @@ function OwnPortControls({
           >
             Open <ExternalLink size={12} aria-hidden />
           </Link>
+          <button
+            type="button"
+            className="btn small ghost"
+            onClick={() => void callAction("restart")}
+            disabled={busy !== null}
+            title="Stop and start — reloads the Fitting's code (use after editing it)"
+          >
+            {busy === "restart" ? "Restarting…" : "Restart"}
+          </button>
           <button
             type="button"
             className="btn small ghost"

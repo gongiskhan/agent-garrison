@@ -58,7 +58,9 @@ export function tmuxSessionName(ptyId) {
 export function sessionIdRoleFromName(name) {
   if (typeof name !== "string" || !name.startsWith(SESSION_PREFIX)) return null;
   const ptyId = name.slice(SESSION_PREFIX.length);
-  const m = ptyId.match(/^(.+)-(claude|shell)$/);
+  // Roles: `claude`, the legacy first shell `shell`, and the indexed shells
+  // `shell-2`, `shell-3`, … (multiple terminals per session).
+  const m = ptyId.match(/^(.+)-(claude|shell(?:-\d+)?)$/);
   if (!m) return null;
   return { sessionId: m[1], role: m[2], ptyId };
 }

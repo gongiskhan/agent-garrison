@@ -53,7 +53,19 @@ const CLAUDE_ALIVE_GRACE_MS = 3000;
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.resolve(HERE, "..", "prompts", "browser-pane.md");
 
+// `claude` is the agent PTY (gets a headless mirror + liveness checks). Every
+// other role is a plain shell terminal: the legacy first one is `shell` and
+// additional terminals are `shell-2`, `shell-3`, … — a session can hold any
+// number of them, each a leaf in the UI's tiling deck.
 export const PTY_ROLES = ["claude", "shell"];
+
+// Numeric index of a shell role (`shell` → 1, `shell-7` → 7). 0 for claude /
+// anything unparseable. Drives next-free allocation and stable ordering.
+function shellRoleIndex(role) {
+  if (role === "shell") return 1;
+  const m = /^shell-(\d+)$/.exec(role);
+  return m ? Number(m[1]) : 0;
+}
 
 const ptys = new Map(); // ptyId -> record
 const parked = new Map(); // ptyId -> persisted claude envelope state (never spawned)
@@ -82,6 +94,43 @@ export function setDefaultShell(shell) {
 
 export function ptyIdFor(sessionId, role) {
   return `${sessionId}-${role}`;
+}
+
+// Pick the next free shell role for a session — the smallest unused index so a
+// closed terminal's slot is reused before growing. `shell` (index 1) first,
+// then `shell-2`, `shell-3`, … Considers both live and parked records.
+export function allocateTerminalRole(sessionId) {
+  const used = new Set();
+  for (const rec of ptys.values()) {
+    if (rec.sessionId === sessionId && rec.role !== "claude") used.add(shellRoleIndex(rec.role));
+  }
+  for (const id of parked.keys()) {
+    const m = /^(.+)-(shell(?:-\d+)?)$/.exec(id);
+    if (m && m[1] === sessionId) used.add(shellRoleIndex(m[2]));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return n === 1 ? "shell" : `shell-${n}`;
+}
+
+// Summaries of every shell terminal (running or exited) for a session, ordered
+// by creation so the UI deck appends newest last. Claude is reported
+// separately via ptySummary(id, "claude").
+export function listSessionTerminals(sessionId) {
+  const out = [];
+  for (const rec of ptys.values()) {
+    if (rec.sessionId !== sessionId || rec.role === "claude") continue;
+    out.push({
+      id: rec.id,
+      role: rec.role,
+      index: shellRoleIndex(rec.role),
+      state: rec.state,
+      exitCode: rec.exitCode,
+      createdAt: rec.createdAt
+    });
+  }
+  out.sort((a, b) => (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0));
+  return out;
 }
 
 // The append prompt teaches Claude to drive the side-by-side browser pane via
@@ -410,7 +459,15 @@ export function killPty(id, { forget = false } = {}) {
 }
 
 export function killSessionPtys(sessionId, { forget = false } = {}) {
-  for (const role of PTY_ROLES) killPty(ptyIdFor(sessionId, role), { forget });
+  // A session can hold claude + any number of shell terminals, so enumerate the
+  // live records (and parked claude envelopes) rather than a fixed role list.
+  for (const rec of [...ptys.values()]) {
+    if (rec.sessionId === sessionId) killPty(rec.id, { forget });
+  }
+  for (const id of [...parked.keys()]) {
+    const m = /^(.+)-(claude|shell(?:-\d+)?)$/.exec(id);
+    if (m && m[1] === sessionId) killPty(id, { forget });
+  }
 }
 
 // Boot-time rehydration. `liveSessionIds` is the set of session UUIDs present
@@ -437,7 +494,7 @@ export async function rehydratePtys(liveSessionIds) {
   let restored = 0;
   for (const envelope of envelopes) {
     const st = envelope.state && typeof envelope.state === "object" ? envelope.state : {};
-    const m = envelope.instanceId.match(/^(.+)-(claude|shell)$/);
+    const m = envelope.instanceId.match(/^(.+)-(claude|shell(?:-\d+)?)$/);
     const sessionId = m ? m[1] : (typeof st.sessionId === "string" ? st.sessionId : null);
     const role = m ? m[2] : (typeof st.role === "string" ? st.role : null);
     if (!sessionId || !role || !liveSessionIds.has(sessionId)) {
@@ -452,7 +509,7 @@ export async function rehydratePtys(liveSessionIds) {
     try {
       spawnPty({
         sessionId,
-        role: "shell",
+        role,
         cwd: typeof st.cwd === "string" ? st.cwd : undefined,
         shell: typeof st.shell === "string" ? st.shell : undefined,
         restoredScrollbackB64: typeof st.scrollbackB64 === "string" ? st.scrollbackB64 : undefined

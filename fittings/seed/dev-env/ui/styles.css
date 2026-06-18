@@ -53,6 +53,9 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .segmented button { background: var(--panel); border: none; padding: 6px 12px; font-size: 12px; font-family: inherit; color: var(--text); cursor: pointer; }
 .segmented button.on { background: var(--accent); color: #fff; }
 
+/* New-terminal button in the header. */
+.new-term-btn { flex-shrink: 0; padding: 5px 10px; white-space: nowrap; }
+
 /* ---- Terminal theme toggle (light / dark / system) ---- */
 .term-theme { display: inline-flex; flex-shrink: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .term-theme button { display: inline-flex; align-items: center; justify-content: center; background: var(--panel); border: none; border-left: 1px solid var(--border); padding: 5px 8px; color: var(--mute); cursor: pointer; line-height: 0; }
@@ -73,9 +76,27 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .workspace { position: absolute; inset: 0; display: flex; min-height: 0; min-width: 0; }
 
 .terminals-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; }
-.claude-pane { display: flex; flex-direction: column; flex: 1.4; min-height: 0; border-bottom: 1px solid var(--border); }
-.shell-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.claude-pane { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--border); }
 .pane-body { flex: 1; position: relative; min-height: 0; background: var(--term-bg); }
+
+/* ---- Terminals deck (tiling) ---- */
+.terminals-deck { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.terminals-deck-empty { flex: 1; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px; color: var(--mute); font-size: 12px; background: var(--bg); }
+/* A split node: row = side by side, col = stacked (one below the other). */
+.term-split { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.term-split.row { flex-direction: row; }
+.term-split.col { flex-direction: column; }
+.term-split-cell { display: flex; min-height: 0; min-width: 0; }
+/* A leaf: header strip + terminal body. */
+.term-leaf { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.term-leaf-strip { text-transform: none; letter-spacing: 0; }
+/* Tiling dividers. row → vertical bar (resize width); col → horizontal bar. */
+.term-divider { background: var(--border); position: relative; touch-action: none; user-select: none; flex-shrink: 0; }
+.term-divider.row { flex: 0 0 6px; cursor: col-resize; }
+.term-divider.col { flex: 0 0 6px; cursor: row-resize; }
+.term-divider:hover, .term-divider:active { background: var(--accent); }
+.term-divider.row::before { content: ""; position: absolute; inset: 0 -4px; }
+.term-divider.col::before { content: ""; position: absolute; inset: -4px 0; }
 
 .pane-overlay { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(14,14,14,0.92); color: #d9d9d9; font-size: 13px; padding: 18px; text-align: center; }
 .pane-overlay p { margin: 0; max-width: 460px; }
@@ -143,7 +164,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 @media (max-width: 720px) {
   .header { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
   .terminals-col { flex: 1 !important; }
-  .claude-pane, .shell-pane { flex: 1; border-bottom: none; }
+  .claude-pane, .terminals-deck { flex: 1 !important; border-bottom: none; }
   /* 16px input font prevents iOS focus zoom */
   .quick-prompt input { font-size: 16px; }
   .modal { min-width: 0; width: calc(100vw - 32px); }

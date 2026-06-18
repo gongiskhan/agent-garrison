@@ -11,14 +11,16 @@ interface Project {
 export function NewWorktreeDialog({
   onClose,
   onCreated,
-  onError
+  onError,
+  initialRepoPath
 }: {
   onClose: () => void;
   onCreated: (sessionId: string) => void;
   onError: (message: string) => void;
+  initialRepoPath?: string;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [repoPath, setRepoPath] = useState<string>("");
+  const [repoPath, setRepoPath] = useState<string>(initialRepoPath ?? "");
   const [branch, setBranch] = useState<string>("");
   const [baseBranch, setBaseBranch] = useState<string>("main");
   const [busy, setBusy] = useState(false);
@@ -121,19 +123,21 @@ export function NewWorktreeDialog({
   );
 }
 
-// "Start session": pick a project (or type any absolute path) and get a full
+// "New session": pick a project (or type any absolute path) and get a full
 // tab — session record + Claude PTY + shell PTY — without creating a worktree.
 export function StartSessionDialog({
   onClose,
   onCreated,
-  onError
+  onError,
+  initialRepoPath
 }: {
   onClose: () => void;
   onCreated: (sessionId: string) => void;
   onError: (message: string) => void;
+  initialRepoPath?: string;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [path, setPath] = useState<string>("");
+  const [path, setPath] = useState<string>(initialRepoPath ?? "");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -177,7 +181,7 @@ export function StartSessionDialog({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Start session</h2>
+        <h2>New session</h2>
         <p className="modal-help">
           Opens a tab with a Claude and a shell terminal at the project root.
           No worktree is created.

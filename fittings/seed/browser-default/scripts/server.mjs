@@ -31,6 +31,12 @@ let chromiumChild = null;
 let cdpPort = 0;
 let cdpHttpEndpoint = "";
 let cdpWsEndpoint = "";
+// Last opts launchChromium was called with, so a self-heal relaunch can reuse
+// the same viewport. Set on first launch and never cleared.
+let launchOpts = null;
+// In-flight relaunch promise — guards ensureChromium against double-launching
+// when concurrent requests race after the headless process dies.
+let chromiumLaunching = null;
 
 /**
  * @typedef {{
@@ -61,7 +67,7 @@ let cdpWsEndpoint = "";
  *   viewportCdp: import("playwright").CDPSession | null,
  *   viewportTeardownTimer: NodeJS.Timeout | null,
  *   pendingAck: { sessionId: number, ts: number } | null,
- *   qualityLevel: "low" | "med" | "high",
+ *   qualityLevel: "low" | "med" | "high" | "ultra",
  *   inputClients: Set<import("ws").WebSocket>,
  *   focusedEditable: boolean,
  *   focusWatcher: NodeJS.Timeout | null
@@ -70,15 +76,24 @@ let cdpWsEndpoint = "";
 
 const BUFFER_LIMIT = 500;
 
-// Screencast presets — LOW is the new default. The per-tab qualityLevel can
-// be changed at runtime via an input-WS {type:"quality", level} message.
-// everyNthFrame stays at 1: throttle by JPEG size, not by skipping paints.
-// (Skipping paints starves first-frame on static pages — there's nothing to
-// skip if the page only paints once on load.)
+// Screencast presets — the per-tab qualityLevel can be changed at runtime via
+// an input-WS {type:"quality", level} message. everyNthFrame stays at 1:
+// throttle by JPEG size, not by skipping paints. (Skipping paints starves
+// first-frame on static pages — there's nothing to skip if the page only
+// paints once on load.)
+//
+// viewportWidth/viewportHeight here are the screencast maxWidth/maxHeight — the
+// cap CDP downscales the rendered surface to fit. The rendered surface is the
+// client's CSS display area × its devicePixelRatio (up to ~2×), so a cap below
+// that forces a downscale-then-upscale round-trip on the client canvas — the
+// "granular/pixelized" look. ULTRA's cap sits above any realistic surface, so
+// frames arrive at native device resolution and read as crisp as native Chrome
+// (at the cost of ~3–4× the bytes — hence HIGH, not ULTRA, is the default).
 const QUALITY_PRESETS = {
-  low:  { jpegQuality: 40, viewportWidth: 800,  viewportHeight: 800,  everyNthFrame: 1 },
-  med:  { jpegQuality: 55, viewportWidth: 1024, viewportHeight: 1024, everyNthFrame: 1 },
-  high: { jpegQuality: 75, viewportWidth: 1280, viewportHeight: 1280, everyNthFrame: 1 }
+  low:   { jpegQuality: 40, viewportWidth: 800,  viewportHeight: 800,  everyNthFrame: 1 },
+  med:   { jpegQuality: 55, viewportWidth: 1024, viewportHeight: 1024, everyNthFrame: 1 },
+  high:  { jpegQuality: 80, viewportWidth: 1600, viewportHeight: 1600, everyNthFrame: 1 },
+  ultra: { jpegQuality: 92, viewportWidth: 3840, viewportHeight: 3840, everyNthFrame: 1 }
 };
 
 // Keep the CDP screencast alive for this long after a viewer disconnects, so a
@@ -112,10 +127,24 @@ async function attachInstrumentation(tab) {
     await cdp.send("Runtime.enable");
     await cdp.send("Network.enable", { maxResourceBufferSize: 8 * 1024 * 1024 });
     await cdp.send("Log.enable");
+    await cdp.send("Page.enable");
   } catch (err) {
     console.warn(`[browser] enable domains failed: ${err.message}`);
     return;
   }
+
+  // Suppress the native file-upload picker: with interception on, clicking an
+  // <input type=file> emits Page.fileChooserOpened instead of opening an OS
+  // dialog (which a CDP-driven, viewer-less browser can't service anyway). We
+  // intentionally don't supply files — the chooser is simply dismissed.
+  try {
+    await cdp.send("Page.setInterceptFileChooserDialog", { enabled: true });
+  } catch (err) {
+    console.warn(`[browser] file-chooser interception failed: ${err.message}`);
+  }
+  cdp.on("Page.fileChooserOpened", () => {
+    // No-op: interception alone keeps the native dialog from appearing.
+  });
 
   // Console: console.log/warn/error/info/debug
   cdp.on("Runtime.consoleAPICalled", (e) => {
@@ -303,6 +332,7 @@ async function waitForCdpReady(port, timeoutMs = 15000) {
 }
 
 async function launchChromium(opts) {
+  launchOpts = opts;
   cdpPort = await findFreePort(9222);
   if (cdpPort === null) throw new Error("no free CDP port available");
   cdpHttpEndpoint = `http://127.0.0.1:${cdpPort}`;
@@ -335,16 +365,51 @@ async function launchChromium(opts) {
   chromiumChild.on("exit", (code, signal) => {
     console.error(`[chromium] exited code=${code} signal=${signal}`);
     chromiumChild = null;
+    // The browser/context handles are now dead. Drop them so the next openTab
+    // relaunches instead of throwing "Target ... has been closed".
+    discardChromium();
   });
 
   await waitForCdpReady(cdpPort);
 
   browser = await chromium.connectOverCDP(cdpHttpEndpoint);
+  browser.on("disconnected", () => {
+    console.error("[chromium] CDP connection lost");
+    discardChromium();
+  });
   context = browser.contexts()[0] || (await browser.newContext({
     viewport: { width: opts.viewportWidth, height: opts.viewportHeight }
   }));
 
   console.log(`[browser] chromium up on rdp port ${cdpPort} (exe=${exe})`);
+}
+
+// Drop all references to a dead/disconnected chromium so the next openTab
+// relaunches. Closes any WS clients on the now-defunct tabs so the canvas
+// reconnects against the fresh browser instead of streaming a black frame.
+function discardChromium() {
+  for (const tab of tabs.values()) {
+    try { tab.viewportClient?.close(); } catch {}
+    for (const ws of tab.inputClients) { try { ws.close(); } catch {} }
+  }
+  tabs.clear();
+  browser = null;
+  context = null;
+}
+
+// Guarantee a live, connected chromium + context before a tab operation.
+// Relaunches if the headless process died (crash, OOM, OS reclaim) or the CDP
+// connection dropped — the root cause of "browserContext.newPage: Target page,
+// context or browser has been closed".
+async function ensureChromium() {
+  if (browser && browser.isConnected() && context) return;
+  if (!chromiumLaunching) {
+    if (chromiumChild) { try { chromiumChild.kill("SIGTERM"); } catch {} chromiumChild = null; }
+    discardChromium();
+    if (!launchOpts) throw new Error("chromium not initialized");
+    chromiumLaunching = launchChromium(launchOpts).finally(() => { chromiumLaunching = null; });
+  }
+  await chromiumLaunching;
 }
 
 async function shutdownChromium() {
@@ -360,8 +425,21 @@ async function shutdownChromium() {
 // ─── Tab lifecycle ──────────────────────────────────────────────────────
 
 async function openTab(initialUrl) {
-  if (!context) throw new Error("browser not ready");
-  const page = await context.newPage();
+  await ensureChromium();
+  let page;
+  try {
+    page = await context.newPage();
+  } catch (err) {
+    // The CDP connection can drop between ensureChromium and newPage (the
+    // headless process gets reaped). Relaunch once and retry before failing.
+    if (/has been closed|disconnected|Target closed|Target page/i.test(String(err))) {
+      discardChromium();
+      await ensureChromium();
+      page = await context.newPage();
+    } else {
+      throw err;
+    }
+  }
   // Create the CDP session + attach instrumentation BEFORE the initial
   // navigation so first-load console/network events get captured too.
   const cdpSession = await context.newCDPSession(page);

@@ -20,15 +20,15 @@ function useRoute():
   return { kind: "list" };
 }
 
-type QualityLevel = "low" | "med" | "high";
+type QualityLevel = "low" | "med" | "high" | "ultra";
 const QUALITY_LS_KEY = "garrison-browser-quality";
 
 function loadQuality(): QualityLevel {
   try {
     const v = window.localStorage.getItem(QUALITY_LS_KEY);
-    if (v === "low" || v === "med" || v === "high") return v;
+    if (v === "low" || v === "med" || v === "high" || v === "ultra") return v;
   } catch {}
-  return "low";
+  return "high";
 }
 
 // ─── Tabs list ─────────────────────────────────────────────────
@@ -108,11 +108,21 @@ function TabsList() {
 
 // ─── Canvas page ──────────────────────────────────────────────
 
-const SPECIAL_KEYS = new Set([
-  "Backspace", "Tab", "Enter", "Escape", "Delete",
-  "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
-  "Home", "End", "PageUp", "PageDown"
-]);
+// Windows virtual key codes for the non-printable keys we forward. CDP's
+// Input.dispatchKeyEvent performs a key's default action (form submit, caret
+// move, char delete, focus traversal) only when windowsVirtualKeyCode is set —
+// without it Chromium sees keyCode 0 and does nothing, which is why Enter never
+// submitted and Backspace/arrows were inert.
+const SPECIAL_KEY_CODES: Record<string, number> = {
+  Backspace: 8, Tab: 9, Enter: 13, Escape: 27, Delete: 46,
+  ArrowLeft: 37, ArrowRight: 39, ArrowUp: 38, ArrowDown: 40,
+  Home: 36, End: 35, PageUp: 33, PageDown: 34
+};
+// Keys that carry text. Enter must deliver "\r" so Chromium emits the keypress
+// that triggers form submission / newline insertion; a bare rawKeyDown (no
+// text) only fires `keydown` and the form is never submitted.
+const SPECIAL_KEY_TEXT: Record<string, string> = { Enter: "\r" };
+const SPECIAL_KEYS = new Set(Object.keys(SPECIAL_KEY_CODES));
 
 function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; inShell?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -564,8 +574,11 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
       button: "none",
       buttons: 0,
       clickCount: 0,
-      deltaX: -e.deltaX,
-      deltaY: -e.deltaY
+      // CDP's mouseWheel deltaY uses the same sign as the DOM wheel event:
+      // positive scrolls the page down. Pass through unchanged — negating
+      // inverted scrolling, so scrolling down just bounced off the top.
+      deltaX: e.deltaX,
+      deltaY: e.deltaY
     });
   };
 
@@ -574,11 +587,18 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   const onHiddenKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (SPECIAL_KEYS.has(e.key)) {
       e.preventDefault();
+      const keyCode = SPECIAL_KEY_CODES[e.key];
+      const text = SPECIAL_KEY_TEXT[e.key];
       sendInput({
         type: "key",
-        event: "rawKeyDown",
+        // Keys with text (Enter) need a non-raw keyDown so the keypress fires
+        // and the default action — form submit — runs.
+        event: text ? "keyDown" : "rawKeyDown",
         key: e.key,
         code: e.code,
+        text,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
         modifiers: modifierMask(e)
       });
       sendInput({
@@ -586,19 +606,34 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
         event: "keyUp",
         key: e.key,
         code: e.code,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
         modifiers: modifierMask(e)
       });
     } else if (e.key.length === 1 && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
+      // Shortcuts (Ctrl/Cmd+A, +C, …): supply the virtual key code so Chromium
+      // routes the accelerator. ASCII letters/digits map 1:1 to their VK code.
+      const keyCode = e.key.toUpperCase().charCodeAt(0);
       sendInput({
         type: "key",
         event: "rawKeyDown",
         key: e.key,
         code: e.code,
         text: e.key,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
         modifiers: modifierMask(e)
       });
-      sendInput({ type: "key", event: "keyUp", key: e.key, code: e.code, modifiers: modifierMask(e) });
+      sendInput({
+        type: "key",
+        event: "keyUp",
+        key: e.key,
+        code: e.code,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
+        modifiers: modifierMask(e)
+      });
     }
     // Printable keys are handled by the input event for IME safety.
   };
@@ -662,13 +697,17 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
           />
         </form>
         <div className="quality-toggle" role="group" aria-label="Stream quality">
-          {(["low", "med", "high"] as QualityLevel[]).map((lvl) => (
+          {(["low", "med", "high", "ultra"] as QualityLevel[]).map((lvl) => (
             <button
               key={lvl}
               type="button"
               className={`opt quality-btn ${quality === lvl ? "active" : ""}`}
               onClick={() => setQuality(lvl)}
-              title={`Stream quality: ${lvl.toUpperCase()}`}
+              title={
+                lvl === "ultra"
+                  ? "Stream quality: ULTRA — full device resolution, as crisp as native Chrome (heavier stream)"
+                  : `Stream quality: ${lvl.toUpperCase()}`
+              }
             >{lvl.toUpperCase()}</button>
           ))}
         </div>

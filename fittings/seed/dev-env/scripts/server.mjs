@@ -16,6 +16,7 @@ import path from "node:path";
 import url from "node:url";
 import { WebSocketServer } from "ws";
 import {
+  allocateTerminalRole,
   ensurePty,
   getPty,
   isTmuxMode,
@@ -23,6 +24,7 @@ import {
   killSessionPtys,
   listParked,
   listPtys,
+  listSessionTerminals,
   mirrorHandle,
   ptyIdFor,
   ptySummary,
@@ -154,7 +156,9 @@ function assembleSessions() {
   for (const row of rows) {
     if (!row.id) continue; // legacy rows without an id cannot be addressed
     const claudePty = ptySummary(row.id, "claude");
-    const shellPty = ptySummary(row.id, "shell");
+    // Every shell terminal for the session (0..N). The single auto-spawned
+    // shell was retired — terminals are created on demand and tiled by the UI.
+    const terminals = listSessionTerminals(row.id);
     const external = claudePty.state !== "running" && EXTERNAL_STATUSES.has(row.lastStatus);
     out.push({
       id: row.id,
@@ -172,9 +176,8 @@ function assembleSessions() {
       external,
       excluded: isExcluded(row.worktreePath),
       claudeClosed: Boolean(row.panesClosed?.claude),
-      shellClosed: Boolean(row.panesClosed?.shell),
       claudePty,
-      shellPty
+      terminals
     });
   }
   // Orphan sweep. A PTY (and, under tmux, its crash-persistent session) is an
@@ -192,7 +195,7 @@ function assembleSessions() {
       if (!rawIds.has(rec.sessionId)) killPty(rec.id, { forget: true });
     }
     for (const parkedId of listParked()) {
-      const m = parkedId.match(/^(.+)-(claude|shell)$/);
+      const m = parkedId.match(/^(.+)-(claude|shell(?:-\d+)?)$/);
       if (m && !rawIds.has(m[1])) killPty(parkedId, { forget: true });
     }
   }
@@ -278,10 +281,15 @@ function handleListSessions(req, res) {
   }
 }
 
+// POST /sessions/:id/ptys — ensure/restart a SPECIFIC pty (claude, or an
+// existing shell terminal by its role e.g. "shell-2"). Adding a brand-new
+// terminal goes through POST /sessions/:id/terminals instead.
+const TERMINAL_ROLE_RE = /^shell(?:-\d+)?$/;
 async function handleEnsurePty(req, res, sessionId) {
   const body = (await readBody(req)) || {};
-  const role = body.role === "claude" ? "claude" : body.role === "shell" ? "shell" : null;
-  if (!role) return jsonRes(res, 400, { error: 'role must be "claude" or "shell"' });
+  const role =
+    body.role === "claude" ? "claude" : (typeof body.role === "string" && TERMINAL_ROLE_RE.test(body.role) ? body.role : null);
+  if (!role) return jsonRes(res, 400, { error: 'role must be "claude" or a shell terminal role' });
   const found = findSessionById(sessionId);
   if (!found) return jsonRes(res, 404, { error: `session id not found: ${sessionId}` });
   try {
@@ -290,9 +298,25 @@ async function handleEnsurePty(req, res, sessionId) {
       role,
       resume: body.resume === true
     });
-    // Starting a pane clears its closed marker for every connected client.
-    await setPaneClosed(sessionId, role, false);
+    // Starting the claude pane clears its closed marker for every connected
+    // client. Shell terminals carry no closed marker (they are explicit now).
+    if (role === "claude") await setPaneClosed(sessionId, role, false);
     jsonRes(res, 200, { ok: true, pty: ptySummary(sessionId, role) });
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// POST /sessions/:id/terminals — open a NEW shell terminal for the session.
+// Allocates the next free role and spawns it; the UI's next /sessions poll
+// picks it up and tiles it into the deck.
+async function handleCreateTerminal(req, res, sessionId) {
+  const found = findSessionById(sessionId);
+  if (!found) return jsonRes(res, 404, { error: `session id not found: ${sessionId}` });
+  try {
+    const role = allocateTerminalRole(sessionId);
+    ensurePty({ session: { id: sessionId, worktreePath: found.worktreePath }, role });
+    jsonRes(res, 201, { ok: true, role, pty: ptySummary(sessionId, role) });
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -351,8 +375,8 @@ async function handleCreateSession(req, res) {
     if (!externalNow) {
       ensurePty({ session: stub, role: "claude", resume: existed && Boolean(session.claudeSessionId) });
     }
-    ensurePty({ session: stub, role: "shell" });
-    await setPaneClosed(session.id, "shell", false);
+    // No default shell terminal — the deck starts empty; the user opens
+    // terminals on demand via the + button.
     await setPaneClosed(session.id, "claude", false);
     const assembled = assembleSessions().find((s) => s.id === session.id) ?? null;
     jsonRes(res, existed ? 200 : 201, { id: session.id, existed, session: assembled });
@@ -378,7 +402,9 @@ async function handleCloseSession(req, res, sessionId) {
 // cannot resurrect a pane the user just closed.
 async function handleKillPty(req, res, sessionId, role) {
   const existed = killPty(ptyIdFor(sessionId, role), { forget: true });
-  await setPaneClosed(sessionId, role, true);
+  // Only the claude pane carries a server-side closed marker (it gates the
+  // take-over overlay). Closing a shell terminal just drops it from the deck.
+  if (role === "claude") await setPaneClosed(sessionId, role, true);
   jsonRes(res, 200, { ok: true, existed });
 }
 
@@ -412,7 +438,7 @@ async function handleCreateWorktree(req, res) {
     const created = await createWorktree(body);
     const sessionStub = { id: created.id, worktreePath: created.worktreePath };
     ensurePty({ session: sessionStub, role: "claude" });
-    ensurePty({ session: sessionStub, role: "shell" });
+    // No default shell terminal — opened on demand via the deck's + button.
     const session = assembleSessions().find((s) => s.id === created.id) ?? null;
     jsonRes(res, 201, { ...created, session });
   } catch (err) {
@@ -798,13 +824,16 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const wtDelMatch = pathname.match(/^\/worktrees\/([^/]+)$/);
       if (wtDelMatch && method === "DELETE") return await handleDeleteSession(req, res, decodeURIComponent(wtDelMatch[1]));
 
-      const ptyKillMatch = pathname.match(/^\/sessions\/([^/]+)\/ptys\/(claude|shell)$/);
+      const ptyKillMatch = pathname.match(/^\/sessions\/([^/]+)\/ptys\/(claude|shell(?:-\d+)?)$/);
       if (ptyKillMatch && method === "DELETE") {
         return await handleKillPty(req, res, decodeURIComponent(ptyKillMatch[1]), ptyKillMatch[2]);
       }
 
       const ptysMatch = pathname.match(/^\/sessions\/([^/]+)\/ptys$/);
       if (ptysMatch && method === "POST") return await handleEnsurePty(req, res, decodeURIComponent(ptysMatch[1]));
+
+      const newTermMatch = pathname.match(/^\/sessions\/([^/]+)\/terminals$/);
+      if (newTermMatch && method === "POST") return await handleCreateTerminal(req, res, decodeURIComponent(newTermMatch[1]));
 
       const closeMatch = pathname.match(/^\/sessions\/([^/]+)\/close$/);
       if (closeMatch && method === "POST") return await handleCloseSession(req, res, decodeURIComponent(closeMatch[1]));

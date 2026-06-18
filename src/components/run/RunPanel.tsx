@@ -28,7 +28,7 @@ export function RunConsole() {
   const { composition, library, runnerState, runAction, busy } = useAppShell();
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [eagerByFitting, setEagerByFitting] = useState<Record<string, boolean>>({});
-  const logEndRef = useRef<HTMLDivElement | null>(null);
+  const logBodyRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,8 +104,12 @@ export function RunConsole() {
     return () => source.close();
   }, [composition?.id]);
 
+  // Keep the live log pinned to its latest line by scrolling the terminal body
+  // itself — never scrollIntoView, which would also scroll the page and eat the
+  // dashboard's bottom padding, making the terminal look cut off at the edge.
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ block: "end" });
+    const body = logBodyRef.current;
+    if (body) body.scrollTop = body.scrollHeight;
   }, [logs.length]);
 
   if (!composition) return null;
@@ -458,7 +462,7 @@ export function RunConsole() {
           </span>
           <span>{logs.length} lines</span>
         </div>
-        <div className="body">
+        <div className="body" ref={logBodyRef}>
           {logs.length === 0 ? (
             <div style={{ color: "#7f9188" }}>No log lines yet.</div>
           ) : (
@@ -470,7 +474,6 @@ export function RunConsole() {
               </div>
             ))
           )}
-          <div ref={logEndRef} />
         </div>
       </section>
     </section>
