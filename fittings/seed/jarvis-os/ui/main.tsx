@@ -306,11 +306,18 @@ function App() {
     // delegation ack carrying `[delegated]` (shown, never spoken — the Soul's
     // reply, arriving on the channel stream, is the spoken answer). Deciding at
     // `done` avoids leaking the ack to TTS before the marker is known.
+    // Safety net: if the orchestrator turn hangs (the PTY screen-scrape can miss a
+    // turn's completion on tool-call turns), don't keep the UI stuck — abort after
+    // 60s and recover. A delegated soul's reply still arrives on the channel
+    // stream and is spoken independently.
+    const ac = new AbortController();
+    const killer = window.setTimeout(() => ac.abort(), 60_000);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ message: msg })
+        body: JSON.stringify({ message: msg }),
+        signal: ac.signal
       });
       if (!res.ok || !res.body) {
         const text = res.body ? await res.text() : "";
@@ -343,6 +350,7 @@ function App() {
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, role: "error", content: t.content || (ev.data?.error ?? "error") } : t));
           } else if (ev.event === "done") {
+            clearTimeout(killer); // turn completed; don't abort the lingering stream
             const finalReply = typeof ev.data?.reply === "string" ? ev.data.reply : "";
             if (!assembled && finalReply) assembled = finalReply;
             // Detect the delegation marker on the RAW reply, before stripping it.
@@ -362,16 +370,26 @@ function App() {
         }
       }
     } catch (err: any) {
-      setTurns((prev) => prev.map((t) => t.id === bubbleId
-        ? { ...t, role: "error", content: `network: ${err?.message || String(err)}` } : t));
       errored = true;
-      setMode("error");
       sendingRef.current = false;
-      setTimeout(() => { if (modeRef.current === "error") endTurnIfDone(); }, 2500);
+      if (err?.name === "AbortError") {
+        // Soft timeout: the orchestrator turn is slow/stuck. Recover the UI now;
+        // a delegated soul's answer may still arrive on the channel stream.
+        setTurns((prev) => prev.map((t) => t.id === bubbleId
+          ? { ...t, content: stripMarkers(t.content) || "…(a processar; a resposta pode chegar pela voz)" } : t));
+        setMode("idle");
+        endTurnIfDone();
+      } else {
+        setTurns((prev) => prev.map((t) => t.id === bubbleId
+          ? { ...t, role: "error", content: `network: ${err?.message || String(err)}` } : t));
+        setMode("error");
+        setTimeout(() => { if (modeRef.current === "error") endTurnIfDone(); }, 2500);
+      }
     } finally {
+      clearTimeout(killer);
       sendingRef.current = false;
       // Re-arm for the no-TTS success path; TTS replies re-arm via playNextInQueue,
-      // error paths via their own timer (errored), so skip those here.
+      // error/abort paths re-arm themselves, so skip those here.
       if (!errored && !speakingRef.current && speakQueueRef.current.length === 0) endTurnIfDone();
     }
   }, [setMode, enqueueSpeech, stopSpeech, pushCallout, endTurnIfDone]);

@@ -14,6 +14,11 @@ import { logEvent } from "./log.mjs";
 
 const COMMON_FLAGS = ["--permission-mode", "bypassPermissions"];
 
+// Cap orchestrator turns well under the PTY's 5-min default: a router turn should
+// finish in seconds, so if the screen-scrape misses completion (intermittent on
+// talk_to turns) we recover in ~75s instead of hanging 5 minutes.
+const ORCHESTRATOR_TURN_TIMEOUT_MS = 75_000;
+
 const GARRISON_TOOLS_DISALLOWED_FOR_SOULS = [
   "mcp__garrison__talk_to",
   "mcp__garrison__wait_for",
@@ -160,8 +165,24 @@ class PtySoulAdapter {
   async #turn(content) {
     await this.ready;
     if (this.killed || !this.session) return;
-    const outcome = await this.session.runTurn({ message: content });
-    const text = outcome.reply ?? "";
+    let text = "";
+    try {
+      // The orchestrator is a thin router: its turns are short, so cap them well
+      // under the 5-min default. The PTY screen-scrape can intermittently miss a
+      // turn's completion on tool-call turns (talk_to) and otherwise hangs the
+      // full timeout — a short cap recovers fast and frees the turn queue.
+      const outcome = await this.session.runTurn({
+        message: content,
+        timeoutMs: this.opts.isOrchestrator ? ORCHESTRATOR_TURN_TIMEOUT_MS : undefined
+      });
+      text = outcome.reply ?? "";
+    } catch (err) {
+      // Don't leave the caller hanging: resolve the turn with empty text so the
+      // gateway's waiter fires and /chat/stream returns. A delegated soul's own
+      // reply still streams back on the channel independently.
+      logEvent("stderr", { kind: "soul-turn-error", session: this.opts.sessionUuid, error: err.message });
+      text = "";
+    }
     const ev = { type: "assistant", message: { content: [{ type: "text", text }] } };
     try { this.opts.onEvent?.(ev); } catch (err) {
       logEvent("stderr", { kind: "on-event-failed", session: this.opts.sessionUuid, error: err.message });
