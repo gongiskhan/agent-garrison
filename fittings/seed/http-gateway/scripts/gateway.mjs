@@ -338,11 +338,15 @@ async function spawnSoulSession(opts) {
       mcpConfigPath,
       isOrchestrator: false,
       resume: false,
-      onEvent: (ev) => channels.publish(sessionUuid, soul, ev),
+      // Don't stream raw stream-JSON events to the voice channel (they'd be
+      // spoken as fragments / tool noise). Publish the clean final answer once on
+      // result, which is what the voice UI speaks.
+      onEvent: () => {},
       onResult: (text) => {
         state.lastSummary = text;
         state.lastResultAt = new Date().toISOString();
         state.pendingSummaries.push({ summary: text, at: state.lastResultAt, acknowledged: false });
+        channels.publish(sessionUuid, soul, { type: "assistant", message: { content: [{ type: "text", text }] } });
         registry.resolveWaiters(sessionUuid);
       },
       onExit: (code) => {
@@ -442,11 +446,12 @@ async function respawnExisting(existing, { tier, tierFlags, message, soul, spawn
     mcpConfigPath,
     isOrchestrator: false,
     resume: true,
-    onEvent: (ev) => channels.publish(existing.sessionId, soul, ev),
+    onEvent: () => {},
     onResult: (text) => {
       existing.lastSummary = text;
       existing.lastResultAt = new Date().toISOString();
       existing.pendingSummaries.push({ summary: text, at: existing.lastResultAt, acknowledged: false });
+      channels.publish(existing.sessionId, soul, { type: "assistant", message: { content: [{ type: "text", text }] } });
       registry.resolveWaiters(existing.sessionId);
     },
     onExit: (code) => {

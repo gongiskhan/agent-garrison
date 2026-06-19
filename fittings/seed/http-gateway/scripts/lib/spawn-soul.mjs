@@ -1,23 +1,22 @@
-// Spawn a Claude Code PTY session for a Soul (or the Orchestrator).
+// Spawn a Claude Code subprocess for a Soul (or the Orchestrator).
 // Two modes:
-//   - "headless": drive the interactive Claude Code TUI through
-//                 @garrison/claude-pty. Synthetic assistant events republish
-//                 to the channel hub after each turn.
+//   - "headless": spawn `claude` directly with stream-JSON I/O (one persistent
+//                 process, multi-turn over stdin). Stdout events republish to the
+//                 channel hub; on `result`, resolve waiters and set lastSummary.
+//                 This replaced the PTY screen-scrape engine: deterministic turn
+//                 boundaries (no settle delay, no 5-min hangs) and token-fast.
 //   - "interactive": delegate to Garrison Next.js's /api/interactive/spawn-soul-tab
-//                  which opens a PTY in the Interactive panel. We then install
-//                  a JSONL watcher to extract summary feedback.
+//                  which opens a PTY in the Interactive panel (real TUI). We then
+//                  install a JSONL watcher to extract summary feedback.
 
+import { spawn } from "node:child_process";
 import path from "node:path";
 import fsp from "node:fs/promises";
-import { OperativePtySession } from "@garrison/claude-pty";
 import { logEvent } from "./log.mjs";
 
+// Flags for the interactive TUI args (buildClaudeArgs). The headless stream-JSON
+// args are built separately in buildHeadlessArgs.
 const COMMON_FLAGS = ["--permission-mode", "bypassPermissions"];
-
-// Cap orchestrator turns well under the PTY's 5-min default: a router turn should
-// finish in seconds, so if the screen-scrape misses completion (intermittent on
-// talk_to turns) we recover in ~75s instead of hanging 5 minutes.
-const ORCHESTRATOR_TURN_TIMEOUT_MS = 75_000;
 
 const GARRISON_TOOLS_DISALLOWED_FOR_SOULS = [
   "mcp__garrison__talk_to",
@@ -83,6 +82,39 @@ export function buildClaudeArgs({
   return args;
 }
 
+// Build the headless stream-JSON arg list. One persistent `claude` process reads
+// user turns from stdin and emits JSON events on stdout — deterministic turn ends
+// (no PTY screen-scrape), so it's fast and never hangs the 5-min default.
+function buildHeadlessArgs({ sessionUuid, spawnConfig, resume, tierFlags = [], mcpConfigPath, isOrchestrator, promptPath }) {
+  const args = [
+    "--print",
+    "--input-format", "stream-json",
+    "--output-format", "stream-json",
+    "--verbose",
+    "--dangerously-skip-permissions"
+  ];
+  if (spawnConfig?.model) args.push("--model", String(spawnConfig.model));
+  if (resume) args.push("--resume", sessionUuid);
+  else args.push("--session-id", sessionUuid);
+  if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath, "--strict-mcp-config");
+  if (promptPath) args.push("--append-system-prompt-file", promptPath);
+  if (spawnConfig?.exclude_dynamic_sections) args.push("--exclude-dynamic-system-prompt-sections");
+  if (spawnConfig?.allowed_tools && spawnConfig.allowed_tools.length > 0) {
+    args.push("--allowedTools", spawnConfig.allowed_tools.join(","));
+  }
+  const disallowed = isOrchestrator
+    ? disallowedToolsForOrchestrator(spawnConfig)
+    : disallowedToolsForSoul(spawnConfig);
+  if (disallowed.length > 0) args.push("--disallowedTools", disallowed.join(","));
+  args.push(...tierFlags);
+  return args;
+}
+
+/**
+ * Spawn a headless claude subprocess with stream-JSON I/O. Wires stdout → JSON
+ * parser → onEvent (every event) + onResult (on `result`). The returned handle is
+ * a Node ChildProcess (.kill / .exitCode / .stdin), plus getClaudeSessionId().
+ */
 export function spawnHeadless({
   sessionUuid,
   spawnConfig,
@@ -96,114 +128,58 @@ export function spawnHeadless({
   onResult,
   onExit
 }) {
-  return new PtySoulAdapter({
-    sessionUuid,
-    spawnConfig,
-    promptPath,
-    cwd,
-    tierFlags,
-    mcpConfigPath,
-    isOrchestrator,
-    resume,
-    onEvent,
-    onResult,
-    onExit
+  const args = buildHeadlessArgs({ sessionUuid, spawnConfig, resume, tierFlags, mcpConfigPath, isOrchestrator, promptPath });
+  if (cwd === undefined) {
+    logEvent("stderr", { kind: "spawn-soul-warn", message: "no cwd provided", session: sessionUuid });
+  }
+  const child = spawn("claude", args, { cwd, env: { ...process.env }, stdio: ["pipe", "pipe", "pipe"] });
+  let claudeSessionId = null;
+  let stdoutBuf = "";
+  child.stdout.on("data", (chunk) => {
+    stdoutBuf += chunk.toString("utf8");
+    let nl;
+    while ((nl = stdoutBuf.indexOf("\n")) !== -1) {
+      const line = stdoutBuf.slice(0, nl);
+      stdoutBuf = stdoutBuf.slice(nl + 1);
+      if (!line.trim()) continue;
+      let ev;
+      try { ev = JSON.parse(line); } catch {
+        logEvent("stdout", { kind: "non-json-line", session: sessionUuid, line: line.slice(0, 200) });
+        continue;
+      }
+      if (ev?.session_id && !claudeSessionId) {
+        claudeSessionId = ev.session_id;
+        logEvent("stdout", { kind: "soul-ready", session: sessionUuid, claude_session: claudeSessionId });
+      }
+      try { onEvent?.(ev); } catch (err) {
+        logEvent("stderr", { kind: "on-event-failed", session: sessionUuid, error: err.message });
+      }
+      if (ev.type === "result") {
+        const text = typeof ev.result === "string" ? ev.result : "";
+        try { onResult?.(text, ev); } catch (err) {
+          logEvent("stderr", { kind: "on-result-failed", session: sessionUuid, error: err.message });
+        }
+      }
+    }
   });
-}
-
-class PtySoulAdapter {
-  constructor(opts) {
-    this.opts = opts;
-    this.session = null;
-    this.exitCode = null;
-    this.killed = false;
-    this.queue = Promise.resolve();
-    this.ready = this.#start();
-  }
-
-  async #start() {
-    const {
-      sessionUuid,
-      spawnConfig,
-      promptPath,
-      cwd,
-      tierFlags,
-      mcpConfigPath,
-      isOrchestrator,
-      resume
-    } = this.opts;
-    if (cwd === undefined) {
-      logEvent("stderr", { kind: "spawn-soul-warn", message: "no cwd provided", session: sessionUuid });
-    }
-    const extraArgs = buildExtraArgs({ spawnConfig, tierFlags, mcpConfigPath, isOrchestrator });
-    this.session = await OperativePtySession.spawn({
-      compositionDir: cwd ?? process.cwd(),
-      appendSystemPromptFile: promptPath,
-      sessionUuid: resume ? undefined : sessionUuid,
-      resumeSessionId: resume ? sessionUuid : undefined,
-      permissionMode: "bypassPermissions",
-      // Pin the model when the spawn config carries one (the orchestrator boots
-      // on Haiku for PTY reliability — Sonnet/Opus race the screen-scraper).
-      // Tier flags still override per-turn when the router escalates.
-      model: spawnConfig?.model || undefined,
-      extraArgs,
-      cols: 140,
-      rows: 42
-    });
-    logEvent("stdout", { kind: "soul-ready", session: sessionUuid, claude_session: this.session.getClaudeSessionId() });
-  }
-
-  write(content) {
-    if (this.killed) return false;
-    this.queue = this.queue.then(() => this.#turn(content));
-    this.queue.catch((err) => {
-      logEvent("stderr", { kind: "soul-turn-error", session: this.opts.sessionUuid, error: err.message });
-    });
-    return true;
-  }
-
-  async #turn(content) {
-    await this.ready;
-    if (this.killed || !this.session) return;
-    let text = "";
-    try {
-      // The orchestrator is a thin router: its turns are short, so cap them well
-      // under the 5-min default. The PTY screen-scrape can intermittently miss a
-      // turn's completion on tool-call turns (talk_to) and otherwise hangs the
-      // full timeout — a short cap recovers fast and frees the turn queue.
-      const outcome = await this.session.runTurn({
-        message: content,
-        timeoutMs: this.opts.isOrchestrator ? ORCHESTRATOR_TURN_TIMEOUT_MS : undefined
-      });
-      text = outcome.reply ?? "";
-    } catch (err) {
-      // Don't leave the caller hanging: resolve the turn with empty text so the
-      // gateway's waiter fires and /chat/stream returns. A delegated soul's own
-      // reply still streams back on the channel independently.
-      logEvent("stderr", { kind: "soul-turn-error", session: this.opts.sessionUuid, error: err.message });
-      text = "";
-    }
-    const ev = { type: "assistant", message: { content: [{ type: "text", text }] } };
-    try { this.opts.onEvent?.(ev); } catch (err) {
-      logEvent("stderr", { kind: "on-event-failed", session: this.opts.sessionUuid, error: err.message });
-    }
-    try { this.opts.onResult?.(text, { type: "result", result: text }); } catch (err) {
-      logEvent("stderr", { kind: "on-result-failed", session: this.opts.sessionUuid, error: err.message });
-    }
-  }
-
-  kill(signal = "SIGTERM") {
-    this.killed = true;
-    this.exitCode = signal === "SIGKILL" ? 137 : 143;
-    try { this.session?.dispose(); } catch { /* ignore */ }
-    logEvent("stdout", { kind: "soul-exit", session: this.opts.sessionUuid, code: this.exitCode, signal });
-    try { this.opts.onExit?.(this.exitCode, signal); } catch { /* ignore */ }
-  }
+  child.stderr.on("data", (chunk) => {
+    logEvent("stderr", { kind: "soul-stderr", session: sessionUuid, line: chunk.toString().slice(0, 500) });
+  });
+  child.on("exit", (code, signal) => {
+    logEvent("stdout", { kind: "soul-exit", session: sessionUuid, code, signal });
+    try { onExit?.(code, signal); } catch { /* ignore */ }
+  });
+  child.on("error", (err) => {
+    logEvent("stderr", { kind: "soul-error", session: sessionUuid, error: err.message });
+  });
+  child.getClaudeSessionId = () => claudeSessionId;
+  return child;
 }
 
 export function writeUserTurn(child, content) {
-  if (typeof child?.write === "function") return child.write(content);
-  return false;
+  if (!child?.stdin || child.stdin.destroyed) return false;
+  const line = JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
+  return child.stdin.write(line);
 }
 
 /**
@@ -257,21 +233,6 @@ export async function spawnInteractiveTab({
     throw new Error(`spawn-soul-tab failed: ${response.status} ${text.slice(0, 200)}`);
   }
   return await response.json();
-}
-
-function buildExtraArgs({ spawnConfig, tierFlags = [], mcpConfigPath, isOrchestrator }) {
-  const args = [];
-  if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath, "--strict-mcp-config");
-  if (spawnConfig?.exclude_dynamic_sections) args.push("--exclude-dynamic-system-prompt-sections");
-  if (spawnConfig?.allowed_tools && spawnConfig.allowed_tools.length > 0) {
-    args.push("--allowedTools", spawnConfig.allowed_tools.join(","));
-  }
-  const disallowed = isOrchestrator
-    ? disallowedToolsForOrchestrator(spawnConfig)
-    : disallowedToolsForSoul(spawnConfig);
-  if (disallowed.length > 0) args.push("--disallowedTools", disallowed.join(","));
-  args.push(...tierFlags);
-  return args;
 }
 
 export async function respawnInteractiveTab({
