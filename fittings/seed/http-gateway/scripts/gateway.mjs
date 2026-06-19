@@ -658,9 +658,12 @@ const server = http.createServer(async (request, response) => {
       const heartbeat = setInterval(() => {
         try { response.write(": keepalive\n\n"); } catch { /* ignore */ }
       }, 15_000);
+      // ?live=1 → no ring replay (live consumers that speak each event don't want
+      // old replies re-delivered on connect/reconnect).
+      const replay = url.searchParams.get("live") !== "1";
       const unsubscribe = channels.subscribe(channelId, (wrapped) => {
         sseWrite(response, "event", wrapped);
-      });
+      }, { replay });
       request.on("close", () => {
         clearInterval(heartbeat);
         unsubscribe();

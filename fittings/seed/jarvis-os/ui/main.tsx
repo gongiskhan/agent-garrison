@@ -156,12 +156,10 @@ function App() {
   // finishes the first sentence.
   const speakQueueRef = useRef<string[]>([]);
   const speakingRef = useRef(false);
-  // Delegated Soul replies arrive asynchronously on the channel stream. Only
-  // speak them after the user has actually interacted (so the channel's replayed
-  // ring buffer on connect isn't spoken on page load), and dedupe by
-  // session+text (an EventSource reconnect replays the ring again).
+  // Delegated Soul replies arrive asynchronously on the channel stream. The
+  // stream is subscribed live (?live=1, no ring replay), so the only guard needed
+  // is to not speak anything before the user has actually engaged.
   const hasInteractedRef = useRef(false);
-  const spokenSoulKeysRef = useRef<Set<string>>(new Set());
 
   const getCtx = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -557,10 +555,7 @@ function App() {
         .filter((b: any) => b?.type === "text").map((b: any) => b.text).join("");
       const clean = stripMarkers(text);
       if (!clean) return;
-      if (!hasInteractedRef.current) return; // ignore ring-buffer replay before any turn
-      const key = `${w.session_id || ""}|${clean}`;
-      if (spokenSoulKeysRef.current.has(key)) return; // dedupe ring re-replay on reconnect
-      spokenSoulKeysRef.current.add(key);
+      if (!hasInteractedRef.current) return; // safety: nothing before the user engages
       setTurns((prev) => [...prev.slice(-6), { id: genId("a"), role: "assistant", content: clean }]);
       pushCallout(soul, clean);
       pauseVad();           // don't let the live (re-armed) VAD capture the Soul's TTS

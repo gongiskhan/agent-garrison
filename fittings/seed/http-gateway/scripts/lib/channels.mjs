@@ -52,10 +52,14 @@ export class ChannelHub {
     }
   }
 
-  subscribe(channelId, handler) {
+  // replay=false skips the ring-buffer replay — used by live consumers (e.g. the
+  // voice UI) that speak each event, so a reconnect doesn't re-speak old replies.
+  subscribe(channelId, handler, { replay = true } = {}) {
     const entry = this.ensure(channelId);
-    for (const wrapped of entry.ring) {
-      try { handler(wrapped); } catch { /* ignore replay errors */ }
+    if (replay) {
+      for (const wrapped of entry.ring) {
+        try { handler(wrapped); } catch { /* ignore replay errors */ }
+      }
     }
     entry.subscribers.add(handler);
     return () => entry.subscribers.delete(handler);

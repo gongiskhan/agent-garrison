@@ -315,12 +315,14 @@ function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
 }
 
 function handleStream(req, res, opts) {
-  const target = new URL(`/channels/${CHANNEL_ID}/stream`, opts.gatewayUrl);
+  // live=1: the voice UI speaks each Soul reply as it lands, so it must NOT get
+  // the ring-buffer replay (no re-speaking old replies on connect/reconnect).
+  const target = new URL(`/channels/${CHANNEL_ID}/stream?live=1`, opts.gatewayUrl);
   pipeUpstreamSse(req, res, {
     method: "GET",
     hostname: target.hostname,
     port: target.port,
-    path: target.pathname,
+    path: target.pathname + target.search, // keep ?live=1
     headers: { Accept: "text/event-stream" }
   });
 }
