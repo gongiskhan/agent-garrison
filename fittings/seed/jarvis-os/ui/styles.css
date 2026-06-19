@@ -176,6 +176,29 @@ html, body, #root {
 .jarvis-turn.error .jarvis-turn-role,
 .jarvis-turn.error .jarvis-turn-text { color: var(--err); }
 
+/* Rendered markdown for assistant replies — compact, HUD-native. */
+.jarvis-turn-text.md { color: var(--ink-dim); min-width: 0; overflow-wrap: anywhere; }
+.jarvis-turn-text.md > :first-child { margin-top: 0; }
+.jarvis-turn-text.md > :last-child { margin-bottom: 0; }
+.jarvis-turn-text.md p { margin: 0 0 6px; }
+.jarvis-turn-text.md h1,
+.jarvis-turn-text.md h2,
+.jarvis-turn-text.md h3,
+.jarvis-turn-text.md h4 { margin: 8px 0 4px; font-size: 11px; font-weight: 600; color: var(--ink); letter-spacing: 0.04em; }
+.jarvis-turn-text.md ul,
+.jarvis-turn-text.md ol { margin: 4px 0; padding-left: 16px; }
+.jarvis-turn-text.md li { margin: 1px 0; }
+.jarvis-turn-text.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; background: rgba(255, 255, 255, 0.06); padding: 0 3px; border-radius: 3px; }
+.jarvis-turn-text.md pre { margin: 4px 0; padding: 6px 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; overflow: auto; max-height: 220px; }
+.jarvis-turn-text.md pre code { background: none; padding: 0; font-size: 10px; line-height: 1.35; white-space: pre; }
+.jarvis-turn-text.md strong { color: var(--ink); font-weight: 600; }
+.jarvis-turn-text.md a { color: var(--ink); text-decoration: underline; }
+.jarvis-turn-text.md blockquote { margin: 4px 0; padding-left: 8px; border-left: 2px solid rgba(255, 255, 255, 0.15); color: var(--ink-faint); }
+.jarvis-turn-text.md table { border-collapse: collapse; margin: 4px 0; }
+.jarvis-turn-text.md th,
+.jarvis-turn-text.md td { border: 1px solid rgba(255, 255, 255, 0.12); padding: 2px 6px; font-size: 10px; }
+.jarvis-turn-text.md hr { border: none; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 6px 0; }
+
 /* ── report overlay (ported from Fable globals.css) ────────────────────── */
 .report-overlay {
   position: fixed;

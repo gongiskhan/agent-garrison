@@ -12,8 +12,16 @@
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MicVAD } from "@ricky0123/vad-web";
+import { marked } from "marked";
 import DitherCore, { type CoreMode } from "./cores/DitherCore";
 import ReportOverlay from "./ReportOverlay";
+
+marked.setOptions({ gfm: true, breaks: true });
+// Render an assistant reply's markdown to HTML for the transcript. Content is the
+// local operative's own output (single-user, localhost), so we render directly.
+function renderMarkdown(s: string): string {
+  try { return marked.parse(s || "", { async: false }) as string; } catch { return s; }
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -651,7 +659,9 @@ function App() {
         {turns.slice(-4).map((t) => (
           <div key={t.id} className={`jarvis-turn ${t.role}`}>
             <span className="jarvis-turn-role">{t.role === "user" ? "you" : t.role === "error" ? "!" : "jarvis"}</span>
-            <span className="jarvis-turn-text">{t.content || (t.role === "assistant" ? "…" : "")}</span>
+            {t.role === "assistant" && t.content
+              ? <div className="jarvis-turn-text md" dangerouslySetInnerHTML={{ __html: renderMarkdown(t.content) }} />
+              : <span className="jarvis-turn-text">{t.content || (t.role === "assistant" ? "…" : "")}</span>}
           </div>
         ))}
       </div>
