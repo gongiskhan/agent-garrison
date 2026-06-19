@@ -82,6 +82,7 @@ function stripMarkers(s: string): string {
   return (s || "")
     .replace(/\[orchestrator-active\]/gi, "")
     .replace(/\[gateway-route:[^\]]*\]/gi, "")
+    .replace(/\[delegated\]/gi, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -134,6 +135,12 @@ function App() {
   // finishes the first sentence.
   const speakQueueRef = useRef<string[]>([]);
   const speakingRef = useRef(false);
+  // Delegated Soul replies arrive asynchronously on the channel stream. Only
+  // speak them after the user has actually interacted (so the channel's replayed
+  // ring buffer on connect isn't spoken on page load), and dedupe by
+  // session+text (an EventSource reconnect replays the ring again).
+  const hasInteractedRef = useRef(false);
+  const spokenSoulKeysRef = useRef<Set<string>>(new Set());
 
   const getCtx = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -267,34 +274,19 @@ function App() {
     const msg = (message || "").trim();
     if (!msg || sendingRef.current) return;
     sendingRef.current = true;
+    hasInteractedRef.current = true; // from now on, async Soul replies are live
     stopSpeech(); // a new turn interrupts any in-flight speech
     setTurns((prev) => [...prev.slice(-6), { id: genId("u"), role: "user", content: msg }]);
     setMode("working");
     const bubbleId = genId("a");
     setTurns((prev) => [...prev, { id: bubbleId, role: "assistant", content: "" }]);
     let assembled = "";
-    let spokenUpTo = 0; // index in `assembled` already handed to the TTS queue
     let errored = false; // error paths re-arm on their own timer; finally must not double-arm
-    // Hand every COMPLETE sentence in `assembled` (past spokenUpTo) to the TTS
-    // queue. On `final`, flush whatever remains. Speaking the first sentence the
-    // moment it lands — rather than at end-of-reply — removes the bulk of the
-    // text→speech delay.
-    const flushSentences = (final: boolean) => {
-      const pending = assembled.slice(spokenUpTo);
-      if (final) {
-        const rest = pending.trim();
-        if (rest) { enqueueSpeech(rest); spokenUpTo = assembled.length; }
-        return;
-      }
-      const re = /[.!?…](?:["'")\]]+)?(?:\s|$)/g;
-      let lastEnd = -1;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(pending)) !== null) lastEnd = m.index + m[0].length;
-      if (lastEnd > 0) {
-        const chunk = pending.slice(0, lastEnd).trim();
-        if (chunk) { enqueueSpeech(chunk); spokenUpTo += lastEnd; }
-      }
-    };
+    // We do NOT speak the orchestrator's reply incrementally: it's a thin router,
+    // so its reply is either a short direct answer (spoken at `done`) or a
+    // delegation ack carrying `[delegated]` (shown, never spoken — the Soul's
+    // reply, arriving on the channel stream, is the spoken answer). Deciding at
+    // `done` avoids leaking the ack to TTS before the marker is known.
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -328,19 +320,22 @@ function App() {
             assembled += ev.data.text;
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, content: t.content + ev.data.text } : t));
-            flushSentences(false); // speak each sentence as soon as it completes
           } else if (ev.event === "error") {
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, role: "error", content: t.content || (ev.data?.error ?? "error") } : t));
           } else if (ev.event === "done") {
             const finalReply = typeof ev.data?.reply === "string" ? ev.data.reply : "";
             if (!assembled && finalReply) assembled = finalReply;
+            // Detect the delegation marker on the RAW reply, before stripping it.
+            const delegated = /\[delegated\]/i.test(assembled);
             const finalContent = stripMarkers(assembled);
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, content: stripMarkers(t.content || finalReply) } : t));
             if (finalContent) {
               pushCallout("reply", finalContent);
-              flushSentences(true); // speak any trailing partial sentence
+              // Speak only a direct answer. A delegation ack is shown, not spoken —
+              // the Soul's reply (on the channel stream) is the spoken answer.
+              if (!delegated) enqueueSpeech(finalContent);
             }
             // re-arm is handled by `finally` (no TTS) or by playNextInQueue when
             // the TTS queue drains — never here, where sending is still true.
@@ -522,6 +517,37 @@ function App() {
       window.removeEventListener("keydown", onEsc);
     };
   }, [onToggle, report]);
+
+  // Channel stream: speak a delegated Soul's reply when it lands asynchronously
+  // (the orchestrator only acked the delegation, marked [delegated], unspoken).
+  // The orchestrator's own output comes via /api/chat, so it's ignored here.
+  useEffect(() => {
+    if (!voiceAvailable) return;
+    let es: EventSource | null = null;
+    try { es = new EventSource("/api/stream"); } catch { return; }
+    const onEvent = (e: MessageEvent) => {
+      let w: any;
+      try { w = JSON.parse(e.data); } catch { return; }
+      const soul = w?.soul;
+      if (!soul || soul === "garrison-orchestrator") return; // orchestrator → /api/chat
+      const ev = w?.event;
+      if (ev?.type !== "assistant") return;
+      const text = (ev.message?.content ?? [])
+        .filter((b: any) => b?.type === "text").map((b: any) => b.text).join("");
+      const clean = stripMarkers(text);
+      if (!clean) return;
+      if (!hasInteractedRef.current) return; // ignore ring-buffer replay before any turn
+      const key = `${w.session_id || ""}|${clean}`;
+      if (spokenSoulKeysRef.current.has(key)) return; // dedupe ring re-replay on reconnect
+      spokenSoulKeysRef.current.add(key);
+      setTurns((prev) => [...prev.slice(-6), { id: genId("a"), role: "assistant", content: clean }]);
+      pushCallout(soul, clean);
+      pauseVad();           // don't let the live (re-armed) VAD capture the Soul's TTS
+      enqueueSpeech(clean); // drains → endTurnIfDone re-arms the VAD
+    };
+    es.addEventListener("event", onEvent as EventListener);
+    return () => { try { es?.close(); } catch {} };
+  }, [voiceAvailable, enqueueSpeech, pushCallout, pauseVad]);
 
   useEffect(() => () => {
     try { void vadRef.current?.destroy(); } catch {}

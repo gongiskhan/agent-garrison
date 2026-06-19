@@ -70,6 +70,10 @@ const worktrees = new WorktreesProxy(NEXT_BASE_URL);
 let soulsConfig = null;
 let orchestratorSessionId = null;
 let orchestratorChild = null;
+// The channel of the orchestrator's in-flight turn. Souls spawned via talk_to
+// during that turn inherit it (instead of "main") so their output publishes to
+// the same channel the caller is listening on (e.g. the voice UI's stream).
+let currentOrchestratorChannel = "main";
 let mcpConfigPath = null;
 
 // ───────────────────────────────────────────────────────── HTTP plumbing
@@ -234,7 +238,9 @@ async function spawnSoulSession(opts) {
     cwd,
     worktreeId,
     parentSessionId,
-    channel = "main",
+    // Default to the orchestrator's current turn channel so a delegated soul
+    // streams back to whoever is listening (voice/web), not the dead "main".
+    channel = currentOrchestratorChannel,
     sessionUuid: providedUuid,
     origin
   } = opts;
@@ -478,6 +484,8 @@ async function forwardChatToOrchestrator({ origin, channel, message }) {
   if (!orchestratorChild || !orchestratorSessionId) {
     throw new Error("orchestrator not booted");
   }
+  // Remember this turn's channel so souls delegated during it inherit it.
+  currentOrchestratorChannel = channel;
   const pending = registry.drainPendingSummaries().map((p) => ({
     soul: p.soul,
     sessionId: p.sessionId,
