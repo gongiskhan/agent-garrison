@@ -1,61 +1,17 @@
 "use client";
 
 // ---------------------------------------------------------------------------
-// Report reveal overlay — renders a vault markdown deliverable inside the
-// HUD (no app switch, stays cinematic). Animates out from the core. Esc or
-// the × closes it (HUD owns the Esc handling). Zero-dep renderer: reports
-// are runner-generated markdown — headings, bullets, bold, links, hr.
+// Report reveal overlay — renders a markdown deliverable inside the HUD (no app
+// switch, stays cinematic). Animates out from the core. Esc or the × closes it
+// (HUD owns the Esc handling). Uses `marked` so code fences / file-trees and
+// tables render properly (same renderer as the transcript).
 // ---------------------------------------------------------------------------
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+import { marked } from "marked";
 
-function inline(s: string): string {
-  return escapeHtml(s)
-    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
-}
-
+marked.setOptions({ gfm: true, breaks: true });
 function mdToHtml(md: string): string {
-  const out: string[] = [];
-  let inList = false;
-  const closeList = () => {
-    if (inList) {
-      out.push("</ul>");
-      inList = false;
-    }
-  };
-  for (const raw of md.split(/\r?\n/)) {
-    const line = raw.trimEnd();
-    const h = line.match(/^(#{1,4})\s+(.*)/);
-    if (h) {
-      closeList();
-      const lvl = Math.min(h[1].length + 1, 5); // # → h2 (overlay title is h1)
-      out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`);
-      continue;
-    }
-    if (/^(-{3,}|\*{3,})$/.test(line)) {
-      closeList();
-      out.push("<hr/>");
-      continue;
-    }
-    const li = line.match(/^\s*[-*]\s+(.*)/);
-    if (li) {
-      if (!inList) {
-        out.push("<ul>");
-        inList = true;
-      }
-      out.push(`<li>${inline(li[1])}</li>`);
-      continue;
-    }
-    closeList();
-    if (line.trim()) out.push(`<p>${inline(line)}</p>`);
-  }
-  closeList();
-  return out.join("\n");
+  try { return marked.parse(md || "", { async: false }) as string; } catch { return md; }
 }
 
 // Obsidian vault name (folder basename) — the obsidian:// URI needs the exact
