@@ -1,13 +1,17 @@
 // Jarvis Agentic OS — voice-first HUD.
 //
 // Visual layer (DitherCore + ReportOverlay) is reused from the Fable jarvis-hud
-// reference. The voice + transport logic is the Garrison-native path proven by
-// web-channel/legacy-voice: hold-to-talk → /api/voice/stt → /api/chat (gateway
-// → Orchestrator) → reply read aloud via /api/voice/tts. The central core
-// pulses to the live audio through a real AnalyserNode RMS fed into getLevel.
+// reference. The voice + transport logic is the Garrison-native path:
+// hands-free voice session → Silero VAD (local, in-browser, @ricky0123/vad-web)
+// detects end-of-speech → /api/voice/stt → /api/chat (gateway → Orchestrator) →
+// reply read aloud via /api/voice/tts. Press once (Space or tap the core) to
+// arm the session; then just talk — each pause auto-sends and Jarvis replies,
+// and the session re-arms itself between turns until you press again to stop.
+// The central core pulses to the live audio through a real AnalyserNode RMS.
 
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MicVAD } from "@ricky0123/vad-web";
 import DitherCore, { type CoreMode } from "./cores/DitherCore";
 import ReportOverlay from "./ReportOverlay";
 
@@ -15,6 +19,34 @@ import ReportOverlay from "./ReportOverlay";
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// Encode a mono Float32 PCM buffer (the speech segment Silero VAD hands back at
+// 16 kHz) as a 16-bit WAV blob. faster-whisper (PyAV) on the /stt endpoint
+// decodes WAV directly, so we ship the VAD's exact segment with no re-recording.
+function float32ToWavBlob(samples: Float32Array, sampleRate = 16000): Blob {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);  // PCM fmt chunk size
+  view.setUint16(20, 1, true);   // PCM
+  view.setUint16(22, 1, true);   // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate (sr * blockAlign)
+  view.setUint16(32, 2, true);   // block align
+  view.setUint16(34, 16, true);  // bits per sample
+  writeStr(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++, off += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buffer], { type: "audio/wav" });
 }
 
 // getUserMedia/MediaRecorder need a secure context. localhost counts; a LAN IP
@@ -63,13 +95,17 @@ type Callout = { id: string; label: string; content: string };
 function App() {
   const [mode, setModeRaw] = useState<CoreMode>("idle");
   const [voiceAvailable, setVoiceAvailable] = useState(false);
-  const [interim, setInterim] = useState("");
+  const [sessionOn, setSessionOnRaw] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [callouts, setCallouts] = useState<Callout[]>([]);
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
 
   const modeRef = useRef<CoreMode>("idle");
   const setMode = useCallback((m: CoreMode) => { modeRef.current = m; setModeRaw(m); }, []);
+  // Whether the hands-free voice session is armed (mirrored to a ref so the
+  // VAD callbacks and key handlers read the live value without stale closures).
+  const sessionOnRef = useRef(false);
+  const setSessionOn = useCallback((v: boolean) => { sessionOnRef.current = v; setSessionOnRaw(v); }, []);
 
   // Audio analysis uses TWO separate analysers. Critical: the mic analyser is
   // NEVER connected to ctx.destination — routing the mic to the speakers would
@@ -84,7 +120,11 @@ function App() {
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const ttsSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const audioUrlRef = useRef<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // Silero VAD instance + whether it is currently feeding frames to the model.
+  // We pause it during a turn (think + speak) so it never captures Jarvis's own
+  // TTS, and resume it when we return to idle.
+  const vadRef = useRef<MicVAD | null>(null);
+  const vadRunningRef = useRef(false);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const sendingRef = useRef(false);
@@ -141,6 +181,37 @@ function App() {
     setTimeout(() => setCallouts((prev) => prev.filter((c) => c.id !== id)), 9000);
   }, []);
 
+  // ── VAD pause/resume + turn end ──────────────────────────────────────────
+  // Stop feeding mic frames to the VAD without releasing the mic (pauseStream is
+  // a no-op below, so the stream + analyser stay live). pause() also resets the
+  // model's state, which is what we want between turns.
+  const pauseVad = useCallback(() => {
+    if (vadRef.current && vadRunningRef.current) {
+      vadRunningRef.current = false;
+      console.debug("[vad] pause");
+      try { void vadRef.current.pause(); } catch (e) { console.debug("[vad] pause err", e); }
+    }
+  }, []);
+  const resumeVad = useCallback(() => {
+    if (vadRef.current && sessionOnRef.current && !vadRunningRef.current) {
+      vadRunningRef.current = true;
+      console.debug("[vad] resume");
+      try { void vadRef.current.start(); } catch (e) { console.debug("[vad] resume err", e); }
+    }
+  }, []);
+
+  // Re-arm the VAD only when a turn is TRULY over: nothing still streaming from
+  // the gateway, the speech queue is empty, and no sentence is currently playing.
+  // Critical: the TTS queue drains and refills BETWEEN sentences of one reply, so
+  // re-arming on every transient "queue empty" would resume the VAD mid-reply and
+  // make it capture Jarvis's own voice — which then breaks the NEXT turn's
+  // end-of-speech detection. This single gated check is the fix for that.
+  const endTurnIfDone = useCallback(() => {
+    if (sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0) return;
+    if (sessionOnRef.current) { resumeVad(); setMode("listening"); }
+    else setMode("idle");
+  }, [resumeVad, setMode]);
+
   // TTS: ask the voice Fitting (same-origin proxy) to speak, route it through
   // the analyser so the core pulses, and return to idle when playback ends.
   // Play the next queued sentence. Each sentence streams progressively from the
@@ -150,7 +221,7 @@ function App() {
     const next = speakQueueRef.current.shift();
     if (next === undefined) {
       speakingRef.current = false;
-      if (modeRef.current === "speaking") setMode("idle");
+      endTurnIfDone(); // re-arm only if the whole turn is done (not between sentences)
       return;
     }
     speakingRef.current = true;
@@ -172,7 +243,7 @@ function App() {
     audio.onended = () => playNextInQueue();
     audio.onerror = () => playNextInQueue();
     audio.play().catch(() => playNextInQueue());
-  }, [setMode, getCtx, ensureAnalyser]);
+  }, [setMode, getCtx, ensureAnalyser, endTurnIfDone]);
 
   // Enqueue a sentence and start playback if idle.
   const enqueueSpeech = useCallback((text: string) => {
@@ -198,12 +269,12 @@ function App() {
     sendingRef.current = true;
     stopSpeech(); // a new turn interrupts any in-flight speech
     setTurns((prev) => [...prev.slice(-6), { id: genId("u"), role: "user", content: msg }]);
-    setInterim("");
     setMode("working");
     const bubbleId = genId("a");
     setTurns((prev) => [...prev, { id: bubbleId, role: "assistant", content: "" }]);
     let assembled = "";
     let spokenUpTo = 0; // index in `assembled` already handed to the TTS queue
+    let errored = false; // error paths re-arm on their own timer; finally must not double-arm
     // Hand every COMPLETE sentence in `assembled` (past spokenUpTo) to the TTS
     // queue. On `final`, flush whatever remains. Speaking the first sentence the
     // moment it lands — rather than at end-of-reply — removes the bulk of the
@@ -234,8 +305,10 @@ function App() {
         const text = res.body ? await res.text() : "";
         setTurns((prev) => prev.map((t) => t.id === bubbleId
           ? { ...t, role: "error", content: `gateway ${res.status}: ${text}` } : t));
+        errored = true;
         setMode("error");
-        setTimeout(() => { if (modeRef.current === "error") setMode("idle"); }, 2500);
+        sendingRef.current = false; // let the turn count as done so the re-arm fires
+        setTimeout(() => { if (modeRef.current === "error") endTurnIfDone(); }, 2500);
         return;
       }
       const reader = res.body.getReader();
@@ -268,85 +341,168 @@ function App() {
             if (finalContent) {
               pushCallout("reply", finalContent);
               flushSentences(true); // speak any trailing partial sentence
-              if (!speakingRef.current) setMode("idle");
-            } else {
-              setMode("idle");
             }
+            // re-arm is handled by `finally` (no TTS) or by playNextInQueue when
+            // the TTS queue drains — never here, where sending is still true.
           }
         }
       }
     } catch (err: any) {
       setTurns((prev) => prev.map((t) => t.id === bubbleId
         ? { ...t, role: "error", content: `network: ${err?.message || String(err)}` } : t));
-      setMode("idle");
+      errored = true;
+      setMode("error");
+      sendingRef.current = false;
+      setTimeout(() => { if (modeRef.current === "error") endTurnIfDone(); }, 2500);
     } finally {
       sendingRef.current = false;
+      // Re-arm for the no-TTS success path; TTS replies re-arm via playNextInQueue,
+      // error paths via their own timer (errored), so skip those here.
+      if (!errored && !speakingRef.current && speakQueueRef.current.length === 0) endTurnIfDone();
     }
-  }, [setMode, enqueueSpeech, stopSpeech, pushCallout]);
+  }, [setMode, enqueueSpeech, stopSpeech, pushCallout, endTurnIfDone]);
 
-  // ── push-to-talk (hold Space / hold the core) — batch STT ────────────────
+  // ── hands-free voice session (Silero VAD) ────────────────────────────────
 
-  const stopListening = useCallback(() => {
-    if (mediaRecorderRef.current) {
-      try { mediaRecorderRef.current.stop(); } catch {}
+  // A speech segment ended: transcribe it and send it as a turn. VAD is already
+  // paused by the caller so it won't capture the upcoming reply.
+  const handleSpeech = useCallback(async (audio: Float32Array) => {
+    if (sendingRef.current) return; // a turn is already in flight
+    setMode("working");
+    try {
+      const blob = float32ToWavBlob(audio, 16000);
+      const res = await fetch("/api/voice/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: blob });
+      if (!res.ok) { endTurnIfDone(); return; }
+      const data = await res.json();
+      const transcript = typeof data?.transcript === "string" ? data.transcript.trim() : "";
+      // loop-safety: drop empty / sub-word transcripts (a stray noise blip)
+      if (transcript && transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
+        void send(transcript);
+      } else {
+        endTurnIfDone(); // nothing usable → re-arm and keep listening
+      }
+    } catch {
+      endTurnIfDone();
     }
-  }, []);
+  }, [setMode, send, endTurnIfDone]);
 
-  const startListening = useCallback(async () => {
-    if (modeRef.current === "listening" || sendingRef.current) return;
-    if (!voiceAvailable || !micCaptureAllowed()) return;
+  // Surface a problem the user can read (and report) instead of failing silent.
+  const flashError = useCallback((label: string, msg: string) => {
+    console.error(`[jarvis] ${label}: ${msg}`);
+    pushCallout(label, msg);
+    setMode("error");
+    setTimeout(() => { if (modeRef.current === "error") setMode("idle"); }, 3500);
+  }, [pushCallout, setMode]);
+
+  // Build the VAD once, reusing the mic stream + AudioContext already obtained in
+  // the click handler. Silero runs fully local in the browser (ONNX/WASM); the
+  // model + worklet + ort runtime are served from the Fitting's dist/ (build.mjs).
+  // Passing our own audioContext (already resumed under user activation) and a
+  // pre-opened stream avoids the autoplay/gesture trap: the slow ~13 MB wasm load
+  // happens AFTER the mic is live, so it can't consume the user-activation window.
+  const ensureVad = useCallback(async (stream: MediaStream) => {
+    if (vadRef.current) return vadRef.current;
+    const vad = await MicVAD.new({
+      model: "v5",
+      baseAssetPath: "/",
+      onnxWASMBasePath: "/",
+      audioContext: getCtx(),
+      // Single-threaded ort: avoids needing cross-origin isolation (no
+      // SharedArrayBuffer / COOP+COEP headers required).
+      ortConfig: (ort: any) => { try { ort.env.wasm.numThreads = 1; ort.env.logLevel = "error"; } catch {} },
+      startOnLoad: false,
+      // Keep Silero's proven default thresholds (positive 0.3 / negative 0.25).
+      // Raising them — which I tried — breaks END detection: with room noise the
+      // speech probability hovers above a high negativeSpeechThreshold, so the
+      // redemption counter never fills and the turn never ends. ~1.1s of trailing
+      // silence ends a turn — long enough to ride over natural pauses in PT,
+      // short enough to stay snappy. minSpeechMs low so short commands register.
+      redemptionMs: 1100,
+      minSpeechMs: 250,
+      positiveSpeechThreshold: 0.3,
+      negativeSpeechThreshold: 0.25,
+      // Reuse the ONE mic stream opened in startSession and keep it open across
+      // turns: pauseStream is a no-op and resumeStream returns the same stream,
+      // so pause/resume only toggles the worklet, never the mic.
+      getStream: async () => stream,
+      pauseStream: async () => {},
+      resumeStream: async (s: MediaStream) => s,
+      onSpeechStart: () => { console.debug("[vad] speechStart (mode=" + modeRef.current + ")"); if (!sendingRef.current && modeRef.current !== "speaking") setMode("listening"); },
+      onSpeechEnd: (audio: Float32Array) => { console.debug("[vad] speechEnd len=" + audio.length); pauseVad(); void handleSpeech(audio); },
+      onVADMisfire: () => { console.debug("[vad] misfire"); }
+    });
+    vadRef.current = vad;
+    return vad;
+  }, [getCtx, setMode, handleSpeech, pauseVad]);
+
+  // Arm the hands-free session. The gesture-gated work (resume AudioContext, open
+  // the mic) runs first, synchronously off the click, so it keeps user activation;
+  // only then do we load + start the (slow) VAD.
+  const startSession = useCallback(async () => {
+    if (sessionOnRef.current) return;
+    if (!voiceAvailable) { flashError("voice", "No voice Fitting — station local-voice"); return; }
+    if (!micCaptureAllowed()) { flashError("mic", "Mic needs https or localhost"); return; }
+    setSessionOn(true);
+    setMode("listening");
     let stream: MediaStream;
     try {
+      await getCtx().resume(); // must happen under user activation
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
-    } catch {
+      micStreamRef.current = stream;
+      try {
+        const src = getCtx().createMediaStreamSource(stream);
+        // Mic → analyser ONLY (never to ctx.destination, or it would echo).
+        src.connect(ensureAnalyser(micAnalyserRef));
+        micSourceRef.current = src;
+      } catch {}
+    } catch (e: any) {
+      setSessionOn(false);
+      flashError("mic", `Mic blocked: ${e?.message || e}`);
       return;
     }
-    micStreamRef.current = stream;
-    // analyser over the mic so the core pulses while you speak
     try {
-      await getCtx().resume();
-      const src = getCtx().createMediaStreamSource(stream);
-      // Mic → mic analyser ONLY. Never connect this to ctx.destination, or the
-      // mic would play back through the speakers and echo into the STT.
-      src.connect(ensureAnalyser(micAnalyserRef));
-      micSourceRef.current = src;
-    } catch {}
-    const mr = new MediaRecorder(stream);
-    mediaRecorderRef.current = mr;
-    const chunks: BlobPart[] = [];
-    mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-    mr.onstop = async () => {
-      mediaRecorderRef.current = null;
-      try { micSourceRef.current?.disconnect(); } catch {}
-      micSourceRef.current = null;
+      const vad = await ensureVad(stream);
+      vadRunningRef.current = true;
+      await vad.start();
+    } catch (e: any) {
+      setSessionOn(false);
       try { stream.getTracks().forEach((t) => t.stop()); } catch {}
-      micStreamRef.current = null;
-      const type = mr.mimeType || "audio/webm";
-      const blob = new Blob(chunks, { type });
-      if (!blob.size) { setMode("idle"); return; }
-      setMode("working");
-      try {
-        const res = await fetch("/api/voice/stt", { method: "POST", headers: { "Content-Type": type }, body: blob });
-        if (!res.ok) { setMode("idle"); return; }
-        const data = await res.json();
-        const transcript = typeof data?.transcript === "string" ? data.transcript.trim() : "";
-        // loop-safety: drop empty / sub-word transcripts (mic into ambient noise)
-        if (transcript && transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
-          void send(transcript);
-        } else {
-          setMode("idle");
-        }
-      } catch {
-        setMode("idle");
-      }
-    };
-    mr.start();
-    setMode("listening");
-  }, [voiceAvailable, setMode, getCtx, ensureAnalyser, send]);
+      flashError("vad", `VAD load failed: ${e?.message || e}`);
+    }
+  }, [voiceAvailable, ensureVad, getCtx, ensureAnalyser, setMode, setSessionOn, flashError]);
 
-  // Hold Space to talk (ignore auto-repeat and when typing in a field).
+  // Disarm the session: tear down the VAD and fully release the mic (so the
+  // browser's recording indicator goes off). The next start rebuilds it.
+  const stopSession = useCallback(async () => {
+    setSessionOn(false);
+    vadRunningRef.current = false;
+    try { await vadRef.current?.destroy(); } catch {}
+    vadRef.current = null;
+    try { micSourceRef.current?.disconnect(); } catch {}
+    micSourceRef.current = null;
+    try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+    micStreamRef.current = null;
+    stopSpeech();
+    setMode("idle");
+  }, [setSessionOn, setMode, stopSpeech]);
+
+  // Single press = toggle the session. While Jarvis is speaking, a press is a
+  // barge-in: cut the reply off but keep the session armed.
+  const onToggle = useCallback(() => {
+    if (modeRef.current === "speaking") {
+      stopSpeech();
+      if (sessionOnRef.current) { resumeVad(); setMode("listening"); }
+      else setMode("idle");
+      return;
+    }
+    if (sessionOnRef.current) void stopSession();
+    else void startSession();
+  }, [stopSpeech, resumeVad, setMode, stopSession, startSession]);
+
+  // Space toggles the session (ignore auto-repeat and typing fields). Esc closes
+  // the report overlay.
   useEffect(() => {
     const isTypingTarget = (el: EventTarget | null) => {
       const t = el as HTMLElement | null;
@@ -356,36 +512,19 @@ function App() {
       if (e.code !== "Space" || e.repeat || isTypingTarget(e.target)) return;
       if (report) return;
       e.preventDefault();
-      if (modeRef.current === "speaking") { try { audioElRef.current?.pause(); } catch {} setMode("idle"); return; }
-      if (modeRef.current === "idle") void startListening();
-    };
-    const onUp = (e: KeyboardEvent) => {
-      if (e.code !== "Space") return;
-      e.preventDefault();
-      if (modeRef.current === "listening") stopListening();
+      onToggle();
     };
     const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setReport(null); };
     window.addEventListener("keydown", onDown);
-    window.addEventListener("keyup", onUp);
     window.addEventListener("keydown", onEsc);
     return () => {
       window.removeEventListener("keydown", onDown);
-      window.removeEventListener("keyup", onUp);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [startListening, stopListening, setMode, report]);
-
-  // Pointer push-to-talk on the core: press to listen, release to send.
-  const onCorePointerDown = useCallback(() => {
-    if (modeRef.current === "speaking") { try { audioElRef.current?.pause(); } catch {} setMode("idle"); return; }
-    if (modeRef.current === "idle") void startListening();
-  }, [startListening, setMode]);
-  const onCorePointerUp = useCallback(() => {
-    if (modeRef.current === "listening") stopListening();
-  }, [stopListening]);
+  }, [onToggle, report]);
 
   useEffect(() => () => {
-    try { mediaRecorderRef.current?.stop(); } catch {}
+    try { void vadRef.current?.destroy(); } catch {}
     try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     try { audioElRef.current?.pause(); } catch {}
     if (audioUrlRef.current) { try { URL.revokeObjectURL(audioUrlRef.current); } catch {} }
@@ -394,21 +533,20 @@ function App() {
 
   const statusLabel = !voiceAvailable
     ? "No voice Fitting — station local-voice"
-    : mode === "listening" ? (interim || "Listening…")
+    : mode === "listening" ? "Listening… (fala; a pausa envia · Space/tap para parar)"
     : mode === "working" ? "Thinking…"
-    : mode === "speaking" ? "Speaking…"
+    : mode === "speaking" ? "Speaking… (Space/tap to interrupt)"
     : mode === "error" ? "Error"
-    : micCaptureAllowed() ? "Hold Space (or the core) to talk" : "Mic needs https or localhost";
+    : micCaptureAllowed() ? "Press Space (or tap the core) to start talking" : "Mic needs https or localhost";
 
   return (
-    <div className={`jarvis-root state-${mode}`}>
+    <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}`}>
       <div
         className="jarvis-core"
-        onPointerDown={onCorePointerDown}
-        onPointerUp={onCorePointerUp}
-        onPointerLeave={onCorePointerUp}
+        onClick={onToggle}
         role="button"
-        aria-label="Push to talk"
+        aria-pressed={sessionOn}
+        aria-label={sessionOn ? "Stop voice session" : "Start voice session"}
       >
         <DitherCore mode={mode} getLevel={getLevel} />
       </div>

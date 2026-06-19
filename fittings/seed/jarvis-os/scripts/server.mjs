@@ -445,10 +445,15 @@ function serveStatic(req, res, distDir) {
   const ctMap = {
     ".html": "text/html",
     ".js": "application/javascript",
+    ".mjs": "text/javascript",
     ".css": "text/css",
     ".json": "application/json",
     ".svg": "image/svg+xml",
-    ".map": "application/json"
+    ".map": "application/json",
+    // Silero VAD runtime: the WASM binary must be application/wasm for
+    // WebAssembly streaming compilation; the .onnx model is an opaque blob.
+    ".wasm": "application/wasm",
+    ".onnx": "application/octet-stream"
   };
   res.statusCode = 200;
   res.setHeader("Content-Type", ctMap[ext] ?? "application/octet-stream");
