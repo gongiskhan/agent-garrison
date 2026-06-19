@@ -25,6 +25,7 @@
   "dependencies": {
     "@garrison/claude-chat": "file:packages/claude-chat",
     "@garrison/claude-pty": "file:packages/claude-pty",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@monaco-editor/react": "^4.7.0",
     "@ricky0123/vad-web": "^0.0.30",
     "@xterm/addon-fit": "^0.10.0",
