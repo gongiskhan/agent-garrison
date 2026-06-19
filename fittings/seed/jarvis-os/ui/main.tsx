@@ -74,17 +74,38 @@ function parseSseEvent(raw: string): { event: string; data: any } | null {
   catch { return { event, data: dataText }; }
 }
 
-// Strip the orchestrator's load-bearing control tokens from text shown to the
-// user / read aloud. `[orchestrator-active]` (and `[gateway-route:…]`) are a
-// liveness/route contract for the gateway + integration-check.mjs — they must
-// stay in the model's reply but must never be spoken or displayed.
+// Clean text shown to the user. Removes the orchestrator's load-bearing control
+// tokens ([orchestrator-active], [gateway-route:…], [delegated] — they must stay
+// in the model's reply but never be displayed/spoken) and the tool-call / TUI
+// echoes the PTY screen-scrape leaks into a Soul's reply (e.g.
+// `Web Search("…") ⎿ Did 1 search in 5s`). URLs are kept here (visible on screen).
 function stripMarkers(s: string): string {
   return (s || "")
     .replace(/\[orchestrator-active\]/gi, "")
     .replace(/\[gateway-route:[^\]]*\]/gi, "")
     .replace(/\[delegated\]/gi, "")
+    // tool-call invocations + result framing leaked from the Claude Code TUI
+    .replace(/\b(?:Web\s*Search|WebFetch|Bash|Read|Write|Edit|Grep|Glob|Task)\s*\([^)]*\)/gi, "")
+    .replace(/\bDid \d+ search(?:es)? in \d+(?:\.\d+)?\s*s\b/gi, "")
+    .replace(/[⎿└├│─╰╭╮╯┌┐┘┴┬┤┼▌▐]/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+// Speakable form: stripMarkers, then drop the trailing "Sources:" block and any
+// URLs (links + citation lists read terribly aloud). The answer itself is kept;
+// the on-screen text (stripMarkers) still shows sources + links.
+function toSpeakable(s: string): string {
+  return stripMarkers(s)
+    .replace(/\n*\s*Sources?\s*:[\s\S]*$/i, "")          // drop trailing citations block
+    .replace(/\[([^\]]+)\]\((?:https?:\/\/|mailto:)[^)]*\)/gi, "$1") // md link → label
+    .replace(/\(\s*https?:\/\/[^)]*\)/gi, "")            // (url) incl. parens
+    .replace(/\bhttps?:\/\/\S+/gi, "")                   // bare url
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
 
@@ -254,7 +275,7 @@ function App() {
 
   // Enqueue a sentence and start playback if idle.
   const enqueueSpeech = useCallback((text: string) => {
-    const clean = stripMarkers(text || "");
+    const clean = toSpeakable(text || "");
     if (!clean || !voiceAvailable) return;
     speakQueueRef.current.push(clean);
     if (!speakingRef.current) playNextInQueue();
