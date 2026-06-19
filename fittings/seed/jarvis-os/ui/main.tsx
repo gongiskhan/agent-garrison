@@ -94,19 +94,40 @@ function stripMarkers(s: string): string {
     .trim();
 }
 
-// Speakable form: stripMarkers, then drop the trailing "Sources:" block and any
-// URLs (links + citation lists read terribly aloud). The answer itself is kept;
-// the on-screen text (stripMarkers) still shows sources + links.
+// Speakable form: strip everything that reads terribly aloud — markdown
+// formatting, fenced code / file-trees, emojis, citation lists, URLs — leaving
+// just the prose. The on-screen text (stripMarkers) keeps the full markdown.
+// Long answers are capped to a sentence boundary with a spoken pointer to the
+// screen, so structured replies (a file tree, a code dump) become a short spoken
+// summary instead of Jarvis reading every "#", "/" and "*".
+const SPEAK_CAP = 700;
 function toSpeakable(s: string): string {
-  return stripMarkers(s)
-    .replace(/\n*\s*Sources?\s*:[\s\S]*$/i, "")          // drop trailing citations block
-    .replace(/\[([^\]]+)\]\((?:https?:\/\/|mailto:)[^)]*\)/gi, "$1") // md link → label
-    .replace(/\(\s*https?:\/\/[^)]*\)/gi, "")            // (url) incl. parens
-    .replace(/\bhttps?:\/\/\S+/gi, "")                   // bare url
+  let t = stripMarkers(s)
+    .replace(/```[\s\S]*?```/g, " ")                      // fenced code / file trees → drop
+    .replace(/~~~[\s\S]*?~~~/g, " ")
+    .replace(/\n*\s*Sources?\s*:[\s\S]*$/i, "")           // trailing citations block
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")            // md image/link → label
+    .replace(/`([^`]+)`/g, "$1")                          // inline code → text
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")                   // heading hashes
+    .replace(/^\s*>\s?/gm, "")                            // blockquotes
+    .replace(/^\s*[-*+•]\s+/gm, "")                       // bullet markers
+    .replace(/^\s*\d+\.\s+/gm, "")                        // numbered list markers
+    .replace(/(\*\*|__|\*|_|~~)/g, "")                    // bold/italic/strike
+    .replace(/\|/g, " ")                                  // table pipes
+    // emojis & dingbats & arrows & box-drawing
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2300}-\u{27FF}\u{2B00}-\u{2BFF}\u{FE0F}]/gu, "")
+    .replace(/\bhttps?:\/\/\S+/gi, "")                    // bare urls
     .replace(/\(\s*\)/g, "")
     .replace(/\s+([.,;:!?])/g, "$1")
     .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{2,}/g, "\n")
     .trim();
+  if (t.length > SPEAK_CAP) {
+    const cut = t.slice(0, SPEAK_CAP);
+    const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("\n"));
+    t = (stop > 200 ? cut.slice(0, stop + 1) : cut).trim() + " … o resto está no ecrã.";
+  }
+  return t;
 }
 
 type Turn = { id: string; role: "user" | "assistant" | "error"; content: string };
