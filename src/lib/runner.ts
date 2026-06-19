@@ -3,6 +3,7 @@ import { spawnTracked } from "./spawn";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { pathToFileURL } from "node:url";
@@ -817,6 +818,22 @@ function orchestratorModeEnv(
   // Haiku by default: the PTY screen-scraper races Sonnet/Opus TUIs and times
   // out. Override per composition via the gateway's `model` config.
   const model = String(gateway.config.model ?? "haiku");
+  // Fold the composition's soul definitions into the map the gateway expects
+  // (keyed by `soul-<id>`), resolving each soul's prompt + base_path to absolute
+  // paths. Without this the orchestrator's `talk_to` has no target and every
+  // delegation fails — this is what wires voice → orchestrator → specialist Souls.
+  const souls: Record<string, unknown> = {};
+  for (const soul of composition.souls ?? []) {
+    if (!soul?.id || !soul?.prompt) continue;
+    souls[`soul-${soul.id}`] = {
+      promptPath: path.resolve(composition.directory, soul.prompt),
+      resolvedBasePath: resolveSoulBasePath(soul.base_path, composition.directory),
+      model: soul.model ? String(soul.model) : model,
+      preset: "claude_code",
+      ...(soul.allowed_tools ? { allowed_tools: soul.allowed_tools } : {}),
+      ...(soul.disallowed_tools ? { disallowed_tools: soul.disallowed_tools } : {})
+    };
+  }
   const soulsConfig = {
     orchestratorFittingId: orchestratorId,
     orchestrator: {
@@ -824,12 +841,22 @@ function orchestratorModeEnv(
       resolvedBasePath: composition.directory,
       model
     },
-    souls: [] as unknown[]
+    souls
   };
   return {
     GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
     GARRISON_ORCHESTRATOR_FITTING_ID: orchestratorId
   };
+}
+
+// Resolve a soul's working directory: "~"-prefixed → home, relative → under the
+// composition dir, absolute → as-is. Defaults to the composition dir.
+function resolveSoulBasePath(basePath: string | undefined, compositionDir: string): string {
+  if (!basePath) return compositionDir;
+  if (basePath === "~" || basePath.startsWith("~/")) {
+    return path.join(os.homedir(), basePath.slice(1));
+  }
+  return path.resolve(compositionDir, basePath);
 }
 
 async function spawnGateway(

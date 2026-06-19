@@ -6,7 +6,7 @@ import { authorApmDependencies } from "./apm-manifest";
 import { readLibrary } from "./library";
 import { validateSelection } from "./metadata";
 import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
-import { facultyIds, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph } from "./types";
+import { facultyIds, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type SoulDefinition } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
 
 const DEFAULT_COMPOSITION_ID = "default";
@@ -84,6 +84,7 @@ interface CompositionManifest {
       name?: string;
       global_config?: GlobalConfig;
       selections?: FittingSelectionMap;
+      souls?: SoulDefinition[];
       prompt_sources?: {
         orchestrator: string;
         soul: string;
@@ -257,6 +258,7 @@ function manifestToComposition(id: string, manifest: CompositionManifest): Compo
     manifestPath: getCompositionManifestPath(id),
     selections,
     globalConfig: composition?.global_config ?? defaultGlobalConfig(),
+    souls: composition?.souls ?? [],
     derivedTasks: derived,
     capabilityIssues: [],
     capabilityGraph: { consumers: [] }

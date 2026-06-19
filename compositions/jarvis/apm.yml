@@ -56,3 +56,26 @@ x-garrison:
         - id: knowledge
           config:
             vault_dir: vault
+    # Specialist sub-agents the Orchestrator delegates to via `talk_to`. The
+    # runner folds these into GARRISON_SOULS_CONFIG so the gateway can spawn each
+    # as its own PTY session (prompt = souls/<id>.md). Voice → Orchestrator →
+    # these Souls is the project's core delegation chain. Haiku for PTY
+    # reliability (Sonnet/Opus race the screen-scraper).
+    souls:
+      - id: companion
+        prompt: souls/companion.md
+        model: haiku
+      - id: engineer
+        prompt: souls/engineer.md
+        model: haiku
+        base_path: ~/dev
+      - id: architect
+        prompt: souls/architect.md
+        model: haiku
+        base_path: ~/dev
+      - id: assistant
+        prompt: souls/assistant.md
+        model: haiku
+      - id: researcher
+        prompt: souls/researcher.md
+        model: haiku

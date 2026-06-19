@@ -296,6 +296,24 @@ export interface SerializedCapabilityGraph {
   }>;
 }
 
+// A specialist sub-agent the Orchestrator delegates to via the gateway's
+// `talk_to`. Defined per composition under x-garrison.composition.souls; the
+// runner folds these into GARRISON_SOULS_CONFIG so the gateway can spawn them.
+export interface SoulDefinition {
+  id: string;
+  // Path to the soul's system prompt, relative to the composition directory.
+  prompt: string;
+  // Model the soul runs on. Defaults to the orchestrator's model (haiku) — PTY
+  // screen-scraping races Sonnet/Opus TUIs, so keep souls on Haiku unless proven.
+  model?: string;
+  // Working directory for the soul: relative to the composition dir, absolute, or
+  // "~"-prefixed. Defaults to the composition directory (e.g. ~/dev for the
+  // engineer so it edits real projects).
+  base_path?: string;
+  allowed_tools?: string[];
+  disallowed_tools?: string[];
+}
+
 export interface Composition {
   id: string;
   name: string;
@@ -303,6 +321,7 @@ export interface Composition {
   manifestPath: string;
   selections: FittingSelectionMap;
   globalConfig: GlobalConfig;
+  souls?: SoulDefinition[];
   derivedTasks?: DerivedTasks;
   capabilityIssues: CapabilityIssue[];
   capabilityGraph: SerializedCapabilityGraph;
