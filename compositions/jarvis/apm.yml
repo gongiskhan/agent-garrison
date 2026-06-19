@@ -8,6 +8,9 @@ dependencies:
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/knowledge
+    # MCP server the http-gateway spawns (stdio) so the orchestrator gets the
+    # Garrison tools (talk_to, worktrees). Installed-only — not a role selection.
+    - path: ../../fittings/seed/mcp-gateway
 x-garrison:
   composition:
     id: jarvis
@@ -32,6 +35,10 @@ x-garrison:
           config:
             port: 4777
             bind_host: 127.0.0.1
+            # Boot the real Operative (assembled prompt + talk_to/MCP + memory)
+            # and pipe the voice channel into it, instead of single-operative mode.
+            orchestrator_mode: true
+            model: haiku
       channels:
         - id: local-voice
           config:

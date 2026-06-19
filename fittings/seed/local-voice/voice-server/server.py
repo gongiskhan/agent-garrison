@@ -64,6 +64,11 @@ WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
 # English, which would defeat the multilingual goal. Set WHISPER_PROMPT only on
 # an English-pinned deployment.
 WHISPER_PROMPT = os.environ.get("WHISPER_PROMPT", "").strip()
+# Optional hard language pin (ISO-639-1, e.g. "pt"). EMPTY = auto-detect. On
+# short utterances whisper's auto-detect can flip to a wrong language (PT heard
+# as EN), which then makes the model reply in that language; pinning fixes both
+# the transcript and the reply language for a known single-language speaker.
+WHISPER_LANG = os.environ.get("WHISPER_LANG", "").strip()
 
 # --- multilingual TTS voice routing ---------------------------------------
 # The spoken voice is chosen from the language of the RESPONSE TEXT (detected
@@ -92,6 +97,12 @@ except Exception as e:  # malformed env JSON must not take voice down
 DEFAULT_TTS_LANG = os.environ.get("TTS_DEFAULT_LANG", "en")
 if DEFAULT_TTS_LANG not in LANG_VOICES:
     DEFAULT_TTS_LANG = next(iter(LANG_VOICES))
+# Optional hard voice pin (ISO-639-1). EMPTY = detect per-reply. lingua confuses
+# close languages on short strings (PT scored as IT → Italian voice reading
+# Portuguese); a single-language speaker pins this and skips detection entirely.
+TTS_FORCE_LANG = os.environ.get("TTS_FORCE_LANG", "").strip().lower()
+if TTS_FORCE_LANG and TTS_FORCE_LANG not in LANG_VOICES:
+    TTS_FORCE_LANG = ""
 
 # lingua text language ID, constrained to the languages we can actually voice
 # (a small candidate set is both faster and more accurate on short strings).
@@ -107,6 +118,8 @@ def detect_text_lang(text: str) -> str:
     """ISO-639-1 of `text`, restricted to the LANG_VOICES candidates. Falls back
     to DEFAULT_TTS_LANG when lingua is unsure or unavailable."""
     global _lang_detector
+    if TTS_FORCE_LANG:
+        return TTS_FORCE_LANG
     if _lang_detector is False:
         return DEFAULT_TTS_LANG
     if _lang_detector is None:
@@ -222,6 +235,7 @@ def transcribe_pcm(audio_f32):
         segments, _info = whisper.transcribe(
             audio_f32, beam_size=1, vad_filter=False,
             initial_prompt=WHISPER_PROMPT or None,
+            language=WHISPER_LANG or None,
         )
         # segments is a lazy generator — consume INSIDE the lock or the
         # actual decode runs unguarded
@@ -357,6 +371,7 @@ async def stt(req: Request):
         segments, info = whisper.transcribe(
             io.BytesIO(audio), beam_size=1, vad_filter=False,
             initial_prompt=WHISPER_PROMPT or None,
+            language=WHISPER_LANG or None,
         )
         text = " ".join(s.text.strip() for s in segments).strip()
     return {

@@ -140,7 +140,8 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         compositionId,
         composition.directory,
         promptPath,
-        gateway
+        gateway,
+        orchestratorModeEnv(gateway, composition, promptPath)
       );
       record.gateway = gateway;
     } else {
@@ -215,6 +216,14 @@ export async function down(compositionId: string): Promise<RunnerState> {
   record.gateway = undefined;
   const composition = await readCompositionWithDerivedTasks(compositionId);
   await wipeMaterializedEnv(composition.directory);
+  // Clear the orchestrator session marker so the next `up` boots fresh. A
+  // persisted id whose claude conversation is gone makes the orchestrator-mode
+  // gateway hang on `--resume` ("message never registered"), and that boot path
+  // has no auto-heal yet. Fresh-on-restart trades cross-restart memory for
+  // reliability; within-session multi-turn memory is unaffected.
+  await fs.rm(path.join(composition.directory, ".garrison", "orchestrator-session-id"), {
+    force: true
+  });
   updateState(compositionId, { status: "stopped", pid: undefined, devMode: false });
   appendLog(compositionId, "runner", "Stopped and wiped materialised .env");
   return getRunnerState(compositionId);
@@ -788,6 +797,39 @@ async function resolveGatewayFitting(
   }
 
   return null;
+}
+
+// Opt-in: when the gateway selection sets `orchestrator_mode: true`, build the
+// GARRISON_SOULS_CONFIG that flips the http-gateway from single-operative
+// (gateway-pty.mjs) into orchestrator mode — it boots the real Operative
+// (assembled prompt + MCP tools: talk_to/worktrees + persisted memory) and
+// multiplexes channels (voice, web, slack) into that one session. Returns
+// undefined when the flag is off or no orchestrator fitting is selected, so the
+// runner keeps spawning single mode for every other composition.
+function orchestratorModeEnv(
+  gateway: GatewayInfo,
+  composition: Awaited<ReturnType<typeof readCompositionWithDerivedTasks>>,
+  promptPath: string
+): Record<string, string> | undefined {
+  if (!gateway.config.orchestrator_mode) return undefined;
+  const orchestratorId = composition.selections.orchestrator?.[0]?.id;
+  if (!orchestratorId) return undefined;
+  // Haiku by default: the PTY screen-scraper races Sonnet/Opus TUIs and times
+  // out. Override per composition via the gateway's `model` config.
+  const model = String(gateway.config.model ?? "haiku");
+  const soulsConfig = {
+    orchestratorFittingId: orchestratorId,
+    orchestrator: {
+      promptPath,
+      resolvedBasePath: composition.directory,
+      model
+    },
+    souls: [] as unknown[]
+  };
+  return {
+    GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
+    GARRISON_ORCHESTRATOR_FITTING_ID: orchestratorId
+  };
 }
 
 async function spawnGateway(

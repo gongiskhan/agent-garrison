@@ -1,0 +1,36 @@
+lockfile_version: '1'
+generated_at: '2026-06-19T10:35:48.699711+00:00'
+apm_version: 0.20.0
+dependencies:
+- repo_url: _local/garrison-orchestrator
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/garrison-orchestrator.md
+  deployed_file_hashes:
+    .claude/commands/garrison-orchestrator.md: sha256:bac9d92ed5f8103cff7678c89fa6f4a151a9efb9c4c32d53472113bb0147e3c0
+  source: local
+  local_path: ../../fittings/seed/garrison-orchestrator
+- repo_url: _local/http-gateway
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/http-gateway.md
+  deployed_file_hashes:
+    .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
+  source: local
+  local_path: ../../fittings/seed/http-gateway
+- repo_url: _local/jarvis-os
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/jarvis-os
+- repo_url: _local/knowledge
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/knowledge
+- repo_url: _local/local-voice
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/local-voice
+- repo_url: _local/mcp-gateway
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/mcp-gateway

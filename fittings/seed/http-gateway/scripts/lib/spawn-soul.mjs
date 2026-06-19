@@ -137,6 +137,10 @@ class PtySoulAdapter {
       sessionUuid: resume ? undefined : sessionUuid,
       resumeSessionId: resume ? sessionUuid : undefined,
       permissionMode: "bypassPermissions",
+      // Pin the model when the spawn config carries one (the orchestrator boots
+      // on Haiku for PTY reliability — Sonnet/Opus race the screen-scraper).
+      // Tier flags still override per-turn when the router escalates.
+      model: spawnConfig?.model || undefined,
       extraArgs,
       cols: 140,
       rows: 42

@@ -65,10 +65,13 @@ function parseArgs(argv) {
 }
 
 // venv python created by setup.sh → explicit override → system python3.
+// The venv holds the installed deps (numpy, kokoro, faster-whisper), so it must
+// win at runtime even when LOCAL_VOICE_PYTHON is set — that env only picks the
+// interpreter setup.sh uses to BUILD the venv, not the runtime interpreter.
 function resolvePython(opts) {
-  if (opts.pythonBin) return opts.pythonBin;
   const venv = path.join(VOICE_SERVER_DIR, ".venv", "bin", "python");
   if (existsSync(venv)) return venv;
+  if (opts.pythonBin) return opts.pythonBin;
   return "python3";
 }
 
