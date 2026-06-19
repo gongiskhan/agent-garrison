@@ -42,6 +42,19 @@ function parseSseEvent(raw: string): { event: string; data: any } | null {
   catch { return { event, data: dataText }; }
 }
 
+// Strip the orchestrator's load-bearing control tokens from text shown to the
+// user / read aloud. `[orchestrator-active]` (and `[gateway-route:…]`) are a
+// liveness/route contract for the gateway + integration-check.mjs — they must
+// stay in the model's reply but must never be spoken or displayed.
+function stripMarkers(s: string): string {
+  return (s || "")
+    .replace(/\[orchestrator-active\]/gi, "")
+    .replace(/\[gateway-route:[^\]]*\]/gi, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 type Turn = { id: string; role: "user" | "assistant" | "error"; content: string };
 type Callout = { id: string; label: string; content: string };
 
@@ -163,7 +176,7 @@ function App() {
 
   // Enqueue a sentence and start playback if idle.
   const enqueueSpeech = useCallback((text: string) => {
-    const clean = (text || "").trim();
+    const clean = stripMarkers(text || "");
     if (!clean || !voiceAvailable) return;
     speakQueueRef.current.push(clean);
     if (!speakingRef.current) playNextInQueue();
@@ -249,9 +262,9 @@ function App() {
           } else if (ev.event === "done") {
             const finalReply = typeof ev.data?.reply === "string" ? ev.data.reply : "";
             if (!assembled && finalReply) assembled = finalReply;
-            const finalContent = assembled.trim();
+            const finalContent = stripMarkers(assembled);
             setTurns((prev) => prev.map((t) => t.id === bubbleId
-              ? { ...t, content: t.content || finalReply } : t));
+              ? { ...t, content: stripMarkers(t.content || finalReply) } : t));
             if (finalContent) {
               pushCallout("reply", finalContent);
               flushSentences(true); // speak any trailing partial sentence
