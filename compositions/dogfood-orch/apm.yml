@@ -11,7 +11,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
-    - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/projects-index
     - path: ../../fittings/seed/scheduler
@@ -74,12 +74,13 @@ x-garrison:
             tier_floor: 3
             plan_threshold: 3
       memory:
-        - id: memory
+        - id: basic-memory
           config:
-            recency_window: 20
-            persistence_cadence: hourly
-            compiled_memory_dir: ~/Projects/ekus/obsidian-vault/Compiled
-            compiler_repo_url: https://github.com/coleam00/claude-memory-compiler
+            vault_dir: ~/ObsidianVault
+            memory_dir: Memory
+            project_name: main
+            capture_enabled: true
+            register_codex_gemini: true
       classifier:
         - id: tier-classifier
           config:

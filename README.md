@@ -274,7 +274,7 @@ The **Quarters pivot** (2026-06-07) also shipped: Faculties shrank from 24 to 6 
 
 Some things **not implemented yet**:
 
-- **Native cross-session memory.** The Memory Fitting wraps the existing memory-compiler tool at `~/.claude/memory-compiler/`. First-class memory primitives are deferred.
+- **Native cross-session memory.** The Memory Fitting is provided by `basic-memory` (`fittings/seed/basic-memory`), backed by Basic Memory: an Obsidian-native, plain-markdown vault (`~/ObsidianVault`) indexed into a local SQLite knowledge graph, with write/search/read MCP tools shared across Claude, Codex, and Gemini. First-class in-shell memory primitives are deferred.
 - **AI-driven Fitting validators.** The validation pipeline runs architecture + quality checks for real; security + prompt-injection are placeholder pattern scanners pending the runtime SDK milestone.
 - **RC4 hosted-session launcher.** Until it lands, `up()` spawns a Claude process via `spawnGateway`/`spawnClaude`; the projected orchestrator rules-file is the durable default.
 

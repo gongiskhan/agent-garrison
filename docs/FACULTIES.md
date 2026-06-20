@@ -16,8 +16,9 @@ to eight, enforced by `facultyIds` in `src/lib/types.ts`:
   bridge: Agent SDK, Codex, Gemini. The composition names one primary; others
   are secondary `delegate()` targets the Orchestrator routes work to. Split out
   of `sessions` on 2026-06-18.
-- **memory** — within-session and cross-session recall; the compiler that
-  *produces* the durable Context (CLAUDE.md) document. Since 2026-06-10 it also
+- **memory** — within-session and cross-session recall; a plain-markdown
+  Obsidian vault indexed into a local SQLite knowledge graph (Basic Memory),
+  with write/search/read tools shared across runtimes. Since 2026-06-10 it also
   holds external data sources (trello-data-source, revived with the
   `data-source` capability kind); `data-sources` is a deprecation alias for it.
 - **observability** — health, logs, runtime reporting (the read-only Logs view).
@@ -116,8 +117,8 @@ canonical example.
 - Purpose: within-session and cross-session recall.
 - Cardinality: single.
 - Shapes: `skill`, `system-prompt`, `hook`.
-- Config: recency window, persistence cadence, compiled memory path.
-- Example: memory seed that writes a compiled markdown memory file.
+- Config: recency window, persistence cadence, vault path.
+- Example: `basic-memory` seed backed by a plain-markdown Obsidian vault indexed into a local SQLite knowledge graph.
 - Failure modes: leaking sensitive data, stale memory, conflicting memory stores.
 
 ## 8. Classifier

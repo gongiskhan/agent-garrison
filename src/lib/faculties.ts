@@ -13,7 +13,8 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "single",
     shapes: ["system-prompt"],
     notes: "The governing behavior spine — projected into ~/.claude as a managed prompt.",
-    governing: true
+    governing: true,
+    essential: true
   },
   {
     id: "channels",
@@ -21,7 +22,8 @@ export const faculties: FacultyDefinition[] = [
     name: "Channels",
     cardinality: "multi",
     shapes: ["plugin", "skill", "script"],
-    notes: "User-facing message surfaces (Slack, web channel, voice). Garrison-side runtime."
+    notes: "User-facing message surfaces (Slack, web channel, voice). Garrison-side runtime.",
+    essential: true
   },
   {
     id: "gateway",
@@ -29,7 +31,8 @@ export const faculties: FacultyDefinition[] = [
     name: "Gateway",
     cardinality: "multi",
     shapes: ["script", "manual-instructions"],
-    notes: "The Claude Code execution path (stream-JSON). Garrison-side runtime."
+    notes: "The Claude Code execution path (stream-JSON). Garrison-side runtime.",
+    essential: true
   },
   {
     id: "runtimes",
@@ -50,11 +53,12 @@ export const faculties: FacultyDefinition[] = [
     order: 5,
     name: "Memory",
     // multi + cli since 2026-06-10: trello-data-source (component_shape: cli)
-    // joins this role alongside the memory compiler — external data the
+    // joins this role alongside the memory store — external data the
     // Operative recalls and manipulates, with a derived Tasks truth file.
     cardinality: "multi",
     shapes: ["skill", "system-prompt", "hook", "cli"],
-    notes: "Produces the Context document; unified with the local memory-compiler. Also holds external recall sources (e.g. Trello-backed derived Tasks)."
+    notes: "Produces the Context document; unified with the Basic Memory store. Also holds external recall sources (e.g. Trello-backed derived Tasks).",
+    essential: true
   },
   {
     id: "observability",
@@ -86,6 +90,44 @@ export const faculties: FacultyDefinition[] = [
       "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Views group."
   }
 ];
+
+// Per-faculty two-part role copy for the Compose station detail + grid tiles.
+// Single source of truth (HV wave — was inlined in FacultyStation.tsx).
+// `role` = what the faculty does; `fit` = how a Fitting fills it.
+export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
+  orchestrator: {
+    role: "Governs the operative's behavior — projected into ~/.claude as a managed prompt primitive.",
+    fit: "The capstone role. It coordinates the other roles, owns global config, and provides the behavioral spine."
+  },
+  channels: {
+    role: "Connects user-facing message surfaces (Slack, web channel, voice).",
+    fit: "Garrison-side runtime transport. The Operative is reached through these channels; only a garrison-control MCP entry projects into ~/.claude."
+  },
+  gateway: {
+    role: "The Claude Code execution path (stream-JSON).",
+    fit: "Garrison-side runtime. Hosts the sessions that authoring and channel traffic run through."
+  },
+  memory: {
+    role: "Produces the Context document and owns recall.",
+    fit: "Unified with the Basic Memory store — one instance produces the Context (CLAUDE.md) surfaced in Quarters."
+  },
+  observability: {
+    role: "Reports health, errors, and runtime state; surfaces the Logs record.",
+    fit: "Collection is Garrison-side; an own-port Monitor Fitting surfaces it read-only."
+  },
+  runtimes: {
+    role: "Alternative execution engines behind the uniform runtime bridge.",
+    fit: "Agent SDK, Codex, and Gemini runtimes. The composition names one primary; others are secondary delegate targets the Orchestrator routes work to."
+  },
+  sessions: {
+    role: "The working dev session and its records.",
+    fit: "Dev Env consolidates terminals, worktrees, and session status into one tabbed surface; the artifact store backs it."
+  },
+  surfaces: {
+    role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",
+    fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Views group."
+  }
+};
 
 export const facultyById = new Map<FacultyId, FacultyDefinition>(
   faculties.map((faculty) => [faculty.id, faculty])
