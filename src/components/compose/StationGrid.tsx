@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import clsx from "clsx";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { faculties } from "@/lib/faculties";
+import type { PrimitiveSurface, StateModel } from "@/lib/primitive-state";
 import type {
   FacultyDefinition,
   FacultyId,
@@ -28,6 +29,23 @@ export function StationGrid() {
   const params = useSearchParams();
   const router = useRouter();
   const [search, setSearch] = useState(params?.get("q") ?? "");
+
+  // HV8: the Claude Code components (Skills/Hooks/Agent Tools/Plugins) are
+  // sourced from the live Quarters StateModel, NOT the faculty model — they are
+  // presence-managed primitives surfaced here for one holistic view.
+  const [quarters, setQuarters] = useState<StateModel | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/quarters")
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive && d && !d.error) setQuarters(d as StateModel);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const verifyResults = runnerState?.verifyResults ?? [];
 
@@ -253,60 +271,192 @@ export function StationGrid() {
             busy={Boolean(busy)}
           />
         ) : (
-          <div
-            className="compose-station-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
-              gap: 10
-            }}
-          >
-            {faculties.map((faculty) => (
-              <StationTile
-                key={faculty.id}
-                faculty={faculty}
-                selections={composition.selections[faculty.id] ?? []}
-                library={library}
-                verifyResults={verifyResults}
-              />
-            ))}
+          <>
+            <ComposeGroup
+              title="Every agent needs these"
+              blurb="The roles a running Operative can't do without — its brain (Orchestrator), Memory, the Channels you reach it through, and the Gateway execution path."
+            >
+              {faculties
+                .filter((faculty) => faculty.essential)
+                .map((faculty) => (
+                  <StationTile
+                    key={faculty.id}
+                    faculty={faculty}
+                    selections={composition.selections[faculty.id] ?? []}
+                    library={library}
+                    verifyResults={verifyResults}
+                  />
+                ))}
+            </ComposeGroup>
 
-            {composition.derivedTasks ? (
-              <div
-                style={{
-                  gridColumn: "span 2",
-                  background: "var(--paper-2)",
-                  border: "1px dashed var(--rule-2)",
-                  padding: "20px 18px",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center"
-                }}
-              >
+            <ComposeGroup
+              title="Optional roles"
+              blurb="Extend the Operative — alternative execution engines, observability, the dev session, and auxiliary live surfaces."
+            >
+              {faculties
+                .filter((faculty) => !faculty.essential)
+                .map((faculty) => (
+                  <StationTile
+                    key={faculty.id}
+                    faculty={faculty}
+                    selections={composition.selections[faculty.id] ?? []}
+                    library={library}
+                    verifyResults={verifyResults}
+                  />
+                ))}
+
+              {composition.derivedTasks ? (
                 <div
-                  className="font-mono"
                   style={{
-                    fontSize: 10,
-                    letterSpacing: "0.16em",
-                    textTransform: "uppercase",
-                    color: "var(--mute)",
-                    marginBottom: 6
+                    gridColumn: "span 2",
+                    background: "var(--paper-2)",
+                    border: "1px dashed var(--rule-2)",
+                    padding: "20px 18px",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center"
                   }}
                 >
-                  Tasks · derived
+                  <div
+                    className="font-mono"
+                    style={{
+                      fontSize: 10,
+                      letterSpacing: "0.16em",
+                      textTransform: "uppercase",
+                      color: "var(--mute)",
+                      marginBottom: 6
+                    }}
+                  >
+                    Tasks · derived
+                  </div>
+                  <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
+                    Tasks flow through {prettySource(composition.derivedTasks.source)}
+                  </div>
+                  <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", marginTop: 6 }}>
+                    truth file · <b style={{ color: "var(--ink)" }}>{composition.derivedTasks.truthFile}</b>
+                  </div>
                 </div>
-                <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
-                  Tasks flow through {prettySource(composition.derivedTasks.source)}
-                </div>
-                <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", marginTop: 6 }}>
-                  truth file · <b style={{ color: "var(--ink)" }}>{composition.derivedTasks.truthFile}</b>
-                </div>
-              </div>
-            ) : null}
-          </div>
+              ) : null}
+            </ComposeGroup>
+
+            <ComposeGroup
+              title="Claude Code components"
+              blurb="Skills, hooks, agent tools (MCPs), and plugins from ~/.claude — these extend the agent but aren't required. Review and manage each in Quarters."
+            >
+              {COMPONENT_TILES.map((tile) => (
+                <ComponentTile key={tile.surface} tile={tile} model={quarters} />
+              ))}
+            </ComposeGroup>
+          </>
         )}
       </div>
     </main>
+  );
+}
+
+// A labeled section in the Compose overview — "Every agent needs these"
+// (essential roles), "Optional roles", and (HV8) "Claude Code components". Wraps
+// its tiles in the shared station grid so every group reads identically.
+function ComposeGroup({
+  title,
+  blurb,
+  children
+}: {
+  title: string;
+  blurb: string;
+  children: ReactNode;
+}) {
+  return (
+    <section style={{ marginBottom: 22 }}>
+      <div style={{ margin: "0 0 10px" }}>
+        <h2 className="font-display" style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
+          {title}
+        </h2>
+        <p className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", margin: "3px 0 0", lineHeight: 1.5 }}>
+          {blurb}
+        </p>
+      </div>
+      <div
+        className="compose-station-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
+          gap: 10
+        }}
+      >
+        {children}
+      </div>
+    </section>
+  );
+}
+
+// The four Claude Code component categories, sourced from the StateModel (not
+// the faculty model). "Agent Tools" is the operator-facing name for MCPs.
+const COMPONENT_TILES: { surface: PrimitiveSurface; label: string; slug: string }[] = [
+  { surface: "skill", label: "Skills", slug: "skills" },
+  { surface: "hook", label: "Hooks", slug: "hooks" },
+  { surface: "mcp", label: "Agent Tools", slug: "mcps" },
+  { surface: "plugin", label: "Plugins", slug: "plugins" }
+];
+
+function ComponentTile({
+  tile,
+  model
+}: {
+  tile: { surface: PrimitiveSurface; label: string; slug: string };
+  model: StateModel | null;
+}) {
+  const recs = model?.bySurface[tile.surface] ?? [];
+  const parked = recs.filter((r) => r.presence === "parked").length;
+  const enabled = recs.length - parked;
+  // Only the presence-managed surfaces (hook/mcp/plugin) have an enabled/parked
+  // axis. Skills are APM-managed (promote/park, not a presence toggle), so their
+  // tile shows a plain installed count — never "enabled".
+  const presenceManaged = tile.surface !== "skill";
+  return (
+    <Link
+      href={`/quarters/${tile.slug}`}
+      data-testid={`component-tile-${tile.surface}`}
+      style={{
+        border: "1px solid var(--rule)",
+        background: "white",
+        padding: "14px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        textDecoration: "none",
+        color: "inherit"
+      }}
+    >
+      <div
+        className="font-mono"
+        style={{ fontSize: 9.5, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--brass)" }}
+      >
+        Component
+      </div>
+      <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
+        {tile.label}
+      </div>
+      <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)" }}>
+        {!model ? (
+          "…"
+        ) : presenceManaged ? (
+          <>
+            <b style={{ color: "var(--ink)" }}>{enabled}</b> enabled
+            {parked > 0 ? (
+              <>
+                {" · "}
+                <b style={{ color: "var(--ink)" }}>{parked}</b> parked
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <b style={{ color: "var(--ink)" }}>{recs.length}</b> installed
+          </>
+        )}
+      </div>
+    </Link>
   );
 }
 

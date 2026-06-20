@@ -1,0 +1,77 @@
+{
+  "slice": "HV8-ui-components",
+  "title": "Holistic composition view \u2014 three-group Compose grid + component tiles + presence toggle",
+  "updatedAt": "2026-06-20T07:35:33Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": {
+    "limit": 5,
+    "used": 3
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run (full HV unit suite)",
+      "exit": 0,
+      "at": "2026-06-20T07:35:33Z",
+      "summary": "presence/disable/invariants green"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-20T07:35:33Z",
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "eslint",
+      "exit": 0,
+      "at": "2026-06-20T07:35:33Z",
+      "summary": "clean"
+    },
+    "build": {
+      "cmd": "NEXT_DIST_DIR=.next-build npx next build",
+      "exit": 0,
+      "at": "2026-06-20T07:35:33Z",
+      "summary": "compiled (isolated dist, live server untouched)"
+    },
+    "e2e": {
+      "cmd": "NEXT_DIST_DIR=.next-e2e npx playwright test tests/e2e/composition-view.spec.ts",
+      "exit": 0,
+      "at": "2026-06-20T07:35:33Z",
+      "summary": "6 passed across desktop/tablet/mobile, 0 console errors"
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 4,
+      "by": "codex/gpt-5.5",
+      "at": "2026-06-20T07:35:33Z",
+      "lastReport": "docs/autothing/slices/HV8-ui-components/codex-review-r4.json",
+      "overrides": []
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.5",
+      "at": "2026-06-20T07:35:33Z",
+      "report": "docs/autothing/slices/HV8-ui-components/codex-pwtest.json"
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "frontend-design",
+        "vision-review"
+      ],
+      "at": "2026-06-20T07:35:33Z",
+      "notes": "three groups read clearly; presence badge + toggle match the shell button language; fixed stale 'mcp.json' blurb + over-promising copy during the audit"
+    }
+  },
+  "video": {
+    "status": "verified",
+    "verifiedAt": "2026-06-20T07:47:43Z",
+    "flagged": false,
+    "link": "http://100.108.210.116:8099/agent-garrison/composition-view/2026-06-20_08-41-41/final.mp4",
+    "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/composition-view/2026-06-20_08-41-41",
+    "notes": "UI-facing acceptance covered by the HV10 consolidated walkthrough (verified)"
+  },
+  "tokens": "component-group-ok presence-toggle-ok editor-writethrough-ok",
+  "blockers": []
+}

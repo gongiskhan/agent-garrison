@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { Dirent } from "node:fs";
-import { claudeHome } from "./claude-home";
+import { claudeHome, claudeJsonPath } from "./claude-home";
+import { readClaudeJson } from "./claude-json";
 
 // Disk-scan primitives for the ~/.claude package-file surface. Shared by the
 // classifier (primitive-state.ts) and the reconcile engine (reconcile.ts).
@@ -124,9 +125,18 @@ export async function readInstalledPlugins(home: string = claudeHome()): Promise
   }
 }
 
-// Server names declared in ~/.claude/mcp.json. Tolerates both `{ mcpServers: {…} }`
-// and a bare `{ <name>: {…} }` top-level map.
+// MCP server names Claude Code actually loads. SOURCE OF TRUTH = the user-scope
+// `mcpServers` in `~/.claude.json` (HV wave fix — the old code read the in-home
+// `mcp.json`, an empty/legacy Garrison-era file, so the surface showed zero
+// servers while six were live). When `~/.claude.json` is present + parseable it
+// is AUTHORITATIVE: the legacy `mcp.json` is ignored entirely, because Claude
+// Code never reads it and a stale entry there is NOT a live server. `mcp.json`
+// is consulted ONLY as a pre-`~/.claude.json` migration fallback — when the real
+// source is absent/unreadable.
 export async function readMcpServerNames(home: string = claudeHome()): Promise<string[]> {
+  const cj = await readClaudeJson(claudeJsonPath(home));
+  if (cj.exists) return Object.keys(cj.mcpServers).sort();
+  // Fallback only when ~/.claude.json is absent/unreadable.
   try {
     const raw = await fs.readFile(path.join(home, "mcp.json"), "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;

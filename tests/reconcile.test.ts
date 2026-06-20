@@ -50,13 +50,17 @@ function seedLoosePrimitives(): void {
 }
 
 describe("reconcile", () => {
-  it("captures loose skills/commands/rules as APM fittings; defers hooks/mcp", async () => {
+  it("captures loose skills/commands/rules as APM fittings; ADOPTS hooks/mcp as enabled (HV7)", async () => {
     seedLoosePrimitives();
     const report = await reconcile({ trigger: "bootstrap" });
 
     expect(report.imported.sort()).toEqual(["command:cmd", "rule:r", "skill:bar", "skill:foo"]);
-    expect(report.deferred.hook).toBe(1);
-    expect(report.deferred.mcp).toBe(1);
+    // HV7: present hook/mcp are presence-managed → adopted as enabled (not deferred),
+    // and nothing is parked.
+    expect(report.adopted).toContain("hook:Stop#0");
+    expect(report.adopted).toContain("mcp:ctx");
+    expect(report.deferred.hook).toBe(0);
+    expect(report.deferred.mcp).toBe(0);
 
     const store = capturedFittingsDir();
     // skill -> .apm/skills/<name>/SKILL.md

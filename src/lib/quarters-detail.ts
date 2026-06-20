@@ -1,5 +1,6 @@
 import { claudeHome } from "./claude-home";
-import { getMcpServer, type McpServerConfig } from "./mcp-writer";
+import { type McpServerConfig } from "./mcp-writer";
+import { getUserMcpServer } from "./mcp-user";
 import { readFilePrimitive, type FilePrimitiveSurface } from "./primitive-files";
 import { getHandHookDetail } from "./hooks-crud";
 
@@ -30,7 +31,9 @@ export async function getPrimitiveDetail(id: string, home: string = claudeHome()
   const { surface, rest } = splitId(id);
   switch (surface) {
     case "mcp":
-      return { surface: "mcp", name: rest, config: await getMcpServer(rest, home) };
+      // MCP detail now reads the REAL source (~/.claude.json), not the legacy
+      // in-home mcp.json — coherent with the list (claudeJsonPath is env-driven).
+      return { surface: "mcp", name: rest, config: await getUserMcpServer(rest) };
     case "skill":
     case "command":
     case "rule": {

@@ -446,3 +446,50 @@ loads CLAUDE.md (preset alone does not), skills auto-mount from `.claude/skills`
 - **AS-ollama-live:** a real agent-sdk + ollama-local session handles one turn with a real tool-call round trip end to end → `sdk-ollama-live-ok`.
 - **AS-quarters:** Quarters-AgentSDK renders base config, capability record, FENCE state, HARNESS state → `sdk-quarters-ok`.
 - **Final:** print each token once, then `AGENT-SDK-RUNTIME-COMPLETE`.
+
+---
+
+## HV wave — Holistic Composition View (Quarters primitives in the Compose grid)
+
+Plan of record: `~/.claude/plans/velvety-orbiting-llama.md`. ONE view showing
+everything the Operative is made of — the role faculties AND the Claude Code
+components (Skills/Hooks/MCPs/Plugins) — with edit-in-place and enable/disable =
+a real **parked** move. Extends the existing Quarters engine (NO second mirror,
+NO new faculties). Fixes the MCP source-of-truth bug (`~/.claude/mcp.json` empty;
+real servers in `~/.claude.json`). MCP writes are guarded (subtree delta +
+retry + abort-untouched, never restore-old-backup). Disabled mcp/hooks are
+parked off-disk AND read back via `active ∪ parked` so the disable→enable loop is
+round-trippable from the UI. Sandbox seam: `GARRISON_CLAUDE_HOME`/`GARRISON_HOME`.
+
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| HV1-essential-grid | `essential?` on FacultyDefinition + tag orchestrator/memory/channels/gateway + consolidate role copy + three-group Compose grid (essential / optional) | ui | /compose | HV-A | passed (faculties 14✓ + grid groups; codex approve; `essential-grid-ok` `grid-groups-ok`) |
+| HV2-mcp-source | `claude-json.ts` reader (`readClaudeJson`/`userMcpServerNames`) + `claudeJsonPath()` in claude-home + repoint `claude-scan.ts` MCP read (precedence: `~/.claude.json` wins; legacy mcp.json only fills absent names) | mixed | (lib) | HV-A | passed (claude-json 6✓ authoritative+precedence; codex approve; live surface 7 servers was 0; `mcp-source-ok`) |
+| HV3-presence-model | `managedBy`/`presence` on PrimitiveRecord + **active ∪ parked union** for mcp/hooks + plugin presence from `enabledPlugins` + parked-config reader + plugin-skill de-dup guard | mixed | (lib) | HV-B | passed (presence-model 2✓ active∪parked union; codex approve; `presence-union-ok`) |
+| HV4-plugin-disable | `plugin-disable.ts` (native `enabledPlugins[key]=false` / delete) + quarters dispatch `plugin.{enable,disable}` | mixed | /quarters/plugins | HV-B | passed (native enabledPlugins toggle; codex approve; `plugin-disable-ok`) |
+| HV5-hook-disable | `hooks-disable.ts` — move group → `~/.garrison/parked/hooks.json` verbatim (incl `_garrison` tag) + restore + uninstall-purge + quarters dispatch | mixed | /quarters/hooks | HV-B | passed (park verbatim + uninstall purge + rollback; codex approve; `hook-disable-ok`) |
+| HV6-mcp-disable | `mcp-disable.ts` + `claude-json` `applyMcpDelta` writer (read→delta→atomic→read-back→retry≤3→abort-untouched) + park to `parked/mcp.json` + repoint mcp CRUD + quarters dispatch | mixed | /quarters/mcps | HV-C | passed (guarded CAS writer: sibling-preserve + retry-not-revert + abort-untouched + refuse-clobber; codex approve r2; `mcp-disable-ok` `mcp-siblings-byte-identical-ok` `mcp-concurrent-retry-ok`) |
+| HV7-reconcile | extend `reconcile.ts` presence pass over hook/mcp/plugin — adopt as enabled, park nothing; bootstrap ⇒ parked==0 | mixed | (lib) | HV-B | passed (adopt + bootstrap parked==0; codex approve; `reconcile-adopt-ok` `bootstrap-parked-zero-ok`) |
+| HV8-ui-components | StationGrid third "Claude Code components" group (ComponentTile from `/api/quarters`, N enabled · M parked) + PrimitiveListPanel presence toggle + FittingEditor wiring | ui | /compose, /quarters | HV-C | passed (e2e 6✓/3 viewports + codex 3A approve r4 + codex 3B pass + build 0 + design clean; `component-group-ok` `presence-toggle-ok` `editor-writethrough-ok`) |
+| HV9-invariants | `composition-invariants.ts` + tests: disabled mcp/hook shows as parked record; enabled==active XOR parked; bootstrap parked==0; writes confined to managed dirs; empty contracts accepted | automation | (lib) | HV-C | passed (composition-invariants 4✓; codex approve; `invariants-ok`) |
+| HV10-walkthrough | consolidated walkthrough video — 5 steps incl MCP disable/enable on a **throwaway** server (`garrison-demo-mcp`), never a live one | ui (evidence) | (video) | HV-D | passed (verified video, both gates; `walkthrough-rendered`) |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **HV-A (HV1 ∥ HV2): genuinely disjoint → parallel burst (agent teams enabled).** HV1 owns `types.ts`/`faculties.ts`/`StationGrid.tsx`(role groups)/`FacultyStation.tsx`; HV2 owns `claude-json.ts`/`claude-home.ts`/`claude-scan.ts`. No shared edit file. Gate tail (build→verify→codex→record) serializes per the skill; Codex serial run-wide.
+- **HV-B (HV3 → {HV4, HV5, HV7}): serial-ish, lead-authored.** HV3 (`primitive-state.ts`, the central record builder) lands first. HV4/HV5/HV7 then each add a disjoint writer module (`plugin-disable.ts`/`hooks-disable.ts`/`reconcile.ts` presence pass) but share the `quarters.ts` dispatch + the `primitive-state` neighbourhood → the integration seam forces serial; the writer modules are noted disjoint for the record.
+- **HV-C (HV6 → HV8 → HV9): serial.** HV6 (claude.json writes) is the riskiest, sequenced first-of-C but built last among writers; HV8 integrates the UI (shared `StationGrid`/`PrimitiveListPanel`); HV9 asserts cross-cutting invariants once the writers exist.
+- **HV-D (HV10): consolidated walkthrough after all gates green** — one video covers the wave's UI-facing acceptance (established pattern in the C/MR waves), on the single shared dev-server + recorder.
+- **Honest execution choice:** correctness > wall-clock on this daily-use repo (the standing choice in every prior wave). HV1∥HV2 is the one true parallel burst; everything downstream funnels through `primitive-state.ts` + `quarters.ts` + `StationGrid.tsx`, so it is serial by integration seam.
+
+### Acceptance per slice (tokens printed at gate time)
+- **HV1:** `/compose` renders "Every agent needs these" (orchestrator, memory, channels, gateway) above an "Optional roles" group; `essential` is a `FacultyDefinition` field; unit test asserts the essential set + that every faculty has a description → `essential-grid-ok` `grid-groups-ok`.
+- **HV2:** `claude-scan` reads MCP names from a seeded sandbox `~/.claude.json` `mcpServers` (not the empty `mcp.json`); a stale `mcp.json` duplicate cannot shadow a live `~/.claude.json` server (precedence test) → `mcp-source-ok`.
+- **HV3:** a record built over a sandbox where an entry sits in `parked/mcp.json` (or `parked/hooks.json`) surfaces as `presence:"parked"`; an active entry as `presence:"enabled"`; a disabled plugin (`enabledPlugins[k]=false`) as parked; vitest proves the union + no double-count of a plugin-bundled skill → `presence-union-ok`.
+- **HV4:** disable sets `enabledPlugins[key]=false`, enable deletes the key; the record flips enabled↔parked; vitest → `plugin-disable-ok`.
+- **HV5:** disabling a hand-authored group removes it from `settings.json.hooks[event]` and writes it verbatim (incl any `_garrison` tag) to `parked/hooks.json`; enable restores it unchanged; a fitting uninstall purges matching parked records; vitest → `hook-disable-ok`.
+- **HV6:** disabling a server removes it from `~/.claude.json` `mcpServers` and parks it in `parked/mcp.json` with **all sibling keys byte-identical**; enable reverses; a simulated concurrent write between read and rename triggers retry-not-revert, and a persistent race aborts leaving the live file untouched with a loud error; vitest on a real-size fixture → `mcp-disable-ok` `mcp-siblings-byte-identical-ok` `mcp-concurrent-retry-ok`.
+- **HV7:** `reconcile({trigger:"bootstrap"})` over a seeded sandbox adopts present hook/mcp/plugin as `presence:"enabled"` records, parks nothing (parked count 0), and a manually-placed component appears enabled without a Garrison install; vitest → `reconcile-adopt-ok` `bootstrap-parked-zero-ok`.
+- **HV8:** `/compose` shows a third "Claude Code components" group with Skills/Hooks/Agent Tools/Plugins tiles showing `N enabled · M parked`; a presence row has an Enable/Disable toggle that POSTs the new action and round-trips; editing a file-backed primitive opens the Monaco `FittingEditor` and writes through to disk; e2e + design audit → `component-group-ok` `presence-toggle-ok` `editor-writethrough-ok`.
+- **HV9:** committed `composition-invariants.test.ts` asserts: disabled mcp/hook is a parked record; `enabled XOR parked` (no entry in both); bootstrap parked==0; presence/editor writes confined to managed locations; empty contracts accepted → `invariants-ok`.
+- **HV10:** one walkthrough video shows grouped view → Monaco edit + on-disk change → on-disk skills/hooks/plugins + `~/.claude.json` MCP config → enable (parked→active) → disable (active→parked) on `garrison-demo-mcp` and a skill; vision-verified → `walkthrough-rendered=<path>`.
+- **Final:** print each token once, then `GARRISON-COMPOSITION-VIEW OK`, then the `GLOBAL GATE:` line.

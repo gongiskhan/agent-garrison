@@ -7,6 +7,7 @@ import {
   appendGarrisonHookGroup,
   stripGarrisonGroupsForOwner
 } from "./claude-settings-file";
+import { purgeParkedHooksForOwner } from "./hooks-disable";
 
 // Global install/ownership backend for the Claude Code installation (~/.claude).
 //
@@ -277,6 +278,9 @@ export async function uninstallFitting(fittingId: string, opts?: InstallOpts): P
         await writeSettingsMerged((draft) => {
           stripGarrisonGroupsForOwner(draft, a.owner as string);
         }, h);
+        // HV5: also drop any PARKED (disabled) groups this fitting owns, so a
+        // re-install can't resurrect a stale disabled copy.
+        await purgeParkedHooksForOwner(a.owner as string);
         removed.push(`hooks:${a.owner}`);
       }
       continue;

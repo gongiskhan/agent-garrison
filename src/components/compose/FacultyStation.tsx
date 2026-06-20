@@ -7,7 +7,7 @@ import { useAppShell } from "@/components/chrome/AppShell";
 import { FittingView } from "@/components/fitting-views/FittingView";
 import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
-import { faculties } from "@/lib/faculties";
+import { faculties, facultyRoleCopy } from "@/lib/faculties";
 import type {
   Composition,
   ConfigSchemaField,
@@ -17,41 +17,6 @@ import type {
   LibraryEntry,
   SelectedFitting
 } from "@/lib/types";
-
-const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
-  orchestrator: {
-    role: "Governs the operative's behavior — projected into ~/.claude as a managed prompt primitive.",
-    fit: "The capstone role. It coordinates the other roles, owns global config, and provides the behavioral spine."
-  },
-  channels: {
-    role: "Connects user-facing message surfaces (Slack, web channel, voice).",
-    fit: "Garrison-side runtime transport. The Operative is reached through these channels; only a garrison-control MCP entry projects into ~/.claude."
-  },
-  gateway: {
-    role: "The Claude Code execution path (stream-JSON).",
-    fit: "Garrison-side runtime. Hosts the sessions that authoring and channel traffic run through."
-  },
-  memory: {
-    role: "Produces the Context document and owns recall.",
-    fit: "Unified with the local memory-compiler — one instance produces the Context (CLAUDE.md) surfaced in Quarters."
-  },
-  observability: {
-    role: "Reports health, errors, and runtime state; surfaces the Logs record.",
-    fit: "Collection is Garrison-side; an own-port Monitor Fitting surfaces it read-only."
-  },
-  runtimes: {
-    role: "Alternative execution engines behind the uniform runtime bridge.",
-    fit: "Agent SDK, Codex, and Gemini runtimes. The composition names one primary; others are secondary delegate targets the Orchestrator routes work to."
-  },
-  sessions: {
-    role: "The working dev session and its records.",
-    fit: "Dev Env consolidates terminals, worktrees, and session status into one tabbed surface; the artifact store backs it."
-  },
-  surfaces: {
-    role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",
-    fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Views group."
-  }
-};
 
 export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
   const {

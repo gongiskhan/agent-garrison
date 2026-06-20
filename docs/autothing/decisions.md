@@ -112,3 +112,26 @@ AS-ollama-live).
 is the correctness gate and is green; it satisfies the brief's `sdk-quarters-ok`.
 The walkthrough evidence video is pending (load-sensitive); the slice is
 `in_progress` until the video lands.
+
+## HV wave — Holistic Composition View (2026-06-20)
+
+Extends the existing Quarters engine (no second mirror, no new faculties).
+Components (Skills/Hooks/MCPs/Plugins) surfaced in the Compose grid from the
+StateModel. Key decisions: ~/.claude.json is the AUTHORITATIVE MCP source (legacy
+~/.claude/mcp.json only fills when claude.json is absent); disabled mcp/hooks are
+PARKED off-disk under ~/.garrison/parked/{mcp,hooks}.json and read back via
+active∪parked so the disable→enable loop round-trips; ~/.claude.json writes use a
+compare-and-swap + bounded-retry guard that ABORTS leaving the live file
+untouched on a persistent race (never restore-old-backup — that would silently
+revert a concurrent Claude write). MCP CRUD repointed to ~/.claude.json for
+coherence (legacy mcp-writer.ts kept for the in-home mcp.json + its test).
+
+### Pre-existing test failures (NOT caused by the HV wave — out of scope)
+Baseline `vitest run` already had 2 failing files (verified by reading the
+baseline output; both git-unmodified by this session):
+- `tests/gemini-runtime.test.ts:13` — buildArgs expects `-y`/`--skip-trust`;
+  deterministic pre-existing mismatch in the gemini adapter (untouched by HV).
+- `tests/orchestrator-integration.test.ts:91` — live PTY turn-1 marker; the
+  load-sensitive flake the AS-wave already documented (71s live claude session).
+The HV wave introduced zero new failures; its only suite delta was updating
+`tests/reconcile.test.ts` to the new adopt-not-defer semantics (HV7).

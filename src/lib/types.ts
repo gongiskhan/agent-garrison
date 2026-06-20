@@ -111,6 +111,12 @@ export interface FacultyDefinition {
   shapes: FittingShape[];
   notes: string;
   governing?: boolean;
+  // Essential tier (HV wave): the roles every running agent genuinely needs —
+  // the brain (orchestrator), persistence (memory), interface (channels), and
+  // transport/execution path (gateway). Grouped under "Every agent needs these"
+  // in the Compose grid; the rest are optional. Purely presentational — does not
+  // affect capability resolution.
+  essential?: boolean;
 }
 
 export interface ConfigSchemaField {

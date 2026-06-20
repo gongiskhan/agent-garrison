@@ -36,6 +36,7 @@ export interface ReconcileReport {
   imported: string[]; // primitive ids newly captured as fittings
   skipped: string[]; // already captured (fitting dir exists)
   suppressedEchoes: string[]; // ids whose on-disk hash == ledger lastWrittenHash
+  adopted: string[]; // HV7: present + ENABLED presence-managed ids (hook/mcp/plugin), parked store untouched
   deferred: Record<string, number>; // surface -> count not yet emittable
   table: string;
 }
@@ -162,12 +163,21 @@ export async function reconcile(opts: ReconcileOpts): Promise<ReconcileReport> {
   const imported: string[] = [];
   const skipped: string[] = [];
   const suppressedEchoes: string[] = [];
+  const adopted: string[] = [];
   const deferred: Record<string, number> = { hook: 0, mcp: 0, plugin: 0 };
 
   for (const rec of model.records) {
     if (rec.state !== "loose") continue;
     if (!EMITTABLE.includes(rec.surface)) {
-      deferred[rec.surface] = (deferred[rec.surface] ?? 0) + 1;
+      // HV7: hook/mcp/plugin are presence-managed (no file to emit). An ENABLED
+      // one is ADOPTED as-is — it already surfaces with no Garrison install, and
+      // we PARK NOTHING (a fresh bootstrap leaves the parked store empty). Parked
+      // records are skipped; anything else still counts as deferred.
+      // Drift (a primitive in BOTH active and parked) never reaches here as a
+      // separate record — computeStateModel resolves active-wins — and is
+      // surfaced separately by checkCompositionInvariants (HV9), not masked here.
+      if (rec.presence === "enabled") adopted.push(rec.id);
+      else if (rec.presence !== "parked") deferred[rec.surface] = (deferred[rec.surface] ?? 0) + 1;
       continue;
     }
     if (!surfaces.includes(rec.surface)) continue;
@@ -187,6 +197,6 @@ export async function reconcile(opts: ReconcileOpts): Promise<ReconcileReport> {
     imported.push(rec.id);
   }
 
-  const table = `trigger=${opts.trigger} imported=${imported.length} skipped=${skipped.length} echoes=${suppressedEchoes.length} deferred=${JSON.stringify(deferred)}`;
-  return { imported, skipped, suppressedEchoes, deferred, table };
+  const table = `trigger=${opts.trigger} imported=${imported.length} skipped=${skipped.length} echoes=${suppressedEchoes.length} adopted=${adopted.length} deferred=${JSON.stringify(deferred)}`;
+  return { imported, skipped, suppressedEchoes, adopted, deferred, table };
 }

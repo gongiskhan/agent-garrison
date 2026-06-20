@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { faculties } from "@/lib/faculties";
+import { faculties, facultyRoleCopy } from "@/lib/faculties";
 import { parseGarrisonMetadata } from "@/lib/metadata";
 import { readYamlFile } from "@/lib/yaml";
 
@@ -58,6 +58,28 @@ describe("faculty definitions", () => {
     const surfaces = faculties.find((f) => f.id === "surfaces");
     expect(surfaces?.cardinality).toBe("multi");
     expect(surfaces?.shapes).toContain("plugin");
+  });
+});
+
+describe("essential tier (HV wave)", () => {
+  it("tags exactly orchestrator/memory/channels/gateway as essential", () => {
+    const essential = faculties.filter((f) => f.essential).map((f) => f.id).sort();
+    expect(essential).toEqual(["channels", "gateway", "memory", "orchestrator"]);
+  });
+
+  it("leaves the alternative-engine / auxiliary roles optional", () => {
+    for (const id of ["runtimes", "observability", "sessions", "surfaces"]) {
+      expect(faculties.find((f) => f.id === id)?.essential ?? false, id).toBe(false);
+    }
+  });
+
+  it("gives every faculty a non-empty description (notes) and role copy — one source of truth", () => {
+    for (const f of faculties) {
+      expect(f.notes.length, f.id).toBeGreaterThan(0);
+      expect(facultyRoleCopy[f.id], f.id).toBeTruthy();
+      expect(facultyRoleCopy[f.id].role.length, f.id).toBeGreaterThan(0);
+      expect(facultyRoleCopy[f.id].fit.length, f.id).toBeGreaterThan(0);
+    }
   });
 });
 

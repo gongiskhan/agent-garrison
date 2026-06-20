@@ -53,7 +53,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "hooks",
     label: "Hooks",
-    blurb: "settings.json hook groups — add, edit, and remove hand-authored hooks; fitting-owned groups are read-only.",
+    blurb: "settings.json hook groups — add, edit, remove, and enable/disable hand-authored hooks; fitting-owned groups are read-only.",
     writer: "garrison",
     kind: "primitives",
     icon: "Webhook",
@@ -62,7 +62,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "mcps",
     label: "MCPs",
-    blurb: "MCP servers in mcp.json — add, edit, and remove directly.",
+    blurb: "MCP servers Claude Code loads from ~/.claude.json — add, edit, remove, and enable/disable directly.",
     writer: "garrison",
     kind: "primitives",
     icon: "Plug",
@@ -71,7 +71,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "plugins",
     label: "Plugins",
-    blurb: "Plugins from Claude Code's plugin manager (installed_plugins.json) — uninstall (remove) here; install stays with Claude Code's /plugin.",
+    blurb: "Plugins from Claude Code's plugin manager (installed_plugins.json) — enable/disable or uninstall here; install stays with Claude Code's /plugin.",
     writer: "readonly",
     kind: "primitives",
     icon: "Boxes",
