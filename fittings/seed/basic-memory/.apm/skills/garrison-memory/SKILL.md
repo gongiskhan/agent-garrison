@@ -27,9 +27,34 @@ The Basic Memory Fitting:
   No LLM runs — it is just metadata plus a short transcript tail. Basic
   Memory's watcher indexes it on the next sync.
 
-A separate launchd agent (`com.ggomes.obsidian-vault-sync`) commits and
-pushes the vault on an interval, so memory written by any agent — even
-when no editor is open — syncs across machines via git.
+The vault is committed and pushed to git on a schedule by the Garrison
+**`vault-git-sync`** scheduler job (default nightly, `0 4 * * *`), so memory
+written by any agent — even when no editor is open — syncs across machines.
+The job is registered with the scheduler fitting and fired by the
+`io.garrison.scheduler` launchd daemon; cadence is the fitting's `cron` config.
+(This replaces the old standalone `com.ggomes.obsidian-vault-sync` launchd
+agent.)
+
+## Consolidation ("dream")
+
+The **Improver** runs a nightly consolidation pass over the vault — the "dream"
+rule (mimics Claude Code's `autoDreamEnabled`). It keeps memory concise and true
+so the index does not rot:
+
+- **Deterministic housekeeping (auto):** archive `Memory/session-*.md` capture
+  checkpoints older than `checkpoint_retention_days` (default 14) into
+  `Memory/archive/`, then `basic-memory reindex` + `doctor`.
+- **Consolidation proposals (review-queued):** one capped model pass proposes
+  distilling durable notes from recent checkpoints, merging near-duplicate
+  notes, resolving contradictions, and rewriting relative dates ("yesterday",
+  "last week") to absolute ones. Each proposal cites the real source note
+  path(s); a fabricated path is dropped. Proposals land in the Improver's review
+  queue (`:7088`) under rule `memory-dream` and apply to the vault only on
+  approval.
+
+The dream pass runs on ONE machine (the `memory_primary` one) so machines
+sharing the vault don't duplicate the work. So write good checkpoints and
+durable notes; the nightly pass distills and de-dupes them for you.
 
 ## Using memory (MCP tools)
 

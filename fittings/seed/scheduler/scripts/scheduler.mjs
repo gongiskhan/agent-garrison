@@ -19,12 +19,18 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { spawn } from "node:child_process";
 
+// Machine-global scheduler state in ~/.garrison (NOT cwd-relative): jobs are
+// registered by fitting setup hooks (cwd = the fitting dir) and fired by the
+// io.garrison.scheduler launchd daemon (cwd = anywhere), so an absolute,
+// per-machine location is the only thing all callers agree on. Override with
+// GARRISON_SCHEDULER_JOBS / GARRISON_SCHEDULER_LOG.
 const JOBS_FILE = process.env.GARRISON_SCHEDULER_JOBS
-  ?? path.resolve(process.cwd(), "data/scheduler-jobs.json");
+  ?? path.join(os.homedir(), ".garrison", "scheduler-jobs.json");
 const LOG_FILE = process.env.GARRISON_SCHEDULER_LOG
-  ?? path.resolve(process.cwd(), "data/scheduler.log");
+  ?? path.join(os.homedir(), ".garrison", "scheduler.log");
 const TICK_INTERVAL_MS = 60_000;
 
 async function loadJobs() {

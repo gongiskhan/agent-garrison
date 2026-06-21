@@ -1,0 +1,51 @@
+name: vault-git-sync
+version: 0.1.0
+description: Commit + push the Basic Memory Obsidian vault to git on a schedule, so memory written by any agent (even with no editor open) syncs across machines.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: single
+  component_shape: cli-skill
+  platforms:
+    - claude-code
+  summary: >-
+    A scheduler-driven git sync for the Obsidian vault. On each fire it commits
+    local agent/editor writes, rebases in other machines' commits (--autostash,
+    aborts on conflict — never hard-resets), and pushes. Pure shell ($0, no
+    model). Registered as a scheduler job (default `0 4 * * *`, nightly after the
+    3:30 improver) by setup.sh; cadence is the `cron` config. The git logic lives
+    in the hardened ~/.claude/tools/obsidian-vault-sync.sh (single source of
+    truth); this fitting is the thin wrapper + scheduler registration. Status is
+    written to ~/.garrison/obsidian-vault-sync-status.json (distinct from the
+    rsync vault-sync fitting's status file). Replaces the standalone
+    com.ggomes.obsidian-vault-sync launchd agent.
+  for_consumers: |
+    Don't drive vault-git-sync from the Operative — it runs on the scheduler.
+    Force an immediate sync: `node apm_modules/_local/scheduler/scripts/scheduler.mjs run-now vault-git-sync`.
+    Last-sync state: ~/.garrison/obsidian-vault-sync-status.json; full log:
+    ~/Library/Logs/obsidian-vault-sync.log. Change cadence via the `cron` config
+    and re-run `up` (setup re-registers the job idempotently).
+  config_schema:
+    - key: cron
+      type: string
+      default: 0 4 * * *
+      description: Sync schedule (5-field cron). Default nightly at 04:00, after the 03:30 improver consolidation. Registered via the scheduler CLI in setup.sh.
+    - key: vault_dir
+      type: path
+      default: ~/ObsidianVault
+      description: The Obsidian vault git repo to commit + push. Passed to the sync script as OBSIDIAN_VAULT.
+  provides: []
+  consumes:
+    - kind: automation-runner
+      name: scheduler
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: bash scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000

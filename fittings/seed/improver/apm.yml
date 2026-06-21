@@ -13,9 +13,16 @@ x-garrison:
     - all
   summary: >-
     A nightly automation-runner with an own-port review-queue view (default
-    7088). Two live rules: memory consolidation (MEMORY.md learned hints → a
-    reviewable proposal to promote canonical vault conventions) and the SKILLS
-    rule — a two-phase self-improvement loop over the Operative's skills:
+    7088). Three live rules: memory consolidation (MEMORY.md learned hints → a
+    reviewable proposal to promote canonical vault conventions); the DREAM rule
+    — a nightly consolidation pass over the Basic Memory vault (mimics Claude
+    Code's autoDream): deterministic housekeeping auto-applies (archive stale
+    `Memory/session-*.md` checkpoints, basic-memory reindex/doctor) and ONE
+    capped, source-cited PTY pass proposes distillations, merges, contradiction
+    resolutions, and relative→absolute date fixes — review-queued under rule
+    `memory-dream`, gated to one `memory_primary` machine so a shared vault is
+    not triple-consolidated; and the SKILLS rule — a two-phase self-improvement
+    loop over the Operative's skills:
     (1) deterministic maintenance (stale/archive of owned, unpinned skills,
     reversible) and (2) ONE capped, evidence-cited PTY model pass
     (@garrison/claude-pty#oneShotTurn — never the Agent SDK, never the warm pool)
@@ -60,6 +67,22 @@ x-garrison:
       type: string
       default: haiku
       description: Model the capped PTY improvement pass classifies with (via @garrison/claude-pty#oneShotTurn).
+    - key: vault_dir
+      type: path
+      default: ~/ObsidianVault
+      description: Basic Memory Obsidian vault the dream rule consolidates over (read for scans; stale checkpoints archived in place). Memory rule.
+    - key: memory_primary
+      type: boolean
+      default: false
+      description: Run the dream (vault consolidation) phase on THIS machine. Set true on exactly one machine so machines sharing a vault don't triple-propose; the skills phase still runs everywhere. Memory rule.
+    - key: checkpoint_retention_days
+      type: integer
+      default: 14
+      description: Days a `Memory/session-*.md` capture checkpoint is kept before the dream rule archives it into `Memory/archive/` (deterministic, auto-applied). Memory rule.
+    - key: dream_model
+      type: string
+      default: haiku
+      description: Model the capped PTY dream/consolidation pass runs with (via @garrison/claude-pty#oneShotTurn). Memory rule.
   provides:
     - kind: automation-runner
       name: improver

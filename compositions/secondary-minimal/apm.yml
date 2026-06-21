@@ -1,0 +1,58 @@
+name: secondary-minimal
+version: 0.1.0
+target: claude
+# Minimal composition for SECONDARY machines (Mac Mini, MacBook Air) that share
+# the one Basic Memory vault. Purpose: keep memory synced + skill-improved on
+# the machine WITHOUT running a turn-driving operative.
+#
+# Included: scheduler (fires nightly jobs) + vault-git-sync (git sync of the
+# vault) + improver (skills phase only — memory_primary:false, so the vault
+# DREAM/consolidation pass runs on the primary machine ONLY, never here).
+#
+# Deliberately OMITTED: orchestrator/operative, gateway, channels, loop-heartbeat.
+# Rationale (cost is NOT the reason — an idle operative is $0): an operative with
+# nothing driving it does nothing useful; a loop-heartbeat/channels/scheduled
+# prompt here WOULD consume Max usage for no benefit. Add the operative stack
+# only if you actually want an always-on agent on this machine.
+#
+# Pair with launchd agents io.garrison.dev (runs the Next app / own-port boot)
+# and io.garrison.scheduler (runs `scheduler.mjs daemon`) — see
+# ~/Library/LaunchAgents on each machine.
+dependencies:
+  apm:
+    - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/scheduler
+    - path: ../../fittings/seed/vault-git-sync
+x-garrison:
+  composition:
+    id: secondary-minimal
+    name: Secondary (memory upkeep only)
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 10
+        max_spend_per_day: 0
+        max_tool_calls_per_tick: 100
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      observability:
+        - id: improver
+          config:
+            port: 7088
+            bind_host: 127.0.0.1
+            cron: 30 3 * * *
+            vault_dir: ~/ObsidianVault
+            memory_primary: false
+            checkpoint_retention_days: 14
+            dream_model: haiku
+        - id: scheduler
+          config: {}
+      sessions:
+        - id: vault-git-sync
+          config:
+            cron: 0 4 * * *
+            vault_dir: ~/ObsidianVault

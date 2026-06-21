@@ -331,9 +331,31 @@ export interface SetupResult {
   error?: string;
 }
 
+// Project a fitting's selected config into setup-hook env vars, so a setup.sh
+// can read its own config without re-parsing the composition YAML. Convention:
+// <FITTING_ID>_<KEY>, both upper-cased with non-alphanumerics → "_". e.g. the
+// improver's `cron` → IMPROVER_CRON, `memory_primary` → IMPROVER_MEMORY_PRIMARY;
+// vault-git-sync's `cron` → VAULT_GIT_SYNC_CRON. Only scalar values (string,
+// number, boolean) are injected; nested objects/arrays are skipped.
+export function setupConfigEnv(
+  fittingId: string,
+  config: Record<string, unknown>
+): Record<string, string> {
+  const norm = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+  const prefix = norm(fittingId);
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(config ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === "object") continue;
+    env[`${prefix}_${norm(key)}`] = String(value);
+  }
+  return env;
+}
+
 export async function runFittingSetup(
   entry: { id: string; metadata: GarrisonMetadata },
-  compositionDir: string
+  compositionDir: string,
+  config: Record<string, unknown> = {}
 ): Promise<SetupResult> {
   const setup = entry.metadata.setup;
   if (!setup) {
@@ -343,7 +365,8 @@ export async function runFittingSetup(
   const result = await runShellCommand(
     fittingDir,
     setup.command,
-    setup.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS
+    setup.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS,
+    setupConfigEnv(entry.id, config)
   );
   return { ...result, ok: result.exitCode === 0 };
 }
@@ -351,13 +374,21 @@ export async function runFittingSetup(
 async function runSetupHooks(compositionId: string): Promise<void> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
+  // Flatten the selection map → id-keyed config so each setup hook receives its
+  // own composition config projected as env vars (see setupConfigEnv).
+  const configById = new Map<string, Record<string, unknown>>();
+  for (const items of Object.values(composition.selections)) {
+    for (const item of items ?? []) {
+      configById.set(item.id, (item.config ?? {}) as Record<string, unknown>);
+    }
+  }
   for (const entry of entries) {
     const setup = entry.metadata.setup;
     if (!setup) {
       continue;
     }
     appendLog(compositionId, "runner", `setup ${entry.id}: ${setup.command}`);
-    const result = await runFittingSetup(entry, composition.directory);
+    const result = await runFittingSetup(entry, composition.directory, configById.get(entry.id) ?? {});
     if (result.stdout) {
       appendLog(compositionId, "stdout", result.stdout);
     }
@@ -1016,19 +1047,22 @@ function loadDotenvFromCwd(cwd: string): Record<string, string> {
 async function runShellCommand(
   cwd: string,
   command: string,
-  timeoutMs: number
+  timeoutMs: number,
+  extraEnv: Record<string, string> = {}
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null; error?: string }> {
   // Note: listens on `close` rather than `exit` so stdio is fully drained
   // before resolving — `exit` can fire while data buffers still hold output.
   // Also merges any .env in cwd into the subprocess env so verify/setup hooks
   // see vault-resolved credentials without each Fitting needing to source it.
+  // extraEnv (the fitting's projected config) wins over dotenv/process so a
+  // composition's explicit config value is authoritative.
   return new Promise((resolve) => {
     const dotenvVars = loadDotenvFromCwd(cwd);
     const { child } = spawnTracked(
       command,
       {
         cwd,
-        env: { ...process.env, ...dotenvVars },
+        env: { ...process.env, ...dotenvVars, ...extraEnv },
         shell: true
       },
       { spawnSite: "runner:runShellCommand", description: command.slice(0, 80) }

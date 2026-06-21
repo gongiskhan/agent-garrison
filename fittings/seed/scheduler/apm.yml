@@ -10,16 +10,16 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Cron-style job scheduler. Reads jobs.json, runs due jobs, persists last_run. CLI exposes add/remove/list/run-now plus tick (one-shot) and daemon (long-running) modes.
+  summary: Cron-style job scheduler. Reads a machine-global jobs file (~/.garrison/scheduler-jobs.json), runs due jobs, persists last_run. CLI exposes add/remove/list/run-now plus tick (one-shot) and daemon (long-running) modes. Fitting setup hooks register jobs via `add`; the io.garrison.scheduler launchd agent runs `daemon` so they actually fire.
   config_schema:
     - key: jobs_file
       type: path
-      default: data/scheduler-jobs.json
-      description: Path (relative to composition dir) where job definitions are persisted.
+      default: ~/.garrison/scheduler-jobs.json
+      description: Absolute, per-machine path where job definitions are persisted (override via GARRISON_SCHEDULER_JOBS). Machine-global so setup hooks and the daemon agree regardless of cwd.
     - key: log_file
       type: path
-      default: data/scheduler.log
-      description: Path (relative to composition dir) where job execution output is appended.
+      default: ~/.garrison/scheduler.log
+      description: Absolute, per-machine path where job execution output is appended (override via GARRISON_SCHEDULER_LOG).
   provides:
     - kind: automation-runner
       name: scheduler

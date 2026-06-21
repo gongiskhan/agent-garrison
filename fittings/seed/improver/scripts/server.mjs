@@ -25,7 +25,7 @@ import url from "node:url";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile, unlink, stat } from "node:fs/promises";
 import { runImprover } from "../lib/improver-core.mjs";
-import { parseMemory } from "./improver.mjs";
+import { parseMemory, computeDream } from "./improver.mjs";
 import { applyWithRetry } from "../lib/apply-core.mjs";
 import {
   loadQueue,
@@ -102,7 +102,11 @@ async function doRunNow() {
     path.join(process.env.GARRISON_HOME || path.join(HOME, ".claude", "projects"), "MEMORY.md");
   const memoryEntries = existsSync(memoryPath) ? parseMemory(readFileSync(memoryPath, "utf8")) : [];
   const at = new Date().toISOString();
-  const result = runImprover({ memoryEntries, at });
+  // dream rule (memory_primary only): deterministic housekeeping auto-applies
+  // inside computeDream; the LLM consolidation proposals are review-queued here.
+  // computeDream returns {dreamProposals:[]} when this machine is not primary.
+  const dream = await computeDream({ now: at });
+  const result = runImprover({ memoryEntries, at, dreamProposals: dream.dreamProposals });
   if (result.skipped) return { skipped: result.skipped };
 
   let queue = await loadQueue(QUEUE_FILE);
@@ -110,8 +114,12 @@ async function doRunNow() {
   const autoApplied = [];
   for (const p of result.proposals) {
     queue = enqueue(queue, p);
-    // a rule set `auto` applies immediately, no streak (autonomy-direct)
-    if (isAuto(autonomy, p.rule)) {
+    // a rule set `auto` applies immediately, no streak (autonomy-direct). The
+    // dream rule applies to vault note paths through the hosted authoring API
+    // (POST /api/quarters file.update), NOT the local targetFileFor() surface —
+    // so it is never in-process auto-applied here even if promoted; it stays
+    // review-queued for the vault apply path.
+    if (p.rule !== "memory-dream" && isAuto(autonomy, p.rule)) {
       const res = await applyWithRetry({ proposal: p, targetFile: targetFileFor(), reconcileFn });
       if (res.ok) {
         queue = markApplied(queue, p.id, res.evidence, new Date().toISOString());
@@ -123,7 +131,7 @@ async function doRunNow() {
   }
   await saveQueue(QUEUE_FILE, queue);
   await saveAutonomy(AUTONOMY_FILE, autonomy);
-  return { proposals: result.proposals.length, queue: queue.length, autoApplied };
+  return { proposals: result.proposals.length, queue: queue.length, autoApplied, dream: dream.housekeeping };
 }
 
 async function doApply(id) {

@@ -15,16 +15,16 @@
     }
   },
   {
-    "id": "memory",
-    "name": "Memory fitting",
-    "repo": "local:fittings/seed/memory",
-    "localPath": "fittings/seed/memory",
-    "summary": "Within-session recall plus cross-session compiled memory persistence.",
+    "id": "basic-memory",
+    "name": "Basic Memory",
+    "repo": "local:fittings/seed/basic-memory",
+    "localPath": "fittings/seed/basic-memory",
+    "summary": "Obsidian-native, plain-markdown memory backed by Basic Memory. Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a session checkpoint on SessionEnd/PreCompact.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-memory",
+      "github_stars_url": "https://github.com/gongiskhan/garrison-basic-memory",
       "global": 4.5,
       "claude_code": 4.5
     }
@@ -264,6 +264,34 @@
       "github_stars_url": "https://github.com/gongiskhan/garrison-gemini-runtime",
       "global": 4.3,
       "claude_code": 4.3
+    }
+  },
+  {
+    "id": "scheduler",
+    "name": "Scheduler",
+    "repo": "local:fittings/seed/scheduler",
+    "localPath": "fittings/seed/scheduler",
+    "summary": "Cron-style job scheduler. Machine-global jobs file (~/.garrison/scheduler-jobs.json); add/remove/list/run-now plus tick and daemon modes. Fitting setup hooks register jobs; the io.garrison.scheduler launchd agent runs the daemon.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "vault-git-sync",
+    "name": "Vault Git Sync",
+    "repo": "local:fittings/seed/vault-git-sync",
+    "localPath": "fittings/seed/vault-git-sync",
+    "summary": "Commit + push the Basic Memory Obsidian vault to git on a schedule (default nightly), so memory written by any agent syncs across machines. Pure shell; registered as a scheduler job.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.4,
+      "claude_code": 4.4
     }
   }
 ]

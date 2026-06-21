@@ -31,11 +31,13 @@
 //   IMPROVER_VAULT_LOCKED / IMPROVER_SERVER_DOWN  (skip seams, unchanged)
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { runImprover, upsertQueue } from "../lib/improver-core.mjs";
+import { runDreamPhase } from "../lib/memory-dream.mjs";
 import { scanSkillTelemetry, telemetryToJSON } from "../lib/skill-telemetry.mjs";
 import { loadProvenance } from "../lib/provenance.mjs";
 import { planMaintenance } from "../lib/maintenance-core.mjs";
@@ -148,6 +150,89 @@ function makeRunTurn() {
   };
 }
 
+function expandHome(p) {
+  if (!p) return p;
+  if (p === "~") return os.homedir();
+  if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+
+// Resolve the dream rule's config: env vars (config→env injected at setup, or
+// the values setup.sh baked into dream-config.json) override the JSON file,
+// which overrides built-in defaults. The dream phase runs ONLY when memory_primary
+// is set (one machine owns vault-wide consolidation; secondaries stay skills-only).
+export function loadDreamConfig() {
+  // Resolve the data dir dynamically (not the import-time DATA_DIR const) so the
+  // server and tests that set IMPROVER_DATA after import read the right file.
+  const dataDir = process.env.IMPROVER_DATA || path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "improver");
+  let file = {};
+  try {
+    file = JSON.parse(readFileSync(path.join(dataDir, "dream-config.json"), "utf8")) || {};
+  } catch {
+    file = {};
+  }
+  const truthy = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
+  const vaultRaw = process.env.IMPROVER_VAULT_DIR || file.vaultDir || "";
+  return {
+    vaultDir: vaultRaw ? expandHome(vaultRaw) : "",
+    memoryDir: process.env.IMPROVER_MEMORY_DIR || file.memoryDir || "Memory",
+    memoryPrimary: truthy(process.env.IMPROVER_MEMORY_PRIMARY ?? file.memoryPrimary),
+    retentionDays: Number(process.env.IMPROVER_CHECKPOINT_RETENTION_DAYS ?? file.checkpointRetentionDays ?? 14),
+    model: process.env.IMPROVER_DREAM_MODEL || file.dreamModel || "haiku",
+    cap: Number(process.env.IMPROVER_DREAM_MAX_PROPOSALS ?? file.dreamMaxProposals ?? 8),
+  };
+}
+
+// Fixture seam for the dream PTY pass (mirrors makeRunTurn). With
+// IMPROVER_DREAM_FIXTURE set, replay a recorded {reply, sessionId} hermetically;
+// otherwise undefined → memory-dream.mjs uses the real @garrison/claude-pty path.
+function makeDreamRunTurn() {
+  const fixture = process.env.IMPROVER_DREAM_FIXTURE;
+  if (!fixture) return undefined;
+  return async () => {
+    const obj = JSON.parse(readFileSync(fixture, "utf8"));
+    return { reply: typeof obj.reply === "string" ? obj.reply : JSON.stringify(obj), sessionId: obj.sessionId || null };
+  };
+}
+
+// basic-memory reindex/doctor runner for the deterministic housekeeping step.
+// Best-effort: a missing basic-memory (or IMPROVER_DREAM_NO_INDEX=1) just records
+// "skipped"/"error" — it never fails the run. Returns null to skip entirely.
+function makeBasicMemoryRunner() {
+  if (process.env.IMPROVER_DREAM_NO_INDEX === "1") return null;
+  return async ({ cmd, args }) => {
+    try {
+      execFileSync(cmd, args, { stdio: "ignore", timeout: 60_000 });
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  };
+}
+
+// Compute dream proposals + run deterministic housekeeping. Shared by the nightly
+// CLI (runSkills) and the own-port UI ("Run now" in server.mjs). Returns
+// { dreamProposals, housekeeping, config }.
+export async function computeDream({ now = null, dryRun = false } = {}) {
+  const config = loadDreamConfig();
+  if (!config.memoryPrimary) return { dreamProposals: [], housekeeping: { skipped: "not memory_primary" }, config };
+  if (!config.vaultDir || !existsSync(config.vaultDir)) {
+    return { dreamProposals: [], housekeeping: { skipped: `vault missing: ${config.vaultDir || "(unset)"}` }, config };
+  }
+  const res = await runDreamPhase({
+    vaultDir: config.vaultDir,
+    memoryDir: config.memoryDir,
+    retentionDays: config.retentionDays,
+    model: config.model,
+    cap: config.cap,
+    runTurn: makeDreamRunTurn(),
+    runCommand: makeBasicMemoryRunner(),
+    now,
+    dryRun,
+  });
+  return { ...res, config };
+}
+
 // ── legacy memory-only run (preserves MR5a/MR5b stdout contract) ──────────────
 function runLegacy() {
   const memoryPath =
@@ -204,6 +289,36 @@ async function runSkills() {
 
   mkdirSync(DATA_DIR, { recursive: true });
 
+  // ── memory rules FIRST (independent of the skills acceptance flow) ──
+  // The skills phase below has acceptance-oriented early exits (no loose skill,
+  // 0 proposals, gate checks) that would otherwise skip nightly memory work. So
+  // the dream (vault consolidation) + memory-consolidation proposals and the
+  // deterministic housekeeping are computed and PERSISTED up front; the skills
+  // proposals are appended to the same queue afterward.
+  const memoryPath =
+    process.env.IMPROVER_MEMORY ||
+    path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".claude", "projects"), "MEMORY.md");
+  const memoryEntries = existsSync(memoryPath) ? parseMemory(readFileSync(memoryPath, "utf8")) : [];
+  const dream = await computeDream({ now });
+  if (dream.housekeeping?.skipped) {
+    console.log(`DREAM — skipped: ${dream.housekeeping.skipped}`);
+  } else {
+    const hk = dream.housekeeping || {};
+    console.log(
+      `DREAM — housekeeping auto-applied: archived=${(hk.archived || []).length} reindex=${hk.reindex} doctor=${hk.doctor}; ` +
+        `consolidation proposals=${dream.dreamProposals.length} (dropped ${dream.dropped?.length || 0})`
+    );
+  }
+  mkdirSync(PROPOSALS_DIR, { recursive: true });
+  let queue = loadQueue();
+  const memRun = runImprover({ memoryEntries, at: now, dreamProposals: dream.dreamProposals });
+  for (const p of memRun.proposals) {
+    writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+    queue = upsertQueue(queue, p);
+  }
+  writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2), "utf8");
+  writeFileSync(REPORT_FILE, JSON.stringify({ ...memRun.report, dream: dream.housekeeping }, null, 2), "utf8");
+
   // 1) telemetry
   const telemetry = scanSkillTelemetry({ projectsDir: process.env.IMPROVER_PROJECTS_DIR, now });
   writeFileSync(TELEMETRY_FILE, JSON.stringify(telemetryToJSON(telemetry), null, 2), "utf8");
@@ -249,20 +364,22 @@ async function runSkills() {
   const cited = telemetry.bySkill[first.targetFile.replace(/^skills\//, "").replace(/\/SKILL\.md$/, "")];
   const citedOk = cited && cited.sessionIds.has(first.evidence.sessionId);
 
-  // merge skill proposals into the same review queue (memory rule preserved)
-  mkdirSync(PROPOSALS_DIR, { recursive: true });
-  let queue = loadQueue();
-  const memoryPath =
-    process.env.IMPROVER_MEMORY ||
-    path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".claude", "projects"), "MEMORY.md");
-  const memoryEntries = existsSync(memoryPath) ? parseMemory(readFileSync(memoryPath, "utf8")) : [];
-  const merged = runImprover({ memoryEntries, at: now, skillProposals: prop.proposals });
-  for (const p of merged.proposals) {
+  // append skill proposals to the same review queue (memory + dream already
+  // persisted above, so they survive even if this skills flow exits early).
+  for (const p of prop.proposals) {
     writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
     queue = upsertQueue(queue, p);
   }
   writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2), "utf8");
-  writeFileSync(REPORT_FILE, JSON.stringify({ ...merged.report, skillProposals: prop.proposals.length, dropped: prop.dropped.length }, null, 2), "utf8");
+  writeFileSync(
+    REPORT_FILE,
+    JSON.stringify(
+      { ...memRun.report, skillProposals: prop.proposals.length, dropped: prop.dropped.length, dream: dream.housekeeping },
+      null,
+      2
+    ),
+    "utf8"
+  );
 
   console.log(`FINDING 3 — improvement proposal (claim + evidence + diff + gates; evidence.sessionId in telemetry=${!!citedOk}):`);
   console.log(JSON.stringify(first, null, 2));

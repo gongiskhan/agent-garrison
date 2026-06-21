@@ -13,6 +13,8 @@ dependencies:
     - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/scheduler
+    - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/screen-share-default
@@ -87,6 +89,13 @@ x-garrison:
           config:
             port: 7088
             bind_host: 127.0.0.1
+            cron: 30 3 * * *
+            vault_dir: ~/ObsidianVault
+            memory_primary: true
+            checkpoint_retention_days: 14
+            dream_model: haiku
+        - id: scheduler
+          config: {}
       runtimes:
         - id: codex-runtime
           config: {}
@@ -100,6 +109,10 @@ x-garrison:
           config:
             port: 7086
             bind_host: 127.0.0.1
+        - id: vault-git-sync
+          config:
+            cron: 0 4 * * *
+            vault_dir: ~/ObsidianVault
       surfaces:
         - id: screen-share-default
           config: {}
