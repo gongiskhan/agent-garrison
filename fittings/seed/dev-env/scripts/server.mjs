@@ -34,7 +34,13 @@ import {
   setTmuxMode,
   shutdownPtys
 } from "./ptys.mjs";
-import { tmuxAvailable } from "./tmux.mjs";
+import {
+  listGarrisonSessions,
+  sessionIdRoleFromName,
+  tmuxAvailable,
+  tmuxCapturePane,
+  tmuxSessionName
+} from "./tmux.mjs";
 import { DEFAULT_EXCLUDES, getExcludes, isExcluded, loadExcludes, saveExcludes } from "./excludes.mjs";
 import {
   openRichStream,
@@ -48,10 +54,17 @@ import {
   applyHookEvent,
   cleanupState,
   getDirty,
+  hasLiveClaudeProcess,
+  isBroadRoot,
+  liveRegistryRows,
+  migrateOpenSet,
+  openSessionByClaudeId,
   readStateFile,
   runWorkingIdleFallback,
-  setDirtyCheckTtl
+  setDirtyCheckTtl,
+  setSessionOpen
 } from "./state.mjs";
+import { listHistory } from "./claude-sessions.mjs";
 import {
   createProjectSession,
   createWorktree,
@@ -130,9 +143,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// CSRF guard for mutating routes. This server spawns
-// `claude --dangerously-skip-permissions` in arbitrary directories, so a
-// drive-by web page must not be able to POST to it. Browsers attach an
+// CSRF guard for mutating routes. This server spawns `claude` in arbitrary
+// directories, so a drive-by web page must not be able to POST to it. Browsers attach an
 // Origin header to cross-site requests; our own UI is same-origin (Origin
 // host === Host), and server-to-server consumers (gateway passthrough, curl)
 // send no Origin at all. Anything else is rejected.
@@ -146,12 +158,84 @@ function originAllowed(req) {
   }
 }
 
+// True when a claude pane's visible lines show a turn IN FLIGHT. Two on-screen
+// forms count:
+//   1. the classic interrupt hint "(esc to interrupt)" shown during tool use /
+//      streaming; and
+//   2. the extended-thinking spinner "✻ Inferring… (21m 7s · ↓ 72.5k tokens)",
+//      which under high reasoning effort runs for MINUTES with no interrupt
+//      hint — only a live elapsed timer + token counter. Hooks fire nothing
+//      through this phase, which is exactly when the tab spinner used to drop.
+// The completion line "✻ Baked for 3s" carries neither a token counter nor a
+// parenthetical, so it is excluded; the `for Ns` done suffix is excluded too.
+const SPINNER_DONE_LINE = /\bfor \d+(?:\.\d+)?s\s*$/i;
+function paneLinesBusy(lines) {
+  for (const l of lines) {
+    if (/\(esc to interrupt\)/i.test(l)) return true;
+    if (/\btokens?\b/i.test(l) && /\b\d+\s*s\b/.test(l) && !SPINNER_DONE_LINE.test(l)) return true;
+  }
+  return false;
+}
+
+// Session ids that own a live claude tmux session (role === "claude"). One
+// `tmux list-sessions` exec; used to bound pane captures to real claude panes.
+function garrisonClaudeSessionIds() {
+  const ids = new Set();
+  for (const name of listGarrisonSessions()) {
+    const parsed = sessionIdRoleFromName(name);
+    if (parsed && parsed.role === "claude") ids.add(parsed.sessionId);
+  }
+  return ids;
+}
+
+// "Is this session's claude processing a turn right now" — ground truth,
+// independent of hook delivery AND of whether our attach-client record is in
+// sync. In tmux mode the live pane content (capture-pane) is authoritative even
+// when the in-memory PTY record drifted to none/exited; in legacy mode we read
+// the headless mirror. Memoised ~1s so a burst of /sessions polls (one per open
+// browser tab) doesn't multiply tmux execs.
+const busyCache = new Map(); // sessionId -> { value, at }
+const BUSY_CACHE_MS = 1000;
+function claudeBusy(sessionId) {
+  const cached = busyCache.get(sessionId);
+  if (cached && Date.now() - cached.at < BUSY_CACHE_MS) return cached.value;
+  let value = false;
+  if (isTmuxMode()) {
+    const lines = tmuxCapturePane(tmuxSessionName(ptyIdFor(sessionId, "claude")));
+    value = Array.isArray(lines) && paneLinesBusy(lines);
+  } else {
+    const rec = getPty(ptyIdFor(sessionId, "claude"));
+    if (rec && rec.state === "running") {
+      const handle = mirrorHandle(rec);
+      if (handle) { try { value = richStatus(handle).busy === true; } catch { value = false; } }
+    }
+  }
+  busyCache.set(sessionId, { value, at: Date.now() });
+  return value;
+}
+
+// Session ids whose claude turn is in flight right now — fed to the
+// working→idle fallback so it never demotes a session that is plainly working.
+function liveBusySessionIds() {
+  const ids = new Set();
+  const candidates = isTmuxMode()
+    ? garrisonClaudeSessionIds()
+    : new Set(listPtys().filter((r) => r.role === "claude" && r.state === "running").map((r) => r.sessionId));
+  for (const sessionId of candidates) {
+    if (claudeBusy(sessionId)) ids.add(sessionId);
+  }
+  return ids;
+}
+
 // DevEnvSession assembly: one row per aggregate session, decorated with PTY
 // summaries, git-dirty, and the external flag. Also the orphan sweep — PTYs
 // (and parked claude envelopes) whose session row vanished (deleted cwd,
 // cleared record) are killed + forgotten here.
 function assembleSessions() {
   const rows = aggregateSessions();
+  // Real claude panes worth a live busy read this pass (one list-sessions
+  // exec). Bounds capture-pane to actual claude sessions instead of every row.
+  const tmuxClaudeIds = isTmuxMode() ? garrisonClaudeSessionIds() : null;
   const out = [];
   for (const row of rows) {
     if (!row.id) continue; // legacy rows without an id cannot be addressed
@@ -160,13 +244,24 @@ function assembleSessions() {
     // shell was retired — terminals are created on demand and tiled by the UI.
     const terminals = listSessionTerminals(row.id);
     const external = claudePty.state !== "running" && EXTERNAL_STATUSES.has(row.lastStatus);
+    // Promote to "working" off the live screen whenever claude is actually
+    // processing a turn — including the long thinking phase that fires no hooks,
+    // so the hook-driven 60s fallback would otherwise drop the tab spinner mid
+    // run. Only PROMOTE here; demotion stays with the Stop hook + the (now
+    // busy-guarded) fallback, which avoids flicker at turn start. Bounded to
+    // panes that exist: external/no-claude rows keep their hook status.
+    const hasClaudePane = tmuxClaudeIds ? tmuxClaudeIds.has(row.id) : claudePty.state === "running";
+    let lastStatus = row.lastStatus;
+    const busy = hasClaudePane ? claudeBusy(row.id) : false;
+    claudePty.busy = busy;
+    if (busy) lastStatus = "working";
     out.push({
       id: row.id,
       branch: row.branch,
       worktreePath: row.worktreePath,
       projectName: row.projectName,
       projectPath: row.projectPath,
-      lastStatus: row.lastStatus,
+      lastStatus,
       lastStatusAt: row.lastStatusAt,
       claudeSessionId: row.claudeSessionId,
       title: row.title,
@@ -175,6 +270,9 @@ function assembleSessions() {
       isWorktree: isWorktreePath(row.worktreePath),
       external,
       excluded: isExcluded(row.worktreePath),
+      isBroadRoot: isBroadRoot(row.worktreePath),
+      liveProcess: hasLiveClaudeProcess(row.worktreePath, row.claudeSessionId),
+      openedInDevEnv: row.openedInDevEnv === true,
       claudeClosed: Boolean(row.panesClosed?.claude),
       claudePty,
       terminals
@@ -281,6 +379,81 @@ function handleListSessions(req, res) {
   }
 }
 
+// GET /sessions/agents — every live `claude` on the machine (Claude Code's own
+// registry), tagged whether it is already open as a tab here. The Agents panel
+// groups these by project; clicking one opens/jumps to its tab.
+function handleListAgents(req, res) {
+  try {
+    const ledger = assembleSessions();
+    const openSids = new Set(ledger.filter((s) => s.openedInDevEnv && s.claudeSessionId).map((s) => s.claudeSessionId));
+    const sidToTab = new Map(ledger.filter((s) => s.claudeSessionId).map((s) => [s.claudeSessionId, s.id]));
+    const agents = liveRegistryRows().map((r) => ({
+      sessionId: r.sessionId,
+      cwd: r.cwd,
+      pid: r.pid,
+      status: r.status,
+      // Matched by sessionId only — the strong, exact key. No loose cwd match
+      // (which would mis-tag a different session living in the same directory).
+      isOpen: openSids.has(r.sessionId),
+      tabId: sidToTab.get(r.sessionId) ?? null
+    }));
+    jsonRes(res, 200, { agents });
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// GET /sessions/history?days=N — past sessions from Claude Code's transcript
+// store, titled, excluding any currently live (Agents) or open (tabs) so the
+// three lists never duplicate.
+function handleListHistory(req, res, query) {
+  try {
+    const days = Number(query.days);
+    const hist = listHistory({ windowDays: Number.isFinite(days) && days > 0 ? days : 30 });
+    const liveSids = new Set(liveRegistryRows().map((r) => r.sessionId));
+    const openSids = new Set(
+      assembleSessions()
+        .filter((s) => s.openedInDevEnv && s.claudeSessionId)
+        .map((s) => s.claudeSessionId)
+    );
+    const history = hist.filter((h) => !liveSids.has(h.sessionId) && !openSids.has(h.sessionId));
+    jsonRes(res, 200, { history });
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// POST /sessions/open — open a session as a tab from the Agents/History panel.
+// Body: { sessionId: <claudeSessionId>, cwd, title?, branch? }. Upserts a ledger
+// record carrying the claudeSessionId and pins it (openedInDevEnv) — but does
+// NOT spawn. The Claude PTY is resumed lazily on first focus (POST
+// /sessions/:id/ptys threads the record's claudeSessionId as the resumeId).
+const SAFE_CLAUDE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
+async function handleOpenSession(req, res) {
+  const body = (await readBody(req)) || {};
+  const claudeSessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+  const cwd = typeof body.cwd === "string" ? expandHome(body.cwd) : null;
+  // A valid Claude session id is REQUIRED: it is the resume key, the UNIQUE
+  // ledger key (two sessions in one cwd must not collapse to one tab), and it is
+  // spliced into the resume shell command — so it must match the UUID charset.
+  if (!SAFE_CLAUDE_SESSION_ID.test(claudeSessionId)) {
+    return jsonRes(res, 400, { error: "sessionId must be a valid Claude session id" });
+  }
+  if (!cwd) return jsonRes(res, 400, { error: "cwd required" });
+  try {
+    const session = await openSessionByClaudeId({
+      claudeSessionId,
+      cwd,
+      title: typeof body.title === "string" ? body.title : null,
+      branch: typeof body.branch === "string" ? body.branch : null
+    });
+    const assembled = assembleSessions().find((s) => s.id === session.id) ?? null;
+    jsonRes(res, 200, { id: session.id, session: assembled });
+  } catch (err) {
+    jsonRes(res, err.status ?? 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 // POST /sessions/:id/ptys — ensure/restart a SPECIFIC pty (claude, or an
 // existing shell terminal by its role e.g. "shell-2"). Adding a brand-new
 // terminal goes through POST /sessions/:id/terminals instead.
@@ -296,7 +469,8 @@ async function handleEnsurePty(req, res, sessionId) {
     ensurePty({
       session: { id: sessionId, worktreePath: found.worktreePath },
       role,
-      resume: body.resume === true
+      resume: body.resume === true,
+      resumeId: role === "claude" ? found.claudeSessionId || null : null
     });
     // Starting the claude pane clears its closed marker for every connected
     // client. Shell terminals carry no closed marker (they are explicit now).
@@ -358,7 +532,10 @@ async function handleDeleteSession(req, res, sessionId) {
 
 // POST /sessions — "Start session": record + both PTYs for an arbitrary
 // project directory. Reuses an existing record for the same cwd; claude
-// resumes (--continue) when the reused record already saw a claude session.
+// resumes (--continue) when the reused record already saw a claude session,
+// or when the caller asks explicitly (`continue: true`, the "Continue session"
+// dialog) — `claude --continue` then resumes the most recent conversation in
+// that directory regardless of whether we already had a record for it.
 // EXCEPT when the reused record looks external (claude running elsewhere,
 // hooks busy): silently double-attaching a second `claude --continue` is
 // exactly what the UI's Take-over overlay exists to warn about, so only the
@@ -373,11 +550,19 @@ async function handleCreateSession(req, res) {
       ptySummary(session.id, "claude").state !== "running" &&
       EXTERNAL_STATUSES.has(session.lastStatus);
     if (!externalNow) {
-      ensurePty({ session: stub, role: "claude", resume: existed && Boolean(session.claudeSessionId) });
+      const wantContinue = body.continue === true || body.resume === true;
+      ensurePty({
+        session: stub,
+        role: "claude",
+        resume: wantContinue || (existed && Boolean(session.claudeSessionId)),
+        resumeId: session.claudeSessionId || null
+      });
     }
     // No default shell terminal — the deck starts empty; the user opens
     // terminals on demand via the + button.
     await setPaneClosed(session.id, "claude", false);
+    // Starting/opening a session in dev-env pins it as a tab (survives reboot).
+    await setSessionOpen(session.id, true);
     const assembled = assembleSessions().find((s) => s.id === session.id) ?? null;
     jsonRes(res, existed ? 200 : 201, { id: session.id, existed, session: assembled });
   } catch (err) {
@@ -385,13 +570,16 @@ async function handleCreateSession(req, res) {
   }
 }
 
-// POST /sessions/:id/close — tab close: PTYs die, record goes, the
-// directory and any git worktree stay.
+// POST /sessions/:id/close — tab close = kill PTYs + UNPIN (openedInDevEnv:false)
+// but KEEP the record so the session stays in History and can be resumed. (DELETE
+// /sessions/:id is the separate "truly remove + drop the git worktree" path.) A
+// late dying-claude hook only updates lastStatus on the kept record; it never
+// re-pins, so the tab stays closed.
 async function handleCloseSession(req, res, sessionId) {
   try {
     killSessionPtys(sessionId, { forget: true });
-    const removed = await removeSessionRecord(sessionId);
-    jsonRes(res, 200, { ok: true, id: sessionId, removed });
+    const unpinned = await setSessionOpen(sessionId, false);
+    jsonRes(res, 200, { ok: true, id: sessionId, unpinned });
   } catch (err) {
     jsonRes(res, err.status ?? 500, { error: err.message });
   }
@@ -438,6 +626,8 @@ async function handleCreateWorktree(req, res) {
     const created = await createWorktree(body);
     const sessionStub = { id: created.id, worktreePath: created.worktreePath };
     ensurePty({ session: sessionStub, role: "claude" });
+    // Pin the worktree session as a tab so it survives a reboot like any other.
+    await setSessionOpen(created.id, true);
     // No default shell terminal — opened on demand via the deck's + button.
     const session = assembleSessions().find((s) => s.id === created.id) ?? null;
     jsonRes(res, 201, { ...created, session });
@@ -797,6 +987,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/sessions" && method === "GET") return handleListSessions(req, res);
       if (pathname === "/sessions" && method === "POST") return await handleCreateSession(req, res);
       if (pathname === "/sessions/cleanup" && method === "POST") return await handleCleanup(req, res);
+      if (pathname === "/sessions/agents" && method === "GET") return handleListAgents(req, res);
+      if (pathname === "/sessions/history" && method === "GET") return handleListHistory(req, res, parsed.query);
+      if (pathname === "/sessions/open" && method === "POST") return await handleOpenSession(req, res);
       if (pathname === "/_hook" && method === "POST") return await handleHook(req, res, parsed.query);
       if (pathname === "/projects" && method === "GET") return await handleListProjects(req, res, parsed.query);
       if (pathname === "/dev-root" && method === "GET") return await handleGetDevRoot(req, res);
@@ -892,6 +1085,16 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           }
           rec.ws = ws;
           ptyId = rec.id;
+          // Size the PTY to the connecting client BEFORE replaying. The init
+          // frame carries the client's cols/rows; ignoring them left the PTY
+          // (and, under tmux, its window) at the previous/spawn width, so
+          // Claude's full-width boxes were drawn wider than the xterm viewport
+          // and wrapped — the stray border dashes at the start of lines. With
+          // tmux `window-size latest`, resizing the attach client repaints the
+          // pane at the right width.
+          if (Number.isFinite(msg.cols) && Number.isFinite(msg.rows) && msg.cols > 0 && msg.rows > 0) {
+            resizePty(rec, Math.floor(msg.cols), Math.floor(msg.rows));
+          }
           try {
             // `tmux: true` tells the client to stop converting wheel→arrows
             // (the outer xterm is permanently in the alternate screen under
@@ -947,6 +1150,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const restored = await rehydratePtys(rawSessionIds());
   if (restored > 0) console.log(`[dev-env] restored ${restored} persisted PTY(s)`);
 
+  // One-time open-set migration: records that predate openedInDevEnv are seeded
+  // from the OLD visibility (live / has a restored PTY / recently active was a
+  // visible tab → keep it open). After this every record carries the flag, so
+  // the tab strip is rebuilt from persistence — surviving a reboot.
+  const migrated = await migrateOpenSet((session) => {
+    if (hasLiveClaudeProcess(session.worktreePath, session.claudeSessionId)) return true;
+    if (ptySummary(session.id, "claude").state === "running") return true;
+    const t = Date.parse(session.lastStatusAt || "");
+    return Number.isFinite(t) && Date.now() - t < 90 * 60 * 1000;
+  });
+  if (migrated > 0) console.log(`[dev-env] migrated ${migrated} session(s) into the open-set`);
+
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);
@@ -956,7 +1171,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   });
 
   // working → idle fallback timer
-  const fallbackTimer = setInterval(() => { void runWorkingIdleFallback(); }, 5000);
+  const fallbackTimer = setInterval(() => { void runWorkingIdleFallback(liveBusySessionIds()); }, 5000);
   fallbackTimer.unref?.();
 
   const shutdown = async (signal) => {

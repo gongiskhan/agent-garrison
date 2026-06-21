@@ -64,22 +64,45 @@ export function TerminalPane({
       /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || "");
     const copyToClipboard = (text: string) => {
       if (!text) return;
+      const fallback = () => {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        } catch {}
+      };
+      // navigator.clipboard.writeText returns a promise that REJECTS when the
+      // page lacks clipboard-write permission (e.g. when this view is embedded
+      // in Garrison's cross-origin iframe). Await the rejection and fall back to
+      // execCommand so copy still works either way.
       try {
-        if (navigator.clipboard?.writeText) { void navigator.clipboard.writeText(text); return; }
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).catch(fallback);
+          return;
+        }
       } catch {}
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.left = "-9999px";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      } catch {}
+      fallback();
     };
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== "keydown") return true;
+      // Shift+Enter inserts a soft newline in the Claude Code prompt instead of
+      // submitting it. xterm sends CR (\r) for Enter, which Claude treats as
+      // submit; a bare line feed (\n — the byte Ctrl+J emits) is Claude's
+      // universal "insert newline" and needs no terminal keyboard-protocol
+      // negotiation (unlike a CSI-u sequence, which xterm.js does not enable).
+      if (ev.key === "Enter" && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+        const sock = socketRef.current;
+        if (sock && sock.readyState === WebSocket.OPEN) {
+          sock.send(new TextEncoder().encode("\n"));
+        }
+        ev.preventDefault();
+        return false;
+      }
       const key = ev.key.toLowerCase();
       const isCopy = key === "c" && (isMac ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && ev.shiftKey);
       if (isCopy) {
@@ -114,6 +137,61 @@ export function TerminalPane({
         return false;
       });
     }
+
+    // Continuous edge auto-scroll while drag-selecting under tmux. tmux's
+    // copy-mode only advances the scroll on each fresh mouse-motion event, so
+    // holding the pointer still at the top/bottom edge stops scrolling — the
+    // user has to "hammer" the mouse. A normal terminal scrolls continuously
+    // while held at the edge. We restore that by feeding tmux synthetic SGR
+    // drag-motion events at the edge row on a timer — automating the jiggle the
+    // user would otherwise do by hand. The column is alternated by 1 each tick
+    // so tmux registers genuine movement (it ignores motion to the same cell).
+    const mountEl = containerRef.current;
+    let dragging = false;
+    let edgeRow = 0; // 0 = pointer not in an edge zone
+    let lastCol = 1;
+    let tick = 0;
+    let edgeTimer: ReturnType<typeof setInterval> | null = null;
+    const EDGE_PX = 20;
+    const stopEdgeScroll = () => {
+      if (edgeTimer) { clearInterval(edgeTimer); edgeTimer = null; }
+    };
+    const onTermMouseDown = (e: MouseEvent) => {
+      if (e.button === 0 && tmuxModeRef.current) dragging = true;
+    };
+    const onWinMouseUp = () => { dragging = false; stopEdgeScroll(); };
+    const onWinMouseMove = (e: MouseEvent) => {
+      if (!dragging || !tmuxModeRef.current || !mountEl) return;
+      const rect = mountEl.getBoundingClientRect();
+      const cellW = rect.width / Math.max(1, term.cols);
+      lastCol = Math.max(1, Math.min(term.cols, Math.floor((e.clientX - rect.left) / cellW) + 1));
+      if (e.clientY - rect.top < EDGE_PX) edgeRow = 1;
+      else if (rect.bottom - e.clientY < EDGE_PX) edgeRow = term.rows;
+      else edgeRow = 0;
+      if (edgeRow) {
+        if (!edgeTimer) {
+          edgeTimer = setInterval(() => {
+            if (!edgeRow) return;
+            const sock = socketRef.current;
+            if (!sock || sock.readyState !== WebSocket.OPEN) return;
+            // tmux only scrolls when the drag RE-reaches the edge, not while it
+            // is held there — and its edge-scroll zone is a few rows deep, so a
+            // 1-2 row wiggle never leaves it. Alternate between the edge row and
+            // ~3 rows inside so every other tick re-enters the edge and triggers
+            // one more line of scroll → continuous auto-scroll while held.
+            const inside = edgeRow === 1 ? 4 : Math.max(1, edgeRow - 3);
+            const row = (tick++ & 1) ? edgeRow : inside;
+            // SGR mouse: button 32 = motion with the left button held.
+            sock.send(new TextEncoder().encode(`\x1b[<32;${lastCol};${row}M`));
+          }, 30);
+        }
+      } else {
+        stopEdgeScroll();
+      }
+    };
+    mountEl?.addEventListener("mousedown", onTermMouseDown);
+    window.addEventListener("mousemove", onWinMouseMove);
+    window.addEventListener("mouseup", onWinMouseUp);
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${proto}//${window.location.host}/io`);
@@ -178,6 +256,10 @@ export function TerminalPane({
     return () => {
       cancelled = true;
       unsubscribeTheme();
+      stopEdgeScroll();
+      mountEl?.removeEventListener("mousedown", onTermMouseDown);
+      window.removeEventListener("mousemove", onWinMouseMove);
+      window.removeEventListener("mouseup", onWinMouseUp);
       window.removeEventListener("resize", refit);
       resizeObs?.disconnect();
       try { socket.close(); } catch {}

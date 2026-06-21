@@ -493,3 +493,61 @@ round-trippable from the UI. Sandbox seam: `GARRISON_CLAUDE_HOME`/`GARRISON_HOME
 - **HV9:** committed `composition-invariants.test.ts` asserts: disabled mcp/hook is a parked record; `enabled XOR parked` (no entry in both); bootstrap parked==0; presence/editor writes confined to managed locations; empty contracts accepted → `invariants-ok`.
 - **HV10:** one walkthrough video shows grouped view → Monaco edit + on-disk change → on-disk skills/hooks/plugins + `~/.claude.json` MCP config → enable (parked→active) → disable (active→parked) on `garrison-demo-mcp` and a skill; vision-verified → `walkthrough-rendered=<path>`.
 - **Final:** print each token once, then `GARRISON-COMPOSITION-VIEW OK`, then the `GLOBAL GATE:` line.
+
+## Dev-Env durable sessions (DS wave) — 2026-06-20
+
+Plan of record: `~/.claude/plans/we-need-to-find-tingly-lighthouse.md`. Makes
+dev-env (port 7086) sessions survive a computer reboot and pivots the session
+model onto Claude Code's own `~/.claude` data (live registry + transcripts).
+Dev surface: the dev-env Fitting at http://127.0.0.1:7086 (own-port; main app
+:7777). Build on disk; restart the LIVE dev-env only at controlled points;
+**destructive reboot verification runs on a throwaway `tmux -L garrison-test`
+socket + isolated `GARRISON_STATE_PATH`/`GARRISON_CLAUDE_HOME` + a non-7086 port
+— NEVER the live `tmux -L garrison` that holds the user's real sessions.**
+
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| DS1-reader | `claude-sessions.mjs` — `readLiveRegistry()` (live `~/.claude/sessions/*.json`, drop dead pids + internal/broad-root cwds) + `listHistory()` (transcripts → title via latest `ai-title`→first-user-msg, cheap stat+head+tail, mtime-cached) | automation | (lib) | DS-A | passed (vitest 11/11 + typecheck 0; codex approve r4 after 3 fix rounds — `live-registry-ok` `history-title-ok` `history-cache-ok`) |
+| DS2-wire | `state.mjs` registry-liveness swap (retire ps/lsof probe) + persistent open-set (`openedInDevEnv` + migration-on-read from current visibility) · `ptys.mjs` `--resume <id>` · `server.mjs` `/sessions/agents` `/sessions/history` `/sessions/open` + close→unpin | mixed | (lib + :7086 api) | DS-A | **blocked** (tests 36/36 + typecheck 0 + `open-set-ok` `resume-by-id-ok` `endpoints-ok` `reboot-restore-ok`; Codex 7 rounds all-findings-fixed but round-8 confirm blocked — **Codex out of credits**, external) |
+| DS3-ui | `main.tsx` tab-membership=open-set + lazy resume-on-click · new `session-panels.tsx` Agents + History header dropdown (grouped by project incl. worktrees) · `styles.css` | ui | :7086 | DS-B | **blocked** (bundle build 0 + typecheck 0 + UI screenshot-verified: `tabs-openset-ok` `agents-panel-ok` `history-resume-ok`; backend endpoints committed-tested 36/36; **Codex cross-model never ran — out of credits**, external) |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **DS-A (DS1 → DS2): serial chain.** DS2's `state.mjs` imports DS1's
+  `readLiveRegistry`/`listHistory` and DS2's endpoints consume both → DS1's
+  exports are DS2's inputs. No earned parallelism; correctness > wall-clock (the
+  standing choice in every prior wave). Codex serial run-wide.
+- **DS-B (DS3): after DS-A.** The UI consumes DS2's endpoints; the tab-model
+  change depends on `openedInDevEnv` shipping in `assembleSessions`.
+- **Out of scope (logged, NOT a deferred slice):** Haiku title fallback (plan
+  Phase 3) — `ai-title` + first-user-message cover titles; a Haiku `oneShotTurn`
+  fallback is a future enhancement, never a committed DS slice, so excluding it
+  is a plan-time scope call, not a voluntary deferral.
+
+### Acceptance per slice (tokens printed at gate time)
+- **DS1:** over a sandbox `~/.claude` (env-overridden), `readLiveRegistry()`
+  returns only live-pid rows, drops a stale-pid file, drops
+  `compositions/default`/`~/.garrison`/broad-root cwds, keeps a `status:"shell"`
+  row, and passes `status` through when present; `listHistory()` picks the
+  LATEST `ai-title`, falls back to the first `type:"user"` snippet, returns null
+  when neither, windows by recency, and returns the cached object on an
+  unchanged file (mtime key) → `live-registry-ok` `history-title-ok`
+  `history-cache-ok`.
+- **DS2:** `claudeCommand({resumeId})` emits `--resume <id>`, `{resume:true}`
+  emits `--continue`, bare emits neither; open-set set/clear persists in
+  `state.json` and migration-on-read seeds `openedInDevEnv` from current
+  visibility (NOT all-true); a sandboxed dev-env answers `/sessions/agents`
+  (live, tagged `isOpen`) + `/sessions/history` (excludes live AND open-set) +
+  `/sessions/open` (upsert, mark open, NO spawn); close unpins but keeps the
+  record; reboot scenario on the throwaway socket: open 2 tabs → kill-server →
+  restart → both tabs reappear with NO claude spawned → click → `claude --resume
+  <id>` attaches → `open-set-ok` `resume-by-id-ok` `endpoints-ok`
+  `reboot-restore-ok`.
+- **DS3:** the tab strip renders exactly the `openedInDevEnv` set (an external
+  iTerm claude is NOT auto-tabbed — it shows in Agents); clicking an unspawned
+  tab issues the resume fetch; the Agents panel lists live registry sessions
+  grouped by project and opens one on click; the History panel lists titled past
+  sessions and resumes one on click; no session appears in more than one of
+  tabs/Agents/History; e2e + design audit + verified walkthrough video →
+  `tabs-openset-ok` `agents-panel-ok` `history-resume-ok` `walkthrough-rendered`.
+- **Final:** print each token once, then `GARRISON-DEVENV-SESSIONS OK`, then the
+  `GLOBAL GATE:` line.

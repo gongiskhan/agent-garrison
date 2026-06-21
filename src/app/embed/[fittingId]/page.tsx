@@ -92,6 +92,11 @@ export default function EmbedPage() {
       key={fittingId}
       src={iframeSrc}
       title={fittingId}
+      // Own-port views run on a different port (a distinct origin), so without
+      // an explicit Permissions-Policy delegation the embedded page's
+      // navigator.clipboard is blocked — which silently breaks copy in the
+      // dev-env terminal. Delegate clipboard read/write to the framed view.
+      allow="clipboard-read; clipboard-write"
       style={{
         width: "100%",
         height: "100vh",

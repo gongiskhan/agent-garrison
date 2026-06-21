@@ -171,7 +171,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 }
 
 /* Claude pane Terminal|Chat view toggle (Phase 2 rich chat). */
-.claude-view-toggle { display: inline-flex; gap: 2px; margin-right: 8px; flex: 0 0 auto; }
+.claude-view-toggle { display: inline-flex; gap: 2px; margin-left: 1em; margin-right: 8px; flex: 0 0 auto; }
 .claude-view-toggle button {
   font-size: 11px; padding: 3px 9px; border: 1px solid var(--border, #d6cdba);
   background: var(--surface, #f4ede0); color: var(--text-dim, #66695f); cursor: pointer;
@@ -181,3 +181,37 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .claude-view-toggle button.active { background: var(--accent, #3d6249); color: #fff; border-color: var(--accent, #3d6249); }
 /* The rich chat fills the pane body. */
 .claude-pane .pane-body .cc-root { height: 100%; }
+
+/* ---- Sessions panel (Agents live + History past, dropdown from the header) ---- */
+.panel-wrap { position: relative; flex-shrink: 0; }
+.sessions-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sessions-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+  width: 320px; max-height: 70vh; overflow-y: auto;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 4px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25); padding: 6px;
+}
+.sp-section { display: flex; flex-direction: column; }
+.sp-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mute); padding: 6px 8px 4px; font-weight: 600; }
+.sp-count { color: var(--mute); font-weight: 400; }
+.sp-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.sp-group { margin-bottom: 4px; }
+.sp-proj { font-size: 11px; color: var(--sage); padding: 4px 8px 2px; font-weight: 600; }
+.sp-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: none; text-align: left;
+  padding: 6px 8px 6px 16px; font-size: 12px; font-family: inherit; color: var(--text);
+  cursor: pointer; border-radius: 3px;
+}
+.sp-row:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.sp-row:disabled { opacity: 0.45; cursor: default; }
+.sp-row-main { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-time { color: var(--mute); font-size: 11px; flex-shrink: 0; }
+.sp-row:hover .sp-time { color: rgba(255,255,255,0.8); }
+.sp-tag { font-size: 10px; color: var(--mute); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; flex-shrink: 0; }
+.sp-row:hover .sp-tag { color: #fff; border-color: rgba(255,255,255,0.5); }
+.sp-empty { color: var(--mute); font-size: 12px; padding: 4px 8px 8px; }
+.sp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mute); flex-shrink: 0; }
+.sp-dot.busy, .sp-dot.working { background: var(--amber); }
+.sp-dot.idle { background: var(--sage); }
+.sp-dot.waiting { background: var(--alarm); }

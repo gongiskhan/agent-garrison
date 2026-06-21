@@ -114,6 +114,25 @@ export function listGarrisonSessions() {
   }
 }
 
+// The visible content of a session's active pane as plain (ANSI-stripped)
+// lines, or null if it can't be read. This is the live screen — independent of
+// whether this process still holds an attach-client record — so it is the
+// authoritative source for "is claude processing a turn right now" even after
+// an attach desync. Synchronous (like has-session / list-sessions) so the
+// sync /sessions assembly can consult it without going async.
+export function tmuxCapturePane(name) {
+  try {
+    const out = execFileSync(
+      "tmux",
+      args(["capture-pane", "-p", "-t", name]),
+      { timeout: 2000, encoding: "utf8", maxBuffer: 1024 * 1024 }
+    );
+    return out.split("\n");
+  } catch {
+    return null; // no server / session gone / unreadable
+  }
+}
+
 // The active pane's foreground command (e.g. "claude" or "zsh"), or null if it
 // can't be read. Basis for the tmux-mode claude-liveness check.
 export function tmuxPaneCommand(name) {

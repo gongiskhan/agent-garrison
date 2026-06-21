@@ -30,6 +30,7 @@ function writeClaudeView(sessionId: string, v: "terminal" | "chat") {
 }
 import { BrowserPane, type WiredInfo } from "./browser-pane";
 import { NewWorktreeDialog, StartSessionDialog, ConfirmDeleteDialog, SettingsDialog, Toast } from "./dialogs";
+import { SessionsPanel } from "./session-panels";
 import { getMode, setMode, type TermMode } from "./terminal-theme";
 
 // Light / Dark / System control for the terminal colour theme. Three-state
@@ -127,6 +128,9 @@ interface DevEnvSession {
   isWorktree: boolean;
   external: boolean;
   excluded?: boolean;
+  isBroadRoot?: boolean;
+  liveProcess?: boolean;
+  openedInDevEnv?: boolean;
   claudeClosed: boolean;
   claudePty: PtySummary;
   terminals: TerminalSummary[];
@@ -157,9 +161,59 @@ function isActiveSession(s: DevEnvSession): boolean {
   return Number.isFinite(t) && Date.now() - t < ACTIVE_WINDOW_MS;
 }
 
+// A session backed by a claude that is plainly RUNNING right now: the server
+// found a live `claude` process at its path, or there's a live pane here in
+// dev-env. These always show — they trump the exclude list (a real claude in
+// ~/.claude IS a real session), the 90-minute hook-recency window (a session
+// sitting at a prompt fires no hooks), and the nested-folder collapse below.
+function alwaysShow(s: DevEnvSession): boolean {
+  return (
+    Boolean(s.liveProcess) ||
+    s.claudePty.state === "running" ||
+    s.terminals.some((t) => t.state === "running")
+  );
+}
+
+// Shown in the default (not "Show all") tab strip: anything plainly running,
+// else a non-excluded session that's still active by hooks/recency.
+function defaultVisible(s: DevEnvSession): boolean {
+  if (alwaysShow(s)) return true;
+  return !s.excluded && isActiveSession(s);
+}
+
 function basename(p: string): string {
   const parts = (p || "").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? p;
+}
+
+// True when `child` lives strictly below `parent` (not the same dir). Paths are
+// the canonical worktree paths the server already realpath-resolves, so a plain
+// boundary-aware prefix compare is enough.
+function isStrictSubpath(child: string, parent: string): boolean {
+  if (!child || !parent || child === parent) return false;
+  return child.startsWith(parent.endsWith("/") ? parent : parent + "/");
+}
+
+// Collapse nested sessions: when a real project-folder session is listed, the
+// sessions a tool wandered into under its subfolders are noise, so fold them
+// behind it (ekoa-dev hides ekoa-dev/cortex). Only a project folder collapses
+// its children — a broad container (home, ~/dev) never does, or every project
+// beneath it would vanish into a single tab. `isBroadRoot` is decided
+// server-side where HOME is known. Computed over the would-be-listed `base`
+// set so a hidden/inactive parent never swallows an active child.
+function nestedSessionIds(base: DevEnvSession[]): Set<string> {
+  const hidden = new Set<string>();
+  for (const child of base) {
+    if (alwaysShow(child)) continue; // a real running session is never folded away
+    for (const parent of base) {
+      if (parent.id === child.id || parent.isBroadRoot) continue;
+      if (isStrictSubpath(child.worktreePath, parent.worktreePath)) {
+        hidden.add(child.id);
+        break;
+      }
+    }
+  }
+  return hidden;
 }
 
 // Label priority: explicit title; on a default/detached branch the folder
@@ -818,7 +872,8 @@ function App() {
   // hidden; unset = auto, i.e. visible only while an app.port is detected).
   const [browserPref, setBrowserPref] = useState<Record<string, "open" | "closed">>({});
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dialog, setDialog] = useState<null | "new-worktree" | "start-session" | "confirm-delete" | "settings">(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [dialog, setDialog] = useState<null | "new-worktree" | "start-session" | "continue-session" | "confirm-delete" | "settings">(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const toastTimer = useRef<number | null>(null);
@@ -866,10 +921,17 @@ function App() {
   // when it fails the active filter, so toggling Show-all off never yanks
   // the workspace out from under you.
   const selected = sessions.find((s) => s.id === selectedId) ?? null;
-  // Excluded (system/internal) sessions hide by default — but never the one
-  // you're actively viewing, and "Show all" reveals them like any hidden row.
+  // Default tab strip = sessions that are plainly running or active-by-hooks
+  // and not excluded. A running session always shows (defaultVisible); stale
+  // ledger rows and system/internal paths hide; sessions nested under a listed
+  // project folder fold behind it. "Show all" and the selected tab override.
+  // Tab membership = the persisted open-set (openedInDevEnv) — this is what
+  // survives a reboot. Live sessions not opened as a tab live in the Agents
+  // panel; past sessions in History. "Show all" reveals every ledger row; the
+  // selected tab always stays visible. (The old live/active/nested tab
+  // heuristics moved server-side into the open-set + the Agents/History panels.)
   const visibleSessions = sessions.filter(
-    (s) => showAll || s.id === selectedId || (isActiveSession(s) && !s.excluded)
+    (s) => showAll || s.id === selectedId || s.openedInDevEnv === true
   );
   const hiddenCount = sessions.length - visibleSessions.length;
   useEffect(() => {
@@ -888,6 +950,31 @@ function App() {
       return next;
     });
   }
+
+  // Open a session as a tab from the Agents/History panel: upsert + pin it
+  // (server does NOT spawn — lazy resume happens on first focus), then select.
+  const openFromPanel = useCallback(
+    async (sessionId: string, cwd: string, title: string | null) => {
+      try {
+        const res = await fetch("/sessions/open", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId, cwd, title })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.id) {
+          toast(data?.error ?? `couldn't open session: HTTP ${res.status}`);
+          return;
+        }
+        setSelectedId(data.id);
+        setVisited((v) => new Set(v).add(data.id));
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [refresh, toast]
+  );
 
   useEffect(() => {
     if (selectedId) {
@@ -1171,6 +1258,14 @@ function App() {
     return () => window.removeEventListener("click", close);
   }, [menuOpen]);
 
+  // Close the sessions panel on any outside click.
+  useEffect(() => {
+    if (!panelOpen) return;
+    const close = () => setPanelOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [panelOpen]);
+
   const visible = sessions.filter((s) => visited.has(s.id));
 
   return (
@@ -1194,6 +1289,9 @@ function App() {
             <div className="menu">
               <button type="button" onClick={() => { setMenuOpen(false); setDialog("start-session"); }}>
                 New session…
+              </button>
+              <button type="button" onClick={() => { setMenuOpen(false); setDialog("continue-session"); }}>
+                Continue session…
               </button>
               <button type="button" onClick={() => { setMenuOpen(false); setDialog("new-worktree"); }}>
                 New worktree…
@@ -1260,6 +1358,17 @@ function App() {
               )}
             </div>
           )}
+        </div>
+        <div className="panel-wrap" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className={`btn sessions-btn ${panelOpen ? "on" : ""}`}
+            title="Agents & History — open a live or past session as a tab"
+            onClick={() => setPanelOpen((o) => !o)}
+          >
+            Sessions
+          </button>
+          {panelOpen && <SessionsPanel onOpen={openFromPanel} onClose={() => setPanelOpen(false)} />}
         </div>
         <div className="tabs">
           {visibleSessions.map((s) => (
@@ -1372,6 +1481,19 @@ function App() {
       )}
       {dialog === "start-session" && (
         <StartSessionDialog
+          initialRepoPath={selected?.projectPath}
+          onClose={() => setDialog(null)}
+          onCreated={(id) => {
+            setSelectedId(id);
+            setVisited((v) => new Set(v).add(id));
+            void refresh();
+          }}
+          onError={(m) => toast(m)}
+        />
+      )}
+      {dialog === "continue-session" && (
+        <StartSessionDialog
+          resume
           initialRepoPath={selected?.projectPath}
           onClose={() => setDialog(null)}
           onCreated={(id) => {

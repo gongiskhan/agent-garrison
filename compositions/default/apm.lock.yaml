@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-15T12:41:56.327146+00:00'
+generated_at: '2026-06-21T07:35:36.986105+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -8,6 +8,12 @@ dependencies:
   - .claude/skills/artifact-store
   source: local
   local_path: ../../fittings/seed/artifact-store
+- repo_url: _local/basic-memory
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-memory
+  source: local
+  local_path: ../../fittings/seed/basic-memory
 - repo_url: _local/browser-default
   package_type: apm_package
   deployed_files:
@@ -46,12 +52,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/knowledge
-- repo_url: _local/memory
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/garrison-memory
-  source: local
-  local_path: ../../fittings/seed/memory
 - repo_url: _local/model-router
   package_type: apm_package
   deployed_files:
@@ -64,6 +64,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/scheduler
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/scheduler
+  source: local
+  local_path: ../../fittings/seed/scheduler
 - repo_url: _local/screen-share-default
   package_type: invalid
   source: local
@@ -81,6 +87,10 @@ dependencies:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local
   local_path: ../../fittings/seed/trello-data-source
+- repo_url: _local/vault-git-sync
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/vault-git-sync
 - repo_url: _local/web-channel-default
   package_type: invalid
   source: local

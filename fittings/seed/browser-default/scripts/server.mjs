@@ -110,6 +110,49 @@ function pushBounded(arr, entry) {
   if (arr.length > BUFFER_LIMIT) arr.splice(0, arr.length - BUFFER_LIMIT);
 }
 
+// Hand a popup destination off to the user's REAL Chrome (the desktop app),
+// not the headless Chromium we screencast. A "new tab" opened from page content
+// (window.open / target=_blank) would otherwise spawn an invisible headless tab
+// nobody is viewing. Only http(s) is honoured — never file:, data:, javascript:,
+// chrome:, or custom app schemes, which `open` would route to arbitrary
+// registered handlers.
+function spawnDetached(cmd, args) {
+  const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+  child.unref();
+  return child;
+}
+
+function openInRealChrome(rawUrl) {
+  let parsed;
+  try { parsed = new URL(String(rawUrl)); } catch { return; }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
+  const target = parsed.toString();
+  try {
+    // Escape hatch: point BROWSER_OPEN_CMD at any executable to override the
+    // host browser (e.g. a Firefox/Brave binary). It receives the URL as its
+    // sole argument. Also the seam the popup-handoff test drives.
+    if (process.env.BROWSER_OPEN_CMD) {
+      spawnDetached(process.env.BROWSER_OPEN_CMD, [target]);
+      console.log(`[browser] popup -> ${process.env.BROWSER_OPEN_CMD}: ${target}`);
+      return;
+    }
+    if (process.platform === "darwin") {
+      // `open` always spawns (it's a system binary); it exits non-zero when
+      // "Google Chrome" isn't installed — fall back to the default browser then.
+      const child = spawnDetached("open", ["-a", "Google Chrome", target]);
+      child.on("exit", (code) => { if (code) { try { spawnDetached("open", [target]); } catch {} } });
+      child.on("error", () => { try { spawnDetached("open", [target]); } catch {} });
+    } else if (process.platform === "win32") {
+      spawnDetached("cmd", ["/c", "start", "", target]);
+    } else {
+      spawnDetached("xdg-open", [target]);
+    }
+    console.log(`[browser] popup -> real Chrome: ${target}`);
+  } catch (err) {
+    console.warn(`[browser] open-in-real-chrome failed: ${err.message}`);
+  }
+}
+
 function formatConsoleArgs(args) {
   if (!Array.isArray(args)) return "";
   return args.map((a) => {
@@ -145,6 +188,18 @@ async function attachInstrumentation(tab) {
   }
   cdp.on("Page.fileChooserOpened", () => {
     // No-op: interception alone keeps the native dialog from appearing.
+  });
+
+  // A user opening a new tab/window from page content (clicking a target=_blank
+  // link, window.open) should land in their real desktop Chrome, not a hidden
+  // headless tab we never screencast. Page.windowOpen carries the destination
+  // URL at request time — before any navigation — so we hand it off without the
+  // popup ever needing to load. The headless popup Chromium still spawns is
+  // closed by the page.on("popup") handler in openTab. Gate on userGesture so
+  // programmatic ad/tracking popunders are suppressed (closed) rather than
+  // flooding real Chrome with tabs.
+  cdp.on("Page.windowOpen", (e) => {
+    if (e?.userGesture && e?.url) openInRealChrome(e.url);
   });
 
   // A real main-frame navigation makes any prior pick/region stale — drop it so
@@ -488,6 +543,15 @@ async function openTab(initialUrl) {
   }
 
   page.on("close", () => { void cleanupTab(tab); });
+
+  // Popups (window.open / target=_blank) are handed to the host's real Chrome by
+  // the Page.windowOpen handler. Close the headless popup Chromium spawns so the
+  // context doesn't accumulate invisible, un-screencast tabs. This page was not
+  // created by openTab, so it's never registered in `tabs` and closing it does
+  // not trip cleanupTab for a real tab.
+  page.on("popup", async (popup) => {
+    try { await popup.close({ runBeforeUnload: false }); } catch {}
+  });
 
   return tab;
 }

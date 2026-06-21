@@ -1,8 +1,8 @@
 {
   "project": "agent-garrison",
-  "updatedAt": "2026-06-17T22:15:00Z",
+  "updatedAt": "2026-06-20T11:22:02Z",
   "galleryUrl": "http://100.108.210.116:8099/",
-  "galleryNote": "In progress: the MR wave reframed to BRIEF v4 (Runtime multi-provider + Orchestrator roles/profiles + Knowledge + Improver). P0 (MR0a\u2013e) passed. MR1a (routing.json v4 schema + roles/profiles + byte-stable compiler + resolver core) passed \u2014 backend slice, no video (evidence is the committed vitest gate + compile --check). The MR-wave consolidated walkthrough is filmed at MR2 (router view + simulator). Prior verified videos: W wave (11-beat consolidated, docs/autothing/evidence/workspaces-wave-walkthrough.mp4), S1b settings, Quarters-CRUD consolidated, Q2. Per-surface screenshots under docs/autothing/evidence/.",
+  "galleryNote": "In progress: the MR wave reframed to BRIEF v4 (Runtime multi-provider + Orchestrator roles/profiles + Knowledge + Improver). P0 (MR0a–e) passed. MR1a (routing.json v4 schema + roles/profiles + byte-stable compiler + resolver core) passed — backend slice, no video (evidence is the committed vitest gate + compile --check). The MR-wave consolidated walkthrough is filmed at MR2 (router view + simulator). Prior verified videos: W wave (11-beat consolidated, docs/autothing/evidence/workspaces-wave-walkthrough.mp4), S1b settings, Quarters-CRUD consolidated, Q2. Per-surface screenshots under docs/autothing/evidence/.",
   "slices": {
     "HV1-essential-grid": "passed",
     "HV2-mcp-source": "passed",
@@ -13,46 +13,40 @@
     "HV7-reconcile": "passed",
     "HV8-ui-components": "passed",
     "HV9-invariants": "passed",
-    "HV10-walkthrough": "passed"
+    "HV10-walkthrough": "passed",
+    "DS1-reader": "passed",
+    "DS2-wire": "blocked",
+    "DS3-ui": "blocked"
   },
   "globalGate": {
-    "status": "passed",
-    "decidedAt": "2026-06-20T07:53:26Z",
-    "wave": "HV / Holistic Composition View (Quarters primitives in the Compose grid)",
+    "status": "completed-with-blockers",
+    "decidedAt": "2026-06-20T11:22:02Z",
+    "wave": "DS / Dev-Env durable sessions (open-set + .claude-driven session model + Agents/History panels)",
     "buildableRemaining": 0,
-    "summary": "All 10 HV slices PASSED. Garrison now shows everything the Operative is made of in ONE Compose view \u2014 the 8 role faculties grouped essential-vs-optional PLUS the Claude Code components (Skills/Hooks/Agent-Tools/Plugins) sourced from the live ~/.claude StateModel \u2014 with edit-in-place and enable/disable = a real PARKED move. Fixed the MCP source-of-truth bug (live /api/quarters now shows 7 real servers, was 0 reading the empty mcp.json). Disabled mcp/hooks park off-disk under ~/.garrison/parked and read back via active\u222aparked so the disable->enable loop round-trips. ~/.claude.json writes use a compare-and-swap + bounded-retry guard that aborts leaving the live file untouched (never restore-old-backup), refuses to overwrite a corrupt file, and preserves every sibling byte-for-value. Gates: typecheck 0, lint clean, build 0 (isolated dist), composition-view e2e 6/6 across 3 viewports + 24-test MCP e2e regression green, full unit suite green except 3 PRE-EXISTING/load-flake files unrelated to the wave (gemini-runtime deterministic; documents-cli + artifact-store-cli pass isolated). Cross-model: HV-A approve, HV-backend approve (2 rounds, 5 high findings fixed), HV8 codex 3A approve (4 rounds) + codex 3B independent playwright PASS. Verified consolidated walkthrough video (both per-beat + holistic gates).",
+    "summary": "DS1-reader PASSED (claude-sessions live-registry + history readers; clean Codex approve r4). DS2-wire + DS3-ui BLOCKED on the cross-model gate: the Codex/ChatGPT workspace ran OUT OF CREDITS at DS2 round 8. DS2 objective gates green (vitest 36/36, typecheck 0) after 7 Codex rounds with EVERY finding fixed + regression; DS3 objective gates green (esbuild bundle 0, typecheck 0) + UI live-screenshot-verified (tab strip = open-set, Agents panel grouped by project with status dots/isOpen, History 94 titled). dev-env restarted on the new code: 9 sessions migrated into the open-set; /sessions/{agents,history,open} live. Reboot-restore proven by committed sandboxed test. No DS-introduced test failures — the 11 full-suite failures are pre-existing/out-of-scope (fittings/seed/memory dir missing at baseline; dev-env library ZodError; documented gemini/orchestrator/runner baselines).",
     "crossModel": {
-      "reviewAllApproved": true,
-      "pwTestAllPassed": true
+      "reviewAllApproved": false,
+      "pwTestAllPassed": false
     },
-    "everySliceVideoVerified": true,
-    "video": "http://100.108.210.116:8099/agent-garrison/composition-view/2026-06-20_08-41-41/final.mp4",
-    "outOfScopePreExisting": [
+    "everySliceVideoVerified": false,
+    "blockers": [
       {
-        "test": "tests/gemini-runtime.test.ts",
-        "kind": "deterministic pre-existing",
-        "note": "buildArgs -y/--skip-trust mismatch in the gemini adapter; failing at baseline, git-unmodified by this session, no code overlap with HV"
+        "slice": "DS2-wire",
+        "cause": "external — Codex/ChatGPT workspace out of credits",
+        "failedCommand": "codex exec -s read-only --skip-git-repo-check -C <repo> --output-schema codex-review.schema.json --output-last-message <out> \"<DS2 round-8 review prompt>\" → ERROR: Your workspace is out of credits.",
+        "remediation": "Operator: top up Codex/ChatGPT credits; re-run DS2 round-8 review (expected approve)."
       },
       {
-        "test": "tests/documents-cli.test.ts",
-        "kind": "load flake",
-        "note": "slow Python-CLI timestamp test; passes isolated (16/16); git-unmodified"
-      },
-      {
-        "test": "tests/artifact-store-cli.test.ts",
-        "kind": "load flake",
-        "note": "slow Python-CLI test; passes isolated; git-unmodified"
-      },
-      {
-        "test": "tests/orchestrator-integration.test.ts",
-        "kind": "live PTY flake",
-        "note": "71s live claude session, load-sensitive (AS-wave documented)"
+        "slice": "DS3-ui",
+        "cause": "external — Codex/ChatGPT workspace out of credits",
+        "failedCommand": "codex exec ... \"<DS3 review prompt>\" → ERROR: Your workspace is out of credits.",
+        "remediation": "Operator: top up Codex/ChatGPT credits; run DS3 cross-model review (3A + 3B)."
       }
     ],
     "priorWave": {
-      "status": "completed-with-blockers",
-      "wave": "AS / Agent SDK Runtime (base-URL / non-Anthropic models)",
-      "decidedAt": "2026-06-16T23:03:00Z"
+      "status": "passed",
+      "wave": "HV / Holistic Composition View (Quarters primitives in the Compose grid)",
+      "decidedAt": "2026-06-20T07:53:26Z"
     }
   }
 }

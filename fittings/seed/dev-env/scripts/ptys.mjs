@@ -135,9 +135,25 @@ export function listSessionTerminals(sessionId) {
 
 // The append prompt teaches Claude to drive the side-by-side browser pane via
 // the garrison-browser CLI. No full system prompt replacement — just append.
-export function claudeCommand({ resume = false } = {}) {
-  const parts = ["claude", "--dangerously-skip-permissions"];
-  if (resume) parts.push("--continue");
+// A Claude session id is a UUID. We allow ONLY that charset so the value is safe
+// to splice into the shell command the PTY runs — JSON.stringify is NOT a shell
+// escape (it leaves `$()`/backticks live inside double quotes), so an unsanitised
+// id would be a command-injection vector. An id that fails this is ignored
+// (falls back to --continue / fresh) rather than executed.
+const SAFE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
+
+export function claudeCommand({ resume = false, resumeId = null } = {}) {
+  // Default dev-env sessions to "auto" rather than bypassing permissions: the
+  // dev-env terminal is a real interactive TUI, so the user can answer prompts.
+  // shift+tab still cycles to bypass when wanted.
+  const parts = ["claude", "--permission-mode", "auto"];
+  // resumeId resumes that EXACT conversation by id — required after a reboot (so
+  // the restored tab re-attaches its own session, not whatever ran most recently
+  // in the cwd) and when a cwd holds several sessions. `--continue` is the
+  // most-recent-in-cwd fallback used when we have no specific id.
+  const safeId = resumeId != null && SAFE_SESSION_ID.test(String(resumeId)) ? String(resumeId) : null;
+  if (safeId) parts.push("--resume", safeId); // UUID charset → no shell metachars, no quoting needed
+  else if (resume) parts.push("--continue");
   parts.push("--append-system-prompt-file", JSON.stringify(PROMPT_PATH));
   return parts.join(" ");
 }
@@ -198,6 +214,20 @@ function refreshClaudeAlive(rec) {
   });
 }
 
+// Claude Code (and other TUIs) decide whether the terminal can render their
+// fancy glyphs (⏺ ⎿ ⏵ ❯ …) from the locale, NOT from TERM. When Garrison is
+// launched by launchd it inherits no LANG/LC_*, so claude treats the terminal
+// as non-UTF-8 and falls back to ASCII — the glyphs come out as bare "_", the
+// stray dashes the user sees at the start of lines and in the prompt box.
+// Ensure a UTF-8 locale so the real glyphs are used; only fill the gap when the
+// environment doesn't already declare one.
+const UTF8_LOCALE = "en_US.UTF-8";
+function withUtf8Locale(env) {
+  const isUtf8 = (v) => typeof v === "string" && /utf-?8/i.test(v);
+  if (isUtf8(env.LC_ALL) || isUtf8(env.LC_CTYPE) || isUtf8(env.LANG)) return env;
+  return { ...env, LANG: UTF8_LOCALE, LC_CTYPE: UTF8_LOCALE };
+}
+
 export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollbackB64, restoredMarker }) {
   const id = ptyIdFor(sessionId, role);
   const existing = ptys.get(id);
@@ -209,6 +239,15 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
 
   const finalShell = shell || defaultShell;
   const finalCwd = cwd && existsSync(cwd) ? cwd : process.env.HOME || "/tmp";
+
+  const spawnEnv = withUtf8Locale({ ...process.env, TERM: "xterm-256color" });
+  // tmux panes run under the (possibly already-running) tmux server's
+  // environment, which may predate this locale fix, so bake the locale straight
+  // into the create command instead of relying on env inheritance.
+  const localeAssign = ["LANG", "LC_CTYPE", "LC_ALL"]
+    .filter((k) => spawnEnv[k])
+    .map((k) => `${k}=${spawnEnv[k]}`)
+    .join(" ");
 
   // tmux mode: spawn an attach-or-create client. The shell (`<shell> -l`) runs
   // inside the tmux server as the CREATE command; on a pre-existing session
@@ -226,13 +265,13 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
       cwd: finalCwd,
       cols: 100,
       rows: 30,
-      createCommand: `${finalShell} -l`
+      createCommand: `${localeAssign ? localeAssign + " " : ""}${finalShell} -l`
     }), {
       name: "xterm-256color",
       cols: 100,
       rows: 30,
       cwd: finalCwd,
-      env: { ...process.env, TERM: "xterm-256color" }
+      env: spawnEnv
     });
   } else {
     term = pty.spawn(finalShell, ["-l"], {
@@ -240,7 +279,7 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
       cols: 100,
       rows: 30,
       cwd: finalCwd,
-      env: { ...process.env, TERM: "xterm-256color" }
+      env: spawnEnv
     });
   }
 
@@ -336,13 +375,13 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
 //   exited                  -> respawn fresh at cwd, old buffer replayed
 //   parked claude envelope  -> spawn fresh with --continue + persisted scrollback
 //   none                    -> spawn fresh (claude gets --continue iff resume)
-export function ensurePty({ session, role, resume = false }) {
+export function ensurePty({ session, role, resume = false, resumeId = null }) {
   const id = ptyIdFor(session.id, role);
   const rec = ptys.get(id);
 
   if (rec && rec.state === "running") {
     if (role === "claude" && rec.claudeAlive === false) {
-      const cmd = claudeCommand({ resume: true });
+      const cmd = claudeCommand({ resume: true, resumeId });
       rec.command = cmd;
       rec.claudeAlive = true;
       rec.claudeCheckedAt = 0;
@@ -359,20 +398,21 @@ export function ensurePty({ session, role, resume = false }) {
       sessionId: session.id,
       role,
       cwd: session.worktreePath,
-      command: role === "claude" ? claudeCommand({ resume: true }) : undefined,
+      command: role === "claude" ? claudeCommand({ resume: true, resumeId }) : undefined,
       restoredScrollbackB64: old.length ? old.toString("base64") : undefined
     });
   }
 
   const envelope = parked.get(id);
   if (role === "claude" && envelope) {
+    const verb = resumeId ? "claude --resume" : "claude --continue";
     return spawnPty({
       sessionId: session.id,
       role,
       cwd: session.worktreePath,
-      command: claudeCommand({ resume: true }),
+      command: claudeCommand({ resume: true, resumeId }),
       restoredScrollbackB64: typeof envelope.scrollbackB64 === "string" ? envelope.scrollbackB64 : undefined,
-      restoredMarker: `\r\n\x1b[2m[garrison: resuming claude session — claude --continue]\x1b[0m\r\n`
+      restoredMarker: `\r\n\x1b[2m[garrison: resuming claude session — ${verb}]\x1b[0m\r\n`
     });
   }
 
@@ -380,7 +420,7 @@ export function ensurePty({ session, role, resume = false }) {
     sessionId: session.id,
     role,
     cwd: session.worktreePath,
-    command: role === "claude" ? claudeCommand({ resume }) : undefined
+    command: role === "claude" ? claudeCommand({ resume, resumeId }) : undefined
   });
 }
 

@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { readStateFile, realResolve, tombstoneCwd, writeStateAtomic } from "./state.mjs";
+import { readStateFile, realResolve, tombstoneCwd, withStateWrite, writeStateAtomic } from "./state.mjs";
 
 const execP = promisify(exec);
 const HOME = os.homedir();
@@ -87,35 +87,38 @@ export async function gitWorktreeList(repoPath) {
 // Garrison.
 export async function listWorktreesEnriched(repoPath) {
   const items = await gitWorktreeList(repoPath);
-  const state = readStateFile() || { version: 1, projects: {} };
-  let stateDirty = false;
-  for (const it of items) {
-    if (it.isMain || !it.branch) continue;
-    const project = ensureProject(state, repoPath);
-    const existing = project.sessions[it.branch];
-    if (existing && existing.id) continue;
-    project.sessions[it.branch] = {
-      branch: it.branch,
-      worktreePath: it.path,
-      id: existing?.id || randomUUID(),
-      title: existing?.title ?? null,
-      baseBranch: existing?.baseBranch ?? null,
-      status: existing?.status ?? "active",
-      lastStatus: existing?.lastStatus ?? "idle",
-      // Epoch, not now: a fresh adoption is ledger bookkeeping, not activity.
-      // Stamping now would make every routine GET /worktrees (gateway proxy)
-      // resurrect closed worktree tabs through the 90-min recency filter.
-      lastStatusAt: existing?.lastStatusAt ?? new Date(0).toISOString(),
-      createdAt: existing?.createdAt ?? null,
-      bindings: existing?.bindings ?? [],
-      adopted: existing ? Boolean(existing.adopted) : true
-    };
-    stateDirty = true;
-  }
-  if (stateDirty) {
-    try { await writeStateAtomic(state); }
-    catch (err) { console.error(`[dev-env] state write warning: ${err.message}`); }
-  }
+  const state = await withStateWrite(async () => {
+    const st = readStateFile() || { version: 1, projects: {} };
+    let stateDirty = false;
+    for (const it of items) {
+      if (it.isMain || !it.branch) continue;
+      const project = ensureProject(st, repoPath);
+      const existing = project.sessions[it.branch];
+      if (existing && existing.id) continue;
+      project.sessions[it.branch] = {
+        branch: it.branch,
+        worktreePath: it.path,
+        id: existing?.id || randomUUID(),
+        title: existing?.title ?? null,
+        baseBranch: existing?.baseBranch ?? null,
+        status: existing?.status ?? "active",
+        lastStatus: existing?.lastStatus ?? "idle",
+        // Epoch, not now: a fresh adoption is ledger bookkeeping, not activity.
+        // Stamping now would make every routine GET /worktrees (gateway proxy)
+        // resurrect closed worktree tabs through the 90-min recency filter.
+        lastStatusAt: existing?.lastStatusAt ?? new Date(0).toISOString(),
+        createdAt: existing?.createdAt ?? null,
+        bindings: existing?.bindings ?? [],
+        adopted: existing ? Boolean(existing.adopted) : true
+      };
+      stateDirty = true;
+    }
+    if (stateDirty) {
+      try { await writeStateAtomic(st); }
+      catch (err) { console.error(`[dev-env] state write warning: ${err.message}`); }
+    }
+    return st;
+  });
 
   const project = state.projects[repoPath] ?? { sessions: {} };
   return items.map((it) => {
@@ -178,26 +181,28 @@ export async function createWorktree({ repoPath: rawRepoPath, branch: rawBranch,
 
   const id = randomUUID();
   const now = new Date().toISOString();
-  const state = readStateFile() || { version: 1, projects: {} };
-  const project = ensureProject(state, repoPath);
-  project.sessions[branch] = {
-    branch,
-    worktreePath,
-    id,
-    title,
-    baseBranch,
-    status: "active",
-    lastStatus: "idle",
-    lastStatusAt: now,
-    createdAt: now,
-    bindings: [],
-    source: "dev-env"
-  };
-  try {
-    await writeStateAtomic(state);
-  } catch (err) {
-    throw httpError(500, `state write failed: ${err.message}`);
-  }
+  await withStateWrite(async () => {
+    const state = readStateFile() || { version: 1, projects: {} };
+    const project = ensureProject(state, repoPath);
+    project.sessions[branch] = {
+      branch,
+      worktreePath,
+      id,
+      title,
+      baseBranch,
+      status: "active",
+      lastStatus: "idle",
+      lastStatusAt: now,
+      createdAt: now,
+      bindings: [],
+      source: "dev-env"
+    };
+    try {
+      await writeStateAtomic(state);
+    } catch (err) {
+      throw httpError(500, `state write failed: ${err.message}`);
+    }
+  });
 
   return {
     id, branch, baseBranch, worktreePath, projectPath: repoPath,
@@ -225,45 +230,47 @@ export async function createProjectSession({ path: rawPath, title: rawTitle }) {
   // Reuse an existing record whose worktreePath is this directory. Rows whose
   // project key vanished from disk are skipped: the aggregate hides them, so
   // reusing one would hand back a session the orphan sweep immediately kills.
-  const state = readStateFile() || { version: 1, projects: {} };
-  for (const [projectKey, project] of Object.entries(state.projects ?? {})) {
-    const projectExists = !projectKey.startsWith("/") || existsSync(projectKey);
-    if (!projectExists) continue;
-    for (const session of Object.values(project?.sessions ?? {})) {
-      if (session?.worktreePath && realResolve(session.worktreePath) === normalized && session.id) {
-        return { session, existed: true };
+  return withStateWrite(async () => {
+    const state = readStateFile() || { version: 1, projects: {} };
+    for (const [projectKey, project] of Object.entries(state.projects ?? {})) {
+      const projectExists = !projectKey.startsWith("/") || existsSync(projectKey);
+      if (!projectExists) continue;
+      for (const session of Object.values(project?.sessions ?? {})) {
+        if (session?.worktreePath && realResolve(session.worktreePath) === normalized && session.id) {
+          return { session, existed: true };
+        }
       }
     }
-  }
 
-  let branch = "detached";
-  try {
-    const { stdout } = await execP("git rev-parse --abbrev-ref HEAD", { cwd: normalized, timeout: 1500 });
-    branch = stdout.trim() || "detached";
-  } catch {}
+    let branch = "detached";
+    try {
+      const { stdout } = await execP("git rev-parse --abbrev-ref HEAD", { cwd: normalized, timeout: 1500 });
+      branch = stdout.trim() || "detached";
+    } catch {}
 
-  const id = randomUUID();
-  const now = new Date().toISOString();
-  const project = ensureProject(state, normalized);
-  project.sessions[branch] = {
-    branch,
-    worktreePath: normalized,
-    id,
-    title,
-    baseBranch: null,
-    status: "active",
-    lastStatus: "idle",
-    lastStatusAt: now,
-    createdAt: now,
-    bindings: [],
-    source: "dev-env"
-  };
-  try {
-    await writeStateAtomic(state);
-  } catch (err) {
-    throw httpError(500, `state write failed: ${err.message}`);
-  }
-  return { session: project.sessions[branch], existed: false };
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const project = ensureProject(state, normalized);
+    project.sessions[branch] = {
+      branch,
+      worktreePath: normalized,
+      id,
+      title,
+      baseBranch: null,
+      status: "active",
+      lastStatus: "idle",
+      lastStatusAt: now,
+      createdAt: now,
+      bindings: [],
+      source: "dev-env"
+    };
+    try {
+      await writeStateAtomic(state);
+    } catch (err) {
+      throw httpError(500, `state write failed: ${err.message}`);
+    }
+    return { session: project.sessions[branch], existed: false };
+  });
 }
 
 // Remove ONLY the session record — the tab-close path. The directory and any
@@ -271,33 +278,37 @@ export async function createProjectSession({ path: rawPath, title: rawTitle }) {
 // record if the session comes back to life. The tombstone stops the dying
 // claude's last hooks from resurrecting the row immediately.
 export async function removeSessionRecord(id) {
-  const found = findSessionById(id);
-  if (!found) throw httpError(404, `session id not found: ${id}`);
-  tombstoneCwd(found.worktreePath);
-  const state = readStateFile();
-  const project = state?.projects?.[found.projectPath];
-  if (project?.sessions) {
-    delete project.sessions[found.branch];
-    await writeStateAtomic(state);
-  }
-  return found;
+  return withStateWrite(async () => {
+    const found = findSessionById(id);
+    if (!found) throw httpError(404, `session id not found: ${id}`);
+    tombstoneCwd(found.worktreePath);
+    const state = readStateFile();
+    const project = state?.projects?.[found.projectPath];
+    if (project?.sessions) {
+      delete project.sessions[found.key];
+      await writeStateAtomic(state);
+    }
+    return found;
+  });
 }
 
 // Per-pane closed markers live on the session record so every connected
 // Dev Env client (desktop + iPad) sees the same close state — a client-local
 // flag would let the other client's lazy shell-spawn resurrect the pane.
 export async function setPaneClosed(id, role, closed) {
-  const found = findSessionById(id);
-  if (!found) return null;
-  const state = readStateFile();
-  const session = state?.projects?.[found.projectPath]?.sessions?.[found.branch];
-  if (!session) return null;
-  const panes = session.panesClosed && typeof session.panesClosed === "object" ? session.panesClosed : {};
-  if (closed) panes[role] = true;
-  else delete panes[role];
-  session.panesClosed = panes;
-  await writeStateAtomic(state);
-  return session;
+  return withStateWrite(async () => {
+    const found = findSessionById(id);
+    if (!found) return null;
+    const state = readStateFile();
+    const session = state?.projects?.[found.projectPath]?.sessions?.[found.key];
+    if (!session) return null;
+    const panes = session.panesClosed && typeof session.panesClosed === "object" ? session.panesClosed : {};
+    if (closed) panes[role] = true;
+    else delete panes[role];
+    session.panesClosed = panes;
+    await writeStateAtomic(state);
+    return session;
+  });
 }
 
 // Find a session record by id in the raw state file.
@@ -310,6 +321,8 @@ export function findSessionById(id) {
         return {
           projectPath,
           branch: session.branch || branchKey,
+          key: branchKey, // the actual sessions-map key (≠ branch for UUID-keyed /open tabs)
+          claudeSessionId: session.claudeSessionId ?? null, // so lazy resume can --resume the EXACT session
           worktreePath: session.worktreePath || projectPath,
           session
         };
@@ -322,38 +335,40 @@ export function findSessionById(id) {
 // Remove the session record (and, when its cwd lives under ~/.worktrees,
 // the git worktree + any leftover directory). Returns the removed locator.
 export async function deleteSession(id) {
-  const found = findSessionById(id);
-  if (!found) throw httpError(404, `session id not found: ${id}`);
-  tombstoneCwd(found.worktreePath);
+  return withStateWrite(async () => {
+    const found = findSessionById(id);
+    if (!found) throw httpError(404, `session id not found: ${id}`);
+    tombstoneCwd(found.worktreePath);
 
-  if (isWorktreePath(found.worktreePath)) {
-    try {
-      if (existsSync(found.worktreePath)) {
-        await execP(`git worktree remove ${JSON.stringify(found.worktreePath)} --force`, { cwd: found.projectPath });
+    if (isWorktreePath(found.worktreePath)) {
+      try {
+        if (existsSync(found.worktreePath)) {
+          await execP(`git worktree remove ${JSON.stringify(found.worktreePath)} --force`, { cwd: found.projectPath });
+        }
+      } catch (err) {
+        // Continue with state cleanup even if git removal had partial failure
+        console.error(`[dev-env] git remove warning: ${err.message}`);
       }
-    } catch (err) {
-      // Continue with state cleanup even if git removal had partial failure
-      console.error(`[dev-env] git remove warning: ${err.message}`);
-    }
-    try {
-      if (existsSync(found.worktreePath)) {
-        await rm(found.worktreePath, { recursive: true, force: true });
+      try {
+        if (existsSync(found.worktreePath)) {
+          await rm(found.worktreePath, { recursive: true, force: true });
+        }
+      } catch (err) {
+        console.error(`[dev-env] leftover dir remove warning: ${err.message}`);
       }
-    } catch (err) {
-      console.error(`[dev-env] leftover dir remove warning: ${err.message}`);
     }
-  }
 
-  const state = readStateFile();
-  const project = state?.projects?.[found.projectPath];
-  if (project?.sessions) {
-    delete project.sessions[found.branch];
-    if (Object.keys(project.sessions).length === 0 && project.path !== found.worktreePath) {
-      // Keep the (now empty) project entry — hook auto-create will repopulate.
+    const state = readStateFile();
+    const project = state?.projects?.[found.projectPath];
+    if (project?.sessions) {
+      delete project.sessions[found.key];
+      if (Object.keys(project.sessions).length === 0 && project.path !== found.worktreePath) {
+        // Keep the (now empty) project entry — hook auto-create will repopulate.
+      }
+      await writeStateAtomic(state);
     }
-    await writeStateAtomic(state);
-  }
-  return found;
+    return found;
+  });
 }
 
 export async function readDevRoot() {

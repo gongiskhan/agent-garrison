@@ -125,16 +125,20 @@ export function NewWorktreeDialog({
 
 // "New session": pick a project (or type any absolute path) and get a full
 // tab — session record + Claude PTY + shell PTY — without creating a worktree.
+// With `resume`, the same picker instead launches `claude --continue`, resuming
+// the most recent Claude conversation in the chosen directory.
 export function StartSessionDialog({
   onClose,
   onCreated,
   onError,
-  initialRepoPath
+  initialRepoPath,
+  resume = false
 }: {
   onClose: () => void;
   onCreated: (sessionId: string) => void;
   onError: (message: string) => void;
   initialRepoPath?: string;
+  resume?: boolean;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [path, setPath] = useState<string>(initialRepoPath ?? "");
@@ -162,7 +166,7 @@ export function StartSessionDialog({
       const res = await fetch("/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: path.trim() })
+        body: JSON.stringify({ path: path.trim(), ...(resume ? { continue: true } : {}) })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -181,10 +185,20 @@ export function StartSessionDialog({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>New session</h2>
+        <h2>{resume ? "Continue session" : "New session"}</h2>
         <p className="modal-help">
-          Opens a tab with a Claude and a shell terminal at the project root.
-          No worktree is created.
+          {resume ? (
+            <>
+              Opens a tab and resumes the most recent Claude conversation in the
+              chosen project with <code>claude --continue</code>. No worktree is
+              created.
+            </>
+          ) : (
+            <>
+              Opens a tab with a Claude and a shell terminal at the project root.
+              No worktree is created.
+            </>
+          )}
         </p>
         <label className="modal-label">
           Project
@@ -215,7 +229,7 @@ export function StartSessionDialog({
         <div className="modal-row">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn primary" onClick={() => void submit()} disabled={busy || !path.trim()}>
-            {busy ? "Starting…" : "Start"}
+            {busy ? (resume ? "Continuing…" : "Starting…") : (resume ? "Continue" : "Start")}
           </button>
         </div>
       </div>
