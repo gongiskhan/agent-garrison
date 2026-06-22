@@ -29,7 +29,7 @@ walkthrough apply); the rest are `mixed` (evidence = the committed test / CLI ca
 | s1a-modes-fitting | New `modes` fitting: souls Gary/Joe/James + shared-voice + modes.json + brief-template + setup/verify | mixed | — | A | passed |
 | s1b-modes-capkind | `modes` capability kind + `modes` faculty (automation-runner already existed); register in data/library.json; model-router consumes modes optional-one | mixed | — | — | passed |
 | s1c-souls-assembly | `src/lib/souls.ts` assembleSouls + runner.up() builds `GARRISON_SOULS_CONFIG` via spawnGateway extraEnv (gated on mcp-gateway present) | mixed | — | — | passed |
-| s1d-mode-resolver | Gateway mode-resolver + switch-log; orchestrator-mode turn runs preRoute then routes to the mode's soul session | mixed | — | — | pending |
+| s1d-mode-resolver | Gateway mode-resolver (name/sticky/channel-default) + switch-log + actionable `[mode:]` delegation (orchestrator `talk_to`). Per-mode model/effort = s1e; full classifier-preRoute-in-orchestrator-mode tracked as a separate follow-up | mixed | — | — | passed |
 | s1e-mode-bias | Pure `applyModeBias()` in routing-core; gateway calls it after resolveRoute | mixed | — | — | pending |
 | s2-mode-respawn | Mode-switch respawn-resume (shared memory preserved) + assert single generic warm pool; record /config gap | mixed | — | — | pending |
 | s3a-sessions-place | Gateway `POST /sessions/place` front-door placement (returns soul/promptPath/model/effort/sessionId) | mixed | — | — | pending |

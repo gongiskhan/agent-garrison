@@ -1,17 +1,18 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T15:16:05Z",
+  "updatedAt": "2026-06-22T15:36:07Z",
   "galleryUrl": null,
   "slices": [
-    { "slice": "s0-truthup", "title": "Truth-up: projection drift + discipline-in-prompt", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:16:05Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s0-truthup/gate-status.json" },
-    { "slice": "s1a-modes-fitting", "title": "modes fitting — Gary/Joe/James souls + shared voice", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:16:05Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1a-modes-fitting/gate-status.json" },
-    { "slice": "s1b-modes-capkind", "title": "modes capability kind + faculty + model-router consumes", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:16:05Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1b-modes-capkind/gate-status.json" },
-    { "slice": "s1c-souls-assembly", "title": "souls assembly + GARRISON_SOULS_CONFIG (mcp-gateway-gated)", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:16:05Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1c-souls-assembly/gate-status.json" }
+    { "slice": "s0-truthup", "title": "Truth-up: projection drift + discipline-in-prompt", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s0-truthup/gate-status.json" },
+    { "slice": "s1a-modes-fitting", "title": "modes fitting — Gary/Joe/James souls + shared voice", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1a-modes-fitting/gate-status.json" },
+    { "slice": "s1b-modes-capkind", "title": "modes capability kind + faculty + model-router consumes", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1b-modes-capkind/gate-status.json" },
+    { "slice": "s1c-souls-assembly", "title": "souls assembly + GARRISON_SOULS_CONFIG (mcp-gateway-gated)", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1c-souls-assembly/gate-status.json" },
+    { "slice": "s1d-mode-resolver", "title": "gateway mode-resolver + switch-log + [mode:] delegation", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1d-mode-resolver/gate-status.json" }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "4/14 slices passed (s0, s1a, s1b, s1c). 6 PRE-EXISTING test failures (non-existent fittings/seed/memory + gemini-runtime + fitting-files-api) present at BASE c092101 — not introduced by this run.",
-    "buildableRemaining": 10
+    "note": "5/14 slices passed (s0, s1a, s1b, s1c, s1d). 6 PRE-EXISTING test failures (non-existent fittings/seed/memory + gemini-runtime + fitting-files-api) present at BASE c092101 — not introduced by this run.",
+    "buildableRemaining": 9
   }
 }

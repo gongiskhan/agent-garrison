@@ -48,6 +48,24 @@ describe("Phase 9I L1 — orchestrator-prefix / buildOrchestratorTurn", () => {
     expect(turn).toContain("LoginForm regex");
   });
 
+  it("annotates the resolved mode in the header when provided (s1d)", async () => {
+    const mod = await import(path.join(LIB, "orchestrator-prefix.mjs"));
+    const turn = mod.buildOrchestratorTurn({
+      origin: "channel",
+      channel: "dev-env",
+      mode: "joe",
+      message: "ship it"
+    });
+    expect(turn.startsWith("[origin: channel, channel: dev-env, mode: joe]")).toBe(true);
+  });
+
+  it("omits the mode segment when no mode is resolved (back-compat)", async () => {
+    const mod = await import(path.join(LIB, "orchestrator-prefix.mjs"));
+    const turn = mod.buildOrchestratorTurn({ origin: "channel", channel: "main", message: "hi" });
+    expect(turn).toContain("[origin: channel, channel: main]");
+    expect(turn).not.toContain(", mode:");
+  });
+
   it("truncates very long summaries to keep the prefix bounded", async () => {
     const mod = await import(path.join(LIB, "orchestrator-prefix.mjs"));
     const longSummary = "x".repeat(600);

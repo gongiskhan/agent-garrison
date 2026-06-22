@@ -25,10 +25,20 @@ export interface SoulSpawnConfig {
 
 // The GARRISON_SOULS_CONFIG blob: an orchestrator entry + one entry per soul,
 // keyed `soul-<mode>` (gateway.mjs looks up `soul-${soul}` first, then `${soul}`).
+// Mode-switching metadata the gateway uses to resolve which face handles a turn
+// (name-at-start / sticky / channel default) and where to append the switch-log.
+export interface SoulsModesMeta {
+  names: string[];
+  defaultMode: string;
+  channelDefaults: Record<string, string>;
+  switchLogPath: string; // absolute, under the composition
+}
+
 export interface SoulsConfig {
   orchestratorFittingId: string;
   orchestrator: SoulSpawnConfig;
   souls: Record<string, SoulSpawnConfig>;
+  modes: SoulsModesMeta;
 }
 
 interface EntryLike {
@@ -73,8 +83,30 @@ export function composeSoulPrompt(input: {
   return parts.join("\n") + "\n";
 }
 
+// Instruction appended to the orchestrator session's prompt in soul mode, so the
+// gateway's `[mode: <name>]` turn-header annotation is ACTED ON, not merely
+// informational: the orchestrator must delegate the turn to that soul.
+export const MODE_DELEGATION_INSTRUCTION = `## Mode delegation (Gary / Joe / James)
+
+Each inbound turn's header may include \`[mode: <name>]\` — the user's selected face
+(one of the installed modes), resolved by the gateway from a mode name at the start
+of the message, the channel default, or the sticky current mode. When a mode is set,
+HONOR it: delegate the turn to that soul via the garrison-control
+\`talk_to(soul=<name>, message=...)\` tool, wait for its result, and report back in
+that soul's voice. Do not answer in your own voice when a mode is set — route to the
+soul. All souls share one memory.`;
+
+// Compose the orchestrator session's prompt for soul mode = the base assembled
+// prompt + the mode-delegation instruction.
+export function composeOrchestratorPrompt(basePrompt: string): string {
+  return `${basePrompt.trimEnd()}\n\n${MODE_DELEGATION_INSTRUCTION}\n`;
+}
+
 interface ModesJson {
   sharedVoiceRef: string;
+  defaultMode?: string;
+  channelDefaults?: Record<string, string>;
+  switching?: { switchLog?: string };
   modes: Record<string, { soulRef: string; label?: string }>;
 }
 
@@ -127,14 +159,38 @@ export async function assembleSouls(input: {
     };
   }
 
+  // Compose the orchestrator session's prompt for soul mode: the base assembled
+  // prompt + the mode-delegation instruction (so the gateway's [mode: <name>]
+  // annotation is acted on — the orchestrator delegates to that soul). Falls back
+  // to instruction-only if the base prompt can't be read.
+  let baseOrchestrator = "";
+  try {
+    baseOrchestrator = await fs.readFile(orchestratorPromptPath, "utf8");
+  } catch {
+    baseOrchestrator = "";
+  }
+  const orchestratorPath = path.join(soulsDir, "_orchestrator.md");
+  await fs.writeFile(orchestratorPath, composeOrchestratorPrompt(baseOrchestrator), "utf8");
+
+  const modesMeta: SoulsModesMeta = {
+    names: Object.keys(modesJson.modes),
+    defaultMode: modesJson.defaultMode ?? Object.keys(modesJson.modes)[0],
+    channelDefaults: modesJson.channelDefaults ?? {},
+    switchLogPath: path.join(
+      compositionDir,
+      modesJson.switching?.switchLog ?? ".garrison/switch-log.jsonl"
+    )
+  };
+
   return {
     orchestratorFittingId,
     orchestrator: {
-      promptPath: orchestratorPromptPath,
+      promptPath: orchestratorPath,
       resolvedBasePath: compositionDir,
       preset: "claude_code"
     },
-    souls
+    souls,
+    modes: modesMeta
   };
 }
 

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   composeSoulPrompt,
+  composeOrchestratorPrompt,
   findModesEntry,
   findOrchestratorEntryId,
   assembleSouls,
@@ -58,6 +59,8 @@ describe("souls assembly (s1c)", () => {
   it("assembleSouls composes 3 soul prompts from the seed fitting + returns the gateway config", async () => {
     const dir = mkdtempSync(join(tmpdir(), "garrison-souls-"));
     const orchPrompt = join(dir, ".garrison", "assembled-system-prompt.md");
+    mkdirSync(join(dir, ".garrison"), { recursive: true });
+    writeFileSync(orchPrompt, "# BASE ORCH PROMPT\n[orchestrator-active]\n", "utf8");
     const config = await assembleSouls({
       compositionDir: dir,
       modesDir: SEED_MODES,
@@ -80,7 +83,27 @@ describe("souls assembly (s1c)", () => {
       expect(config!.souls[`soul-${mode}`].promptPath).toBe(p);
       expect(config!.souls[`soul-${mode}`].preset).toBe("claude_code");
     }
-    expect(config!.orchestrator.promptPath).toBe(orchPrompt);
+    // orchestrator prompt for soul mode = base assembled prompt + mode-delegation
+    const orchComposedPath = join(dir, ".garrison", "souls", "_orchestrator.md");
+    expect(config!.orchestrator.promptPath).toBe(orchComposedPath);
+    const orchText = readFileSync(orchComposedPath, "utf8");
+    expect(orchText).toContain("BASE ORCH PROMPT");
+    expect(orchText).toContain("Mode delegation");
+    expect(orchText).toContain("talk_to");
+    // modes meta carried for the gateway mode-resolver (s1d)
+    expect(config!.modes.names.sort()).toEqual(["gary", "james", "joe"]);
+    expect(config!.modes.channelDefaults["dev-env"]).toBe("joe");
+    expect(config!.modes.channelDefaults.slack).toBe("gary");
+    expect(config!.modes.defaultMode).toBe("gary");
+    expect(config!.modes.switchLogPath).toBe(join(dir, ".garrison", "switch-log.jsonl"));
+  });
+
+  it("composeOrchestratorPrompt appends the mode-delegation (talk_to) instruction to the base", () => {
+    const out = composeOrchestratorPrompt("# Base orchestrator\n[orchestrator-active]");
+    expect(out).toContain("Base orchestrator");
+    expect(out).toContain("Mode delegation");
+    expect(out).toContain("talk_to(soul=<name>");
+    expect(out).toContain("share one memory");
   });
 
   it("assembleSouls returns null when the dir has no modes.json", async () => {

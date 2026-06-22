@@ -247,3 +247,16 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
 - DEFERRED to s1d / a live run-garrison check: actually booting the gateway in
   orchestrator/soul mode end-to-end (the dormant gateway.mjs path) — s1c's gate is the
   committed souls unit + typecheck + suite; live boot is integration.
+
+## s1d (mode resolver + switch-log)
+- Mode resolution (which face handles a turn) lives gateway-side in
+  forwardChatToOrchestrator: name-at-start (sticky) / channel default at session
+  start, logged to the switch-log, annotated as [mode: <name>] into the
+  orchestrator turn. assembleSouls composes the orchestrator's soul-mode prompt
+  with a MODE_DELEGATION_INSTRUCTION so [mode:] is acted on (talk_to(soul)).
+- RE-SCOPE (honest): the FLOW_PLAN s1d line said "orchestrator-mode turn runs
+  preRoute". Full classifier-preRoute INSIDE orchestrator/soul mode is a larger
+  unification (the routing layer lives in gateway-pty.mjs routed mode; gateway.mjs
+  orchestrator mode is a separate engine) — tracked as a SEPARATE follow-up, not
+  silently dropped. Per-mode model/effort is delivered by s1e (applyModeBias). s1d
+  delivers face resolution + switch-log + actionable delegation, fully gated.

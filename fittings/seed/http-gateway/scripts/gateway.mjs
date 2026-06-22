@@ -45,6 +45,7 @@ import {
 } from "./lib/spawn-soul.mjs";
 import { WorktreesProxy } from "./lib/worktrees-passthrough.mjs";
 import { buildOrchestratorTurn } from "./lib/orchestrator-prefix.mjs";
+import { resolveMode, buildSwitchEntry, appendSwitchLog } from "./lib/mode-resolver.mjs";
 import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
@@ -474,6 +475,9 @@ function killSessionBySoul(soul) {
 
 // ─────────────────────────────────────────────────── /chat → Orchestrator
 
+// Sticky current mode per channel (BRIEF: no name keeps the current mode).
+const modeByChannel = new Map();
+
 async function forwardChatToOrchestrator({ origin, channel, message }) {
   if (!orchestratorChild || !orchestratorSessionId) {
     throw new Error("orchestrator not booted");
@@ -483,7 +487,38 @@ async function forwardChatToOrchestrator({ origin, channel, message }) {
     sessionId: p.sessionId,
     summary: p.summary
   }));
-  const turn = buildOrchestratorTurn({ origin, channel, message, pendingSummaries: pending });
+  // Resolve which face (Gary/Joe/James) handles this turn — name-at-start (sticky)
+  // or the channel default at session start. The resolved mode is annotated into
+  // the orchestrator turn so it delegates to that soul; a real switch is logged.
+  let resolvedMode = null;
+  const modesMeta = soulsConfig?.modes;
+  if (modesMeta && Array.isArray(modesMeta.names) && modesMeta.names.length) {
+    const r = resolveMode({
+      message,
+      channel,
+      currentMode: modeByChannel.get(channel) ?? null,
+      channelDefaults: modesMeta.channelDefaults,
+      defaultMode: modesMeta.defaultMode,
+      names: modesMeta.names
+    });
+    resolvedMode = r.mode;
+    modeByChannel.set(channel, r.mode);
+    if (r.switched) {
+      const entry = buildSwitchEntry({
+        channel,
+        priorMode: r.priorMode,
+        mode: r.mode,
+        trigger: r.trigger,
+        nowIso: new Date().toISOString(),
+        signals: { origin }
+      });
+      appendSwitchLog(modesMeta.switchLogPath, entry).catch((err) =>
+        logEvent("stderr", { kind: "switch-log-failed", error: err.message })
+      );
+      logEvent("stdout", { kind: "mode-switch", channel, from: r.priorMode, to: r.mode, trigger: r.trigger });
+    }
+  }
+  const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending });
   const orchState = registry.get(orchestratorSessionId);
   if (orchState) orchState.lastSummary = null;
   writeUserTurn(orchestratorChild, turn);

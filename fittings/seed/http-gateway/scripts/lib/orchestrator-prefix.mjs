@@ -8,6 +8,7 @@
 export function buildOrchestratorTurn({
   origin = "channel",
   channel = "main",
+  mode = null,
   message,
   pendingSummaries = []
 }) {
@@ -17,7 +18,7 @@ export function buildOrchestratorTurn({
           .map((s) => `${s.soul ?? "soul"}/${s.sessionId?.slice(0, 8) ?? "?"}: ${truncate(s.summary, 400)}`)
           .join("; ")}]\n\n`
       : "";
-  const originLine = `[origin: ${origin}, channel: ${channel}]\n\n`;
+  const originLine = `[origin: ${origin}, channel: ${channel}${mode ? `, mode: ${mode}` : ""}]\n\n`;
   return `${originLine}${summaryClause}${message}`;
 }
 
