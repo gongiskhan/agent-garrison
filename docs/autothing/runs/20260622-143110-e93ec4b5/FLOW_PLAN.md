@@ -38,7 +38,7 @@ walkthrough apply); the rest are `mixed` (evidence = the committed test / CLI ca
 | s4-discipline-skills | Discipline→verb-skill mapping in routing-core (`renderDiscipline`/`disciplineSkill`) + orchestrator-prompt "Satisfying discipline" section (garrison-planning/-testing/code-review/-design-audit/run-garrison/-governance + `/goal`); garrison-* skills present | mixed | — | — | passed (codex blocked-external) |
 | s6a-workflows-launchable | Gateway `isWorkflowTarget`/`workflowTurnPrefix`: a resolved `workflow` target routes the turn to the operative's Workflow tool (compose-don't-own) instead of falling through as a plain turn | mixed | — | B | passed (codex blocked-external) |
 | s6b-improver-routed | Improver dream pass can route via preRoute (gateway `/chat`) — opt-in (`GARRISON_IMPROVER_ROUTE_VIA_GATEWAY=1` + gateway URL); default one-shot retained | mixed | — | B | passed (codex blocked-external) |
-| s5-kanban-v1a | Kanban Loop V1a engine fitting (`automation-runner`): board/cards/ULID/atomic, agent-list runs combined prompt via preRoute, exact-match next-list or needs-attention, goal-mode `/goal`, §9 applied (UI → V1b) | mixed | — | — | pending |
+| s5-kanban-v1a | Kanban Loop V1a engine fitting (`automation-runner`): board/cards/ULID/atomic, derived membership, agent-list runs combined prompt via preRoute (injected runFn), exact-match next-list or needs-attention, iteration cap, goal-mode `/goal`, §9+§10 applied (UI → V1b) | mixed | — | — | passed (codex blocked-external) |
 
 Groups: **A** = {s0, s1a} disjoint (CLAUDE.md + model-router prompt vs new `modes/` dir) →
 parallelizable. **B** = {s6a, s6b} disjoint (gateway-routing vs improver) once the seam is solid.

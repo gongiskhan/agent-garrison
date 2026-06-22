@@ -1,0 +1,51 @@
+name: kanban-loop
+version: 0.1.0
+description: Kanban Loop V1a — a workflow state machine wearing a Kanban board. Cards are work items, lists are pipeline states, an agent-list's router-prompt is the transition function. Composes the orchestrator (preRoute), skills, and the heartbeat. Engine only (V1a); the board UI is V1b.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: observability
+  cardinality_hint: single
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: >-
+    A Garrison automation-runner. File-per-card board under ~/.garrison/kanban-loop
+    (ULID ids, atomic writes; membership derived by scanning cards, never stored).
+    A manual list is a plain column; an agent-list has a named skill + execute-prompt
+    + router-prompt — on entry the engine sends the combined prompt through the
+    orchestrator front door (preRoute, which decides effort/model), then the router
+    output must EXACTLY name one of the card's valid next lists or the card parks in
+    needs-attention. Goal-mode prepends /goal + FLOW_PLAN acceptance. V1a engine; UI is V1b.
+  config_schema:
+    - key: board_dir
+      type: path
+      default: ~/.garrison/kanban-loop
+      description: Per-machine board root (override via GARRISON_KANBAN_DIR).
+    - key: iteration_cap
+      type: integer
+      default: 10
+      description: Per-card iteration cap; a breach parks the card in needs-attention.
+  provides:
+    - kind: automation-runner
+      name: kanban-loop
+  consumes:
+    - kind: orchestrator
+      cardinality: optional-one
+  setup:
+    command: node scripts/kanban.mjs --setup
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/kanban-loop/scripts/kanban.mjs --probe
+    expect: KANBAN-OK
+    timeout_ms: 10000
+  for_consumers: |
+    The Kanban Loop sequences work items (cards) through pipeline states (lists). A
+    manual list is a plain column; an agent-list runs its named skill, sends the
+    execute+router prompt through the orchestrator (preRoute decides effort/model),
+    and the router output must EXACTLY name one of the card's valid next lists, else
+    the card parks in needs-attention. It does NOT own routing or skills — it
+    sequences them (one skill-decider per list, one effort/model decider in the
+    router, no overlap). Goal-mode cards prepend /goal + FLOW_PLAN acceptance.

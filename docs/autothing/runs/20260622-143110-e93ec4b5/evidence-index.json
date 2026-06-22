@@ -1,7 +1,7 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T17:01:39Z",
+  "updatedAt": "2026-06-22T17:10:10Z",
   "galleryUrl": null,
   "slices": [
     {
@@ -152,20 +152,41 @@
       "flagged": true,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s6b-improver-routed/gate-status.json"
+    },
+    {
+      "slice": "s5-kanban-v1a",
+      "title": "Kanban Loop V1a engine fitting (automation-runner)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T17:10:10Z",
+      "flagged": true,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s5-kanban-v1a/gate-status.json"
     }
   ],
   "globalGate": {
-    "status": "in_progress",
-    "note": "13/14 passed (s0,s1a-e,s2,s3a-c,s4,s6a,s6b). Only s5 (Kanban V1a) remains. Codex cross-model gate blocked-external from s3c-fix on. s1e codex override. 6 PRE-EXISTING failures at BASE.",
-    "buildableRemaining": 1,
-    "externalBlockers": [
+    "status": "completed-with-blockers",
+    "slicesBuilt": "14/14",
+    "objectiveGates": {
+      "tests": "committed per slice",
+      "typecheck": 0,
+      "suite": "907 passed / 6 PRE-EXISTING failures (not introduced by this run; present at BASE c092101)"
+    },
+    "crossModel": "blocked-external from s3c-fix onward (Codex out of credits); s0\u2013s3b got real cross-model review (caught a fix on nearly every slice)",
+    "buildableRemaining": 0,
+    "blockers": [
       {
-        "cause": "Codex/ChatGPT workspace out of credits",
-        "failedCommand": "codex exec ...",
+        "cause": "external: Codex/ChatGPT workspace out of credits",
+        "failedCommand": "codex exec --output-last-message <file> \"<adversarial review prompt>\"",
         "observed": "Your workspace is out of credits. Add credits to continue.",
-        "remediation": "Add credits to the Codex workspace and re-run the adversarial-review/test gates",
-        "affects": "cross-model gate for s3c-fix, s2, s4, s6, s5"
+        "remediation": "Add credits to the Codex workspace, then re-run autothing-adversarial-review/-test on the run diff (HEAD~14..HEAD)"
       }
-    ]
+    ],
+    "overrides": [
+      "s1e r3: programmatic per-mode tier enforcement deferred to the orchestrator-mode\u2194routing unification follow-up"
+    ],
+    "notes": "Deliverables: modes (Gary/Joe/James) + Dev-Env-via-orchestrator (LIVE-verified) + autothing-parts-as-discipline + bypasses-closed + Kanban V1a. Tracked follow-ups: orchestrator-mode\u2194routing unification (programmatic preRoute + tier enforcement inside the dormant gateway.mjs soul mode); 6 pre-existing repo test failures (non-existent fittings/seed/memory + gemini-runtime + fitting-files-api)."
   }
 }
