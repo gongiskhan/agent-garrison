@@ -1,7 +1,7 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T16:55:42Z",
+  "updatedAt": "2026-06-22T17:01:39Z",
   "galleryUrl": null,
   "slices": [
     {
@@ -140,12 +140,24 @@
       "flagged": true,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s6a-workflows-launchable/gate-status.json"
+    },
+    {
+      "slice": "s6b-improver-routed",
+      "title": "Improver dream pass routable via preRoute (opt-in)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T17:01:39Z",
+      "flagged": true,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s6b-improver-routed/gate-status.json"
     }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "12/14 passed (s0,s1a-e,s2,s3a-c,s4,s6a). Codex cross-model gate blocked-external from s3c-fix on. s1e codex override. 6 PRE-EXISTING failures at BASE.",
-    "buildableRemaining": 2,
+    "note": "13/14 passed (s0,s1a-e,s2,s3a-c,s4,s6a,s6b). Only s5 (Kanban V1a) remains. Codex cross-model gate blocked-external from s3c-fix on. s1e codex override. 6 PRE-EXISTING failures at BASE.",
+    "buildableRemaining": 1,
     "externalBlockers": [
       {
         "cause": "Codex/ChatGPT workspace out of credits",

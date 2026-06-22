@@ -37,7 +37,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { runImprover, upsertQueue } from "../lib/improver-core.mjs";
-import { runDreamPhase } from "../lib/memory-dream.mjs";
+import { runDreamPhase, chooseDreamRunTurn } from "../lib/memory-dream.mjs";
 import { scanSkillTelemetry, telemetryToJSON } from "../lib/skill-telemetry.mjs";
 import { loadProvenance } from "../lib/provenance.mjs";
 import { planMaintenance } from "../lib/maintenance-core.mjs";
@@ -188,11 +188,19 @@ export function loadDreamConfig() {
 // otherwise undefined → memory-dream.mjs uses the real @garrison/claude-pty path.
 function makeDreamRunTurn() {
   const fixture = process.env.IMPROVER_DREAM_FIXTURE;
-  if (!fixture) return undefined;
-  return async () => {
-    const obj = JSON.parse(readFileSync(fixture, "utf8"));
-    return { reply: typeof obj.reply === "string" ? obj.reply : JSON.stringify(obj), sessionId: obj.sessionId || null };
-  };
+  if (fixture) {
+    return async () => {
+      const obj = JSON.parse(readFileSync(fixture, "utf8"));
+      return { reply: typeof obj.reply === "string" ? obj.reply : JSON.stringify(obj), sessionId: obj.sessionId || null };
+    };
+  }
+  // Opt-in (kanban §10 "one entry for all autonomous flows"): route the dream pass
+  // through the gateway's pre-route seam when enabled + a gateway URL is set.
+  // Default → chooseDreamRunTurn returns the one-shot path (unchanged behavior).
+  return chooseDreamRunTurn({
+    routeViaGateway: process.env.GARRISON_IMPROVER_ROUTE_VIA_GATEWAY === "1",
+    gatewayUrl: process.env.GARRISON_GATEWAY_URL || null,
+  });
 }
 
 // basic-memory reindex/doctor runner for the deterministic housekeeping step.
