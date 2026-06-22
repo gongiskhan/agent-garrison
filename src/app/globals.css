@@ -130,62 +130,6 @@ nav.tabs .item .ct {
 }
 nav.tabs .item.active .ct { color: var(--brass-2); }
 
-.nested { padding-left: 14px; margin: 2px 0 6px; }
-.nested .leaf {
-  display: grid;
-  grid-template-columns: 14px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  padding: 4.5px 10px;
-  font-size: 12.5px;
-  color: var(--ink-mute);
-  cursor: pointer;
-  text-decoration: none;
-}
-.nested .leaf:hover { color: var(--ink); }
-.nested .leaf.active { background: var(--paper-2); color: var(--ink); }
-.nested .leaf .glyph {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  font-size: 11px;
-  line-height: 1;
-  text-align: center;
-}
-.nested .leaf.empty .glyph { color: var(--mute); }
-.nested .leaf.verified .glyph { color: var(--sage); }
-.nested .leaf.alarm .glyph { color: var(--alarm); }
-.nested .leaf .badge {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--mute);
-}
-.group-h {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--mute);
-  padding: 8px 14px 4px;
-}
-/* collapsible group header: a full-width button that reads like .group-h but
-   carries a chevron and an optional item count. */
-button.group-h.group-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-}
-button.group-h.group-toggle:hover { color: var(--ink); }
-.group-h .group-count {
-  margin-left: 7px;
-  color: var(--rule-2);
-  letter-spacing: 0.1em;
-}
-button.group-h.group-toggle:hover .group-count { color: var(--mute); }
-
 .side-foot {
   margin-top: auto;
   padding: 12px 10px 0;
