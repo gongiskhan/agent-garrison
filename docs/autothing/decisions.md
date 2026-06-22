@@ -308,3 +308,23 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
   same-model review, typecheck, suite, live checks) with codexReview=blocked-external.
   The global gate will be COMPLETED-WITH-BLOCKERS citing this. Remediation: add
   credits to the Codex workspace, then re-run the adversarial gates on the run's diff.
+
+## s2 (execution layer: HOT/BOOT/shared-memory) — pool-collapse under Q4
+- Q4 = assume current reality (no /config-hotswap spike). The warm pool is ALREADY
+  one generic operative pool (FINDING 7): the gateway wires one primary "operative"
+  runtime + one "classifier"; model/effort are applied at checkout via slash-inject
+  (/model, /effort, stage-b.mjs), NOT by partitioning the pool. s2 LOCKS this with a
+  test (tests/warm-pool-single.test.ts).
+- HOT set (hot-swappable mid-session via slash-inject): {model, effort}.
+- BOOT set (needs a fresh session): {system prompt / soul identity}. In the gateway
+  orchestrator mode this is realized as a SEPARATE soul session per face (gary/joe/
+  james keyed in the registry); shouldRespawnForTier already respawns-with-resume on a
+  model change within a soul. A `shouldRespawnForMode` for a SINGLE operative would be
+  dead code today (mode switch routes to a different soul session) — it belongs to the
+  orchestrator-mode↔routing unification (a single operative that respawns on a
+  system-prompt/mode change).
+- Shared memory ("one operative, one memory"): the Basic Memory faculty (the vault) is
+  shared across all three modes by construction — every soul session reads/writes the
+  same store. Not the same Claude transcript; the persistent memory store.
+- KNOWN GAP (no spike, Q4): permission-mode / allowed-tools / MCP-allowlist are NOT
+  hot-swapped (would need `/config key=value`, unverified). Out of scope; recorded.

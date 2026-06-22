@@ -1,0 +1,20 @@
+{
+  "slice": "s2-mode-respawn",
+  "title": "single generic warm pool lock (FINDING 7) + execution-layer documentation",
+  "updatedAt": "2026-06-22T16:51:39Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/warm-pool-single.test.ts", "exit": 0, "at": "2026-06-22T16:51:39Z", "summary": "2 passed — operative pool keyed by runtime not (model×effort×type); gateway wires exactly one primary 'operative' runtime, no per-model partitioning" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T16:51:39Z", "summary": "clean" },
+    "suite": { "cmd": "npm test", "at": "2026-06-22T16:51:39Z", "summary": "892 passed; 6 PRE-EXISTING failures; no new regressions" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T16:51:39Z", "summary": "test + docs only; pool already monolithic (Q4 assume-current-reality). shouldRespawnForMode would be YAGNI (mode switch = separate soul session). HOT/BOOT/shared-memory recorded honestly." },
+    "codexReview": { "verdict": "blocked-external", "by": "codex/chatgpt", "at": "2026-06-22T16:51:39Z", "lastReport": "Codex workspace out of credits", "blockedExternal": true },
+    "codexPwTest": { "result": "blocked-external", "reason": "Codex workspace out of credits" },
+    "designAudit": { "verdict": "n/a", "reason": "no UI" },
+    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow" }
+  },
+  "blockers": [
+    { "gate": "codexReview/codexPwTest", "cause": "external: Codex/ChatGPT workspace out of credits", "failedCommand": "codex exec --output-last-message <file> \"<review prompt>\"", "observed": "Your workspace is out of credits. Add credits to continue.", "remediation": "Add credits to the Codex workspace, then re-run the adversarial review on this slice's diff." }
+  ]
+}

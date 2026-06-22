@@ -1,7 +1,7 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T16:47:36Z",
+  "updatedAt": "2026-06-22T16:51:39Z",
   "galleryUrl": null,
   "slices": [
     {
@@ -116,12 +116,24 @@
       "flagged": true,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s4-discipline-skills/gate-status.json"
+    },
+    {
+      "slice": "s2-mode-respawn",
+      "title": "single generic warm pool lock + execution-layer documentation",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T16:51:39Z",
+      "flagged": true,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s2-mode-respawn/gate-status.json"
     }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "10/14 passed (s0,s1a-e,s3a,s3b,s3c,s4). Deliverable #1 (autothing parts routed via the orchestrator's discipline policy) + #3 (Dev Env via orchestrator, LIVE) done. Codex cross-model gate blocked-external (out of credits) from s3c-fix on. s1e codex override. 6 PRE-EXISTING failures.",
-    "buildableRemaining": 4,
+    "note": "11/14 passed (s0,s1a-e,s2,s3a-c,s4). Codex cross-model gate blocked-external from s3c-fix on. s1e codex override. 6 PRE-EXISTING failures at BASE.",
+    "buildableRemaining": 3,
     "externalBlockers": [
       {
         "cause": "Codex/ChatGPT workspace out of credits",
