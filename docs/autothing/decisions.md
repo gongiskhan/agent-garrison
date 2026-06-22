@@ -277,3 +277,14 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
   be responsibly built + gated without a live orchestrator-mode boot (claude +
   mcp-gateway + souls). TRACKED as a dedicated follow-up; the global gate stays out
   of clean "passed" because of it (honest).
+
+## s3a (orchestrator placement) — reorder + reframe
+- Built s3a AHEAD of s2 (deliverable #3 — Dev Env via orchestrator — is the
+  user's explicit priority; s2 respawn lives in the dormant orchestrator-mode path).
+- REFRAMED s3a from "gateway POST /sessions/place" to a LIVE Garrison API
+  "POST /api/orchestrator/place" (src/lib/orchestrator-placement.ts). Rationale:
+  the gateway's /sessions/place lives in the dormant orchestrator/soul mode; a
+  Garrison API is always available, live-testable, and reuses the same souls/mode
+  /bias logic. The Dev Env (s3b) calls it and spawns Claude Code with the composed
+  mode prompt + model. v1 sources modes + routing from the repo seed;
+  composition-scoped overrides are a noted later enhancement.

@@ -1,7 +1,7 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T16:00:33Z",
+  "updatedAt": "2026-06-22T16:08:18Z",
   "galleryUrl": null,
   "slices": [
     {
@@ -70,11 +70,22 @@
       "flagged": true,
       "flagReason": "codex approve-with-override r3: programmatic talk_to tier enforcement = orchestrator-mode\u2194routing unification follow-up",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1e-mode-bias/gate-status.json"
+    },
+    {
+      "slice": "s3a-sessions-place",
+      "title": "orchestrator placement API (place at birth)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T16:08:18Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3a-sessions-place/gate-status.json"
     }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "6/14 slices passed (s0,s1a,s1b,s1c,s1d,s1e). s1e carries a codex override (programmatic per-mode tier enforcement deferred to the orchestrator-mode\u2194routing unification). 6 PRE-EXISTING failures present at BASE c092101.",
-    "buildableRemaining": 8
+    "note": "7/14 slices passed (s0,s1a-e,s3a). s3a (deliverable #3 front door) built ahead of s2. s1e carries a codex override. 6 PRE-EXISTING failures at BASE c092101.",
+    "buildableRemaining": 7
   }
 }
