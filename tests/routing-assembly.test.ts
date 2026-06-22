@@ -41,6 +41,25 @@ describe("routing assembly (MR1b — assembly-ok)", () => {
     expect(markerCount).toBe(1);
   });
 
+  it("the compiled routing section carries the discipline + continuations policy, and it reaches the assembled prompt (foundation for discipline→skill mapping)", () => {
+    const section = compileRouting(SEED, "balanced");
+    // the discipline matrix (post-task duties by tier) + continuations are the
+    // policy the orchestrator turns into autothing-style gates (WS4).
+    expect(section).toContain("Discipline");
+    expect(section).toContain("Continuations");
+    const out = buildOrchestratorInstructions({
+      orchestrator: PROMPT,
+      soul: "# Verity\nYou are Verity, the operative's identity.",
+      entries: [],
+      routingSection: section
+    });
+    // both discipline AND continuations must reach the operative's assembled
+    // prompt, not just the compiled section.
+    expect(out).toContain("Discipline");
+    expect(out).toContain("Continuations");
+    expect(out).not.toContain("{{routing}}");
+  });
+
   it("substituteRoutingPlaceholder strips the placeholder cleanly when no section is available", () => {
     const stripped = substituteRoutingPlaceholder("before {{routing}} after", null);
     expect(stripped).toBe("before  after");

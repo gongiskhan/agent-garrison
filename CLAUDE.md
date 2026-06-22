@@ -22,7 +22,10 @@ and spawns Claude Code via the Anthropic Agent SDK in-process.
 > transparent **control plane over the user's real `~/.claude`**: APM is
 > the single package writer; the owned/loose/parked state model and 6 roles
 > (down from the prior flat-Faculty list) are live; the Orchestrator prompt
-> is projected to `~/.claude/rules/garrison-orchestrator.md`. The
+> is assembled (soul + orchestrator + `{{capabilities}}`/`{{routing}}`) and
+> handed to the gateway at launch. The `projectOrchestrator` rules-file
+> projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but
+> not yet wired into `up()` — RC3 dormant. The
 > hosted-session launcher (RC4) is **not yet wired**, so the runner still
 > spawns a process via `spawnGateway`/`spawnClaude`. See
 > [`docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md).
@@ -171,9 +174,12 @@ with orphan cleanup.
 
 `orchestrator-projection.ts` — `buildOrchestratorInstructions` (soul +
 orchestrator + `{{capabilities}}` fold) + `projectOrchestrator` (APM
-instructions primitive → `~/.claude/rules/garrison-orchestrator.md`) +
+instructions primitive → `~/.claude/rules/garrison-orchestrator.md`;
+**implemented but not called by `up()` — RC3 dormant**) +
 `orchestratorAppendSystemPrompt` (per-launch fallback via
-`--append-system-prompt`).
+`--append-system-prompt`). At runtime `up()` assembles the prompt and hands it
+to the gateway (`GARRISON_SYSTEM_PROMPT_PATH` / souls config), not the rules
+file.
 
 ### Capabilities
 
@@ -201,7 +207,8 @@ the resolver from `ui.views[]` / `own_port`, never declared in `provides`).
 5. Assemble the system prompt: soul + orchestrator + `{{capabilities}}` (each
    provider's `for_consumers` markdown indented under its capability line,
    falls back to `summary`). Write `assembled-system-prompt.md`.
-   Also project to `~/.claude/rules/garrison-orchestrator.md`.
+   (The `projectOrchestrator` rules-file projection exists but is **not**
+   called here yet — RC3 dormant.)
 6. Spawn the Operative via the Anthropic Agent SDK in-process.
    Auth uses the user's Max account; no API key billing.
 

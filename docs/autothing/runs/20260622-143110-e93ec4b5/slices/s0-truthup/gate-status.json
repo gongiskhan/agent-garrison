@@ -1,0 +1,19 @@
+{
+  "slice": "s0-truthup",
+  "title": "Truth-up: CLAUDE.md projection drift + routing/discipline reaches prompt",
+  "updatedAt": "2026-06-22T13:46:36Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/routing-assembly.test.ts", "exit": 0, "at": "2026-06-22T13:46:36Z", "summary": "7 passed (incl. new discipline+continuations assertion)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T13:46:36Z", "summary": "tsc --noEmit clean" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T13:46:36Z", "summary": "doc corrections accurate vs code; test asserts its claim" },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex/chatgpt", "at": "2026-06-22T13:46:36Z", "lastReport": "r2 APPROVE; r1 flagged Continuations assertion asymmetry (fixed forward)" },
+    "codexPwTest": { "result": "n/a", "reason": "no live app/runtime behavior — doc + unit-test slice; committed vitest is the re-runnable assertion (Codex-reviewed)" },
+    "designAudit": { "verdict": "n/a", "reason": "not a UI slice" },
+    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow to demo; committed test is the evidence artifact" }
+  },
+  "blockers": []
+}

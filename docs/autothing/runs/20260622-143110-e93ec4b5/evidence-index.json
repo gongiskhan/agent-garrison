@@ -1,0 +1,10 @@
+{
+  "project": "agent-garrison",
+  "runId": "20260622-143110-e93ec4b5",
+  "updatedAt": "2026-06-22T13:46:36Z",
+  "galleryUrl": null,
+  "slices": [
+    { "slice": "s0-truthup", "title": "Truth-up: projection drift + discipline-in-prompt", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T13:46:36Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s0-truthup/gate-status.json" }
+  ],
+  "globalGate": { "status": "in_progress", "note": "1/14 slices passed; build loop continues" }
+}
