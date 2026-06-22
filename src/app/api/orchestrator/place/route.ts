@@ -22,7 +22,6 @@ export async function POST(request: NextRequest) {
       channel,
       mode,
       modesDir: path.join(ROOT_DIR, "fittings/seed/modes"),
-      routingCorePath: path.join(ROOT_DIR, "fittings/seed/model-router/lib/routing-core.mjs"),
       routingConfigPath: path.join(ROOT_DIR, "fittings/seed/model-router/config/routing.seed.json"),
       outDir: path.join(os.homedir(), ".garrison", "dev-env-souls")
     });

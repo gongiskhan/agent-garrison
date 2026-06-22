@@ -1,7 +1,7 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T16:26:57Z",
+  "updatedAt": "2026-06-22T16:42:05Z",
   "galleryUrl": null,
   "slices": [
     {
@@ -92,11 +92,32 @@
       "verifiedAt": "2026-06-22T16:26:57Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3b-devenv-orchestrated/gate-status.json"
+    },
+    {
+      "slice": "s3c-devenv-ui",
+      "title": "Dev Env UI mode dropdown + LIVE-verified placement front door",
+      "kind": "ui",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "failed-but-unblocking",
+      "verifiedAt": "2026-06-22T16:42:05Z",
+      "flagged": true,
+      "flagReason": "live API integration-verified (joe/expert/opus); UI Codex-approved; placement-fix Codex blocked (workspace out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3c-devenv-ui/gate-status.json"
     }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "8/14 slices passed (s0,s1a-e,s3a,s3b). Dev Env can now start a session THROUGH the orchestrator (mode prompt + model). s1e carries a codex override. 6 PRE-EXISTING failures at BASE c092101.",
-    "buildableRemaining": 6
+    "note": "9/14 passed (s0,s1a-e,s3a,s3b,s3c). Deliverable #3 (Dev Env via orchestrator) LIVE-verified end-to-end. EXTERNAL BLOCKER from s3c-fix onward: Codex workspace out of credits \u2192 cross-model gate blocked for remaining slices. s1e carries a codex override. 6 PRE-EXISTING test failures at BASE c092101.",
+    "buildableRemaining": 5,
+    "externalBlockers": [
+      {
+        "cause": "Codex/ChatGPT workspace out of credits",
+        "failedCommand": "codex exec ...",
+        "observed": "Your workspace is out of credits. Add credits to continue.",
+        "remediation": "Add credits to the Codex workspace and re-run the adversarial-review/test gates",
+        "affects": "cross-model gate for s3c-fix, s2, s4, s6, s5"
+      }
+    ]
   }
 }

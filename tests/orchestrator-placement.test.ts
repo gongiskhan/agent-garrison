@@ -6,7 +6,6 @@ import { placeOrchestratedSession, resolvePlacementMode } from "../src/lib/orche
 
 const ROOT = join(__dirname, "..");
 const MODES_DIR = join(ROOT, "fittings/seed/modes");
-const RC = join(ROOT, "fittings/seed/model-router/lib/routing-core.mjs");
 const RCONF = join(ROOT, "fittings/seed/model-router/config/routing.seed.json");
 const NAMES = ["gary", "joe", "james"];
 const CH = { "dev-env": "joe", slack: "gary", web: "gary" };
@@ -16,7 +15,6 @@ const place = (channel: string, mode?: string) =>
     channel,
     mode,
     modesDir: MODES_DIR,
-    routingCorePath: RC,
     routingConfigPath: RCONF,
     outDir: mkdtempSync(join(tmpdir(), "place-"))
   });
@@ -57,7 +55,6 @@ describe("orchestrator placement (s3a)", () => {
     const r = await placeOrchestratedSession({
       channel: "dev-env",
       modesDir: empty,
-      routingCorePath: RC,
       routingConfigPath: RCONF,
       outDir: empty
     });

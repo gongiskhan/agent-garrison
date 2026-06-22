@@ -2,6 +2,7 @@
 // transient bottom toast. Style follows the terminal donor's modal pattern.
 
 import React, { useEffect, useState } from "react";
+import { buildSessionRequest, MODE_OPTIONS, DEFAULT_MODE } from "./session-request";
 
 interface Project {
   name: string;
@@ -143,6 +144,8 @@ export function StartSessionDialog({
   const [projects, setProjects] = useState<Project[]>([]);
   const [path, setPath] = useState<string>(initialRepoPath ?? "");
   const [busy, setBusy] = useState(false);
+  // Which face the session starts as (dev-env defaults to Joe). "off" = bare.
+  const [mode, setMode] = useState<string>(DEFAULT_MODE);
 
   useEffect(() => {
     void (async () => {
@@ -166,7 +169,7 @@ export function StartSessionDialog({
       const res = await fetch("/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: path.trim(), ...(resume ? { continue: true } : {}) })
+        body: JSON.stringify(buildSessionRequest({ path, resume, mode: resume ? null : mode }))
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -226,6 +229,20 @@ export function StartSessionDialog({
             }}
           />
         </label>
+        {!resume && (
+          <label className="modal-label">
+            Orchestrator
+            <select
+              className="project-picker"
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+            >
+              {MODE_OPTIONS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="modal-row">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn primary" onClick={() => void submit()} disabled={busy || !path.trim()}>

@@ -288,3 +288,23 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
   /bias logic. The Dev Env (s3b) calls it and spawns Claude Code with the composed
   mode prompt + model. v1 sources modes + routing from the repo seed;
   composition-scoped overrides are a noted later enhancement.
+
+## s3c (Dev Env UI) + EXTERNAL BLOCKER: Codex out of credits
+- s3c: mode <select> (default Joe) in StartSessionDialog + pure buildSessionRequest;
+  submit posts orchestrated:true+mode → server /api/orchestrator/place → claude with
+  the composed mode prompt + model.
+- LIVE INTEGRATION CHECK (the gate working): curl to the RUNNING Garrison
+  /api/orchestrator/place returned mode=joe but model=null/role=standard — caught a
+  real bug the unit test missed: orchestrator-placement.ts derived model via a
+  RUNTIME dynamic import of routing-core.mjs by file URL, which silently FAILS in
+  the Next server runtime (works under vitest). FIX: inlined biasRole/modeBiasFor as
+  pure TS (no .mjs import); re-verified live → mode=joe, role=expert, model=opus,
+  effort=high. Deliverable #3 is LIVE end-to-end.
+- EXTERNAL BLOCKER (run-wide from here): the Codex/ChatGPT workspace is OUT OF
+  CREDITS — `codex exec` returns "Your workspace is out of credits. Add credits to
+  continue." The cross-model adversarial gate (autothing-adversarial-review/-test)
+  cannot run for s3c's fix or any later slice. I cannot self-unblock (needs the user
+  to add credits). Remaining slices proceed through all OTHER gates (committed tests,
+  same-model review, typecheck, suite, live checks) with codexReview=blocked-external.
+  The global gate will be COMPLETED-WITH-BLOCKERS citing this. Remediation: add
+  credits to the Codex workspace, then re-run the adversarial gates on the run's diff.
