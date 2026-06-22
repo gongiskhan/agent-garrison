@@ -174,12 +174,32 @@ function renderMatrix(config) {
   return [header, sep, ...body, colDefaults].join("\n");
 }
 
+// Map a discipline field value to the Garrison verb-skill that satisfies it —
+// the decomposed-autothing parts the orchestrator invokes (deliverable #1). A
+// higher tier escalates the skill set; "none"/"text" need no skill.
+function disciplineSkill(field, value) {
+  if (!value || value === "none") return null;
+  if (field === "testing") return "garrison-testing"; // tests / full-gates
+  if (field === "review") {
+    return String(value).startsWith("review-by")
+      ? "code-review + garrison-design-audit (UI)"
+      : "code-review";
+  }
+  if (field === "evidence") return value === "video" ? "run-garrison (walkthrough)" : null;
+  if (field === "distribution") return value === "link" ? "garrison-governance (record + link)" : null;
+  return null;
+}
+
 function renderDiscipline(config, profileName) {
   const lines = [];
+  const ann = (field, value) => {
+    const s = disciplineSkill(field, value);
+    return s ? `${value} → ${s}` : value;
+  };
   for (const tier of TIERS) {
     const d = resolveDiscipline(config, profileName, tier);
     lines.push(
-      `- **${tier}** — review: ${d.review}; testing: ${d.testing}; evidence: ${d.evidence}; distribution: ${d.distribution}`
+      `- **${tier}** — review: ${ann("review", d.review)}; testing: ${ann("testing", d.testing)}; evidence: ${ann("evidence", d.evidence)}; distribution: ${ann("distribution", d.distribution)}`
     );
   }
   return lines.join("\n");

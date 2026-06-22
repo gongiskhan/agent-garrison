@@ -1,0 +1,21 @@
+{
+  "slice": "s4-discipline-skills",
+  "title": "discipline → verb-skill mapping + orchestrator prompt (deliverable #1)",
+  "updatedAt": "2026-06-22T16:47:36Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/discipline-skills.test.ts + routing regression", "exit": 0, "at": "2026-06-22T16:47:36Z", "summary": "23 passed — compiled discipline names garrison-testing/code-review/garrison-design-audit/run-garrison/garrison-governance at the right tiers; T0 escalates none; prompt has the Satisfying-discipline section + /goal + FLOW_PLAN" },
+    "syntax": { "cmd": "node --check routing-core.mjs", "exit": 0, "at": "2026-06-22T16:47:36Z" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T16:47:36Z", "summary": "clean" },
+    "suite": { "cmd": "npm test", "at": "2026-06-22T16:47:36Z", "summary": "890 passed; 6 PRE-EXISTING failures; no new regressions" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T16:47:36Z", "summary": "EXTRA-careful (no cross-model net): disciplineSkill mapping deterministic + tested; prompt section additive static text referencing real garrison-* skills; low blast radius" },
+    "codexReview": { "verdict": "blocked-external", "by": "codex/chatgpt", "at": "2026-06-22T16:47:36Z", "lastReport": "Codex workspace out of credits — cross-model review unavailable", "blockedExternal": true },
+    "codexPwTest": { "result": "blocked-external", "reason": "Codex workspace out of credits" },
+    "designAudit": { "verdict": "n/a", "reason": "no UI" },
+    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow" }
+  },
+  "blockers": [
+    { "gate": "codexReview/codexPwTest", "cause": "external: Codex/ChatGPT workspace out of credits", "failedCommand": "codex exec --output-last-message <file> \"<review prompt>\"", "observed": "Your workspace is out of credits. Add credits to continue.", "remediation": "Add credits to the Codex workspace, then re-run the adversarial review on this slice's diff." }
+  ]
+}

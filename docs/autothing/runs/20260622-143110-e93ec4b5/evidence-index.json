@@ -1,7 +1,7 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T16:42:05Z",
+  "updatedAt": "2026-06-22T16:47:36Z",
   "galleryUrl": null,
   "slices": [
     {
@@ -104,12 +104,24 @@
       "flagged": true,
       "flagReason": "live API integration-verified (joe/expert/opus); UI Codex-approved; placement-fix Codex blocked (workspace out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3c-devenv-ui/gate-status.json"
+    },
+    {
+      "slice": "s4-discipline-skills",
+      "title": "discipline \u2192 verb-skill mapping + orchestrator prompt (autothing parts via the orchestrator)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T16:47:36Z",
+      "flagged": true,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s4-discipline-skills/gate-status.json"
     }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "9/14 passed (s0,s1a-e,s3a,s3b,s3c). Deliverable #3 (Dev Env via orchestrator) LIVE-verified end-to-end. EXTERNAL BLOCKER from s3c-fix onward: Codex workspace out of credits \u2192 cross-model gate blocked for remaining slices. s1e carries a codex override. 6 PRE-EXISTING test failures at BASE c092101.",
-    "buildableRemaining": 5,
+    "note": "10/14 passed (s0,s1a-e,s3a,s3b,s3c,s4). Deliverable #1 (autothing parts routed via the orchestrator's discipline policy) + #3 (Dev Env via orchestrator, LIVE) done. Codex cross-model gate blocked-external (out of credits) from s3c-fix on. s1e codex override. 6 PRE-EXISTING failures.",
+    "buildableRemaining": 4,
     "externalBlockers": [
       {
         "cause": "Codex/ChatGPT workspace out of credits",
