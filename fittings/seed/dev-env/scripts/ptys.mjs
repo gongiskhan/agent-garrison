@@ -141,8 +141,26 @@ export function listSessionTerminals(sessionId) {
 // id would be a command-injection vector. An id that fails this is ignored
 // (falls back to --continue / fresh) rather than executed.
 const SAFE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
+// Model aliases/ids are conservative; reject anything else so an orchestrator
+// placement value can't inject shell metachars into the spawned command.
+// Must START alphanumeric so a model value can never be smuggled as a CLI option
+// (e.g. a leading "-"); then the conservative alias/id charset.
+const VALID_MODEL = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
-export function claudeCommand({ resume = false, resumeId = null } = {}) {
+// POSIX single-quote escape. The command is TYPED INTO A SHELL (term.write), and
+// JSON.stringify is NOT a shell escape (it leaves $()/backticks live inside double
+// quotes). Single-quoting + escaping embedded quotes neutralises every metachar,
+// so an orchestrator-returned prompt path can never inject shell commands.
+function shquote(s) {
+  return `'${String(s).replace(/'/g, "'\\''")}'`;
+}
+
+// Build the `claude` launch command. Default (no orchestrated args) is unchanged:
+// the browser-pane prompt only, no --model. When the Dev Env starts a session
+// THROUGH the orchestrator (s3b), it passes the composed mode prompt(s) via
+// `appendPromptFiles` (prepended so the mode identity leads, browser-pane last)
+// and the placed `model` via --model.
+export function claudeCommand({ resume = false, resumeId = null, appendPromptFiles = null, model = null } = {}) {
   // Default dev-env sessions to "auto" rather than bypassing permissions: the
   // dev-env terminal is a real interactive TUI, so the user can answer prompts.
   // shift+tab still cycles to bypass when wanted.
@@ -154,7 +172,14 @@ export function claudeCommand({ resume = false, resumeId = null } = {}) {
   const safeId = resumeId != null && SAFE_SESSION_ID.test(String(resumeId)) ? String(resumeId) : null;
   if (safeId) parts.push("--resume", safeId); // UUID charset → no shell metachars, no quoting needed
   else if (resume) parts.push("--continue");
-  parts.push("--append-system-prompt-file", JSON.stringify(PROMPT_PATH));
+  if (model != null && VALID_MODEL.test(String(model))) parts.push("--model", String(model));
+  // Orchestrator/mode prompt(s) lead (identity first), browser-pane guidance last.
+  const extra = Array.isArray(appendPromptFiles)
+    ? appendPromptFiles.filter((f) => typeof f === "string" && f.length > 0)
+    : [];
+  for (const f of [...extra, PROMPT_PATH]) {
+    parts.push("--append-system-prompt-file", shquote(f));
+  }
   return parts.join(" ");
 }
 
@@ -375,13 +400,21 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
 //   exited                  -> respawn fresh at cwd, old buffer replayed
 //   parked claude envelope  -> spawn fresh with --continue + persisted scrollback
 //   none                    -> spawn fresh (claude gets --continue iff resume)
-export function ensurePty({ session, role, resume = false, resumeId = null }) {
+export function ensurePty({ session, role, resume = false, resumeId = null, orchestrated = null }) {
   const id = ptyIdFor(session.id, role);
   const rec = ptys.get(id);
+  // Thread orchestrator placement (composed mode prompt + model) into every claude
+  // launch path; null/absent → bare browser-pane session (unchanged behavior).
+  const cc = (extra) =>
+    claudeCommand({
+      ...extra,
+      appendPromptFiles: orchestrated?.appendPromptFiles ?? null,
+      model: orchestrated?.model ?? null
+    });
 
   if (rec && rec.state === "running") {
     if (role === "claude" && rec.claudeAlive === false) {
-      const cmd = claudeCommand({ resume: true, resumeId });
+      const cmd = cc({ resume: true, resumeId });
       rec.command = cmd;
       rec.claudeAlive = true;
       rec.claudeCheckedAt = 0;
@@ -398,7 +431,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null }) {
       sessionId: session.id,
       role,
       cwd: session.worktreePath,
-      command: role === "claude" ? claudeCommand({ resume: true, resumeId }) : undefined,
+      command: role === "claude" ? cc({ resume: true, resumeId }) : undefined,
       restoredScrollbackB64: old.length ? old.toString("base64") : undefined
     });
   }
@@ -410,7 +443,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null }) {
       sessionId: session.id,
       role,
       cwd: session.worktreePath,
-      command: claudeCommand({ resume: true, resumeId }),
+      command: cc({ resume: true, resumeId }),
       restoredScrollbackB64: typeof envelope.scrollbackB64 === "string" ? envelope.scrollbackB64 : undefined,
       restoredMarker: `\r\n\x1b[2m[garrison: resuming claude session — ${verb}]\x1b[0m\r\n`
     });
@@ -420,7 +453,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null }) {
     sessionId: session.id,
     role,
     cwd: session.worktreePath,
-    command: role === "claude" ? claudeCommand({ resume, resumeId }) : undefined
+    command: role === "claude" ? cc({ resume, resumeId }) : undefined
   });
 }
 

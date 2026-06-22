@@ -1,7 +1,7 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T16:08:18Z",
+  "updatedAt": "2026-06-22T16:26:57Z",
   "galleryUrl": null,
   "slices": [
     {
@@ -81,11 +81,22 @@
       "verifiedAt": "2026-06-22T16:08:18Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3a-sessions-place/gate-status.json"
+    },
+    {
+      "slice": "s3b-devenv-orchestrated",
+      "title": "Dev Env orchestrated create + claudeCommand parameterization",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T16:26:57Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3b-devenv-orchestrated/gate-status.json"
     }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "7/14 slices passed (s0,s1a-e,s3a). s3a (deliverable #3 front door) built ahead of s2. s1e carries a codex override. 6 PRE-EXISTING failures at BASE c092101.",
-    "buildableRemaining": 7
+    "note": "8/14 slices passed (s0,s1a-e,s3a,s3b). Dev Env can now start a session THROUGH the orchestrator (mode prompt + model). s1e carries a codex override. 6 PRE-EXISTING failures at BASE c092101.",
+    "buildableRemaining": 6
   }
 }

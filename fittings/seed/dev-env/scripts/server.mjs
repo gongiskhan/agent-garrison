@@ -530,6 +530,21 @@ async function handleDeleteSession(req, res, sessionId) {
   }
 }
 
+// Ask Garrison's orchestrator front door to place a session: returns
+// { mode, promptPath, model, effort, role }. Base URL overridable via
+// GARRISON_BASE_URL (default the local Garrison Next app on 7777).
+async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  const res = await fetch(`${base}/api/orchestrator/place`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ channel, ...(mode ? { mode } : {}) }),
+    signal: AbortSignal.timeout(5000)
+  });
+  if (!res.ok) throw new Error(`orchestrator place failed: HTTP ${res.status}`);
+  return res.json();
+}
+
 // POST /sessions — "Start session": record + both PTYs for an arbitrary
 // project directory. Reuses an existing record for the same cwd; claude
 // resumes (--continue) when the reused record already saw a claude session,
@@ -551,11 +566,30 @@ async function handleCreateSession(req, res) {
       EXTERNAL_STATUSES.has(session.lastStatus);
     if (!externalNow) {
       const wantContinue = body.continue === true || body.resume === true;
+      // Start THROUGH the orchestrator (deliverable #3) when asked: resolve the
+      // face + composed mode prompt + model from /api/orchestrator/place and
+      // launch claude with those. Any failure (Garrison down, modes not installed)
+      // falls back cleanly to a bare session.
+      let orchestrated = null;
+      if (body.orchestrated === true || typeof body.mode === "string") {
+        try {
+          const spec = await placeViaOrchestrator({
+            channel: "dev-env",
+            mode: typeof body.mode === "string" ? body.mode : undefined
+          });
+          if (spec && typeof spec.promptPath === "string") {
+            orchestrated = { appendPromptFiles: [spec.promptPath], model: spec.model || null };
+          }
+        } catch {
+          orchestrated = null; // graceful fallback to a bare session
+        }
+      }
       ensurePty({
         session: stub,
         role: "claude",
         resume: wantContinue || (existed && Boolean(session.claudeSessionId)),
-        resumeId: session.claudeSessionId || null
+        resumeId: session.claudeSessionId || null,
+        orchestrated
       });
     }
     // No default shell terminal — the deck starts empty; the user opens

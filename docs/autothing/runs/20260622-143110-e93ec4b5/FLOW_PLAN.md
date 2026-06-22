@@ -33,7 +33,7 @@ walkthrough apply); the rest are `mixed` (evidence = the committed test / CLI ca
 | s1e-mode-bias | Pure `biasRole`/`modeBiasFor` in routing-core; live in `assembleSouls` → per-mode tier in the orchestrator prompt (Joe expert, James/Gary standard). Programmatic talk_to→model enforcement = the orchestrator-mode↔routing unification follow-up | mixed | — | — | passed (codex override r3) |
 | s2-mode-respawn | Mode-switch respawn-resume (shared memory preserved) + assert single generic warm pool; record /config gap | mixed | — | — | pending |
 | s3a-sessions-place | Garrison API `POST /api/orchestrator/place` + `orchestrator-placement.ts` (LIVE front door: channel→mode→composed prompt + model). Reframed from gateway `/sessions/place` to a Garrison API to avoid the dormant orchestrator-mode dependency; built ahead of s2 (deliverable #3 priority) | mixed | /api/orchestrator/place | — | passed |
-| s3b-devenv-orchestrated | Dev-env orchestrated create + `claudeCommand` parameterization (append mode prompt + browser-pane.md, `--model`) | mixed | — | — | pending |
+| s3b-devenv-orchestrated | Dev-env orchestrated create + `claudeCommand` parameterization (mode prompt + browser-pane, `--model`, shell-quoted) → calls `/api/orchestrator/place`, graceful fallback to bare | mixed | — | — | passed |
 | s3c-devenv-ui | Dev-env UI "Start orchestrated session" + mode dropdown (default Joe) | ui | dev-env 7086 | — | pending |
 | s4-discipline-skills | Discipline→verb-skill mapping in routing-core + orchestrator prompt; ensure garrison-* skills present | mixed | — | — | pending |
 | s6a-workflows-launchable | Gateway `runWorkflowTurn` executor so `workflow` targets actually run | mixed | — | B | pending |

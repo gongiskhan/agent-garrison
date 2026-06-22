@@ -1,0 +1,19 @@
+{
+  "slice": "s3b-devenv-orchestrated",
+  "title": "Dev Env orchestrated create + claudeCommand parameterization",
+  "updatedAt": "2026-06-22T16:26:57Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 3 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/devenv-orchestrated-command.test.ts tests/dev-env-resume-by-id.test.ts", "exit": 0, "at": "2026-06-22T16:26:57Z", "summary": "12 passed — bare back-compat, orchestrated (mode prompt + browser-pane + --model), shell-quoting injection guard, leading-dash model guard, resume+orchestrated" },
+    "syntax": { "cmd": "node --check ptys.mjs server.mjs", "exit": 0, "at": "2026-06-22T16:26:57Z" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T16:26:57Z", "summary": "clean" },
+    "suite": { "cmd": "npm test", "at": "2026-06-22T16:26:57Z", "summary": "882 passed; 6 PRE-EXISTING failures unchanged; no new regressions (dev-env-resume-by-id quoting regression intact)" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T16:26:57Z", "summary": "bare path unchanged; orchestrated path has graceful fallback; all shell-spliced values quoted/validated" },
+    "codexReview": { "verdict": "approve", "rounds": 3, "by": "codex/chatgpt", "at": "2026-06-22T16:26:57Z", "lastReport": "r1 JSON.stringify isn't a shell escape → shquote() POSIX single-quoting; r2 VALID_MODEL allowed leading '-' (option injection) → require alnum first char; r3 APPROVE" },
+    "codexPwTest": { "result": "n/a", "reason": "live API+dev-env e2e is s3c (running app); command-builder + fallback covered by committed vitest" },
+    "designAudit": { "verdict": "n/a", "reason": "backend dev-env wiring; the UI button is s3c" },
+    "video": { "status": "n/a", "reason": "UI walkthrough is s3c" }
+  },
+  "blockers": []
+}
