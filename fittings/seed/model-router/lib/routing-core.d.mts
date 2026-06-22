@@ -115,6 +115,17 @@ export const ROUTING_VERSION: number;
 
 export function resolveRole(config: RoutingConfig, classification: Classification): RoleResolution;
 export function resolveRoute(config: RoutingConfig, profile: string | null, classification: Classification): RouteResolution;
+
+// Mode bias (modes faculty): nudge the resolved compute-tier role per a mode's
+// {floor, prefer}, then re-map the target. Pure; never mutates config/route.
+export interface ModeBias { floor?: Role; prefer?: Role; }
+export interface ModesConfigLike {
+  modes?: Record<string, { routingBias?: string }>;
+  routingBias?: Record<string, ModeBias>;
+}
+export function biasRole(role: Role, bias: ModeBias | null | undefined): Role;
+export function modeBiasFor(mode: string, modesConfig: ModesConfigLike | null | undefined): ModeBias | null;
+
 export function resolveDiscipline(config: RoutingConfig, profile: string | null, tier: Tier): Discipline;
 export function compileRouting(config: RoutingConfig, profile?: string | null): string;
 export function routingMarker(profileName: string): string;

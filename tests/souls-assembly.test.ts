@@ -67,7 +67,8 @@ describe("souls assembly (s1c)", () => {
       orchestratorPromptPath: orchPrompt,
       orchestratorFittingId: "model-router",
       capabilitiesBlock: "- memory:local — recall",
-      routingSection: "## Routing policy\nActive Profile: balanced"
+      routingSection: "## Routing policy\nActive Profile: balanced",
+      routingCorePath: join(ROOT, "fittings/seed/model-router/lib/routing-core.mjs")
     });
     expect(config).not.toBeNull();
     expect(config!.orchestratorFittingId).toBe("model-router");
@@ -96,6 +97,10 @@ describe("souls assembly (s1c)", () => {
     expect(config!.modes.channelDefaults.slack).toBe("gary");
     expect(config!.modes.defaultMode).toBe("gary");
     expect(config!.modes.switchLogPath).toBe(join(dir, ".garrison", "switch-log.jsonl"));
+    // per-mode tier from routing bias (s1e), surfaced into the orchestrator prompt
+    expect(config!.modes.tierByMode).toMatchObject({ joe: "expert", james: "standard", gary: "standard" });
+    expect(orchText).toContain("Per-mode tier");
+    expect(orchText).toContain("joe: spawn at the **expert** tier");
   });
 
   it("composeOrchestratorPrompt appends the mode-delegation (talk_to) instruction to the base", () => {

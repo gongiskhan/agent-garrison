@@ -13,6 +13,7 @@
 // there is no import cycle.
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // One soul/orchestrator spawn entry, matching the shape gateway.mjs reads
 // (orchSpawn.promptPath / .resolvedBasePath; spawnHeadless reads optional
@@ -32,6 +33,10 @@ export interface SoulsModesMeta {
   defaultMode: string;
   channelDefaults: Record<string, string>;
   switchLogPath: string; // absolute, under the composition
+  // Per-mode nominal compute tier (fast|standard|expert), derived from the mode's
+  // routing bias via routing-core's biasRole. Surfaced to the orchestrator so it
+  // spawns each soul at its mode's tier.
+  tierByMode: Record<string, string>;
 }
 
 export interface SoulsConfig {
@@ -97,9 +102,18 @@ that soul's voice. Do not answer in your own voice when a mode is set — route 
 soul. All souls share one memory.`;
 
 // Compose the orchestrator session's prompt for soul mode = the base assembled
-// prompt + the mode-delegation instruction.
-export function composeOrchestratorPrompt(basePrompt: string): string {
-  return `${basePrompt.trimEnd()}\n\n${MODE_DELEGATION_INSTRUCTION}\n`;
+// prompt + the mode-delegation instruction + (when known) per-mode tier guidance,
+// so the orchestrator spawns each soul at its mode's routing-bias tier.
+export function composeOrchestratorPrompt(
+  basePrompt: string,
+  tierByMode?: Record<string, string>
+): string {
+  let out = `${basePrompt.trimEnd()}\n\n${MODE_DELEGATION_INSTRUCTION}\n`;
+  if (tierByMode && Object.keys(tierByMode).length > 0) {
+    const lines = Object.entries(tierByMode).map(([m, t]) => `- ${m}: spawn at the **${t}** tier.`);
+    out += `\n### Per-mode tier (from each mode's routing bias)\nWhen you delegate to a soul, spawn it at its mode's tier:\n${lines.join("\n")}\n`;
+  }
+  return out;
 }
 
 interface ModesJson {
@@ -107,7 +121,8 @@ interface ModesJson {
   defaultMode?: string;
   channelDefaults?: Record<string, string>;
   switching?: { switchLog?: string };
-  modes: Record<string, { soulRef: string; label?: string }>;
+  routingBias?: Record<string, { floor?: string; prefer?: string }>;
+  modes: Record<string, { soulRef: string; label?: string; routingBias?: string }>;
 }
 
 // Read the modes fitting's modes.json + souls + shared voice from `modesDir`,
@@ -121,6 +136,9 @@ export async function assembleSouls(input: {
   orchestratorFittingId: string;
   capabilitiesBlock: string;
   routingSection: string | null;
+  // Path to routing-core.mjs — dynamic-imported (never bundled) to derive each
+  // mode's nominal tier from its routing bias. Omit/unreadable → no tier guidance.
+  routingCorePath?: string;
 }): Promise<SoulsConfig | null> {
   const {
     compositionDir,
@@ -128,7 +146,8 @@ export async function assembleSouls(input: {
     orchestratorPromptPath,
     orchestratorFittingId,
     capabilitiesBlock,
-    routingSection
+    routingSection,
+    routingCorePath
   } = input;
 
   let modesJson: ModesJson;
@@ -163,6 +182,24 @@ export async function assembleSouls(input: {
   // prompt + the mode-delegation instruction (so the gateway's [mode: <name>]
   // annotation is acted on — the orchestrator delegates to that soul). Falls back
   // to instruction-only if the base prompt can't be read.
+  // Per-mode nominal tier from each mode's routing bias (routing-core biasRole),
+  // dynamic-imported to avoid bundling. Best-effort: empty on missing path/import.
+  const tierByMode: Record<string, string> = {};
+  if (routingCorePath) {
+    try {
+      const rc = (await import(pathToFileURL(routingCorePath).href)) as {
+        biasRole: (role: string, bias: unknown) => string;
+        modeBiasFor: (mode: string, modesConfig: unknown) => unknown;
+      };
+      for (const m of Object.keys(modesJson.modes)) {
+        const bias = rc.modeBiasFor(m, modesJson);
+        tierByMode[m] = bias ? rc.biasRole("standard", bias) : "standard";
+      }
+    } catch {
+      // leave tierByMode empty — no per-mode tier guidance in the prompt
+    }
+  }
+
   let baseOrchestrator = "";
   try {
     baseOrchestrator = await fs.readFile(orchestratorPromptPath, "utf8");
@@ -170,7 +207,7 @@ export async function assembleSouls(input: {
     baseOrchestrator = "";
   }
   const orchestratorPath = path.join(soulsDir, "_orchestrator.md");
-  await fs.writeFile(orchestratorPath, composeOrchestratorPrompt(baseOrchestrator), "utf8");
+  await fs.writeFile(orchestratorPath, composeOrchestratorPrompt(baseOrchestrator, tierByMode), "utf8");
 
   const modesMeta: SoulsModesMeta = {
     names: Object.keys(modesJson.modes),
@@ -179,7 +216,8 @@ export async function assembleSouls(input: {
     switchLogPath: path.join(
       compositionDir,
       modesJson.switching?.switchLog ?? ".garrison/switch-log.jsonl"
-    )
+    ),
+    tierByMode
   };
 
   return {

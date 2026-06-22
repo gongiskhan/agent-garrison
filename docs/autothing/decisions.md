@@ -260,3 +260,20 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
   orchestrator mode is a separate engine) — tracked as a SEPARATE follow-up, not
   silently dropped. Per-mode model/effort is delivered by s1e (applyModeBias). s1d
   delivers face resolution + switch-log + actionable delegation, fully gated.
+
+## s1e (mode bias) + TRACKED FOLLOW-UP: orchestrator-mode↔routing unification
+- s1e ships the pure bias primitives (biasRole, modeBiasFor) + their LIVE use in
+  assembleSouls: each mode's nominal tier (Joe=expert, James/Gary=standard) is
+  computed from its routing bias and baked into the orchestrator's soul-mode
+  delegation prompt ("Per-mode tier" section) — so the orchestrator is instructed
+  to spawn each soul at its mode's tier. Dropped the premature route-variant
+  applyModeBias (no caller yet = YAGNI).
+- CODEX OVERRIDE (r3, logged honestly): the per-mode tier is currently PROMPT-LEVEL
+  (LLM-honored), not PROGRAMMATICALLY enforced in the gateway's talk_to/spawnSoulSession
+  path (which would map role→model flags). Hard enforcement requires the
+  ORCHESTRATOR-MODE↔ROUTING UNIFICATION — the same follow-up s1d flagged
+  (running classifier-preRoute / role→model mapping inside the dormant gateway.mjs
+  orchestrator/soul engine). This is a large, dormant-path integration that cannot
+  be responsibly built + gated without a live orchestrator-mode boot (claude +
+  mcp-gateway + souls). TRACKED as a dedicated follow-up; the global gate stays out
+  of clean "passed" because of it (honest).

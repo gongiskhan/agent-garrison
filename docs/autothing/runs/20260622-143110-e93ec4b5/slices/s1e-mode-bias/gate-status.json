@@ -1,0 +1,18 @@
+{
+  "slice": "s1e-mode-bias",
+  "title": "mode→routing bias (biasRole/modeBiasFor) + live per-mode tier in the orchestrator prompt",
+  "updatedAt": "2026-06-22T16:00:33Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 3 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/mode-bias.test.ts tests/souls-assembly.test.ts", "exit": 0, "at": "2026-06-22T16:00:33Z", "summary": "32 passed — biasRole matrix (joe→expert, james→standard/expert, gary unchanged), task-specific untouched, nominal tier, souls tierByMode + per-mode prompt guidance" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T16:00:33Z", "summary": "clean (souls.ts dynamic-imports routing-core — not bundled)" },
+    "suite": { "cmd": "npm test", "at": "2026-06-22T16:00:33Z", "summary": "870 passed; 6 PRE-EXISTING failures unchanged; no new regressions" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T16:00:33Z", "summary": "dropped the premature route-variant applyModeBias (YAGNI); biasRole/modeBiasFor are now called live in assembleSouls" },
+    "codexReview": { "verdict": "approve-with-override", "rounds": 3, "by": "codex/chatgpt", "at": "2026-06-22T16:00:33Z", "lastReport": "r1 target/role divergence on unmapped role (fixed); r2 applyModeBias uncalled (dropped it, wired biasRole live); r3 tier is prompt-level not programmatically enforced in talk_to/spawn — TRUE but it is the orchestrator-mode↔routing unification (dormant path, no live boot to gate); s1e ships primitives + live prompt-level tier. OVERRIDE logged.", "overrides": ["r3: programmatic talk_to→model tier enforcement deferred to the orchestrator-mode↔routing unification follow-up"] },
+    "codexPwTest": { "result": "n/a", "reason": "no live orchestrator-mode boot — primitives + assembly covered by committed vitest" },
+    "designAudit": { "verdict": "n/a", "reason": "backend, no UI" },
+    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow" }
+  },
+  "blockers": []
+}

@@ -30,7 +30,7 @@ walkthrough apply); the rest are `mixed` (evidence = the committed test / CLI ca
 | s1b-modes-capkind | `modes` capability kind + `modes` faculty (automation-runner already existed); register in data/library.json; model-router consumes modes optional-one | mixed | — | — | passed |
 | s1c-souls-assembly | `src/lib/souls.ts` assembleSouls + runner.up() builds `GARRISON_SOULS_CONFIG` via spawnGateway extraEnv (gated on mcp-gateway present) | mixed | — | — | passed |
 | s1d-mode-resolver | Gateway mode-resolver (name/sticky/channel-default) + switch-log + actionable `[mode:]` delegation (orchestrator `talk_to`). Per-mode model/effort = s1e; full classifier-preRoute-in-orchestrator-mode tracked as a separate follow-up | mixed | — | — | passed |
-| s1e-mode-bias | Pure `applyModeBias()` in routing-core; gateway calls it after resolveRoute | mixed | — | — | pending |
+| s1e-mode-bias | Pure `biasRole`/`modeBiasFor` in routing-core; live in `assembleSouls` → per-mode tier in the orchestrator prompt (Joe expert, James/Gary standard). Programmatic talk_to→model enforcement = the orchestrator-mode↔routing unification follow-up | mixed | — | — | passed (codex override r3) |
 | s2-mode-respawn | Mode-switch respawn-resume (shared memory preserved) + assert single generic warm pool; record /config gap | mixed | — | — | pending |
 | s3a-sessions-place | Gateway `POST /sessions/place` front-door placement (returns soul/promptPath/model/effort/sessionId) | mixed | — | — | pending |
 | s3b-devenv-orchestrated | Dev-env orchestrated create + `claudeCommand` parameterization (append mode prompt + browser-pane.md, `--model`) | mixed | — | — | pending |

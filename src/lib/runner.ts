@@ -177,7 +177,8 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           orchestratorPromptPath: promptPath,
           orchestratorFittingId: findOrchestratorEntryId(soulEntries) ?? "orchestrator",
           capabilitiesBlock: renderCapabilitiesBlock(soulEntries),
-          routingSection: await resolveRoutingSection(composition.directory)
+          routingSection: await resolveRoutingSection(composition.directory),
+          routingCorePath: ROUTING_CORE_PATH
         });
         if (soulsConfig) {
           gatewayExtraEnv = { GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig) };

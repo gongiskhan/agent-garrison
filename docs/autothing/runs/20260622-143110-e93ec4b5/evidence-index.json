@@ -1,18 +1,80 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T15:36:07Z",
+  "updatedAt": "2026-06-22T16:00:33Z",
   "galleryUrl": null,
   "slices": [
-    { "slice": "s0-truthup", "title": "Truth-up: projection drift + discipline-in-prompt", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s0-truthup/gate-status.json" },
-    { "slice": "s1a-modes-fitting", "title": "modes fitting — Gary/Joe/James souls + shared voice", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1a-modes-fitting/gate-status.json" },
-    { "slice": "s1b-modes-capkind", "title": "modes capability kind + faculty + model-router consumes", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1b-modes-capkind/gate-status.json" },
-    { "slice": "s1c-souls-assembly", "title": "souls assembly + GARRISON_SOULS_CONFIG (mcp-gateway-gated)", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1c-souls-assembly/gate-status.json" },
-    { "slice": "s1d-mode-resolver", "title": "gateway mode-resolver + switch-log + [mode:] delegation", "kind": "mixed", "status": "passed", "video": null, "videoStatus": "n/a", "verifiedAt": "2026-06-22T15:36:07Z", "flagged": false, "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1d-mode-resolver/gate-status.json" }
+    {
+      "slice": "s0-truthup",
+      "title": "Truth-up: projection drift + discipline-in-prompt",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T15:36:07Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s0-truthup/gate-status.json"
+    },
+    {
+      "slice": "s1a-modes-fitting",
+      "title": "modes fitting \u2014 Gary/Joe/James souls + shared voice",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T15:36:07Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1a-modes-fitting/gate-status.json"
+    },
+    {
+      "slice": "s1b-modes-capkind",
+      "title": "modes capability kind + faculty + model-router consumes",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T15:36:07Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1b-modes-capkind/gate-status.json"
+    },
+    {
+      "slice": "s1c-souls-assembly",
+      "title": "souls assembly + GARRISON_SOULS_CONFIG (mcp-gateway-gated)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T15:36:07Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1c-souls-assembly/gate-status.json"
+    },
+    {
+      "slice": "s1d-mode-resolver",
+      "title": "gateway mode-resolver + switch-log + [mode:] delegation",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T15:36:07Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1d-mode-resolver/gate-status.json"
+    },
+    {
+      "slice": "s1e-mode-bias",
+      "title": "mode\u2192routing bias + live per-mode tier in orchestrator prompt",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-22T16:00:33Z",
+      "flagged": true,
+      "flagReason": "codex approve-with-override r3: programmatic talk_to tier enforcement = orchestrator-mode\u2194routing unification follow-up",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1e-mode-bias/gate-status.json"
+    }
   ],
   "globalGate": {
     "status": "in_progress",
-    "note": "5/14 slices passed (s0, s1a, s1b, s1c, s1d). 6 PRE-EXISTING test failures (non-existent fittings/seed/memory + gemini-runtime + fitting-files-api) present at BASE c092101 — not introduced by this run.",
-    "buildableRemaining": 9
+    "note": "6/14 slices passed (s0,s1a,s1b,s1c,s1d,s1e). s1e carries a codex override (programmatic per-mode tier enforcement deferred to the orchestrator-mode\u2194routing unification). 6 PRE-EXISTING failures present at BASE c092101.",
+    "buildableRemaining": 8
   }
 }
