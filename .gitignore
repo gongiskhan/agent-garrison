@@ -43,3 +43,6 @@ public/phase-1-demo/.playwright-artifacts/
 .serena/
 **/.serena/
 scripts/spike/chat-harness/out/
+
+# voice e2e synthesized audio fixtures
+scripts/voice-e2e/fixtures/

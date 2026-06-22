@@ -89,6 +89,15 @@ Deepgram path. See `scripts/spike/voice-multilingual.mjs`.
   `lingua`; unknown/uncertain text falls back to `TTS_DEFAULT_LANG` (default `en`).
 - Wake word is **off** by default in v1 (push-to-talk; without headphones the
   mic would hear the host's own TTS).
+- `WHISPER_LANG` (ISO-639-1, empty = auto-detect) hard-pins the STT language; for
+  a single-language deployment (e.g. `pt`) this stops short utterances flipping to
+  the wrong language. `WHISPER_PROMPT` seeds whisper's `initial_prompt` with domain
+  vocabulary so jargon and Portuguese-conjugated English verbs ("comita", "deploya")
+  transcribe correctly (faster-whisper keeps the last ~224 tokens — put the highest
+  value terms at the end).
+- `STT_NORMALIZE_GAIN` (`off` by default) peak-normalizes the input before STT to
+  help a quiet/soft speaker. It's a no-op-at-best on clean audio, so only enable it
+  (`on`) for a real low-SNR microphone, and A/B it with the actual speaker.
 
 ## Provenance
 

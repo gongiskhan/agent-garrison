@@ -120,11 +120,20 @@ async function handleStt(req, res, opts) {
     return;
   }
   const contentType = req.headers["content-type"] || "audio/webm";
+  // Language controls (used by the voice e2e harness and multilingual callers):
+  //   ?language=pt-BR  → force a transcription language
+  //   ?detect_language=true → let Deepgram report the spoken language
+  // The two are mutually exclusive on Deepgram; detect wins when both are set.
+  const q = url.parse(req.url || "", true).query;
+  const detect = q.detect_language === "true" || q.detect_language === "1";
+  const language = typeof q.language === "string" ? q.language.trim() : "";
   const qs = new URLSearchParams({
     model: opts.sttModel,
     smart_format: "true",
     punctuate: "true"
   });
+  if (detect) qs.set("detect_language", "true");
+  else if (language) qs.set("language", language);
   try {
     const dg = await fetch(`${DG_BASE}/v1/listen?${qs.toString()}`, {
       method: "POST",
@@ -137,10 +146,20 @@ async function handleStt(req, res, opts) {
       return;
     }
     const data = await dg.json();
-    const alt = data?.results?.channels?.[0]?.alternatives?.[0] ?? {};
+    const channel = data?.results?.channels?.[0] ?? {};
+    const alt = channel.alternatives?.[0] ?? {};
+    // detected_language is present only when detect_language=true; otherwise echo
+    // the requested language so callers always get a stable `detected_language`.
+    const detectedLanguage = typeof channel.detected_language === "string"
+      ? channel.detected_language
+      : (language || null);
     jsonRes(res, 200, {
       transcript: typeof alt.transcript === "string" ? alt.transcript : "",
-      confidence: typeof alt.confidence === "number" ? alt.confidence : null
+      confidence: typeof alt.confidence === "number" ? alt.confidence : null,
+      detected_language: detectedLanguage,
+      language_confidence: typeof channel.detected_language_confidence === "number"
+        ? channel.detected_language_confidence
+        : null
     });
   } catch (err) {
     jsonRes(res, 502, { error: `deepgram listen failed: ${err.message}` });
@@ -203,7 +222,7 @@ async function handleTts(req, res, opts) {
 //                    optional {type:"CloseStream"} to flush.
 // sampleRate comes from the client at runtime (AudioContext.sampleRate differs
 // per device — iOS Safari often locks to 48000), so we never hardcode it.
-function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
+function attachStream(clientWs, opts, sampleRate, utteranceEndMs, language) {
   if (!opts.apiKey) {
     try { clientWs.send(JSON.stringify({ type: "error", error: "DEEPGRAM_API_KEY not configured" })); } catch {}
     clientWs.close();
@@ -231,6 +250,12 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
     utterance_end_ms: String(utterEnd), // emit UtteranceEnd after this much silence
     vad_events: "true"
   });
+  // Force a transcription language for live STT when the caller asks (pt-PT /
+  // pt-BR / en in the voice e2e harness). Live nova-2 doesn't do reliable
+  // language detection, so the harness asserts detection on /stt (prerecorded)
+  // and sets an explicit language here.
+  const lang = typeof language === "string" ? language.trim() : "";
+  if (lang) qs.set("language", lang);
   const dg = new WebSocket(`wss://api.deepgram.com/v1/listen?${qs.toString()}`, {
     headers: { Authorization: `Token ${opts.apiKey}` }
   });
@@ -360,7 +385,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
     const sampleRate = Number(parsed.query.sample_rate);
     const utteranceEndMs = Number(parsed.query.utterance_end_ms);
-    wss.handleUpgrade(request, socket, head, (clientWs) => attachStream(clientWs, liveOpts, sampleRate, utteranceEndMs));
+    const language = typeof parsed.query.language === "string" ? parsed.query.language : "";
+    wss.handleUpgrade(request, socket, head, (clientWs) => attachStream(clientWs, liveOpts, sampleRate, utteranceEndMs, language));
   });
 
   server.listen(liveOpts.port, liveOpts.host, async () => {

@@ -43,6 +43,7 @@ import uvicorn
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from faster_whisper import WhisperModel
+from faster_whisper.audio import decode_audio
 from kokoro_onnx import Kokoro
 
 from wakeword import WakeListener, WAKE_MODEL
@@ -228,9 +229,31 @@ load_piper()
 whisper_lock = threading.Lock()
 
 
+# Optional gain boost for a quiet/soft speaker: peak-normalize to ~0.95 before
+# whisper, capped so near-silence/noise isn't blown up, skipping already-loud
+# clips. OFF by default: on clean audio it's a no-op at best (whisper's log-mel
+# is amplitude-robust) and can shave a word, so it only earns its keep on a real
+# low-SNR microphone. Enable + A/B with the actual speaker via STT_NORMALIZE_GAIN=on.
+STT_NORMALIZE_GAIN = os.environ.get("STT_NORMALIZE_GAIN", "off").lower() in ("on", "1", "true")
+STT_GAIN_CAP = float(os.environ.get("STT_GAIN_CAP", "8.0"))  # ~+18 dB ceiling
+
+
+def normalize_gain(audio):
+    if not STT_NORMALIZE_GAIN or audio is None or audio.size == 0:
+        return audio
+    peak = float(np.max(np.abs(audio)))
+    if peak < 1e-4:  # silence: leave it (don't amplify noise)
+        return audio
+    gain = min(0.95 / peak, STT_GAIN_CAP)
+    if gain <= 1.0:  # already loud enough
+        return audio
+    return (audio * gain).astype(np.float32)
+
+
 def transcribe_pcm(audio_f32):
     """float32 mono 16k -> text. Shared by the wake-word capture path. Language
     is auto-detected (no `language=` hint) so non-English speech transcribes."""
+    audio_f32 = normalize_gain(audio_f32)
     with whisper_lock:
         segments, _info = whisper.transcribe(
             audio_f32, beam_size=1, vad_filter=False,
@@ -363,13 +386,22 @@ async def stt(req: Request):
     if len(audio) < 1000:
         return Response(status_code=400, content="clip too short")
     t0 = time.time()
-    # faster-whisper decodes webm/opus/wav via PyAV from a file-like object.
-    # No `language=` hint → whisper detects it and reports it on `info`, so the
-    # spoken language travels with the transcript (the brief's anti-delay rule:
-    # no separate language-detection round-trip).
+    # Default path hands raw bytes to whisper (PyAV decodes webm/opus/wav
+    # internally) — byte-identical to before. Only when gain normalization is
+    # enabled do we decode to a float32 array first so we can boost a quiet
+    # speaker; on any decode hiccup we fall back to the raw bytes.
+    if STT_NORMALIZE_GAIN:
+        try:
+            source = normalize_gain(decode_audio(io.BytesIO(audio), sampling_rate=16000))
+        except Exception:
+            source = io.BytesIO(audio)
+    else:
+        source = io.BytesIO(audio)
+    # WHISPER_LANG pins the language; whisper still reports it on `info`, so the
+    # spoken language travels with the transcript.
     with whisper_lock:
         segments, info = whisper.transcribe(
-            io.BytesIO(audio), beam_size=1, vad_filter=False,
+            source, beam_size=1, vad_filter=False,
             initial_prompt=WHISPER_PROMPT or None,
             language=WHISPER_LANG or None,
         )

@@ -1,16 +1,17 @@
-name: jarvis-operative
+name: jarvis-agentic-os
 version: 0.1.0
 target: claude
 dependencies:
   apm:
+    - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/jarvis-os
-    - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/knowledge
-    # MCP server the http-gateway spawns (stdio) so the orchestrator gets the
-    # Garrison tools (talk_to, worktrees). Installed-only — not a role selection.
-    - path: ../../fittings/seed/mcp-gateway
+    # Installed-only (not the active voice selection): kept available so the
+    # voice e2e harness can start it on 7085 to benchmark/compare against the
+    # local-voice STT. local-voice is the production voice (no key, better PT).
+    - path: ../../fittings/seed/deepgram-voice
 x-garrison:
   composition:
     id: jarvis
@@ -30,16 +31,12 @@ x-garrison:
       orchestrator:
         - id: garrison-orchestrator
           config: {}
-      gateway:
-        - id: http-gateway
-          config:
-            port: 4777
-            bind_host: 127.0.0.1
-            # Boot the real Operative (assembled prompt + talk_to/MCP + memory)
-            # and pipe the voice channel into it, instead of single-operative mode.
-            orchestrator_mode: true
-            model: haiku
       channels:
+        - id: jarvis-os
+          config:
+            port: 7092
+            bind_host: 127.0.0.1
+            gateway_url: ''
         - id: local-voice
           config:
             port: 7090
@@ -47,35 +44,17 @@ x-garrison:
             kokoro_voice: bm_george
             whisper_model: small
             wake_word: "off"
-        - id: jarvis-os
+      gateway:
+        - id: http-gateway
           config:
-            port: 7092
+            port: 4777
             bind_host: 127.0.0.1
-            gateway_url: ''
+            orchestrator_mode: true
+            model: haiku
       memory:
         - id: knowledge
           config:
             vault_dir: vault
-    # Specialist sub-agents the Orchestrator delegates to via `talk_to`. The
-    # runner folds these into GARRISON_SOULS_CONFIG so the gateway can spawn each
-    # as its own PTY session (prompt = souls/<id>.md). Voice → Orchestrator →
-    # these Souls is the project's core delegation chain. Haiku for PTY
-    # reliability (Sonnet/Opus race the screen-scraper).
-    souls:
-      - id: companion
-        prompt: souls/companion.md
-        model: haiku
-      - id: engineer
-        prompt: souls/engineer.md
-        model: haiku
-        base_path: ~/dev
-      - id: architect
-        prompt: souls/architect.md
-        model: haiku
-        base_path: ~/dev
-      - id: assistant
-        prompt: souls/assistant.md
-        model: haiku
-      - id: researcher
-        prompt: souls/researcher.md
-        model: haiku
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md
+      soul: .garrison/prompts/soul.md
