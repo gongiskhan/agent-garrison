@@ -238,3 +238,12 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
   only pre-creates a placeholder dir relative to the fitting install dir).
 - DEFERRED doc nit: CLAUDE.md up-order step 6 still says "Anthropic Agent SDK in-process" (stale vs
   PTY-everywhere) — a follow-up doc pass, out of s0/s1 scope.
+
+## s1c (souls assembly)
+- Modes activates the gateway's orchestrator/soul mode, which needs the mcp-gateway
+  sidecar (talk_to / spawn-soul). runner.up() gates activation on mcpGatewayPresent()
+  — absent => warn + stay in normal routed mode. A modes composition must select an
+  orchestrator + http-gateway + mcp-gateway (recorded in the modes README).
+- DEFERRED to s1d / a live run-garrison check: actually booting the gateway in
+  orchestrator/soul mode end-to-end (the dormant gateway.mjs path) — s1c's gate is the
+  committed souls unit + typecheck + suite; live boot is integration.

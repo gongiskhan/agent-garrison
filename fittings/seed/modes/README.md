@@ -30,3 +30,11 @@ James expert then standard).
 The runner's `assembleSouls` (src/lib/souls.ts) composes, per mode,
 `shared-voice + soul + {{capabilities}} + {{routing}}` and hands the result to
 the gateway as `GARRISON_SOULS_CONFIG`.
+
+## Requires
+Modes activates the gateway's **orchestrator/soul mode**, which drives souls
+through the **mcp-gateway** sidecar (the `talk_to` / spawn-soul MCP tools). A
+modes composition must therefore also select an orchestrator (e.g. `model-router`),
+the `http-gateway`, and **`mcp-gateway`**. If mcp-gateway is absent the runner
+logs a warning and stays in the normal single-operative routed mode (it will not
+boot an orchestrator that can't reach its souls).

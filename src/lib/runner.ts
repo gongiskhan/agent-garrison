@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
+import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
 import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
@@ -156,6 +157,45 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     }
     const promptPath = await assembleSystemPrompt(compositionId);
 
+    // Modes (souls): when a `modes` provider is selected, compose one prompt per
+    // mode (Gary/Joe/James) and hand the gateway a GARRISON_SOULS_CONFIG, which
+    // activates its orchestrator/soul mode. No modes provider → undefined → the
+    // gateway runs its normal single-operative routed mode (the default comp).
+    let gatewayExtraEnv: Record<string, string> | undefined;
+    const soulEntries = await selectedLibraryEntries(composition.selections);
+    const modesEntry = findModesEntry(soulEntries);
+    if (modesEntry) {
+      // Orchestrator/soul mode drives souls through the mcp-gateway sidecar
+      // (talk_to / spawn-soul). Without it, booting orchestrator mode yields an
+      // orchestrator that can't reach its souls — so only activate when present;
+      // otherwise warn and stay in the working single-operative routed mode.
+      if (await mcpGatewayPresent(composition.directory)) {
+        const modesDir = path.join(composition.directory, "apm_modules", "_local", modesEntry.id);
+        const soulsConfig = await assembleSouls({
+          compositionDir: composition.directory,
+          modesDir,
+          orchestratorPromptPath: promptPath,
+          orchestratorFittingId: findOrchestratorEntryId(soulEntries) ?? "orchestrator",
+          capabilitiesBlock: renderCapabilitiesBlock(soulEntries),
+          routingSection: await resolveRoutingSection(composition.directory)
+        });
+        if (soulsConfig) {
+          gatewayExtraEnv = { GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig) };
+          appendLog(
+            compositionId,
+            "runner",
+            `modes: composed ${Object.keys(soulsConfig.souls).length} soul prompt(s) → gateway orchestrator/soul mode`
+          );
+        }
+      } else {
+        appendLog(
+          compositionId,
+          "stderr",
+          `modes (${modesEntry.id}) is selected but the mcp-gateway fitting is not installed — orchestrator/soul mode needs it for talk_to; running normal gateway mode. Add the mcp-gateway fitting to enable Gary/Joe/James.`
+        );
+      }
+    }
+
     const gateway = await resolveGatewayFitting(compositionId);
     let child: ChildProcessWithoutNullStreams;
     if (gateway) {
@@ -170,7 +210,8 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         compositionId,
         composition.directory,
         promptPath,
-        gateway
+        gateway,
+        gatewayExtraEnv
       );
       record.gateway = gateway;
     } else {

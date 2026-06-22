@@ -1,0 +1,18 @@
+{
+  "slice": "s1c-souls-assembly",
+  "title": "src/lib/souls.ts assembleSouls + runner.up() GARRISON_SOULS_CONFIG (mcp-gateway-gated)",
+  "updatedAt": "2026-06-22T15:16:05Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 2 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/souls-assembly.test.ts", "exit": 0, "at": "2026-06-22T15:16:05Z", "summary": "6 passed (composeSoulPrompt ordering, finders, 3-soul integration from seed, null fallback, mcpGatewayPresent guard)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T15:16:05Z", "summary": "clean (no import cycle: souls.ts takes caps/routing strings)" },
+    "suite": { "cmd": "npm test", "at": "2026-06-22T15:16:05Z", "summary": "856 passed; 6 PRE-EXISTING failures unchanged; no new regressions" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T15:16:05Z", "summary": "opt-in: no modes provider => undefined extraEnv => default gateway mode unchanged" },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex/chatgpt", "at": "2026-06-22T15:16:05Z", "lastReport": "r1 flagged orchestrator-mode needs the mcp-gateway sidecar (talk_to) — added mcpGatewayPresent gate + warning + README; r2 APPROVE" },
+    "codexPwTest": { "result": "n/a", "reason": "no live gateway boot in this slice — committed vitest covers the souls unit; gateway orchestrator-mode boot is integration (s1d / live run-garrison)" },
+    "designAudit": { "verdict": "n/a", "reason": "backend wiring, no UI" },
+    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow" }
+  },
+  "blockers": []
+}
