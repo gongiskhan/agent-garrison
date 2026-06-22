@@ -141,31 +141,31 @@ describe("PLAN-GATE — serialize planning per repo", () => {
 });
 
 describe("intent -> conflict -> digest chain (drives the canary)", () => {
-  it("surfaces an overlapping intent from another session in the digest, repo-scoped", () => {
+  it("surfaces an overlapping intent from another session in the digest, repo-scoped", async () => {
     const now = new Date("2026-06-22T10:00:00Z");
     // A declares intent on an area in REPO1.
     declareIntentTool({ repo: REPO1, area: "src/lib/runner.ts", reason: "rewiring up()" }, A, now);
     // B asks for its digest on the SAME area in REPO1 -> conflict surfaces.
-    const dB = coordDigestTool({ repo: REPO1, area: "src/lib/runner.ts" }, B, now);
+    const dB = await coordDigestTool({ repo: REPO1, area: "src/lib/runner.ts" }, B, now);
     expect(dB.hasConflicts).toBe(true);
     expect(dB.text).toContain(A);
     expect(dB.text).toContain("rewiring up()");
     expect(dB.bytes).toBeLessThan(1400); // a few hundred tokens
 
     // Repo-scoping: the SAME area in REPO2 sees NO conflict (cross-repo isolation).
-    const dB2 = coordDigestTool({ repo: REPO2, area: "src/lib/runner.ts" }, B, now);
+    const dB2 = await coordDigestTool({ repo: REPO2, area: "src/lib/runner.ts" }, B, now);
     expect(dB2.hasConflicts).toBe(false);
   });
 
-  it("the digest always carries the begin_planning nudge", () => {
-    const d = coordDigestTool({ repo: REPO1 }, A, new Date());
+  it("the digest always carries the begin_planning nudge", async () => {
+    const d = await coordDigestTool({ repo: REPO1 }, A, new Date());
     expect(d.text).toContain("begin_planning");
   });
 
-  it("a session does not conflict with its OWN intent", () => {
+  it("a session does not conflict with its OWN intent", async () => {
     const now = new Date("2026-06-22T10:00:00Z");
     declareIntentTool({ repo: REPO1, area: "x", reason: "mine" }, A, now);
-    const d = coordDigestTool({ repo: REPO1, area: "x" }, A, now);
+    const d = await coordDigestTool({ repo: REPO1, area: "x" }, A, now);
     expect(d.hasConflicts).toBe(false);
   });
 });

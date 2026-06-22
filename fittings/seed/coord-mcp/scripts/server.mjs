@@ -106,10 +106,10 @@ export function releaseIntentsTool(args, session = SESSION) {
   return { status: "RELEASED", repo, session };
 }
 
-export function coordDigestTool(args, session = SESSION, now = new Date()) {
+export async function coordDigestTool(args, session = SESSION, now = new Date()) {
   const repo = resolveRepo(args);
-  const d = buildDigest(repo, { session, area: (args && args.area) || "", files: (args && args.files) || [] }, now);
-  return { repo, text: d.text, bytes: d.bytes, hasConflicts: d.hasConflicts, conflicts: d.conflicts };
+  const d = await buildDigest(repo, { session, area: (args && args.area) || "", files: (args && args.files) || [] }, now);
+  return { repo, text: d.text, bytes: d.bytes, hasConflicts: d.hasConflicts, conflicts: d.conflicts, leaseConflicts: d.leaseConflicts };
 }
 
 const TOOLS = [
@@ -136,7 +136,7 @@ function send(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
-export function handle(msg) {
+export async function handle(msg) {
   const { id, method, params } = msg;
   if (method === "initialize") {
     return send({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "coord-mcp", version: "0.1.0" } } });
@@ -149,7 +149,7 @@ export function handle(msg) {
     const fn = DISPATCH[name];
     if (!fn) return send({ jsonrpc: "2.0", id, error: { code: -32601, message: `unknown tool ${name}` } });
     try {
-      const result = fn(args || {});
+      const result = await fn(args || {}); // tools may be async (e.g. coord_digest fetches leases)
       return send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
     } catch (e) {
       return send({ jsonrpc: "2.0", id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
@@ -162,11 +162,15 @@ function runStdioServer() {
   const rl = createInterface({ input: process.stdin });
   rl.on("line", (line) => {
     if (!line.trim()) return;
+    let msg;
     try {
-      handle(JSON.parse(line));
+      msg = JSON.parse(line);
     } catch {
-      /* ignore malformed */
+      return; // ignore malformed
     }
+    Promise.resolve(handle(msg)).catch(() => {
+      /* never crash the server on a tool error */
+    });
   });
 }
 

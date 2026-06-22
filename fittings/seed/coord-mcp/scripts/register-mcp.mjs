@@ -34,6 +34,23 @@ function parseObjOrNull(text) {
   return parsed;
 }
 
+// One-time durable snapshot of ~/.claude.json BEFORE first registration, under
+// the standard ~/.garrison/snapshots/ convention (NOT /tmp). Idempotent.
+function snapshotOnce(srcPath) {
+  const gh = process.env.GARRISON_HOME && process.env.GARRISON_HOME.trim().length > 0 ? process.env.GARRISON_HOME : path.join(HOME, ".garrison");
+  const dir = path.join(gh, "snapshots");
+  const snap = path.join(dir, "claude-json.before-coord-mcp.json");
+  try {
+    if (fs.existsSync(srcPath) && !fs.existsSync(snap)) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.copyFileSync(srcPath, snap);
+      console.log(`[coord-mcp] snapshot ${srcPath} → ${snap}`);
+    }
+  } catch {
+    /* snapshot is best-effort; never block registration */
+  }
+}
+
 async function main() {
   const mode = process.argv[2];
   const p = claudeJsonPath();
@@ -49,6 +66,7 @@ async function main() {
   if (!root.mcpServers || typeof root.mcpServers !== "object" || Array.isArray(root.mcpServers)) root.mcpServers = {};
 
   if (mode === "add") {
+    snapshotOnce(p);
     root.mcpServers[NAME] = { command: process.execPath, args: [SERVER] };
     await fsp.mkdir(path.dirname(p), { recursive: true });
     await fsp.writeFile(p, JSON.stringify(root, null, 2));

@@ -17,6 +17,19 @@ function bdJson(repo, args) {
   }
 }
 
+// Liveness for the unified state / observability view: is the bd CLI reachable,
+// with latency. (Beads' Claude Code integration is the CLI + a SessionStart hook,
+// not a server — so liveness == the CLI responding.)
+export function beadsLiveness() {
+  const start = Date.now();
+  try {
+    execFileSync("bd", ["version"], { stdio: ["ignore", "ignore", "ignore"], timeout: 4000 });
+    return { up: true, latencyMs: Date.now() - start };
+  } catch {
+    return { up: false };
+  }
+}
+
 export function beadsAvailable() {
   try {
     execFileSync("bd", ["version"], { stdio: ["ignore", "ignore", "ignore"], timeout: 3000 });

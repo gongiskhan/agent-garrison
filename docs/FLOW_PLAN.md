@@ -641,3 +641,42 @@ in any repo, (2) the orchestrator session — with no per-project setup.
   repo AND an orchestrator session load the coord MCP servers + hooks → `COORD-WIRING OK`,
   `PTY-SAFE OK`.
 - **CO7:** all sentinels printed once, then `COORD-FITTINGS DONE`, then the `GLOBAL GATE:` line.
+
+## COORD-2 wave — Coordination fixes + observability view (2026-06-22)
+
+Builds on the shipped coord fittings. One idea underneath both halves: a **single
+coordination-state source** (`coord-state.mjs buildCoordState`) the CLI, the agent
+digest, and the new web view all consume — so the UI can never show green while the
+CLI shows red.
+
+### Verified facts (explore-first; full FINDING: lines in the session transcript)
+- Status logic was **trapped in `coord.mjs`** (~10 inline fns) → factored into
+  `lib/coord-state.mjs`; CLI now renders from it; `coord state --json` added for the UI.
+- agent_mail is already `own_port` → made **eager/standing** via `setEagerBoot` on
+  select, stopped + un-eagered on deselect (reuses own-port + eager-boot supervision).
+- Design = **field manual** (`globals.css` tokens: `--paper/--ink/--sage/--brass-2/--alarm/--rule`,
+  Inter/Source-Serif/JetBrains-Mono, sharp corners). View = bespoke `/coordination` route.
+- Leases readable only via agent_mail MCP resource `resource://file_reservations/{slug}`
+  (session-less streamable-http, URL-encoded slug, project-not-found → []).
+- Backups were ad-hoc in `/tmp`; durable convention is `~/.garrison/snapshots/`.
+- **Baseline: zero coord regressions** — pre-coord `3fd7ab4` 6 failed/779 passed vs
+  HEAD 6 failed/830 passed; identical failing files (removed-memory-seed + gemini), no coord file fails.
+
+### Slices
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| C2-1 state-module | `lib/coord-state.mjs` buildCoordState (liveness/sessions/locks/intents/leases/heartbeat/heroVerdict); CLI refactored to consume it; `coord state --json` | mixed | (lib + cli) | C2-serial | passed (vitest coord-state 11/11 + suite 66✓ + typecheck 0; CLI-UI parity proven — `COORD-STATE-UNIFIED OK` `CLI-UI-PARITY OK`) |
+| C2-2 leases | `agentmail.fetchActiveLeases` (MCP resources/read) folded into digest + state, repo-scoped, graceful-degrade; async digest | mixed | (lib) | C2-serial | passed (leaseOverlaps + live fetch proven; digest async; suite green — `DIGEST-LEASES OK`) |
+| C2-3 agentmail-lifecycle | eager/standing default on select; stop + un-eager on deselect; restart via existing endpoint + view button; reboot semantics documented | mixed | (runner + fitting) | C2-serial | passed (coord-lifecycle 4/4 + typecheck 0 — `AGENTMAIL-LIFECYCLE OK`) |
+| C2-4 backups | durable `~/.garrison/snapshots/` pre-registration snapshots; `/tmp` migrated | automation | (fitting) | C2-serial | passed (coord-lifecycle backups tests + migration done — `BACKUPS-DURABLE OK`) |
+| C2-5 view | `/coordination` route + `CoordinationPanel` + `/api/coordination/{status,canary,release-lock}` + Sidebar link; hero verdict, planning gate, liveness, sessions, intents, leases, heartbeat; 3 guarded actions | ui | /coordination | C2-serial | passed (e2e 3/3 + healthy+degraded screenshots + field-manual design audit — `COORD-VIEW OK`) |
+| C2-6 final | global gate + parity + degraded demo + sentinels | automation | (n/a) | C2-final | passed (full suite 845✓/6 baseline + typecheck 0 + lint clean + build 0; CLI-UI parity + healthy/degraded screenshots; 2 Codex approves; globalGate `passed`) |
+
+### Acceptance (sentinels lifted from the brief)
+- One state source: CLI `coord status` + `coord state --json` + the UI `/api/coordination/status`
+  all call `buildCoordState`; parity demonstrated (`CLI-UI-PARITY OK`).
+- Honest view: hero verdict = live-and-used | idle | degraded | down | unknown; a down server,
+  a RED zero-write session, or a stale lock force degraded/down (proven in the degraded screenshot
+  + e2e). State-source-unreachable → "unknown", never stale green.
+- PTY-safe: the view's Verify-now runs the same `coord canary` (command/CLI, no model call).
+- License isolation: agent_mail stays arm's-length; leases read via its HTTP MCP, never imported.

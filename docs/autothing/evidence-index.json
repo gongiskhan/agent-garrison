@@ -1,35 +1,28 @@
 {
   "project": "agent-garrison",
-  "updatedAt": "2026-06-22T00:50:00Z",
+  "updatedAt": "2026-06-22T08:18:00Z",
   "galleryUrl": "http://100.108.210.116:8099/",
-  "galleryNote": "COORD wave (Coordination Fittings: Beads + mcp_agent_mail + planning gate) added. Backend/CLI slices — evidence is asciinema casts under docs/autothing/evidence/coord/ (co1-beads, co2-agentmail, co3-plan-gate, co5-observe, co6-wiring) + the committed vitest suite (7 coord test files, 51 pass + 1 gated). Prior waves: DS (dev-env sessions), HV (holistic composition), W/MR/U/AS/S/Q/C — see FLOW_PLAN.",
+  "galleryNote": "COORD-2 wave (coordination fixes + observability view). Evidence under docs/autothing/evidence/coord/: view-healthy.png + view-degraded.png (the Coordination web view rendering a green healthy state and an amber degraded state) plus wave-1 asciinema casts. Committed gates: 9 coord vitest files (66 pass + 1 gated) + tests/e2e/coordination.spec.ts (3). Prior: COORD wave (the 3 fittings), DS/HV/W/MR/U/AS/S/Q/C waves — see FLOW_PLAN.",
   "slices": {
-    "CO1-beads": "passed",
-    "CO2-agentmail": "passed",
-    "CO3-plan-gate": "passed",
-    "CO4-hook": "passed",
-    "CO5-coord-cli": "passed",
-    "CO6-wiring": "passed",
-    "CO7-final": "passed"
+    "C2-1-state-module": "passed",
+    "C2-2-leases": "passed",
+    "C2-3-agentmail-lifecycle": "passed",
+    "C2-4-backups": "passed",
+    "C2-5-view": "passed",
+    "C2-6-final": "passed"
   },
   "globalGate": {
     "status": "passed",
-    "decidedAt": "2026-06-22T00:50:00Z",
-    "wave": "COORD / Coordination Fittings (Beads + mcp_agent_mail + planning gate) for cross-session drift prevention",
+    "decidedAt": "2026-06-22T08:18:00Z",
+    "wave": "COORD-2 / Coordination fixes + observability view",
     "buildableRemaining": 0,
-    "videos": "6/6",
-    "summary": "All 7 COORD slices passed. Two coordination tools added as Fittings (coord-beads, coord-agentmail) + a Garrison-owned MIT planning-gate MCP (coord-mcp) + the digest/nudge hook + the coord observability CLI. Committed gates: 7 coord test files = 51 passed + 1 gated-live skip; typecheck 0; lint clean; build exit 0 (after clean .next). Cross-model: every slice has a Codex approve (CO1 r1->r3, CO2 r1->r2, CO3 r1->r5 [5-round concurrency hardening], CO4 r1, CO5 r1->r2, CO6 r1->r2). LIVE machine-wide wiring verified: `claude mcp list` on the real ~/.claude shows coord-mcp + coord-agentmail Connected from a fresh non-Garrison repo (direct path) AND a composition cwd (orchestrator path), existing user MCP servers untouched. PTY-safe (all hooks command-type, no claude -p/Agent-SDK). License-isolation: agent_mail at ~/.garrison/external (outside MIT tree), zero imports, kept out of Codex scope, not wired to Ekoa.",
-    "crossModel": {
-      "reviewAllApproved": true,
-      "pwTestAllPassed": "n/a (backend/CLI slices — no UI to drive; correctness gate is committed vitest + live transport/demo)"
-    },
+    "videos": "2/2",
+    "summary": "All COORD-2 slices passed. ONE coordination-state source (lib/coord-state.mjs buildCoordState) now feeds the CLI, the agent digest, and a new read-only /coordination web view — proven to agree (CLI-UI-PARITY OK). Fixes: agent_mail leases folded into the digest+state (DIGEST-LEASES OK); agent_mail Garrison-supervised eager/standing with clean stop on deselect + restart action (AGENTMAIL-LIFECYCLE OK); durable ~/.garrison/snapshots backups + /tmp migrated (BACKUPS-DURABLE OK). The view's hero verdict is honest — agent_mail DOWN, a RED zero-write session, and a stale lock each force degraded (shown in view-degraded.png + the e2e), and an unreachable state source shows 'unknown', never stale green (COORD-VIEW OK). Gates: coord vitest 66 pass + 1 gated; full suite 845 pass / 6 pre-existing-baseline (zero coord); e2e 3/3; typecheck 0; lint clean; build 0 (14/14, /coordination + 3 API routes). Cross-model: two focused Codex reviews both approve. PTY-safe (Verify-now = `coord canary`, no model). License-isolated (leases via agent_mail HTTP MCP, never imported).",
+    "crossModel": { "reviewAllApproved": true, "pwTestAllPassed": "e2e (Playwright) 3/3 — UI slice" },
     "everySliceVideoVerified": true,
     "blockers": [],
-    "preExistingBaseline": "7 full-suite failures unrelated to this wave + unaffected by it: removed memory seed (claude-install, seed x3, validation, fitting-files-api) + 1 documented gemini-runtime buildArgs baseline. Zero failing tests reference coord; runner tests green.",
-    "priorWave": {
-      "status": "completed-with-blockers",
-      "wave": "DS / Dev-Env durable sessions",
-      "decidedAt": "2026-06-20T11:22:02Z"
-    }
+    "preExistingBaseline": "6 full-suite failures unrelated to + unaffected by this wave (removed memory seed: claude-install, seed x3, validation, fitting-files-api; + 1 gemini-runtime buildArgs). Confirmed via stash + checkout of pre-coord 3fd7ab4: 6 failed/779 passed there vs 6 failed/845 passed at HEAD — identical failing files, zero coord.",
+    "uncommitted": "Wave-2 changes are NOT committed. src/components/chrome/Sidebar.tsx carries the operator's in-flight rework PLUS the one Coordination NavLink — entangled, so it needs the operator's call before commit.",
+    "priorWave": { "status": "passed", "wave": "COORD / Coordination Fittings", "decidedAt": "2026-06-22T00:50:00Z" }
   }
 }

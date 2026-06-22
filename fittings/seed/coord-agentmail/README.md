@@ -37,13 +37,31 @@ assert the clone is outside the repo. Risk accepted by the operator.
 One shared server across all projects; sessions are tagged by `cwd`/repo, so
 leases/messages a session sees are repo-scoped — never cross-project.
 
-## Lifecycle / clean removal
+## Lifecycle / reboot semantics (Garrison-supervised)
 
-Operative-bound own-port: starts on `up`, stops on `down`. The MCP **registration**
-is standing (persists across `down` so direct runs keep reaching it). On
-**deselect**, Garrison's coord teardown (`reconcileCoordTeardown`, run on `up`)
-removes the `coord-agentmail` MCP entry cleanly. For standing-across-`down`, eager-
-toggle the fitting.
+agent_mail is supervised by Garrison using the existing own-port + eager-boot
+machinery — no bespoke daemon:
+
+- **Auto-start on activation.** Selecting the fitting marks it **eager**
+  (`setEagerBoot("coord-agentmail", true)`, wired in `runner.up()`), so it boots
+  with Garrison via `runEagerBoot` and is **standing** by default for the
+  coordination use case.
+- **Survives operative `down` + Garrison restart.** Eager (server-lifecycle)
+  fittings are exempt from the `down` stop and the startup orphan sweep, so
+  agent_mail stays up across operative restarts. **"Survives reboot" means it comes
+  back when Garrison next starts** — the normal path. (A standalone launchd
+  LaunchAgent for OS-reboot survival independent of Garrison is intentionally out
+  of scope.)
+- **Restart on crash.** Re-spawned by `runEagerBoot` on the next Garrison/operative
+  start (a dead status-file pid is detected and replaced), and on demand via
+  `POST /api/fittings/coord-agentmail/restart` (and the **Restart agent_mail**
+  button in the Coordination view).
+- **Clean stop on deactivation.** Deselecting un-eagers it and stops the server
+  (`setEagerBoot(false)` + `stopOwnPortFitting("coord-agentmail")` in `runner.up`'s
+  coord reconcile), and `reconcileCoordTeardown` removes its MCP registration.
+
+A pre-registration snapshot of `~/.claude.json` is written to
+`~/.garrison/snapshots/claude-json.before-coord-agentmail.json` (durable, not `/tmp`).
 
 ## Scripts
 

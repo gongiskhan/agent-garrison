@@ -54,9 +54,9 @@ async function main() {
     const { buildDigest } = await import(path.join(__dirname, "lib", "digest.mjs"));
     repo = repoRoot(cwd);
     // For UserPromptSubmit, the prompt text is a working-set hint; we pass it as a
-    // loose "area" so an intent naming the same area surfaces as a hard conflict.
+    // loose "area" so an intent/lease naming the same area surfaces as a hard conflict.
     const area = event === "UserPromptSubmit" && typeof payload.prompt === "string" ? payload.prompt.slice(0, 200) : "";
-    digest = buildDigest(repo, { session, area, files: [] }, new Date());
+    digest = await buildDigest(repo, { session, area, files: [] }, new Date());
   } catch {
     emit(event, "");
     return;

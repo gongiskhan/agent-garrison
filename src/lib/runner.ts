@@ -10,7 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
-import { readEagerBootPrefs, runEagerBoot } from "./eager-boot";
+import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
@@ -131,6 +131,19 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       const teardown = reconcileCoordTeardown({ compositionId, selectedFittingIds: selectedIds });
       if (teardown.removed.length > 0) {
         appendLog(compositionId, "runner", `coord teardown: removed user-scope config for ${teardown.removed.join(", ")}`);
+      }
+      // agent_mail standing lifecycle: when coord-agentmail is SELECTED, mark it
+      // eager so it boots with Garrison and survives operative `down` (standing for
+      // direct `claude` runs). When DESELECTED, un-eager it and stop the server —
+      // clean stop on deactivation. Reuses the existing own-port + eager-boot
+      // supervision (no new mechanism). Best-effort; never fails the operative.
+      if (selectedIds.includes("coord-agentmail")) {
+        await setEagerBoot("coord-agentmail", true);
+      }
+      if (teardown.removed.includes("coord-agentmail")) {
+        await setEagerBoot("coord-agentmail", false);
+        await stopOwnPortFitting("coord-agentmail");
+        appendLog(compositionId, "runner", "coord: stopped + un-eagered coord-agentmail (deselected)");
       }
     } catch (e) {
       appendLog(compositionId, "runner", `coord teardown reconcile skipped: ${e instanceof Error ? e.message : String(e)}`);

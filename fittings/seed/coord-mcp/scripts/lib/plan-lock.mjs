@@ -129,6 +129,17 @@ export function releaseLock(repo, session, now = new Date()) {
   return { released: true };
 }
 
+// Force-remove a repo's planning lock regardless of holder/expiry — the
+// admin/"release-lock" action surfaced (guarded by a confirm) in the Coordination
+// view, for clearing a stale or abandoned lock. Returns whether a lock existed.
+export function forceReleaseLock(repo) {
+  const p = lockPath(repo);
+  const existed = fs.existsSync(p);
+  fs.rmSync(p, { force: true });
+  fs.rmSync(p.replace(/\.json$/, ".waiters.json"), { force: true });
+  return { released: existed, repo };
+}
+
 // ---- waiters (for the "B waits" surface + observability layer 5) ----
 // Map { session: { summary, since } } per repo. A session that gets WAIT records
 // itself; it clears on acquire. Stale entries (older than freshMs) are ignored,
