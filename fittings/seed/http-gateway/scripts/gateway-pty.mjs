@@ -243,7 +243,10 @@ async function runRoutedTurn(message, onChunk) {
     return { reply: r.reply, session_id: null, cost_usd: null, route: pre.route.targetId, runtime: r.runtime, model: r.model };
   }
   session = router.getOperativeSession();
-  const annotated = `${pre.annotation}\n${message}`;
+  // A resolved `workflow` target runs the named Claude Code workflow ON the
+  // operative (via its Workflow tool) — prepend the instruction; else a plain turn.
+  const wfPrefix = router.isWorkflowTarget(pre.route) ? router.workflowTurnPrefix(pre.route) : "";
+  const annotated = `${pre.annotation}\n${wfPrefix}${message}`;
   let lastEmitted = "";
   const onScreen =
     onChunk && session.handle

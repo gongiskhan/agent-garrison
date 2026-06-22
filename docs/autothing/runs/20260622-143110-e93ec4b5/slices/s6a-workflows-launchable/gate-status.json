@@ -1,0 +1,21 @@
+{
+  "slice": "s6a-workflows-launchable",
+  "title": "workflow targets routed to the operative's Workflow tool (compose-don't-own)",
+  "updatedAt": "2026-06-22T16:55:42Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/workflow-target.test.ts tests/gateway-routing.test.ts", "exit": 0, "at": "2026-06-22T16:55:42Z", "summary": "6 passed — isWorkflowTarget detects type:workflow only; workflowTurnPrefix names the workflow + Workflow-tool instruction + targetId fallback; gateway-routing regression intact" },
+    "syntax": { "cmd": "node --check gateway-routing.mjs gateway-pty.mjs", "exit": 0, "at": "2026-06-22T16:55:42Z" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T16:55:42Z", "summary": "clean" },
+    "suite": { "cmd": "npm test", "at": "2026-06-22T16:55:42Z", "summary": "895 passed; 6 PRE-EXISTING failures; no new regressions" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T16:55:42Z", "summary": "compose-don't-own: no parallel workflow engine; a resolved workflow target prepends a Workflow-tool instruction to the operative turn so it actually runs. Pure helpers, low blast radius." },
+    "codexReview": { "verdict": "blocked-external", "by": "codex/chatgpt", "at": "2026-06-22T16:55:42Z", "lastReport": "Codex workspace out of credits", "blockedExternal": true },
+    "codexPwTest": { "result": "blocked-external", "reason": "Codex workspace out of credits" },
+    "designAudit": { "verdict": "n/a", "reason": "no UI" },
+    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow" }
+  },
+  "blockers": [
+    { "gate": "codexReview/codexPwTest", "cause": "external: Codex/ChatGPT workspace out of credits", "failedCommand": "codex exec --output-last-message <file> \"<review prompt>\"", "observed": "Your workspace is out of credits. Add credits to continue.", "remediation": "Add credits to the Codex workspace, then re-run the adversarial review on this slice's diff." }
+  ]
+}

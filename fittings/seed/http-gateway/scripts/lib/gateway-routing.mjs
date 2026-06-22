@@ -355,6 +355,24 @@ export class RoutedGateway {
     return !!t && (t.type === "secondary" || t.runtime === "codex" || t.runtime === "gemini");
   }
 
+  // A `workflow` routing target names a saved Claude Code workflow. We do NOT run a
+  // parallel workflow engine ("compose, don't own") — the operative IS a Claude Code
+  // session that runs workflows via its Workflow tool. We just route the turn to it
+  // with an instruction to invoke the named workflow (workflowTurnPrefix), so a
+  // resolved workflow target actually runs instead of falling through as a plain turn.
+  isWorkflowTarget(route) {
+    const t = route?.target;
+    return !!t && t.type === "workflow";
+  }
+
+  workflowTurnPrefix(route) {
+    const name =
+      route?.target?.workflow ||
+      (route?.targetId || "").replace(/^workflow:/, "") ||
+      "the resolved workflow";
+    return `[workflow: ${name}] Handle this request by running the saved Claude Code workflow \`${name}\` — invoke it via the Workflow tool, then report the result.\n\n`;
+  }
+
   async getSecondaryAdapter(runtime) {
     if (this._secondaryAdapters.has(runtime)) return this._secondaryAdapters.get(runtime);
     const dir = resolveSecondaryDir(this.compositionDir, runtime);
