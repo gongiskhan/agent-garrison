@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "defaultMode": "gary",
+  "sharedVoiceRef": "voice/shared-voice.md",
+  "briefTemplateRef": "references/brief-template.md",
+  "modes": {
+    "gary": {
+      "soulRef": "souls/gary.md",
+      "label": "Gary — personal assistant",
+      "faculties": ["memory", "channels"],
+      "runtime": false,
+      "routingBias": "standard-toward-fast"
+    },
+    "joe": {
+      "soulRef": "souls/joe.md",
+      "label": "Joe — dev",
+      "faculties": ["runtimes", "memory", "knowledge"],
+      "runtime": true,
+      "routingBias": "expert"
+    },
+    "james": {
+      "soulRef": "souls/james.md",
+      "label": "James — product / architect",
+      "faculties": ["memory", "knowledge"],
+      "runtime": false,
+      "routingBias": "expert-then-standard"
+    }
+  },
+  "channelDefaults": {
+    "dev-env": "joe",
+    "slack": "gary",
+    "web": "gary",
+    "default": "gary"
+  },
+  "switching": {
+    "byNameAtStart": true,
+    "sticky": true,
+    "autoInfer": "shy",
+    "switchLog": ".garrison/switch-log.jsonl"
+  },
+  "routingBias": {
+    "standard-toward-fast": { "floor": "fast", "prefer": "standard" },
+    "expert": { "floor": "expert", "prefer": "expert" },
+    "expert-then-standard": { "floor": "standard", "prefer": "expert" }
+  }
+}

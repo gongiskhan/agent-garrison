@@ -14,7 +14,7 @@ async function seedFaculty(id: string): Promise<string> {
 }
 
 describe("faculty definitions", () => {
-  it("renders the 8 role Faculties in order (sessions split into runtimes + surfaces 2026-06-18)", () => {
+  it("renders the 9 role Faculties in order (modes added 2026-06-22)", () => {
     expect(faculties.map((faculty) => faculty.id)).toEqual([
       "orchestrator",
       "channels",
@@ -23,12 +23,13 @@ describe("faculty definitions", () => {
       "memory",
       "observability",
       "sessions",
-      "surfaces"
+      "surfaces",
+      "modes"
     ]);
   });
 
-  it("assigns each faculty a unique sequential order 1..8", () => {
-    expect(faculties.map((f) => f.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  it("assigns each faculty a unique sequential order 1..9", () => {
+    expect(faculties.map((f) => f.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   it("keeps Tasks out of the selectable Faculty set", () => {

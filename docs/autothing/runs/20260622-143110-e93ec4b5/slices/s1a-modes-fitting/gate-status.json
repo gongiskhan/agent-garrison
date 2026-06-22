@@ -1,0 +1,19 @@
+{
+  "slice": "s1a-modes-fitting",
+  "title": "modes fitting — Gary/Joe/James souls + shared voice + modes.json",
+  "updatedAt": "2026-06-22T14:19:17Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 2 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/modes-fitting.test.ts", "exit": 0, "at": "2026-06-22T14:19:17Z", "summary": "4 passed (faculty/kind, parse, modes.json schema, resolver singleton-safety)" },
+    "validateFitting": { "cmd": "tsx scripts/validate-fitting.ts fittings/seed/modes", "result": "PASS", "at": "2026-06-22T14:19:17Z", "summary": "architecture/security/prompt-injection/quality all pass" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T14:19:17Z", "summary": "clean" },
+    "suite": { "cmd": "npm test", "at": "2026-06-22T14:19:17Z", "summary": "850 passed; 6 PRE-EXISTING failures (non-existent fittings/seed/memory + gemini/fitting-files-api), no new regressions" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T14:19:17Z", "summary": "setup runs from fitting dir, verify from composition root; briefs_path runtime resolution deferred to s1c" },
+    "codexReview": { "verdict": "approve", "rounds": 3, "by": "codex/chatgpt", "at": "2026-06-22T14:19:17Z", "lastReport": "r1 assertion gap (s0), r2 verify-path + MODES_BRIEFS_PATH env, r3 missing real consumption — all fixed; APPROVE" },
+    "codexPwTest": { "result": "n/a", "reason": "no live app/runtime — config/prompt slice; committed vitest + validate-fitting are the re-runnable assertions (Codex-reviewed)" },
+    "designAudit": { "verdict": "n/a", "reason": "no custom UI; Compose grid auto-renders a Modes station from faculties[]+facultyRoleCopy — visual check deferred to next app run / s3c" },
+    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow to demo" }
+  },
+  "blockers": []
+}

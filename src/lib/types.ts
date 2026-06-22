@@ -20,7 +20,12 @@ export const facultyIds = [
   "memory",
   "observability",
   "sessions",
-  "surfaces"
+  "surfaces",
+  // modes: the operative's identity/persona layer (Gary/Joe/James souls +
+  // shared voice + name-based mode switching) composed into the orchestrator's
+  // system prompt. A real Fitting (the `modes` fitting) needs this slot and none
+  // of the other roles fit it — the sanctioned trigger for a new faculty.
+  "modes"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -56,6 +61,11 @@ export type FittingShape = (typeof fittingShapes)[number];
 // explicitly.
 export const capabilityKinds = [
   "orchestrator",
+  // modes: added 2026-06-22 — the identity/persona layer (souls + shared voice +
+  // per-mode routing bias + mode switching) the `modes` Fitting provides and the
+  // orchestrator consumes. Honesty-Test: a real Fitting needs it and no existing
+  // kind expresses it.
+  "modes",
   "memory-store",
   // data-source: re-added 2026-06-10 because trello-data-source is a real Fitting that cannot be expressed without it (Honesty-Test convention) — it was dropped 2026-06-07 with the parked PA fittings.
   "data-source",
@@ -94,6 +104,7 @@ export interface CapabilityConsumption {
 
 export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "orchestrator",
+  "modes",
   "vault",
   "dev-env",
   "screen-share",

@@ -31,11 +31,12 @@ const DROPPED_KINDS_2026_06 = ["terminal-session", "worktree", "session-view"];
 const STALE_FACULTY_COUNT = /24 flat top-level|24 flat\b|24 Faculties/i;
 
 describe("docs reflect the Quarters pivot (RC5 sync)", () => {
-  it("source is the truth this test guards against: 6 roles, dropped kinds gone", () => {
+  it("source is the truth this test guards against: the role set + dropped kinds gone", () => {
     expect([...facultyIds].sort()).toEqual([
       "channels",
       "gateway",
       "memory",
+      "modes",
       "observability",
       "orchestrator",
       "runtimes",

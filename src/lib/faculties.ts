@@ -88,6 +88,16 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["plugin", "script"],
     notes:
       "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Views group."
+  },
+  {
+    id: "modes",
+    order: 9,
+    name: "Modes",
+    cardinality: "single",
+    shapes: ["system-prompt"],
+    notes:
+      "The operative's identity/persona layer — the souls (Gary/Joe/James) + shared voice + per-mode routing bias + name-based sticky switching, composed into the orchestrator's system prompt. One operative, three faces, one shared memory.",
+    essential: false
   }
 ];
 
@@ -126,6 +136,10 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   surfaces: {
     role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",
     fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Views group."
+  },
+  modes: {
+    role: "Gives the operative named faces (Gary/Joe/James) over one shared memory.",
+    fit: "One modes fitting supplies the souls + shared voice + per-mode routing bias + name-based switching the orchestrator composes into its system prompt."
   }
 };
 

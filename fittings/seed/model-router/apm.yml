@@ -34,7 +34,13 @@ x-garrison:
   provides:
     - kind: orchestrator
       name: model-router
-  consumes: []
+  consumes:
+    # The modes Fitting (Gary/Joe/James souls + shared voice + per-mode routing
+    # bias) is optional: when selected, src/lib/souls.ts folds each soul into the
+    # GARRISON_SOULS_CONFIG the gateway runs. optional-one tolerates 0 providers,
+    # so a composition without modes is unaffected.
+    - kind: modes
+      cardinality: optional-one
   setup:
     command: node ui/build.mjs && node scripts/compile.mjs --check
     idempotent: true

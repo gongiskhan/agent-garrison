@@ -1,11 +1,12 @@
 # Agent Garrison Faculties
 
-## Current model: 8 roles (Quarters pivot + the 2026-06-18 sessions split)
+## Current model: 9 roles (Quarters pivot, the 2026-06-18 sessions split, the 2026-06-22 modes faculty)
 
 Faculties are now **roles only**. The flat 24-Faculty list was collapsed to six
 roles in the 2026-06-07 Quarters pivot; on 2026-06-18 the overloaded `sessions`
 role was split into three (sessions / runtimes / surfaces), bringing the total
-to eight, enforced by `facultyIds` in `src/lib/types.ts`:
+to eight; `modes` was added 2026-06-22 (the Gary/Joe/James identity layer),
+bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
 
 - **orchestrator** — the governing behaviour spine; projected to
   `~/.claude/rules/garrison-orchestrator.md` as an APM instructions primitive
@@ -32,6 +33,11 @@ to eight, enforced by `facultyIds` in `src/lib/types.ts`:
   Each is detected via the `own_port` flag and linked from the sidebar Views
   group. `screen-share`, `browser`, and `outposts` are deprecation aliases for
   this role.
+- **modes** — the operative's identity/persona layer (added 2026-06-22): the
+  souls (Gary/Joe/James), the shared voice, the per-mode routing bias, and
+  name-based mode switching, composed into the orchestrator's system prompt.
+  One operative, three faces, one shared memory. Provided by the `modes` Fitting
+  and consumed by the orchestrator.
 
 Everything that used to be its own Faculty — Skills, Hooks, MCPs, Plugins,
 Scripts, Settings, Context, Plans — is now a **Quarters platform primitive**, not

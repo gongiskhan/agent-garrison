@@ -1,0 +1,18 @@
+{
+  "slice": "s1b-modes-capkind",
+  "title": "modes capability kind + modes faculty + library registration + model-router consumes",
+  "updatedAt": "2026-06-22T14:19:17Z",
+  "phase": "done", "status": "passed", "kind": "mixed",
+  "retries": { "limit": 5, "used": 2 },
+  "note": "built together with s1a (inseparable: the fitting can't validate without the kind/faculty). Shared evidence + commit.",
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/modes-fitting.test.ts tests/faculties.test.ts tests/docs-consistency.test.ts", "exit": 0, "at": "2026-06-22T14:19:17Z", "summary": "faculty/kind registered; inventory assertions updated to 9 faculties + modes kind; docs document modes" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T14:19:17Z", "summary": "clean — no exhaustive FacultyId map broke beyond facultyRoleCopy (updated)" },
+    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T14:19:17Z", "summary": "automation-runner already existed; only modes kind added; updating inventory tests is legitimate (real additive change), docs updated to match" },
+    "codexReview": { "verdict": "approve", "rounds": 3, "by": "codex/chatgpt", "at": "2026-06-22T14:19:17Z", "lastReport": "shared with s1a; APPROVE r3" },
+    "codexPwTest": { "result": "n/a", "reason": "type-system + manifest slice; resolver behavior covered by committed vitest" },
+    "designAudit": { "verdict": "n/a", "reason": "no UI" },
+    "video": { "status": "n/a", "reason": "no runtime flow" }
+  },
+  "blockers": []
+}

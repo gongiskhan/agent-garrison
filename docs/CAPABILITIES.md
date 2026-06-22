@@ -11,7 +11,7 @@ The set grew across phases, then **shrank with the 2026-06-07 Quarters pivot**
 Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
-via the `capabilityKinds` array in `src/lib/types.ts`: `orchestrator`,
+via the `capabilityKinds` array in `src/lib/types.ts`: `orchestrator`, `modes`,
 `memory-store`, `data-source`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`,
 `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`.
 
@@ -22,6 +22,13 @@ bridge. Multiple runtimes (Claude Code, Codex, Gemini-CLI) may coexist under the
 others **secondary** (invocable via their bridge). Same "add a kind only when a
 real Fitting needs one" precedent as `data-source`/`automation-runner`
 (codex-runtime / gemini-runtime need it).
+
+`modes` (added 2026-06-22) is the operative's identity/persona layer: the souls
+(Gary/Joe/James), the shared voice, the per-mode routing bias, and name-based
+mode switching, composed into the orchestrator's system prompt. It is a
+singleton kind provided by the `modes` Fitting (the `modes` faculty) and
+consumed by the orchestrator at `optional-one`. Same "add a kind only when a
+real Fitting needs one" precedent.
 
 `view` is **derived, never declared**: fittings do not list it in `provides` —
 the resolver synthesises one `view` provision per produced view (each

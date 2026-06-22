@@ -222,3 +222,19 @@ new `tests/dev-env-*`):
   is git-unmodified by DS.
 The DS suite is fully green: dev-env-claude-sessions 11, resume-by-id 5,
 open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
+
+## run 20260622-143110-e93ec4b5
+
+- PRE-EXISTING (not introduced by this run; present at BASE c092101): 6 vitest failures —
+  tests/validation.test.ts + tests/seed.test.ts (x3) + tests/claude-install.test.ts reference a
+  `fittings/seed/memory` seed that does not exist (likely a memory→basic-memory rename left stale
+  ids/tests); tests/gemini-runtime.test.ts buildArgs; tests/fitting-files-api.test.ts. Out of the
+  modes slice's scope — logged, not fixed here.
+- modes faculty modeling: added a dedicated single-cardinality `modes` faculty (the sanctioned
+  "new faculty when a real Fitting needs one" trigger) rather than overloading the singleton
+  `orchestrator` faculty. `automation-runner` capability kind already existed (re-added 2026-06-13),
+  so only `modes` kind was added.
+- DEFERRED to s1c: resolve `briefs_path` against the composition dir in the souls config (setup.mjs
+  only pre-creates a placeholder dir relative to the fitting install dir).
+- DEFERRED doc nit: CLAUDE.md up-order step 6 still says "Anthropic Agent SDK in-process" (stale vs
+  PTY-everywhere) — a follow-up doc pass, out of s0/s1 scope.
