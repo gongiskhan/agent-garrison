@@ -1,0 +1,42 @@
+{
+  "slice": "DS3-ui",
+  "title": "Tab strip = open-set + Agents/History header panel (lazy resume on click)",
+  "updatedAt": "2026-06-20T11:22:02Z",
+  "phase": "gate",
+  "status": "blocked",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/dev-env-sessions-endpoints.test.ts (backend contract the UI consumes)",
+      "exit": 0,
+      "at": "2026-06-20T11:22:02Z",
+      "summary": "DS suite 36/36 green (endpoints incl. agents/history/open + reboot-restore). UI behaviour evidenced by live screenshot (tab strip = open-set; Agents panel grouped by project with status dots + isOpen tags). A committed playwright e2e for the Fitting UI was not added — evidence is the screenshot + the committed endpoint contract."
+    },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "at": "2026-06-20T11:22:02Z", "summary": "0 errors (main.tsx + new session-panels.tsx in tsc scope)" },
+    "build": { "cmd": "node ui/build.mjs (esbuild bundle)", "exit": 0, "at": "2026-06-20T11:22:02Z", "summary": "dev-env.bundle.js written clean" },
+    "lint": { "exit": null, "summary": "n/a — fitting UI bundled by esbuild, not next lint" },
+    "e2e": { "exit": null, "summary": "live screenshot evidence (tabs=open-set + Agents panel); committed e2e not added (slice blocked on cross-model)" },
+    "codexReview": {
+      "verdict": "not-run",
+      "rounds": 0,
+      "by": "codex/gpt-5.x",
+      "at": "2026-06-20T11:22:02Z",
+      "lastReport": null,
+      "overrides": [],
+      "notes": "Cross-model review never ran for DS3 — Codex/ChatGPT workspace ran out of credits during DS2 round 8 (see decisions.md). External blocker."
+    },
+    "codexPwTest": { "result": "n/a", "by": "codex/gpt-5.x", "at": "2026-06-20T11:22:02Z", "notes": "blocked — Codex out of credits" },
+    "designAudit": { "verdict": "clean", "by": ["self/screenshot"], "at": "2026-06-20T11:22:02Z", "notes": "Sessions dropdown matches the existing header/menu visual language (var(--accent)/--border/--bg-2, same shadow + radius); status dots use --amber/--sage/--alarm. Not an independent frontend-design audit." },
+    "video": { "status": "skipped", "flagged": false, "notes": "Live screenshot evidence captured (/tmp/ds3-panel.png). Full walkthrough video deferred — the slice is blocked on the cross-model gate (Codex credits) regardless, so a verified video can't lift it to passed." }
+  },
+  "blockers": [
+    {
+      "cause": "external — Codex/ChatGPT workspace out of credits (same as DS2)",
+      "failedCommand": "codex exec -s read-only --skip-git-repo-check -C <repo> --output-schema codex-review.schema.json --output-last-message <out> \"<DS3 review prompt>\"",
+      "error": "ERROR: Your workspace is out of credits. Add credits to continue.",
+      "remediation": "Operator must top up Codex/ChatGPT workspace credits; then run the DS3 cross-model review (3A + 3B) to clear.",
+      "impact": "DS3 cross-model review never ran; objective gates (build/typecheck/endpoint tests) are green and the UI is screenshot-verified."
+    }
+  ]
+}

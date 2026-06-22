@@ -31,6 +31,12 @@ let chromiumChild = null;
 let cdpPort = 0;
 let cdpHttpEndpoint = "";
 let cdpWsEndpoint = "";
+// Last opts launchChromium was called with, so a self-heal relaunch can reuse
+// the same viewport. Set on first launch and never cleared.
+let launchOpts = null;
+// In-flight relaunch promise — guards ensureChromium against double-launching
+// when concurrent requests race after the headless process dies.
+let chromiumLaunching = null;
 
 /**
  * @typedef {{
@@ -61,24 +67,34 @@ let cdpWsEndpoint = "";
  *   viewportCdp: import("playwright").CDPSession | null,
  *   viewportTeardownTimer: NodeJS.Timeout | null,
  *   pendingAck: { sessionId: number, ts: number } | null,
- *   qualityLevel: "low" | "med" | "high",
+ *   qualityLevel: "low" | "med" | "high" | "ultra",
  *   inputClients: Set<import("ws").WebSocket>,
  *   focusedEditable: boolean,
- *   focusWatcher: NodeJS.Timeout | null
+ *   focusWatcher: NodeJS.Timeout | null,
+ *   selection: object | null
  * }} TabState
  */
 
 const BUFFER_LIMIT = 500;
 
-// Screencast presets — LOW is the new default. The per-tab qualityLevel can
-// be changed at runtime via an input-WS {type:"quality", level} message.
-// everyNthFrame stays at 1: throttle by JPEG size, not by skipping paints.
-// (Skipping paints starves first-frame on static pages — there's nothing to
-// skip if the page only paints once on load.)
+// Screencast presets — the per-tab qualityLevel can be changed at runtime via
+// an input-WS {type:"quality", level} message. everyNthFrame stays at 1:
+// throttle by JPEG size, not by skipping paints. (Skipping paints starves
+// first-frame on static pages — there's nothing to skip if the page only
+// paints once on load.)
+//
+// viewportWidth/viewportHeight here are the screencast maxWidth/maxHeight — the
+// cap CDP downscales the rendered surface to fit. The rendered surface is the
+// client's CSS display area × its devicePixelRatio (up to ~2×), so a cap below
+// that forces a downscale-then-upscale round-trip on the client canvas — the
+// "granular/pixelized" look. ULTRA's cap sits above any realistic surface, so
+// frames arrive at native device resolution and read as crisp as native Chrome
+// (at the cost of ~3–4× the bytes — hence HIGH, not ULTRA, is the default).
 const QUALITY_PRESETS = {
-  low:  { jpegQuality: 40, viewportWidth: 800,  viewportHeight: 800,  everyNthFrame: 1 },
-  med:  { jpegQuality: 55, viewportWidth: 1024, viewportHeight: 1024, everyNthFrame: 1 },
-  high: { jpegQuality: 75, viewportWidth: 1280, viewportHeight: 1280, everyNthFrame: 1 }
+  low:   { jpegQuality: 40, viewportWidth: 800,  viewportHeight: 800,  everyNthFrame: 1 },
+  med:   { jpegQuality: 55, viewportWidth: 1024, viewportHeight: 1024, everyNthFrame: 1 },
+  high:  { jpegQuality: 80, viewportWidth: 1600, viewportHeight: 1600, everyNthFrame: 1 },
+  ultra: { jpegQuality: 92, viewportWidth: 3840, viewportHeight: 3840, everyNthFrame: 1 }
 };
 
 // Keep the CDP screencast alive for this long after a viewer disconnects, so a
@@ -92,6 +108,49 @@ const HEARTBEAT_MS = 15_000;
 function pushBounded(arr, entry) {
   arr.push(entry);
   if (arr.length > BUFFER_LIMIT) arr.splice(0, arr.length - BUFFER_LIMIT);
+}
+
+// Hand a popup destination off to the user's REAL Chrome (the desktop app),
+// not the headless Chromium we screencast. A "new tab" opened from page content
+// (window.open / target=_blank) would otherwise spawn an invisible headless tab
+// nobody is viewing. Only http(s) is honoured — never file:, data:, javascript:,
+// chrome:, or custom app schemes, which `open` would route to arbitrary
+// registered handlers.
+function spawnDetached(cmd, args) {
+  const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+  child.unref();
+  return child;
+}
+
+function openInRealChrome(rawUrl) {
+  let parsed;
+  try { parsed = new URL(String(rawUrl)); } catch { return; }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
+  const target = parsed.toString();
+  try {
+    // Escape hatch: point BROWSER_OPEN_CMD at any executable to override the
+    // host browser (e.g. a Firefox/Brave binary). It receives the URL as its
+    // sole argument. Also the seam the popup-handoff test drives.
+    if (process.env.BROWSER_OPEN_CMD) {
+      spawnDetached(process.env.BROWSER_OPEN_CMD, [target]);
+      console.log(`[browser] popup -> ${process.env.BROWSER_OPEN_CMD}: ${target}`);
+      return;
+    }
+    if (process.platform === "darwin") {
+      // `open` always spawns (it's a system binary); it exits non-zero when
+      // "Google Chrome" isn't installed — fall back to the default browser then.
+      const child = spawnDetached("open", ["-a", "Google Chrome", target]);
+      child.on("exit", (code) => { if (code) { try { spawnDetached("open", [target]); } catch {} } });
+      child.on("error", () => { try { spawnDetached("open", [target]); } catch {} });
+    } else if (process.platform === "win32") {
+      spawnDetached("cmd", ["/c", "start", "", target]);
+    } else {
+      spawnDetached("xdg-open", [target]);
+    }
+    console.log(`[browser] popup -> real Chrome: ${target}`);
+  } catch (err) {
+    console.warn(`[browser] open-in-real-chrome failed: ${err.message}`);
+  }
 }
 
 function formatConsoleArgs(args) {
@@ -112,10 +171,45 @@ async function attachInstrumentation(tab) {
     await cdp.send("Runtime.enable");
     await cdp.send("Network.enable", { maxResourceBufferSize: 8 * 1024 * 1024 });
     await cdp.send("Log.enable");
+    await cdp.send("Page.enable");
   } catch (err) {
     console.warn(`[browser] enable domains failed: ${err.message}`);
     return;
   }
+
+  // Suppress the native file-upload picker: with interception on, clicking an
+  // <input type=file> emits Page.fileChooserOpened instead of opening an OS
+  // dialog (which a CDP-driven, viewer-less browser can't service anyway). We
+  // intentionally don't supply files — the chooser is simply dismissed.
+  try {
+    await cdp.send("Page.setInterceptFileChooserDialog", { enabled: true });
+  } catch (err) {
+    console.warn(`[browser] file-chooser interception failed: ${err.message}`);
+  }
+  cdp.on("Page.fileChooserOpened", () => {
+    // No-op: interception alone keeps the native dialog from appearing.
+  });
+
+  // A user opening a new tab/window from page content (clicking a target=_blank
+  // link, window.open) should land in their real desktop Chrome, not a hidden
+  // headless tab we never screencast. Page.windowOpen carries the destination
+  // URL at request time — before any navigation — so we hand it off without the
+  // popup ever needing to load. The headless popup Chromium still spawns is
+  // closed by the page.on("popup") handler in openTab. Gate on userGesture so
+  // programmatic ad/tracking popunders are suppressed (closed) rather than
+  // flooding real Chrome with tabs.
+  cdp.on("Page.windowOpen", (e) => {
+    if (e?.userGesture && e?.url) openInRealChrome(e.url);
+  });
+
+  // A real main-frame navigation makes any prior pick/region stale — drop it so
+  // the Operative never resolves "this" against a page that's gone.
+  cdp.on("Page.frameNavigated", (e) => {
+    if (e.frame && !e.frame.parentId && tab.selection) {
+      tab.selection = null;
+      broadcastToInput(tab, { type: "selection", selection: null });
+    }
+  });
 
   // Console: console.log/warn/error/info/debug
   cdp.on("Runtime.consoleAPICalled", (e) => {
@@ -303,6 +397,7 @@ async function waitForCdpReady(port, timeoutMs = 15000) {
 }
 
 async function launchChromium(opts) {
+  launchOpts = opts;
   cdpPort = await findFreePort(9222);
   if (cdpPort === null) throw new Error("no free CDP port available");
   cdpHttpEndpoint = `http://127.0.0.1:${cdpPort}`;
@@ -335,16 +430,51 @@ async function launchChromium(opts) {
   chromiumChild.on("exit", (code, signal) => {
     console.error(`[chromium] exited code=${code} signal=${signal}`);
     chromiumChild = null;
+    // The browser/context handles are now dead. Drop them so the next openTab
+    // relaunches instead of throwing "Target ... has been closed".
+    discardChromium();
   });
 
   await waitForCdpReady(cdpPort);
 
   browser = await chromium.connectOverCDP(cdpHttpEndpoint);
+  browser.on("disconnected", () => {
+    console.error("[chromium] CDP connection lost");
+    discardChromium();
+  });
   context = browser.contexts()[0] || (await browser.newContext({
     viewport: { width: opts.viewportWidth, height: opts.viewportHeight }
   }));
 
   console.log(`[browser] chromium up on rdp port ${cdpPort} (exe=${exe})`);
+}
+
+// Drop all references to a dead/disconnected chromium so the next openTab
+// relaunches. Closes any WS clients on the now-defunct tabs so the canvas
+// reconnects against the fresh browser instead of streaming a black frame.
+function discardChromium() {
+  for (const tab of tabs.values()) {
+    try { tab.viewportClient?.close(); } catch {}
+    for (const ws of tab.inputClients) { try { ws.close(); } catch {} }
+  }
+  tabs.clear();
+  browser = null;
+  context = null;
+}
+
+// Guarantee a live, connected chromium + context before a tab operation.
+// Relaunches if the headless process died (crash, OOM, OS reclaim) or the CDP
+// connection dropped — the root cause of "browserContext.newPage: Target page,
+// context or browser has been closed".
+async function ensureChromium() {
+  if (browser && browser.isConnected() && context) return;
+  if (!chromiumLaunching) {
+    if (chromiumChild) { try { chromiumChild.kill("SIGTERM"); } catch {} chromiumChild = null; }
+    discardChromium();
+    if (!launchOpts) throw new Error("chromium not initialized");
+    chromiumLaunching = launchChromium(launchOpts).finally(() => { chromiumLaunching = null; });
+  }
+  await chromiumLaunching;
 }
 
 async function shutdownChromium() {
@@ -360,8 +490,21 @@ async function shutdownChromium() {
 // ─── Tab lifecycle ──────────────────────────────────────────────────────
 
 async function openTab(initialUrl) {
-  if (!context) throw new Error("browser not ready");
-  const page = await context.newPage();
+  await ensureChromium();
+  let page;
+  try {
+    page = await context.newPage();
+  } catch (err) {
+    // The CDP connection can drop between ensureChromium and newPage (the
+    // headless process gets reaped). Relaunch once and retry before failing.
+    if (/has been closed|disconnected|Target closed|Target page/i.test(String(err))) {
+      discardChromium();
+      await ensureChromium();
+      page = await context.newPage();
+    } else {
+      throw err;
+    }
+  }
   // Create the CDP session + attach instrumentation BEFORE the initial
   // navigation so first-load console/network events get captured too.
   const cdpSession = await context.newCDPSession(page);
@@ -385,7 +528,11 @@ async function openTab(initialUrl) {
     qualityLevel: "low",
     inputClients: new Set(),
     focusedEditable: false,
-    focusWatcher: null
+    focusWatcher: null,
+    // Most recent user "pointing" — an element pick or a drawn region — that the
+    // Operative session can read via GET /selection (the garrison-browser CLI),
+    // so "remove this" resolves to whatever the user marked on the canvas.
+    selection: null
   };
   tabs.set(tabId, tab);
   await attachInstrumentation(tab);
@@ -396,6 +543,15 @@ async function openTab(initialUrl) {
   }
 
   page.on("close", () => { void cleanupTab(tab); });
+
+  // Popups (window.open / target=_blank) are handed to the host's real Chrome by
+  // the Page.windowOpen handler. Close the headless popup Chromium spawns so the
+  // context doesn't accumulate invisible, un-screencast tabs. This page was not
+  // created by openTab, so it's never registered in `tabs` and closing it does
+  // not trip cleanupTab for a real tab.
+  page.on("popup", async (popup) => {
+    try { await popup.close({ runBeforeUnload: false }); } catch {}
+  });
 
   return tab;
 }
@@ -629,6 +785,20 @@ async function handleDom(_req, res, tabId, query) {
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
+}
+
+function handleGetSelection(_req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab) return jsonRes(res, 404, { error: "tab not found" });
+  jsonRes(res, 200, { selection: tab.selection });
+}
+
+function handleClearSelection(_req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab) return jsonRes(res, 404, { error: "tab not found" });
+  tab.selection = null;
+  broadcastToInput(tab, { type: "selection", selection: null });
+  jsonRes(res, 200, { ok: true });
 }
 
 async function handleEval(req, res, tabId) {
@@ -890,6 +1060,165 @@ async function applyQuality(tab, level) {
   await restartScreencast(tab);
 }
 
+// ─── Selection (element pick / region draw) ─────────────────────────────
+//
+// The canvas can put the page into a "pick" or "region" mode. The client
+// forwards the cursor; the server hit-tests the page (elementFromPoint) and
+// reports a box + synthesised CSS selector so the canvas can highlight. On
+// commit it captures the element/region — selector, text, outerHTML, a cropped
+// PNG — into tab.selection, which the Operative reads via `garrison-browser
+// selection`. This is how "remove this" resolves without the user describing it.
+
+// In-page helpers, embedded into each Runtime.evaluate. Build a short, mostly
+// stable CSS path and a human label/text for an element.
+const SELECTION_HELPERS = `
+  function __gEsc(s){ try { return CSS.escape(s); } catch(e){ return String(s).replace(/[^a-zA-Z0-9_-]/g,'\\\\$&'); } }
+  function __gSel(e){
+    if(!e||e.nodeType!==1) return '';
+    if(e.id) return '#'+__gEsc(e.id);
+    var s=e.tagName.toLowerCase();
+    var cls=(e.getAttribute('class')||'').trim().split(/\\s+/).filter(Boolean).slice(0,3);
+    if(cls.length) s+='.'+cls.map(__gEsc).join('.');
+    var p=e.parentElement;
+    if(p){ var same=Array.prototype.filter.call(p.children,function(c){return c.tagName===e.tagName;}); if(same.length>1){ s+=':nth-of-type('+(Array.prototype.indexOf.call(p.children,e)+1)+')'; } }
+    return s;
+  }
+  function __gPath(e){
+    var parts=[],cur=e,depth=0;
+    while(cur&&cur.nodeType===1&&cur!==document.body&&cur!==document.documentElement&&depth<5){
+      parts.unshift(__gSel(cur));
+      if(cur.id) break;
+      cur=cur.parentElement; depth++;
+    }
+    return parts.join(' > ');
+  }
+  function __gLabel(e){
+    var cls=(e.getAttribute('class')||'').trim();
+    return e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+(cls?'.'+cls.split(/\\s+/).slice(0,2).join('.'):'');
+  }
+  function __gText(e){ return (e.innerText||e.textContent||'').replace(/\\s+/g,' ').trim(); }
+`;
+
+function elementInfoExpr(x, y) {
+  return `(function(){${SELECTION_HELPERS}
+    var el=document.elementFromPoint(${Number(x)},${Number(y)});
+    if(!el||el===document.body||el===document.documentElement) return null;
+    var r=el.getBoundingClientRect();
+    return { box:{x:r.x,y:r.y,w:r.width,h:r.height}, label:__gLabel(el), text:__gText(el).slice(0,160),
+      selector:__gPath(el), html:el.outerHTML.slice(0,2000), scrollX:window.scrollX, scrollY:window.scrollY };
+  })()`;
+}
+
+function regionInfoExpr(x, y, w, h) {
+  return `(function(){${SELECTION_HELPERS}
+    var R={x:${Number(x)},y:${Number(y)},w:${Number(w)},h:${Number(h)}};
+    var out=[],seen={};
+    var all=document.body?document.body.querySelectorAll('*'):[];
+    for(var i=0;i<all.length;i++){
+      var el=all[i],r=el.getBoundingClientRect();
+      if(r.width===0||r.height===0) continue;
+      var ix=Math.min(r.right,R.x+R.w)-Math.max(r.left,R.x);
+      var iy=Math.min(r.bottom,R.y+R.h)-Math.max(r.top,R.y);
+      if(ix<=0||iy<=0) continue;
+      if((ix*iy)/(r.width*r.height)<0.6) continue;
+      var interactive=/^(A|BUTTON|INPUT|SELECT|TEXTAREA|IMG|SVG|LABEL|H1|H2|H3|H4|LI|TD|TH|P|SPAN)$/.test(el.tagName);
+      var text=__gText(el);
+      if(!interactive&&!text) continue;
+      var sel=__gPath(el);
+      if(seen[sel]) continue; seen[sel]=1;
+      out.push({selector:sel,label:__gLabel(el),text:text.slice(0,60)});
+      if(out.length>=20) break;
+    }
+    return { elements:out, scrollX:window.scrollX, scrollY:window.scrollY };
+  })()`;
+}
+
+async function evalValue(tab, expression) {
+  if (!tab.cdpSession) return null;
+  try {
+    const { result } = await tab.cdpSession.send("Runtime.evaluate", { expression, returnByValue: true });
+    return result?.value ?? null;
+  } catch (err) {
+    console.warn(`[browser] selection eval failed: ${err.message}`);
+    return null;
+  }
+}
+
+// Crop a box (viewport CSS px + page scroll) to a PNG the Operative can Read.
+// One stable path per tab so the latest selection always overwrites the last.
+async function captureSelectionCrop(tab, box, scrollX = 0, scrollY = 0) {
+  if (!tab.cdpSession) return null;
+  const pad = 6;
+  const clip = {
+    x: Math.max(0, box.x + scrollX - pad),
+    y: Math.max(0, box.y + scrollY - pad),
+    width: Math.max(1, box.w + pad * 2),
+    height: Math.max(1, box.h + pad * 2),
+    scale: 1
+  };
+  try {
+    const { data } = await tab.cdpSession.send("Page.captureScreenshot", {
+      format: "png", clip, captureBeyondViewport: true
+    });
+    const file = path.join(tmpdir(), `garrison-browser-selection-${tab.tabId}.png`);
+    await writeFile(file, Buffer.from(data, "base64"));
+    return file;
+  } catch (err) {
+    console.warn(`[browser] selection crop failed: ${err.message}`);
+    return null;
+  }
+}
+
+function broadcastToInput(tab, payload) {
+  const data = JSON.stringify(payload);
+  for (const ws of tab.inputClients) {
+    if (ws.readyState === WebSocket.OPEN) { try { ws.send(data); } catch {} }
+  }
+}
+
+async function commitElementSelection(tab, x, y) {
+  const info = await evalValue(tab, elementInfoExpr(x, y));
+  if (!info) return;
+  const screenshotPath = await captureSelectionCrop(tab, info.box, info.scrollX, info.scrollY);
+  let pageUrl = ""; try { pageUrl = tab.page.url(); } catch {}
+  tab.selection = {
+    kind: "element",
+    selector: info.selector,
+    label: info.label,
+    text: info.text,
+    html: info.html,
+    box: info.box,
+    url: pageUrl,
+    ts: Date.now(),
+    screenshotPath
+  };
+  tab.lastActivityAt = Date.now();
+  broadcastToInput(tab, { type: "selection", selection: publicSelection(tab.selection) });
+}
+
+async function commitRegionSelection(tab, box) {
+  const info = await evalValue(tab, regionInfoExpr(box.x, box.y, box.w, box.h)) || { elements: [], scrollX: 0, scrollY: 0 };
+  const screenshotPath = await captureSelectionCrop(tab, box, info.scrollX, info.scrollY);
+  let pageUrl = ""; try { pageUrl = tab.page.url(); } catch {}
+  tab.selection = {
+    kind: "region",
+    box,
+    elements: info.elements || [],
+    url: pageUrl,
+    ts: Date.now(),
+    screenshotPath
+  };
+  tab.lastActivityAt = Date.now();
+  broadcastToInput(tab, { type: "selection", selection: publicSelection(tab.selection) });
+}
+
+// Slim view pushed to the canvas (it doesn't need the full outerHTML).
+function publicSelection(sel) {
+  if (!sel) return null;
+  return { kind: sel.kind, label: sel.label, text: sel.text, box: sel.box,
+    count: sel.elements ? sel.elements.length : undefined };
+}
+
 async function attachInput(ws, tab) {
   tab.inputClients.add(ws);
   setupHeartbeat(ws, `input tabId=${tab.tabId}`);
@@ -916,6 +1245,29 @@ async function attachInput(ws, tab) {
     }
     if (msg.type === "quality") {
       await applyQuality(tab, msg.level);
+      return;
+    }
+    // Selection modes — pick an element or draw a region for the Operative.
+    if (msg.type === "pick-hover") {
+      const info = await evalValue(tab, elementInfoExpr(Number(msg.x) || 0, Number(msg.y) || 0));
+      try { ws.send(JSON.stringify({ type: "pick-target", target: info && { box: info.box, label: info.label, text: info.text, selector: info.selector } })); } catch {}
+      return;
+    }
+    if (msg.type === "pick-commit") {
+      await commitElementSelection(tab, Number(msg.x) || 0, Number(msg.y) || 0);
+      return;
+    }
+    if (msg.type === "region-commit") {
+      const box = {
+        x: Number(msg.x) || 0, y: Number(msg.y) || 0,
+        w: Math.max(1, Number(msg.w) || 0), h: Math.max(1, Number(msg.h) || 0)
+      };
+      await commitRegionSelection(tab, box);
+      return;
+    }
+    if (msg.type === "selection-clear") {
+      tab.selection = null;
+      broadcastToInput(tab, { type: "selection", selection: null });
       return;
     }
     await dispatchInput(tab, msg);
@@ -1097,6 +1449,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
       const evalMatch = pathname.match(/^\/tabs\/([^/]+)\/eval$/);
       if (evalMatch && method === "POST") return await handleEval(req, res, decodeURIComponent(evalMatch[1]));
+
+      const selMatch = pathname.match(/^\/tabs\/([^/]+)\/selection$/);
+      if (selMatch && method === "GET") return handleGetSelection(req, res, decodeURIComponent(selMatch[1]));
+      if (selMatch && method === "DELETE") return handleClearSelection(req, res, decodeURIComponent(selMatch[1]));
 
       const delMatch = pathname.match(/^\/tabs\/([^/]+)$/);
       if (delMatch && method === "DELETE") return await handleDeleteTab(req, res, decodeURIComponent(delMatch[1]));

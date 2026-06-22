@@ -1,0 +1,24 @@
+{
+  "slice": "AS-route",
+  "title": "Orchestrator routing to {agent-sdk, ollama-local} LIVE through the gateway + capability-incompatible route (MCP@deepseek) refused/redirected",
+  "updatedAt": "2026-06-17T07:40:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 3 },
+  "gates": {
+    "resolution-and-gating": {
+      "cmd": "npx vitest run tests/agent-sdk-route.test.ts tests/gateway-agent-sdk-route.test.ts",
+      "exit": 0,
+      "summary": "PASSED (5/5 + 2/2) — a Profile roleMap pointing a role at {agent-sdk, ollama-local} resolves through the provider-agnostic resolveRoute to the agent-sdk runtime-target; assertRouteCapability REFUSES MCP@deepseek (CapabilityError) and allows MCP@ollama; the REDIRECT path skips deepseek for the mcp-capable target. The RoutedGateway executes an agent-sdk target on the AgentSdkAdapter (not the PTY operative) and logs runtime/provider/model — proven with a stubbed pool + fake adapter."
+    },
+    "live-route": {
+      "cmd": "live gateway turn via web-channel (:7083) → gateway (:4777) → routing → agent-sdk/ollama; verified + recorded",
+      "exit": 0,
+      "summary": "PASSED LIVE — wired the agent-sdk execution branch into the live RoutedGateway (gateway-routing.mjs runAgentSdkTurn + gateway-pty.mjs runRoutedTurn branch). With the demo profile (fast→sdk-ollama-chat), a real channel message 'What is the capital of France?' routes through the orchestrator to agent-sdk/ollama-local/qwen3:0.6b and answers 'The capital of France is Paris.'; decisions.jsonl logs runtime=agent-sdk provider=ollama-local model=qwen3:0.6b. A hard message routes to claude-code/anthropic/opus. Captured in the verified walkthrough video."
+    }
+  },
+  "verdicts": { "sdk-route-live-ok": true },
+  "blockers": [],
+  "notes": "The agent-sdk runtime now executes LIVE through the orchestrator gateway. THE FIX that unblocked the live turn: a CHAT turn (lean promptMode auto-disables all built-in tools) is a clean fast path — the earlier block was the TOOL round trip, which the small local models can't complete. The rich /claude stream injects the off-screen agent-sdk reply + a runtime/model status badge so the web-channel UI shows it. Evidence: docs/autothing/evidence-index.json globalGate + the runtime/agent-sdk-orchestrated walkthrough."
+}

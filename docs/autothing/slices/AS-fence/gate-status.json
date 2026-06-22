@@ -1,0 +1,26 @@
+{
+  "slice": "AS-fence",
+  "title": "THE FENCE — default-deny Anthropic billing; assert on the effective resolved base URL (#217-aware); scoped purge exception",
+  "updatedAt": "2026-06-16T22:17:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/agent-sdk-runtime.test.ts",
+      "exit": 0,
+      "summary": "fence-ok — THE FENCE block (8 tests) + FENCE-containment block (2 tests) green: no base URL throws FenceViolation (Max/Anthropic path); an Anthropic base URL throws; a non-Anthropic URL passes; acceptApiBilling:true is the only override and states FULL RATES; a settings.json env ANTHROPIC_BASE_URL override (#217) is asserted on the EFFECTIVE URL and refused; isAnthropicBaseUrl classifies by hostname suffix (api.z.ai / api.deepseek.com are non-Anthropic). Containment: only lib/sdk-client.mjs imports @anthropic-ai and it pairs with lib/fence.mjs; no fitting source uses the banned host literal."
+    },
+    "purge": {
+      "cmd": "npx vitest run tests/programmatic-purge.test.ts",
+      "exit": 1,
+      "summary": "Scoped exception verified: the fenced lib/sdk-client.mjs import is NOT flagged (grep count 0). The single remaining offender is the PRE-EXISTING, out-of-brief-scope fittings/seed/knowledge/scripts/knowledge.mjs :: --print (red before this build). This slice added ZERO new offenders; fence-ok rides the dedicated agent-sdk-runtime fence tests, not this pre-existing red."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean." },
+    "validate-fitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/agent-sdk-runtime", "exit": 0, "summary": "PASS — architecture/security/prompt-injection/quality all PASS." }
+  },
+  "verdicts": { "fence-ok": true },
+  "blockers": [],
+  "notes": "The fence detects Anthropic by hostname suffix (anthropic.com / *.anthropic.com) via the URL parser — never the narrower banned host literal — so the guard code itself does not trip the programmatic-purge ban. Defence-in-depth: THE HARNESS sets settingSources without 'user', so the user settings.json env block does not load; the fence does not rely on that and still asserts the effective URL."
+}

@@ -5,7 +5,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: sessions
+  faculty: surfaces
   cardinality_hint: single
   own_port: true
   default_port: 7084
@@ -80,6 +80,16 @@ x-garrison:
       GET    /tabs/:id/dom[?selector=…]   - outerHTML of doc or selector
       POST   /tabs/:id/eval  {js}         - Runtime.evaluate; returns
                                             { ok, value, type }
+      GET    /tabs/:id/selection          - what the user pointed at on the
+                                            canvas (Select / Region buttons):
+                                            { kind, selector, text, html, box,
+                                            elements?, screenshotPath }
+      DELETE /tabs/:id/selection          - clear the current selection
+
+    When the user says "this" / "that" / "remove this" / "change this" about
+    the page, call `garrison-browser selection` (or GET /tabs/:id/selection) to
+    learn what they marked — a CSS selector + text + a cropped screenshot —
+    instead of guessing or asking them to describe it.
 
     WebSocket endpoints:
       /viewport/:tabId   - Garrison-viewport-v1 JSON { type: "frame", b64, meta }
@@ -103,5 +113,6 @@ x-garrison:
       ~/.garrison/bin/garrison-browser network [--errors]
       ~/.garrison/bin/garrison-browser dom [--selector <css>]
       ~/.garrison/bin/garrison-browser eval '<js>'
+      ~/.garrison/bin/garrison-browser selection       # what the user pointed at
     Skill at ~/.claude/skills/garrison-browser/SKILL.md tells Claude
     Code when to reach for these vs. asking the user for a screenshot.

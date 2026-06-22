@@ -22,6 +22,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { MultiRuntimePool, ClaudeCodeAdapter } from "@garrison/claude-pty";
 
@@ -98,6 +99,112 @@ export function resolveModelRouterDir(compositionDir) {
   return null;
 }
 
+// Locate the agent-sdk-runtime fitting (for routing a turn to a {runtime:agent-sdk}
+// target — a non-Anthropic model via the Claude Agent SDK). Same resolution shape
+// as the model-router: env override, installed composition, or repo seed.
+export function resolveAgentSdkDir(compositionDir) {
+  const candidates = [
+    process.env.GARRISON_AGENT_SDK_DIR,
+    compositionDir && path.join(compositionDir, "apm_modules", "_local", "agent-sdk-runtime"),
+    path.resolve(HERE, "..", "..", "..", "agent-sdk-runtime"),
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(path.join(c, "lib", "agent-sdk-adapter.mjs"))) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+// Locate a SECONDARY runtime fitting (codex-runtime / gemini-runtime) so the
+// gateway can execute a {type:secondary} target directly (review → gpt/codex,
+// fixes → gemini), same resolution shape as the others.
+export function resolveSecondaryDir(compositionDir, runtime) {
+  const fitting = `${runtime}-runtime`;
+  const candidates = [
+    process.env[`GARRISON_${runtime.toUpperCase()}_DIR`],
+    compositionDir && path.join(compositionDir, "apm_modules", "_local", fitting),
+    path.resolve(HERE, "..", "..", "..", fitting),
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(path.join(c, "lib", `${runtime}-adapter.mjs`))) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+// BUILD MODE helper: commit a locally-generated file verbatim. The local model
+// (ollama via the agent-sdk runtime) can't drive file-edit tools over ollama's
+// Anthropic-compat endpoint, so it generates the code in chat mode and the
+// orchestrator commits it. Extracts the target path named in the TASK text (e.g.
+// `src/id.mjs`) and the code from the REPLY (first fenced block, else the whole
+// reply if it looks like code), writes it under the workspace, returns a record
+// or null when there is nothing safe to commit.
+export function commitGeneratedFile(workspace, taskText, replyText) {
+  const reply = String(replyText || "");
+  const taskPath = (String(taskText || "").match(/\b((?:src|test|tests|lib)\/[\w.\-/]+\.\w+)\b/) || [])[1] || null;
+  let code = null;
+  let jsonPath = null;
+  // (a) tool-call-shaped JSON the local model emits even in chat mode:
+  //     {"name":"writeFile","arguments":{"path":"src/x.mjs","content":"<code>"}}
+  // The model often emits INVALID JSON escapes (e.g. \` before backticks), so we
+  // extract the "content"/"path" string values directly and unescape them with a
+  // sanitizing fallback rather than parsing the whole (possibly invalid) object.
+  if (/"content"\s*:/.test(reply)) {
+    const unescape = (s) => {
+      try {
+        return JSON.parse('"' + s + '"');
+      } catch {
+        return JSON.parse('"' + s.replace(/\\([^"\\/bfnrtu])/g, "$1") + '"'); // drop invalid escapes
+      }
+    };
+    const cm = reply.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (cm) {
+      try {
+        code = unescape(cm[1]);
+      } catch {
+        /* leave null → fall through */
+      }
+    }
+    const pm = reply.match(/"(?:path|file_path|file)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (pm) {
+      try {
+        jsonPath = unescape(pm[1]);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  // (b) a fenced code block
+  if (!code) {
+    const f = reply.match(/```[\w.+-]*\n([\s\S]*?)```/);
+    if (f) code = f[1];
+  }
+  // (c) raw code, but never a bare JSON blob
+  if (!code && !/^\s*\{/.test(reply) && /\b(export|function|const|class|=>|import)\b/.test(reply)) {
+    code = reply.trim();
+  }
+  if (!code || !code.trim()) return null;
+  // reject tool-call JSON garbage some local models emit instead of code (e.g.
+  // {"name":"agent","arguments":...}) — only commit something that reads as code
+  const trimmed = code.trim();
+  if (/^\{[\s\S]*"(?:name|arguments|parameters|phase|schema|label)"\s*:/.test(trimmed)) return null;
+  // target path: the task's named path wins; else the model's; must be project-local
+  const rel = taskPath || jsonPath;
+  if (!rel || !/^(src|test|tests|lib)\//.test(rel)) return null;
+  const abs = path.join(workspace, rel);
+  if (!abs.startsWith(path.resolve(workspace) + path.sep)) return null; // confine to workspace
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  const out = code.endsWith("\n") ? code : code + "\n";
+  fs.writeFileSync(abs, out);
+  return { rel, abs, bytes: Buffer.byteLength(out), code: out };
+}
+
 // Dynamic-import the three pure cores from the resolved fitting dir, merged into
 // one object (no name collisions across the three modules).
 export async function loadRoutingCore(compositionDir) {
@@ -131,6 +238,21 @@ export function routeAnnotation(route) {
   return `[gateway-route: target=${route.targetId} rule=${route.ruleId} profile=${route.profile}]`;
 }
 
+// Deterministic keyword classifier: when an exception declares `keywords`, a
+// message containing ALL of them classifies straight to that exception — fast,
+// and immune to LLM-classifier drift across a rapid multi-step session. Returns
+// null (fall back to the LLM classifier) when nothing matches.
+export function classifyByKeywords(message, config) {
+  const m = String(message || "").toLowerCase();
+  for (const ex of config?.exceptions || []) {
+    const kws = ex.keywords;
+    if (Array.isArray(kws) && kws.length && kws.every((k) => m.includes(String(k).toLowerCase()))) {
+      return { taskType: ex.taskType || "code", tier: ex.tier || "T1-standard", matchedException: ex.id };
+    }
+  }
+  return null;
+}
+
 export class RoutedGateway {
   constructor(opts = {}) {
     this.core = opts.core; // merged routing-core + routing-telemetry + stage-b
@@ -154,6 +276,17 @@ export class RoutedGateway {
     this._lastTurns = []; // recent {role,text} for context carryover on respawn
     this._respawned = false; // set when the last switch respawned the operative
     this._lastUserMessage = null;
+    // agent-sdk runtime (non-Anthropic models via the Claude Agent SDK). Lazily
+    // constructed; one warm session per {provider,model,promptMode}.
+    this._agentSdkAdapter = opts.agentSdkAdapter ?? null;
+    this._agentSdkSessions = new Map();
+    // secondary runtimes (codex/gpt, gemini) executed directly by the gateway.
+    this._secondaryAdapters = opts.secondaryAdapters ?? new Map();
+    // Optional shared BUILD WORKSPACE. When set, the routed agent-sdk + secondary
+    // turns run with this dir as cwd, so every model (ollama via the SDK, codex,
+    // gemini) reads and edits the SAME real project files — a genuine cross-model
+    // build on disk, not isolated scratch dirs. Unset → unchanged (scratch).
+    this.buildWorkspace = opts.buildWorkspace ?? process.env.GARRISON_BUILD_WORKSPACE ?? null;
   }
 
   async start() {
@@ -166,6 +299,156 @@ export class RoutedGateway {
 
   getOperativeSession() {
     return this.operative?.session ?? null;
+  }
+
+  // True when the resolved route runs on the agent-sdk runtime (non-Anthropic
+  // model via the Claude Agent SDK), not the claude-code PTY operative.
+  isAgentSdkTarget(route) {
+    return route?.target?.runtime === "agent-sdk";
+  }
+
+  // Lazily construct the AgentSdkAdapter from the resolved agent-sdk-runtime
+  // fitting (dynamic import by path, like the routing cores).
+  async getAgentSdkAdapter() {
+    if (this._agentSdkAdapter) return this._agentSdkAdapter;
+    const dir = resolveAgentSdkDir(this.compositionDir);
+    if (!dir) throw new Error("gateway-routing: agent-sdk-runtime fitting not found on disk");
+    const mod = await import(pathToFileURL(path.join(dir, "lib", "agent-sdk-adapter.mjs")).href);
+    this._agentSdkAdapter = new mod.AgentSdkAdapter();
+    return this._agentSdkAdapter;
+  }
+
+  // Run one turn on the agent-sdk runtime. THE FENCE (in adapter.spawn) refuses a
+  // non-Anthropic-less launch; THE HARNESS picks the preset (full) or lean (chat,
+  // tools off) per the target's promptMode. One warm session per
+  // {provider,model,promptMode}, reused across turns (SDK resume).
+  async runAgentSdkTurn(route, message, onChunk) {
+    const adapter = await this.getAgentSdkAdapter();
+    const t = route.target;
+    const promptMode = t.promptMode ?? "lean";
+    const key = `${t.provider}:${t.model}:${promptMode}`;
+    const spawnArgs = {
+      provider: t.provider,
+      model: t.model,
+      promptMode,
+      leanPrompt: t.leanPrompt,
+      baseUrl: t.baseUrl,
+      acceptApiBilling: !!t.acceptApiBilling,
+      // cwd: the shared build workspace when set (so file ops hit the real project)
+      compositionDir: this.buildWorkspace ?? this.compositionDir,
+      disallowedTools: t.disallowedTools,
+      allowedTools: t.allowedTools,
+      maxTurns: t.maxTurns ?? 4,
+      budgetTokens: t.budgetTokens ?? null,
+      secrets: this.secrets ?? null,
+      permissionMode: "bypassPermissions",
+    };
+    let session = this._agentSdkSessions.get(key);
+    if (!session || session.alive === false) {
+      session = await adapter.spawn(spawnArgs);
+      this._agentSdkSessions.set(key, session);
+    }
+    this.logFn({
+      kind: "runtime-turn",
+      runtime: "agent-sdk",
+      provider: t.provider,
+      model: t.model,
+      promptMode: session.harness?.promptMode,
+      fence: session.fence?.state,
+      target: route.targetId,
+    });
+    await adapter.awaitReady(session);
+    await adapter.sendTurn(session, message);
+    let resp = await adapter.awaitResponse(session);
+    // BUILD MODE (buildWorkspace set): local models can't drive file-edit tools
+    // over ollama's Anthropic-compat endpoint (tool_use is not surfaced), so the
+    // local model GENERATES the code in chat mode and the orchestrator COMMITS it
+    // verbatim to the file named in the task — a faithful "generate → commit".
+    // Small local models are inconsistent (they sometimes emit tool-call JSON
+    // instead of code), so regenerate on a FRESH session until the output is
+    // committable — bounded attempts.
+    let committed = null;
+    if (this.buildWorkspace) {
+      committed = commitGeneratedFile(this.buildWorkspace, message, resp.text ?? "");
+      for (let attempt = 2; !committed && attempt <= 6; attempt++) {
+        this.logFn({ kind: "agent-sdk-regenerate", attempt, provider: t.provider, model: t.model });
+        session = await adapter.spawn(spawnArgs);
+        await adapter.awaitReady(session);
+        await adapter.sendTurn(session, message);
+        resp = await adapter.awaitResponse(session);
+        committed = commitGeneratedFile(this.buildWorkspace, message, resp.text ?? "");
+      }
+      this._agentSdkSessions.set(key, session);
+      if (committed) {
+        this.logFn({ kind: "agent-sdk-commit", file: committed.rel, bytes: committed.bytes, provider: t.provider, model: t.model });
+      }
+    }
+    const replyText = committed
+      ? `\`\`\`js\n${committed.code.trim()}\n\`\`\`\n\n[local model (${t.model}) generated this → orchestrator committed it verbatim to ${committed.rel}]`
+      : (resp.text ?? "");
+    if (onChunk && replyText) onChunk(replyText, true); // non-streaming: emit the full reply once
+    return {
+      reply: replyText,
+      session_id: session.sessionId ?? null,
+      cost_usd: null,
+      route: route.targetId,
+      runtime: "agent-sdk",
+      provider: t.provider,
+      model: t.model,
+      toolUses: resp.toolUses ?? [],
+      stoppedReason: resp.stoppedReason ?? null,
+    };
+  }
+
+  // True when the resolved route runs on a SECONDARY runtime (codex/gpt or
+  // gemini) the gateway executes directly via its adapter (one-shot CLI exec).
+  isSecondaryTarget(route) {
+    const t = route?.target;
+    return !!t && (t.type === "secondary" || t.runtime === "codex" || t.runtime === "gemini");
+  }
+
+  async getSecondaryAdapter(runtime) {
+    if (this._secondaryAdapters.has(runtime)) return this._secondaryAdapters.get(runtime);
+    const dir = resolveSecondaryDir(this.compositionDir, runtime);
+    if (!dir) throw new Error(`gateway-routing: ${runtime}-runtime fitting not found on disk`);
+    const cls = runtime === "codex" ? "CodexAdapter" : "GeminiAdapter";
+    const mod = await import(pathToFileURL(path.join(dir, "lib", `${runtime}-adapter.mjs`)).href);
+    const adapter = new mod[cls]();
+    this._secondaryAdapters.set(runtime, adapter);
+    return adapter;
+  }
+
+  // Run one turn on a secondary runtime (the orchestrator delegating a step to
+  // gpt/codex or gemini). One-shot exec; the reply is returned + (by gateway-pty)
+  // injected into the rich channel stream.
+  async runSecondaryTurn(route, message) {
+    const rt = route.target.runtime;
+    const provider = route.target.provider ?? (rt === "codex" ? "openai" : "google");
+    const model = route.target.model ?? (rt === "codex" ? "gpt-5-codex" : "gemini-2.5-flash");
+    const adapter = await this.getSecondaryAdapter(rt);
+    // cwd: the shared BUILD WORKSPACE when set (so codex reads + gemini edits the
+    // REAL project files), else a clean scratch cwd (default — keep the agentic CLI
+    // out of the repo). codex on a ChatGPT account rejects an explicit model
+    // override, so use its default; gemini accepts -m.
+    const cwd = this.buildWorkspace ?? (this._secondaryScratch ??= fs.mkdtempSync(path.join(os.tmpdir(), "garrison-secondary-")));
+    const spawnModel = rt === "gemini" ? model : undefined;
+    // Trust the cwd for gemini 0.46 (else it downgrades yolo + blocks); harmless for codex.
+    const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" };
+    const session = await adapter.spawn({ compositionDir: cwd, model: spawnModel, env });
+    this.logFn({ kind: "runtime-turn", runtime: rt, provider, model, target: route.targetId });
+    await adapter.awaitReady(session);
+    await adapter.sendTurn(session, message);
+    let resp;
+    try {
+      resp = await adapter.awaitResponse(session);
+    } finally {
+      try {
+        await adapter.teardown(session);
+      } catch {
+        /* ignore */
+      }
+    }
+    return { reply: resp?.text ?? "", session_id: null, route: route.targetId, runtime: rt, provider, model };
   }
 
   #alive(rec) {
@@ -198,6 +481,13 @@ export class RoutedGateway {
 
   // Stage A: ask the pinned warm classifier ONE question; code resolves.
   async classify(message) {
+    // Deterministic keyword fast-path first (skips the LLM classifier + its drift).
+    const det = classifyByKeywords(message, this.config);
+    if (det) {
+      this.lastClassification = det;
+      this.logFn({ kind: "classify-deterministic", matchedException: det.matchedException, taskType: det.taskType, tier: det.tier });
+      return det;
+    }
     const prompt = this.core.buildClassifierPrompt(this.config, message);
     let reply = "";
     try {
@@ -243,6 +533,11 @@ export class RoutedGateway {
       route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
     }
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });
+    // Enrich the logged decision with the RUNTIME/provider/model so the log shows
+    // exactly what handled the turn (claude-code/anthropic vs agent-sdk/ollama).
+    decision.runtime = route.target?.runtime ?? null;
+    decision.provider = route.target?.provider ?? null;
+    decision.model = route.target?.model ?? null;
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
       kind: "route-resolved",
@@ -250,9 +545,19 @@ export class RoutedGateway {
       tier: classification.tier,
       role: route.role,
       target: route.targetId,
+      runtime: decision.runtime,
+      model: decision.model,
       via: route.via,
     });
-    const plan = route.target ? await this.applySwitch(route) : { path: "noop", reasons: ["no target"] };
+    // An agent-sdk target runs on its OWN adapter session (gateway-pty calls
+    // runAgentSdkTurn) — do NOT switch the PTY operative for it.
+    const plan = !route.target
+      ? { path: "noop", reasons: ["no target"] }
+      : route.target.runtime === "agent-sdk"
+        ? { path: "agent-sdk", reasons: [`agent-sdk runtime ${route.target.provider}/${route.target.model}`] }
+        : this.isSecondaryTarget(route)
+          ? { path: "secondary", reasons: [`secondary runtime ${route.target.runtime}`] }
+          : await this.applySwitch(route);
     let annotation = routeAnnotation(route);
     // A respawn (soul/provider change) starts a fresh process; --continue is
     // unreliable for ephemeral sessions, so re-inject a compact context summary
@@ -398,6 +703,7 @@ export async function createRoutedGateway(opts = {}) {
     pool,
     initialTarget: opts.initialTarget ?? { provider: "anthropic-plan", model: operativeSpawnConfig.model, effort: null },
     spawnFn,
+    agentSdkAdapter: opts.agentSdkAdapter, // injectable (tests); production lazy-loads from disk
   });
   gw.secrets = opts.secrets ?? null;
   return gw;

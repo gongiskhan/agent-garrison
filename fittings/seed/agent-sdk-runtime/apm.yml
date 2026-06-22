@@ -1,0 +1,74 @@
+name: agent-sdk-runtime
+version: 0.1.0
+description: Agent SDK runtime (Runtime Faculty) — a secondary runtime reachable ONLY via a non-Anthropic base URL (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy). Implements the RuntimeAdapter contract over the Claude Agent SDK behind THE FENCE (default-deny Anthropic billing) and THE HARNESS (per-target promptMode).
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A secondary Runtime fitting. Implements the RuntimeAdapter contract over the
+    Claude Agent SDK (structured request/response, native tool-call handling — no
+    PTY, no terminal scraping) and ships a runtime-bridge exposing the uniform
+    delegate(task_spec) -> {summary, artifacts} tool. Two load-bearing properties:
+    THE FENCE hard-refuses to launch unless the EFFECTIVE resolved base URL is
+    non-Anthropic (default-deny against the API credit pool; settings.json #217
+    aware); THE HARNESS wires the full claude_code preset + CLAUDE.md + skills for
+    coding roles, or a lean system string for chat roles, per the target's
+    promptMode. Max-plan Claude stays on the Claude Code PTY runtime — this runtime
+    is the home for everything reached by base URL.
+  config_schema:
+    - key: provider
+      type: string
+      default: ollama-local
+      description: One of ollama-local | zai-glm | deepseek | minimax | llm-proxy. All REQUIRE a non-Anthropic base URL (THE FENCE enforces it).
+    - key: model
+      type: string
+      default: ""
+      description: Model string for delegated tasks (free-text; e.g. an Ollama tag, a GLM/DeepSeek/MiniMax slot, or any model a proxy fronts).
+    - key: promptMode
+      type: string
+      default: full
+      description: full = claude_code preset + settingSources[project] + skills (coding roles); lean = minimal system string, no CLAUDE.md/skills (chat roles, lower token floor).
+    - key: maxTurns
+      type: number
+      default: 12
+      description: Cap on the agentic loop — SDK sessions have no default turn limit and burn paid credits until stopped.
+    - key: acceptApiBilling
+      type: boolean
+      default: false
+      description: DEFAULT-OFF override that allows Anthropic billing. Never auto-set; when on, the cost is stated in words in the UI/log.
+  provides:
+    - kind: runtime
+      name: agent-sdk
+  consumes:
+    - kind: vault
+      cardinality: optional-one
+  setup:
+    command: npm install --no-audit --no-fund
+    idempotent: true
+    timeout_ms: 180000
+  verify:
+    command: node apm_modules/_local/agent-sdk-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    Agent-SDK-as-secondary (non-Anthropic models). When the orchestrator resolves
+    a task to `secondary:agent-sdk`, the primary calls this fitting's
+    runtime-bridge tool:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON: task, paths, constraints, provider, model, promptMode,
+    baseUrl, maxTurns, budgetTokens, expectedSchema) is passed via STDIN (never
+    argv). THE FENCE refuses to launch unless the effective base URL is
+    non-Anthropic (set acceptApiBilling: true to override — it bills the API
+    credit pool at full rates). Each provider carries a capability record; an
+    MCP-dependent or vision task is refused at a target that cannot serve it
+    (e.g. deepseek = text + tool use only). Full output lands in the Artifact
+    Store; the return is a schema-validated summary + artifact paths; every
+    delegation is appended to decisions.jsonl.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   → prints "ok"

@@ -1,0 +1,53 @@
+{
+  "title": "Garrison — chat smoke test",
+  "project": "agent-garrison",
+  "folder": "recorder-polish",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Garrison — chat smoke test",
+      "subtitle": "walkthrough recorder polish · highlight the right control + consistent captions · 2026-06-17",
+      "duration": 3.0,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "chat",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
+      "runTimeoutMs": 180000,
+      "beats": [
+        {
+          "id": "compose",
+          "caption": "Type a message — Send lights up",
+          "expectedScreen": "the Garrison web-channel chat with a question typed into the composer (textarea) and the single 'Send' button enabled at the bottom-right",
+          "actions": [
+            { "type": "fill", "selector": "textarea.cc-input", "text": "Explain the trade-offs between optimistic and pessimistic database locking in 3 sentences." }
+          ],
+          "assert": { "selector": "button.cc-send", "enabled": true, "highlight": true },
+          "hold": 3000
+        },
+        {
+          "id": "reply",
+          "caption": "Gary replies",
+          "expectedScreen": "the assistant reply bubble containing a substantive answer about optimistic vs pessimistic locking, ending with the [orchestrator-active] marker",
+          "actions": [
+            { "type": "click", "selector": "button.cc-send" }
+          ],
+          "assert": { "selector": ".cc-assistant", "text": "[orchestrator-active]", "highlight": true, "timeout": 90000 },
+          "hold": 4500
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Chat smoke — verified",
+      "subtitle": "Send highlighted on the right control · orchestrator reply asserted via [orchestrator-active]",
+      "duration": 3.0
+    }
+  ]
+}

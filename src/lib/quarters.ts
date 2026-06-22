@@ -1,12 +1,15 @@
 import { computeStateModel, type StateModel } from "./primitive-state";
 import { promote, park, unpark, type TransitionResult } from "./state-transitions";
+import { type McpServerConfig, type McpWriteResult } from "./mcp-writer";
 import {
-  addMcpServer,
-  updateMcpServer,
-  removeMcpServer,
-  type McpServerConfig,
-  type McpWriteResult
-} from "./mcp-writer";
+  addUserMcpServer,
+  updateUserMcpServer,
+  removeUserMcpServer,
+  disableMcpServer,
+  enableMcpServer
+} from "./mcp-user";
+import { disablePlugin, enablePlugin, type PluginToggleResult } from "./plugin-disable";
+import { disableHookGroup, enableHookGroup, type HookToggleResult } from "./hooks-disable";
 import {
   createFilePrimitive,
   updateFilePrimitive,
@@ -53,7 +56,14 @@ export type QuartersActionRequest =
   | { action: "hook.create"; event: string; matcher?: string; command: string; timeout?: number }
   | { action: "hook.update"; event: string; index: number; matcher?: string; command: string; timeout?: number }
   | { action: "hook.delete"; event: string; index: number }
-  | { action: "plugin.remove"; key: string };
+  | { action: "plugin.remove"; key: string }
+  // HV4/5/6 — presence enable/disable (a real park move; native lever for plugins)
+  | { action: "mcp.disable"; name: string }
+  | { action: "mcp.enable"; name: string }
+  | { action: "hook.disable"; event: string; index: number }
+  | { action: "hook.enable"; parkedIndex: number }
+  | { action: "plugin.disable"; key: string }
+  | { action: "plugin.enable"; key: string };
 
 export async function getQuartersState(): Promise<StateModel> {
   return computeStateModel();
@@ -73,6 +83,14 @@ function fromHook(r: HookCrudResult): CrudResult {
 
 function fromPlugin(r: PluginRemoveResult): CrudResult {
   return { ok: r.ok, id: r.key ? `plugin:${r.key}` : undefined, code: r.code, error: r.error };
+}
+
+function fromPluginToggle(r: PluginToggleResult): CrudResult {
+  return { ok: r.ok, id: r.key ? `plugin:${r.key}` : undefined, code: r.code, error: r.error };
+}
+
+function fromHookToggle(r: HookToggleResult): CrudResult {
+  return { ok: r.ok, id: r.id, code: r.code, error: r.error };
 }
 
 // Backend half of the writer-of-record invariant: a delete is refused for an
@@ -121,11 +139,11 @@ export async function runQuartersAction(
       if (!req.slug) throw new Error("unpark requires { slug }");
       return unpark(req.slug, req.target === "loose" ? "loose" : "owned");
     case "mcp.add":
-      return fromMcp(await addMcpServer(req.name, req.config));
+      return fromMcp(await addUserMcpServer(req.name, req.config));
     case "mcp.update":
-      return fromMcp(await updateMcpServer(req.name, req.config, undefined, req.newName));
+      return fromMcp(await updateUserMcpServer(req.name, req.config, req.newName));
     case "mcp.remove":
-      return fromMcp(await removeMcpServer(req.name));
+      return fromMcp(await removeUserMcpServer(req.name));
     case "file.create": {
       const r = fromFile(await createFilePrimitive(req.surface, req.name, req.content));
       if (r.ok) await reconcilePostAuthoring(req.surface);
@@ -149,6 +167,18 @@ export async function runQuartersAction(
       return fromHook(await deleteHandHook(req.event, req.index));
     case "plugin.remove":
       return fromPlugin(await removePlugin(req.key));
+    case "mcp.disable":
+      return fromMcp(await disableMcpServer(req.name));
+    case "mcp.enable":
+      return fromMcp(await enableMcpServer(req.name));
+    case "hook.disable":
+      return fromHookToggle(await disableHookGroup(req.event, req.index));
+    case "hook.enable":
+      return fromHookToggle(await enableHookGroup(req.parkedIndex));
+    case "plugin.disable":
+      return fromPluginToggle(await disablePlugin(req.key));
+    case "plugin.enable":
+      return fromPluginToggle(await enablePlugin(req.key));
     default:
       throw new Error(`unknown quarters action: ${(req as { action?: string })?.action}`);
   }

@@ -5,7 +5,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: sessions
+  faculty: surfaces
   cardinality_hint: single
   own_port: true
   default_port: 7079

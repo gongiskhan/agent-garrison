@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Resolved. In `ComponentTile`, Skills now takes the non-presence branch and renders only `N installed`; hook/mcp/plugin tiles render enabled/parked counts. No material defensible finding remains.","findings":[]}

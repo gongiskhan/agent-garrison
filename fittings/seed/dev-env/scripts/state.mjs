@@ -13,6 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { isExcluded } from "./excludes.mjs";
+import { readLiveRegistry } from "./claude-sessions.mjs";
 
 const execP = promisify(exec);
 
@@ -40,6 +42,73 @@ export function realResolve(p) {
   } catch {
     return resolved;
   }
+}
+
+// Container directories too broad to collapse their children under a single
+// tab. A session living directly in HOME, ~/dev or ~/Projects (the latter two
+// are symlinked on this machine, so both raw and realpath forms are folded in)
+// holds many unrelated projects; treating it as a "parent project folder"
+// would hide every real project beneath it behind one home/dev tab. Anything
+// deeper IS a project folder and may collapse the stray sub-cwd sessions a
+// tool wandered into (e.g. ekoa-dev hides ekoa-dev/cortex). See assembleSessions.
+const BROAD_ROOTS = (() => {
+  const set = new Set();
+  for (const p of [HOME, path.join(HOME, "dev"), path.join(HOME, "Projects"), path.dirname(HOME), "/"]) {
+    if (!p) continue;
+    set.add(p);
+    set.add(realResolve(p));
+  }
+  return set;
+})();
+
+// True when `p` is one of the broad container roots above — i.e. too broad to
+// act as the "parent project folder" that hides nested sessions.
+export function isBroadRoot(p) {
+  if (!p || typeof p !== "string") return false;
+  if (BROAD_ROOTS.has(p)) return true;
+  return BROAD_ROOTS.has(realResolve(p));
+}
+
+// Registry-backed liveness. Claude Code's own ~/.claude/sessions/*.json is the
+// source of truth for "what claude is running right now" — read via
+// claude-sessions.mjs (alive-pid + boot-time + procStart-reuse guards), which is
+// cheaper and more precise than the prior ps/lsof cwd probe and yields the
+// sessionId directly. Cached briefly so the /sessions hot path doesn't re-scan
+// every poll; on a transient read error the last good snapshot is kept.
+let liveReg = { rows: [], byCwd: new Set(), bySid: new Set(), at: 0 };
+const LIVE_REG_TTL_MS = 4_000;
+
+function liveRegistry() {
+  if (liveReg.at && Date.now() - liveReg.at < LIVE_REG_TTL_MS) return liveReg;
+  let rows;
+  try {
+    rows = readLiveRegistry();
+  } catch {
+    rows = liveReg.rows; // keep last good on a transient read error
+  }
+  const byCwd = new Set();
+  const bySid = new Set();
+  for (const r of rows) {
+    if (r.cwd) { byCwd.add(r.cwd); byCwd.add(realResolve(r.cwd)); }
+    if (r.sessionId) bySid.add(r.sessionId);
+  }
+  liveReg = { rows, byCwd, bySid, at: Date.now() };
+  return liveReg;
+}
+
+// The live registry rows (Agents panel source): { sessionId, cwd, pid, status, … }.
+export function liveRegistryRows() {
+  return liveRegistry().rows;
+}
+
+// True when a live `claude` is running at `worktreePath`, or a live session
+// carries `claudeSessionId`. Keeps the original name/signature so the server's
+// assembleSessions keeps working; now backed by the registry, not ps/lsof.
+export function hasLiveClaudeProcess(worktreePath, claudeSessionId = null) {
+  const reg = liveRegistry();
+  if (claudeSessionId && reg.bySid.has(claudeSessionId)) return true;
+  if (!worktreePath) return false;
+  return reg.byCwd.has(worktreePath) || reg.byCwd.has(realResolve(worktreePath));
 }
 
 // Close tombstones: closing/deleting a session races the dying claude's
@@ -120,9 +189,24 @@ export function readStateFile() {
   return parsed;
 }
 
+// Serialize every read-modify-write on state.json within this process so a
+// close/unpin can't be clobbered by a concurrent hook status update, and two
+// writers can't collide on the temp file. Only the dev-env process writes this
+// file, so an in-process chain is sufficient (no cross-process lock needed).
+let stateWriteChain = Promise.resolve();
+let tmpSeq = 0;
+export function withStateWrite(fn) {
+  const run = stateWriteChain.then(fn, fn);
+  stateWriteChain = run.then(
+    () => {},
+    () => {}
+  );
+  return run;
+}
+
 export async function writeStateAtomic(state) {
   await mkdir(path.dirname(STATE_FILE), { recursive: true });
-  const tmp = STATE_FILE + ".tmp";
+  const tmp = `${STATE_FILE}.${process.pid}.${++tmpSeq}.tmp`; // unique → no two-writer temp collision
   await writeFile(tmp, JSON.stringify(state, null, 2));
   await rename(tmp, STATE_FILE);
 }
@@ -165,7 +249,8 @@ export function aggregateSessions() {
         claudeSessionId: session?.claudeSessionId ?? null,
         title: session?.title ?? null,
         source: session?.source ?? "state",
-        panesClosed: session?.panesClosed ?? null
+        panesClosed: session?.panesClosed ?? null,
+        openedInDevEnv: session?.openedInDevEnv === true
       });
     }
   }
@@ -175,6 +260,7 @@ export function aggregateSessions() {
 // Mutate state.json: find session by branch in the named project; update
 // status fields. If project or session does not exist, create them.
 export async function setSessionStatus(projectPath, branch, status, hookEvent, opts = {}) {
+  return withStateWrite(async () => {
   const state = readStateFile() || { version: 1, projects: {} };
   let project = state.projects[projectPath];
   if (!project) {
@@ -187,14 +273,46 @@ export async function setSessionStatus(projectPath, branch, status, hookEvent, o
     project.name = opts.projectName;
   }
   if (!project.sessions) project.sessions = {};
-  let session = project.sessions[branch];
+  // The sessions-map KEY can differ from the branch FIELD: a distinct claude
+  // session in the same cwd+branch is keyed by its claudeSessionId (opts.key) so
+  // it gets its own row instead of colliding on the branch.
+  const mapKey = opts.key || branch;
+  let session = project.sessions[mapKey];
   const now = new Date().toISOString();
+  // Idempotency by claudeSessionId — runs under the state mutex against the
+  // LATEST state, BEFORE any create OR branch-row update: if ANY record already
+  // owns this id, update THAT and return. This prevents every racing-hook
+  // duplicate variant: (a) creating a second record, AND (b) stamping the id
+  // onto a different branch row (e.g. a pre-existing sid-less sessions['main'])
+  // while another row already owns it.
+  if (opts.claudeSessionId) {
+    for (const p of Object.values(state.projects ?? {})) {
+      for (const s of Object.values(p?.sessions ?? {})) {
+        if (s && s.claudeSessionId === opts.claudeSessionId) {
+          s.lastStatus = status;
+          s.lastStatusAt = now;
+          if (hookEvent !== undefined) s.lastHookEvent = hookEvent;
+          await writeStateAtomic(state);
+          return s;
+        }
+      }
+    }
+  }
+  // After the re-scan, the row at mapKey (if any) does NOT own opts.claudeSessionId.
+  // If it owns a DIFFERENT sid, it belongs to another (concurrent) session — do
+  // NOT hijack it; create a distinct row keyed by the incoming sid instead. This
+  // closes the two-concurrent-hooks-on-one-sid-less-row collapse.
+  let createKey = mapKey;
+  if (session && opts.claudeSessionId && session.claudeSessionId && session.claudeSessionId !== opts.claudeSessionId) {
+    session = undefined;
+    createKey = opts.claudeSessionId;
+  }
   if (!session) {
     // A just-closed cwd must not be re-created by the dying claude's last
     // hooks — including via the read-modify-write path where the hook read
     // the state before the close landed.
     if (isTombstoned(opts.worktreePath || projectPath)) return null;
-    session = project.sessions[branch] = {
+    session = project.sessions[createKey] = {
       branch,
       worktreePath: opts.worktreePath || projectPath,
       ports: {},
@@ -210,16 +328,124 @@ export async function setSessionStatus(projectPath, branch, status, hookEvent, o
       status: "active",
       urls: {},
       bindings: [],
-      source: opts.source || "hook-autocreated"
+      source: opts.source || "hook-autocreated",
+      // Hook-autocreated (external) sessions surface in the Agents panel, not as
+      // an auto-opened tab. A dev-env-opened session gets openedInDevEnv via
+      // setSessionOpen(id, true) right after creation.
+      openedInDevEnv: opts.openedInDevEnv === true
     };
   } else {
     session.lastStatus = status;
     session.lastStatusAt = now;
     if (hookEvent !== undefined) session.lastHookEvent = hookEvent;
-    if (opts.claudeSessionId) session.claudeSessionId = opts.claudeSessionId;
+    // Only stamp the id onto a sid-less (or same-id) row — never overwrite a row
+    // that already owns a DIFFERENT session id (that's another session's row).
+    if (opts.claudeSessionId && (!session.claudeSessionId || session.claudeSessionId === opts.claudeSessionId)) {
+      session.claudeSessionId = opts.claudeSessionId;
+    }
   }
   await writeStateAtomic(state);
   return session;
+  });
+}
+
+// Persist the open-set: which sessions are open as tabs in dev-env. This is the
+// reboot-durable record — after a reboot nothing is live, so the tab strip can
+// only be rebuilt from a flag that was written when the tab was opened/closed.
+export async function setSessionOpen(sessionId, open) {
+  return withStateWrite(async () => {
+  const state = readStateFile();
+  if (!state) return false;
+  const nowIso = new Date().toISOString();
+  for (const project of Object.values(state.projects ?? {})) {
+    for (const session of Object.values(project.sessions ?? {})) {
+      if (session && session.id === sessionId) {
+        session.openedInDevEnv = !!open;
+        if (open) {
+          session.tabOpenedAt = nowIso;
+          session.closedAt = null;
+        } else {
+          session.closedAt = nowIso;
+        }
+        await writeStateAtomic(state);
+        return true;
+      }
+    }
+  }
+  return false;
+  });
+}
+
+// One-time migration for records that predate openedInDevEnv: seed it from the
+// OLD visibility (a live/active/has-PTY record WAS a visible tab → keep it open;
+// everything else closed). `isOpenDerive(session)` is supplied by the caller
+// (server.mjs knows liveness + PTYs). Idempotent: records that already carry the
+// boolean are left untouched, so it only runs meaningfully once.
+export async function migrateOpenSet(isOpenDerive) {
+  return withStateWrite(async () => {
+  const state = readStateFile();
+  if (!state) return 0;
+  let changed = 0;
+  for (const project of Object.values(state.projects ?? {})) {
+    for (const session of Object.values(project.sessions ?? {})) {
+      if (!session || typeof session.openedInDevEnv === "boolean") continue;
+      session.openedInDevEnv = typeof isOpenDerive === "function" ? !!isOpenDerive(session) : false;
+      changed++;
+    }
+  }
+  if (changed) await writeStateAtomic(state);
+  return changed;
+  });
+}
+
+// Open a session as a tab from Agents/History, keyed by claudeSessionId so two
+// distinct sessions in the SAME cwd get distinct records (the sessions-map key
+// is the session id, guaranteeing uniqueness; the `branch` field stays for
+// display). Re-pins an existing record for the same id. The caller must pass a
+// validated claudeSessionId.
+export async function openSessionByClaudeId({ claudeSessionId, cwd, title = null, branch = null }) {
+  return withStateWrite(async () => {
+    const state = readStateFile() || { version: 1, projects: {} };
+    for (const project of Object.values(state.projects)) {
+      for (const session of Object.values(project.sessions ?? {})) {
+        if (session && session.claudeSessionId === claudeSessionId) {
+          session.openedInDevEnv = true;
+          session.tabOpenedAt = new Date().toISOString();
+          session.closedAt = null;
+          await writeStateAtomic(state);
+          return session;
+        }
+      }
+    }
+    const projectPath = cwd;
+    let project = state.projects[projectPath];
+    if (!project) project = state.projects[projectPath] = { path: projectPath, name: path.basename(projectPath), sessions: {} };
+    if (!project.sessions) project.sessions = {};
+    const now = new Date().toISOString();
+    const session = (project.sessions[claudeSessionId] = {
+      branch: branch || "main",
+      worktreePath: cwd,
+      ports: {},
+      envFiles: [],
+      createdAt: now,
+      lastStatus: "idle",
+      lastStatusAt: now,
+      lastHookEvent: null,
+      id: randomUUID(),
+      claudeSessionId,
+      title: title || null,
+      baseBranch: null,
+      status: "active",
+      urls: {},
+      bindings: [],
+      source: "dev-env-open",
+      openedInDevEnv: true,
+      tabOpenedAt: now,
+      closedAt: null
+    });
+    await writeStateAtomic(state);
+    return session;
+  });
 }
 
 // Hook receiver core. Two payload shapes are accepted:
@@ -246,23 +472,58 @@ export async function applyHookEvent(event, body) {
   // Try to match an existing session by worktreePath (covers both
   // worktree-created sessions and previously hook-autocreated ones).
   // realResolve keeps symlink aliases (~/dev vs ~/Projects) on one row.
+  // Match an existing record. Prefer an EXACT claudeSessionId match (covers the
+  // UUID-keyed /open tabs); else fall back to a worktreePath match. ALWAYS use
+  // the actual sessions-map KEY so setSessionStatus updates THAT record instead
+  // of creating a duplicate under session.branch ("main").
   const state = readStateFile() || { version: 1, projects: {} };
   let matchedProject = null;
-  let matchedBranch = null;
+  let matchedKey = null;
+  let matchedWorktreePath = null;
+  let matchedBySid = false;
   for (const [projectPath, project] of Object.entries(state.projects ?? {})) {
-    for (const [branchKey, session] of Object.entries(project?.sessions ?? {})) {
-      if (session?.worktreePath && realResolve(session.worktreePath) === normalized) {
+    for (const [mapKey, session] of Object.entries(project?.sessions ?? {})) {
+      if (claudeSessionId && session?.claudeSessionId === claudeSessionId) {
         matchedProject = projectPath;
-        matchedBranch = session.branch || branchKey;
+        matchedKey = mapKey;
+        matchedWorktreePath = session.worktreePath || null;
+        matchedBySid = true;
         break;
       }
+      if (
+        !matchedProject &&
+        session?.worktreePath &&
+        realResolve(session.worktreePath) === normalized &&
+        // skip a same-cwd row that already owns a DIFFERENT sid — it's another
+        // session, and this hook (carrying its own sid) must not hijack it.
+        !(claudeSessionId && session.claudeSessionId && session.claudeSessionId !== claudeSessionId)
+      ) {
+        matchedProject = projectPath; // tentative cwd match — a later sid match still wins
+        matchedKey = mapKey;
+        matchedWorktreePath = session.worktreePath || null;
+      }
     }
-    if (matchedProject) break;
+    if (matchedBySid) break;
   }
 
   if (matchedProject) {
-    await setSessionStatus(matchedProject, matchedBranch, status, event, { claudeSessionId });
+    // Pass the matched worktreePath: if the row was DELETED between this (unlocked)
+    // match and the locked write, setSessionStatus's create path then checks the
+    // tombstone against the real worktree cwd — not projectPath — and refuses to
+    // resurrect a just-deleted worktree session.
+    await setSessionStatus(matchedProject, matchedKey, status, event, {
+      claudeSessionId,
+      worktreePath: matchedWorktreePath || undefined
+    });
     return { ok: true, matched: true, autoCreated: false };
+  }
+
+  // Excluded system / internal dir with no existing record → don't start
+  // monitoring it (this is what keeps the Fitting packages, memory-compiler,
+  // ~/.claude, etc. out of the tab strip). An already-tracked path still
+  // updates above; only fresh auto-creation is suppressed.
+  if (isExcluded(normalized)) {
+    return { ok: true, matched: false, autoCreated: false, excluded: true };
   }
 
   // Auto-create: key the project by the actual cwd so multiple Claude
@@ -278,25 +539,41 @@ export async function applyHookEvent(event, body) {
     worktreePath: normalized,
     projectName: displayName,
     source: "hook-autocreated",
-    claudeSessionId
+    claudeSessionId,
+    key: claudeSessionId || undefined // key by sid → a distinct session in the same cwd gets its own row
   });
   return { ok: true, matched: false, autoCreated: true };
 }
 
 // 60s fallback: any "working" session that hasn't fired a hook in 60s
 // downgrades to idle.
-export async function runWorkingIdleFallback() {
+//
+// `liveBusyIds` is the set of session ids whose claude PTY screen reports a
+// turn in flight RIGHT NOW (the live "(esc to interrupt)" marker). A long
+// thinking/inference phase fires no PostToolUse hooks for minutes, so without
+// this guard the timer would demote a session that is plainly still working —
+// dropping the tab spinner. Such sessions get their clock reset instead so the
+// hook-driven status stays honest and a genuinely stuck "working" still ages
+// out once the screen goes quiet.
+export async function runWorkingIdleFallback(liveBusyIds = null) {
+  return withStateWrite(async () => {
   const state = readStateFile();
   if (!state || !state.projects) return;
   let changed = false;
   const now = Date.now();
+  const nowIso = new Date().toISOString();
   for (const project of Object.values(state.projects)) {
     for (const session of Object.values(project.sessions ?? {})) {
       if (session?.lastStatus === "working" && session.lastStatusAt) {
         const t = Date.parse(session.lastStatusAt);
         if (!Number.isNaN(t) && now - t > WORKING_IDLE_FALLBACK_MS) {
+          if (liveBusyIds && session.id && liveBusyIds.has(session.id)) {
+            session.lastStatusAt = nowIso; // still processing — keep it working
+            changed = true;
+            continue;
+          }
           session.lastStatus = "idle";
-          session.lastStatusAt = new Date().toISOString();
+          session.lastStatusAt = nowIso;
           session.lastHookEvent = "fallback";
           changed = true;
         }
@@ -307,12 +584,14 @@ export async function runWorkingIdleFallback() {
     try { await writeStateAtomic(state); }
     catch (err) { console.error(`[dev-env] fallback write failed: ${err.message}`); }
   }
+  });
 }
 
 // Extended cleanup — operates on the RAW state file (the aggregate hides
 // missing-path rows) and removes missing-path AND stale/dead records.
 // Returns the removed rows; the caller kills + forgets their PTYs.
 export async function cleanupState() {
+  return withStateWrite(async () => {
   const removed = [];
   const state = readStateFile();
   if (!state || !state.projects || typeof state.projects !== "object") {
@@ -359,6 +638,7 @@ export async function cleanupState() {
     await writeStateAtomic(state);
   }
   return { scanned, removed };
+  });
 }
 
 // Git-dirty cache: stale-while-revalidate. Returns the last known value

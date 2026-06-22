@@ -1,0 +1,42 @@
+{
+  "slice": "DS2-wire",
+  "title": "Registry-liveness swap + open-set persistence + resume-by-id + session endpoints",
+  "updatedAt": "2026-06-20T11:08:49Z",
+  "phase": "gate",
+  "status": "blocked",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 7 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/dev-env-{claude-sessions,resume-by-id,open-set,sessions-endpoints}.test.ts",
+      "exit": 0,
+      "at": "2026-06-20T11:08:49Z",
+      "summary": "36 passed — resume-by-id (incl. shell-injection rejection), open-set (incl. write-race, hook map-key routing, 4 hook/open identity-race variants, tombstone-no-resurrect), endpoints+reboot-restore (incl. distinct-tabs + invalid-id 400), registry liveness"
+    },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "at": "2026-06-20T11:08:49Z", "summary": "0 errors" },
+    "lint": { "exit": null, "summary": "n/a — fitting .mjs + Next app untouched" },
+    "build": { "exit": null, "summary": "n/a — Next app untouched" },
+    "e2e": { "exit": null, "summary": "n/a — backend; UI lands in DS3" },
+    "codexReview": {
+      "verdict": "needs-attention",
+      "rounds": 7,
+      "by": "codex/gpt-5.x",
+      "at": "2026-06-20T11:08:49Z",
+      "lastReport": "docs/autothing/slices/DS2-wire/codex-review-DS2-r7.json",
+      "overrides": [],
+      "notes": "r1(4)→r2(3)→r3(2)→r4(1)→r5(1)→r6(1)→r7(1) — EVERY finding real and fixed forward with a committed regression (identity-collapse, write races, shell injection, worktree-pin, hook map-key routing, fallback/cleanup+worktrees serialization, resume wiring, 4 hook/open duplicate/overwrite variants, tombstone-resurrect). Round 8 (confirming the r7 fix) FAILED to run: 'codex exec → ERROR: Your workspace is out of credits.' No clean approve reached → slice is BLOCKED on the cross-model gate, not passed."
+    },
+    "codexPwTest": { "result": "n/a", "by": "codex/gpt-5.x", "at": "2026-06-20T11:08:49Z", "notes": "backend; UI Playwright pass lands in DS3" },
+    "designAudit": { "verdict": "n/a", "notes": "no UI" },
+    "video": { "status": "n/a", "notes": "backend slice" }
+  },
+  "blockers": [
+    {
+      "cause": "external — Codex/ChatGPT workspace out of credits",
+      "failedCommand": "codex exec -s read-only --skip-git-repo-check -C <repo> --output-schema codex-review.schema.json --output-last-message <out> \"<DS2 round-8 review prompt>\"",
+      "error": "ERROR: Your workspace is out of credits. Add credits to continue.",
+      "remediation": "Operator must top up Codex/ChatGPT workspace credits; then re-run DS2 round-8 review (expected approve) to clear.",
+      "impact": "Cross-model gate (3A review + 3B Playwright) unavailable for DS2 round-8 confirmation and all remaining slices."
+    }
+  ]
+}

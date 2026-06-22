@@ -54,7 +54,7 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. There are **6 roles** (`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`); the former flat 24-Faculty list collapsed into them and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section.
+- **Faculty** — a **role** slot in a composition. There are **8 roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`); the former flat 24-Faculty list collapsed into them and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
 - **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
 - **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
@@ -123,19 +123,27 @@ tests/               Vitest suite — runner, capabilities, metadata,
                      fitting-view-resolver, validation, seeds, etc.
 ```
 
-The visible shell surfaces are **Garrison · Compose · Armory · Run ·
-Vault · Quarters**, plus the sidebar **Views** group (auto-populated per
-composition) and per-Fitting routes under `/fitting/<id>/...`. There is
+The visible shell surfaces are **Garrison · Composition · Vault ·
+Quarters**, plus the collapsible sidebar **Quarters** and **Views** groups
+(Views auto-populated per composition) and per-Fitting routes under
+`/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
+merged into the Garrison dashboard** (the home route; `/run` redirects to
+`/`) and the **Armory folded into Composition** (Fitting discovery is the
+cross-Faculty search box on `/compose`; `/armory` redirects there). There is
 no built-in Chat surface. Operative interaction goes through Channel
-Fittings; observability is the runtime log on `/run` plus per-Fitting
+Fittings; observability is the runtime log on the dashboard plus per-Fitting
 logs under `/fitting/<id>`.
 
-### Faculties — 6 roles (2026-06-07 Quarters pivot)
+### Faculties — 8 roles (Quarters pivot + 2026-06-18 sessions split)
 
 Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):
-`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`.
-Everything else — Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context,
-Plans — is now a **Quarters platform primitive** surfaced over the real
+`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
+`sessions`, `surfaces`. The 2026-06-18 split carved the overloaded `sessions`
+role into three: `sessions` keeps the Dev Env surface + artifact store,
+`runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini),
+and `surfaces` holds the auxiliary own-port viewers (screen-share / browser /
+outpost). Everything else — Skills, Hooks, MCPs, Plugins, Scripts, Settings,
+Context, Plans — is now a **Quarters platform primitive** surfaced over the real
 `~/.claude`, not a Faculty.
 
 **Own-port runtime residue** — survives at runtime under
@@ -259,6 +267,12 @@ than this file.
 
 ## Working conventions
 
+- **HARD RULE — never create a git branch unless explicitly told to.**
+  No `git checkout -b`, `git branch <new>`, `git switch -c`, or
+  worktree/agent isolation that spawns a branch. Switching to an
+  **existing** branch is fine. Work stays on the current/specified
+  branch; to recover "lost" work, check existing branches / reflog /
+  stash and `git checkout` the existing branch — don't invent one.
 - **Don't optimise the Faculty list further before §10 DoD is
   observable.** New Faculties land only when a real Fitting needs one.
 - **Don't add a new capability kind speculatively.** Add one when a Fitting

@@ -1,0 +1,32 @@
+{
+  "slice": "HV10-walkthrough",
+  "title": "Consolidated walkthrough video (5-step holistic view + MCP enable/disable)",
+  "updatedAt": "2026-06-20T07:47:43Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": {
+    "limit": 6,
+    "used": 2
+  },
+  "gates": {
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "vision-review"
+      ],
+      "at": "2026-06-20T07:47:43Z",
+      "notes": "both walkthrough gates passed"
+    }
+  },
+  "video": {
+    "status": "verified",
+    "verifiedAt": "2026-06-20T07:47:43Z",
+    "flagged": false,
+    "link": "http://100.108.210.116:8099/agent-garrison/composition-view/2026-06-20_08-41-41/final.mp4",
+    "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/composition-view/2026-06-20_08-41-41",
+    "notes": "6 content beats: grouped composition view, four component tiles, MCP disable->parked->enable->enabled, edit-in-place. Per-beat vision gate + claude-video holistic gate both PASS."
+  },
+  "tokens": "walkthrough-rendered",
+  "blockers": []
+}

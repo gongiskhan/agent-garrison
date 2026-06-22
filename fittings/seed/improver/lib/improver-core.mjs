@@ -83,16 +83,34 @@ export function applyPromotion(state) {
 // ── Run ──────────────────────────────────────────────────────────────────────
 // The nightly run. Inputs are injected (decisions, memoryEntries, vaultLocked,
 // serverUp). If the vault is locked or the Next server is down, records a skip
-// rather than failing silently. Returns { skipped?, proposals[], report }.
-export function runImprover({ decisions = [], memoryEntries = [], vaultLocked = false, serverUp = true, at = null } = {}) {
+// rather than failing silently. `skillProposals` is the (optional) result of the
+// skills phase, merged in alongside the memory rule — the CLI computes it (it is
+// IO-bearing: telemetry + provenance + a PTY pass) and passes the canonical
+// proposals here so this function stays pure and backward-compatible (default []).
+// `dreamProposals` is the (optional) result of the dream rule — the nightly
+// consolidation pass over the Basic Memory vault (memory-dream.mjs). It is
+// IO-bearing (reads the vault, runs a capped PTY pass, archives stale
+// checkpoints), so the CLI/server compute it and pass the canonical proposals
+// here, keeping this function pure + backward-compatible (default []).
+// Returns { skipped?, proposals[], report }.
+export function runImprover({ decisions = [], memoryEntries = [], vaultLocked = false, serverUp = true, at = null, skillProposals = [], dreamProposals = [] } = {}) {
   if (vaultLocked) return { skipped: "vault locked", proposals: [], report: { at, skipped: "vault locked" } };
   if (!serverUp) return { skipped: "next server down", proposals: [], report: { at, skipped: "next server down" } };
   const proposals = [];
   const mem = proposeMemoryConsolidation({ memoryEntries, decisions, at });
   if (mem) proposals.push(mem);
+  for (const dp of dreamProposals || []) if (dp) proposals.push(dp);
+  for (const sp of skillProposals || []) if (sp) proposals.push(sp);
   return {
     proposals,
-    report: { at, proposalCount: proposals.length, decisionsConsidered: decisions.length, memoryNotes: memoryEntries.length }
+    report: {
+      at,
+      proposalCount: proposals.length,
+      decisionsConsidered: decisions.length,
+      memoryNotes: memoryEntries.length,
+      skillProposalCount: (skillProposals || []).length,
+      dreamProposalCount: (dreamProposals || []).length
+    }
   };
 }
 

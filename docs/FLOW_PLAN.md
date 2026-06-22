@@ -393,3 +393,290 @@ interactive `claude` TUI submit window flaked for RE-runs of the claude-PTY
 probes. Not a logic regression — the deterministic committed gates are green and
 the live tokens were captured when load was normal. Heavy live round-trips are
 gated behind env flags so the normal suite stays deterministic.
+
+---
+
+## AS-wave — Agent SDK Runtime (base-URL / non-Anthropic models)
+
+Adds a new runtime fitting `agent-sdk` to the v4 Runtime faculty, reachable ONLY
+via a non-Anthropic base URL (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy).
+One more adapter cloned from the Codex/Gemini pattern — NOT a faculty re-arch —
+with two load-bearing properties built and tested FIRST: **THE FENCE**
+(default-deny Anthropic billing; assert on the effective resolved base URL,
+settings.json #217-aware) and **THE HARNESS** (per-target `promptMode` full/lean).
+Max-plan Claude stays on the Claude Code PTY runtime; everything reached by base
+URL runs here (structured request/response, native tool-calls, no terminal
+scraping). Home: `fittings/seed/agent-sdk-runtime/` + a Quarters-AgentSDK view.
+
+SDK pin: `@anthropic-ai/claude-agent-sdk@0.3.179` (bundled CLI pinned
+transitively). Verified vs docs: `systemPrompt:{type:"preset",preset:"claude_code"
+,append}` (not the deprecated `appendSystemPrompt`), `settingSources:["project"]`
+loads CLAUDE.md (preset alone does not), skills auto-mount from `.claude/skills`,
+`ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` via `options.env`, `maxTurns` →
+`error_max_turns`, `setModel()`/`applyFlagSettings({model})`.
+
+| id | title | kind | route | group | status | tokens |
+|----|-------|------|-------|-------|--------|--------|
+| AS-fence | THE FENCE — default-deny Anthropic billing; effective-URL assert (#217); scoped purge exception | automation | (fitting lib) | AS-A | passed | `fence-ok` |
+| AS-harness | THE HARNESS — promptMode full (preset+settingSources+skills) vs lean string; never user-settings | automation | (fitting lib) | AS-A | passed | `harness-ok` |
+| AS-adapter | AgentSdkAdapter — RuntimeAdapter conformance; structured awaitResponse + tool-use, no scraping | automation | (fitting lib) | AS-A | passed | `sdk-adapter-ok` |
+| AS-budget | maxTurns / token-budget ceiling stops and reports (no loop on paid credits) | automation | (fitting lib) | AS-A | passed | `sdk-budget-ok` |
+| AS-providers | provider table + capability records (DeepSeek text+tooluse only); env asserted; LiteLLM pin | automation | (fitting lib) | AS-A | passed | `sdk-providers-ok` |
+| AS-bridge | agent-sdk as secondary answers delegate() → schema-valid {summary,artifacts} + artifact + log | automation | (fitting) | AS-A | passed | `sdk-bridge-ok` |
+| AS-pool | MultiRuntimePool warms agent-sdk sessions keyed incl promptMode; status visible | automation | (gateway + claude-pty) | AS-B | passed | `sdk-pool-ok` |
+| AS-route | orchestrator routing-target {agent-sdk,…} resolves; capability-incompatible route (MCP@deepseek) refused | automation | (router + gateway) | AS-B | blocked (resolution+gating passed 5/5; LIVE route blocked — shared local-model limitation) | `sdk-route-live-ok` |
+| AS-ollama-live | real agent-sdk + ollama-local, one tool-call round trip end-to-end | automation | (live) | AS-C | blocked (adapter PROVEN live; clean tool round trip blocked by local models — see decisions.md) | `sdk-ollama-live-ok` |
+| AS-quarters | Quarters-AgentSDK view — config, capability record, FENCE state, HARNESS state | ui | /quarters/agentsdk | AS-D | passed (committed e2e + unit + build; verified walkthrough video) | `sdk-quarters-ok` |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **Group AS-A (fence/harness/adapter/budget/providers/bridge): serial, lead-authored, ONE fitting.** All six live in the new fitting's disjoint module files and a single self-contained `tests/agent-sdk-runtime.test.ts`. The adapter imports fence+harness+providers, so authoring order is fence→harness→providers→adapter→bridge; no worktree fan-out (the adapter depends on the others, and the shared purge-test edit must not race). Built + green in one pass this session.
+- **Group AS-B (pool, route): serial after AS-A.** Both touch shared code outside the fitting (`multi-runtime-pool.mjs` composite keys; `routing-core`/`stage-b`/`gateway-routing` for resolution + capability gating). Serialized to avoid contention on a daily-use repo.
+- **AS-C (ollama-live): after the adapter + SDK install.** Needs the real `@anthropic-ai/claude-agent-sdk` + Ollama running (env-flag gated like the U-wave live tests, so the normal suite stays deterministic).
+- **AS-D (quarters): UI, after route.** Touches `src/components/quarters/` + `src/app` + an api route; the design audit + walkthrough serialize on the shared dev-server.
+
+### Acceptance per slice (tokens lifted verbatim from the brief)
+- **AS-fence:** launching with no base URL, or an Anthropic base URL (incl. one injected via settings.json), without `acceptApiBilling` is a fatal error asserted on the effective resolved base URL; only `lib/sdk-client.mjs` imports the SDK and it pairs with `lib/fence.mjs` → `fence-ok`.
+- **AS-harness:** a full target spawns with the `claude_code` preset, `settingSources:["project"]`, skills mounted; a lean target spawns with the minimal string and none of the above; asserted, not scraped → `harness-ok`.
+- **AS-adapter:** passes the RuntimeAdapter conformance harness; `awaitResponse` returns structured text + tool-use with no scraping → `sdk-adapter-ok`.
+- **AS-budget:** a session hitting maxTurns / its budget ceiling stops and reports rather than looping → `sdk-budget-ok`.
+- **AS-providers:** zai-glm / deepseek / minimax / llm-proxy build correct base URL + Vault auth (argv/env asserted); each carries a capability record; LiteLLM pin enforced (≤1.82.6, never 1.82.7/1.82.8) → `sdk-providers-ok`.
+- **AS-bridge:** agent-sdk as a secondary answers a delegate() task, schema-valid return, artifact written, logged → `sdk-bridge-ok`.
+- **AS-pool:** SDK sessions warm in the MultiRuntimePool alongside PTY sessions, keyed including promptMode; status visible → `sdk-pool-ok`.
+- **AS-route:** a Profile roleMap pointing a role at {agent-sdk, ollama-local} resolves and routes live through the gateway; a capability-incompatible route (MCP role @ deepseek) is refused/redirected → `sdk-route-live-ok`.
+- **AS-ollama-live:** a real agent-sdk + ollama-local session handles one turn with a real tool-call round trip end to end → `sdk-ollama-live-ok`.
+- **AS-quarters:** Quarters-AgentSDK renders base config, capability record, FENCE state, HARNESS state → `sdk-quarters-ok`.
+- **Final:** print each token once, then `AGENT-SDK-RUNTIME-COMPLETE`.
+
+---
+
+## HV wave — Holistic Composition View (Quarters primitives in the Compose grid)
+
+Plan of record: `~/.claude/plans/velvety-orbiting-llama.md`. ONE view showing
+everything the Operative is made of — the role faculties AND the Claude Code
+components (Skills/Hooks/MCPs/Plugins) — with edit-in-place and enable/disable =
+a real **parked** move. Extends the existing Quarters engine (NO second mirror,
+NO new faculties). Fixes the MCP source-of-truth bug (`~/.claude/mcp.json` empty;
+real servers in `~/.claude.json`). MCP writes are guarded (subtree delta +
+retry + abort-untouched, never restore-old-backup). Disabled mcp/hooks are
+parked off-disk AND read back via `active ∪ parked` so the disable→enable loop is
+round-trippable from the UI. Sandbox seam: `GARRISON_CLAUDE_HOME`/`GARRISON_HOME`.
+
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| HV1-essential-grid | `essential?` on FacultyDefinition + tag orchestrator/memory/channels/gateway + consolidate role copy + three-group Compose grid (essential / optional) | ui | /compose | HV-A | passed (faculties 14✓ + grid groups; codex approve; `essential-grid-ok` `grid-groups-ok`) |
+| HV2-mcp-source | `claude-json.ts` reader (`readClaudeJson`/`userMcpServerNames`) + `claudeJsonPath()` in claude-home + repoint `claude-scan.ts` MCP read (precedence: `~/.claude.json` wins; legacy mcp.json only fills absent names) | mixed | (lib) | HV-A | passed (claude-json 6✓ authoritative+precedence; codex approve; live surface 7 servers was 0; `mcp-source-ok`) |
+| HV3-presence-model | `managedBy`/`presence` on PrimitiveRecord + **active ∪ parked union** for mcp/hooks + plugin presence from `enabledPlugins` + parked-config reader + plugin-skill de-dup guard | mixed | (lib) | HV-B | passed (presence-model 2✓ active∪parked union; codex approve; `presence-union-ok`) |
+| HV4-plugin-disable | `plugin-disable.ts` (native `enabledPlugins[key]=false` / delete) + quarters dispatch `plugin.{enable,disable}` | mixed | /quarters/plugins | HV-B | passed (native enabledPlugins toggle; codex approve; `plugin-disable-ok`) |
+| HV5-hook-disable | `hooks-disable.ts` — move group → `~/.garrison/parked/hooks.json` verbatim (incl `_garrison` tag) + restore + uninstall-purge + quarters dispatch | mixed | /quarters/hooks | HV-B | passed (park verbatim + uninstall purge + rollback; codex approve; `hook-disable-ok`) |
+| HV6-mcp-disable | `mcp-disable.ts` + `claude-json` `applyMcpDelta` writer (read→delta→atomic→read-back→retry≤3→abort-untouched) + park to `parked/mcp.json` + repoint mcp CRUD + quarters dispatch | mixed | /quarters/mcps | HV-C | passed (guarded CAS writer: sibling-preserve + retry-not-revert + abort-untouched + refuse-clobber; codex approve r2; `mcp-disable-ok` `mcp-siblings-byte-identical-ok` `mcp-concurrent-retry-ok`) |
+| HV7-reconcile | extend `reconcile.ts` presence pass over hook/mcp/plugin — adopt as enabled, park nothing; bootstrap ⇒ parked==0 | mixed | (lib) | HV-B | passed (adopt + bootstrap parked==0; codex approve; `reconcile-adopt-ok` `bootstrap-parked-zero-ok`) |
+| HV8-ui-components | StationGrid third "Claude Code components" group (ComponentTile from `/api/quarters`, N enabled · M parked) + PrimitiveListPanel presence toggle + FittingEditor wiring | ui | /compose, /quarters | HV-C | passed (e2e 6✓/3 viewports + codex 3A approve r4 + codex 3B pass + build 0 + design clean; `component-group-ok` `presence-toggle-ok` `editor-writethrough-ok`) |
+| HV9-invariants | `composition-invariants.ts` + tests: disabled mcp/hook shows as parked record; enabled==active XOR parked; bootstrap parked==0; writes confined to managed dirs; empty contracts accepted | automation | (lib) | HV-C | passed (composition-invariants 4✓; codex approve; `invariants-ok`) |
+| HV10-walkthrough | consolidated walkthrough video — 5 steps incl MCP disable/enable on a **throwaway** server (`garrison-demo-mcp`), never a live one | ui (evidence) | (video) | HV-D | passed (verified video, both gates; `walkthrough-rendered`) |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **HV-A (HV1 ∥ HV2): genuinely disjoint → parallel burst (agent teams enabled).** HV1 owns `types.ts`/`faculties.ts`/`StationGrid.tsx`(role groups)/`FacultyStation.tsx`; HV2 owns `claude-json.ts`/`claude-home.ts`/`claude-scan.ts`. No shared edit file. Gate tail (build→verify→codex→record) serializes per the skill; Codex serial run-wide.
+- **HV-B (HV3 → {HV4, HV5, HV7}): serial-ish, lead-authored.** HV3 (`primitive-state.ts`, the central record builder) lands first. HV4/HV5/HV7 then each add a disjoint writer module (`plugin-disable.ts`/`hooks-disable.ts`/`reconcile.ts` presence pass) but share the `quarters.ts` dispatch + the `primitive-state` neighbourhood → the integration seam forces serial; the writer modules are noted disjoint for the record.
+- **HV-C (HV6 → HV8 → HV9): serial.** HV6 (claude.json writes) is the riskiest, sequenced first-of-C but built last among writers; HV8 integrates the UI (shared `StationGrid`/`PrimitiveListPanel`); HV9 asserts cross-cutting invariants once the writers exist.
+- **HV-D (HV10): consolidated walkthrough after all gates green** — one video covers the wave's UI-facing acceptance (established pattern in the C/MR waves), on the single shared dev-server + recorder.
+- **Honest execution choice:** correctness > wall-clock on this daily-use repo (the standing choice in every prior wave). HV1∥HV2 is the one true parallel burst; everything downstream funnels through `primitive-state.ts` + `quarters.ts` + `StationGrid.tsx`, so it is serial by integration seam.
+
+### Acceptance per slice (tokens printed at gate time)
+- **HV1:** `/compose` renders "Every agent needs these" (orchestrator, memory, channels, gateway) above an "Optional roles" group; `essential` is a `FacultyDefinition` field; unit test asserts the essential set + that every faculty has a description → `essential-grid-ok` `grid-groups-ok`.
+- **HV2:** `claude-scan` reads MCP names from a seeded sandbox `~/.claude.json` `mcpServers` (not the empty `mcp.json`); a stale `mcp.json` duplicate cannot shadow a live `~/.claude.json` server (precedence test) → `mcp-source-ok`.
+- **HV3:** a record built over a sandbox where an entry sits in `parked/mcp.json` (or `parked/hooks.json`) surfaces as `presence:"parked"`; an active entry as `presence:"enabled"`; a disabled plugin (`enabledPlugins[k]=false`) as parked; vitest proves the union + no double-count of a plugin-bundled skill → `presence-union-ok`.
+- **HV4:** disable sets `enabledPlugins[key]=false`, enable deletes the key; the record flips enabled↔parked; vitest → `plugin-disable-ok`.
+- **HV5:** disabling a hand-authored group removes it from `settings.json.hooks[event]` and writes it verbatim (incl any `_garrison` tag) to `parked/hooks.json`; enable restores it unchanged; a fitting uninstall purges matching parked records; vitest → `hook-disable-ok`.
+- **HV6:** disabling a server removes it from `~/.claude.json` `mcpServers` and parks it in `parked/mcp.json` with **all sibling keys byte-identical**; enable reverses; a simulated concurrent write between read and rename triggers retry-not-revert, and a persistent race aborts leaving the live file untouched with a loud error; vitest on a real-size fixture → `mcp-disable-ok` `mcp-siblings-byte-identical-ok` `mcp-concurrent-retry-ok`.
+- **HV7:** `reconcile({trigger:"bootstrap"})` over a seeded sandbox adopts present hook/mcp/plugin as `presence:"enabled"` records, parks nothing (parked count 0), and a manually-placed component appears enabled without a Garrison install; vitest → `reconcile-adopt-ok` `bootstrap-parked-zero-ok`.
+- **HV8:** `/compose` shows a third "Claude Code components" group with Skills/Hooks/Agent Tools/Plugins tiles showing `N enabled · M parked`; a presence row has an Enable/Disable toggle that POSTs the new action and round-trips; editing a file-backed primitive opens the Monaco `FittingEditor` and writes through to disk; e2e + design audit → `component-group-ok` `presence-toggle-ok` `editor-writethrough-ok`.
+- **HV9:** committed `composition-invariants.test.ts` asserts: disabled mcp/hook is a parked record; `enabled XOR parked` (no entry in both); bootstrap parked==0; presence/editor writes confined to managed locations; empty contracts accepted → `invariants-ok`.
+- **HV10:** one walkthrough video shows grouped view → Monaco edit + on-disk change → on-disk skills/hooks/plugins + `~/.claude.json` MCP config → enable (parked→active) → disable (active→parked) on `garrison-demo-mcp` and a skill; vision-verified → `walkthrough-rendered=<path>`.
+- **Final:** print each token once, then `GARRISON-COMPOSITION-VIEW OK`, then the `GLOBAL GATE:` line.
+
+## Dev-Env durable sessions (DS wave) — 2026-06-20
+
+Plan of record: `~/.claude/plans/we-need-to-find-tingly-lighthouse.md`. Makes
+dev-env (port 7086) sessions survive a computer reboot and pivots the session
+model onto Claude Code's own `~/.claude` data (live registry + transcripts).
+Dev surface: the dev-env Fitting at http://127.0.0.1:7086 (own-port; main app
+:7777). Build on disk; restart the LIVE dev-env only at controlled points;
+**destructive reboot verification runs on a throwaway `tmux -L garrison-test`
+socket + isolated `GARRISON_STATE_PATH`/`GARRISON_CLAUDE_HOME` + a non-7086 port
+— NEVER the live `tmux -L garrison` that holds the user's real sessions.**
+
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| DS1-reader | `claude-sessions.mjs` — `readLiveRegistry()` (live `~/.claude/sessions/*.json`, drop dead pids + internal/broad-root cwds) + `listHistory()` (transcripts → title via latest `ai-title`→first-user-msg, cheap stat+head+tail, mtime-cached) | automation | (lib) | DS-A | passed (vitest 11/11 + typecheck 0; codex approve r4 after 3 fix rounds — `live-registry-ok` `history-title-ok` `history-cache-ok`) |
+| DS2-wire | `state.mjs` registry-liveness swap (retire ps/lsof probe) + persistent open-set (`openedInDevEnv` + migration-on-read from current visibility) · `ptys.mjs` `--resume <id>` · `server.mjs` `/sessions/agents` `/sessions/history` `/sessions/open` + close→unpin | mixed | (lib + :7086 api) | DS-A | **blocked** (tests 36/36 + typecheck 0 + `open-set-ok` `resume-by-id-ok` `endpoints-ok` `reboot-restore-ok`; Codex 7 rounds all-findings-fixed but round-8 confirm blocked — **Codex out of credits**, external) |
+| DS3-ui | `main.tsx` tab-membership=open-set + lazy resume-on-click · new `session-panels.tsx` Agents + History header dropdown (grouped by project incl. worktrees) · `styles.css` | ui | :7086 | DS-B | **blocked** (bundle build 0 + typecheck 0 + UI screenshot-verified: `tabs-openset-ok` `agents-panel-ok` `history-resume-ok`; backend endpoints committed-tested 36/36; **Codex cross-model never ran — out of credits**, external) |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **DS-A (DS1 → DS2): serial chain.** DS2's `state.mjs` imports DS1's
+  `readLiveRegistry`/`listHistory` and DS2's endpoints consume both → DS1's
+  exports are DS2's inputs. No earned parallelism; correctness > wall-clock (the
+  standing choice in every prior wave). Codex serial run-wide.
+- **DS-B (DS3): after DS-A.** The UI consumes DS2's endpoints; the tab-model
+  change depends on `openedInDevEnv` shipping in `assembleSessions`.
+- **Out of scope (logged, NOT a deferred slice):** Haiku title fallback (plan
+  Phase 3) — `ai-title` + first-user-message cover titles; a Haiku `oneShotTurn`
+  fallback is a future enhancement, never a committed DS slice, so excluding it
+  is a plan-time scope call, not a voluntary deferral.
+
+### Acceptance per slice (tokens printed at gate time)
+- **DS1:** over a sandbox `~/.claude` (env-overridden), `readLiveRegistry()`
+  returns only live-pid rows, drops a stale-pid file, drops
+  `compositions/default`/`~/.garrison`/broad-root cwds, keeps a `status:"shell"`
+  row, and passes `status` through when present; `listHistory()` picks the
+  LATEST `ai-title`, falls back to the first `type:"user"` snippet, returns null
+  when neither, windows by recency, and returns the cached object on an
+  unchanged file (mtime key) → `live-registry-ok` `history-title-ok`
+  `history-cache-ok`.
+- **DS2:** `claudeCommand({resumeId})` emits `--resume <id>`, `{resume:true}`
+  emits `--continue`, bare emits neither; open-set set/clear persists in
+  `state.json` and migration-on-read seeds `openedInDevEnv` from current
+  visibility (NOT all-true); a sandboxed dev-env answers `/sessions/agents`
+  (live, tagged `isOpen`) + `/sessions/history` (excludes live AND open-set) +
+  `/sessions/open` (upsert, mark open, NO spawn); close unpins but keeps the
+  record; reboot scenario on the throwaway socket: open 2 tabs → kill-server →
+  restart → both tabs reappear with NO claude spawned → click → `claude --resume
+  <id>` attaches → `open-set-ok` `resume-by-id-ok` `endpoints-ok`
+  `reboot-restore-ok`.
+- **DS3:** the tab strip renders exactly the `openedInDevEnv` set (an external
+  iTerm claude is NOT auto-tabbed — it shows in Agents); clicking an unspawned
+  tab issues the resume fetch; the Agents panel lists live registry sessions
+  grouped by project and opens one on click; the History panel lists titled past
+  sessions and resumes one on click; no session appears in more than one of
+  tabs/Agents/History; e2e + design audit + verified walkthrough video →
+  `tabs-openset-ok` `agents-panel-ok` `history-resume-ok` `walkthrough-rendered`.
+- **Final:** print each token once, then `GARRISON-DEVENV-SESSIONS OK`, then the
+  `GLOBAL GATE:` line.
+
+## COORD wave — Coordination Fittings (Beads + mcp_agent_mail) for cross-session drift prevention (2026-06-21)
+
+Plan-of-record: the autothing brief in session `a04a94d6`. Two coordination
+tools added **as Fittings** so parallel Claude Code sessions (dev worktrees +
+the orchestrator) stop drifting into contradictory architectural decisions.
+Both must be active automatically in **both** run paths — (1) a direct `claude`
+in any repo, (2) the orchestrator session — with no per-project setup.
+
+### Verified facts that shape the build (explore-first, read at the pin)
+- **No `host: external` in Garrison.** Arm's-length external process = `own_port:true`
+  + a status file at `~/.garrison/ui-fittings/<id>.json` (the `herdr` referenced
+  in the brief does not exist — only a deferred note). `coord-agentmail` uses this.
+- **Beads** `github.com/gastownhall/beads` **v1.0.5 @ `6a3f515ced18406c189c55fff789a4925bfaa35c`**,
+  license **pure MIT**. Ships a `beads-mcp` PyPI server BUT its native Claude Code
+  integration is **hook-based** (`bd setup claude` → `SessionStart` runs `bd prime`).
+  `bd` does **not** silently auto-init (errors without `.beads/`, needs `bd init`);
+  its SessionStart hook is **resilient** (exit 3, never blocks) when uninitialized.
+- **mcp_agent_mail** `github.com/Dicklesworthstone/mcp_agent_mail` **@ `de9e6288367e20a8b81e203960da9219ab8aa48f`**,
+  license **MIT + OpenAI/Anthropic rider** (verified verbatim — grants no rights to
+  "Restricted Parties" incl. Anthropic/OpenAI; "use" includes analyzing/incorporating).
+  **Decision: keep it, run strictly arm's-length, never vendor/import into the MIT tree,
+  never wire to Ekoa, and keep its source out of the Codex (OpenAI) gate.** FastMCP
+  HTTP server on `127.0.0.1:8765`; exposes `file_reservation_paths` (TTL≥60s, heartbeat
+  via `renew_file_reservations`, `reason`), `acquire_build_slot`, messaging, identities.
+- **Config scope = user scope.** Garrison writes MCP to `~/.claude.json` (`mcp-user.ts`,
+  guarded CAS) and hooks to `~/.claude/settings.json` (`hooks-crud.ts`, only `type:command`).
+  A direct `claude` anywhere AND the orchestrator (a real `claude` PTY child via
+  `spawnClaude`) read the SAME user-scope files → one install covers both paths.
+- **Faculty mapping:** `memory` faculty, expressed as `setup`/`own_port` session
+  augmentations — **no new capability kind, no manager primitive.** Beads = the
+  per-repo git-backed decision store; agent_mail = cross-session leases/messaging +
+  digest source; the planning-gate tools live in a NEW Garrison-owned MIT MCP server
+  (neither upstream exposes `begin_planning`/`end_planning`).
+- **PTY-safe by construction:** all hooks `command`-type; MCP servers are tools not
+  model-invoking hooks; the canary drives `claude` via `claude-pty`/direct hook
+  invocation, never `claude -p`.
+
+### Slices
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| CO1-beads | `coord-beads` Fitting — pin+install `bd`, owner-tagged user-scope SessionStart hook (fail-open, de-dup native), Garrison-core clean teardown; quiet no-op in fresh repos | automation (fitting) | (cli) | CO-serial | passed (vitest 20/20 + validate-fitting PASS + typecheck 0 + sandbox round-trip + fail-open proven; Codex r1→r2→r3 approve; asciinema evidence — `BEADS-FITTING OK`) |
+| CO2-agentmail | `coord-agentmail` own-port Fitting — clone+pin agent_mail external (license-isolated), run FastMCP `:8765`, register http MCP in `~/.claude.json`, status file + clean stop | automation (own-port :8765) | (own-port) | CO-serial | passed (vitest 7/7 incl LIVE supervisor + isolation-guard + typecheck 0 + validate-fitting PASS; Codex r1→r2 approve; asciinema — `AGENTMAIL-FITTING OK` `LICENSE-ISOLATION OK`) |
+| CO3-plan-gate | `coord-mcp` Fitting — Garrison-owned MIT stdio MCP server: `begin_planning`/`end_planning` + read-bundle, per-repo **file mutex** w/ TTL+heartbeat (atomic wx acquire), bounded wait/escalation | mixed (fitting + lib + mcp) | (mcp) | CO-serial | passed (vitest 12/12 + typecheck 0 + validate-fitting PASS + live stdio MCP A/B/A/B sequence; Codex r1→r5 approve [5-round hardening]; asciinema — `PLAN-GATE OK`) |
+| CO4-hook | gap-fill `SessionStart`/`UserPromptSubmit` command hook — begin_planning nudge + repo-scoped digest (conflicts/awareness; lookback 3d weekday/5d Mon/7d weekend) + heartbeat log; fail-open, PTY-safe | mixed (lib + hook) | (hook) | CO-serial | passed (vitest 5/5 + typecheck 0; Codex r1 approve; PTY-safe command-only — `PTY-SAFE OK`) |
+| CO5-coord-cli | `coord` observability CLI — `status` (liveness/activity-by-repo/heartbeat/plan-lock), `status --tail`, `canary` (direct-path self-test) | mixed (cli) | (cli) | CO-serial | passed (vitest 5/5 + typecheck 0 + live 5-layer demo [Beads+agent_mail UP, holder+waiter, heartbeat]; Codex r1→r2 approve; asciinema — `COORD-OBSERVE OK` `COORD-CANARY OK`) |
+| CO6-wiring | selection→user-scope install / deselection→clean removal; prove BOTH paths load coord MCP+hooks (direct fresh repo + orchestrator); PTY-safe + license-isolation audits | mixed (lib) | (lib) | CO-serial | passed (vitest 3/3 production-path + suite 51/52 + typecheck 0; LIVE `claude mcp list` both paths Connected; Codex r1→r2 approve; asciinema — `COORD-WIRING OK` `PTY-SAFE OK` `LICENSE-ISOLATION OK`) |
+| CO7-final | global gate + handover; print all sentinels then `COORD-FITTINGS DONE` | automation | (n/a) | CO-final | passed (full suite 829 pass / 7 pre-existing-baseline; typecheck 0 + lint clean + build 0 [clean .next]; library.json registered; live machine-wide wiring active; globalGate `passed`) |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **CO-serial, lead-authored.** Three forces match the prior Q/C/MR-wave precedent:
+  (1) ONE shared gate runtime (single vitest + a sandbox `~/.claude` via the
+  `claude-home.ts` seam) the autothing skill says must serialize; (2) the slices
+  share the `data/library.json` registry + the live-machine config install — parallel
+  authoring would race the registry and the real `~/.claude`; (3) CO3 (the keystone
+  planning gate) is consumed by CO4/CO5, and CO6 needs all Fittings present. CO1↔CO2
+  are the most independent (two distinct fittings) but both mutate one machine's tool
+  install + registry, so they too run serial for safety. Execution: CO1→CO2→CO3→CO4→CO5→CO6→CO7.
+- **Blast-radius discipline:** every hook is built + gated against a **sandbox**
+  `~/.claude` first (never the live one in tests) and is **fail-open** (exit 0 on any
+  error, never blocks a session); the live user-scope install lands only after the
+  sandbox gate is green. Evidence is **asciinema** (CLI/backend), not browser video.
+
+### Acceptance per slice (sentinels lifted verbatim from the brief)
+- **CO1:** `bd --version` resolves at the pin; `bd setup claude` writes a `SessionStart`
+  hook into the sandbox `~/.claude/settings.json`; in a fresh repo with no `.beads/`,
+  the fitting quietly `bd init`s (or relies on the resilient exit-3) — never errors/blocks;
+  uninstall removes exactly what it added → `BEADS-FITTING OK`.
+- **CO2:** the FastMCP server starts as a detached external process, writes
+  `~/.garrison/ui-fittings/coord-agentmail.json`, is reachable on `127.0.0.1:8765`,
+  and is registered as an http MCP server in the sandbox `~/.claude.json`; stop kills
+  the pid + removes the status + MCP entry; dependency graph shows NO import of agent_mail
+  into the MIT tree → `AGENTMAIL-FITTING OK`, `LICENSE-ISOLATION OK`.
+- **CO3:** `begin_planning(repo,summary)` grants a per-repo Beads-backed lock + returns
+  the read-bundle (released plan + recent plans + in-flight intents/leases); a second
+  caller gets **WAIT** (holder + summary + started + expiry); `end_planning` releases;
+  the next caller's read-bundle **contains the prior plan**; TTL+heartbeat auto-releases
+  a stale lock; bounded wait → park+surface in autonomous mode → `PLAN-GATE OK`.
+- **CO4:** the command hook fires on SessionStart/UserPromptSubmit, injects a
+  repo-scoped digest <few hundred tokens, writes one heartbeat line per fire, and
+  composes with bd's hook without double-injecting; PTY-safe (command type).
+- **CO5:** `coord status` shows liveness (Beads CLI + agent_mail HTTP w/ latency),
+  per-session activity grouped by repo (RED if long-running w/ zero writes), heartbeat
+  tail, and plan-lock holder+waiters; `coord canary` declares two conflicting synthetic
+  intents via a **direct** path, asserts the conflict surfaces in injected text, cleans
+  up → `COORD-OBSERVE OK`, `COORD-CANARY OK`.
+- **CO6:** config-path + grep proof that BOTH a direct `claude` in a fresh non-Garrison
+  repo AND an orchestrator session load the coord MCP servers + hooks → `COORD-WIRING OK`,
+  `PTY-SAFE OK`.
+- **CO7:** all sentinels printed once, then `COORD-FITTINGS DONE`, then the `GLOBAL GATE:` line.
+
+## COORD-2 wave — Coordination fixes + observability view (2026-06-22)
+
+Builds on the shipped coord fittings. One idea underneath both halves: a **single
+coordination-state source** (`coord-state.mjs buildCoordState`) the CLI, the agent
+digest, and the new web view all consume — so the UI can never show green while the
+CLI shows red.
+
+### Verified facts (explore-first; full FINDING: lines in the session transcript)
+- Status logic was **trapped in `coord.mjs`** (~10 inline fns) → factored into
+  `lib/coord-state.mjs`; CLI now renders from it; `coord state --json` added for the UI.
+- agent_mail is already `own_port` → made **eager/standing** via `setEagerBoot` on
+  select, stopped + un-eagered on deselect (reuses own-port + eager-boot supervision).
+- Design = **field manual** (`globals.css` tokens: `--paper/--ink/--sage/--brass-2/--alarm/--rule`,
+  Inter/Source-Serif/JetBrains-Mono, sharp corners). View = bespoke `/coordination` route.
+- Leases readable only via agent_mail MCP resource `resource://file_reservations/{slug}`
+  (session-less streamable-http, URL-encoded slug, project-not-found → []).
+- Backups were ad-hoc in `/tmp`; durable convention is `~/.garrison/snapshots/`.
+- **Baseline: zero coord regressions** — pre-coord `3fd7ab4` 6 failed/779 passed vs
+  HEAD 6 failed/830 passed; identical failing files (removed-memory-seed + gemini), no coord file fails.
+
+### Slices
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| C2-1 state-module | `lib/coord-state.mjs` buildCoordState (liveness/sessions/locks/intents/leases/heartbeat/heroVerdict); CLI refactored to consume it; `coord state --json` | mixed | (lib + cli) | C2-serial | passed (vitest coord-state 11/11 + suite 66✓ + typecheck 0; CLI-UI parity proven — `COORD-STATE-UNIFIED OK` `CLI-UI-PARITY OK`) |
+| C2-2 leases | `agentmail.fetchActiveLeases` (MCP resources/read) folded into digest + state, repo-scoped, graceful-degrade; async digest | mixed | (lib) | C2-serial | passed (leaseOverlaps + live fetch proven; digest async; suite green — `DIGEST-LEASES OK`) |
+| C2-3 agentmail-lifecycle | eager/standing default on select; stop + un-eager on deselect; restart via existing endpoint + view button; reboot semantics documented | mixed | (runner + fitting) | C2-serial | passed (coord-lifecycle 4/4 + typecheck 0 — `AGENTMAIL-LIFECYCLE OK`) |
+| C2-4 backups | durable `~/.garrison/snapshots/` pre-registration snapshots; `/tmp` migrated | automation | (fitting) | C2-serial | passed (coord-lifecycle backups tests + migration done — `BACKUPS-DURABLE OK`) |
+| C2-5 view | `/coordination` route + `CoordinationPanel` + `/api/coordination/{status,canary,release-lock}` + Sidebar link; hero verdict, planning gate, liveness, sessions, intents, leases, heartbeat; 3 guarded actions | ui | /coordination | C2-serial | passed (e2e 3/3 + healthy+degraded screenshots + field-manual design audit — `COORD-VIEW OK`) |
+| C2-6 final | global gate + parity + degraded demo + sentinels | automation | (n/a) | C2-final | passed (full suite 845✓/6 baseline + typecheck 0 + lint clean + build 0; CLI-UI parity + healthy/degraded screenshots; 2 Codex approves; globalGate `passed`) |
+
+### Acceptance (sentinels lifted from the brief)
+- One state source: CLI `coord status` + `coord state --json` + the UI `/api/coordination/status`
+  all call `buildCoordState`; parity demonstrated (`CLI-UI-PARITY OK`).
+- Honest view: hero verdict = live-and-used | idle | degraded | down | unknown; a down server,
+  a RED zero-write session, or a stale lock force degraded/down (proven in the degraded screenshot
+  + e2e). State-source-unreachable → "unknown", never stale green.
+- PTY-safe: the view's Verify-now runs the same `coord canary` (command/CLI, no model call).
+- License isolation: agent_mail stays arm's-length; leases read via its HTTP MCP, never imported.

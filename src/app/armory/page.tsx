@@ -1,22 +1,8 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { Suspense } from "react";
-import { ArmoryPanel } from "@/components/armory/ArmoryPanel";
-
+// The Armory folded into the Composition surface: Fitting discovery is now the
+// search box on /compose (it spans every Faculty). /armory redirects there so
+// old links keep working.
 export default function ArmoryPage() {
-  return (
-    <Suspense
-      fallback={
-        <main>
-          <div className="page wide">
-            <div className="head">
-              <h1>Loading Armory…</h1>
-            </div>
-          </div>
-        </main>
-      }
-    >
-      <ArmoryPanel />
-    </Suspense>
-  );
+  redirect("/compose");
 }

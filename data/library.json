@@ -15,16 +15,16 @@
     }
   },
   {
-    "id": "memory",
-    "name": "Memory fitting",
-    "repo": "local:fittings/seed/memory",
-    "localPath": "fittings/seed/memory",
-    "summary": "Within-session recall plus cross-session compiled memory persistence.",
+    "id": "basic-memory",
+    "name": "Basic Memory",
+    "repo": "local:fittings/seed/basic-memory",
+    "localPath": "fittings/seed/basic-memory",
+    "summary": "Obsidian-native, plain-markdown memory backed by Basic Memory. Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a session checkpoint on SessionEnd/PreCompact.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-memory",
+      "github_stars_url": "https://github.com/gongiskhan/garrison-basic-memory",
       "global": 4.5,
       "claude_code": 4.5
     }
@@ -219,6 +219,153 @@
       "github_stars_url": "https://github.com/gongiskhan/garrison-monitor-default",
       "global": 4.5,
       "claude_code": 4.5
+    }
+  },
+  {
+    "id": "model-router",
+    "name": "Model Router",
+    "repo": "local:fittings/seed/model-router",
+    "localPath": "fittings/seed/model-router",
+    "summary": "Orchestrator Faculty — a visible routing policy (Exceptions / Matrix / Continuations) that resolves each prompt to a role + discipline + continuation, then maps the role to a concrete runtime-target via the active Profile. Serves a Policy / Simulator view on its own port (default 7087).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-model-router",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "knowledge",
+    "name": "Knowledge",
+    "repo": "local:fittings/seed/knowledge",
+    "localPath": "fittings/seed/knowledge",
+    "summary": "Knowledge Faculty (composite) — federates memory + context projections + code graph + symbol-nav behind one contract. Owns the canonical vault, emits cross-runtime projections (CLAUDE.md/AGENTS.md/GEMINI.md), and wires the shared MCPs (CodeGraph, Serena) into every runtime session, so switching the runtime never loses memory.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-knowledge",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "improver",
+    "name": "Improver",
+    "repo": "local:fittings/seed/improver",
+    "localPath": "fittings/seed/improver",
+    "summary": "Nightly self-improvement runner — reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 7088). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-improver",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "codex-runtime",
+    "name": "Codex runtime",
+    "repo": "local:fittings/seed/codex-runtime",
+    "localPath": "fittings/seed/codex-runtime",
+    "summary": "Runtime Faculty (secondary) — drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-codex-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "gemini-runtime",
+    "name": "Gemini runtime",
+    "repo": "local:fittings/seed/gemini-runtime",
+    "localPath": "fittings/seed/gemini-runtime",
+    "summary": "Runtime Faculty (secondary) — drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-gemini-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "scheduler",
+    "name": "Scheduler",
+    "repo": "local:fittings/seed/scheduler",
+    "localPath": "fittings/seed/scheduler",
+    "summary": "Cron-style job scheduler. Machine-global jobs file (~/.garrison/scheduler-jobs.json); add/remove/list/run-now plus tick and daemon modes. Fitting setup hooks register jobs; the io.garrison.scheduler launchd agent runs the daemon.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "vault-git-sync",
+    "name": "Vault Git Sync",
+    "repo": "local:fittings/seed/vault-git-sync",
+    "localPath": "fittings/seed/vault-git-sync",
+    "summary": "Commit + push the Basic Memory Obsidian vault to git on a schedule (default nightly), so memory written by any agent syncs across machines. Pure shell; registered as a scheduler job.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "coord-beads",
+    "name": "Coordination — Beads",
+    "repo": "local:fittings/seed/coord-beads",
+    "localPath": "fittings/seed/coord-beads",
+    "summary": "Per-repo git-backed decision/intent/task graph (bd). User-scope SessionStart hook primes every claude run; quiet no-op in fresh repos.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gastownhall/beads",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "coord-agentmail",
+    "name": "Coordination — Agent Mail",
+    "repo": "local:fittings/seed/coord-agentmail",
+    "localPath": "fittings/seed/coord-agentmail",
+    "summary": "Shared local agent-coordination server (mcp_agent_mail): identities, messaging, advisory file leases. Own-port :8765, license-isolated arm’s-length process.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/Dicklesworthstone/mcp_agent_mail",
+      "global": 4.2,
+      "claude_code": 4.2
+    }
+  },
+  {
+    "id": "coord-mcp",
+    "name": "Coordination — Planning Gate",
+    "repo": "local:fittings/seed/coord-mcp",
+    "localPath": "fittings/seed/coord-mcp",
+    "summary": "Garrison-owned MIT planning-gate MCP: begin_planning/end_planning serialize planning per repo (TTL+heartbeat mutex + read-bundle) + digest/nudge hook + the coord observability CLI.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.6,
+      "claude_code": 4.6
     }
   }
 ]

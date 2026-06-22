@@ -1,0 +1,26 @@
+{
+  "slice": "C2-view (COORD-2 wave: fixes + observability view)",
+  "title": "Coordination fixes (unified state, leases, agent_mail lifecycle, durable backups) + the read-only Coordination web view",
+  "updatedAt": "2026-06-22T08:18:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run (coord suite)", "exit": 0, "summary": "coord suite 66 passed + 1 gated skip (9 files: + coord-state 11, coord-lifecycle 4)" },
+    "fullSuite": { "cmd": "npx vitest run", "exit": 0, "summary": "845 passed / 6 pre-existing-baseline failures (removed-memory-seed + gemini); zero coord failures; +15 over wave-1" },
+    "e2e": { "cmd": "npx playwright test coordination --project=desktop-chromium", "exit": 0, "summary": "3 passed (renders unified state + all sections; stale lock -> degraded verdict + Release action; Verify-now runs canary)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "summary": "0 errors" },
+    "lint": { "cmd": "npx next lint", "exit": 0, "summary": "clean" },
+    "build": { "cmd": "rm -rf .next && npm run build", "exit": 0, "summary": "14/14 static pages; /coordination + /api/coordination/{status,canary,release-lock} built" },
+    "parity": { "status": "ok", "summary": "CLI `coord state --json` and the UI `/api/coordination/status` return identical state (both call buildCoordState) — CLI-UI-PARITY OK" },
+    "honestView": { "status": "ok", "summary": "hero verdict live-and-used|idle|degraded|down|unknown; agent_mail DOWN + RED zero-write session + stale lock each force degraded (proven in the degraded screenshot + e2e); unreachable state source -> 'unknown', never stale green" },
+    "ptySafe": { "status": "ok", "summary": "Verify-now runs the same `coord canary` CLI (no model call); no claude -p / Agent-SDK in any coord path — PTY-SAFE OK" },
+    "licenseIsolation": { "status": "ok", "summary": "agent_mail leases read via its HTTP MCP (arm's-length); never imported/vendored — LICENSE-ISOLATION OK" },
+    "codexReview": { "verdict": "approve", "rounds": 1, "by": "codex", "at": "2026-06-22T08:16:00Z", "lastReport": "docs/autothing/slices/C2-view/codex-review-r1.json", "overrides": [], "note": "two focused reviews: C2-state (buildCoordState/leases/digest) approve + C2-view (routes/panel/runner-wiring) approve" },
+    "designAudit": { "verdict": "clean", "by": ["vision on screenshots"], "notes": "matches field-manual tokens (paper/ink/sage/brass/alarm/rule, Source-Serif heading, mono uppercase labels, sharp corners, white panels + 1px rule); consistent with Vault/Quarters idioms" },
+    "video": { "status": "verified", "kind": "screenshots", "verifiedAt": "2026-06-22T08:09:00Z", "flagged": false, "healthy": "docs/autothing/evidence/coord/view-healthy.png", "degraded": "docs/autothing/evidence/coord/view-degraded.png", "note": "healthy (green LIVE & IN USE) + degraded (amber DEGRADED: agent_mail DOWN + RED session + STALE lock, with Restart/Release/Verify actions) — both vision-verified" }
+  },
+  "blockers": [],
+  "sentinels": ["COORD-STATE-UNIFIED OK", "DIGEST-LEASES OK", "AGENTMAIL-LIFECYCLE OK", "BACKUPS-DURABLE OK", "CLI-UI-PARITY OK", "COORD-VIEW OK", "PTY-SAFE OK", "LICENSE-ISOLATION OK"]
+}

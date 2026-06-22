@@ -273,10 +273,15 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
   }
   const composition = manifestToComposition(id, manifest);
   const entries = await selectedLibraryEntries(composition.selections);
+  // Self-heal selections grouped under a stale faculty key (e.g. fittings
+  // saved under `sessions` before the 2026-06-18 split). The UI then always
+  // sees the current grouping, and the next save persists it.
+  const selections = migrateSelectionsByFaculty(composition.selections, entries);
   const { issues, graph } = computeCapabilityResolution(entries);
   return {
     ...composition,
-    derivedTasks: deriveTasks(composition.selections, entries),
+    selections,
+    derivedTasks: deriveTasks(selections, entries),
     capabilityIssues: issues,
     capabilityGraph: graph
   };
@@ -346,6 +351,31 @@ function normalizeSelections(selections: FittingSelectionMap): FittingSelectionM
     }));
   }
   return normalized;
+}
+
+/**
+ * Re-bucket each selected fitting under its CURRENT library faculty (by id),
+ * preserving config. Self-heals compositions saved before a faculty move — e.g.
+ * the 2026-06-18 sessions -> sessions/runtimes/surfaces split: a fitting left
+ * under a stale role key migrates to its real role on read, and the next save
+ * persists the correction. Unknown ids keep their stored key so validation can
+ * still surface them. Returns the original map unchanged when nothing moved.
+ */
+export function migrateSelectionsByFaculty(
+  selections: FittingSelectionMap,
+  entries: LibraryEntry[]
+): FittingSelectionMap {
+  const facultyById = new Map(entries.map((entry) => [entry.id, entry.faculty]));
+  const migrated: FittingSelectionMap = {};
+  let moved = false;
+  for (const [key, items] of Object.entries(selections)) {
+    for (const item of items ?? []) {
+      const target = (facultyById.get(item.id) ?? key) as FacultyId;
+      if (target !== key) moved = true;
+      (migrated[target] ??= []).push(item);
+    }
+  }
+  return moved ? migrated : selections;
 }
 
 function deriveTasks(

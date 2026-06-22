@@ -1,0 +1,22 @@
+{
+  "slice": "CO2-agentmail",
+  "title": "coord-agentmail own-port Fitting — arm's-length agent_mail server + user-scope MCP registration (license-isolated)",
+  "updatedAt": "2026-06-22T00:05:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": { "cmd": "GARRISON_LIVE_AGENTMAIL=1 npx vitest run tests/coord-agentmail.test.ts", "exit": 0, "summary": "7 passed (register add/remove/preserve/clobber-abort + isolation-guard-before-write + LIVE supervisor start/status/MCP/clean-stop)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "summary": "0 errors" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/coord-agentmail", "exit": 0, "summary": "PASS all four checks" },
+    "roundtrip": { "cmd": "live: start.mjs -> status file + http MCP reg + /mail 200 -> SIGTERM -> clean (no orphan, status removed)", "exit": 0, "summary": "server up ~5s, MCP registered http /mcp, clean stop, no orphaned process" },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex", "at": "2026-06-22T00:04:00Z", "lastReport": "docs/autothing/slices/CO2-agentmail/codex-review-r2.json", "overrides": [], "note": "r1 found 2 HIGH (guard-after-clone, orphaned-child/truncated-cleanup) -> fixed+tested; r2 approve" },
+    "codexPwTest": { "result": "n/a", "note": "backend/own-port server slice — correctness gate is the committed vitest suite incl. the live supervisor round-trip" },
+    "designAudit": { "verdict": "n/a", "note": "no Garrison UI surface (agent_mail's own /mail UI is upstream)" },
+    "licenseIsolation": { "status": "ok", "summary": "agent_mail cloned to ~/.garrison/external (outside MIT tree), invoked arm's-length, never imported/vendored, guard-before-write, kept out of Codex review scope, not wired to Ekoa" },
+    "video": { "status": "verified", "kind": "asciinema", "verifiedAt": "2026-06-22T00:05:00Z", "flagged": false, "cast": "docs/autothing/evidence/coord/co2-agentmail.cast", "gif": "docs/autothing/evidence/coord/co2-agentmail.gif", "note": "asciinema; demo confirmed to print AGENTMAIL-FITTING OK / LICENSE-ISOLATION OK" }
+  },
+  "blockers": [],
+  "sentinels": ["AGENTMAIL-FITTING OK", "LICENSE-ISOLATION OK"]
+}

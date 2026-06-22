@@ -1,0 +1,21 @@
+{
+  "slice": "CO1-beads",
+  "title": "coord-beads Fitting — Beads CLI + user-scope SessionStart hook (fail-open, clean removal)",
+  "updatedAt": "2026-06-21T23:59:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/coord-beads.test.ts tests/coord-teardown.test.ts", "exit": 0, "summary": "20 passed (install/idempotent/de-dup/clobber-abort/fail-open-wrapper/teardown-retry)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "summary": "0 errors" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/coord-beads", "exit": 0, "summary": "PASS all four checks (architecture/security/prompt-injection/quality)" },
+    "roundtrip": { "cmd": "sandbox setup.sh -> verify.sh(ok) -> uninstall(clean {}) + fresh-repo fail-open", "exit": 0, "summary": "install->verify ok->clean removal (no orphan); bd prime empty-context exit 0 in fresh repo" },
+    "codexReview": { "verdict": "approve", "rounds": 3, "by": "codex", "at": "2026-06-21T23:58:00Z", "lastReport": "docs/autothing/slices/CO1-beads/codex-review-r3.json", "overrides": [], "note": "r1 found 4 (deselect-wiring/de-dup-breadth/clobber/fail-open-timeout) -> all fixed+tested; r2 found 1 (ledger-advanced-on-abort) -> fixed+tested; r3 approve" },
+    "codexPwTest": { "result": "n/a", "note": "backend/CLI slice — no UI to drive; correctness gate is the committed vitest suite + sandbox round-trip" },
+    "designAudit": { "verdict": "n/a", "note": "no UI surface" },
+    "video": { "status": "verified", "kind": "asciinema", "verifiedAt": "2026-06-21T23:30:00Z", "flagged": false, "cast": "docs/autothing/evidence/coord/co1-beads.cast", "gif": "docs/autothing/evidence/coord/co1-beads.gif", "note": "asciinema capture; demo confirmed to run end-to-end and print BEADS-FITTING OK" }
+  },
+  "blockers": [],
+  "sentinels": ["BEADS-FITTING OK"]
+}

@@ -45,6 +45,13 @@ export function openRichStream(handle, res, opts = {}) {
   res.setHeader("x-accel-buffering", "no");
   res.flushHeaders?.();
 
+  // Expose a push-emitter so a caller can INJECT events (e.g. an agent-sdk turn's
+  // reply, which runs off the PTY screen). The client renders `assistant {text}`
+  // the same whether it came from the screen poll or an injection. Non-breaking:
+  // callers that don't pass onEmit are unaffected.
+  const emit = (event, data) => sse(res, event, data);
+  opts.onEmit?.(emit);
+
   let lastAssistant = null;
   let lastStatusKey = null;
   let lastBusy = null;

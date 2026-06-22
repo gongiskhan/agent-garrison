@@ -7,7 +7,7 @@ import { useAppShell } from "@/components/chrome/AppShell";
 import { FittingView } from "@/components/fitting-views/FittingView";
 import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
-import { faculties } from "@/lib/faculties";
+import { faculties, facultyRoleCopy } from "@/lib/faculties";
 import type {
   Composition,
   ConfigSchemaField,
@@ -17,33 +17,6 @@ import type {
   LibraryEntry,
   SelectedFitting
 } from "@/lib/types";
-
-const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> = {
-  orchestrator: {
-    role: "Governs the operative's behavior — projected into ~/.claude as a managed prompt primitive.",
-    fit: "The capstone role. It coordinates the other roles, owns global config, and provides the behavioral spine."
-  },
-  channels: {
-    role: "Connects user-facing message surfaces (Slack, web channel, voice).",
-    fit: "Garrison-side runtime transport. The Operative is reached through these channels; only a garrison-control MCP entry projects into ~/.claude."
-  },
-  gateway: {
-    role: "The Claude Code execution path (stream-JSON).",
-    fit: "Garrison-side runtime. Hosts the sessions that authoring and channel traffic run through."
-  },
-  memory: {
-    role: "Produces the Context document and owns recall.",
-    fit: "Unified with the local memory-compiler — one instance produces the Context (CLAUDE.md) surfaced in Quarters."
-  },
-  observability: {
-    role: "Reports health, errors, and runtime state; surfaces the Logs record.",
-    fit: "Collection is Garrison-side; an own-port Monitor Fitting surfaces it read-only."
-  },
-  sessions: {
-    role: "Session records plus the own-port runtime surfaces.",
-    fit: "Holds the own-port dev surfaces (dev-env, screen-share, browser, outposts, artifact store), each detected via the own_port flag. Dev Env consolidates terminals, worktrees, and session status into one tabbed surface."
-  }
-};
 
 export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
   const {
@@ -265,10 +238,10 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
             </div>
             <p style={{ color: "var(--mute)", fontSize: 13, margin: "0 0 14px" }}>
               The registry doesn&apos;t have an entry for {faculty.name} in v1. Add one through{" "}
-              <code>CONTRIBUTING.md</code> or check the Armory for community submissions.
+              <code>CONTRIBUTING.md</code>, or search the Composition for Fittings in other Faculties.
             </p>
-            <Link className="btn ghost small" href="/armory">
-              Open Armory →
+            <Link className="btn ghost small" href="/compose">
+              Search all Fittings →
             </Link>
           </div>
         ) : (

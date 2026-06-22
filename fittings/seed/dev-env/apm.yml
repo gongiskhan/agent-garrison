@@ -65,14 +65,19 @@ x-garrison:
                                            tmux-backed / crash-persistent)
       GET    /sessions                   - { sessions: DevEnvSession[] }
       POST   /sessions                   - { path, title? } start a session
-                                           (record + both PTYs) for a project
+                                           (record + claude PTY) for a project
                                            directory; reuses an existing
-                                           record for the same cwd
+                                           record for the same cwd. No default
+                                           shell — terminals are opened on demand
       POST   /sessions/:id/close         - kill PTYs + remove the record;
                                            directory and worktree stay
-      POST   /sessions/:id/ptys          - { role: "claude"|"shell", resume? }
-                                           ensure a PTY for the session
-      DELETE /sessions/:id/ptys/:role    - kill one PTY (claude|shell)
+      POST   /sessions/:id/ptys          - { role, resume? } ensure/restart a
+                                           SPECIFIC pty: "claude" or an existing
+                                           shell terminal role ("shell",
+                                           "shell-2", …)
+      POST   /sessions/:id/terminals     - open a NEW shell terminal (allocates
+                                           the next free role); 201 { role, pty }
+      DELETE /sessions/:id/ptys/:role    - kill one PTY (claude | shell | shell-N)
       POST   /sessions/:id/instruct      - { text, delayMs? } type text into
                                            the running Claude PTY, pause,
                                            then press Enter. 409 when no
@@ -100,11 +105,17 @@ x-garrison:
                                            killing their PTYs
       POST   /worktrees                  - { repoPath, branch, baseBranch?,
                                            title? } create worktree + session
-                                           + both PTYs; 201 with the session
+                                           + claude PTY; 201 with the session
       GET    /worktrees?repoPath=<path>  - list worktrees (gateway-compat)
       DELETE /worktrees/:id              - alias of DELETE /sessions/:id
       GET    /projects                   - git repos under the dev root
       GET    /dev-root | PATCH /dev-root - read/set ~/.garrison/dev-root
+      GET    /settings/excludes          - { patterns, defaults } tab-monitoring
+                                           exclusions (system/internal cwds kept
+                                           out of the tab strip)
+      PUT    /settings/excludes          - { patterns } replace the exclusion
+                                           list (persisted to
+                                           ~/.garrison/dev-env/tab-excludes.json)
       POST   /_hook?event=<name>         - Claude Code hook payload
                                            (session_id, cwd, ...) forwarded
                                            verbatim from stdin. Tracked:
@@ -117,9 +128,11 @@ x-garrison:
     DevEnvSession shape:
       { id, branch, worktreePath, projectName, projectPath, lastStatus,
         lastStatusAt, claudeSessionId, title, source, dirty, isWorktree,
-        external, claudePty, shellPty }
-    PTY summaries carry { id?, state: "running"|"exited"|"persisted"|"none",
-    exitCode?, claudeAlive? }. `external` means a Claude session detected via
+        external, claudePty, terminals }
+    `terminals` is the session's shell deck: [{ id, role, index, state,
+    exitCode?, createdAt? }] ordered by creation. PTY summaries carry
+    { id?, state: "running"|"exited"|"persisted"|"none", exitCode?,
+    claudeAlive? }. `external` means a Claude session detected via
     hooks with no Claude PTY here (started outside Dev Env); take it over
     with POST /sessions/:id/ptys { role: "claude", resume: true }.
     `claudeSessionId` is the Claude Code session id captured from hook
@@ -127,7 +140,7 @@ x-garrison:
     stale.
 
     WebSocket protocol on /io (per-PTY, id = "<sessionId>-claude" or
-    "<sessionId>-shell"):
+    "<sessionId>-shell" / "<sessionId>-shell-N"):
       client -> server JSON {type:"init", sessionId: <ptyId>}
       server -> client JSON {type:"init_ack", tmux} or {type:"error", message}
                             (`tmux:true` => the pane is tmux-backed; the client

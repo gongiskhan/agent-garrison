@@ -123,11 +123,13 @@ export const garrisonMetadataSchema = z.object({
 // Exception: data-sources folds into memory (trello-data-source revived 2026-06-10).
 const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
   terminal: "sessions",
-  "screen-share": "sessions",
+  // screen-share / browser / outposts split out of sessions into the new
+  // `surfaces` role (2026-06-18) — auxiliary own-port live viewers.
+  "screen-share": "surfaces",
   "worktree-management": "sessions",
   "session-view": "sessions",
-  outposts: "sessions",
-  browser: "sessions",
+  outposts: "surfaces",
+  browser: "surfaces",
   "artifact-store": "sessions",
   "web-channel": "channels",
   voice: "channels",

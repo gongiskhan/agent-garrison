@@ -130,43 +130,6 @@ nav.tabs .item .ct {
 }
 nav.tabs .item.active .ct { color: var(--brass-2); }
 
-.nested { padding-left: 14px; margin: 2px 0 6px; }
-.nested .leaf {
-  display: grid;
-  grid-template-columns: 14px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  padding: 4.5px 10px;
-  font-size: 12.5px;
-  color: var(--ink-mute);
-  cursor: pointer;
-  text-decoration: none;
-}
-.nested .leaf:hover { color: var(--ink); }
-.nested .leaf.active { background: var(--paper-2); color: var(--ink); }
-.nested .leaf .glyph {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  font-size: 11px;
-  line-height: 1;
-  text-align: center;
-}
-.nested .leaf.empty .glyph { color: var(--mute); }
-.nested .leaf.verified .glyph { color: var(--sage); }
-.nested .leaf.alarm .glyph { color: var(--alarm); }
-.nested .leaf .badge {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--mute);
-}
-.group-h {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--mute);
-  padding: 8px 14px 4px;
-}
-
 .side-foot {
   margin-top: auto;
   padding: 12px 10px 0;
@@ -228,6 +191,35 @@ main {
 }
 @media (max-width: 720px) {
   .hero { grid-template-columns: 1fr; }
+  .hero > * { justify-self: start; }
+}
+
+/* Dashboard (home) — wider canvas + responsive card grids so the surface
+   fills desktop widths and reflows down to phone instead of staying on a
+   fixed two-column rail. */
+.page.dash { max-width: 1480px; }
+
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--rule);
+  border-top: 1px solid var(--rule);
+}
+.dash-stats > * { background: white; }
+@media (max-width: 880px) {
+  .dash-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 420px) {
+  .dash-stats { grid-template-columns: 1fr; }
+}
+
+.dash-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 264px), 1fr));
+  gap: 18px;
+  align-items: start;
+  margin-top: 22px;
 }
 
 .head { padding: 8px 0 24px; }
@@ -325,6 +317,18 @@ main {
   text-decoration: underline;
   cursor: pointer;
   font-size: 12px;
+}
+/* button that reads as an inline link (used where an action is a handler,
+   not a navigation) — matches .banner .actions a. */
+.linklike {
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
 }
 
 .lab {

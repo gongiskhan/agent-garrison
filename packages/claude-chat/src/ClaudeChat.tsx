@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
+import {
+  getChatMode,
+  resolvedChatScheme,
+  setChatMode,
+  subscribeChatTheme,
+  type ChatThemeMode,
+} from "./chat-theme";
+import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -9,6 +17,50 @@ interface Turn {
   user: string;
   assistant: string;
   streaming: boolean;
+}
+
+// ── Toolbar feature flags (all default OFF so web-channel is unaffected) ──
+// dev-env opts in via <ClaudeChat features={{ model, effort, theme, voice }} />.
+export interface ChatFeatures {
+  /** Model selector (Opus/Sonnet/Haiku) — switches the live session via /model. */
+  model?: boolean;
+  /** Effort/thinking-level selector — prepends a thinking directive to the next message. */
+  effort?: boolean;
+  /** Light/dark/system theme toggle for the chat surface. */
+  theme?: boolean;
+  /** Read-aloud + push-to-talk via the host's same-origin /voice proxy. */
+  voice?: boolean;
+}
+
+// Model picks. Selecting one submits `/model <id>` into the Claude Code TUI,
+// which drives its model picker live; the status line then reflects the change
+// through the existing `status` event (no extra wiring). Ids track the current
+// Claude Code model aliases; the short aliases also work if an id is rejected.
+const MODELS: { id: string; label: string }[] = [
+  { id: "claude-opus-4-8", label: "Opus" },
+  { id: "claude-sonnet-4-6", label: "Sonnet" },
+  { id: "claude-haiku-4-5", label: "Haiku" },
+];
+
+// Effort / thinking levels. MECHANISM: Claude Code escalates its thinking budget
+// on trigger phrases in the prompt ("think" < "think hard" < "ultrathink"). We
+// prepend the chosen directive to the user's next message at send time. "Normal"
+// prepends nothing. The choice persists in localStorage and shows active; it is
+// a per-message modifier, not a session setting, so it survives reconnects.
+const EFFORTS: { id: string; label: string; directive: string }[] = [
+  { id: "normal", label: "Normal", directive: "" },
+  { id: "think", label: "Think", directive: "think" },
+  { id: "think-hard", label: "Think hard", directive: "think hard" },
+  { id: "ultrathink", label: "Ultrathink", directive: "ultrathink" },
+];
+const LS_EFFORT = "garrison.chat.effort";
+
+function readEffort(): string {
+  try {
+    const v = localStorage.getItem(LS_EFFORT);
+    if (v && EFFORTS.some((e) => e.id === v)) return v;
+  } catch {}
+  return "normal";
 }
 
 const MODE_LABELS: Record<PermissionMode, string> = {
@@ -23,15 +75,61 @@ const SWITCHABLE: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassP
 let uid = 0;
 const nextId = () => `t${Date.now()}_${uid++}`;
 
+// SVG icons for the theme toggle (no emoji, per house rule). Mirrors the
+// dev-env terminal toggle's sun / moon / monitor set.
+const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }[] = [
+  {
+    mode: "light",
+    label: "Light",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+          <line x1="8" y1="1" x2="8" y2="2.8" /><line x1="8" y1="13.2" x2="8" y2="15" />
+          <line x1="1" y1="8" x2="2.8" y2="8" /><line x1="13.2" y1="8" x2="15" y2="8" />
+          <line x1="3.1" y1="3.1" x2="4.3" y2="4.3" /><line x1="11.7" y1="11.7" x2="12.9" y2="12.9" />
+          <line x1="12.9" y1="3.1" x2="11.7" y2="4.3" /><line x1="4.3" y1="11.7" x2="3.1" y2="12.9" />
+        </g>
+      </svg>
+    ),
+  },
+  {
+    mode: "dark",
+    label: "Dark",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    mode: "system",
+    label: "System",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.5" y="2.5" width="13" height="8.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <line x1="5.5" y1="13.5" x2="10.5" y2="13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+];
+
 export interface ClaudeChatProps {
   transport: ChatTransport;
   /** Optional slot rendered at the left of the composer (e.g. voice controls). */
   composerAdornment?: React.ReactNode;
   /** Optional title shown in the header. */
   title?: string;
+  /**
+   * Opt-in toolbar features. ALL DEFAULT OFF — omitting this prop (as
+   * web-channel does) yields exactly the previous chat. dev-env passes
+   * { model, effort, theme, voice }.
+   */
+  features?: ChatFeatures;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features }: ClaudeChatProps) {
+  const feat = features ?? {};
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
   const [busy, setBusy] = useState(false);
@@ -44,6 +142,64 @@ export function ClaudeChat({ transport, composerAdornment, title }: ClaudeChatPr
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Theme (opt-in). Mirrors the dev-env terminal toggle: shared LS key, so
+  // flipping either re-themes the other. When the feature is off the root
+  // carries no data-theme attribute and the CSS falls back to its fixed dark
+  // look (web-channel unchanged). ──
+  const themeOn = Boolean(feat.theme);
+  const [themeMode, setThemeMode] = useState<ChatThemeMode>(() => getChatMode());
+  const [scheme, setScheme] = useState<"light" | "dark">(() => resolvedChatScheme());
+  useEffect(() => {
+    if (!themeOn) return;
+    const off = subscribeChatTheme(() => {
+      setThemeMode(getChatMode());
+      setScheme(resolvedChatScheme());
+    });
+    return off;
+  }, [themeOn]);
+
+  // ── Effort / thinking level (opt-in). Persisted; prepended at send time. ──
+  const effortOn = Boolean(feat.effort);
+  const [effort, setEffort] = useState<string>(() => readEffort());
+  const effortRef = useRef(effort);
+  effortRef.current = effort;
+  const pickEffort = useCallback((id: string) => {
+    setEffort(id);
+    try { localStorage.setItem(LS_EFFORT, id); } catch {}
+  }, []);
+
+  // ── Voice (opt-in). Discovers availability via the host's /voice/health
+  // proxy; gates all controls on it. ──
+  const voiceOn = Boolean(feat.voice);
+  const voiceClient = useMemo<VoiceClient | null>(
+    () => (voiceOn ? createVoiceClient(transport.base ?? "") : null),
+    [voiceOn, transport]
+  );
+  const [voiceHealth, setVoiceHealth] = useState<VoiceHealth>({ available: false });
+  const [readAloud, setReadAloud] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recBusyRef = useRef(false);
+  const voiceMountedRef = useRef(true);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastSpokenRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!voiceOn || !voiceClient) return;
+    let cancelled = false;
+    const probe = () => voiceClient.health().then((h) => { if (!cancelled) setVoiceHealth(h); }).catch(() => {});
+    void probe();
+    const id = window.setInterval(probe, 15000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [voiceOn, voiceClient]);
+
+  const voiceUsable = voiceOn && voiceHealth.available && voiceHealth.keyConfigured !== false;
+
+  // ── Copy-last-response ──
+  const [copied, setCopied] = useState(false);
 
   // Reflect the latest assistant text into the most recent turn's assistant slot.
   const applyAssistant = useCallback((text: string) => {
@@ -132,14 +288,157 @@ export function ClaudeChat({ transport, composerAdornment, title }: ClaudeChatPr
     (text: string) => {
       const t = text.trim();
       if (!t) return;
+      // Effort directive (Think / Think hard / Ultrathink) is prepended to the
+      // wire text only — the transcript shows what the user actually typed.
+      const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
+      const wire = dir ? `${dir}\n\n${t}` : t;
       setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true }]);
       setBusy(true);
       pinnedRef.current = true;
-      transport.sendMessage(t).catch(() => {});
+      transport.sendMessage(wire).catch(() => {});
       setInput("");
+    },
+    [transport, effortOn]
+  );
+
+  // Submit a slash command line into the live TUI WITHOUT a transcript turn.
+  // Used for /model <id>, /compact, /clear. Falls back to sendMessage when the
+  // transport predates sendCommand.
+  const runCommand = useCallback(
+    (line: string) => {
+      const fn = transport.sendCommand ?? transport.sendMessage;
+      fn.call(transport, line).catch(() => {});
     },
     [transport]
   );
+
+  const switchModel = useCallback(
+    (id: string) => {
+      // Optimistically reflect in the status line until the TUI repaints it.
+      setStatus((s) => ({ ...s, model: id }));
+      runCommand(`/model ${id}`);
+    },
+    [runCommand]
+  );
+
+  // Copy the most recent assistant response to the clipboard.
+  const copyLast = useCallback(async () => {
+    const last = [...turns].reverse().find((t) => t.assistant.trim());
+    if (!last) return;
+    try {
+      await navigator.clipboard?.writeText(last.assistant);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }, [turns]);
+
+  // ── Voice: speak a single message's text via the /voice/tts proxy. ──
+  const speak = useCallback(
+    async (text: string) => {
+      if (!voiceClient || !text.trim()) return;
+      try {
+        setSpeaking(true);
+        const blob = await voiceClient.tts(text);
+        const urlObj = URL.createObjectURL(blob);
+        if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+        const audio = new Audio(urlObj);
+        audioRef.current = audio;
+        audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+        audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+        await audio.play();
+      } catch {
+        setSpeaking(false);
+      }
+    },
+    [voiceClient]
+  );
+
+  const stopSpeaking = useCallback(() => {
+    if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+    setSpeaking(false);
+  }, []);
+
+  // Auto-read each new COMPLETED assistant turn when read-aloud is on.
+  const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  useEffect(() => {
+    if (!readAloud || !voiceUsable || !latestAssistant) return;
+    if (latestAssistant.streaming) return;
+    const text = latestAssistant.assistant.trim();
+    if (!text || text === lastSpokenRef.current) return;
+    lastSpokenRef.current = text;
+    void speak(text);
+  }, [readAloud, voiceUsable, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
+
+  // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
+  // and drop the transcript into the composer for review/edit. ──
+  const startRecording = useCallback(async () => {
+    // recBusyRef is a SYNCHRONOUS guard set before the await — the `recording`
+    // state flips only after getUserMedia resolves, so two rapid clicks would
+    // otherwise both pass and the second would orphan the first recorder/stream
+    // (leaking a live mic). The ref stays set through the active recording and
+    // clears on stop / bail / error.
+    if (!voiceClient || recBusyRef.current) return;
+    recBusyRef.current = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!voiceMountedRef.current) {
+        // Unmounted while the permission prompt was pending — release the mic
+        // and bail before constructing/starting the recorder.
+        stream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+        recBusyRef.current = false;
+        return;
+      }
+      streamRef.current = stream;
+      const rec = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        recBusyRef.current = false;
+        if (!voiceMountedRef.current) return; // unmounted — don't touch state/network
+        setRecording(false);
+        const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+        if (!blob.size) return;
+        try {
+          const transcript = await voiceClient.stt(blob);
+          if (transcript) {
+            setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+            taRef.current?.focus();
+          }
+        } catch {
+          /* stt failed — leave composer untouched */
+        }
+      };
+      recorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch {
+      recBusyRef.current = false;
+      setRecording(false);
+    }
+  }, [voiceClient]);
+
+  const stopRecording = useCallback(() => {
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
+  }, []);
+
+  // Release the microphone if the chat pane unmounts mid-recording (dev-env can
+  // swap ChatPane for the Terminal view, or switch sessions, while recording).
+  // Without this the MediaRecorder + mic tracks would keep the mic open.
+  useEffect(() => {
+    return () => {
+      voiceMountedRef.current = false;
+      recBusyRef.current = false;
+      const rec = recorderRef.current;
+      if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
+      streamRef.current?.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      streamRef.current = null;
+    };
+  }, []);
 
   const pickCommand = useCallback(
     (c: SlashCommand) => {
@@ -203,13 +502,30 @@ export function ClaudeChat({ transport, composerAdornment, title }: ClaudeChatPr
   );
 
   return (
-    <div className="cc-root">
+    <div className="cc-root" data-theme={themeOn ? scheme : undefined}>
       <header className="cc-header">
         <span className="cc-title">{title ?? "Claude"}</span>
         <span className={`cc-conn cc-conn-${conn}`} title={`connection: ${conn}`} />
         <span className="cc-spacer" />
-        {status.model && <span className="cc-model">{status.model}</span>}
+        {status.model && <span className="cc-model" title="Active model">{status.model}</span>}
         {status.contextPct != null && <span className="cc-ctx">{status.contextPct}% ctx</span>}
+        {themeOn && (
+          <div className="cc-theme" role="group" aria-label="Chat theme">
+            {THEME_ICONS.map((opt) => (
+              <button
+                key={opt.mode}
+                type="button"
+                className={themeMode === opt.mode ? "cc-theme-active" : ""}
+                aria-pressed={themeMode === opt.mode}
+                title={`${opt.label} theme`}
+                aria-label={`${opt.label} theme`}
+                onClick={() => { setChatMode(opt.mode); setThemeMode(opt.mode); setScheme(resolvedChatScheme()); }}
+              >
+                {opt.icon}
+              </button>
+            ))}
+          </div>
+        )}
         <button className="cc-rawtoggle" onClick={() => setShowRaw((v) => !v)} title="Show raw terminal">
           {showRaw ? "Hide raw" : "Raw"}
         </button>
@@ -224,6 +540,20 @@ export function ClaudeChat({ transport, composerAdornment, title }: ClaudeChatPr
               <div className="cc-assistant">
                 <div className="cc-md" dangerouslySetInnerHTML={{ __html: marked.parse(t.assistant || "") as string }} />
                 {t.streaming && !t.assistant && <span className="cc-typing">…</span>}
+                {feat.voice && voiceUsable && t.assistant.trim() && !t.streaming && (
+                  <button
+                    type="button"
+                    className="cc-speak"
+                    title="Read this response aloud"
+                    aria-label="Read this response aloud"
+                    onClick={() => void speak(t.assistant)}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+                      <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -251,6 +581,90 @@ export function ClaudeChat({ transport, composerAdornment, title }: ClaudeChatPr
         ))}
       </div>
 
+      {(feat.model || feat.effort || feat.voice) && (
+        <div className="cc-toolbar">
+          {feat.model && (
+            <div className="cc-tool-group" role="group" aria-label="Model">
+              <span className="cc-tool-label">Model</span>
+              {MODELS.map((m) => {
+                const active = (status.model ?? "").toLowerCase().includes(m.label.toLowerCase());
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`cc-chip ${active ? "cc-chip-active" : ""}`}
+                    title={`Switch to ${m.label} (${m.id})`}
+                    onClick={() => switchModel(m.id)}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {feat.effort && (
+            <div className="cc-tool-group" role="group" aria-label="Thinking effort">
+              <span className="cc-tool-label">Effort</span>
+              {EFFORTS.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  className={`cc-chip ${effort === e.id ? "cc-chip-active" : ""}`}
+                  title={e.directive ? `Prepend "${e.directive}" to your next message` : "No extra thinking directive"}
+                  onClick={() => pickEffort(e.id)}
+                >
+                  {e.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="cc-tool-spacer" />
+          <button
+            type="button"
+            className="cc-chip"
+            title="Compact the conversation (frees context)"
+            onClick={() => runCommand("/compact")}
+          >
+            Compact
+          </button>
+          <button
+            type="button"
+            className="cc-chip"
+            title="Copy the last response"
+            disabled={!turns.some((t) => t.assistant.trim())}
+            onClick={() => void copyLast()}
+          >
+            {copied ? "Copied" : "Copy last"}
+          </button>
+          {feat.voice && (
+            <button
+              type="button"
+              className={`cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking ? "cc-chip-pulse" : ""}`}
+              disabled={!voiceUsable}
+              aria-pressed={readAloud}
+              title={
+                voiceUsable
+                  ? speaking ? "Speaking — click to stop auto-read" : "Read each new response aloud"
+                  : "Voice fitting not running"
+              }
+              onClick={() => {
+                const next = !readAloud;
+                setReadAloud(next);
+                if (!next) stopSpeaking();
+              }}
+            >
+              <svg className="cc-ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+                {voiceUsable && (
+                  <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                )}
+              </svg>
+              Read aloud
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="cc-composer">
         {slashQuery !== null && filtered.length > 0 && (
           <div className="cc-slashmenu">
@@ -269,6 +683,29 @@ export function ClaudeChat({ transport, composerAdornment, title }: ClaudeChatPr
         )}
         <div className="cc-composerrow">
           {composerAdornment}
+          {feat.voice && (
+            <button
+              type="button"
+              className={`cc-mic ${recording ? "cc-mic-rec" : ""}`}
+              disabled={!voiceUsable}
+              aria-pressed={recording}
+              title={
+                voiceUsable
+                  ? recording ? "Stop recording and transcribe" : "Talk — record then transcribe into the composer"
+                  : "Voice fitting not running"
+              }
+              onClick={() => (recording ? stopRecording() : void startRecording())}
+            >
+              {recording ? (
+                <span className="cc-mic-dot" aria-hidden="true" />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="5.5" y="1.5" width="5" height="8" rx="2.5" fill="currentColor" />
+                  <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
+          )}
           <textarea
             ref={taRef}
             className="cc-input"

@@ -58,7 +58,9 @@ export function tmuxSessionName(ptyId) {
 export function sessionIdRoleFromName(name) {
   if (typeof name !== "string" || !name.startsWith(SESSION_PREFIX)) return null;
   const ptyId = name.slice(SESSION_PREFIX.length);
-  const m = ptyId.match(/^(.+)-(claude|shell)$/);
+  // Roles: `claude`, the legacy first shell `shell`, and the indexed shells
+  // `shell-2`, `shell-3`, … (multiple terminals per session).
+  const m = ptyId.match(/^(.+)-(claude|shell(?:-\d+)?)$/);
   if (!m) return null;
   return { sessionId: m[1], role: m[2], ptyId };
 }
@@ -109,6 +111,25 @@ export function listGarrisonSessions() {
     return out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith(SESSION_PREFIX));
   } catch {
     return []; // no server / no sessions / tmux gone
+  }
+}
+
+// The visible content of a session's active pane as plain (ANSI-stripped)
+// lines, or null if it can't be read. This is the live screen — independent of
+// whether this process still holds an attach-client record — so it is the
+// authoritative source for "is claude processing a turn right now" even after
+// an attach desync. Synchronous (like has-session / list-sessions) so the
+// sync /sessions assembly can consult it without going async.
+export function tmuxCapturePane(name) {
+  try {
+    const out = execFileSync(
+      "tmux",
+      args(["capture-pane", "-p", "-t", name]),
+      { timeout: 2000, encoding: "utf8", maxBuffer: 1024 * 1024 }
+    );
+    return out.split("\n");
+  } catch {
+    return null; // no server / session gone / unreadable
   }
 }
 

@@ -53,7 +53,19 @@ const CLAUDE_ALIVE_GRACE_MS = 3000;
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.resolve(HERE, "..", "prompts", "browser-pane.md");
 
+// `claude` is the agent PTY (gets a headless mirror + liveness checks). Every
+// other role is a plain shell terminal: the legacy first one is `shell` and
+// additional terminals are `shell-2`, `shell-3`, … — a session can hold any
+// number of them, each a leaf in the UI's tiling deck.
 export const PTY_ROLES = ["claude", "shell"];
+
+// Numeric index of a shell role (`shell` → 1, `shell-7` → 7). 0 for claude /
+// anything unparseable. Drives next-free allocation and stable ordering.
+function shellRoleIndex(role) {
+  if (role === "shell") return 1;
+  const m = /^shell-(\d+)$/.exec(role);
+  return m ? Number(m[1]) : 0;
+}
 
 const ptys = new Map(); // ptyId -> record
 const parked = new Map(); // ptyId -> persisted claude envelope state (never spawned)
@@ -84,11 +96,64 @@ export function ptyIdFor(sessionId, role) {
   return `${sessionId}-${role}`;
 }
 
+// Pick the next free shell role for a session — the smallest unused index so a
+// closed terminal's slot is reused before growing. `shell` (index 1) first,
+// then `shell-2`, `shell-3`, … Considers both live and parked records.
+export function allocateTerminalRole(sessionId) {
+  const used = new Set();
+  for (const rec of ptys.values()) {
+    if (rec.sessionId === sessionId && rec.role !== "claude") used.add(shellRoleIndex(rec.role));
+  }
+  for (const id of parked.keys()) {
+    const m = /^(.+)-(shell(?:-\d+)?)$/.exec(id);
+    if (m && m[1] === sessionId) used.add(shellRoleIndex(m[2]));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return n === 1 ? "shell" : `shell-${n}`;
+}
+
+// Summaries of every shell terminal (running or exited) for a session, ordered
+// by creation so the UI deck appends newest last. Claude is reported
+// separately via ptySummary(id, "claude").
+export function listSessionTerminals(sessionId) {
+  const out = [];
+  for (const rec of ptys.values()) {
+    if (rec.sessionId !== sessionId || rec.role === "claude") continue;
+    out.push({
+      id: rec.id,
+      role: rec.role,
+      index: shellRoleIndex(rec.role),
+      state: rec.state,
+      exitCode: rec.exitCode,
+      createdAt: rec.createdAt
+    });
+  }
+  out.sort((a, b) => (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0));
+  return out;
+}
+
 // The append prompt teaches Claude to drive the side-by-side browser pane via
 // the garrison-browser CLI. No full system prompt replacement — just append.
-export function claudeCommand({ resume = false } = {}) {
-  const parts = ["claude", "--dangerously-skip-permissions"];
-  if (resume) parts.push("--continue");
+// A Claude session id is a UUID. We allow ONLY that charset so the value is safe
+// to splice into the shell command the PTY runs — JSON.stringify is NOT a shell
+// escape (it leaves `$()`/backticks live inside double quotes), so an unsanitised
+// id would be a command-injection vector. An id that fails this is ignored
+// (falls back to --continue / fresh) rather than executed.
+const SAFE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
+
+export function claudeCommand({ resume = false, resumeId = null } = {}) {
+  // Default dev-env sessions to "auto" rather than bypassing permissions: the
+  // dev-env terminal is a real interactive TUI, so the user can answer prompts.
+  // shift+tab still cycles to bypass when wanted.
+  const parts = ["claude", "--permission-mode", "auto"];
+  // resumeId resumes that EXACT conversation by id — required after a reboot (so
+  // the restored tab re-attaches its own session, not whatever ran most recently
+  // in the cwd) and when a cwd holds several sessions. `--continue` is the
+  // most-recent-in-cwd fallback used when we have no specific id.
+  const safeId = resumeId != null && SAFE_SESSION_ID.test(String(resumeId)) ? String(resumeId) : null;
+  if (safeId) parts.push("--resume", safeId); // UUID charset → no shell metachars, no quoting needed
+  else if (resume) parts.push("--continue");
   parts.push("--append-system-prompt-file", JSON.stringify(PROMPT_PATH));
   return parts.join(" ");
 }
@@ -149,6 +214,20 @@ function refreshClaudeAlive(rec) {
   });
 }
 
+// Claude Code (and other TUIs) decide whether the terminal can render their
+// fancy glyphs (⏺ ⎿ ⏵ ❯ …) from the locale, NOT from TERM. When Garrison is
+// launched by launchd it inherits no LANG/LC_*, so claude treats the terminal
+// as non-UTF-8 and falls back to ASCII — the glyphs come out as bare "_", the
+// stray dashes the user sees at the start of lines and in the prompt box.
+// Ensure a UTF-8 locale so the real glyphs are used; only fill the gap when the
+// environment doesn't already declare one.
+const UTF8_LOCALE = "en_US.UTF-8";
+function withUtf8Locale(env) {
+  const isUtf8 = (v) => typeof v === "string" && /utf-?8/i.test(v);
+  if (isUtf8(env.LC_ALL) || isUtf8(env.LC_CTYPE) || isUtf8(env.LANG)) return env;
+  return { ...env, LANG: UTF8_LOCALE, LC_CTYPE: UTF8_LOCALE };
+}
+
 export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollbackB64, restoredMarker }) {
   const id = ptyIdFor(sessionId, role);
   const existing = ptys.get(id);
@@ -160,6 +239,15 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
 
   const finalShell = shell || defaultShell;
   const finalCwd = cwd && existsSync(cwd) ? cwd : process.env.HOME || "/tmp";
+
+  const spawnEnv = withUtf8Locale({ ...process.env, TERM: "xterm-256color" });
+  // tmux panes run under the (possibly already-running) tmux server's
+  // environment, which may predate this locale fix, so bake the locale straight
+  // into the create command instead of relying on env inheritance.
+  const localeAssign = ["LANG", "LC_CTYPE", "LC_ALL"]
+    .filter((k) => spawnEnv[k])
+    .map((k) => `${k}=${spawnEnv[k]}`)
+    .join(" ");
 
   // tmux mode: spawn an attach-or-create client. The shell (`<shell> -l`) runs
   // inside the tmux server as the CREATE command; on a pre-existing session
@@ -177,13 +265,13 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
       cwd: finalCwd,
       cols: 100,
       rows: 30,
-      createCommand: `${finalShell} -l`
+      createCommand: `${localeAssign ? localeAssign + " " : ""}${finalShell} -l`
     }), {
       name: "xterm-256color",
       cols: 100,
       rows: 30,
       cwd: finalCwd,
-      env: { ...process.env, TERM: "xterm-256color" }
+      env: spawnEnv
     });
   } else {
     term = pty.spawn(finalShell, ["-l"], {
@@ -191,7 +279,7 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
       cols: 100,
       rows: 30,
       cwd: finalCwd,
-      env: { ...process.env, TERM: "xterm-256color" }
+      env: spawnEnv
     });
   }
 
@@ -287,13 +375,13 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
 //   exited                  -> respawn fresh at cwd, old buffer replayed
 //   parked claude envelope  -> spawn fresh with --continue + persisted scrollback
 //   none                    -> spawn fresh (claude gets --continue iff resume)
-export function ensurePty({ session, role, resume = false }) {
+export function ensurePty({ session, role, resume = false, resumeId = null }) {
   const id = ptyIdFor(session.id, role);
   const rec = ptys.get(id);
 
   if (rec && rec.state === "running") {
     if (role === "claude" && rec.claudeAlive === false) {
-      const cmd = claudeCommand({ resume: true });
+      const cmd = claudeCommand({ resume: true, resumeId });
       rec.command = cmd;
       rec.claudeAlive = true;
       rec.claudeCheckedAt = 0;
@@ -310,20 +398,21 @@ export function ensurePty({ session, role, resume = false }) {
       sessionId: session.id,
       role,
       cwd: session.worktreePath,
-      command: role === "claude" ? claudeCommand({ resume: true }) : undefined,
+      command: role === "claude" ? claudeCommand({ resume: true, resumeId }) : undefined,
       restoredScrollbackB64: old.length ? old.toString("base64") : undefined
     });
   }
 
   const envelope = parked.get(id);
   if (role === "claude" && envelope) {
+    const verb = resumeId ? "claude --resume" : "claude --continue";
     return spawnPty({
       sessionId: session.id,
       role,
       cwd: session.worktreePath,
-      command: claudeCommand({ resume: true }),
+      command: claudeCommand({ resume: true, resumeId }),
       restoredScrollbackB64: typeof envelope.scrollbackB64 === "string" ? envelope.scrollbackB64 : undefined,
-      restoredMarker: `\r\n\x1b[2m[garrison: resuming claude session — claude --continue]\x1b[0m\r\n`
+      restoredMarker: `\r\n\x1b[2m[garrison: resuming claude session — ${verb}]\x1b[0m\r\n`
     });
   }
 
@@ -331,7 +420,7 @@ export function ensurePty({ session, role, resume = false }) {
     sessionId: session.id,
     role,
     cwd: session.worktreePath,
-    command: role === "claude" ? claudeCommand({ resume }) : undefined
+    command: role === "claude" ? claudeCommand({ resume, resumeId }) : undefined
   });
 }
 
@@ -410,7 +499,15 @@ export function killPty(id, { forget = false } = {}) {
 }
 
 export function killSessionPtys(sessionId, { forget = false } = {}) {
-  for (const role of PTY_ROLES) killPty(ptyIdFor(sessionId, role), { forget });
+  // A session can hold claude + any number of shell terminals, so enumerate the
+  // live records (and parked claude envelopes) rather than a fixed role list.
+  for (const rec of [...ptys.values()]) {
+    if (rec.sessionId === sessionId) killPty(rec.id, { forget });
+  }
+  for (const id of [...parked.keys()]) {
+    const m = /^(.+)-(claude|shell(?:-\d+)?)$/.exec(id);
+    if (m && m[1] === sessionId) killPty(id, { forget });
+  }
 }
 
 // Boot-time rehydration. `liveSessionIds` is the set of session UUIDs present
@@ -437,7 +534,7 @@ export async function rehydratePtys(liveSessionIds) {
   let restored = 0;
   for (const envelope of envelopes) {
     const st = envelope.state && typeof envelope.state === "object" ? envelope.state : {};
-    const m = envelope.instanceId.match(/^(.+)-(claude|shell)$/);
+    const m = envelope.instanceId.match(/^(.+)-(claude|shell(?:-\d+)?)$/);
     const sessionId = m ? m[1] : (typeof st.sessionId === "string" ? st.sessionId : null);
     const role = m ? m[2] : (typeof st.role === "string" ? st.role : null);
     if (!sessionId || !role || !liveSessionIds.has(sessionId)) {
@@ -452,7 +549,7 @@ export async function rehydratePtys(liveSessionIds) {
     try {
       spawnPty({
         sessionId,
-        role: "shell",
+        role,
         cwd: typeof st.cwd === "string" ? st.cwd : undefined,
         shell: typeof st.shell === "string" ? st.shell : undefined,
         restoredScrollbackB64: typeof st.scrollbackB64 === "string" ? st.scrollbackB64 : undefined
@@ -467,11 +564,32 @@ export async function rehydratePtys(liveSessionIds) {
 
 // Re-attach to live tmux sessions on boot; reap orphans whose record is gone.
 async function rehydrateTmux(liveSessionIds) {
+  const names = listGarrisonSessions();
+  // Safety net against catastrophic restart loss. An EMPTY live set while tmux
+  // sessions are alive does not mean "every session was closed" — closing a
+  // session forgets its tmux session, so a clean shutdown leaves no orphans.
+  // It means the session ledger (state.json) was missing, empty, or unreadable
+  // at boot (a transient read failure, a half-written file). Reaping against an
+  // untrustworthy ledger would kill in-flight work — exactly the "I restarted
+  // and lost my sessions" failure. So when the ledger is empty we re-attach
+  // everything parseable and reap nothing this pass; the ledger heals and the
+  // next sweep handles any genuine orphan.
+  const trustLedger = liveSessionIds.size > 0;
+  if (!trustLedger && names.length > 0) {
+    console.warn(
+      `[dev-env] session ledger empty but ${names.length} tmux session(s) live — ` +
+      "re-attaching all, reaping none (ledger unreadable/empty; not destroying work)"
+    );
+  }
   let restored = 0;
-  for (const name of listGarrisonSessions()) {
+  for (const name of names) {
     const parsed = sessionIdRoleFromName(name);
-    if (!parsed || !liveSessionIds.has(parsed.sessionId)) {
-      void tmuxKillSession(name); // unparseable or record vanished → orphan
+    if (!parsed) {
+      void tmuxKillSession(name); // unparseable junk name → always an orphan
+      continue;
+    }
+    if (trustLedger && !liveSessionIds.has(parsed.sessionId)) {
+      void tmuxKillSession(name); // record genuinely vanished while we were down
       continue;
     }
     try {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runFittingSetup } from "@/lib/runner";
+import { runFittingSetup, setupConfigEnv } from "@/lib/runner";
 import type { GarrisonMetadata } from "@/lib/types";
 
 const tempRoots: string[] = [];
@@ -81,6 +81,30 @@ describe("runFittingSetup", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
+  });
+
+  it("projects the fitting's config into <FITTING_ID>_<KEY> env vars", () => {
+    expect(setupConfigEnv("improver", { cron: "30 3 * * *", memory_primary: true })).toEqual({
+      IMPROVER_CRON: "30 3 * * *",
+      IMPROVER_MEMORY_PRIMARY: "true",
+    });
+    // dashed ids normalise to underscores; nested values are skipped
+    expect(setupConfigEnv("vault-git-sync", { cron: "0 4 * * *", nested: { a: 1 } })).toEqual({
+      VAULT_GIT_SYNC_CRON: "0 4 * * *",
+    });
+  });
+
+  it("config values reach the setup command as env vars", async () => {
+    const compositionDir = await makeComposition("vault-git-sync");
+    const entry = fittingEntry("vault-git-sync", {
+      command: 'echo "cron=$VAULT_GIT_SYNC_CRON"',
+      idempotent: true
+    });
+
+    const result = await runFittingSetup(entry, compositionDir, { cron: "0 4 * * *" });
+
+    expect(result.ok).toBe(true);
+    expect(result.stdout).toContain("cron=0 4 * * *");
   });
 
   it("setup running in apm_modules/_local/<id>/ sees .env materialised at the composition root", async () => {

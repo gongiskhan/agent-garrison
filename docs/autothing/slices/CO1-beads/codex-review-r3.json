@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"The retain-ledger fix fully addresses the skipped-retry issue for aborted hook or MCP cleanup in src/lib/coord-wiring.ts. No remaining HIGH/CRITICAL issue found in reconcileCoordTeardown, stripOwnerHookGroups, or removeMcpByName.","findings":[]}

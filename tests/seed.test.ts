@@ -83,7 +83,8 @@ describe("seed Fittings", () => {
     for (const id of ["dev-env", "monitor-default", "browser-default"]) {
       const metadata = await loadSeed(id);
       expect(metadata.own_port).toBe(true);
-      expect(["sessions", "observability", "channels"]).toContain(metadata.faculty);
+      // browser-default moved sessions -> surfaces in the 2026-06-18 split.
+      expect(["sessions", "surfaces", "observability", "channels"]).toContain(metadata.faculty);
     }
   });
 

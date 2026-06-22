@@ -8,11 +8,31 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { WRITER_LABEL, type QuartersCategory } from "./quartersTypes";
 import { crudFor, type SurfaceCrud } from "./surfaceEditors";
 
+// Map a presence-managed record (hook/mcp/plugin) to the enable/disable action
+// body. Enabling = a record currently parked; disabling = a record active. Hook
+// ids encode the event + (active) index or (parked) parkedIndex.
+function presenceBody(rec: PrimitiveRecord): Record<string, unknown> | null {
+  if (rec.managedBy !== "presence") return null;
+  const enabling = rec.presence === "parked";
+  if (rec.surface === "mcp") return { action: enabling ? "mcp.enable" : "mcp.disable", name: rec.name };
+  if (rec.surface === "plugin") return { action: enabling ? "plugin.enable" : "plugin.disable", key: rec.name };
+  if (rec.surface === "hook") {
+    if (enabling) {
+      const m = rec.id.match(/#parked(\d+)$/);
+      return m ? { action: "hook.enable", parkedIndex: Number(m[1]) } : null;
+    }
+    const m = rec.id.match(/#(\d+)$/);
+    if (!m) return null;
+    return { action: "hook.disable", event: rec.id.slice("hook:".length, rec.id.lastIndexOf("#")), index: Number(m[1]) };
+  }
+  return null;
+}
+
 // One parameterized panel for every package-surface category (Skills/Hooks/MCPs/
 // Plugins/Scripts). Lists ALL primitives with their state, the promote/park
-// transition action, AND — where Garrison is writer-of-record — full CRUD
-// (Add / Edit / Remove) via the per-surface editor registry. Refetches on any
-// mutation (no watcher).
+// transition action OR (HV wave) the presence enable/disable toggle, AND — where
+// Garrison is writer-of-record — full CRUD (Add / Edit / Remove) via the
+// per-surface editor registry. Refetches on any mutation (no watcher).
 export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
   const [model, setModel] = useState<StateModel | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +62,35 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
         rec.state === "loose"
           ? { action: "promote", id: rec.id }
           : { action: "park", fittingId: rec.fittingId ?? rec.name };
+      setBusy(rec.id);
+      setError(null);
+      try {
+        const res = await fetch("/api/quarters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok || data?.ok === false) throw new Error(data?.error ?? data?.code ?? res.statusText);
+        await load();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [load]
+  );
+
+  const togglePresence = useCallback(
+    async (rec: PrimitiveRecord) => {
+      const body = presenceBody(rec);
+      if (!body) {
+        // Never let the toggle look actionable but do nothing — surface why
+        // (a malformed/unexpected presence record id) instead of a silent no-op.
+        setError(`Can't toggle "${rec.name}" — unrecognized presence record (${rec.id}).`);
+        return;
+      }
       setBusy(rec.id);
       setError(null);
       try {
@@ -171,7 +220,23 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
                     ) : null}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <StateBadge state={rec.state} drifted={rec.driftedFromLock} />
+                    {rec.managedBy === "presence" ? (
+                      <span
+                        data-testid={`presence-${rec.id}`}
+                        className="pill"
+                        style={{
+                          fontSize: 10,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          color: rec.presence === "parked" ? "var(--mute)" : "var(--sage)",
+                          borderColor: rec.presence === "parked" ? "var(--rule)" : "var(--sage)"
+                        }}
+                      >
+                        {rec.presence}
+                      </span>
+                    ) : (
+                      <StateBadge state={rec.state} drifted={rec.driftedFromLock} />
+                    )}
                     {crud?.Editor && (crud.editable?.(rec) ?? true) ? (
                       <button
                         className="btn small ghost"
@@ -181,6 +246,16 @@ export function PrimitiveListPanel({ cat }: { cat: QuartersCategory }) {
                         style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
                       >
                         <Pencil size={13} aria-hidden /> Edit
+                      </button>
+                    ) : null}
+                    {rec.managedBy === "presence" ? (
+                      <button
+                        className="btn small ghost"
+                        data-testid={`toggle-${rec.id}`}
+                        disabled={busy === rec.id}
+                        onClick={() => void togglePresence(rec)}
+                      >
+                        {busy === rec.id ? "…" : rec.presence === "parked" ? "Enable" : "Disable"}
                       </button>
                     ) : null}
                     {transitionable && (rec.state === "loose" || rec.state === "owned") ? (

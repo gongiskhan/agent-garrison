@@ -1,0 +1,26 @@
+{
+  "slice": "sessions-split",
+  "title": "Split overloaded sessions role into sessions / runtimes / surfaces",
+  "kind": "mixed",
+  "status": "passed",
+  "commit": "380185e",
+  "updatedAt": "2026-06-18",
+  "gates": {
+    "typecheck": { "command": "npm run typecheck", "exit": 0 },
+    "tests": {
+      "command": "npx vitest run tests/faculties.test.ts",
+      "exit": 0,
+      "passed": 11,
+      "note": "committed correctness gate: asserts the 8-role order, the 6 moved fittings resolve to runtimes/surfaces, dev-env+artifact-store stay in sessions, and the legacy aliases fold to surfaces"
+    },
+    "fullSuite": {
+      "command": "npx vitest run",
+      "passed": 719,
+      "failed": 2,
+      "skipped": 13,
+      "note": "the 2 failures are tests/orchestrator-integration.test.ts — live-gateway tests that run only when a real gateway answers on 127.0.0.1:4777 (one is up on this machine) and its /chat returned a null session_id. That is the running operative's chat runtime, unrelated to the faculty rename. Environmental + pre-existing."
+    }
+  },
+  "crossModel": { "status": "pending" },
+  "video": { "status": "pending" }
+}

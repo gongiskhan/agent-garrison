@@ -1,0 +1,62 @@
+name: coord-agentmail
+version: 0.1.0
+description: >-
+  mcp_agent_mail coordination Fitting — runs the FastMCP agent-mail server as an
+  arm's-length external process (own-port pattern) giving parallel Claude Code
+  sessions identities, messaging, and advisory file leases (with an intent reason).
+  License-isolated: agent_mail ships MIT + an OpenAI/Anthropic rider, so it is
+  cloned to ~/.garrison/external and invoked as a separate process — NEVER imported
+  or vendored into Garrison's MIT tree.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: memory
+  cardinality_hint: single
+  own_port: true
+  default_port: 8765
+  component_shape: cli
+  platforms:
+    - claude-code
+  summary: >-
+    Shared local agent-coordination server (mcp_agent_mail, FastMCP HTTP on
+    127.0.0.1:8765). One server across all projects; sessions are tagged by repo so
+    leases/messages are repo-scoped. Registered as an http MCP server in
+    ~/.claude.json (user scope) so a direct `claude` run in any repo and the
+    orchestrator both reach it. License-isolated arm's-length process — never
+    imported into the MIT tree, never wired to Ekoa.
+  config_schema:
+    - key: port
+      type: integer
+      default: 8765
+      description: HTTP port the agent-mail server binds to (127.0.0.1). MCP endpoint is <url>/mcp.
+    - key: pin
+      type: string
+      default: de9e6288367e20a8b81e203960da9219ab8aa48f
+      description: Pinned mcp_agent_mail commit (github.com/Dicklesworthstone/mcp_agent_mail, MIT + OpenAI/Anthropic rider). Cloned to ~/.garrison/external.
+  provides:
+    - kind: memory-store
+      name: agent-mail
+  consumes: []
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 600000
+  verify:
+    command: bash apm_modules/_local/coord-agentmail/scripts/verify.sh
+    expect: ok
+    timeout_ms: 30000
+  for_consumers: |
+    agent_mail gives each session an identity and three coordination surfaces:
+    advisory FILE LEASES (claim paths/globs with a TTL + heartbeat + intent reason),
+    MESSAGING (send/reply/inbox), and BUILD SLOTS. Leases/messages are repo-scoped
+    (tagged by cwd) — a session only ever sees its own repo's coordination state.
+
+    The server is reachable as an http MCP server at http://127.0.0.1:8765/mcp
+    (registered in ~/.claude.json on start). Key tools:
+      file_reservation_paths(paths, ttl_seconds>=60, reason, exclusive)  - claim a lease
+      renew_file_reservations(...)                                       - heartbeat/extend
+      release_file_reservations(...)                                     - release
+      send_message / reply_message / fetch_inbox                        - messaging
+    Declare a lease (with a `reason`) before editing shared files so other sessions
+    see your intent. The coord-mcp planning gate + the digest hook read these leases.

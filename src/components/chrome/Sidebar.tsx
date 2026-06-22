@@ -9,20 +9,31 @@ import {
   ChevronRight,
   Home,
   Layers,
-  Library,
-  Play,
   Lock,
   Component,
   ExternalLink,
   LayoutGrid,
+  Globe,
+  SquareTerminal,
+  Sparkles,
+  Route,
+  Activity,
+  ScreenShare,
+  Mic,
+  MessagesSquare,
+  Archive,
+  Radio,
+  Brain,
+  Database,
+  Cpu,
+  Network,
   type LucideIcon
 } from "lucide-react";
-import * as LucideIcons from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
-import { QUARTERS_CATEGORIES } from "@/components/quarters/quartersTypes";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import type {
+  CapabilityKind,
   Composition,
   FacultyId,
   LibraryEntry
@@ -31,17 +42,36 @@ import type {
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
   const { composition, library, runnerState, sidebarCollapsed, toggleSidebar } = useAppShell();
+  const { entries: viewStatuses } = useFittingViewStatus();
 
   const stationedCount = countStationed(composition);
   const totalFaculties = faculties.length;
-  const armoryCount = library.length;
   const verifyResults = runnerState?.verifyResults ?? [];
   const verifyTotal = verifyResults.length;
   const verifyOk = verifyResults.filter((r) => r.ok).length;
   const status = runnerState?.status ?? "idle";
   const isRunning = status === "running";
+  const liveViews = viewStatuses.filter((s) => s.healthy === true).length;
+  const knownViews = viewStatuses.length;
 
   const isCompose = pathname === "/compose" || pathname.startsWith("/compose/");
+
+  // Live-ticking uptime while the operative is up. Recomputed each second so
+  // the footer reads like a running clock rather than a stale snapshot.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isRunning || !runnerState?.startedAt) {
+      setNow(null);
+      return;
+    }
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isRunning, runnerState?.startedAt]);
+  const uptime =
+    isRunning && runnerState?.startedAt && now
+      ? formatUptime(now - new Date(runnerState.startedAt).getTime())
+      : "—";
 
   if (sidebarCollapsed) {
     return (
@@ -124,24 +154,9 @@ export function Sidebar() {
           href="/compose"
           pathname={pathname}
           icon={<Layers aria-hidden />}
-          label="Compose"
+          label="Composition"
           ct={`${stationedCount}/${totalFaculties}`}
           active={isCompose}
-        />
-
-        <NavLink
-          href="/armory"
-          pathname={pathname}
-          icon={<Library aria-hidden />}
-          label="Armory"
-          ct={armoryCount > 0 ? String(armoryCount) : undefined}
-        />
-        <NavLink
-          href="/run"
-          pathname={pathname}
-          icon={<Play aria-hidden />}
-          label="Run"
-          ct={isRunning ? "live" : undefined}
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
         <NavLink
@@ -151,13 +166,19 @@ export function Sidebar() {
           label="Quarters"
           active={pathname === "/quarters" || pathname.startsWith("/quarters/")}
         />
-
-        <QuartersLinks pathname={pathname} />
+        <NavLink
+          href="/coordination"
+          pathname={pathname}
+          icon={<Network aria-hidden />}
+          label="Coordination"
+          active={pathname === "/coordination" || pathname.startsWith("/coordination")}
+        />
 
         <FittingViewsLinks
           composition={composition}
           library={library}
           pathname={pathname}
+          viewStatuses={viewStatuses}
         />
       </nav>
 
@@ -174,12 +195,23 @@ export function Sidebar() {
           </span>
         </div>
         <div className="row">
+          <span>uptime</span>
+          <b>{uptime}</b>
+        </div>
+        <div className="row">
           <span>verify</span>
           <b>{verifyTotal ? `${verifyOk}/${verifyTotal}` : "—"}</b>
         </div>
         <div className="row">
-          <span>pid</span>
-          <b>{runnerState?.pid ?? "—"}</b>
+          <span>views</span>
+          <b>{knownViews ? `${liveViews}/${knownViews} live` : "—"}</b>
+        </div>
+        <div className="row">
+          <span>dev · pid</span>
+          <b>
+            {runnerState?.devMode ? "dev · " : ""}
+            {runnerState?.pid ?? "—"}
+          </b>
         </div>
       </div>
     </aside>
@@ -205,16 +237,72 @@ function useIsMobileViewport(): boolean {
   return isMobile;
 }
 
+// Per-Fitting icons for the sidebar Views list. Resolution is layered so a
+// brand-new own-port Fitting still gets a sensible glyph without editing this
+// file: exact id first (most meaningful), then the capability kind it
+// provides, then its Faculty role, then a generic embedded/own-port fallback.
+const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
+  "artifact-store": Archive,
+  "browser-default": Globe,
+  "dev-env": SquareTerminal,
+  improver: Sparkles,
+  "model-router": Route,
+  "monitor-default": Activity,
+  "screen-share-default": ScreenShare,
+  "deepgram-voice": Mic,
+  "web-channel-default": MessagesSquare,
+  "slack-channel": MessagesSquare,
+  "outpost-tailscale-host": Radio
+};
+
+const VIEW_ICON_BY_KIND: Partial<Record<CapabilityKind, LucideIcon>> = {
+  "artifact-store": Archive,
+  "dev-env": SquareTerminal,
+  "screen-share": ScreenShare,
+  monitor: Activity,
+  voice: Mic,
+  channel: MessagesSquare,
+  outpost: Radio,
+  "memory-store": Brain,
+  "data-source": Database,
+  runtime: Cpu,
+  "automation-runner": Sparkles,
+  view: LayoutGrid
+};
+
+const VIEW_ICON_BY_FACULTY: Partial<Record<FacultyId, LucideIcon>> = {
+  channels: MessagesSquare,
+  surfaces: LayoutGrid,
+  sessions: SquareTerminal,
+  observability: Activity,
+  runtimes: Cpu,
+  memory: Brain,
+  gateway: Network
+};
+
+function viewIcon(entry: LibraryEntry, ownPort: boolean): LucideIcon {
+  const byId = VIEW_ICON_BY_ID[entry.id];
+  if (byId) return byId;
+  for (const provision of entry.metadata.provides ?? []) {
+    const byKind = VIEW_ICON_BY_KIND[provision.kind];
+    if (byKind) return byKind;
+  }
+  const byFaculty = VIEW_ICON_BY_FACULTY[entry.faculty];
+  if (byFaculty) return byFaculty;
+  return ownPort ? ExternalLink : Component;
+}
+
 function FittingViewsLinks({
   composition,
   library,
-  pathname
+  pathname,
+  viewStatuses
 }: {
   composition: Composition | null;
   library: LibraryEntry[];
   pathname: string;
+  viewStatuses: FittingViewStatus[];
 }) {
-  const { entries: viewStatuses } = useFittingViewStatus();
   const isMobile = useIsMobileViewport();
 
   if (!composition) return null;
@@ -259,30 +347,38 @@ function FittingViewsLinks({
 
   if (rows.length === 0) return null;
 
+  // A fitted view is a normal nav item — same visual language as Garrison /
+  // Composition / Vault / Quarters. Unfitted views simply aren't in `rows`,
+  // so they never render. Own-port views carry a status hint (live/down/off)
+  // and tint their icon by health; embedded views are always reachable.
   return (
-    <div className="nested" style={{ marginTop: 12 }}>
-      <div className="group-h">Views</div>
+    <>
       {rows.map((row) => {
+        const Icon = viewIcon(row.entry, row.kind === "own-port");
         if (row.kind === "embedded") {
           const href = `/fitting/${row.entry.id}`;
-          const isActive =
-            pathname === href || pathname.startsWith(`${href}/`);
+          const isActive = pathname === href || pathname.startsWith(`${href}/`);
           return (
-            <Link
-              key={`embedded:${row.entry.id}`}
-              href={href}
-              className={clsx("leaf", "verified", isActive && "active")}
-            >
-              <span className="glyph">
-                <Component size={14} aria-hidden />
+            <Link key={`embedded:${row.entry.id}`} href={href} className={clsx("item", isActive && "active")}>
+              <span>
+                <span className="ic"><Icon aria-hidden /></span>
+                {row.entry.name}
               </span>
-              <span>{row.entry.name}</span>
             </Link>
           );
         }
         const status = row.status;
         const healthy = status?.healthy === true;
-        const statusClass = healthy ? "verified" : status?.healthy === false ? "alarm" : "empty";
+        const iconColor = healthy
+          ? "var(--sage)"
+          : status?.healthy === false
+            ? "var(--alarm)"
+            : "var(--mute)";
+        const icon = (
+          <span className="ic" style={{ color: iconColor }}>
+            <Icon aria-hidden />
+          </span>
+        );
         if (healthy && status) {
           if (isMobile) {
             return (
@@ -291,13 +387,14 @@ function FittingViewsLinks({
                 href={status.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={clsx("leaf", statusClass)}
+                className="item"
                 title={`Open ${row.entry.name} in new tab (${status.url})`}
               >
-                <span className="glyph">
-                  <ExternalLink size={14} aria-hidden />
+                <span>
+                  {icon}
+                  {row.entry.name}
                 </span>
-                <span>{row.entry.name}</span>
+                <span className="ct">live</span>
               </a>
             );
           }
@@ -307,57 +404,35 @@ function FittingViewsLinks({
             <Link
               key={`own-port:${row.entry.id}`}
               href={embedHref}
-              className={clsx("leaf", statusClass, isActive && "active")}
+              className={clsx("item", isActive && "active")}
               title={`Open ${row.entry.name} embedded (${status.url})`}
             >
-              <span className="glyph">
-                <ExternalLink size={14} aria-hidden />
+              <span>
+                {icon}
+                {row.entry.name}
               </span>
-              <span>{row.entry.name}</span>
+              <span className="ct">live</span>
             </Link>
           );
         }
         const fallbackHref = `/fitting/${row.entry.id}`;
-        const isActive =
-          pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
+        const isActive = pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
         return (
           <Link
             key={`own-port:${row.entry.id}`}
             href={fallbackHref}
-            className={clsx("leaf", statusClass, isActive && "active")}
+            className={clsx("item", isActive && "active")}
             title={status?.healthy === false ? "View is unreachable" : "View is not running"}
           >
-            <span className="glyph">
-              <ExternalLink size={14} aria-hidden />
+            <span>
+              {icon}
+              {row.entry.name}
             </span>
-            <span>{row.entry.name}</span>
-            <span className="badge">{status?.healthy === false ? "down" : "off"}</span>
+            <span className="ct">{status?.healthy === false ? "down" : "off"}</span>
           </Link>
         );
       })}
-    </div>
-  );
-}
-
-function QuartersLinks({ pathname }: { pathname: string }) {
-  return (
-    <div className="nested" style={{ marginTop: 12 }}>
-      <div className="group-h">Quarters</div>
-      {QUARTERS_CATEGORIES.map((cat) => {
-        const Icon =
-          (LucideIcons as unknown as Record<string, LucideIcon>)[cat.icon] ?? LucideIcons.Square;
-        const href = `/quarters/${cat.slug}`;
-        const isActive = pathname === href;
-        return (
-          <Link key={cat.slug} href={href} className={clsx("leaf", isActive && "active")}>
-            <span className="glyph">
-              <Icon size={14} aria-hidden />
-            </span>
-            <span>{cat.label}</span>
-          </Link>
-        );
-      })}
-    </div>
+    </>
   );
 }
 
@@ -402,4 +477,14 @@ function statusToneClass(status: string): string {
   if (status === "failed") return "alarm";
   if (status === "starting" || status === "verifying" || status === "stopping") return "warn";
   return "idle";
+}
+
+function formatUptime(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }

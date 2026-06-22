@@ -11,11 +11,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
-import { readEagerBootPrefs, runEagerBoot } from "./eager-boot";
+import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
+import { reconcileCoordTeardown } from "./coord-wiring";
 import type { GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
@@ -119,6 +120,35 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
     const envPath = await materializeEnv(composition.directory);
     appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
+    // Coordination fittings install STANDING user-scope config (a SessionStart
+    // hook, an MCP registration). When one is DESELECTED, strip its owner-tagged
+    // config cleanly + completely — reconciled here on `up`, never on `down`
+    // (standing config must survive operative stop so a direct `claude` run in
+    // any repo keeps coordination). Scoped to known coord owners; best-effort.
+    try {
+      const selectedIds = Object.values(composition.selections)
+        .flatMap((items) => (Array.isArray(items) ? items : []))
+        .map((it) => it.id);
+      const teardown = reconcileCoordTeardown({ compositionId, selectedFittingIds: selectedIds });
+      if (teardown.removed.length > 0) {
+        appendLog(compositionId, "runner", `coord teardown: removed user-scope config for ${teardown.removed.join(", ")}`);
+      }
+      // agent_mail standing lifecycle: when coord-agentmail is SELECTED, mark it
+      // eager so it boots with Garrison and survives operative `down` (standing for
+      // direct `claude` runs). When DESELECTED, un-eager it and stop the server —
+      // clean stop on deactivation. Reuses the existing own-port + eager-boot
+      // supervision (no new mechanism). Best-effort; never fails the operative.
+      if (selectedIds.includes("coord-agentmail")) {
+        await setEagerBoot("coord-agentmail", true);
+      }
+      if (teardown.removed.includes("coord-agentmail")) {
+        await setEagerBoot("coord-agentmail", false);
+        await stopOwnPortFitting("coord-agentmail");
+        appendLog(compositionId, "runner", "coord: stopped + un-eagered coord-agentmail (deselected)");
+      }
+    } catch (e) {
+      appendLog(compositionId, "runner", `coord teardown reconcile skipped: ${e instanceof Error ? e.message : String(e)}`);
+    }
     await runSetupHooks(compositionId);
     const verifyResults = await verify(compositionId);
     const failed = verifyResults.find((result) => !result.ok);
@@ -341,9 +371,31 @@ export interface SetupResult {
   error?: string;
 }
 
+// Project a fitting's selected config into setup-hook env vars, so a setup.sh
+// can read its own config without re-parsing the composition YAML. Convention:
+// <FITTING_ID>_<KEY>, both upper-cased with non-alphanumerics → "_". e.g. the
+// improver's `cron` → IMPROVER_CRON, `memory_primary` → IMPROVER_MEMORY_PRIMARY;
+// vault-git-sync's `cron` → VAULT_GIT_SYNC_CRON. Only scalar values (string,
+// number, boolean) are injected; nested objects/arrays are skipped.
+export function setupConfigEnv(
+  fittingId: string,
+  config: Record<string, unknown>
+): Record<string, string> {
+  const norm = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+  const prefix = norm(fittingId);
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(config ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === "object") continue;
+    env[`${prefix}_${norm(key)}`] = String(value);
+  }
+  return env;
+}
+
 export async function runFittingSetup(
   entry: { id: string; metadata: GarrisonMetadata },
-  compositionDir: string
+  compositionDir: string,
+  config: Record<string, unknown> = {}
 ): Promise<SetupResult> {
   const setup = entry.metadata.setup;
   if (!setup) {
@@ -353,7 +405,8 @@ export async function runFittingSetup(
   const result = await runShellCommand(
     fittingDir,
     setup.command,
-    setup.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS
+    setup.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS,
+    setupConfigEnv(entry.id, config)
   );
   return { ...result, ok: result.exitCode === 0 };
 }
@@ -361,13 +414,21 @@ export async function runFittingSetup(
 async function runSetupHooks(compositionId: string): Promise<void> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
+  // Flatten the selection map → id-keyed config so each setup hook receives its
+  // own composition config projected as env vars (see setupConfigEnv).
+  const configById = new Map<string, Record<string, unknown>>();
+  for (const items of Object.values(composition.selections)) {
+    for (const item of items ?? []) {
+      configById.set(item.id, (item.config ?? {}) as Record<string, unknown>);
+    }
+  }
   for (const entry of entries) {
     const setup = entry.metadata.setup;
     if (!setup) {
       continue;
     }
     appendLog(compositionId, "runner", `setup ${entry.id}: ${setup.command}`);
-    const result = await runFittingSetup(entry, composition.directory);
+    const result = await runFittingSetup(entry, composition.directory, configById.get(entry.id) ?? {});
     if (result.stdout) {
       appendLog(compositionId, "stdout", result.stdout);
     }
@@ -1085,19 +1146,22 @@ function loadDotenvFromCwd(cwd: string): Record<string, string> {
 async function runShellCommand(
   cwd: string,
   command: string,
-  timeoutMs: number
+  timeoutMs: number,
+  extraEnv: Record<string, string> = {}
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null; error?: string }> {
   // Note: listens on `close` rather than `exit` so stdio is fully drained
   // before resolving — `exit` can fire while data buffers still hold output.
   // Also merges any .env in cwd into the subprocess env so verify/setup hooks
   // see vault-resolved credentials without each Fitting needing to source it.
+  // extraEnv (the fitting's projected config) wins over dotenv/process so a
+  // composition's explicit config value is authoritative.
   return new Promise((resolve) => {
     const dotenvVars = loadDotenvFromCwd(cwd);
     const { child } = spawnTracked(
       command,
       {
         cwd,
-        env: { ...process.env, ...dotenvVars },
+        env: { ...process.env, ...dotenvVars, ...extraEnv },
         shell: true
       },
       { spawnSite: "runner:runShellCommand", description: command.slice(0, 80) }

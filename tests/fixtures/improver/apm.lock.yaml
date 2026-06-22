@@ -1,0 +1,22 @@
+lockfile_version: '1'
+generated_at: '2026-06-17T00:00:00+00:00'
+apm_version: 0.11.0
+dependencies:
+- repo_url: _local/garrison-helper
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-helper
+  source: local
+  local_path: ../../fittings/seed/garrison-helper
+- repo_url: _local/legacy-helper
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/legacy-helper
+  source: local
+  local_path: ../../fittings/seed/legacy-helper
+- repo_url: _local/pinned-helper
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/pinned-helper
+  source: local
+  local_path: ../../fittings/seed/pinned-helper

@@ -716,7 +716,7 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 
 | Fitting | Faculty | What it does |
 |---|---|---|
-| `memory` | memory | Within-session recall + cross-session compiled memory persistence. Wraps `~/.claude/memory-compiler/`. |
+| `basic-memory` | memory | Within-session recall + cross-session persistence in a plain-markdown Obsidian vault (`~/ObsidianVault`) indexed into a local SQLite knowledge graph, with write/search/read MCP tools shared across Claude, Codex, and Gemini. |
 | `projects-index` | knowledge-base | Lazy filesystem walk of `~/Projects` for dev-hat context. |
 | `documents` | knowledge-base | Markdown documents workspace layered on Artifact Store. Sidebar-surface UI. |
 | `artifact-store` | artifact-store | Filesystem-backed storage with namespaces (`documents/`, `automations/`, `voice/`). |
@@ -843,7 +843,7 @@ The runner:
 
 1. Streams `apm install` log into the Run tab.
 2. Materialises `.env` (Slack signing secret, Trello API token).
-3. Runs each Fitting's `setup` hook — `memory` clones `~/.claude/memory-compiler/` if missing.
+3. Runs each Fitting's `setup` hook — `basic-memory` ensures the `~/ObsidianVault` vault and its local SQLite index exist.
 4. Runs each Fitting's `verify` hook — all green.
 5. Starts the HTTP gateway on `127.0.0.1:4777`.
 6. Assembles `assembled-system-prompt.md`:

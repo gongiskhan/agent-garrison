@@ -53,6 +53,16 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .segmented button { background: var(--panel); border: none; padding: 6px 12px; font-size: 12px; font-family: inherit; color: var(--text); cursor: pointer; }
 .segmented button.on { background: var(--accent); color: #fff; }
 
+/* New-terminal button in the header. */
+.new-term-btn { flex-shrink: 0; padding: 5px 10px; white-space: nowrap; }
+
+/* ---- Terminal theme toggle (light / dark / system) ---- */
+.term-theme { display: inline-flex; flex-shrink: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.term-theme button { display: inline-flex; align-items: center; justify-content: center; background: var(--panel); border: none; border-left: 1px solid var(--border); padding: 5px 8px; color: var(--mute); cursor: pointer; line-height: 0; }
+.term-theme button:first-child { border-left: none; }
+.term-theme button:hover:not(.active) { color: var(--text); }
+.term-theme button.active { background: var(--accent); color: #fff; }
+
 .btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: 3px; cursor: pointer; font-size: 12px; font-family: inherit; }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -66,9 +76,27 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .workspace { position: absolute; inset: 0; display: flex; min-height: 0; min-width: 0; }
 
 .terminals-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; }
-.claude-pane { display: flex; flex-direction: column; flex: 1.4; min-height: 0; border-bottom: 1px solid var(--border); }
-.shell-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.claude-pane { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--border); }
 .pane-body { flex: 1; position: relative; min-height: 0; background: var(--term-bg); }
+
+/* ---- Terminals deck (tiling) ---- */
+.terminals-deck { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.terminals-deck-empty { flex: 1; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px; color: var(--mute); font-size: 12px; background: var(--bg); }
+/* A split node: row = side by side, col = stacked (one below the other). */
+.term-split { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.term-split.row { flex-direction: row; }
+.term-split.col { flex-direction: column; }
+.term-split-cell { display: flex; min-height: 0; min-width: 0; }
+/* A leaf: header strip + terminal body. */
+.term-leaf { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.term-leaf-strip { text-transform: none; letter-spacing: 0; }
+/* Tiling dividers. row → vertical bar (resize width); col → horizontal bar. */
+.term-divider { background: var(--border); position: relative; touch-action: none; user-select: none; flex-shrink: 0; }
+.term-divider.row { flex: 0 0 6px; cursor: col-resize; }
+.term-divider.col { flex: 0 0 6px; cursor: row-resize; }
+.term-divider:hover, .term-divider:active { background: var(--accent); }
+.term-divider.row::before { content: ""; position: absolute; inset: 0 -4px; }
+.term-divider.col::before { content: ""; position: absolute; inset: -4px 0; }
 
 .pane-overlay { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(14,14,14,0.92); color: #d9d9d9; font-size: 13px; padding: 18px; text-align: center; }
 .pane-overlay p { margin: 0; max-width: 460px; }
@@ -125,20 +153,25 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .modal .project-picker { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 7px 8px; border-radius: 3px; font-size: 12px; font-family: inherit; }
 .modal-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
+.settings-textarea { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; outline: none; resize: vertical; min-height: 160px; }
+.settings-textarea:focus { border-color: var(--accent); }
+.settings-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.settings-status { flex: 1; font-size: 11px; color: var(--mute); }
+
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 120; background: #1d2520; color: #f0ede4; border: 1px solid var(--sage); border-radius: 4px; padding: 9px 16px; font-size: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.35); max-width: 80vw; }
 
 /* ---- Mobile (≤720px): one terminal full-screen, no browser pane ---- */
 @media (max-width: 720px) {
   .header { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
   .terminals-col { flex: 1 !important; }
-  .claude-pane, .shell-pane { flex: 1; border-bottom: none; }
+  .claude-pane, .terminals-deck { flex: 1 !important; border-bottom: none; }
   /* 16px input font prevents iOS focus zoom */
   .quick-prompt input { font-size: 16px; }
   .modal { min-width: 0; width: calc(100vw - 32px); }
 }
 
 /* Claude pane Terminal|Chat view toggle (Phase 2 rich chat). */
-.claude-view-toggle { display: inline-flex; gap: 2px; margin-right: 8px; flex: 0 0 auto; }
+.claude-view-toggle { display: inline-flex; gap: 2px; margin-left: 1em; margin-right: 8px; flex: 0 0 auto; }
 .claude-view-toggle button {
   font-size: 11px; padding: 3px 9px; border: 1px solid var(--border, #d6cdba);
   background: var(--surface, #f4ede0); color: var(--text-dim, #66695f); cursor: pointer;
@@ -148,3 +181,37 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .claude-view-toggle button.active { background: var(--accent, #3d6249); color: #fff; border-color: var(--accent, #3d6249); }
 /* The rich chat fills the pane body. */
 .claude-pane .pane-body .cc-root { height: 100%; }
+
+/* ---- Sessions panel (Agents live + History past, dropdown from the header) ---- */
+.panel-wrap { position: relative; flex-shrink: 0; }
+.sessions-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sessions-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+  width: 320px; max-height: 70vh; overflow-y: auto;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 4px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25); padding: 6px;
+}
+.sp-section { display: flex; flex-direction: column; }
+.sp-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mute); padding: 6px 8px 4px; font-weight: 600; }
+.sp-count { color: var(--mute); font-weight: 400; }
+.sp-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.sp-group { margin-bottom: 4px; }
+.sp-proj { font-size: 11px; color: var(--sage); padding: 4px 8px 2px; font-weight: 600; }
+.sp-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: none; text-align: left;
+  padding: 6px 8px 6px 16px; font-size: 12px; font-family: inherit; color: var(--text);
+  cursor: pointer; border-radius: 3px;
+}
+.sp-row:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.sp-row:disabled { opacity: 0.45; cursor: default; }
+.sp-row-main { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-time { color: var(--mute); font-size: 11px; flex-shrink: 0; }
+.sp-row:hover .sp-time { color: rgba(255,255,255,0.8); }
+.sp-tag { font-size: 10px; color: var(--mute); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; flex-shrink: 0; }
+.sp-row:hover .sp-tag { color: #fff; border-color: rgba(255,255,255,0.5); }
+.sp-empty { color: var(--mute); font-size: 12px; padding: 4px 8px 8px; }
+.sp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mute); flex-shrink: 0; }
+.sp-dot.busy, .sp-dot.working { background: var(--amber); }
+.sp-dot.idle { background: var(--sage); }
+.sp-dot.waiting { background: var(--alarm); }

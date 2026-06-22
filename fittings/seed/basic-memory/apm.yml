@@ -1,0 +1,48 @@
+name: basic-memory
+version: 0.1.0
+description: Basic Memory seed for Agent Garrison.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: memory
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in — the index rebuilds from the markdown files.
+  config_schema:
+    - key: vault_dir
+      type: path
+      default: ~/ObsidianVault
+      description: The Obsidian vault Basic Memory indexes and writes into. Must live outside macOS TCC-protected dirs (~/Documents, ~/Desktop, ~/Downloads) so headless tools can read/write it. Overridable via $BASIC_MEMORY_VAULT_DIR.
+    - key: memory_dir
+      type: string
+      default: Memory
+      description: Vault-relative folder where the SessionEnd/PreCompact capture hook writes session checkpoint notes.
+    - key: project_name
+      type: string
+      default: main
+      description: Basic Memory project name registered against vault_dir.
+    - key: capture_enabled
+      type: boolean
+      default: true
+      description: Whether to wire the lightweight session-capture hook (SessionEnd/PreCompact) into ~/.claude/settings.json.
+    - key: register_codex_gemini
+      type: boolean
+      default: true
+      description: Also register the basic-memory MCP server with the Codex CLI and Gemini CLI so all three agents read/write the same vault.
+  provides:
+    - kind: memory-store
+      name: basic-memory
+  consumes:
+    - kind: vault
+      cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 180000
+  verify:
+    command: bash apm_modules/_local/basic-memory/scripts/verify.sh
+    expect: ok
+    timeout_ms: 15000

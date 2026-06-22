@@ -98,11 +98,14 @@ Usage:
   garrison-browser dom        [--tab <id>] [--selector <css>] [--out <path>]
   garrison-browser eval       <js>  [--tab <id>]
   garrison-browser nav        <url> [--tab <id>]
+  garrison-browser selection  [--tab <id>] [--clear]
 
 Notes:
   --tab defaults to the most-recently-active tab.
   screenshot/dom output to /tmp/garrison-browser-*.{png,html} unless --out is given.
-  Read the screenshot path with the Read tool to see the page.`;
+  Read the screenshot path with the Read tool to see the page.
+  selection = what the user pointed at in the canvas (Select / Region buttons).
+  Run it when the user says "this" / "that" / "remove this" about the page.`;
 
 async function cmdTabs(base) {
   const r = await call("GET", base, "/tabs");
@@ -211,6 +214,46 @@ async function cmdNav(base, args) {
   console.log(r.body.ok ? `→ ${r.body.url}` : `failed: ${r.body.error}`);
 }
 
+async function cmdSelection(base, args) {
+  const tab = await pickTab(base, args.flags.tab);
+  if (args.flags.clear === "true") {
+    const r = await call("DELETE", base, `/tabs/${encodeURIComponent(tab)}/selection`);
+    if (r.status !== 200) die(`selection: ${r.body?.error || r.status}`);
+    return console.log("selection cleared");
+  }
+  const r = await call("GET", base, `/tabs/${encodeURIComponent(tab)}/selection`);
+  if (r.status !== 200) die(`selection: ${r.body?.error || r.status}`);
+  const sel = r.body && r.body.selection;
+  if (!sel) {
+    return console.log("(no selection — ask the user to click Select or Region in the browser toolbar and point at what they mean)");
+  }
+  const box = sel.box ? `${Math.round(sel.box.x)},${Math.round(sel.box.y)} ${Math.round(sel.box.w)}x${Math.round(sel.box.h)}` : "—";
+  if (sel.kind === "region") {
+    console.log(`region   ${(sel.elements || []).length} element(s)   at ${box}`);
+    if (sel.url) console.log(`  page: ${sel.url}`);
+    if (sel.screenshotPath) console.log(`  screenshot: ${sel.screenshotPath}   (Read this to see the area)`);
+    if (sel.elements && sel.elements.length) {
+      console.log("  elements in the region:");
+      for (const el of sel.elements) {
+        const t = el.text ? `  "${el.text}"` : "";
+        console.log(`    - ${el.selector}${t}`);
+      }
+    }
+    return;
+  }
+  // element
+  console.log(`element  ${sel.selector}`);
+  if (sel.label) console.log(`  label: ${sel.label}`);
+  if (sel.text) console.log(`  text:  "${sel.text}"`);
+  console.log(`  box:   ${box}`);
+  if (sel.url) console.log(`  page:  ${sel.url}`);
+  if (sel.screenshotPath) console.log(`  screenshot: ${sel.screenshotPath}   (Read this to see it)`);
+  if (sel.html) {
+    const html = sel.html.length > 600 ? sel.html.slice(0, 600) + " …" : sel.html;
+    console.log(`  html:\n${html.split("\n").map((l) => "    " + l).join("\n")}`);
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._[0];
@@ -230,7 +273,9 @@ async function main() {
     body: cmdBody,
     dom: cmdDom,
     eval: cmdEval,
-    nav: cmdNav
+    nav: cmdNav,
+    selection: cmdSelection,
+    sel: cmdSelection
   };
   const fn = handlers[cmd];
   if (!fn) die(`unknown command: ${cmd}\n${HELP}`);

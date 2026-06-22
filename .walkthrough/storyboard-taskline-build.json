@@ -1,0 +1,154 @@
+{
+  "title": "Orchestrated build — six models build one real app on disk",
+  "project": "agent-garrison",
+  "folder": "runtime/taskline-build",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Six models, one real app",
+      "subtitle": "agent-garrison · the orchestrator routes each build step to a fit-for-purpose runtime — Sonnet · Ollama · Opus · GPT (Codex) · Gemini — and the real files land on disk · 2026-06-17",
+      "duration": 3.4,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "policy",
+      "baseURL": "http://127.0.0.1:7087",
+      "startPath": "/",
+      "runTimeoutMs": 60000,
+      "beats": [
+        {
+          "id": "policy",
+          "caption": "The orchestrator's routing policy (build profile) — each task-type maps to a fit-for-purpose runtime/model",
+          "expectedScreen": "the Model Router 'Role → target (build)' table: standard→cc-sonnet-med, fast→sdk-ollama-build, expert→cc-opus-high, review→sec-codex, image→sec-gemini, video→cc-opus-high",
+          "actions": [{ "type": "waitFor", "selector": "testid:rolemap" }],
+          "assert": { "selector": "testid:rolemap", "highlight": true },
+          "hold": 6000
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "workflow",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
+      "runTimeoutMs": 600000,
+      "beats": [
+        {
+          "id": "step1-sonnet",
+          "caption": "Step 1 — data model → Claude Sonnet writes src/model.mjs",
+          "expectedScreen": "the chat showing Sonnet created src/model.mjs, status strip runtime: claude-code · model: sonnet",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Build the data model for our task CLI in /Users/ggomes/garrison-demo/taskline: create the file src/model.mjs (absolute: /Users/ggomes/garrison-demo/taskline/src/model.mjs) that exports makeTask({title}) returning an object {id, title, done:false, createdAt} where createdAt is an ISO timestamp and id comes from newId() imported from ./id.mjs. Use the Write tool to create the real file. Keep it about 10 lines." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:model: sonnet", "timeout": 160000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step2-ollama",
+          "caption": "Step 2 — id helper → local Ollama (qwen2.5-coder) generates it; the orchestrator commits it verbatim",
+          "expectedScreen": "the chat showing the generated newId() helper code and status strip runtime: agent-sdk · provider: ollama-local · model: qwen2.5-coder, plus a 'committed verbatim to src/id.mjs' note",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Write the JavaScript for the helper file src/id.mjs: a function newId() that returns a short unique id string (base36 timestamp plus a few random base36 chars). Reply with only the code." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:runtime: agent-sdk", "timeout": 200000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step3-opus",
+          "caption": "Step 3 — the core TaskStore → Claude Opus writes src/store.mjs (the hard build task)",
+          "expectedScreen": "the chat showing Opus created src/store.mjs with persistence, status strip model: opus",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Implement the core algorithm: with the Write tool create /Users/ggomes/garrison-demo/taskline/src/store.mjs — a TaskStore class that persists tasks to data/tasks.json (resolve the path via import.meta.url). Methods: add(title) using makeTask from ./model.mjs, list(), complete(id), remove(id). Load in the constructor and save after each change. Do NOT add missing-file handling yet." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:model: opus", "timeout": 175000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step4-codex",
+          "caption": "Step 4 — code review → GPT via the Codex runtime reads the real file and finds the first-run crash",
+          "expectedScreen": "the chat showing GPT's review findings about ENOENT on first run with line references, status strip runtime: codex · provider: openai · model: gpt-5-codex",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Review the file src/store.mjs in this project for correctness bugs. Read the actual file. What happens on the very first run when data/tasks.json does not exist yet? List the 1-2 most important concrete issues with line references, briefly." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:runtime: codex", "timeout": 180000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step5-gemini",
+          "caption": "Step 5 — apply the fix → Gemini edits src/store.mjs in place (resilient first-run loading)",
+          "expectedScreen": "the chat showing Gemini applied the fix to src/store.mjs, status strip runtime: gemini · provider: google · model: gemini-2.5-flash",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Apply the code-review fix to the file src/store.mjs in this project: make loading resilient when data/tasks.json is missing or empty — it must start with an empty task list instead of throwing (handle the missing-file and empty/invalid-JSON cases). Edit the actual file in place and save it. Keep the change minimal." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:runtime: gemini", "timeout": 180000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        },
+        {
+          "id": "step6-opus",
+          "caption": "Step 6 — tests + CLI → Claude Opus (back to the orchestrator) writes test/store.test.mjs and src/cli.mjs",
+          "expectedScreen": "the chat showing Opus created the test file and the position-based CLI, status strip model: opus",
+          "actions": [
+            { "type": "fill", "selector": ".cc-input", "text": "Write tests and a CLI with the Write tool. Create /Users/ggomes/garrison-demo/taskline/test/store.test.mjs (node:test, ~5 cases: add, list, complete, remove, persistence — use a temp data file). Create /Users/ggomes/garrison-demo/taskline/src/cli.mjs with commands: add <title>, list, done <n>, remove <n>. <n> is the 1-based list position (not the id); list prints numbered tasks 1,2,3." },
+            { "type": "click", "selector": ".cc-send" },
+            { "type": "waitFor", "selector": "text:model: opus", "timeout": 220000 }
+          ],
+          "assert": { "selector": ".cc-statusstrip", "highlight": true },
+          "hold": 5000
+        }
+      ]
+    },
+    {
+      "type": "terminal",
+      "id": "run-app",
+      "mode": "scripted",
+      "caption": "The real artifact runs — add tasks, complete one by position, and the JSON persists on disk",
+      "tag": "TASKLINE",
+      "expectedScreen": "a terminal running node src/cli.mjs add/list/done 1/list against the freshly built app, then cat data/tasks.json showing the persisted tasks",
+      "commands": [
+        "cd /Users/ggomes/garrison-demo/taskline",
+        "rm -f data/tasks.json",
+        "ls src",
+        "node src/cli.mjs add 'Ship the cross-model build'",
+        "node src/cli.mjs add 'Record the walkthrough'",
+        "node src/cli.mjs list",
+        "node src/cli.mjs done 1",
+        "node src/cli.mjs list",
+        "cat data/tasks.json"
+      ],
+      "commandPause": "1100ms",
+      "hold": "7000ms"
+    },
+    {
+      "type": "terminal",
+      "id": "logs",
+      "mode": "scripted",
+      "caption": "The orchestrator's decision log — which model built each file",
+      "tag": "DECISIONS LOG",
+      "expectedScreen": "terminal listing the 6 build steps: data model → cc-sonnet-med (sonnet); id helper → sdk-ollama-build (agent-sdk/qwen2.5-coder); core store → cc-opus-high (opus); review → sec-codex (codex/gpt-5-codex); apply fix → sec-gemini (gemini); tests+CLI → cc-opus-high (opus)",
+      "commands": ["bash /Users/ggomes/dev/garrison/.walkthrough/show-taskline-routing.sh"],
+      "commandPause": "1200ms",
+      "hold": "7000ms"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "One orchestrator · six models · one working app",
+      "subtitle": "model→Sonnet · helper→Ollama (local) · core→Opus · review→GPT (Codex) · fix→Gemini · tests→Opus — every file built on disk, the CLI runs, 5/5 tests pass",
+      "duration": 3.4
+    }
+  ]
+}

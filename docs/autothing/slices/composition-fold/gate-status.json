@@ -1,0 +1,23 @@
+{
+  "slice": "composition-fold",
+  "title": "Fold Armory into Composition: rename, global cross-faculty search, fitting-count fix, per-faculty selected/available counts",
+  "kind": "ui",
+  "status": "passed",
+  "updatedAt": "2026-06-18",
+  "gates": {
+    "typecheck": { "command": "npm run typecheck", "exit": 0 },
+    "routes": { "/compose": 200, "/armory": 307, "note": "/armory redirects to /compose" },
+    "visual": {
+      "evidence": ["docs/autothing/evidence/refit/s3-composition.png", "docs/autothing/evidence/refit/s3-search.png"],
+      "note": "breadcrumb renamed Composition; strip shows distinct 'faculties 8/8' and 'fittings 16' (the old bug labelled the stationed-faculty count as 'fittings'); each faculty tile shows 'N selected / M available'; search box spans every Faculty and returns cross-faculty add/remove cards; ArmoryPanel deleted, /armory redirects."
+    },
+    "dataMigration": {
+      "note": "the split left existing compositions grouping moved fittings under sessions. Migrated compositions/default + compositions/dogfood-orch: codex/gemini -> runtimes, screen-share/browser -> surfaces. Counts now reconcile (Sessions 2/2, Runtimes 2/2, Surfaces 2/3)."
+    }
+  },
+  "preExistingReds": {
+    "note": "full vitest shows 3 reds, NONE from this slice (all proven byte-identical to main via git diff): tests/gemini-runtime.test.ts asserts the removed --skip-trust flag (adapter moved to --approval-mode yolo); tests/orchestrator-integration.test.ts needs a live gateway; tests/spawn-tracked.test.ts is flaky under full-suite concurrency (passes in isolation)."
+  },
+  "crossModel": { "status": "pending-consolidated" },
+  "video": { "status": "pending" }
+}

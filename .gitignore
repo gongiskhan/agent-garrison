@@ -13,6 +13,9 @@ data/vault.json.bak-*
 compositions/*/.env
 compositions/*/.garrison/assembled-system-prompt.md
 compositions/*/.garrison/uploads/
+compositions/*/.garrison/decisions.jsonl
+compositions/*/.garrison/operative-session-id
+compositions/*/.garrison/routing.json
 compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/
@@ -39,3 +42,4 @@ public/phase-1-demo/.playwright-artifacts/
 **/.codegraph/
 .serena/
 **/.serena/
+scripts/spike/chat-harness/out/

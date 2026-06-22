@@ -33,7 +33,7 @@ function hookManifest(fittingId: string, event: string, cmd: string): InstallMan
 
 describe("hook fittings via the shared owner-scoped writer", () => {
   beforeEach(() => {
-    // a hand-authored, untagged hook group already present (e.g. memory-compiler)
+    // a hand-authored, untagged hook group already present (e.g. a user's own hook)
     fs.writeFileSync(
       settingsPath(claudeHome),
       JSON.stringify({ hooks: { Stop: [{ matcher: "", hooks: [{ type: "command", command: "USER_HOOK" }] }] } })

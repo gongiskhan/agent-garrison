@@ -1,0 +1,20 @@
+{
+  "slice": "AS-harness",
+  "title": "THE HARNESS — per-target promptMode full (preset + settingSources + skills) vs lean (minimal string)",
+  "updatedAt": "2026-06-16T22:17:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/agent-sdk-runtime.test.ts",
+      "exit": 0,
+      "summary": "harness-ok — THE HARNESS block (5 tests) green: full → systemPrompt {type:'preset',preset:'claude_code'} + settingSources:['project'] + claudeMdLoaded + skillsMounted; lean → minimal system string + settingSources:[] + no CLAUDE.md + no skills; neither mode loads 'user' settings (#217 defence); full supports preset+append (appendSystemPrompt deprecated); defaultPromptModeForRole maps coding roles (expert/standard/review)→full and chat/media (fast/image)→lean. States asserted, never scraped."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean." }
+  },
+  "verdicts": { "harness-ok": true },
+  "blockers": [],
+  "notes": "promptMode is also a margin lever — the full claude_code preset carries a fixed ~14k input-token floor per turn; lean targets stop paying it. The adapter wires harness.systemPrompt/settingSources into the SDK query options (asserted in buildQueryOptions test)."
+}

@@ -1,0 +1,73 @@
+{
+  "title": "Quarters · AgentSDK Runtime — THE FENCE & THE HARNESS",
+  "project": "agent-garrison",
+  "folder": "runtime/agent-sdk",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Agent SDK Runtime",
+      "subtitle": "agent-garrison · non-Anthropic models · THE FENCE · THE HARNESS · 2026-06-16",
+      "duration": 2.8,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "agentsdk",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/quarters/agentsdk",
+      "runTimeoutMs": 180000,
+      "beats": [
+        {
+          "id": "header",
+          "caption": "Quarters → AgentSDK: the runtime reachable only via a non-Anthropic base URL (Ollama / Z.ai / DeepSeek / MiniMax / proxy)",
+          "expectedScreen": "the AgentSDK Runtime page header with a paragraph explaining it is reachable only via a non-Anthropic base URL and that Max-plan Claude stays on the Claude Code PTY runtime",
+          "actions": [ { "type": "waitFor", "selector": "text:AgentSDK Runtime" } ],
+          "assert": { "selector": "text:AgentSDK Runtime", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "fence",
+          "caption": "THE FENCE — default-deny: no base URL and Anthropic hosts are BLOCKED; a non-Anthropic URL is allowed",
+          "expectedScreen": "the THE FENCE table with verdict rows — 'no base URL' BLOCKED, 'a non-Anthropic base URL (Ollama)' allowed, 'an Anthropic host, no acceptApiBilling' BLOCKED, the acceptApiBilling override allowed, and the settings.json #217 injection BLOCKED",
+          "actions": [ { "type": "waitFor", "selector": "testid:fence-state" } ],
+          "assert": { "selector": "testid:fence-state", "highlight": true },
+          "hold": 5500
+        },
+        {
+          "id": "harness",
+          "caption": "THE HARNESS — full = the claude_code preset + project CLAUDE.md + skills; lean = a minimal string, none of that",
+          "expectedScreen": "the THE HARNESS cards: promptMode full shows preset claude_code, settingSources [project], CLAUDE.md loaded yes, skills mounted yes; promptMode lean shows preset none, settingSources [], CLAUDE.md no, skills no",
+          "actions": [ { "type": "waitFor", "selector": "testid:harness-state" } ],
+          "assert": { "selector": "testid:harness-state", "highlight": true },
+          "hold": 5500
+        },
+        {
+          "id": "providers",
+          "caption": "Each provider carries a capability record — DeepSeek serves text + tool use only, so MCP/vision roles never route there",
+          "expectedScreen": "the Providers table listing ollama-local, zai-glm, deepseek, minimax, llm-proxy with base URL, vault key, what each serves, effort support, and a non-anthropic fence verdict",
+          "actions": [ { "type": "waitFor", "selector": "testid:providers-table" } ],
+          "assert": { "selector": "testid:providers-table", "highlight": true },
+          "hold": 5500
+        },
+        {
+          "id": "pins",
+          "caption": "Version pins: the SDK is pinned, and the LiteLLM proxy forbids the supply-chain-compromised 1.82.7 / 1.82.8",
+          "expectedScreen": "the Version pins card: SDK claude-agent-sdk@0.3.179, LiteLLM proxy pin <= 1.82.6, FORBIDDEN 1.82.7, 1.82.8",
+          "actions": [ { "type": "waitFor", "selector": "testid:version-pins" } ],
+          "assert": { "selector": "testid:version-pins", "highlight": true },
+          "hold": 4200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Fenced off Anthropic billing · honest per-target harness",
+      "subtitle": "default-deny base URL · full vs lean preset · per-provider capability records",
+      "duration": 2.6
+    }
+  ]
+}

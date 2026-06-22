@@ -1,0 +1,20 @@
+{
+  "slice": "AS-budget",
+  "title": "Budget guard — maxTurns / token-budget ceiling stops and reports rather than looping",
+  "updatedAt": "2026-06-16T22:17:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/agent-sdk-runtime.test.ts",
+      "exit": 0,
+      "summary": "sdk-budget-ok — Budget guard block (2 tests) green: a result with subtype 'error_max_turns' yields stoppedReason 'max_turns' (stop + report); a high-usage result against a low budgetTokens ceiling yields stoppedReason 'budget_exceeded' and breaks the consume loop with usedTokens >= ceiling. SDK sessions have no default turn limit / no timeout, so the adapter caps maxTurns (default 12) and an optional per-session token budget."
+    },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "summary": "tsc --noEmit clean." }
+  },
+  "verdicts": { "sdk-budget-ok": true },
+  "blockers": [],
+  "notes": "Prevents an unbounded loop from burning paid credits on Z.ai/DeepSeek/MiniMax. The ceiling is reported via the structured awaitResponse stoppedReason, not by scraping."
+}

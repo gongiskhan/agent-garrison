@@ -1,0 +1,21 @@
+{
+  "slice": "CO5-coord-cli",
+  "title": "coord observability CLI — status (liveness/activity/plan-lock) + --tail + canary",
+  "updatedAt": "2026-06-22T00:35:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/coord-cli.test.ts", "exit": 0, "summary": "5 passed (canary OK, canary leaves zero records, seeded lock holder+waiter, STALE flag, heartbeat tail)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "summary": "0 errors" },
+    "liveDemo": { "cmd": "co5-observe-demo.sh", "exit": 0, "summary": "liveness Beads UP + agent_mail UP (latency), plan-lock holder sessionA + waiter sessionB, heartbeat tail conflicts=2, COORD-CANARY OK, COORD-OBSERVE OK" },
+    "perfNote": { "status": "ok", "summary": "never parses whole JSONL — stat mtime for liveness + tailLastJsonLine bounded to last 64KB; parses defensively" },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex", "at": "2026-06-22T00:34:00Z", "lastReport": "docs/autothing/slices/CO5-coord-cli/codex-review-r2.json", "overrides": [], "note": "r1 found canary heartbeat-leak -> fixed+tested; r2 approve" },
+    "codexPwTest": { "result": "n/a", "note": "CLI — correctness gate is the committed vitest suite + the live observability demo" },
+    "designAudit": { "verdict": "n/a", "note": "CLI/text only (per scope: no dashboard UI)" },
+    "video": { "status": "verified", "kind": "asciinema", "verifiedAt": "2026-06-22T00:34:00Z", "flagged": false, "cast": "docs/autothing/evidence/coord/co5-observe.cast", "gif": "docs/autothing/evidence/coord/co5-observe.gif", "note": "asciinema of all 5 layers; prints COORD-CANARY OK + COORD-OBSERVE OK" }
+  },
+  "blockers": [],
+  "sentinels": ["COORD-OBSERVE OK", "COORD-CANARY OK"]
+}

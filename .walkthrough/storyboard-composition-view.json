@@ -1,0 +1,99 @@
+{
+  "title": "Holistic Composition View",
+  "project": "agent-garrison",
+  "folder": "composition-view",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Everything the Operative is made of — in one view",
+      "subtitle": "agent-garrison · compose + the Claude Code components, with enable/disable as a real move",
+      "duration": 2.8,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:3401",
+      "startPath": "/compose",
+      "beats": [
+        {
+          "id": "groups",
+          "caption": "The composition, grouped: the roles every agent needs",
+          "expectedScreen": "the Composition overview with an 'Every agent needs these' group containing the essential role tiles, above an 'Optional roles' group",
+          "actions": [
+            { "type": "waitFor", "selector": "text:Claude Code components" }
+          ],
+          "assert": { "selector": "text:Every agent needs these", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "components",
+          "caption": "Plus your Claude Code components — Skills, Hooks, Agent Tools, Plugins",
+          "expectedScreen": "the 'Claude Code components' group with four tiles (Skills, Hooks, Agent Tools, Plugins) showing enabled counts",
+          "assert": { "selector": "[data-testid=\"component-tile-mcp\"]", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "mcps",
+          "caption": "Agent Tools — the MCP servers Claude Code loads from your ~/.claude.json",
+          "expectedScreen": "the MCPs list with hv-demo-mcp and sandbox-mcp rows, each showing an ENABLED badge and a Disable button",
+          "actions": [
+            { "type": "goto", "path": "/quarters/mcps" },
+            { "type": "waitFor", "selector": "[data-testid=\"primitive-mcp:hv-demo-mcp\"]" }
+          ],
+          "assert": { "selector": "[data-testid=\"presence-mcp:hv-demo-mcp\"]", "text": "ENABLED", "highlight": true },
+          "hold": 3600
+        },
+        {
+          "id": "disable",
+          "caption": "Disable — the server is parked out of ~/.claude.json",
+          "expectedScreen": "hv-demo-mcp now showing a PARKED badge and an Enable button; sandbox-mcp still ENABLED",
+          "actions": [
+            { "type": "click", "selector": "[data-testid=\"toggle-mcp:hv-demo-mcp\"]" },
+            { "type": "waitFor", "selector": "button:Enable" }
+          ],
+          "assert": { "selector": "[data-testid=\"presence-mcp:hv-demo-mcp\"]", "text": "PARKED", "highlight": true },
+          "hold": 4000
+        },
+        {
+          "id": "enable",
+          "caption": "Enable — moved back into ~/.claude.json. A real, reversible move",
+          "expectedScreen": "hv-demo-mcp back to an ENABLED badge with a Disable button; sandbox-mcp untouched throughout",
+          "actions": [
+            { "type": "click", "selector": "[data-testid=\"toggle-mcp:hv-demo-mcp\"]" },
+            { "type": "waitFor", "selector": "button:Enable", "state": "detached" }
+          ],
+          "assert": { "selector": "[data-testid=\"presence-mcp:hv-demo-mcp\"]", "text": "ENABLED", "highlight": true },
+          "hold": 4000
+        },
+        {
+          "id": "edit",
+          "caption": "Edit any component in place — changes write through to the on-disk file",
+          "expectedScreen": "the skill editor open on garrison-memory with an edited SKILL.md body, then the skill back in the list",
+          "actions": [
+            { "type": "goto", "path": "/quarters/skills" },
+            { "type": "waitFor", "selector": "[data-testid=\"edit-skill:garrison-memory\"]" },
+            { "type": "click", "selector": "[data-testid=\"edit-skill:garrison-memory\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"file-form\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"file-content\"]" },
+            { "type": "fill", "selector": "[data-testid=\"file-content\"]", "text": "---\nname: garrison-memory\ndescription: edited in the walkthrough\n---\n# edited in place\n" },
+            { "type": "click", "selector": "[data-testid=\"file-save\"]" },
+            { "type": "waitFor", "selector": "[data-testid=\"primitive-skill:garrison-memory\"]" }
+          ],
+          "assert": { "selector": "[data-testid=\"primitive-skill:garrison-memory\"]", "highlight": true },
+          "hold": 3600
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Compose, run — and now see + manage everything",
+      "subtitle": "skills · hooks · agent tools · plugins — enable/disable is a real parked move",
+      "duration": 2.4
+    }
+  ]
+}

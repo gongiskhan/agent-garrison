@@ -11,14 +11,16 @@ interface Project {
 export function NewWorktreeDialog({
   onClose,
   onCreated,
-  onError
+  onError,
+  initialRepoPath
 }: {
   onClose: () => void;
   onCreated: (sessionId: string) => void;
   onError: (message: string) => void;
+  initialRepoPath?: string;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [repoPath, setRepoPath] = useState<string>("");
+  const [repoPath, setRepoPath] = useState<string>(initialRepoPath ?? "");
   const [branch, setBranch] = useState<string>("");
   const [baseBranch, setBaseBranch] = useState<string>("main");
   const [busy, setBusy] = useState(false);
@@ -121,19 +123,25 @@ export function NewWorktreeDialog({
   );
 }
 
-// "Start session": pick a project (or type any absolute path) and get a full
+// "New session": pick a project (or type any absolute path) and get a full
 // tab — session record + Claude PTY + shell PTY — without creating a worktree.
+// With `resume`, the same picker instead launches `claude --continue`, resuming
+// the most recent Claude conversation in the chosen directory.
 export function StartSessionDialog({
   onClose,
   onCreated,
-  onError
+  onError,
+  initialRepoPath,
+  resume = false
 }: {
   onClose: () => void;
   onCreated: (sessionId: string) => void;
   onError: (message: string) => void;
+  initialRepoPath?: string;
+  resume?: boolean;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [path, setPath] = useState<string>("");
+  const [path, setPath] = useState<string>(initialRepoPath ?? "");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -158,7 +166,7 @@ export function StartSessionDialog({
       const res = await fetch("/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: path.trim() })
+        body: JSON.stringify({ path: path.trim(), ...(resume ? { continue: true } : {}) })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -177,10 +185,20 @@ export function StartSessionDialog({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Start session</h2>
+        <h2>{resume ? "Continue session" : "New session"}</h2>
         <p className="modal-help">
-          Opens a tab with a Claude and a shell terminal at the project root.
-          No worktree is created.
+          {resume ? (
+            <>
+              Opens a tab and resumes the most recent Claude conversation in the
+              chosen project with <code>claude --continue</code>. No worktree is
+              created.
+            </>
+          ) : (
+            <>
+              Opens a tab with a Claude and a shell terminal at the project root.
+              No worktree is created.
+            </>
+          )}
         </p>
         <label className="modal-label">
           Project
@@ -211,7 +229,7 @@ export function StartSessionDialog({
         <div className="modal-row">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn primary" onClick={() => void submit()} disabled={busy || !path.trim()}>
-            {busy ? "Starting…" : "Start"}
+            {busy ? (resume ? "Continuing…" : "Starting…") : (resume ? "Continue" : "Start")}
           </button>
         </div>
       </div>
@@ -242,6 +260,113 @@ export function ConfirmDeleteDialog({
         <div className="modal-row">
           <button type="button" className="btn" onClick={onClose} autoFocus>Cancel</button>
           <button type="button" className="btn danger" onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Dev Env settings — tab-monitoring exclusions. One glob/segment pattern per
+// line; cwds matching any line are kept out of the tab strip (and not
+// auto-created from hooks). Server-persisted, so it applies across every
+// client. Autosaves on edit (debounced) — no Save button, per the Garrison
+// config convention; "Done" just closes.
+export function SettingsDialog({
+  onClose,
+  onError
+}: {
+  onClose: () => void;
+  onError: (message: string) => void;
+}) {
+  const [text, setText] = useState<string>("");
+  const [defaults, setDefaults] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/settings/excludes");
+        const data = await res.json();
+        if (Array.isArray(data.patterns)) setText(data.patterns.join("\n"));
+        if (Array.isArray(data.defaults)) setDefaults(data.defaults);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoaded(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced autosave once the initial load has happened.
+  useEffect(() => {
+    if (!loaded) return;
+    setSaveState("saving");
+    const handle = window.setTimeout(() => { void save(text); }, 500);
+    return () => window.clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, loaded]);
+
+  async function save(value: string) {
+    const patterns = value.split("\n").map((l) => l.trim()).filter(Boolean);
+    try {
+      const res = await fetch("/settings/excludes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patterns })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        onError(data?.error ?? `HTTP ${res.status}`);
+        setSaveState("idle");
+        return;
+      }
+      setSaveState("saved");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      setSaveState("idle");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Settings</h2>
+        <p className="modal-help">
+          Tab exclusions — cwds matching any line stay out of the tab strip and
+          aren't tracked from hooks. One pattern per line. <code>**</code>/<code>*</code>{" "}
+          are globs; a plain word (e.g. <code>memory-compiler</code>) matches that
+          path segment anywhere. A session with a live terminal here always shows,
+          regardless. Changes save automatically.
+        </p>
+        <label className="modal-label">
+          Excluded paths
+          <textarea
+            className="settings-textarea"
+            spellCheck={false}
+            value={text}
+            placeholder={"**/fittings/**\nmemory-compiler\n.claude"}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+            rows={10}
+          />
+        </label>
+        <div className="settings-foot">
+          <span className="settings-status">
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : ""}
+          </span>
+          {defaults.length > 0 && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setText(defaults.join("\n"))}
+              title="Reset to the built-in default exclusions"
+            >
+              Reset to defaults
+            </button>
+          )}
+          <button type="button" className="btn primary" onClick={onClose}>Done</button>
         </div>
       </div>
     </div>

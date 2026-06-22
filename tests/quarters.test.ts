@@ -3,9 +3,10 @@ import { QUARTERS_CATEGORIES, QUARTERS_SLUGS, categoryBySlug, WRITER_LABEL } fro
 import { runQuartersAction } from "@/lib/quarters";
 
 describe("quartersTypes", () => {
-  it("declares 10 categories with unique slugs", () => {
-    expect(QUARTERS_CATEGORIES).toHaveLength(10);
-    expect(new Set(QUARTERS_SLUGS).size).toBe(10);
+  it("declares 11 categories with unique slugs (10 config-plane + agentsdk runtime)", () => {
+    expect(QUARTERS_CATEGORIES).toHaveLength(11);
+    expect(new Set(QUARTERS_SLUGS).size).toBe(11);
+    expect(categoryBySlug("agentsdk")).toBeDefined();
   });
 
   it("includes the brief's named categories", () => {

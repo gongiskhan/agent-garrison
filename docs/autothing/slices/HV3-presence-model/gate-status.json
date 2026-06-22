@@ -1,0 +1,50 @@
+{
+  "slice": "HV3-presence-model",
+  "title": "Presence axis + active\u222aparked union",
+  "updatedAt": "2026-06-20T07:04:38Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "vitest run tests/presence-model.test.ts",
+      "exit": 0,
+      "at": "2026-06-20T07:04:38Z",
+      "summary": "2 passed (union, plugin presence, apm files)"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-20T07:04:38Z",
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "eslint",
+      "exit": 0,
+      "at": "2026-06-20T07:04:38Z",
+      "summary": "clean"
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.5",
+      "at": "2026-06-20T07:04:38Z",
+      "lastReport": "docs/autothing/slices/HV-backend/codex-review-r2.json",
+      "overrides": []
+    }
+  },
+  "video": {
+    "status": "verified",
+    "verifiedAt": "2026-06-20T07:47:43Z",
+    "flagged": false,
+    "link": "http://100.108.210.116:8099/agent-garrison/composition-view/2026-06-20_08-41-41/final.mp4",
+    "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/composition-view/2026-06-20_08-41-41",
+    "notes": "UI-facing acceptance covered by the HV10 consolidated walkthrough (verified)"
+  },
+  "tokens": "presence-union-ok",
+  "blockers": []
+}

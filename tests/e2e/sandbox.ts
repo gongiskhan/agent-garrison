@@ -59,11 +59,26 @@ export function seedSandbox(): void {
   fs.mkdirSync(plansDir, { recursive: true });
   fs.writeFileSync(path.join(plansDir, "example-plan.md"), "# Example plan\n\nstep one.\n");
 
-  // An MCP server for the Quarters -> MCPs surface.
+  // MCP servers for the Quarters -> MCPs ("Agent Tools") surface. The REAL source
+  // Claude Code reads is ~/.claude.json (HV wave); the in-home mcp.json is the
+  // empty legacy file. We seed the authoritative source (with a sibling key so the
+  // walkthrough can show sibling preservation across a disable), and a dedicated
+  // server the composition-view spec toggles enable/disable. mcp.json stays empty.
   fs.writeFileSync(
-    path.join(CLAUDE_SANDBOX, "mcp.json"),
-    JSON.stringify({ mcpServers: { "sandbox-mcp": { command: "echo" } } }, null, 2)
+    path.join(CLAUDE_SANDBOX, ".claude.json"),
+    JSON.stringify(
+      {
+        oauthAccount: { account: "sandbox-user" },
+        mcpServers: {
+          "sandbox-mcp": { command: "echo" },
+          "hv-demo-mcp": { command: "echo", args: ["demo"] }
+        }
+      },
+      null,
+      2
+    )
   );
+  fs.writeFileSync(path.join(CLAUDE_SANDBOX, "mcp.json"), JSON.stringify({ mcpServers: {} }, null, 2));
 
   // Plugins surface (Quarters -> Plugins): Claude-Code-managed installs.
   fs.mkdirSync(path.join(CLAUDE_SANDBOX, "plugins"), { recursive: true });

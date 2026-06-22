@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-11T10:06:26.709419+00:00'
+generated_at: '2026-06-21T07:35:36.986105+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: _local/artifact-store
@@ -8,12 +8,22 @@ dependencies:
   - .claude/skills/artifact-store
   source: local
   local_path: ../../fittings/seed/artifact-store
+- repo_url: _local/basic-memory
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-memory
+  source: local
+  local_path: ../../fittings/seed/basic-memory
 - repo_url: _local/browser-default
   package_type: apm_package
   deployed_files:
   - .claude/skills/garrison-browser
   source: local
   local_path: ../../fittings/seed/browser-default
+- repo_url: _local/codex-runtime
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/codex-runtime
 - repo_url: _local/deepgram-voice
   package_type: invalid
   source: local
@@ -22,14 +32,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
-- repo_url: _local/garrison-orchestrator
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/garrison-orchestrator.md
-  deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:b342b142520bbe5809dd2619feb9406a4add88fb78cb04d178fee6a4c12e3a46
+- repo_url: _local/gemini-runtime
+  package_type: invalid
   source: local
-  local_path: ../../fittings/seed/garrison-orchestrator
+  local_path: ../../fittings/seed/gemini-runtime
 - repo_url: _local/http-gateway
   package_type: apm_package
   deployed_files:
@@ -38,16 +44,32 @@ dependencies:
     .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
   source: local
   local_path: ../../fittings/seed/http-gateway
-- repo_url: _local/memory
+- repo_url: _local/improver
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/improver
+- repo_url: _local/knowledge
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/knowledge
+- repo_url: _local/model-router
   package_type: apm_package
   deployed_files:
-  - .claude/skills/garrison-memory
+  - .claude/commands/model-router.md
+  deployed_file_hashes:
+    .claude/commands/model-router.md: sha256:e14d809b085f31c5c49abab081ba738cb5e0fa0b289bc1f3238422a01faf34ac
   source: local
-  local_path: ../../fittings/seed/memory
+  local_path: ../../fittings/seed/model-router
 - repo_url: _local/monitor-default
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/scheduler
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/scheduler
+  source: local
+  local_path: ../../fittings/seed/scheduler
 - repo_url: _local/screen-share-default
   package_type: invalid
   source: local
@@ -65,6 +87,10 @@ dependencies:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local
   local_path: ../../fittings/seed/trello-data-source
+- repo_url: _local/vault-git-sync
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/vault-git-sync
 - repo_url: _local/web-channel-default
   package_type: invalid
   source: local

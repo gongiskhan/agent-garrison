@@ -1,0 +1,13 @@
+{"version":3,"term":{"cols":80,"rows":24},"timestamp":1782083621,"command":"bash docs/autothing/evidence/coord/co3-plan-gate-demo.sh","env":{"SHELL":"/bin/zsh"}}
+[0.015, "o", "\r\n\u001b[1;36m== PLAN-GATE — only one session plans a repo at a time (stdio MCP) ==\u001b[0m\r\n"]
+[0.508, "o", "repo = /tmp/garrison-coord-demo-repo\r\n"]
+[0.406, "o", "\r\n\u001b[1;36m== 1. Session A: begin_planning -> GRANTED (acquires the lock) ==\u001b[0m\r\n"]
+[0.559, "o", " \"status\": \"GRANTED\",\r\n     \"summary\": \"refactor the capability resolver\",\r\n"]
+[0.607, "o", "\r\n\u001b[1;36m== 2. Session B: begin_planning (SAME repo) -> WAIT (A holds it) ==\u001b[0m\r\n"]
+[0.548, "o", " \"status\": \"WAIT\",\r\n \"message\": \"Another session is planning /tmp/garrison-coord-demo-repo. WAIT and re-check; do not start planning.\",\r\n  \"session\": \"A\",\r\n  \"summary\": \"refactor the capability resolver\",\r\n"]
+[0.812, "o", "\r\n\u001b[1;36m== 3. Session A: end_planning -> RELEASED ==\u001b[0m\r\n"]
+[0.570, "o", " \"status\": \"RELEASED\",\r\n"]
+[0.608, "o", "\r\n\u001b[1;36m== 4. Session B: begin_planning -> GRANTED, read-bundle CONTAINS A's plan ==\u001b[0m\r\n"]
+[0.572, "o", " \"status\": \"GRANTED\",\r\n  \"session\": \"B\",\r\n  \"releasedPlan\": {\r\n   \"session\": \"A\",\r\n   \"summary\": \"refactor the capability resolver\",\r\n    \"session\": \"A\",\r\n    \"summary\": \"refactor the capability resolver\",\r\n     \"session\": \"B\",\r\n"]
+[0.808, "o", "\r\n\u001b[1;36m== PLAN-GATE OK ==\u001b[0m\r\n"]
+[0.514, "x", "0"]

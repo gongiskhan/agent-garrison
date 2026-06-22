@@ -11,9 +11,16 @@ export const facultyIds = [
   "orchestrator",
   "channels",
   "gateway",
+  // runtimes + surfaces split out of the overloaded `sessions` role
+  // (2026-06-18): runtimes = alternative execution engines (Agent SDK, Codex,
+  // Gemini) behind the uniform runtime bridge; surfaces = the auxiliary
+  // own-port live viewers (screen share, standalone browser, remote Outpost).
+  // `sessions` keeps the primary Dev Env surface + artifact store.
+  "runtimes",
   "memory",
   "observability",
-  "sessions"
+  "sessions",
+  "surfaces"
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -104,6 +111,12 @@ export interface FacultyDefinition {
   shapes: FittingShape[];
   notes: string;
   governing?: boolean;
+  // Essential tier (HV wave): the roles every running agent genuinely needs —
+  // the brain (orchestrator), persistence (memory), interface (channels), and
+  // transport/execution path (gateway). Grouped under "Every agent needs these"
+  // in the Compose grid; the rest are optional. Purely presentational — does not
+  // affect capability resolution.
+  essential?: boolean;
 }
 
 export interface ConfigSchemaField {

@@ -13,6 +13,21 @@ import crypto from "node:crypto";
 export interface AtomicWriteOpts {
   encoding?: BufferEncoding;
   mode?: number;
+  // Optimistic-concurrency guard. When set, the destination is re-read at the
+  // TIGHTEST possible point — immediately before the rename — and if its current
+  // content differs from `priorContent` the write is aborted (CasMismatchError,
+  // temp file cleaned up) rather than clobbering a concurrent writer's change.
+  // `priorContent: null` expects the file to be absent. This shrinks the
+  // lost-update window for a shared file (e.g. ~/.claude.json, which a running
+  // Claude Code rewrites) to the single read→rename syscall gap.
+  cas?: { priorContent: string | null };
+}
+
+export class CasMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CasMismatchError";
+  }
 }
 
 // Write `data` to `absPath` atomically: write a sibling temp file on the SAME
@@ -63,6 +78,28 @@ export async function writeFileAtomic(
   } finally {
     await fh.close();
   }
+  // Optimistic-concurrency check at the tightest point: re-read the destination
+  // immediately before the rename and abort if it changed since the caller read
+  // it. This does NOT make the read→rename gap zero (a concurrent rename in that
+  // microsecond window can still race), but it shrinks the lost-update window to
+  // the minimum achievable without OS-level locking the other writer respects.
+  if (opts.cas) {
+    let current: string | null;
+    try {
+      current = await fs.readFile(finalPath, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") current = null;
+      else {
+        await fs.rm(tmpPath, { force: true }).catch(() => {});
+        throw err;
+      }
+    }
+    if (current !== opts.cas.priorContent) {
+      await fs.rm(tmpPath, { force: true }).catch(() => {});
+      throw new CasMismatchError(`destination ${finalPath} changed since read — aborting to avoid a lost update`);
+    }
+  }
+
   try {
     await fs.rename(tmpPath, finalPath);
   } catch (err) {

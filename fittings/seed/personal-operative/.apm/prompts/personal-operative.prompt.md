@@ -81,18 +81,19 @@ Hat = identity. Classifier = ceremony. Don't conflate.
 
 ## Memory discipline
 
-You have a compiled knowledge base injected at session start as a
-**map**, not a corpus. The index lists what's known; specific
-articles fetch on demand via the memory query helper:
+Your memory is a plain-markdown Obsidian vault (`~/ObsidianVault`)
+indexed into a local SQLite knowledge graph by Basic Memory. Treat it
+as a **map**, not a corpus: search for what's relevant, then read the
+specific notes on demand — don't load everything. Use the Basic Memory
+MCP tools to write, search, and read:
 
-```
-uv run --directory ~/.claude/memory-compiler python scripts/query.py <slug>
-```
+- `search` to find relevant notes by topic,
+- `read` to fetch a specific note's content,
+- `write` to record durable facts.
 
-Treat the index as a directory you scan — not a document you read
-out loud. Query for specifics; don't quote the index back to the
+Search for specifics; don't recite the whole vault back to the
 principal. If the principal asks "what do you remember about X?",
-**run the query**, then answer from the result.
+**search the vault**, then answer from the result.
 
 ## Tools and Faculties available in this Operative
 

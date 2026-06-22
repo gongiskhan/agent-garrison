@@ -1,47 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { Play, Square } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { RunConsole } from "@/components/run/RunPanel";
 import { faculties } from "@/lib/faculties";
 import type { RunnerState } from "@/lib/types";
 
-interface LogEvent {
-  ts: string;
-  stream: "runner" | "stdout" | "stderr" | "input";
-  message: string;
-}
-
 export function GarrisonHome() {
-  const {
-    composition,
-    runnerState,
-    vaultNeedsPassword,
-    runAction,
-    busy
-  } = useAppShell();
-
-  const [tail, setTail] = useState<LogEvent[]>([]);
-  const sourceRef = useRef<EventSource | null>(null);
-
-  useEffect(() => {
-    if (!composition?.id) return;
-    const source = new EventSource(`/api/runner/${composition.id}/logs`);
-    sourceRef.current = source;
-    source.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data) as LogEvent;
-        setTail((current) => [...current.slice(-4), parsed]);
-      } catch {
-        /* ignore */
-      }
-    };
-    return () => {
-      source.close();
-      sourceRef.current = null;
-    };
-  }, [composition?.id]);
+  const { composition, runnerState, vaultNeedsPassword, runAction, busy } = useAppShell();
 
   if (!composition) {
     return (
@@ -75,7 +43,7 @@ export function GarrisonHome() {
       <div className="crumbs">
         <b>Garrison</b>
       </div>
-      <div className="page">
+      <div className="page dash">
         <div className="hero">
           <div>
             <div className="font-mono" style={{ color: "var(--mute)", letterSpacing: "0.16em", fontSize: 10.5, textTransform: "uppercase" }}>
@@ -89,9 +57,15 @@ export function GarrisonHome() {
             </p>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-            <Link className="btn primary" href="/run">
-              <span className="ic">▶</span>Run panel
-            </Link>
+            <button className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
+              <span className="ic"><Play size={14} aria-hidden /></span>
+              {isRunning ? "Restart Operative" : "Run the Operative"}
+            </button>
+            {isRunning ? (
+              <button className="btn danger" onClick={() => void runAction("down")} disabled={Boolean(busy)}>
+                <span className="ic"><Square size={13} aria-hidden /></span>Stop
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -129,252 +103,126 @@ export function GarrisonHome() {
           </div>
         ) : null}
 
-        <div
+        <article
           style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 380px",
-            gap: 24,
-            alignItems: "start"
+            border: "1px solid var(--rule)",
+            background: "white"
           }}
         >
-          <div>
-            <article
-              style={{
-                border: "1px solid var(--rule)",
-                background: "white"
-              }}
-            >
-              <div
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              alignItems: "center",
+              gap: 16,
+              padding: "18px 22px"
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <h2
+                className="font-display"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto",
-                  alignItems: "center",
-                  padding: "18px 22px",
-                  borderBottom: "1px solid var(--rule)"
+                  fontWeight: 600,
+                  fontSize: 22,
+                  letterSpacing: "-0.008em",
+                  margin: 0
                 }}
               >
-                <div>
-                  <h2
-                    className="font-display"
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 22,
-                      letterSpacing: "-0.008em",
-                      margin: 0
-                    }}
-                  >
-                    {composition.name}
-                  </h2>
-                  <div
-                    className="font-mono"
-                    style={{
-                      fontSize: 11,
-                      color: "var(--mute)",
-                      marginTop: 4,
-                      letterSpacing: "0.04em",
-                      wordBreak: "break-all"
-                    }}
-                  >
-                    composition · {composition.manifestPath}
-                  </div>
-                </div>
-                <span className={clsx("pill", isRunning && "live", statusToneClass(status))}>
-                  {isRunning ? <span className="dot" /> : null}
-                  {status}
-                </span>
-              </div>
-
+                {composition.name}
+              </h2>
               <div
+                className="font-mono"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)",
-                  borderBottom: "1px solid var(--rule)"
+                  fontSize: 11,
+                  color: "var(--mute)",
+                  marginTop: 4,
+                  letterSpacing: "0.04em",
+                  wordBreak: "break-all"
                 }}
               >
-                <Stat
-                  label="Status"
-                  value={status}
-                  tone={isRunning ? "ok" : "default"}
-                  sub={runnerState?.startedAt ? `since ${shortTime(runnerState.startedAt)}` : undefined}
-                />
-                <Stat
-                  label="Verify"
-                  value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "—"}
-                  tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
-                  sub={verifyTotal ? "all hooks pass" : "not run"}
-                />
-                <Stat
-                  label="Faculties"
-                  value={`${stationed} / ${faculties.length}`}
-                  sub="stationed"
-                />
-                <Stat
-                  label="PID"
-                  value={runnerState?.pid ? String(runnerState.pid) : "—"}
-                  mono
-                  sub="claude code"
-                />
+                composition · {composition.manifestPath}
               </div>
-
-              <div
-                style={{
-                  padding: "16px 22px 18px",
-                  background: "var(--paper)",
-                  borderTop: "1px solid var(--rule)"
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 8
-                  }}
-                >
-                  <h4
-                    className="font-mono"
-                    style={{
-                      fontSize: 10.5,
-                      letterSpacing: "0.16em",
-                      textTransform: "uppercase",
-                      color: "var(--mute)",
-                      fontWeight: 500,
-                      margin: 0
-                    }}
-                  >
-                    Last log lines
-                  </h4>
-                  <Link
-                    href="/run"
-                    style={{ fontSize: 11.5, color: "var(--ink)", textDecoration: "underline" }}
-                  >
-                    open Run →
-                  </Link>
-                </div>
-                <div
-                  className="font-mono"
-                  style={{
-                    fontSize: 11.5,
-                    lineHeight: 1.7,
-                    background: "#0f1612",
-                    color: "#d7e3dc",
-                    padding: "12px 14px",
-                    overflow: "hidden"
-                  }}
-                >
-                  {tail.length === 0 ? (
-                    <div style={{ color: "#7f9188" }}>
-                      No log lines yet. Press Run to start the operative.
-                    </div>
-                  ) : (
-                    tail.map((event, i) => (
-                      <div
-                        key={`${event.ts}-${i}`}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "76px 56px 1fr",
-                          gap: 10
-                        }}
-                      >
-                        <span style={{ color: "#6f8076" }}>{event.ts.split("T")[1]?.replace(/Z?$/, "")}</span>
-                        <span style={{ color: streamColor(event.stream), fontWeight: 600 }}>
-                          {event.stream}
-                        </span>
-                        <span style={{ wordBreak: "break-word" }}>{event.message}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto",
-                  gap: 12,
-                  alignItems: "center",
-                  padding: "14px 22px",
-                  borderTop: "1px solid var(--rule)"
-                }}
-              >
-                <div className="font-mono" style={{ color: "var(--mute)", fontSize: 11 }}>
-                  {isRunning
-                    ? "process survives tab close · Stop ends it cleanly"
-                    : "press Run to install Fittings, verify, and start the Operative"}
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button
-                    className="btn small ghost"
-                    onClick={() => void runAction("verify")}
-                    disabled={Boolean(busy)}
-                  >
-                    Verify
-                  </button>
-                  {isRunning ? (
-                    <button
-                      className="btn small danger"
-                      onClick={() => void runAction("down")}
-                      disabled={Boolean(busy)}
-                    >
-                      Stop
-                    </button>
-                  ) : null}
-                  <button
-                    className="btn small primary"
-                    onClick={() => void runAction("up")}
-                    disabled={Boolean(busy)}
-                  >
-                    {isRunning ? "Restart" : "Run"}
-                  </button>
-                </div>
-              </div>
-            </article>
+            </div>
+            <span className={clsx("pill", isRunning && "live", statusToneClass(status))}>
+              {isRunning ? <span className="dot" /> : null}
+              {status}
+            </span>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <Panel title="Quick actions" tight>
-              <Quick href="/compose" nm="Tune the composition" sm={`Add or change Fittings · ${faculties.length} stations`} />
-              <Quick href="/armory" nm="Browse the Armory" sm="Curated Fittings registry" />
-              <Quick
-                href="/vault"
-                nm="Vault"
-                sm={vaultNeedsPassword ? "Password not set" : "Secrets are encrypted"}
-                alarm={vaultNeedsPassword}
-              />
-            </Panel>
-
-            <Panel title="Composition · readiness">
-              <ReadyRow label="Faculties stationed" value={`${stationed} / ${faculties.length}`} />
-              <ReadyRow
-                label="Capability wiring"
-                value={composition.capabilityIssues.length === 0 ? "resolved" : `${composition.capabilityIssues.length} issue${composition.capabilityIssues.length === 1 ? "" : "s"}`}
-                tone={composition.capabilityIssues.length === 0 ? "ok" : "alarm"}
-              />
-              <ReadyRow
-                label="Vault password"
-                value={vaultNeedsPassword ? "not set" : "set"}
-                tone={vaultNeedsPassword ? "alarm" : "ok"}
-              />
-              <ReadyRow
-                label="Verify hooks"
-                value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "not run"}
-                tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
-              />
-            </Panel>
-
-            {composition.derivedTasks ? (
-              <Panel title={`Tasks · derived from ${prettySource(composition.derivedTasks.source)}`}>
-                <div className="font-mono" style={{ color: "var(--mute)", fontSize: 11.5, marginBottom: 8 }}>
-                  truth file · {composition.derivedTasks.truthFile}
-                </div>
-                <div style={{ fontSize: 13, color: "var(--mute)" }}>
-                  The stationed data source declares the truth file; the derived Tasks Faculty
-                  follows it automatically.
-                </div>
-              </Panel>
-            ) : null}
+          <div className="dash-stats">
+            <Stat
+              label="Status"
+              value={status}
+              tone={isRunning ? "ok" : "default"}
+              sub={runnerState?.startedAt ? `since ${shortTime(runnerState.startedAt)}` : undefined}
+            />
+            <Stat
+              label="Verify"
+              value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "—"}
+              tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
+              sub={verifyTotal ? "all hooks pass" : "not run"}
+            />
+            <Stat
+              label="Faculties"
+              value={`${stationed} / ${faculties.length}`}
+              sub="stationed"
+            />
+            <Stat
+              label="PID"
+              value={runnerState?.pid ? String(runnerState.pid) : "—"}
+              mono
+              sub="claude code"
+            />
           </div>
+        </article>
+
+        <div className="dash-panels">
+          <Panel title="Quick actions" tight>
+            <Quick href="/compose" nm="Tune the composition" sm={`Add or change Fittings · ${faculties.length} stations`} />
+            <Quick href="/quarters" nm="Quarters" sm="Skills, hooks, MCPs, settings" />
+            <Quick
+              href="/vault"
+              nm="Vault"
+              sm={vaultNeedsPassword ? "Password not set" : "Secrets are encrypted"}
+              alarm={vaultNeedsPassword}
+            />
+          </Panel>
+
+          <Panel title="Composition · readiness">
+            <ReadyRow label="Faculties stationed" value={`${stationed} / ${faculties.length}`} />
+            <ReadyRow
+              label="Capability wiring"
+              value={composition.capabilityIssues.length === 0 ? "resolved" : `${composition.capabilityIssues.length} issue${composition.capabilityIssues.length === 1 ? "" : "s"}`}
+              tone={composition.capabilityIssues.length === 0 ? "ok" : "alarm"}
+            />
+            <ReadyRow
+              label="Vault password"
+              value={vaultNeedsPassword ? "not set" : "set"}
+              tone={vaultNeedsPassword ? "alarm" : "ok"}
+            />
+            <ReadyRow
+              label="Verify hooks"
+              value={verifyTotal ? `${verifyOk} / ${verifyTotal}` : "not run"}
+              tone={verifyTotal && verifyOk === verifyTotal ? "ok" : "default"}
+            />
+          </Panel>
+
+          {composition.derivedTasks ? (
+            <Panel title={`Tasks · derived from ${prettySource(composition.derivedTasks.source)}`}>
+              <div className="font-mono" style={{ color: "var(--mute)", fontSize: 11.5, marginBottom: 8 }}>
+                truth file · {composition.derivedTasks.truthFile}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--mute)" }}>
+                The stationed data source declares the truth file; the derived Tasks Faculty
+                follows it automatically.
+              </div>
+            </Panel>
+          ) : null}
         </div>
+
+        <hr style={{ border: "none", borderTop: "1px solid var(--rule)", margin: "26px 0 22px" }} />
+
+        <RunConsole />
       </div>
     </main>
   );
@@ -394,7 +242,7 @@ function Stat({
   mono?: boolean;
 }) {
   return (
-    <div style={{ padding: "14px 22px", borderRight: "1px solid var(--rule)" }}>
+    <div style={{ padding: "14px 22px" }}>
       <div
         className="font-mono"
         style={{
@@ -561,13 +409,6 @@ function shortTime(iso: string): string {
   }
 }
 
-function streamColor(stream: LogEvent["stream"]): string {
-  if (stream === "stderr") return "#c8513f";
-  if (stream === "runner") return "#d8a82e";
-  if (stream === "input") return "#9aa39c";
-  return "#74a385";
-}
-
 function statusToneClass(status: RunnerState["status"] | string | undefined): string {
   if (status === "running") return "";
   if (status === "failed") return "alarm";
@@ -583,7 +424,7 @@ function operativeSummary(status: string, verifyTotal: number, verifyOk: number)
   if (status === "running") {
     return verifyTotal && verifyOk === verifyTotal
       ? "One operative running. Verify clean. Heartbeat keeps the loop ticking."
-      : "One operative running. Verify partial — open Run for hook-by-hook detail.";
+      : "One operative running. Verify partial — see the run console below for hook-by-hook detail.";
   }
   if (status === "starting" || status === "verifying") {
     return "Bringing the operative up. APM install in progress, verify pending.";
@@ -592,7 +433,7 @@ function operativeSummary(status: string, verifyTotal: number, verifyOk: number)
     return "Tearing down. Materialised .env will be wiped when this completes.";
   }
   if (status === "failed") {
-    return "Last run ended in failure. Check the Run panel for the runtime log.";
+    return "Last run ended in failure. See the run console below for the runtime log.";
   }
   return "Operative is idle. Press Run to install Fittings, verify, and start it.";
 }

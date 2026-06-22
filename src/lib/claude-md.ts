@@ -5,8 +5,8 @@ import { claudeHome } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
 
 // Host-config editor for CLAUDE.md (user + project scope). Garrison manages
-// these durable, hand-authored guidance files directly; the episodic
-// memory-compiler (fittings/seed/memory) is a SEPARATE store and is untouched.
+// these durable, hand-authored guidance files directly; the Basic Memory
+// store (fittings/seed/basic-memory) is a SEPARATE store and is untouched.
 //
 // Never-clobber: writes carry the sha the client last read; if the file changed
 // underneath (edited outside Garrison), the write is refused as a conflict

@@ -1,0 +1,20 @@
+{
+  "slice": "CO4-hook",
+  "title": "coord digest/nudge command hook (SessionStart + UserPromptSubmit) + heartbeat log",
+  "updatedAt": "2026-06-22T00:35:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/coord-hook.test.ts", "exit": 0, "summary": "5 passed (nudge+heartbeat, conflict surfaced on UserPromptSubmit, fail-open on malformed, installer idempotent/owner-tagged/clobber-abort)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "summary": "0 errors" },
+    "ptySafe": { "status": "ok", "summary": "command-type hook only; no model call; reuses mechanical digest (file scans). No claude -p / Agent-SDK path." },
+    "codexReview": { "verdict": "approve", "rounds": 1, "by": "codex", "at": "2026-06-22T00:31:00Z", "lastReport": "docs/autothing/slices/CO4-hook/codex-review-r1.json", "overrides": [] },
+    "codexPwTest": { "result": "n/a", "note": "command hook — correctness gate is the committed vitest suite" },
+    "designAudit": { "verdict": "n/a", "note": "no UI" },
+    "video": { "status": "verified", "kind": "asciinema", "note": "covered by the CO5 observability demo (co5-observe.cast) which fires the hook + tails heartbeat" }
+  },
+  "blockers": [],
+  "sentinels": ["PTY-SAFE OK"]
+}

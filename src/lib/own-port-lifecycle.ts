@@ -390,6 +390,42 @@ async function stopOwnPortFittingLocked(fittingId: string): Promise<StopResult> 
   return { ok: true, wasRunning: pid !== null, pid };
 }
 
+// Stop-then-start under a single lock so the fresh process never races the old
+// one off the port. The wait-for-exit (with SIGKILL escalation) mirrors the
+// vault-heal path: respawning before the old process releases its port is the
+// EADDRINUSE footgun this exists to avoid. Used by the manual Restart control
+// to reload an own-port Fitting's code without cycling the whole operative —
+// the only reload path for eager (always-on) Fittings, which survive `down`.
+export async function restartOwnPortFitting(
+  entry: LibraryEntry,
+  extraEnv?: Record<string, string>
+): Promise<StartResult> {
+  if (!isValidFittingId(entry.id)) {
+    return { ok: false, error: "invalid fittingId", status: 400 };
+  }
+  return withFittingLock(entry.id, async () => {
+    const stopped = await stopOwnPortFittingLocked(entry.id);
+    if (!stopped.ok) {
+      return { ok: false, error: `restart stop failed: ${stopped.error}`, status: stopped.status ?? 500 };
+    }
+    if (stopped.pid != null) {
+      let exited = await waitForExit(stopped.pid);
+      if (!exited) {
+        try { process.kill(stopped.pid, "SIGKILL"); } catch { /* already gone */ }
+        exited = await waitForExit(stopped.pid, 1500);
+      }
+      if (!exited) {
+        return {
+          ok: false,
+          error: `restart failed: pid ${stopped.pid} survived SIGTERM and SIGKILL; refusing to respawn`,
+          status: 500
+        };
+      }
+    }
+    return startOwnPortFittingLocked(entry, extraEnv);
+  });
+}
+
 export interface HealSummary {
   healed: string[];
   skipped: string[];

@@ -20,15 +20,15 @@ function useRoute():
   return { kind: "list" };
 }
 
-type QualityLevel = "low" | "med" | "high";
+type QualityLevel = "low" | "med" | "high" | "ultra";
 const QUALITY_LS_KEY = "garrison-browser-quality";
 
 function loadQuality(): QualityLevel {
   try {
     const v = window.localStorage.getItem(QUALITY_LS_KEY);
-    if (v === "low" || v === "med" || v === "high") return v;
+    if (v === "low" || v === "med" || v === "high" || v === "ultra") return v;
   } catch {}
-  return "low";
+  return "high";
 }
 
 // ─── Tabs list ─────────────────────────────────────────────────
@@ -108,11 +108,24 @@ function TabsList() {
 
 // ─── Canvas page ──────────────────────────────────────────────
 
-const SPECIAL_KEYS = new Set([
-  "Backspace", "Tab", "Enter", "Escape", "Delete",
-  "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
-  "Home", "End", "PageUp", "PageDown"
-]);
+// Windows virtual key codes for the non-printable keys we forward. CDP's
+// Input.dispatchKeyEvent performs a key's default action (form submit, caret
+// move, char delete, focus traversal) only when windowsVirtualKeyCode is set —
+// without it Chromium sees keyCode 0 and does nothing, which is why Enter never
+// submitted and Backspace/arrows were inert.
+const SPECIAL_KEY_CODES: Record<string, number> = {
+  Backspace: 8, Tab: 9, Enter: 13, Escape: 27, Delete: 46,
+  ArrowLeft: 37, ArrowRight: 39, ArrowUp: 38, ArrowDown: 40,
+  Home: 36, End: 35, PageUp: 33, PageDown: 34
+};
+// Keys that carry text. Enter must deliver "\r" so Chromium emits the keypress
+// that triggers form submission / newline insertion; a bare rawKeyDown (no
+// text) only fires `keydown` and the form is never submitted.
+const SPECIAL_KEY_TEXT: Record<string, string> = { Enter: "\r" };
+const SPECIAL_KEYS = new Set(Object.keys(SPECIAL_KEY_CODES));
+
+type PickTarget = { box: { x: number; y: number; w: number; h: number }; label: string; text: string; selector: string };
+type SelectionInfo = { kind: string; label?: string; text?: string; count?: number; box?: { x: number; y: number; w: number; h: number } };
 
 function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; inShell?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -147,6 +160,17 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   // a dead id can never succeed.
   const [fatalError, setFatalError] = useState<string | null>(null);
   const fatalRef = useRef<string | null>(null);
+
+  // Selection: point the Operative at something instead of describing it.
+  // "pick" = hover-highlight an element, click to select; "region" = drag a box.
+  const [selMode, setSelMode] = useState<"none" | "pick" | "region">("none");
+  const selModeRef = useRef<"none" | "pick" | "region">("none");
+  const [hoverBox, setHoverBox] = useState<{ x: number; y: number; w: number; h: number; label: string } | null>(null);
+  const [regionRect, setRegionRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const regionStartRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const hoverThrottleRef = useRef(0);
+  const [selection, setSelection] = useState<{ kind: string; label?: string; text?: string; count?: number } | null>(null);
+  useEffect(() => { selModeRef.current = selMode; }, [selMode]);
 
   const sendInput = useCallback((msg: object) => {
     const ws = inputWsRef.current;
@@ -338,11 +362,30 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
       scheduleReconnect();
     };
     iws.onmessage = (e) => {
-      let msg: { type: string; editable?: boolean; message?: string };
+      let msg: { type: string; editable?: boolean; message?: string; target?: PickTarget | null; selection?: SelectionInfo | null };
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === "error") {
         fatalRef.current = msg.message || "connection refused";
         setFatalError(fatalRef.current);
+        return;
+      }
+      if (msg.type === "pick-target") {
+        // Convert the server's viewport-CSS box to wrapper coords (the page
+        // viewport is sized to the wrapper, so the scale is ~1).
+        if (selModeRef.current !== "pick" || !msg.target) { setHoverBox(null); return; }
+        const wrap = wrapperRef.current;
+        const rect = wrap?.getBoundingClientRect();
+        const sent = lastSentViewportRef.current;
+        const vw = sent?.width || rect?.width || 1;
+        const vh = sent?.height || rect?.height || 1;
+        const sx = (rect?.width || vw) / vw;
+        const sy = (rect?.height || vh) / vh;
+        const b = msg.target.box;
+        setHoverBox({ x: b.x * sx, y: b.y * sy, w: b.w * sx, h: b.h * sy, label: msg.target.label });
+        return;
+      }
+      if (msg.type === "selection") {
+        setSelection(msg.selection || null);
         return;
       }
       if (msg.type === "focusedField") {
@@ -516,6 +559,24 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   // ─── Pointer / touch handlers ───────────────────────────────
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Pick mode: a click commits the element under the cursor as the selection.
+    if (selMode === "pick") {
+      e.preventDefault();
+      const { x, y } = toViewportCoords(e.clientX, e.clientY);
+      sendInput({ type: "pick-commit", x, y });
+      setSelMode("none");
+      setHoverBox(null);
+      return;
+    }
+    // Region mode: start dragging the box.
+    if (selMode === "region") {
+      e.preventDefault();
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      regionStartRef.current = { clientX: e.clientX, clientY: e.clientY };
+      if (rect) setRegionRect({ x: e.clientX - rect.left, y: e.clientY - rect.top, w: 0, h: 0 });
+      canvasRef.current?.setPointerCapture(e.pointerId);
+      return;
+    }
     e.preventDefault();
     canvasRef.current?.setPointerCapture(e.pointerId);
     const { x, y } = toViewportCoords(e.clientX, e.clientY);
@@ -530,6 +591,26 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (selMode === "pick") {
+      // Throttle the hit-test round-trip; the server replies with a box to
+      // highlight via the pick-target message.
+      const now = performance.now();
+      if (now - hoverThrottleRef.current >= 45) {
+        hoverThrottleRef.current = now;
+        const { x, y } = toViewportCoords(e.clientX, e.clientY);
+        sendInput({ type: "pick-hover", x, y });
+      }
+      return;
+    }
+    if (selMode === "region") {
+      const start = regionStartRef.current;
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      if (!start || !rect) return;
+      const sx = start.clientX - rect.left, sy = start.clientY - rect.top;
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      setRegionRect({ x: Math.min(sx, cx), y: Math.min(sy, cy), w: Math.abs(cx - sx), h: Math.abs(cy - sy) });
+      return;
+    }
     const { x, y } = toViewportCoords(e.clientX, e.clientY);
     sendInput({
       type: "mouse",
@@ -542,6 +623,21 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (selMode === "region") {
+      const start = regionStartRef.current;
+      regionStartRef.current = null;
+      setRegionRect(null);
+      setSelMode("none");
+      try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+      if (start) {
+        const a = toViewportCoords(start.clientX, start.clientY);
+        const b = toViewportCoords(e.clientX, e.clientY);
+        const box = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+        if (box.w >= 4 && box.h >= 4) sendInput({ type: "region-commit", ...box });
+      }
+      return;
+    }
+    if (selMode === "pick") return;
     const { x, y } = toViewportCoords(e.clientX, e.clientY);
     sendInput({
       type: "mouse",
@@ -554,6 +650,25 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* noop */ }
   };
 
+  // Toggle a selection mode; Escape cancels.
+  const toggleSelMode = (m: "pick" | "region") => {
+    setSelMode((cur) => (cur === m ? "none" : m));
+    setHoverBox(null);
+    setRegionRect(null);
+  };
+  const clearSelection = () => {
+    sendInput({ type: "selection-clear" });
+    setSelection(null);
+  };
+  useEffect(() => {
+    if (selMode === "none") return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") { setSelMode("none"); setHoverBox(null); setRegionRect(null); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selMode]);
+
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const { x, y } = toViewportCoords(e.clientX, e.clientY);
@@ -564,8 +679,11 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
       button: "none",
       buttons: 0,
       clickCount: 0,
-      deltaX: -e.deltaX,
-      deltaY: -e.deltaY
+      // CDP's mouseWheel deltaY uses the same sign as the DOM wheel event:
+      // positive scrolls the page down. Pass through unchanged — negating
+      // inverted scrolling, so scrolling down just bounced off the top.
+      deltaX: e.deltaX,
+      deltaY: e.deltaY
     });
   };
 
@@ -574,11 +692,18 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   const onHiddenKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (SPECIAL_KEYS.has(e.key)) {
       e.preventDefault();
+      const keyCode = SPECIAL_KEY_CODES[e.key];
+      const text = SPECIAL_KEY_TEXT[e.key];
       sendInput({
         type: "key",
-        event: "rawKeyDown",
+        // Keys with text (Enter) need a non-raw keyDown so the keypress fires
+        // and the default action — form submit — runs.
+        event: text ? "keyDown" : "rawKeyDown",
         key: e.key,
         code: e.code,
+        text,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
         modifiers: modifierMask(e)
       });
       sendInput({
@@ -586,19 +711,34 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
         event: "keyUp",
         key: e.key,
         code: e.code,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
         modifiers: modifierMask(e)
       });
     } else if (e.key.length === 1 && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
+      // Shortcuts (Ctrl/Cmd+A, +C, …): supply the virtual key code so Chromium
+      // routes the accelerator. ASCII letters/digits map 1:1 to their VK code.
+      const keyCode = e.key.toUpperCase().charCodeAt(0);
       sendInput({
         type: "key",
         event: "rawKeyDown",
         key: e.key,
         code: e.code,
         text: e.key,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
         modifiers: modifierMask(e)
       });
-      sendInput({ type: "key", event: "keyUp", key: e.key, code: e.code, modifiers: modifierMask(e) });
+      sendInput({
+        type: "key",
+        event: "keyUp",
+        key: e.key,
+        code: e.code,
+        windowsVirtualKeyCode: keyCode,
+        nativeVirtualKeyCode: keyCode,
+        modifiers: modifierMask(e)
+      });
     }
     // Printable keys are handled by the input event for IME safety.
   };
@@ -662,16 +802,45 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
           />
         </form>
         <div className="quality-toggle" role="group" aria-label="Stream quality">
-          {(["low", "med", "high"] as QualityLevel[]).map((lvl) => (
+          {(["low", "med", "high", "ultra"] as QualityLevel[]).map((lvl) => (
             <button
               key={lvl}
               type="button"
               className={`opt quality-btn ${quality === lvl ? "active" : ""}`}
               onClick={() => setQuality(lvl)}
-              title={`Stream quality: ${lvl.toUpperCase()}`}
+              title={
+                lvl === "ultra"
+                  ? "Stream quality: ULTRA — full device resolution, as crisp as native Chrome (heavier stream)"
+                  : `Stream quality: ${lvl.toUpperCase()}`
+              }
             >{lvl.toUpperCase()}</button>
           ))}
         </div>
+        <div className="select-toggle" role="group" aria-label="Point the agent at something">
+          <button
+            type="button"
+            className={`opt ${selMode === "pick" ? "active" : ""}`}
+            onClick={() => toggleSelMode("pick")}
+            title="Select an element — hover to highlight, click to pick. The agent can then act on it ('remove this')."
+          >Select</button>
+          <button
+            type="button"
+            className={`opt ${selMode === "region" ? "active" : ""}`}
+            onClick={() => toggleSelMode("region")}
+            title="Draw a region — drag a box over an area for the agent to look at."
+          >Region</button>
+        </div>
+        {selection && (
+          <div className="selection-badge" title="The agent can see this selection (garrison-browser selection)">
+            <span className="sel-dot" />
+            <span className="sel-text">
+              {selection.kind === "region"
+                ? `Region · ${selection.count ?? 0} els`
+                : (selection.label || "element") + (selection.text ? ` "${selection.text.slice(0, 24)}"` : "")}
+            </span>
+            <button className="sel-clear" onClick={clearSelection} title="Clear selection" aria-label="Clear selection">×</button>
+          </div>
+        )}
         {!inShell && <button onClick={openDevTools} title="Chrome DevTools">DevTools</button>}
         {nativeUrl && (
           <a
@@ -690,7 +859,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
           >Detach</button>
         )}
       </div>
-      <div className="canvas-wrapper" ref={wrapperRef}>
+      <div className={`canvas-wrapper${selMode !== "none" ? " selecting" : ""}`} ref={wrapperRef}>
         <canvas
           ref={canvasRef}
           onPointerDown={onPointerDown}
@@ -700,6 +869,14 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
           onWheel={onWheel}
           onContextMenu={(e) => e.preventDefault()}
         />
+        {selMode === "pick" && hoverBox && (
+          <div className="pick-overlay" style={{ left: hoverBox.x, top: hoverBox.y, width: hoverBox.w, height: hoverBox.h }}>
+            <span className="pick-label">{hoverBox.label}</span>
+          </div>
+        )}
+        {selMode === "region" && regionRect && (
+          <div className="region-overlay" style={{ left: regionRect.x, top: regionRect.y, width: regionRect.w, height: regionRect.h }} />
+        )}
         <input
           ref={hiddenInputRef}
           className="hidden-input"

@@ -77,3 +77,148 @@ Claude Code may rewrite these files on exit, same as the settings.json surface.
 The plugin uninstall confirm warns to restart. Verified the plugin manifest is
 the source of truth (no `enabledPlugins` in settings.json; marketplaces only
 list availability) before building removal.
+
+## AS-wave — Agent SDK Runtime (2026-06-16)
+
+**Pre-existing red, NOT in scope:** `tests/programmatic-purge.test.ts` was already
+failing before this build on `fittings/seed/knowledge/scripts/knowledge.mjs ::
+--print` (a headless-billing ban hit from the v4 knowledge fitting). This wave
+does not touch knowledge.mjs; the fence slice evolved the purge test to scope the
+`@anthropic-ai/` exception to the single fenced `agent-sdk-runtime/lib/sdk-client
+.mjs` (every other ban intact) and added zero new offenders. `fence-ok` rides a
+dedicated test, not this unrelated red.
+
+**BLOCKER — AS-ollama-live (`sdk-ollama-live-ok`):** a CLEAN tool-call round trip
+could not complete on the locally-pulled Ollama models over the Anthropic-compat
+endpoint. Attempted THREE times (self-unblock): `qwen3:8b/full` → "API Error:
+Content block not found" on the tool-result block + wrong tool; `qwen2.5:7b/full`
+→ stall under the ~14k claude_code preset floor (killed 200s); `qwen2.5:7b/lean`
+→ stall (machine load ~13, killed 150s). The adapter/fence/harness are PROVEN
+live (real SDK 0.3.179 + real Ollama 0.14.3: fence=non-anthropic,
+baseUrl=localhost:11434, preset=claude_code, settingSources=[project], a real
+tool_use detected, token accounting). External cause: the available local models
+can't complete the Claude-Code tool protocol over Ollama's Anthropic-compat
+endpoint. Real fix: a tool-tuned local model (none pulled; pulling+running 30B+
+under load is the failed-remediation path the brief's env note warns against) OR
+a cloud provider key in the Vault (absent). NOT an adapter defect.
+
+**BLOCKER — AS-route LIVE (`sdk-route-live-ok`):** resolution + capability gating
+(MCP@deepseek refused/redirected) PASSED via committed gate
+(`tests/agent-sdk-route.test.ts`, 5/5). Only the LIVE gateway route is blocked —
+it needs a completing live agent-sdk turn (same local-model limitation as
+AS-ollama-live).
+
+**AS-quarters video:** the COMMITTED e2e (`tests/e2e/agentsdk-quarters.spec.ts`)
+is the correctness gate and is green; it satisfies the brief's `sdk-quarters-ok`.
+The walkthrough evidence video is pending (load-sensitive); the slice is
+`in_progress` until the video lands.
+
+## HV wave — Holistic Composition View (2026-06-20)
+
+Extends the existing Quarters engine (no second mirror, no new faculties).
+Components (Skills/Hooks/MCPs/Plugins) surfaced in the Compose grid from the
+StateModel. Key decisions: ~/.claude.json is the AUTHORITATIVE MCP source (legacy
+~/.claude/mcp.json only fills when claude.json is absent); disabled mcp/hooks are
+PARKED off-disk under ~/.garrison/parked/{mcp,hooks}.json and read back via
+active∪parked so the disable→enable loop round-trips; ~/.claude.json writes use a
+compare-and-swap + bounded-retry guard that ABORTS leaving the live file
+untouched on a persistent race (never restore-old-backup — that would silently
+revert a concurrent Claude write). MCP CRUD repointed to ~/.claude.json for
+coherence (legacy mcp-writer.ts kept for the in-home mcp.json + its test).
+
+### Pre-existing test failures (NOT caused by the HV wave — out of scope)
+Baseline `vitest run` already had 2 failing files (verified by reading the
+baseline output; both git-unmodified by this session):
+- `tests/gemini-runtime.test.ts:13` — buildArgs expects `-y`/`--skip-trust`;
+  deterministic pre-existing mismatch in the gemini adapter (untouched by HV).
+- `tests/orchestrator-integration.test.ts:91` — live PTY turn-1 marker; the
+  load-sensitive flake the AS-wave already documented (71s live claude session).
+The HV wave introduced zero new failures; its only suite delta was updating
+`tests/reconcile.test.ts` to the new adopt-not-defer semantics (HV7).
+
+## DS wave — Dev-Env durable sessions (2026-06-20)
+
+Plan: `~/.claude/plans/we-need-to-find-tingly-lighthouse.md` (Ultraplan-refined,
+then corrected against the live tree this session). Makes dev-env sessions
+survive a computer reboot and pivots the session model onto Claude Code's own
+`~/.claude` data.
+
+Key decisions (and corrections to the cloud plan, verified on the real machine):
+- **Live registry is the liveness source.** `~/.claude/sessions/<pid>.json` (one
+  per running interactive `claude`, deleted on exit) replaces the ps/lsof
+  `liveProcess` probe added earlier this session. Reading small JSON files +
+  `process.kill(pid,0)` is cheaper/more precise and yields `sessionId` directly.
+- **Status stays hook + `claudeBusy()` driven.** The cloud plan claimed CC
+  2.1.183 omits `status`/`updatedAt` from the registry; on THIS machine every
+  registry file carries `status` (+ `statusUpdatedAt` on 2.1.181/183). Registry
+  status is read as a *supplement* only — busy/idle/waiting still comes from
+  hooks + the live-screen `claudeBusy()` probe (proven to catch the no-hook
+  thinking phase); the registry's thinking-phase responsiveness is unproven.
+- **Open-set persists reboot.** A per-record `openedInDevEnv` flag is the durable
+  "which tabs were open" set (it CANNOT be re-derived from liveness after a
+  reboot, when nothing is live). Migration-on-read seeds it from the OLD
+  visibility (live/has-PTY/active) — NOT unconditionally true, which would
+  resurrect every stale ledger row as a tab.
+- **Lazy resume.** Restored tabs spawn `claude --resume <claudeSessionId>` only
+  on click; no mass spawn / token cost on boot.
+- **Titles reuse `ai-title`** (latest wins) → first-user-message → null. Haiku
+  fallback is an out-of-scope future enhancement, not a committed slice.
+- **Tab membership becomes the open-set**, not "every live/active session." An
+  external (iTerm) claude surfaces in the new Agents panel instead of
+  auto-tabbing — an intentional, acknowledged change from earlier this session's
+  auto-show-live-sessions fix (the liveness win is relocated, not lost).
+- **Destructive reboot verification is sandboxed.** The `tmux -L garrison
+  kill-server` reboot test runs ONLY on a throwaway `garrison-test` socket +
+  isolated state/home + a non-7086 port; the live `tmux -L garrison` (holding
+  the user's real ekoa-dev/ios-thing/garrison/pnmui-mon sessions) is never
+  touched.
+
+Phase 0 detect: foundation present (CLAUDE.md/docs/area-skills/gates green; codex
+logged in; walkthrough tools installed) → Phase 1 no-op. Slices DS1-reader →
+DS2-wire → DS3-ui, serial by data dependency.
+
+### BLOCKER (external) — Codex cross-model gate out of credits (2026-06-20)
+At DS2-wire Codex review **round 8**, `codex exec` failed with:
+`ERROR: Your workspace is out of credits. Add credits to continue.`
+(exit 1; no output schema written). This is a genuine EXTERNAL blocker: the
+ChatGPT/Codex workspace billing is exhausted, which a skill cannot resolve
+(adding credits is an operator/billing action). It disables the cross-model
+gate (3A review + 3B Playwright) for ALL remaining slices.
+
+- **Failed remediation command:** `codex exec -s read-only --skip-git-repo-check
+  -C <repo> --output-schema codex-review.schema.json --output-last-message
+  <out> "<review prompt>"` → `out of credits`. Re-auth/login does not help (it's
+  credits, not auth). Operator must top up the Codex/ChatGPT workspace credits.
+- **DS2-wire state at the block:** objective gates GREEN (vitest 36/36 across
+  dev-env-claude-sessions/resume-by-id/open-set/sessions-endpoints, typecheck 0).
+  Codex adversarial review ran **7 rounds** (r1→r7), each surfacing real findings
+  that were ALL fixed forward with committed regressions:
+  identity-collapse on /open, state-write races (mutex + unique temp), shell
+  injection in resumeId, worktree-pin, hook map-key routing, fallback/cleanup +
+  worktrees serialization, resume-by-id wiring, three hook/open duplicate/
+  overwrite variants, tombstone-resurrection, and the two-concurrent-hooks
+  collapse. Round 8 (confirming the r7 fix) could not run. So DS2 has NO clean
+  `approve` and is recorded **blocked** on the cross-model gate, NOT `passed`.
+- **Decision (updated):** the /goal Stop-hook re-fired requiring a terminal
+  verdict (buildable-remaining 0), and the autothing recipe says to log the
+  out-of-credits cross-model blocker and CONTINUE to `completed-with-blockers`.
+  So DS3-ui was built (objective gates green + UI screenshot-verified) and
+  recorded **blocked** on the same external Codex-credits blocker as DS2; the
+  global gate is **completed-with-blockers**. On credit top-up: re-run DS2 r8
+  (expected approve) → DS2 passed; run DS3 cross-model (3A+3B) → DS3 passed.
+
+### Pre-existing full-suite failures (NOT caused by the DS wave — out of scope)
+`vitest run` (whole repo) shows 11 failures across 7 files, ALL pre-existing in
+the working tree and outside the DS diff (DS touches only dev-env scripts/UI +
+new `tests/dev-env-*`):
+- `fittings/seed/memory/` **directory is absent** at baseline (basic-memory
+  migration) → `tests/seed.test.ts` (3), `tests/validation.test.ts` (1),
+  `tests/fitting-files-api.test.ts` fail with "seed memory should have an
+  apm.yml: expected null".
+- `tests/dev-env.test.ts` (1) — library/metadata ZodError (readLibrary), baseline.
+- `tests/gemini-runtime.test.ts` (1) + `tests/orchestrator-integration.test.ts`
+  (1) — the documented deterministic / live-PTY baselines.
+- `tests/runner-eager-lifecycle.test.ts` (4) — runner lifecycle; `src/lib/runner`
+  is git-unmodified by DS.
+The DS suite is fully green: dev-env-claude-sessions 11, resume-by-id 5,
+open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.

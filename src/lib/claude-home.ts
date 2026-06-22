@@ -15,6 +15,25 @@ export function claudeHome(): string {
   return override && override.length > 0 ? override : path.join(homedir(), ".claude");
 }
 
+// Claude Code's user config file `~/.claude.json` — a SIBLING of ~/.claude (not
+// inside it). This is where Claude Code actually reads user-scope `mcpServers`
+// from (the in-`~/.claude` `mcp.json` is a legacy/empty Garrison-era file). The
+// HV wave repoints the MCP surface here. Honors a dedicated override so the
+// sandbox can seed it without touching the live file; otherwise it is the
+// sibling of claudeHome() so GARRISON_CLAUDE_HOME=<tmp>/.claude resolves to
+// <tmp>/.claude.json.
+export function claudeJsonPath(home: string = claudeHome()): string {
+  const override = process.env.GARRISON_CLAUDE_JSON?.trim();
+  if (override && override.length > 0) return override;
+  // Production: ~/.claude → its SIBLING ~/.claude.json. For a sandbox whose home
+  // is NOT named `.claude` (e.g. a bare mkdtemp dir), keep the file INSIDE the
+  // home dir so it can never escape to a shared parent — GARRISON_CLAUDE_HOME
+  // stays fully isolated, and a test that wants the real layout names its home
+  // `<root>/.claude` (or sets GARRISON_CLAUDE_JSON explicitly).
+  if (path.basename(home) === ".claude") return path.join(path.dirname(home), ".claude.json");
+  return path.join(home, ".claude.json");
+}
+
 export function garrisonDir(): string {
   const override = process.env.GARRISON_HOME?.trim();
   return override && override.length > 0 ? override : path.join(homedir(), ".garrison");
