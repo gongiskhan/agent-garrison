@@ -551,3 +551,93 @@ socket + isolated `GARRISON_STATE_PATH`/`GARRISON_CLAUDE_HOME` + a non-7086 port
   `tabs-openset-ok` `agents-panel-ok` `history-resume-ok` `walkthrough-rendered`.
 - **Final:** print each token once, then `GARRISON-DEVENV-SESSIONS OK`, then the
   `GLOBAL GATE:` line.
+
+## COORD wave — Coordination Fittings (Beads + mcp_agent_mail) for cross-session drift prevention (2026-06-21)
+
+Plan-of-record: the autothing brief in session `a04a94d6`. Two coordination
+tools added **as Fittings** so parallel Claude Code sessions (dev worktrees +
+the orchestrator) stop drifting into contradictory architectural decisions.
+Both must be active automatically in **both** run paths — (1) a direct `claude`
+in any repo, (2) the orchestrator session — with no per-project setup.
+
+### Verified facts that shape the build (explore-first, read at the pin)
+- **No `host: external` in Garrison.** Arm's-length external process = `own_port:true`
+  + a status file at `~/.garrison/ui-fittings/<id>.json` (the `herdr` referenced
+  in the brief does not exist — only a deferred note). `coord-agentmail` uses this.
+- **Beads** `github.com/gastownhall/beads` **v1.0.5 @ `6a3f515ced18406c189c55fff789a4925bfaa35c`**,
+  license **pure MIT**. Ships a `beads-mcp` PyPI server BUT its native Claude Code
+  integration is **hook-based** (`bd setup claude` → `SessionStart` runs `bd prime`).
+  `bd` does **not** silently auto-init (errors without `.beads/`, needs `bd init`);
+  its SessionStart hook is **resilient** (exit 3, never blocks) when uninitialized.
+- **mcp_agent_mail** `github.com/Dicklesworthstone/mcp_agent_mail` **@ `de9e6288367e20a8b81e203960da9219ab8aa48f`**,
+  license **MIT + OpenAI/Anthropic rider** (verified verbatim — grants no rights to
+  "Restricted Parties" incl. Anthropic/OpenAI; "use" includes analyzing/incorporating).
+  **Decision: keep it, run strictly arm's-length, never vendor/import into the MIT tree,
+  never wire to Ekoa, and keep its source out of the Codex (OpenAI) gate.** FastMCP
+  HTTP server on `127.0.0.1:8765`; exposes `file_reservation_paths` (TTL≥60s, heartbeat
+  via `renew_file_reservations`, `reason`), `acquire_build_slot`, messaging, identities.
+- **Config scope = user scope.** Garrison writes MCP to `~/.claude.json` (`mcp-user.ts`,
+  guarded CAS) and hooks to `~/.claude/settings.json` (`hooks-crud.ts`, only `type:command`).
+  A direct `claude` anywhere AND the orchestrator (a real `claude` PTY child via
+  `spawnClaude`) read the SAME user-scope files → one install covers both paths.
+- **Faculty mapping:** `memory` faculty, expressed as `setup`/`own_port` session
+  augmentations — **no new capability kind, no manager primitive.** Beads = the
+  per-repo git-backed decision store; agent_mail = cross-session leases/messaging +
+  digest source; the planning-gate tools live in a NEW Garrison-owned MIT MCP server
+  (neither upstream exposes `begin_planning`/`end_planning`).
+- **PTY-safe by construction:** all hooks `command`-type; MCP servers are tools not
+  model-invoking hooks; the canary drives `claude` via `claude-pty`/direct hook
+  invocation, never `claude -p`.
+
+### Slices
+| id | title | kind | route | group | status |
+|----|-------|------|-------|-------|--------|
+| CO1-beads | `coord-beads` Fitting — pin+install `bd`, owner-tagged user-scope SessionStart hook (fail-open, de-dup native), Garrison-core clean teardown; quiet no-op in fresh repos | automation (fitting) | (cli) | CO-serial | passed (vitest 20/20 + validate-fitting PASS + typecheck 0 + sandbox round-trip + fail-open proven; Codex r1→r2→r3 approve; asciinema evidence — `BEADS-FITTING OK`) |
+| CO2-agentmail | `coord-agentmail` own-port Fitting — clone+pin agent_mail external (license-isolated), run FastMCP `:8765`, register http MCP in `~/.claude.json`, status file + clean stop | automation (own-port :8765) | (own-port) | CO-serial | passed (vitest 7/7 incl LIVE supervisor + isolation-guard + typecheck 0 + validate-fitting PASS; Codex r1→r2 approve; asciinema — `AGENTMAIL-FITTING OK` `LICENSE-ISOLATION OK`) |
+| CO3-plan-gate | `coord-mcp` Fitting — Garrison-owned MIT stdio MCP server: `begin_planning`/`end_planning` + read-bundle, per-repo **file mutex** w/ TTL+heartbeat (atomic wx acquire), bounded wait/escalation | mixed (fitting + lib + mcp) | (mcp) | CO-serial | passed (vitest 12/12 + typecheck 0 + validate-fitting PASS + live stdio MCP A/B/A/B sequence; Codex r1→r5 approve [5-round hardening]; asciinema — `PLAN-GATE OK`) |
+| CO4-hook | gap-fill `SessionStart`/`UserPromptSubmit` command hook — begin_planning nudge + repo-scoped digest (conflicts/awareness; lookback 3d weekday/5d Mon/7d weekend) + heartbeat log; fail-open, PTY-safe | mixed (lib + hook) | (hook) | CO-serial | passed (vitest 5/5 + typecheck 0; Codex r1 approve; PTY-safe command-only — `PTY-SAFE OK`) |
+| CO5-coord-cli | `coord` observability CLI — `status` (liveness/activity-by-repo/heartbeat/plan-lock), `status --tail`, `canary` (direct-path self-test) | mixed (cli) | (cli) | CO-serial | passed (vitest 5/5 + typecheck 0 + live 5-layer demo [Beads+agent_mail UP, holder+waiter, heartbeat]; Codex r1→r2 approve; asciinema — `COORD-OBSERVE OK` `COORD-CANARY OK`) |
+| CO6-wiring | selection→user-scope install / deselection→clean removal; prove BOTH paths load coord MCP+hooks (direct fresh repo + orchestrator); PTY-safe + license-isolation audits | mixed (lib) | (lib) | CO-serial | passed (vitest 3/3 production-path + suite 51/52 + typecheck 0; LIVE `claude mcp list` both paths Connected; Codex r1→r2 approve; asciinema — `COORD-WIRING OK` `PTY-SAFE OK` `LICENSE-ISOLATION OK`) |
+| CO7-final | global gate + handover; print all sentinels then `COORD-FITTINGS DONE` | automation | (n/a) | CO-final | passed (full suite 829 pass / 7 pre-existing-baseline; typecheck 0 + lint clean + build 0 [clean .next]; library.json registered; live machine-wide wiring active; globalGate `passed`) |
+
+### Parallel groups (disjoint-file reasoning — logged, not silent)
+- **CO-serial, lead-authored.** Three forces match the prior Q/C/MR-wave precedent:
+  (1) ONE shared gate runtime (single vitest + a sandbox `~/.claude` via the
+  `claude-home.ts` seam) the autothing skill says must serialize; (2) the slices
+  share the `data/library.json` registry + the live-machine config install — parallel
+  authoring would race the registry and the real `~/.claude`; (3) CO3 (the keystone
+  planning gate) is consumed by CO4/CO5, and CO6 needs all Fittings present. CO1↔CO2
+  are the most independent (two distinct fittings) but both mutate one machine's tool
+  install + registry, so they too run serial for safety. Execution: CO1→CO2→CO3→CO4→CO5→CO6→CO7.
+- **Blast-radius discipline:** every hook is built + gated against a **sandbox**
+  `~/.claude` first (never the live one in tests) and is **fail-open** (exit 0 on any
+  error, never blocks a session); the live user-scope install lands only after the
+  sandbox gate is green. Evidence is **asciinema** (CLI/backend), not browser video.
+
+### Acceptance per slice (sentinels lifted verbatim from the brief)
+- **CO1:** `bd --version` resolves at the pin; `bd setup claude` writes a `SessionStart`
+  hook into the sandbox `~/.claude/settings.json`; in a fresh repo with no `.beads/`,
+  the fitting quietly `bd init`s (or relies on the resilient exit-3) — never errors/blocks;
+  uninstall removes exactly what it added → `BEADS-FITTING OK`.
+- **CO2:** the FastMCP server starts as a detached external process, writes
+  `~/.garrison/ui-fittings/coord-agentmail.json`, is reachable on `127.0.0.1:8765`,
+  and is registered as an http MCP server in the sandbox `~/.claude.json`; stop kills
+  the pid + removes the status + MCP entry; dependency graph shows NO import of agent_mail
+  into the MIT tree → `AGENTMAIL-FITTING OK`, `LICENSE-ISOLATION OK`.
+- **CO3:** `begin_planning(repo,summary)` grants a per-repo Beads-backed lock + returns
+  the read-bundle (released plan + recent plans + in-flight intents/leases); a second
+  caller gets **WAIT** (holder + summary + started + expiry); `end_planning` releases;
+  the next caller's read-bundle **contains the prior plan**; TTL+heartbeat auto-releases
+  a stale lock; bounded wait → park+surface in autonomous mode → `PLAN-GATE OK`.
+- **CO4:** the command hook fires on SessionStart/UserPromptSubmit, injects a
+  repo-scoped digest <few hundred tokens, writes one heartbeat line per fire, and
+  composes with bd's hook without double-injecting; PTY-safe (command type).
+- **CO5:** `coord status` shows liveness (Beads CLI + agent_mail HTTP w/ latency),
+  per-session activity grouped by repo (RED if long-running w/ zero writes), heartbeat
+  tail, and plan-lock holder+waiters; `coord canary` declares two conflicting synthetic
+  intents via a **direct** path, asserts the conflict surfaces in injected text, cleans
+  up → `COORD-OBSERVE OK`, `COORD-CANARY OK`.
+- **CO6:** config-path + grep proof that BOTH a direct `claude` in a fresh non-Garrison
+  repo AND an orchestrator session load the coord MCP servers + hooks → `COORD-WIRING OK`,
+  `PTY-SAFE OK`.
+- **CO7:** all sentinels printed once, then `COORD-FITTINGS DONE`, then the `GLOBAL GATE:` line.

@@ -1,0 +1,64 @@
+name: coord-mcp
+version: 0.1.0
+description: >-
+  The coordination planning gate — a Garrison-owned (MIT) stdio MCP server that
+  serializes planning per repo. Exposes begin_planning/end_planning with a per-repo
+  TTL+heartbeat mutex and a read-bundle (the last released plan + recent plans +
+  in-flight intents/leases), plus declare_intent and the repo-scoped digest. This is
+  the highest-stakes coordination guarantee: only one session plans a repo at a time,
+  and the next planner inherits everyone else's context instead of planning blind.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: memory
+  cardinality_hint: single
+  component_shape: cli
+  platforms:
+    - claude-code
+  summary: >-
+    Planning-gate MCP server (MIT, dependency-free). begin_planning grants a per-repo
+    lock + returns the read-bundle, or returns WAIT with the current holder;
+    end_planning releases it. Lock is a file mutex with TTL + heartbeat so a crashed
+    planner auto-releases. Registered as a stdio MCP server in ~/.claude.json (user
+    scope) so direct + orchestrator sessions get the tools. All work is mechanical
+    (file scans + a bd query) — no model call (PTY-safe).
+  config_schema:
+    - key: lock_ttl_ms
+      type: integer
+      default: 900000
+      description: Planning-lock TTL in ms (default 15 min). Heartbeat extends it; a crashed/abandoned planner auto-releases after this.
+  provides:
+    - kind: memory-store
+      name: coord-plan-gate
+  consumes:
+    - kind: memory-store
+      name: beads
+      cardinality: optional-one
+    - kind: memory-store
+      name: agent-mail
+      cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 60000
+  verify:
+    command: bash apm_modules/_local/coord-mcp/scripts/verify.sh
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    The planning gate serializes planning per repo — the strongest drift guard.
+    BEFORE any substantial task (anything touching shared structure/architecture or
+    other in-flight work; when unsure, treat it as substantial), call:
+      begin_planning(repo, summary)
+        -> WAIT  : another session holds the lock — its holder/summary/started/expiry
+                   are returned; do NOT plan, surface that you are waiting, re-check.
+        -> GRANTED: you hold the lock + a read-bundle (the last released plan, recent
+                   plans within the lookback window, and in-flight intents/leases).
+                   Read it BEFORE you plan — you inherit everyone else's context.
+      plan_heartbeat(repo)   - extend the lock while you keep planning
+      end_planning(repo)     - release (records your plan for the next planner)
+    For architectural work, also declare_intent(repo, area, files, reason) so other
+    sessions see your intent and conflicts surface in their digest. Bounded wait: if a
+    lock is held past its TTL it auto-releases; an autonomous session that cannot
+    acquire within its budget parks the task and surfaces it rather than hanging.

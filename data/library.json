@@ -293,5 +293,49 @@
       "global": 4.4,
       "claude_code": 4.4
     }
+  },
+  {
+    "id": "coord-beads",
+    "name": "Coordination — Beads",
+    "repo": "local:fittings/seed/coord-beads",
+    "localPath": "fittings/seed/coord-beads",
+    "summary": "Per-repo git-backed decision/intent/task graph (bd). User-scope SessionStart hook primes every claude run; quiet no-op in fresh repos.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gastownhall/beads",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "coord-agentmail",
+    "name": "Coordination — Agent Mail",
+    "repo": "local:fittings/seed/coord-agentmail",
+    "localPath": "fittings/seed/coord-agentmail",
+    "summary": "Shared local agent-coordination server (mcp_agent_mail): identities, messaging, advisory file leases. Own-port :8765, license-isolated arm’s-length process.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/Dicklesworthstone/mcp_agent_mail",
+      "global": 4.2,
+      "claude_code": 4.2
+    }
+  },
+  {
+    "id": "coord-mcp",
+    "name": "Coordination — Planning Gate",
+    "repo": "local:fittings/seed/coord-mcp",
+    "localPath": "fittings/seed/coord-mcp",
+    "summary": "Garrison-owned MIT planning-gate MCP: begin_planning/end_planning serialize planning per repo (TTL+heartbeat mutex + read-bundle) + digest/nudge hook + the coord observability CLI.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.6,
+      "claude_code": 4.6
+    }
   }
 ]

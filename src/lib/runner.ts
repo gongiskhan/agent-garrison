@@ -15,6 +15,7 @@ import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForE
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
+import { reconcileCoordTeardown } from "./coord-wiring";
 import type { GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
@@ -118,6 +119,22 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
     const envPath = await materializeEnv(composition.directory);
     appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
+    // Coordination fittings install STANDING user-scope config (a SessionStart
+    // hook, an MCP registration). When one is DESELECTED, strip its owner-tagged
+    // config cleanly + completely — reconciled here on `up`, never on `down`
+    // (standing config must survive operative stop so a direct `claude` run in
+    // any repo keeps coordination). Scoped to known coord owners; best-effort.
+    try {
+      const selectedIds = Object.values(composition.selections)
+        .flatMap((items) => (Array.isArray(items) ? items : []))
+        .map((it) => it.id);
+      const teardown = reconcileCoordTeardown({ compositionId, selectedFittingIds: selectedIds });
+      if (teardown.removed.length > 0) {
+        appendLog(compositionId, "runner", `coord teardown: removed user-scope config for ${teardown.removed.join(", ")}`);
+      }
+    } catch (e) {
+      appendLog(compositionId, "runner", `coord teardown reconcile skipped: ${e instanceof Error ? e.message : String(e)}`);
+    }
     await runSetupHooks(compositionId);
     const verifyResults = await verify(compositionId);
     const failed = verifyResults.find((result) => !result.ok);

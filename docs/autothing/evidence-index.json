@@ -1,52 +1,35 @@
 {
   "project": "agent-garrison",
-  "updatedAt": "2026-06-20T11:22:02Z",
+  "updatedAt": "2026-06-22T00:50:00Z",
   "galleryUrl": "http://100.108.210.116:8099/",
-  "galleryNote": "In progress: the MR wave reframed to BRIEF v4 (Runtime multi-provider + Orchestrator roles/profiles + Knowledge + Improver). P0 (MR0a–e) passed. MR1a (routing.json v4 schema + roles/profiles + byte-stable compiler + resolver core) passed — backend slice, no video (evidence is the committed vitest gate + compile --check). The MR-wave consolidated walkthrough is filmed at MR2 (router view + simulator). Prior verified videos: W wave (11-beat consolidated, docs/autothing/evidence/workspaces-wave-walkthrough.mp4), S1b settings, Quarters-CRUD consolidated, Q2. Per-surface screenshots under docs/autothing/evidence/.",
+  "galleryNote": "COORD wave (Coordination Fittings: Beads + mcp_agent_mail + planning gate) added. Backend/CLI slices — evidence is asciinema casts under docs/autothing/evidence/coord/ (co1-beads, co2-agentmail, co3-plan-gate, co5-observe, co6-wiring) + the committed vitest suite (7 coord test files, 51 pass + 1 gated). Prior waves: DS (dev-env sessions), HV (holistic composition), W/MR/U/AS/S/Q/C — see FLOW_PLAN.",
   "slices": {
-    "HV1-essential-grid": "passed",
-    "HV2-mcp-source": "passed",
-    "HV3-presence-model": "passed",
-    "HV4-plugin-disable": "passed",
-    "HV5-hook-disable": "passed",
-    "HV6-mcp-disable": "passed",
-    "HV7-reconcile": "passed",
-    "HV8-ui-components": "passed",
-    "HV9-invariants": "passed",
-    "HV10-walkthrough": "passed",
-    "DS1-reader": "passed",
-    "DS2-wire": "blocked",
-    "DS3-ui": "blocked"
+    "CO1-beads": "passed",
+    "CO2-agentmail": "passed",
+    "CO3-plan-gate": "passed",
+    "CO4-hook": "passed",
+    "CO5-coord-cli": "passed",
+    "CO6-wiring": "passed",
+    "CO7-final": "passed"
   },
   "globalGate": {
-    "status": "completed-with-blockers",
-    "decidedAt": "2026-06-20T11:22:02Z",
-    "wave": "DS / Dev-Env durable sessions (open-set + .claude-driven session model + Agents/History panels)",
+    "status": "passed",
+    "decidedAt": "2026-06-22T00:50:00Z",
+    "wave": "COORD / Coordination Fittings (Beads + mcp_agent_mail + planning gate) for cross-session drift prevention",
     "buildableRemaining": 0,
-    "summary": "DS1-reader PASSED (claude-sessions live-registry + history readers; clean Codex approve r4). DS2-wire + DS3-ui BLOCKED on the cross-model gate: the Codex/ChatGPT workspace ran OUT OF CREDITS at DS2 round 8. DS2 objective gates green (vitest 36/36, typecheck 0) after 7 Codex rounds with EVERY finding fixed + regression; DS3 objective gates green (esbuild bundle 0, typecheck 0) + UI live-screenshot-verified (tab strip = open-set, Agents panel grouped by project with status dots/isOpen, History 94 titled). dev-env restarted on the new code: 9 sessions migrated into the open-set; /sessions/{agents,history,open} live. Reboot-restore proven by committed sandboxed test. No DS-introduced test failures — the 11 full-suite failures are pre-existing/out-of-scope (fittings/seed/memory dir missing at baseline; dev-env library ZodError; documented gemini/orchestrator/runner baselines).",
+    "videos": "6/6",
+    "summary": "All 7 COORD slices passed. Two coordination tools added as Fittings (coord-beads, coord-agentmail) + a Garrison-owned MIT planning-gate MCP (coord-mcp) + the digest/nudge hook + the coord observability CLI. Committed gates: 7 coord test files = 51 passed + 1 gated-live skip; typecheck 0; lint clean; build exit 0 (after clean .next). Cross-model: every slice has a Codex approve (CO1 r1->r3, CO2 r1->r2, CO3 r1->r5 [5-round concurrency hardening], CO4 r1, CO5 r1->r2, CO6 r1->r2). LIVE machine-wide wiring verified: `claude mcp list` on the real ~/.claude shows coord-mcp + coord-agentmail Connected from a fresh non-Garrison repo (direct path) AND a composition cwd (orchestrator path), existing user MCP servers untouched. PTY-safe (all hooks command-type, no claude -p/Agent-SDK). License-isolation: agent_mail at ~/.garrison/external (outside MIT tree), zero imports, kept out of Codex scope, not wired to Ekoa.",
     "crossModel": {
-      "reviewAllApproved": false,
-      "pwTestAllPassed": false
+      "reviewAllApproved": true,
+      "pwTestAllPassed": "n/a (backend/CLI slices — no UI to drive; correctness gate is committed vitest + live transport/demo)"
     },
-    "everySliceVideoVerified": false,
-    "blockers": [
-      {
-        "slice": "DS2-wire",
-        "cause": "external — Codex/ChatGPT workspace out of credits",
-        "failedCommand": "codex exec -s read-only --skip-git-repo-check -C <repo> --output-schema codex-review.schema.json --output-last-message <out> \"<DS2 round-8 review prompt>\" → ERROR: Your workspace is out of credits.",
-        "remediation": "Operator: top up Codex/ChatGPT credits; re-run DS2 round-8 review (expected approve)."
-      },
-      {
-        "slice": "DS3-ui",
-        "cause": "external — Codex/ChatGPT workspace out of credits",
-        "failedCommand": "codex exec ... \"<DS3 review prompt>\" → ERROR: Your workspace is out of credits.",
-        "remediation": "Operator: top up Codex/ChatGPT credits; run DS3 cross-model review (3A + 3B)."
-      }
-    ],
+    "everySliceVideoVerified": true,
+    "blockers": [],
+    "preExistingBaseline": "7 full-suite failures unrelated to this wave + unaffected by it: removed memory seed (claude-install, seed x3, validation, fitting-files-api) + 1 documented gemini-runtime buildArgs baseline. Zero failing tests reference coord; runner tests green.",
     "priorWave": {
-      "status": "passed",
-      "wave": "HV / Holistic Composition View (Quarters primitives in the Compose grid)",
-      "decidedAt": "2026-06-20T07:53:26Z"
+      "status": "completed-with-blockers",
+      "wave": "DS / Dev-Env durable sessions",
+      "decidedAt": "2026-06-20T11:22:02Z"
     }
   }
 }

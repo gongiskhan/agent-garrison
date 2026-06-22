@@ -1,0 +1,22 @@
+{
+  "slice": "CO3-plan-gate",
+  "title": "coord-mcp planning gate — stdio MCP begin_planning/end_planning, per-repo TTL+heartbeat mutex, read-bundle",
+  "updatedAt": "2026-06-22T00:22:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/coord-plan-gate.test.ts", "exit": 0, "summary": "12 passed (lookback, A-grants/B-waits/A-releases/B-inherits, repo-scoping, TTL auto-release, heartbeat refuses expired, partial-read contended, expired-release guard, intent->conflict->digest)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "summary": "0 errors" },
+    "validateFitting": { "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/coord-mcp", "exit": 0, "summary": "PASS all four checks" },
+    "liveTransport": { "cmd": "stdio MCP JSON-RPC A/B/A/B sequence via server.mjs (2 sessions, shared GARRISON_HOME)", "exit": 0, "summary": "A GRANTED -> B WAIT(holder A) -> A RELEASED -> B GRANTED + readBundle.releasedPlan = A's plan" },
+    "roundtrip": { "cmd": "setup.sh register stdio MCP -> verify.sh ok -> register-mcp remove (clean)", "exit": 0, "summary": "coord-mcp registered in ~/.claude.json, verify ok, clean remove" },
+    "codexReview": { "verdict": "approve", "rounds": 5, "by": "codex", "at": "2026-06-22T00:21:00Z", "lastReport": "docs/autothing/slices/CO3-plan-gate/codex-review-r5.json", "overrides": [], "note": "r1 heartbeat-resurrection -> r2 free-path TOCTOU -> r3 partial-read -> r4 unlink-after-takeover -> r5 approve (each finding fixed+tested)" },
+    "codexPwTest": { "result": "n/a", "note": "stdio MCP server — correctness gate is the committed vitest suite + the live JSON-RPC transport sequence" },
+    "designAudit": { "verdict": "n/a", "note": "no UI surface" },
+    "video": { "status": "verified", "kind": "asciinema", "verifiedAt": "2026-06-22T00:17:00Z", "flagged": false, "cast": "docs/autothing/evidence/coord/co3-plan-gate.cast", "gif": "docs/autothing/evidence/coord/co3-plan-gate.gif", "note": "asciinema of the PLAN-GATE A/B/A/B sequence over the real stdio MCP transport; prints PLAN-GATE OK" }
+  },
+  "blockers": [],
+  "sentinels": ["PLAN-GATE OK"]
+}

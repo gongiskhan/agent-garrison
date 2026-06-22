@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Approve. For the stated LOCAL single-user advisory lock model, I found no non-self-correcting correctness or data-corruption bug in the release/acquire/heartbeat behavior.","findings":[]}

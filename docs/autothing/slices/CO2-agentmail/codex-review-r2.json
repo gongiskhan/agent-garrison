@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Both targeted fixes are present. The setup guard runs before writes/clones and the start script uses detached process-group cleanup with shared awaited cleanup and synchronous status removal. No remaining HIGH/CRITICAL bug found in the two requested files.","findings":[]}

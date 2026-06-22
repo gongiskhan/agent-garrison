@@ -1,0 +1,24 @@
+{
+  "slice": "CO6-wiring",
+  "title": "Both-paths wiring — user-scope install loads coord MCP + hooks for direct AND orchestrator claude; PTY-safe + license-isolation audits",
+  "updatedAt": "2026-06-22T00:46:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 0 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/coord-wiring.test.ts", "exit": 0, "summary": "3 passed (production-path user-scope install + PTY-safe command-only hooks + license-isolation no-import)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "summary": "0 errors" },
+    "suiteRegression": { "cmd": "vitest run all 7 coord test files", "exit": 0, "summary": "51 passed | 1 skipped (gated live agentmail)" },
+    "bothPathsProof": { "cmd": "co6-wiring.sh + live claude mcp list", "exit": 0, "summary": "DIRECT (fresh non-garrison repo) + ORCHESTRATOR (composition cwd, spawnClaude inherits HOME, --mcp-config overrides=0): real `claude mcp list` shows coord-mcp ✔ Connected + coord-agentmail ✔ Connected from the SAME user-scope config" },
+    "liveActivation": { "status": "ok", "summary": "installed into the REAL ~/.claude: claude mcp list shows both coord servers Connected alongside the user's existing servers (all still Connected); SessionStart(coord-beads,coord-mcp) + UserPromptSubmit(coord-mcp) hooks live, command-type; self-check fail-open exit 0. Backups at /tmp/settings.before-coord.json + /tmp/claude-json.before-coord.json; reversible via reconcileCoordTeardown / uninstall scripts." },
+    "ptySafe": { "status": "ok", "summary": "all coord hooks type=command; no claude -p / Agent-SDK invocation in the coord fittings (only a forbidding comment)" },
+    "licenseIsolation": { "status": "ok", "summary": "agent_mail at ~/.garrison/external (outside MIT tree); zero imports in src/fittings/scripts/packages; MIT+rider verified at the pin; not wired to Ekoa; kept out of Codex scope" },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex", "at": "2026-06-22T00:45:00Z", "lastReport": "docs/autothing/slices/CO6-wiring/codex-review-r2.json", "overrides": [], "note": "r1 found 2 (override-path test, grep-swallows-errors) -> fixed+tested; r2 approve" },
+    "codexPwTest": { "result": "n/a", "note": "wiring/audit slice — proof is the live claude mcp list + committed test" },
+    "designAudit": { "verdict": "n/a", "note": "no UI" },
+    "video": { "status": "verified", "kind": "asciinema", "verifiedAt": "2026-06-22T00:42:00Z", "flagged": false, "cast": "docs/autothing/evidence/coord/co6-wiring.cast", "gif": "docs/autothing/evidence/coord/co6-wiring.gif", "note": "asciinema of both-paths claude mcp list + audits; prints COORD-WIRING OK / PTY-SAFE OK / LICENSE-ISOLATION OK" }
+  },
+  "blockers": [],
+  "sentinels": ["COORD-WIRING OK", "PTY-SAFE OK", "LICENSE-ISOLATION OK"]
+}

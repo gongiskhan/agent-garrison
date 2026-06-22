@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"cleanupRepo now removes heartbeat.log entries for the throwaway repo while preserving unparseable non-empty lines; the prior synthetic heartbeat leak is resolved. No remaining HIGH/CRITICAL issue found in canary.mjs or coord.mjs under the stated constraints.","findings":[]}
