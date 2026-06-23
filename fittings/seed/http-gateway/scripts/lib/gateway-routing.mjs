@@ -479,9 +479,17 @@ export class RoutedGateway {
   }
 
   // classify → resolve role → resolve target → LOG at resolution time → switch.
-  async preRoute(message) {
+  async preRoute(message, opts = {}) {
     this._lastUserMessage = message;
-    const classification = await this.classify(message);
+    // Honor an EXPLICIT {taskType,tier} classification from the caller (the Kanban Loop
+    // §10 contract: each agent-list carries its own classification) instead of
+    // re-classifying from scratch; a malformed/absent hint falls back to the classifier.
+    const explicit = opts.classification;
+    const honored = !!(explicit && typeof explicit.taskType === "string" && typeof explicit.tier === "string");
+    const classification = honored ? explicit : await this.classify(message);
+    if (honored) {
+      this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });
+    }
     const route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });
     // Enrich the logged decision with the RUNTIME/provider/model so the log shows

@@ -190,9 +190,12 @@ async function spawnOperative({ resume = true } = {}) {
 
 /** Run one turn through Stage-A routing: classify → resolve → log → switch →
  *  turn → honored check. The operative session is served by the routing pool. */
-async function runRoutedTurn(message, onChunk) {
+async function runRoutedTurn(message, onChunk, hints) {
   await router.ensureOperative();
-  const pre = await router.preRoute(message); // classify + resolve + LOG + switch
+  // hints (e.g. from the Kanban Loop) carry an EXPLICIT {taskType,tier} classification
+  // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
+  // skill + suppressContinuations controls. Absent hints → classify as before.
+  const pre = await router.preRoute(message, hints || {}); // classify/honor + resolve + LOG + switch
   // Agent SDK runtime (non-Anthropic model via the Claude Agent SDK): the turn
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
@@ -296,8 +299,8 @@ async function runRoutedTurn(message, onChunk) {
 
 /** Run one turn against the live operative. Spawns/respawns on demand.
  *  onChunk(text) streams the growing assistant reply (screen-derived). */
-async function runTurn(message, onChunk) {
-  if (router) return runRoutedTurn(message, onChunk);
+async function runTurn(message, onChunk, hints) {
+  if (router) return runRoutedTurn(message, onChunk, hints);
   if (!session || session.isDisposed() || !session.isAlive()) {
     logEvent("stdout", { kind: "respawn-before-turn" });
     ptyStatus = "spawning";
@@ -323,9 +326,26 @@ async function runTurn(message, onChunk) {
 }
 
 /** Serialize turns — the TUI is one-turn-at-a-time. */
-function enqueueTurn(message, onChunk) {
+// Extract optional routing hints from a request body (the Kanban Loop sends these):
+// an EXPLICIT {taskType,tier} classification preRoute can honor instead of
+// re-classifying, the per-list skill, and a suppress-continuations flag. Validated so a
+// malformed classification simply falls back to normal classification (never trusted blindly).
+function routeHintsFromBody(body) {
+  const c = body?.classification;
+  const classification =
+    c && typeof c === "object" && typeof c.taskType === "string" && typeof c.tier === "string"
+      ? { taskType: c.taskType, tier: c.tier, ...(c.matchedException ? { matchedException: c.matchedException } : {}) }
+      : null;
+  return {
+    classification,
+    skill: typeof body?.skill === "string" ? body.skill : null,
+    suppressContinuations: body?.suppressContinuations === true,
+  };
+}
+
+function enqueueTurn(message, onChunk, hints) {
   const previous = inflight ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(() => runTurn(message, onChunk));
+  const next = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints));
   inflight = next;
   return next;
 }
@@ -409,7 +429,7 @@ const server = http.createServer(async (request, response) => {
       if (!message) return sendJson(response, 400, { error: "message is required" });
       await readyPromise;
       logEvent("stdout", { kind: "chat-in", message: message.slice(0, 200) });
-      const result = await enqueueTurn(message);
+      const result = await enqueueTurn(message, undefined, routeHintsFromBody(body));
       logEvent("stdout", { kind: "chat-out", reply: result.reply.slice(0, 200) });
       sendJson(response, 200, result);
       return;
@@ -443,7 +463,7 @@ const server = http.createServer(async (request, response) => {
           } catch {
             /* client gone */
           }
-        });
+        }, routeHintsFromBody(body));
         sseWrite(response, "done", result);
         logEvent("stdout", { kind: "chat-stream-out", reply: result.reply.slice(0, 200) });
       } catch (err) {

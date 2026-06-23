@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Confirmed round-1 fixes in `d3cc4dd`: routed dream failures now degrade to the one-shot fallback instead of aborting the run, and malformed/empty 200 replies now throw and trigger that fallback. I found no remaining material defensible issue in this slice.","findings":[]}

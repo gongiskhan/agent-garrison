@@ -124,6 +124,27 @@ describe("U1 — gateway Stage-A live routing (live-route-ok)", () => {
     }
   });
 
+  it("honors an EXPLICIT {taskType,tier} classification over keyword classification (Kanban Loop §10)", async () => {
+    const { gw, decisionsFile } = await bootGateway();
+    try {
+      // this message alone keyword-classifies to trivial → fast → cc-haiku-low …
+      const baseline = await gw.preRoute("quick: what is 2 plus 2");
+      expect(baseline.route.targetId).toBe("cc-haiku-low");
+      // … but an explicit deep-code classification (what the Kanban engine sends) must
+      // be HONORED → expert → cc-opus-high, regardless of the message keywords.
+      const pre = await gw.preRoute("quick: what is 2 plus 2", {
+        classification: { taskType: "code", tier: "T2-deep" },
+        skill: "garrison-architecture",
+      });
+      expect(pre.route.targetId).toBe("cc-opus-high");
+      expect(pre.route.role).toBe("expert");
+      const decisions = readDecisions(decisionsFile);
+      expect(decisions[decisions.length - 1].targetId).toBe("cc-opus-high");
+    } finally {
+      gw.shutdown();
+    }
+  });
+
   it("logs honored:false when the operative emits a mismatched token", async () => {
     const { gw, decisionsFile } = await bootGateway();
     try {
