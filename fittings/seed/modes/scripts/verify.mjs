@@ -88,4 +88,18 @@ for (const [channel, target] of Object.entries(config.channelDefaults ?? {})) {
   }
 }
 
+// routing-bias floor/prefer must be COMPUTE roles only — biasRole ranks via the
+// compute ladder (fast<standard<expert) and silently ignores the task-specific roles
+// (image/video/review), so a non-compute bias would pass loosely and then no-op.
+const COMPUTE_ROLES = new Set(["fast", "standard", "expert"]);
+for (const [biasName, bias] of Object.entries(config.routingBias ?? {})) {
+  for (const field of ["floor", "prefer"]) {
+    const v = bias?.[field];
+    if (v !== undefined && !COMPUTE_ROLES.has(v)) {
+      console.error(`MODES-FAIL routingBias "${biasName}".${field} = "${v}" is not a compute role (fast|standard|expert)`);
+      process.exit(1);
+    }
+  }
+}
+
 console.log("MODES-OK");

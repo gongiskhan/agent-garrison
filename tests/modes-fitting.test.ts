@@ -13,9 +13,11 @@ const MODES = JSON.parse(
   readFileSync(join(ROOT, "fittings/seed/modes/modes.json"), "utf8")
 );
 
-// The router ROLE vocabulary the per-mode bias floors/prefers must stay aligned
-// with (routing-core.mjs ROLES) — keeps mode bias speaking the router's language.
-const ROUTER_ROLES = new Set(["fast", "standard", "expert", "review", "image", "video"]);
+// Mode-bias floor/prefer are COMPUTE roles only — biasRole ranks via the compute
+// ladder (fast<standard<expert) and leaves the task-specific roles (image/video/
+// review) untouched, so a non-compute bias would type-check loosely and silently
+// no-op. The bias vocabulary is therefore narrower than the full router role set.
+const COMPUTE_ROLES = new Set(["fast", "standard", "expert"]);
 
 describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
   it("registers the `modes` faculty and capability kind", () => {
@@ -53,8 +55,8 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
     expect(MODES.channelDefaults.slack).toBe("gary");
     // every bias floor/prefer must be a real router role
     for (const bias of Object.values<any>(MODES.routingBias)) {
-      expect(ROUTER_ROLES.has(bias.floor)).toBe(true);
-      expect(ROUTER_ROLES.has(bias.prefer)).toBe(true);
+      expect(COMPUTE_ROLES.has(bias.floor)).toBe(true);
+      expect(COMPUTE_ROLES.has(bias.prefer)).toBe(true);
     }
   });
 
@@ -92,6 +94,22 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
       execFileSync("node", [join(dir, "modes", "scripts", "verify.mjs")], { stdio: "ignore" });
     } catch {
       failed = true; // non-zero exit = verify correctly rejected the broken ref
+    }
+    expect(failed).toBe(true);
+  });
+
+  it("verify.mjs FAILS when a routingBias floor/prefer is a non-compute role (s1e r2 regression)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "modes-bias-"));
+    cpSync(join(ROOT, "fittings/seed/modes"), join(dir, "modes"), { recursive: true });
+    const cfgPath = join(dir, "modes", "modes.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+    cfg.routingBias["standard-toward-fast"] = { floor: "fast", prefer: "image" }; // image is not a compute role
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf8");
+    let failed = false;
+    try {
+      execFileSync("node", [join(dir, "modes", "scripts", "verify.mjs")], { stdio: "ignore" });
+    } catch {
+      failed = true;
     }
     expect(failed).toBe(true);
   });

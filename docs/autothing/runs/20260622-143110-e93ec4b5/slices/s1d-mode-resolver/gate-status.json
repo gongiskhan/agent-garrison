@@ -2,18 +2,72 @@
   "slice": "s1d-mode-resolver",
   "title": "Gateway mode-resolver + switch-log + actionable [mode:] delegation",
   "updatedAt": "2026-06-22T15:36:07Z",
-  "phase": "done", "status": "passed", "kind": "mixed",
-  "retries": { "limit": 5, "used": 2 },
-  "gates": {
-    "tests": { "cmd": "npx vitest run tests/mode-resolver.test.ts tests/orchestrator-prefix.test.ts tests/souls-assembly.test.ts", "exit": 0, "at": "2026-06-22T15:36:07Z", "summary": "20 passed — modes FINDINGs 4 (explicit_name), 5 (sticky), 6 (channel default), 9 (switch-log shape) at the resolver level; mode annotation; composeOrchestratorPrompt delegation" },
-    "syntax": { "cmd": "node --check gateway.mjs mode-resolver.mjs orchestrator-prefix.mjs", "exit": 0, "at": "2026-06-22T15:36:07Z", "summary": "all touched .mjs parse" },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T15:36:07Z", "summary": "clean" },
-    "suite": { "cmd": "npm test", "at": "2026-06-22T15:36:07Z", "summary": "865 passed; 6 PRE-EXISTING failures unchanged; no new regressions" },
-    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T15:36:07Z", "summary": "no-modes path unchanged (modesMeta undefined => no annotation); modeByChannel sticky in-memory (resets on restart = new session, acceptable)" },
-    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex/chatgpt", "at": "2026-06-22T15:36:07Z", "lastReport": "r1: [mode:] annotation was informational only — added MODE_DELEGATION_INSTRUCTION composed into the orchestrator prompt (talk_to(soul)); r2 APPROVE" },
-    "codexPwTest": { "result": "n/a", "reason": "no live gateway orchestrator-mode boot in this slice — resolver/switch-log covered by committed vitest" },
-    "designAudit": { "verdict": "n/a", "reason": "backend wiring, no UI" },
-    "video": { "status": "n/a", "reason": "no runtime UI/CLI flow" }
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 2
   },
-  "blockers": []
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/mode-resolver.test.ts tests/orchestrator-prefix.test.ts tests/souls-assembly.test.ts",
+      "exit": 0,
+      "at": "2026-06-22T15:36:07Z",
+      "summary": "20 passed \u2014 modes FINDINGs 4 (explicit_name), 5 (sticky), 6 (channel default), 9 (switch-log shape) at the resolver level; mode annotation; composeOrchestratorPrompt delegation"
+    },
+    "syntax": {
+      "cmd": "node --check gateway.mjs mode-resolver.mjs orchestrator-prefix.mjs",
+      "exit": 0,
+      "at": "2026-06-22T15:36:07Z",
+      "summary": "all touched .mjs parse"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-22T15:36:07Z",
+      "summary": "clean"
+    },
+    "suite": {
+      "cmd": "npm test",
+      "at": "2026-06-22T15:36:07Z",
+      "summary": "865 passed; 6 PRE-EXISTING failures unchanged; no new regressions"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude/same-model",
+      "at": "2026-06-22T15:36:07Z",
+      "summary": "no-modes path unchanged (modesMeta undefined => no annotation); modeByChannel sticky in-memory (resets on restart = new session, acceptable)"
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/chatgpt",
+      "at": "2026-06-22T15:36:07Z",
+      "lastReport": "r1: [mode:] annotation was informational only \u2014 added MODE_DELEGATION_INSTRUCTION composed into the orchestrator prompt (talk_to(soul)); r2 APPROVE"
+    },
+    "codexPwTest": {
+      "result": "n/a",
+      "reason": "no live gateway orchestrator-mode boot in this slice \u2014 resolver/switch-log covered by committed vitest"
+    },
+    "designAudit": {
+      "verdict": "n/a",
+      "reason": "backend wiring, no UI"
+    },
+    "video": {
+      "status": "n/a",
+      "reason": "no runtime UI/CLI flow"
+    }
+  },
+  "blockers": [],
+  "codexReview": {
+    "verdict": "approve",
+    "rounds": 2,
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T05:07:39Z",
+    "lastReport": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1d-mode-resolver/codex-review-s1d-mode-resolver-r2.json",
+    "overrides": [],
+    "round1Findings": "f2 invalid-mode-sticks (fixed: names-validated fallback + currentMode\u2208names), f3 header-contract mismatch (fixed: prompt references [origin,channel,mode]); f1 shy auto-infer accepted as intentional 'sticky-not-twitchy' per brief"
+  },
+  "flagged": false
 }
