@@ -577,7 +577,10 @@ async function handleCreateSession(req, res) {
             channel: "dev-env",
             mode: typeof body.mode === "string" ? body.mode : undefined
           });
-          if (spec && typeof spec.promptPath === "string") {
+          // Only thread the composed prompt into `claude` if it actually exists on
+          // disk — a 200 with a bad/unreadable promptPath would otherwise launch
+          // claude with a broken --append-system-prompt-file. Fall back to bare.
+          if (spec && typeof spec.promptPath === "string" && existsSync(spec.promptPath)) {
             orchestrated = { appendPromptFiles: [spec.promptPath], model: spec.model || null };
           }
         } catch {

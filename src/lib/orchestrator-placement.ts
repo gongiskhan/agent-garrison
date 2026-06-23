@@ -94,6 +94,12 @@ export async function placeOrchestratedSession(opts: PlacementOptions): Promise<
     modesJson.defaultMode ?? names[0]
   );
 
+  // Mode ids come from modes.json keys (config, not request input) but are still
+  // untrusted for filesystem purposes: a malformed modes.json key with path
+  // separators / ".." would let `${mode}.md` escape outDir. Require a safe id and
+  // confine the resolved prompt path under outDir before writing.
+  if (!/^[a-z0-9_-]+$/i.test(mode)) return null;
+
   // Compose the mode's identity prompt (shared voice + soul). A placed Dev Env
   // session is a native code session, so its identity is the voice + soul (the
   // Dev Env appends its own browser-pane guidance).
@@ -102,6 +108,8 @@ export async function placeOrchestratedSession(opts: PlacementOptions): Promise<
   const prompt = composeSoulPrompt({ sharedVoice, stance, capabilitiesBlock: "", routingSection: null });
   await fs.mkdir(opts.outDir, { recursive: true });
   const promptPath = path.join(opts.outDir, `${mode}.md`);
+  // belt-and-braces: the written path must stay inside outDir
+  if (path.relative(path.resolve(opts.outDir), path.resolve(promptPath)).startsWith("..")) return null;
   await fs.writeFile(promptPath, prompt, "utf8");
 
   // Model/effort from the mode's routing bias → role → routing target.

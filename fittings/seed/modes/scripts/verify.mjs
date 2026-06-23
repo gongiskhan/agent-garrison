@@ -93,8 +93,14 @@ for (const [channel, target] of Object.entries(config.channelDefaults ?? {})) {
 // (image/video/review), so a non-compute bias would pass loosely and then no-op.
 const COMPUTE_ROLES = new Set(["fast", "standard", "expert"]);
 for (const [biasName, bias] of Object.entries(config.routingBias ?? {})) {
+  // a bias profile must be an object {floor?, prefer?}; a primitive/array would pass
+  // the field checks below (bias?.floor === undefined) and then no-op at runtime.
+  if (typeof bias !== "object" || bias === null || Array.isArray(bias)) {
+    console.error(`MODES-FAIL routingBias "${biasName}" must be an object with compute-role floor/prefer (got ${Array.isArray(bias) ? "array" : typeof bias})`);
+    process.exit(1);
+  }
   for (const field of ["floor", "prefer"]) {
-    const v = bias?.[field];
+    const v = bias[field];
     if (v !== undefined && !COMPUTE_ROLES.has(v)) {
       console.error(`MODES-FAIL routingBias "${biasName}".${field} = "${v}" is not a compute role (fast|standard|expert)`);
       process.exit(1);

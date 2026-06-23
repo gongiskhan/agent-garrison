@@ -181,8 +181,10 @@ function disciplineSkill(field, value) {
   if (!value || value === "none") return null;
   if (field === "testing") return "garrison-testing"; // tests / full-gates
   if (field === "review") {
+    // design-audit is UI-only — annotate it as CONDITIONAL, not a blanket second
+    // gate on every deep task (a non-UI deep change needs code-review, not a UI audit).
     return String(value).startsWith("review-by")
-      ? "code-review + garrison-design-audit (UI)"
+      ? "code-review (+ garrison-design-audit for UI changes)"
       : "code-review";
   }
   if (field === "evidence") return value === "video" ? "run-garrison (walkthrough)" : null;

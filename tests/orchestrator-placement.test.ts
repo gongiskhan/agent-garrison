@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { placeOrchestratedSession, resolvePlacementMode } from "../src/lib/orchestrator-placement";
@@ -48,6 +48,23 @@ describe("orchestrator placement (s3a)", () => {
     const r = await place("dev-env", "james");
     expect(r!.mode).toBe("james");
     expect(readFileSync(r!.promptPath, "utf8")).toContain("James, the face that feels most");
+  });
+
+  it("rejects a path-separator mode id (config traversal defense) — returns null, writes nothing (s3a cross-model gate)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "evilmodes-"));
+    // a malformed modes.json whose mode key would escape outDir as `${mode}.md`
+    writeFileSync(
+      join(dir, "modes.json"),
+      JSON.stringify({ sharedVoiceRef: "v.md", defaultMode: "../../evil", modes: { "../../evil": { soulRef: "s.md" } } }),
+      "utf8"
+    );
+    const r = await placeOrchestratedSession({
+      channel: "main", // no channel default → falls to the bad defaultMode
+      modesDir: dir,
+      routingConfigPath: RCONF,
+      outDir: mkdtempSync(join(tmpdir(), "place-evil-"))
+    });
+    expect(r).toBeNull(); // guarded before any soul read / prompt write
   });
 
   it("returns null when the modes fitting is absent", async () => {

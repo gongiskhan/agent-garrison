@@ -98,12 +98,16 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
     expect(failed).toBe(true);
   });
 
-  it("verify.mjs FAILS when a routingBias floor/prefer is a non-compute role (s1e r2 regression)", () => {
+  it.each([
+    ["a non-compute role", { floor: "fast", prefer: "image" }],
+    ["a non-object profile (primitive)", "fast"],
+    ["a non-object profile (array)", ["fast", "standard"]]
+  ])("verify.mjs FAILS when a routingBias profile is %s (s1e r2/r3 regression)", (_label, badBias) => {
     const dir = mkdtempSync(join(tmpdir(), "modes-bias-"));
     cpSync(join(ROOT, "fittings/seed/modes"), join(dir, "modes"), { recursive: true });
     const cfgPath = join(dir, "modes", "modes.json");
     const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
-    cfg.routingBias["standard-toward-fast"] = { floor: "fast", prefer: "image" }; // image is not a compute role
+    cfg.routingBias["standard-toward-fast"] = badBias;
     writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf8");
     let failed = false;
     try {

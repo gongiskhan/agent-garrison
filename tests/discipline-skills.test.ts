@@ -14,15 +14,27 @@ const PROMPT = readFileSync(
 );
 
 describe("discipline → verb-skill mapping (s4 / deliverable #1)", () => {
-  it("the compiled discipline names the Garrison verb-skills at the right tiers", () => {
+  it("the compiled discipline names the Garrison verb-skills at the right tiers (per-tier, not just present)", () => {
     const section = compileRouting(SEED, "balanced");
-    // T1/T2 testing → garrison-testing; review → code-review (+design-audit at T2);
-    // T2 evidence(video) → run-garrison; T2 distribution(link) → garrison-governance.
-    expect(section).toContain("garrison-testing");
-    expect(section).toContain("code-review");
-    expect(section).toContain("garrison-design-audit");
-    expect(section).toContain("run-garrison");
-    expect(section).toContain("garrison-governance");
+    const line = (tier: string) =>
+      section.split("\n").find((l) => l.includes(tier) && l.includes("review:")) ?? "";
+    const t1 = line("T1-standard");
+    const t2 = line("T2-deep");
+    expect(t1).toBeTruthy();
+    expect(t2).toBeTruthy();
+    // T1-standard: self-review → code-review, tests → garrison-testing. NO UI design
+    // audit at standard tier (design-audit is for deep UI review only).
+    expect(t1).toContain("code-review");
+    expect(t1).toContain("garrison-testing");
+    expect(t1).not.toContain("garrison-design-audit");
+    // T2-deep: review-by → code-review (design-audit CONDITIONAL on UI), full-gates →
+    // garrison-testing, video → run-garrison, link → garrison-governance.
+    expect(t2).toContain("code-review");
+    expect(t2).toContain("garrison-design-audit");
+    expect(t2).toContain("for UI changes"); // conditional, not a blanket second gate
+    expect(t2).toContain("garrison-testing");
+    expect(t2).toContain("run-garrison");
+    expect(t2).toContain("garrison-governance");
   });
 
   it("T0-trivial escalates no skills (everything 'none')", () => {
