@@ -14,14 +14,14 @@
     "joe": {
       "soulRef": "souls/joe.md",
       "label": "Joe — dev",
-      "faculties": ["runtimes", "memory", "knowledge"],
+      "faculties": ["runtimes", "memory"],
       "runtime": true,
       "routingBias": "expert"
     },
     "james": {
       "soulRef": "souls/james.md",
       "label": "James — product / architect",
-      "faculties": ["memory", "knowledge"],
+      "faculties": ["memory"],
       "runtime": false,
       "routingBias": "expert-then-standard"
     }

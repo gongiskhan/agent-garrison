@@ -367,5 +367,20 @@
       "global": 4.5,
       "claude_code": 4.5
     }
+  },
+  {
+    "id": "mcp-gateway",
+    "name": "MCP gateway",
+    "repo": "local:fittings/seed/mcp-gateway",
+    "localPath": "fittings/seed/mcp-gateway",
+    "summary": "Exposes installed Faculties as MCP tools to interactive (UI-launched) Claude Code sessions, and hosts the garrison-control tool set (talk_to / wait_for). Required for the modes orchestrator/soul mode (Gary/Joe/James) — souls activation gates on this fitting being present.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-mcp-gateway",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
   }
 ]

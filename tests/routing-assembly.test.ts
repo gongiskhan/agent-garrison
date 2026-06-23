@@ -3,7 +3,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorInstructions } from "../src/lib/orchestrator-projection";
-import { substituteRoutingPlaceholder, resolveRoutingSection } from "../src/lib/runner";
+import { substituteRoutingPlaceholder, resolveRoutingSection, substituteCapabilitiesPlaceholder } from "../src/lib/runner";
 // @ts-ignore — pure .mjs core typed by routing-core.d.mts
 import { compileRouting, routingMarker } from "../fittings/seed/model-router/lib/routing-core.mjs";
 
@@ -17,6 +17,37 @@ const SEED = JSON.parse(
 );
 
 describe("routing assembly (MR1b — assembly-ok)", () => {
+  it("the model-router orchestrator prompt template SOURCE carries BOTH placeholders (s0 acceptance: {{routing}} + {{capabilities}} reach the model-router prompt)", () => {
+    // The whole point of s0 is that the model-router orchestrator prompt — the
+    // default front-door orchestrator — carries the {{routing}} placeholder (so the
+    // compiled policy + discipline land) AND keeps {{capabilities}} (so provider
+    // for_consumers reach the operative). A regression dropping EITHER placeholder
+    // from the template would otherwise be invisible to the assembly tests below,
+    // which feed a hand-built prompt.
+    expect(PROMPT).toContain("{{routing}}");
+    expect(PROMPT).toContain("{{capabilities}}");
+  });
+
+  it("the {{capabilities}} fold actually delivers provider for_consumers text into the prompt (sentinel provider)", () => {
+    // The assembly tests below pass entries: [] so they never exercise the
+    // capabilities fold — a broken {{capabilities}} substitution would stay green.
+    // Prove the real path: a provider with for_consumers text must reach the output.
+    const SENTINEL = "SENTINEL-for-consumers-7f3a";
+    const entry = {
+      id: "sentinel-provider",
+      summary: "sentinel",
+      metadata: {
+        summary: "sentinel summary",
+        for_consumers: SENTINEL,
+        provides: [{ kind: "memory-store", name: "sentinel" }],
+        consumes: []
+      }
+    } as unknown as Parameters<typeof substituteCapabilitiesPlaceholder>[1][number];
+    const folded = substituteCapabilitiesPlaceholder("before {{capabilities}} after", [entry]);
+    expect(folded).toContain(SENTINEL);
+    expect(folded).not.toContain("{{capabilities}}");
+  });
+
   it("the assembled orchestrator instructions contain the routing section AND [orchestrator-active], with no leaked placeholders", () => {
     const section = compileRouting(SEED, "balanced");
     const out = buildOrchestratorInstructions({

@@ -181,11 +181,27 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           routingCorePath: ROUTING_CORE_PATH
         });
         if (soulsConfig) {
-          gatewayExtraEnv = { GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig) };
+          // gateway.mjs reads BOTH GARRISON_SOULS_CONFIG and the orchestrator
+          // fitting id from GARRISON_ORCHESTRATOR_FITTING_ID (it does not read
+          // soulsConfig.orchestratorFittingId), so project the id explicitly or
+          // the orchestrator session would mislabel as the bare "orchestrator".
+          gatewayExtraEnv = {
+            GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
+            GARRISON_ORCHESTRATOR_FITTING_ID: soulsConfig.orchestratorFittingId
+          };
           appendLog(
             compositionId,
             "runner",
             `modes: composed ${Object.keys(soulsConfig.souls).length} soul prompt(s) → gateway orchestrator/soul mode`
+          );
+        } else {
+          // modes + mcp-gateway are both present but assembleSouls returned null
+          // (modes.json missing/empty/malformed). Do NOT silently downgrade to
+          // routed mode without a trace — the operator selected modes.
+          appendLog(
+            compositionId,
+            "stderr",
+            `modes (${modesEntry.id}) is selected and mcp-gateway is present, but souls assembly produced no config (modes.json missing/empty/malformed) — staying in normal routed mode. Check apm_modules/_local/${modesEntry.id}/modes.json.`
           );
         }
       } else {

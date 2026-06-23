@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { capabilityKinds, singletonCapabilityKinds, facultyIds } from "../src/lib/types";
 import { getFaculty } from "../src/lib/faculties";
@@ -54,6 +56,25 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
       expect(ROUTER_ROLES.has(bias.floor)).toBe(true);
       expect(ROUTER_ROLES.has(bias.prefer)).toBe(true);
     }
+  });
+
+  it("every per-mode faculty is a REAL faculty id (s1a cross-model gate: no invented roles like 'knowledge')", () => {
+    const validFaculties = new Set<string>(facultyIds as readonly string[]);
+    for (const [name, mode] of Object.entries<any>(MODES.modes)) {
+      for (const fac of mode.faculties ?? []) {
+        expect(validFaculties.has(fac), `mode "${name}" faculty "${fac}" must be a real faculty id`).toBe(true);
+      }
+    }
+  });
+
+  it("setup.mjs creates the briefs dir at an ABSOLUTE MODES_BRIEFS_PATH (s1a cross-model gate: the actual write target exists)", () => {
+    const target = join(mkdtempSync(join(tmpdir(), "modes-briefs-")), "briefs");
+    expect(existsSync(target)).toBe(false);
+    execFileSync("node", [join(ROOT, "fittings/seed/modes/scripts/setup.mjs")], {
+      env: { ...process.env, MODES_BRIEFS_PATH: target },
+      stdio: "ignore"
+    });
+    expect(existsSync(target)).toBe(true);
   });
 
   it("the orchestrator consumes modes at optional-one alongside model-router (singleton-safe)", () => {

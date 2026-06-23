@@ -132,3 +132,29 @@ describe("souls assembly (s1c)", () => {
     expect(await mcpGatewayPresent(dir)).toBe(true);
   });
 });
+
+// s1c cross-model gate (Codex r1): the souls-activation gate must be REACHABLE and
+// the orchestrator-fitting-id env contract must be wired on BOTH ends, or souls mode
+// is unreachable dead wiring. These are source-invariants (the gateway boot path is
+// heavy to instantiate; assembleSouls semantics are covered above).
+describe("souls wiring contract (s1c cross-model gate)", () => {
+  it("mcp-gateway is registered in the library so the souls-activation gate is satisfiable (f1)", () => {
+    const lib = JSON.parse(readFileSync(join(ROOT, "data/library.json"), "utf8"));
+    const ids = lib.map((e: { id: string }) => e.id);
+    // activation gates on mcpGatewayPresent — a user composing modes must be able to
+    // ADD mcp-gateway, so it has to exist in the curated library (not just on disk).
+    expect(ids).toContain("mcp-gateway");
+  });
+
+  it("GARRISON_ORCHESTRATOR_FITTING_ID is set by the runner AND read by the gateway (f3 — two-ended env contract)", () => {
+    const runnerSrc = readFileSync(join(ROOT, "src/lib/runner.ts"), "utf8");
+    const gatewaySrc = readFileSync(join(ROOT, "fittings/seed/http-gateway/scripts/gateway.mjs"), "utf8");
+    // runner must project the id into the gateway env (else the serialized
+    // soulsConfig.orchestratorFittingId is dead and the orchestrator mislabels)
+    expect(runnerSrc).toContain("GARRISON_ORCHESTRATOR_FITTING_ID: soulsConfig.orchestratorFittingId");
+    // and the gateway must consume that exact env var
+    expect(gatewaySrc).toContain("GARRISON_ORCHESTRATOR_FITTING_ID");
+    // the silent-downgrade guard: when souls assembly yields null with modes present
+    expect(runnerSrc).toContain("souls assembly produced no config");
+  });
+});
