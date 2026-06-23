@@ -318,14 +318,31 @@ export function makeRoutedRunTurn(gatewayUrl) {
     });
     if (!res.ok) throw new Error(`improver routed dream turn failed: HTTP ${res.status}`);
     const data = await res.json().catch(() => ({}));
-    return { reply: data.reply ?? data.text ?? "" };
+    const reply = data.reply ?? data.text;
+    // A 200 with a malformed/empty body would otherwise silently disable dream
+    // proposals — surface it so the caller can fall back instead of dreaming nothing.
+    if (typeof reply !== "string" || reply.trim() === "") {
+      throw new Error("improver routed dream turn: empty/invalid reply payload");
+    }
+    return { reply };
   };
 }
 
 // Select the dream runTurn: the routed (pre-route) path only when explicitly
 // enabled AND a gateway URL is given; otherwise the default one-shot (unchanged).
-export function chooseDreamRunTurn({ routeViaGateway = false, gatewayUrl = null } = {}) {
-  return routeViaGateway && gatewayUrl ? makeRoutedRunTurn(gatewayUrl) : defaultRunTurn;
+// The routed path is wrapped so a gateway timeout / network error / malformed reply
+// DEGRADES to the one-shot path instead of crashing the nightly Improver run.
+export function chooseDreamRunTurn({ routeViaGateway = false, gatewayUrl = null, fallback = defaultRunTurn } = {}) {
+  if (!(routeViaGateway && gatewayUrl)) return fallback;
+  const routed = makeRoutedRunTurn(gatewayUrl);
+  return async function resilientRoutedRunTurn(args) {
+    try {
+      return await routed(args);
+    } catch (err) {
+      console.warn(`[improver] routed dream turn failed (${err?.message || err}); falling back to one-shot`);
+      return fallback(args);
+    }
+  };
 }
 
 // ── vault IO helpers (used by the orchestrator; pure-ish over a given dir) ─────

@@ -5,7 +5,7 @@ import { join } from "node:path";
 // @ts-ignore — pure .mjs
 import { ulid } from "../fittings/seed/kanban-loop/lib/ulid.mjs";
 // @ts-ignore — pure .mjs
-import { createCard, loadCard, saveCard, deriveMembership, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { createCard, loadCard, saveCard, saveCardCAS, deriveMembership, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { parseNextList, buildCardPrompt, classificationFor, processCard, getList, validNextFor } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 
@@ -45,6 +45,35 @@ describe("kanban board (s5)", () => {
     expect((await loadCard(root, c.id)).title).toBe("T");
     expect(deriveMembership(await loadAllCards(root))).toEqual({ todo: [c.id] });
     expect(JSON.parse(readFileSync(join(root, "cards", c.id, "card.json"), "utf8")).id).toBe(c.id);
+  });
+});
+
+describe("kanban CAS (s5 cross-model gate — lost-update guard)", () => {
+  it("saveCardCAS rejects a stale-rev write so a concurrent tick / manual edit is not clobbered", async () => {
+    const root = tmp();
+    const c = await createCard(root, { title: "T", list: "todo" });
+    expect(c.rev).toBe(0);
+    // first writer holding rev 0 → CAS ok, disk rev advances to 1
+    const w1 = await saveCardCAS(root, { ...c, title: "A" }, 0);
+    expect(w1.ok).toBe(true);
+    expect(w1.card.rev).toBe(1);
+    // a second writer still holding the stale rev 0 → conflict, disk untouched
+    const w2 = await saveCardCAS(root, { ...c, title: "B" }, 0);
+    expect(w2.ok).toBe(false);
+    expect(w2.conflict).toBe(true);
+    expect((await loadCard(root, c.id)).title).toBe("A"); // "B" did NOT overwrite "A"
+  });
+
+  it("processCard increments rev and a re-run with the STALE card skips on conflict", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "T", list: "implement" });
+    const runFn = async () => ({ reply: "review" });
+    const { card: moved } = await processCard({ root, board, card, runFn, cap: 10 });
+    expect(moved.rev).toBeGreaterThan(card.rev); // rev advanced through running + terminal writes
+    // re-processing with the original (stale-rev) card object must not double-process
+    const { outcome } = await processCard({ root, board, card, runFn, cap: 10 });
+    expect(outcome.status).toBe("skipped");
+    expect(outcome.reason).toBe("conflict");
   });
 });
 

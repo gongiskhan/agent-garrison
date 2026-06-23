@@ -366,10 +366,15 @@ export class RoutedGateway {
   }
 
   workflowTurnPrefix(route) {
-    const name =
+    const raw =
       route?.target?.workflow ||
       (route?.targetId || "").replace(/^workflow:/, "") ||
       "the resolved workflow";
+    // The workflow id is route/config-derived but still untrusted for prompt
+    // embedding: a name with backticks / newlines / control chars could break the
+    // `[workflow: …]` marker or inject extra instructions into the routed turn. Strip
+    // control chars + backticks and clamp length to a safe identifier-ish string.
+    const name = String(raw).replace(/[^a-zA-Z0-9 _.\/-]/g, "").trim().slice(0, 120) || "the resolved workflow";
     return `[workflow: ${name}] Handle this request by running the saved Claude Code workflow \`${name}\` — invoke it via the Workflow tool, then report the result.\n\n`;
   }
 

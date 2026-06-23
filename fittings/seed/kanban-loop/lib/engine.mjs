@@ -11,7 +11,7 @@
 // each agent-list carries an explicit {taskType, tier} fed to preRoute. Goal-mode
 // prepends /goal + the card's acceptance (the engine adds the prefix; execute-prompts
 // stay clean). A per-card iteration-cap breach parks the card in needs-attention.
-import { saveCard, appendCardLog } from "./board.mjs";
+import { saveCard, saveCardCAS, appendCardLog } from "./board.mjs";
 
 const AGENT_KIND = "agent";
 
@@ -68,16 +68,23 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   if (!list || list.kind !== AGENT_KIND) {
     return { card, outcome: { status: "skipped", reason: "not-an-agent-list" } };
   }
+  // Every write is a compare-and-swap against the rev we read, so a concurrent tick or
+  // a manual edit cannot be silently overwritten (lost update).
+  const baseRev = card.rev ?? 0;
   if ((card.iterations || 0) >= cap) {
-    const updated = { ...card, status: "needs-attention" };
-    await saveCard(root, updated, now());
-    return { card: updated, outcome: { status: "needs-attention", reason: "iteration-cap" } };
+    const res = await saveCardCAS(root, { ...card, status: "needs-attention" }, baseRev, now());
+    if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: "iteration-cap" } };
   }
 
   const validNext = validNextFor(board, card.list);
   const iteration = (card.iterations || 0) + 1;
-  const runningCard = { ...card, status: "running", iterations: iteration };
-  await saveCard(root, runningCard, now());
+  // Acquire the card: CAS the running-status write. A second concurrent tick fails the
+  // CAS here and skips, so a card is never processed twice.
+  const acq = await saveCardCAS(root, { ...card, status: "running", iterations: iteration }, baseRev, now());
+  if (!acq.ok) return { card: acq.card, outcome: { status: "skipped", reason: "conflict" } };
+  const runningCard = acq.card;
+  const runRev = runningCard.rev;
 
   const prompt = buildCardPrompt({ list, card: runningCard, validNext });
   const classification = classificationFor(list);
@@ -85,22 +92,20 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   try {
     out = await runFn({ prompt, card: runningCard, list, classification, suppressContinuations: true });
   } catch (err) {
-    const updated = { ...runningCard, status: "needs-attention" };
-    await saveCard(root, updated, now());
     await appendCardLog(root, card.id, iteration, `# iteration ${iteration}\nrun failed: ${err?.message || err}\n`);
-    return { card: updated, outcome: { status: "needs-attention", reason: "run-failed", error: String(err?.message || err) } };
+    const res = await saveCardCAS(root, { ...runningCard, status: "needs-attention" }, runRev, now());
+    return { card: res.card ?? runningCard, outcome: { status: "needs-attention", reason: "run-failed", error: String(err?.message || err) } };
   }
 
   const reply = out?.reply ?? out?.text ?? String(out ?? "");
   await appendCardLog(root, card.id, iteration, `# iteration ${iteration}\n${reply}\n`);
 
   const next = parseNextList(reply, validNext);
-  if (!next) {
-    const updated = { ...runningCard, status: "needs-attention" };
-    await saveCard(root, updated, now());
-    return { card: updated, outcome: { status: "needs-attention", reason: "no-exact-match", validNext } };
-  }
-  const updated = { ...runningCard, list: next, status: "ok" };
-  await saveCard(root, updated, now());
-  return { card: updated, outcome: { status: "moved", from: card.list, to: next } };
+  const target = next
+    ? { ...runningCard, list: next, status: "ok" }
+    : { ...runningCard, status: "needs-attention" };
+  const res = await saveCardCAS(root, target, runRev, now());
+  if (!res.ok) return { card: res.card, outcome: { status: "needs-attention", reason: "conflict-during-run" } };
+  if (!next) return { card: res.card, outcome: { status: "needs-attention", reason: "no-exact-match", validNext } };
+  return { card: res.card, outcome: { status: "moved", from: card.list, to: next } };
 }

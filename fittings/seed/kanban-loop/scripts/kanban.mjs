@@ -83,11 +83,22 @@ async function probe() {
 // gateway /chat → preRoute). The board's cards must reach a running gateway; with
 // no GARRISON_GATEWAY_URL this is a no-op tick.
 function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt }) => {
+  return async ({ prompt, classification, list, suppressContinuations }) => {
+    // §9/§10: the engine computes the explicit {taskType,tier} classification + the
+    // per-list skill and asks for the router's continuations to be suppressed. Forward
+    // them on the wire so preRoute can honor the explicit classification instead of
+    // re-classifying from scratch (the gateway honoring these fields is the V1b
+    // integration point; sending them keeps the V1a contract intact end-to-end).
     const res = await fetch(`${gatewayUrl}/chat`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
-      body: JSON.stringify({ channel: "kanban", message: prompt })
+      body: JSON.stringify({
+        channel: "kanban",
+        message: prompt,
+        classification: classification ?? null,
+        skill: list?.skill ?? null,
+        suppressContinuations: suppressContinuations ?? true
+      })
     });
     if (!res.ok) throw new Error(`kanban dispatch failed: HTTP ${res.status}`);
     const data = await res.json().catch(() => ({}));

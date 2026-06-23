@@ -37,4 +37,21 @@ describe("improver dream routing (s6b — route the Improver through preRoute)",
     const rt = makeRoutedRunTurn("http://x");
     await expect(rt({ systemPrompt: "S", message: "M" })).rejects.toThrow(/503/);
   });
+
+  it("makeRoutedRunTurn throws on a 200 with an empty/malformed reply (no silent empty dream)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ reply: "   " }) })));
+    const rt = makeRoutedRunTurn("http://x");
+    await expect(rt({ systemPrompt: "S", message: "M" })).rejects.toThrow(/empty\/invalid reply/);
+  });
+
+  it("the routed path DEGRADES to the fallback one-shot instead of crashing when the gateway fails (s6b r1)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("ECONNREFUSED"); // gateway unreachable / timeout
+    }));
+    const fallback = vi.fn(async () => ({ reply: "one-shot result" }));
+    const routed = chooseDreamRunTurn({ routeViaGateway: true, gatewayUrl: "http://x", fallback });
+    const out = await routed({ systemPrompt: "S", message: "M" });
+    expect(out).toEqual({ reply: "one-shot result" });
+    expect(fallback).toHaveBeenCalledTimes(1); // fell back, did not throw
+  });
 });

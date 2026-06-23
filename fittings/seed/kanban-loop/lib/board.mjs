@@ -46,6 +46,7 @@ export async function createCard(root, { title, description = "", project = null
     list,
     status: "ok",
     iterations: 0,
+    rev: 0, // optimistic-concurrency revision (compare-and-swap on write)
     cost: null,
     goalMode: Boolean(goalMode),
     acceptance,
@@ -60,9 +61,32 @@ export async function loadCard(root, id) {
   return readJSON(cardFile(root, id));
 }
 
-// Read-immediately-before-write then atomic-write the mutated card.
+// Read-immediately-before-write then atomic-write the mutated card. Bumps rev.
 export async function saveCard(root, card, at = new Date().toISOString()) {
-  await atomicWriteJSON(cardFile(root, card.id), { ...card, updated: at });
+  const next = { ...card, rev: (card.rev ?? 0) + 1, updated: at };
+  await atomicWriteJSON(cardFile(root, card.id), next);
+  return next;
+}
+
+// Compare-and-swap save: only write when the on-disk rev still matches what the
+// caller last read (`expectedRev`), so a concurrent tick or a manual edit cannot be
+// silently overwritten (the lost-update class the temp+rename atomic write does NOT
+// prevent). Returns { ok, conflict?, card }. (A tiny TOCTOU window remains between the
+// reload and the rename — full OS-level locking is V1b; this closes the long
+// read→run→write window, which is where real races happen.)
+export async function saveCardCAS(root, card, expectedRev, at = new Date().toISOString()) {
+  let disk = null;
+  try {
+    disk = await loadCard(root, card.id);
+  } catch {
+    disk = null; // first write of a brand-new card
+  }
+  if (disk && (disk.rev ?? 0) !== expectedRev) {
+    return { ok: false, conflict: true, card: disk };
+  }
+  const next = { ...card, rev: expectedRev + 1, updated: at };
+  await atomicWriteJSON(cardFile(root, card.id), next);
+  return { ok: true, card: next };
 }
 
 export async function listCardIds(root = kanbanRoot()) {
