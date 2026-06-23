@@ -483,9 +483,19 @@ export class RoutedGateway {
     this._lastUserMessage = message;
     // Honor an EXPLICIT {taskType,tier} classification from the caller (the Kanban Loop
     // §10 contract: each agent-list carries its own classification) instead of
-    // re-classifying from scratch; a malformed/absent hint falls back to the classifier.
+    // re-classifying from scratch — but ONLY when both values are in the router's
+    // vocabulary. A malformed/out-of-vocab/absent hint is NOT trusted; it falls back to
+    // the message classifier so a bad hint can never silently misroute a turn.
     const explicit = opts.classification;
-    const honored = !!(explicit && typeof explicit.taskType === "string" && typeof explicit.tier === "string");
+    const validTask = Array.isArray(this.config.taskTypes) ? this.config.taskTypes : [];
+    const validTier = Array.isArray(this.config.tiers) ? this.config.tiers : [];
+    const honored = !!(
+      explicit &&
+      typeof explicit.taskType === "string" &&
+      typeof explicit.tier === "string" &&
+      validTask.includes(explicit.taskType) &&
+      validTier.includes(explicit.tier)
+    );
     const classification = honored ? explicit : await this.classify(message);
     if (honored) {
       this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });

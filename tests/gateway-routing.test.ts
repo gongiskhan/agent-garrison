@@ -145,6 +145,20 @@ describe("U1 — gateway Stage-A live routing (live-route-ok)", () => {
     }
   });
 
+  it("does NOT honor an OUT-OF-VOCAB explicit classification — falls back to the message classifier (s5 r3)", async () => {
+    const { gw } = await bootGateway();
+    try {
+      // a bogus taskType must be rejected (not blindly trusted) → classify the message
+      // instead → "quick: what is 2 plus 2" is trivial → fast → cc-haiku-low.
+      const pre = await gw.preRoute("quick: what is 2 plus 2", {
+        classification: { taskType: "bogus", tier: "T2-deep" },
+      });
+      expect(pre.route.targetId).toBe("cc-haiku-low");
+    } finally {
+      gw.shutdown();
+    }
+  });
+
   it("logs honored:false when the operative emits a mismatched token", async () => {
     const { gw, decisionsFile } = await bootGateway();
     try {
