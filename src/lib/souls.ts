@@ -89,12 +89,16 @@ export function composeSoulPrompt(input: {
 }
 
 // Instruction appended to the orchestrator session's prompt in soul mode, so the
-// gateway's `[mode: <name>]` turn-header annotation is ACTED ON, not merely
-// informational: the orchestrator must delegate the turn to that soul.
+// gateway's turn-header mode annotation is ACTED ON, not merely informational: the
+// orchestrator must delegate the turn to that soul. The gateway emits the mode inside
+// the structured turn header `[origin: <origin>, channel: <channel>, mode: <name>]`
+// (buildOrchestratorTurn), so the prompt must reference that exact format — not a
+// standalone `[mode: <name>]` the gateway never emits.
 export const MODE_DELEGATION_INSTRUCTION = `## Mode delegation (Gary / Joe / James)
 
-Each inbound turn's header may include \`[mode: <name>]\` — the user's selected face
-(one of the installed modes), resolved by the gateway from a mode name at the start
+Each inbound turn begins with a structured header \`[origin: <origin>, channel: <channel>, mode: <name>]\`.
+When it carries \`mode: <name>\` — the user's selected face (one of the installed modes),
+resolved by the gateway from a mode name at the start
 of the message, the channel default, or the sticky current mode. When a mode is set,
 HONOR it: delegate the turn to that soul via the garrison-control
 \`talk_to(soul=<name>, message=...)\` tool, wait for its result, and report back in

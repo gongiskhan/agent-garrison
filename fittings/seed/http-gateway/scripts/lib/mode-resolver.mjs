@@ -47,11 +47,16 @@ export function resolveMode({
       priorMode: currentMode
     };
   }
-  if (currentMode) {
+  if (currentMode && names.includes(currentMode)) {
     return { mode: currentMode, trigger: "sticky", switched: false, priorMode: currentMode };
   }
+  // Session start (or a stale currentMode): channel default, else the configured
+  // defaultMode — but BOTH must be real modes. A stale modes.json defaultMode (or an
+  // unknown channel default) must never resolve to a non-existent soul and then stick;
+  // fall back to the first defined mode as a last resort.
   const fromChannel = channelDefaults[channel];
-  const mode = names.includes(fromChannel) ? fromChannel : defaultMode;
+  const safeDefault = names.includes(defaultMode) ? defaultMode : (names[0] ?? defaultMode);
+  const mode = names.includes(fromChannel) ? fromChannel : safeDefault;
   return { mode, trigger: "channel_default", switched: true, priorMode: null };
 }
 

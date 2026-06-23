@@ -8,7 +8,7 @@ const ROOT = join(__dirname, "..");
 const MODES = JSON.parse(readFileSync(join(ROOT, "fittings/seed/modes/modes.json"), "utf8"));
 
 describe("mode bias (s1e)", () => {
-  it("biasRole: Joe floors at expert, James floors at standard, Gary leaves the resolved tier", () => {
+  it("biasRole: Joe floors at expert, James floors at standard, Gary leans standard->fast (keeps expert)", () => {
     const joe = modeBiasFor("joe", MODES);
     expect(biasRole("fast", joe)).toBe("expert");
     expect(biasRole("standard", joe)).toBe("expert");
@@ -19,9 +19,11 @@ describe("mode bias (s1e)", () => {
     expect(biasRole("standard", james)).toBe("standard");
     expect(biasRole("expert", james)).toBe("expert");
 
+    // "standard-toward-fast": Gary downgrades a standard baseline to fast (the cheap
+    // PA face), but still keeps expert for genuinely hard tasks. NOT a no-op.
     const gary = modeBiasFor("gary", MODES);
     expect(biasRole("fast", gary)).toBe("fast");
-    expect(biasRole("standard", gary)).toBe("standard");
+    expect(biasRole("standard", gary)).toBe("fast");
     expect(biasRole("expert", gary)).toBe("expert");
   });
 
@@ -36,7 +38,7 @@ describe("mode bias (s1e)", () => {
     const nominal = (m: string) => biasRole("standard", modeBiasFor(m, MODES));
     expect(nominal("joe")).toBe("expert");
     expect(nominal("james")).toBe("standard");
-    expect(nominal("gary")).toBe("standard");
+    expect(nominal("gary")).toBe("fast");
   });
 
   it("modeBiasFor returns null for an unknown mode or missing config", () => {

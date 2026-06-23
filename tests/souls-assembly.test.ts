@@ -98,7 +98,7 @@ describe("souls assembly (s1c)", () => {
     expect(config!.modes.defaultMode).toBe("gary");
     expect(config!.modes.switchLogPath).toBe(join(dir, ".garrison", "switch-log.jsonl"));
     // per-mode tier from routing bias (s1e), surfaced into the orchestrator prompt
-    expect(config!.modes.tierByMode).toMatchObject({ joe: "expert", james: "standard", gary: "standard" });
+    expect(config!.modes.tierByMode).toMatchObject({ joe: "expert", james: "standard", gary: "fast" });
     expect(orchText).toContain("Per-mode tier");
     expect(orchText).toContain("joe: spawn at the **expert** tier");
   });

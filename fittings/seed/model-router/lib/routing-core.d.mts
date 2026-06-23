@@ -118,7 +118,11 @@ export function resolveRoute(config: RoutingConfig, profile: string | null, clas
 
 // Mode bias (modes faculty): nudge the resolved compute-tier role per a mode's
 // {floor, prefer}, then re-map the target. Pure; never mutates config/route.
-export interface ModeBias { floor?: Role; prefer?: Role; }
+// floor/prefer are COMPUTE roles only — biasRole ranks via COMPUTE_RANK and leaves
+// the task-specific roles (image/video/review) untouched, so the type must not admit
+// them (an image/video/review bias would type-check and then silently no-op).
+export type ComputeRole = Extract<Role, "fast" | "standard" | "expert">;
+export interface ModeBias { floor?: ComputeRole; prefer?: ComputeRole; }
 export interface ModesConfigLike {
   modes?: Record<string, { routingBias?: string }>;
   routingBias?: Record<string, ModeBias>;

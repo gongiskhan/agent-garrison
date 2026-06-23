@@ -39,7 +39,7 @@
     "switchLog": ".garrison/switch-log.jsonl"
   },
   "routingBias": {
-    "standard-toward-fast": { "floor": "fast", "prefer": "standard" },
+    "standard-toward-fast": { "floor": "fast", "prefer": "fast" },
     "expert": { "floor": "expert", "prefer": "expert" },
     "expert-then-standard": { "floor": "standard", "prefer": "expert" }
   }

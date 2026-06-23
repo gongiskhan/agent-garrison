@@ -64,6 +64,20 @@ describe("mode-resolver (s1d)", () => {
     expect(resolveMode({ message: "hi", channel: "sms", currentMode: null, channelDefaults: CHANNEL_DEFAULTS, defaultMode: "gary", names: NAMES }).mode).toBe("gary");
   });
 
+  it("never resolves an invalid mode: a stale defaultMode / currentMode falls back to a real mode (s1d cross-model gate)", async () => {
+    const { resolveMode } = await import(join(LIB, "mode-resolver.mjs"));
+    // stale modes.json defaultMode + unknown channel → must NOT return the bogus
+    // default (it would map to a non-existent soul and then stick); fall back to names[0].
+    const r = resolveMode({ message: "hi", channel: "sms", currentMode: null, channelDefaults: CHANNEL_DEFAULTS, defaultMode: "ghost", names: NAMES });
+    expect(NAMES).toContain(r.mode);
+    expect(r.mode).toBe("gary"); // names[0]
+    // a stale currentMode (no longer an installed mode) must not stick — re-resolve
+    const stale = resolveMode({ message: "and then?", channel: "slack", currentMode: "retired-face", channelDefaults: CHANNEL_DEFAULTS, defaultMode: "gary", names: NAMES });
+    expect(NAMES).toContain(stale.mode);
+    expect(stale.trigger).toBe("channel_default");
+    expect(stale.mode).toBe("gary");
+  });
+
   it("buildSwitchEntry has all structured fields + appendSwitchLog appends JSONL (modes FINDING 9)", async () => {
     const { buildSwitchEntry, appendSwitchLog } = await import(join(LIB, "mode-resolver.mjs"));
     const entry = buildSwitchEntry({
