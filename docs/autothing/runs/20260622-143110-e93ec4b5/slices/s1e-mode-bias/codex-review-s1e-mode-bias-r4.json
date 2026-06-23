@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"No material defensible finding remains in this slice; the `routingBias` object-shape guard now closes the prior primitive/array no-op gap, and the regression coverage matches the resolved Round-3 concern.","findings":[]}

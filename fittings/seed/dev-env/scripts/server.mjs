@@ -8,7 +8,7 @@
 // Scaffolding (routing, WS upgrade, status file, static serving) follows the
 // terminal donor.
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync, accessSync, constants as fsConstants } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -545,6 +545,18 @@ async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
   return res.json();
 }
 
+// A path is safe to thread into `claude --append-system-prompt-file` only if it is a
+// readable REGULAR FILE — existsSync passes a directory, which claude can't read.
+function isReadableFile(p) {
+  try {
+    if (!statSync(p).isFile()) return false;
+    accessSync(p, fsConstants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // POST /sessions — "Start session": record + both PTYs for an arbitrary
 // project directory. Reuses an existing record for the same cwd; claude
 // resumes (--continue) when the reused record already saw a claude session,
@@ -577,10 +589,12 @@ async function handleCreateSession(req, res) {
             channel: "dev-env",
             mode: typeof body.mode === "string" ? body.mode : undefined
           });
-          // Only thread the composed prompt into `claude` if it actually exists on
-          // disk — a 200 with a bad/unreadable promptPath would otherwise launch
-          // claude with a broken --append-system-prompt-file. Fall back to bare.
-          if (spec && typeof spec.promptPath === "string" && existsSync(spec.promptPath)) {
+          // Only thread the composed prompt into `claude` if it is a READABLE REGULAR
+          // FILE — a 200 with a bad path (missing, a directory, or unreadable) would
+          // otherwise launch claude with a broken --append-system-prompt-file. existsSync
+          // alone passes a directory, so stat isFile() + R_OK; fall back to bare on any
+          // failure.
+          if (spec && typeof spec.promptPath === "string" && isReadableFile(spec.promptPath)) {
             orchestrated = { appendPromptFiles: [spec.promptPath], model: spec.model || null };
           }
         } catch {

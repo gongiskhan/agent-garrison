@@ -1,18 +1,67 @@
 {
   "slice": "s3a-sessions-place",
-  "title": "orchestrator placement — Garrison API /api/orchestrator/place + orchestrator-placement.ts",
+  "title": "orchestrator placement \u2014 Garrison API /api/orchestrator/place + orchestrator-placement.ts",
   "updatedAt": "2026-06-22T16:08:18Z",
-  "phase": "done", "status": "passed", "kind": "mixed",
-  "retries": { "limit": 5, "used": 1 },
-  "gates": {
-    "tests": { "cmd": "npx vitest run tests/orchestrator-placement.test.ts", "exit": 0, "at": "2026-06-22T16:08:18Z", "summary": "5 passed — channel defaults (dev-env→joe, slack/web→gary), explicit override, joe→expert→opus model, null when modes absent" },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T16:08:18Z", "summary": "clean (API route compiles)" },
-    "suite": { "cmd": "npm test", "at": "2026-06-22T16:08:18Z", "summary": "875 passed; 6 PRE-EXISTING failures unchanged; no new regressions" },
-    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T16:08:18Z", "summary": "reuses composeSoulPrompt + biasRole; v1 sources modes/routing from the seed (composition-scoped override noted as later)" },
-    "codexReview": { "verdict": "approve", "rounds": 1, "by": "codex/chatgpt", "at": "2026-06-22T16:08:18Z", "lastReport": "APPROVE round 1 (clean)" },
-    "codexPwTest": { "result": "n/a", "reason": "API+dev-env e2e lands with s3b/s3c; lib is unit-tested" },
-    "designAudit": { "verdict": "n/a", "reason": "backend API" },
-    "video": { "status": "n/a", "reason": "no UI in this slice" }
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 1
   },
-  "blockers": []
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/orchestrator-placement.test.ts",
+      "exit": 0,
+      "at": "2026-06-22T16:08:18Z",
+      "summary": "5 passed \u2014 channel defaults (dev-env\u2192joe, slack/web\u2192gary), explicit override, joe\u2192expert\u2192opus model, null when modes absent"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-22T16:08:18Z",
+      "summary": "clean (API route compiles)"
+    },
+    "suite": {
+      "cmd": "npm test",
+      "at": "2026-06-22T16:08:18Z",
+      "summary": "875 passed; 6 PRE-EXISTING failures unchanged; no new regressions"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude/same-model",
+      "at": "2026-06-22T16:08:18Z",
+      "summary": "reuses composeSoulPrompt + biasRole; v1 sources modes/routing from the seed (composition-scoped override noted as later)"
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 1,
+      "by": "codex/chatgpt",
+      "at": "2026-06-22T16:08:18Z",
+      "lastReport": "APPROVE round 1 (clean)"
+    },
+    "codexPwTest": {
+      "result": "n/a",
+      "reason": "API+dev-env e2e lands with s3b/s3c; lib is unit-tested"
+    },
+    "designAudit": {
+      "verdict": "n/a",
+      "reason": "backend API"
+    },
+    "video": {
+      "status": "n/a",
+      "reason": "no UI in this slice"
+    }
+  },
+  "blockers": [],
+  "codexReview": {
+    "verdict": "approve",
+    "rounds": 2,
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T05:27:21Z",
+    "lastReport": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3a-sessions-place/codex-review-s3a-sessions-place-r2.json",
+    "overrides": [],
+    "round1Findings": "f2 path-traversal confinement (fixed); f1 reframe descope accepted (stateless compose API, no sessionId/cwd/message); f3 graceful null fallback"
+  },
+  "flagged": false
 }
