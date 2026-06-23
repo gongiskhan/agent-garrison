@@ -8,8 +8,35 @@
 // model instead of a bare session. This is a live Garrison API (it does NOT
 // depend on the gateway's orchestrator/soul mode being booted).
 import { promises as fs } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { composeSoulPrompt } from "./souls";
+import { ROOT_DIR, COMPOSITIONS_DIR } from "./paths";
+
+// A composition id is joined into a filesystem path, so it must be a safe slug — a
+// traversal-y value (path separators / "..") is rejected back to "default".
+export function safeComposition(id: unknown): string {
+  return typeof id === "string" && /^[a-z0-9_-]+$/i.test(id) ? id : "default";
+}
+
+// Resolve the placement config from the LIVE installed composition when it exists, so
+// placement reflects the user's actual modes.json / composition-scoped routing.json
+// rather than the repo seed defaults (which can diverge). Falls back to the seed when a
+// piece is not installed in the named composition.
+export function resolvePlacementPaths(composition: string): { modesDir: string; routingConfigPath: string } {
+  const comp = safeComposition(composition);
+  const compDir = path.join(COMPOSITIONS_DIR, comp);
+  const installedModes = path.join(compDir, "apm_modules", "_local", "modes");
+  const scopedRouting = path.join(compDir, ".garrison", "routing.json");
+  return {
+    modesDir: existsSync(path.join(installedModes, "modes.json"))
+      ? installedModes
+      : path.join(ROOT_DIR, "fittings/seed/modes"),
+    routingConfigPath: existsSync(scopedRouting)
+      ? scopedRouting
+      : path.join(ROOT_DIR, "fittings/seed/model-router/config/routing.seed.json")
+  };
+}
 
 export interface PlacementResult {
   mode: string;

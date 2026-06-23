@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { placeOrchestratedSession, resolvePlacementMode } from "../src/lib/orchestrator-placement";
+import { placeOrchestratedSession, resolvePlacementMode, safeComposition, resolvePlacementPaths } from "../src/lib/orchestrator-placement";
 
 const ROOT = join(__dirname, "..");
 const MODES_DIR = join(ROOT, "fittings/seed/modes");
@@ -65,6 +65,29 @@ describe("orchestrator placement (s3a)", () => {
       outDir: mkdtempSync(join(tmpdir(), "place-evil-"))
     });
     expect(r).toBeNull(); // guarded before any soul read / prompt write
+  });
+
+  it("safeComposition rejects a traversal-y composition id back to 'default' (s3c r2)", () => {
+    expect(safeComposition("default")).toBe("default");
+    expect(safeComposition("my-comp_2")).toBe("my-comp_2");
+    expect(safeComposition("../../etc")).toBe("default");
+    expect(safeComposition("a/b")).toBe("default");
+    expect(safeComposition("..")).toBe("default");
+    expect(safeComposition(null)).toBe("default");
+    expect(safeComposition(42)).toBe("default");
+  });
+
+  it("resolvePlacementPaths prefers the composition's LIVE config, falling back to seed (s3c r2)", () => {
+    // the default composition ships a scoped routing.json (live) but no installed modes
+    const def = resolvePlacementPaths("default");
+    expect(def.routingConfigPath).toContain(join("compositions", "default", ".garrison", "routing.json"));
+    expect(def.modesDir).toContain(join("fittings", "seed", "modes")); // modes not installed → seed
+    // an unknown composition has neither → both fall back to the seed defaults
+    const ghost = resolvePlacementPaths("nonexistent-comp");
+    expect(ghost.modesDir).toContain(join("fittings", "seed", "modes"));
+    expect(ghost.routingConfigPath).toContain("routing.seed.json");
+    // a traversal id is sanitized to default before any path join
+    expect(resolvePlacementPaths("../../etc").routingConfigPath).toBe(def.routingConfigPath);
   });
 
   it("returns null when the modes fitting is absent", async () => {

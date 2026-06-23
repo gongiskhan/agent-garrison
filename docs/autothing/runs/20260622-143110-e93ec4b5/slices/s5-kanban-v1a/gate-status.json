@@ -2,22 +2,90 @@
   "slice": "s5-kanban-v1a",
   "title": "Kanban Loop V1a engine fitting (automation-runner)",
   "updatedAt": "2026-06-22T17:10:10Z",
-  "phase": "done", "status": "passed", "kind": "mixed",
-  "retries": { "limit": 5, "used": 1 },
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 1
+  },
   "gates": {
-    "tests": { "cmd": "npx vitest run tests/kanban.test.ts", "exit": 0, "at": "2026-06-22T17:10:10Z", "summary": "9 passed — ulid (26ch sortable), board (createCard ULID/atomic, loadCard, derived membership), engine (parseNextList exact-match no-fuzzy, goal-mode /goal prefix, classificationFor §10, processCard move/needs-attention/cap/throw/manual-skip)" },
-    "validateFitting": { "cmd": "tsx scripts/validate-fitting.ts fittings/seed/kanban-loop", "result": "PASS", "at": "2026-06-22T17:10:10Z", "summary": "architecture/security/prompt-injection/quality all pass" },
-    "probe": { "cmd": "node scripts/kanban.mjs --probe", "result": "KANBAN-OK", "at": "2026-06-22T17:10:10Z" },
-    "syntax": { "cmd": "node --check ulid/board/engine/kanban.mjs", "exit": 0, "at": "2026-06-22T17:10:10Z" },
-    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-22T17:10:10Z", "summary": "clean" },
-    "suite": { "cmd": "npm test", "at": "2026-06-22T17:10:10Z", "summary": "907 passed; 6 PRE-EXISTING failures; no new regressions" },
-    "review": { "verdict": "clean", "by": "claude/same-model", "at": "2026-06-22T17:10:10Z", "summary": "exact-match only (no fuzzy), iteration cap, goal-mode prefix, needs-attention on no-match/cap/throw, manual skip, atomic writes, ULID, derived membership; §9 (no per-list model, skill explicit, suppress continuations, no Infer) + §10 ({taskType,tier}); runFn injected (preRoute). All tested." },
-    "codexReview": { "verdict": "blocked-external", "by": "codex/chatgpt", "at": "2026-06-22T17:10:10Z", "lastReport": "Codex workspace out of credits", "blockedExternal": true },
-    "codexPwTest": { "result": "blocked-external", "reason": "Codex workspace out of credits" },
-    "designAudit": { "verdict": "n/a", "reason": "V1a engine — UI is V1b (deferred per brief)" },
-    "video": { "status": "n/a", "reason": "engine, no UI/runtime flow in V1a" }
+    "tests": {
+      "cmd": "npx vitest run tests/kanban.test.ts",
+      "exit": 0,
+      "at": "2026-06-22T17:10:10Z",
+      "summary": "9 passed \u2014 ulid (26ch sortable), board (createCard ULID/atomic, loadCard, derived membership), engine (parseNextList exact-match no-fuzzy, goal-mode /goal prefix, classificationFor \u00a710, processCard move/needs-attention/cap/throw/manual-skip)"
+    },
+    "validateFitting": {
+      "cmd": "tsx scripts/validate-fitting.ts fittings/seed/kanban-loop",
+      "result": "PASS",
+      "at": "2026-06-22T17:10:10Z",
+      "summary": "architecture/security/prompt-injection/quality all pass"
+    },
+    "probe": {
+      "cmd": "node scripts/kanban.mjs --probe",
+      "result": "KANBAN-OK",
+      "at": "2026-06-22T17:10:10Z"
+    },
+    "syntax": {
+      "cmd": "node --check ulid/board/engine/kanban.mjs",
+      "exit": 0,
+      "at": "2026-06-22T17:10:10Z"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-22T17:10:10Z",
+      "summary": "clean"
+    },
+    "suite": {
+      "cmd": "npm test",
+      "at": "2026-06-22T17:10:10Z",
+      "summary": "907 passed; 6 PRE-EXISTING failures; no new regressions"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude/same-model",
+      "at": "2026-06-22T17:10:10Z",
+      "summary": "exact-match only (no fuzzy), iteration cap, goal-mode prefix, needs-attention on no-match/cap/throw, manual skip, atomic writes, ULID, derived membership; \u00a79 (no per-list model, skill explicit, suppress continuations, no Infer) + \u00a710 ({taskType,tier}); runFn injected (preRoute). All tested."
+    },
+    "codexReview": {
+      "verdict": "blocked-external",
+      "by": "codex/chatgpt",
+      "at": "2026-06-22T17:10:10Z",
+      "lastReport": "Codex workspace out of credits",
+      "blockedExternal": true
+    },
+    "codexPwTest": {
+      "result": "blocked-external",
+      "reason": "Codex workspace out of credits"
+    },
+    "designAudit": {
+      "verdict": "n/a",
+      "reason": "V1a engine \u2014 UI is V1b (deferred per brief)"
+    },
+    "video": {
+      "status": "n/a",
+      "reason": "engine, no UI/runtime flow in V1a"
+    }
   },
   "blockers": [
-    { "gate": "codexReview/codexPwTest", "cause": "external: Codex/ChatGPT workspace out of credits", "failedCommand": "codex exec --output-last-message <file> \"<review prompt>\"", "observed": "Your workspace is out of credits. Add credits to continue.", "remediation": "Add credits to the Codex workspace, then re-run the adversarial review on this slice's diff." }
-  ]
+    {
+      "gate": "codexReview/codexPwTest",
+      "cause": "external: Codex/ChatGPT workspace out of credits",
+      "failedCommand": "codex exec --output-last-message <file> \"<review prompt>\"",
+      "observed": "Your workspace is out of credits. Add credits to continue.",
+      "remediation": "Add credits to the Codex workspace, then re-run the adversarial review on this slice's diff."
+    }
+  ],
+  "codexReview": {
+    "verdict": "approve",
+    "rounds": 4,
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T06:13:15Z",
+    "lastReport": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s5-kanban-v1a/codex-review-s5-kanban-v1a-r4.json",
+    "overrides": [],
+    "round1Findings": "f1 classification not forwarded -> wired end-to-end through /chat->preRoute (vocab-validated, honored over keyword classification); f2 lost-update -> rev + CAS"
+  },
+  "flagged": false
 }

@@ -535,10 +535,14 @@ async function handleDeleteSession(req, res, sessionId) {
 // GARRISON_BASE_URL (default the local Garrison Next app on 7777).
 async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
   const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  // forward the active composition when we know it (GARRISON_COMPOSITION_ID), so a
+  // non-default composition is placed against ITS live modes/routing; the route
+  // defaults to "default" when absent (the single-composition case).
+  const composition = process.env.GARRISON_COMPOSITION_ID || null;
   const res = await fetch(`${base}/api/orchestrator/place`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ channel, ...(mode ? { mode } : {}) }),
+    body: JSON.stringify({ channel, ...(mode ? { mode } : {}), ...(composition ? { composition } : {}) }),
     signal: AbortSignal.timeout(5000)
   });
   if (!res.ok) throw new Error(`orchestrator place failed: HTTP ${res.status}`);
