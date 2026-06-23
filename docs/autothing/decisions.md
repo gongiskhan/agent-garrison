@@ -315,7 +315,12 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
   runtime + one "classifier"; model/effort are applied at checkout via slash-inject
   (/model, /effort, stage-b.mjs), NOT by partitioning the pool. s2 LOCKS this with a
   test (tests/warm-pool-single.test.ts).
-- HOT set (hot-swappable mid-session via slash-inject): {model, effort}.
+- HOT set (hot-swappable mid-session via slash-inject): {model, effort}. NOTE the two
+  distinct paths so "model is HOT" and "respawn on model change" do not read as a
+  contradiction: the ROUTED gateway (gateway-pty.mjs) slash-injects /model+/effort and
+  NEVER respawns on a model change (it re-tunes the live session in place); the DORMANT
+  orchestrator/soul mode (gateway.mjs) is the only path that respawns-with-resume, and
+  only to carry a BOOT-level change (a model change within a soul) across a fresh process.
 - BOOT set (needs a fresh session): {system prompt / soul identity}. In the gateway
   orchestrator mode this is realized as a SEPARATE soul session per face (gary/joe/
   james keyed in the registry); shouldRespawnForTier already respawns-with-resume on a

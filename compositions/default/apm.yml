@@ -4,22 +4,23 @@ target: claude
 dependencies:
   apm:
     - path: ../../fittings/seed/artifact-store
+    - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/model-router
-    - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/basic-memory
-    - path: ../../fittings/seed/knowledge
-    - path: ../../fittings/seed/monitor-default
-    - path: ../../fittings/seed/improver
-    - path: ../../fittings/seed/scheduler
-    - path: ../../fittings/seed/vault-git-sync
-    - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/gemini-runtime
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/knowledge
+    - path: ../../fittings/seed/model-router
+    - path: ../../fittings/seed/modes
+    - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/trello-data-source
+    - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
 x-garrison:
   composition:
@@ -42,11 +43,6 @@ x-garrison:
           config:
             port: 7087
             bind_host: 127.0.0.1
-      gateway:
-        - id: http-gateway
-          config:
-            port: 4777
-            bind_host: 127.0.0.1
       channels:
         - id: slack-channel
           config:
@@ -64,6 +60,16 @@ x-garrison:
             bind_host: 127.0.0.1
             stt_model: nova-2
             tts_model: aura-asteria-en
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4777
+            bind_host: 127.0.0.1
+      runtimes:
+        - id: codex-runtime
+          config: {}
+        - id: gemini-runtime
+          config: {}
       memory:
         - id: basic-memory
           config:
@@ -96,11 +102,6 @@ x-garrison:
             dream_model: haiku
         - id: scheduler
           config: {}
-      runtimes:
-        - id: codex-runtime
-          config: {}
-        - id: gemini-runtime
-          config: {}
       sessions:
         - id: artifact-store
           config:
@@ -124,6 +125,11 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
+      modes:
+        - id: modes
+          config:
+            briefs_path: ./briefs/
+            default_mode: gary
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

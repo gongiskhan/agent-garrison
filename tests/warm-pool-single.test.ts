@@ -41,6 +41,15 @@ describe("single generic warm pool (s2 / pool-collapse FINDING 7)", () => {
     pool.shutdown();
   });
 
+  // The pool SEMANTICS are proved live by the test above (it constructs the real
+  // MultiRuntimePool and asserts exactly {operative, classifier} warm + same-pool
+  // re-checkout). The gateway's MultiRuntimePool is built inline inside
+  // createRoutedGateway (gateway-routing.mjs:~633), not exported as a standalone
+  // factory, so this second test is the SOURCE-INVARIANT counterpart (the FINDING-7
+  // "grep shows one generic warm-session definition" check): it pins that the gateway
+  // hands that real pool class exactly one primary "operative" runtime + classifier,
+  // with no per-(model×effort×type) partition key. The two together (live semantics +
+  // wiring invariant) are the s2 gate.
   it("the gateway wires exactly one primary 'operative' runtime (no per-model partitioning)", () => {
     const src = readFileSync(
       join(__dirname, "..", "fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs"),
