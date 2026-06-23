@@ -94,5 +94,14 @@
     "at": "2026-06-23T08:45:03Z",
     "report": "docs/autothing/runs/20260622-143110-e93ec4b5/codex-pwtest-modes-arc-consolidated.json",
     "note": "independent cross-model functional pass: Codex ran the modes-arc committed suite (14/14 files, 93/93 tests) + spot-checked specs against production code for non-vacuousness. Backend slices verified via independent committed-spec execution (no running UI to Playwright-drive); s3c UI also has the dev-env walkthrough."
-  }
+  },
+  "video": {
+    "status": "verified",
+    "url": "http://100.108.210.116:8099/agent-garrison/modes/2026-06-23_10-03-34/final.mp4",
+    "verifiedAt": "2026-06-23T09:07:54Z",
+    "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/modes/2026-06-23_10-03-34",
+    "gates": "per-beat 7/7 + holistic (full arc incl. live placement payoff joe->opus / gary->haiku / james->sonnet) PASS",
+    "designAudit": "clean \u2014 the Orchestrator dropdown reuses the existing StartSessionDialog .modal-label/.project-picker components, visually consistent with the existing dialog (walkthrough-confirmed)"
+  },
+  "videoStatus": "verified"
 }

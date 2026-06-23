@@ -1,8 +1,8 @@
 {
   "project": "agent-garrison",
   "runId": "20260622-143110-e93ec4b5",
-  "updatedAt": "2026-06-22T17:10:10Z",
-  "galleryUrl": null,
+  "updatedAt": "2026-06-23T09:10:09Z",
+  "galleryUrl": "http://100.108.210.116:8099/  (agent-garrison / modes)",
   "slices": [
     {
       "slice": "s0-truthup",
@@ -11,7 +11,7 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T15:36:07Z",
+      "verifiedAt": "2026-06-23T09:10:09Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s0-truthup/gate-status.json"
     },
@@ -22,7 +22,7 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T15:36:07Z",
+      "verifiedAt": "2026-06-23T09:10:09Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1a-modes-fitting/gate-status.json"
     },
@@ -33,7 +33,7 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T15:36:07Z",
+      "verifiedAt": "2026-06-23T09:10:09Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1b-modes-capkind/gate-status.json"
     },
@@ -44,7 +44,7 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T15:36:07Z",
+      "verifiedAt": "2026-06-23T09:10:09Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1c-souls-assembly/gate-status.json"
     },
@@ -55,7 +55,7 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T15:36:07Z",
+      "verifiedAt": "2026-06-23T09:10:09Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1d-mode-resolver/gate-status.json"
     },
@@ -66,8 +66,8 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T16:00:33Z",
-      "flagged": true,
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
       "flagReason": "codex approve-with-override r3: programmatic talk_to tier enforcement = orchestrator-mode\u2194routing unification follow-up",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1e-mode-bias/gate-status.json"
     },
@@ -78,7 +78,7 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T16:08:18Z",
+      "verifiedAt": "2026-06-23T09:10:09Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3a-sessions-place/gate-status.json"
     },
@@ -89,7 +89,7 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T16:26:57Z",
+      "verifiedAt": "2026-06-23T09:10:09Z",
       "flagged": false,
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3b-devenv-orchestrated/gate-status.json"
     },
@@ -98,10 +98,10 @@
       "title": "Dev Env UI mode dropdown + LIVE-verified placement front door",
       "kind": "ui",
       "status": "passed",
-      "video": null,
-      "videoStatus": "failed-but-unblocking",
-      "verifiedAt": "2026-06-22T16:42:05Z",
-      "flagged": true,
+      "video": "http://100.108.210.116:8099/agent-garrison/modes/2026-06-23_10-03-34/final.mp4",
+      "videoStatus": "verified",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
       "flagReason": "live API integration-verified (joe/expert/opus); UI Codex-approved; placement-fix Codex blocked (workspace out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3c-devenv-ui/gate-status.json"
     },
@@ -112,8 +112,8 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T16:47:36Z",
-      "flagged": true,
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s4-discipline-skills/gate-status.json"
     },
@@ -124,8 +124,8 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T16:51:39Z",
-      "flagged": true,
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s2-mode-respawn/gate-status.json"
     },
@@ -136,8 +136,8 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T16:55:42Z",
-      "flagged": true,
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s6a-workflows-launchable/gate-status.json"
     },
@@ -148,8 +148,8 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T17:01:39Z",
-      "flagged": true,
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s6b-improver-routed/gate-status.json"
     },
@@ -160,33 +160,36 @@
       "status": "passed",
       "video": null,
       "videoStatus": "n/a",
-      "verifiedAt": "2026-06-22T17:10:10Z",
-      "flagged": true,
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
       "flagReason": "codexReview blocked-external (Codex out of credits)",
       "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s5-kanban-v1a/gate-status.json"
     }
   ],
   "globalGate": {
-    "status": "completed-with-blockers",
+    "status": "passed",
     "slicesBuilt": "14/14",
     "objectiveGates": {
-      "tests": "committed per slice",
       "typecheck": 0,
-      "suite": "907 passed / 6 PRE-EXISTING failures (not introduced by this run; present at BASE c092101)"
+      "suite": "931 passed / 6 PRE-EXISTING failures (untouched by this run: memory->basic-memory rename drift + gemini -y adapter drift; present at BASE 966f290, none of those 5 test files touched by this run) / 24 skipped",
+      "newTestsAdded": "+24 (all passing); zero new failures"
     },
-    "crossModel": "blocked-external from s3c-fix onward (Codex out of credits); s0\u2013s3b got real cross-model review (caught a fix on nearly every slice)",
+    "crossModel": {
+      "reviewAllApproved": true,
+      "pwTestAllPassed": true,
+      "detail": "3A Codex approve 14/14 (clean, no overrides; 2-5 rounds each, ~30 real findings fixed forward); 3B independent functional pass 14/14 (s2 dedicated + a consolidated Codex run of the modes-arc suite 93/93 + non-vacuousness spot-checks)"
+    },
+    "videos": "1/1 verified (s3c the only UI slice; backend slices n/a)",
     "buildableRemaining": 0,
-    "blockers": [
-      {
-        "cause": "external: Codex/ChatGPT workspace out of credits",
-        "failedCommand": "codex exec --output-last-message <file> \"<adversarial review prompt>\"",
-        "observed": "Your workspace is out of credits. Add credits to continue.",
-        "remediation": "Add credits to the Codex workspace, then re-run autothing-adversarial-review/-test on the run diff (HEAD~14..HEAD)"
-      }
+    "blockers": [],
+    "overrides": [],
+    "preExistingOutOfScope": [
+      "6 repo test failures unrelated to the modes arc: tests/seed.test.ts (x3), tests/validation.test.ts, tests/fitting-files-api.test.ts reference a removed `memory` seed (renamed to basic-memory; provider name garrison-memory->basic-memory) + tests/claude-install.test.ts (memory skill) + tests/gemini-runtime.test.ts (expects -y, impl dropped it). Present at BASE, not introduced, in subsystems this run did not modify \u2014 left untouched to avoid masking unrelated regressions."
     ],
-    "overrides": [
-      "s1e r3: programmatic per-mode tier enforcement deferred to the orchestrator-mode\u2194routing unification follow-up"
+    "followUps": [
+      "orchestrator-mode<->routing unification: per-turn routed re-bias inside the dormant gateway.mjs soul mode (s1e bias IS live at the placement front door; per-turn re-bias deferred)",
+      "mcp-gateway manifest capability-schema conformance so it can be a curated-library citizen (s1c: souls gate is reachable on-disk via APM today)"
     ],
-    "notes": "Deliverables: modes (Gary/Joe/James) + Dev-Env-via-orchestrator (LIVE-verified) + autothing-parts-as-discipline + bypasses-closed + Kanban V1a. Tracked follow-ups: orchestrator-mode\u2194routing unification (programmatic preRoute + tier enforcement inside the dormant gateway.mjs soul mode); 6 pre-existing repo test failures (non-existent fittings/seed/memory + gemini-runtime + fitting-files-api)."
+    "notes": "The modes/orchestrator-front-door arc (WS0-WS6): modes Gary/Joe/James + souls assembly + mode resolver/switch-log + mode->routing bias; Dev-Env-via-orchestrator (place at birth, LIVE-verified joe->opus/gary->haiku/james->sonnet); autothing-parts-as-discipline; bypasses closed (workflows launchable, Improver-via-preRoute opt-in, single warm pool); Kanban Loop V1a. Cross-model gate completed after Codex credits were restored: every slice got real adversarial review (fixing ~30 genuine findings: path traversal, prompt injection, lost-update CAS, resilient fallbacks, test-strength, doc accuracy) + an independent functional pass."
   }
 }
