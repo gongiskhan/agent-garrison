@@ -77,12 +77,15 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
     expect(existsSync(target)).toBe(true);
   });
 
-  it("verify.mjs FAILS when a configured ref (sharedVoiceRef) points at a missing file (s1a r2 regression)", () => {
+  it.each([
+    ["a missing file", "voice/DOES-NOT-EXIST.md"],
+    ["a directory (not a file)", "voice"]
+  ])("verify.mjs FAILS when a configured ref (sharedVoiceRef) points at %s (s1a r2/r3 regression)", (_label, badRef) => {
     const dir = mkdtempSync(join(tmpdir(), "modes-verify-"));
     cpSync(join(ROOT, "fittings/seed/modes"), join(dir, "modes"), { recursive: true });
     const cfgPath = join(dir, "modes", "modes.json");
     const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
-    cfg.sharedVoiceRef = "voice/DOES-NOT-EXIST.md";
+    cfg.sharedVoiceRef = badRef;
     writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf8");
     let failed = false;
     try {

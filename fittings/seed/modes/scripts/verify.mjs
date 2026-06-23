@@ -1,11 +1,17 @@
 // modes verify: the fitting ships the three souls, the shared voice, and a
 // well-formed modes.json wiring them. Read-only. Prints MODES-OK on success.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
+
+// a ref must resolve to a readable FILE — existsSync alone passes a directory,
+// which then throws when runtime code (souls.ts) readFile()s it.
+const isFile = (rel) => {
+  try { return statSync(join(root, rel)).isFile(); } catch { return false; }
+};
 
 const required = [
   "souls/gary.md",
@@ -43,8 +49,8 @@ const FACULTY_IDS = new Set([
 // verify while the runtime wiring (souls.ts reads sharedVoiceRef) silently breaks.
 for (const field of ["sharedVoiceRef", "briefTemplateRef"]) {
   const rel = config[field];
-  if (typeof rel !== "string" || !existsSync(join(root, rel))) {
-    console.error(`MODES-FAIL config.${field} is missing or points at a non-existent file: ${rel}`);
+  if (typeof rel !== "string" || !isFile(rel)) {
+    console.error(`MODES-FAIL config.${field} is missing or does not point at a readable file: ${rel}`);
     process.exit(1);
   }
 }
@@ -56,8 +62,8 @@ for (const name of ["gary", "joe", "james"]) {
     console.error(`MODES-FAIL mode "${name}" is missing soulRef/routingBias`);
     process.exit(1);
   }
-  if (!existsSync(join(root, mode.soulRef))) {
-    console.error(`MODES-FAIL mode "${name}" soulRef not found: ${mode.soulRef}`);
+  if (!isFile(mode.soulRef)) {
+    console.error(`MODES-FAIL mode "${name}" soulRef does not point at a readable file: ${mode.soulRef}`);
     process.exit(1);
   }
   // every declared faculty must be a real Garrison role
