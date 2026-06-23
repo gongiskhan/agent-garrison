@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, mkdtempSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -75,6 +75,22 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
       stdio: "ignore"
     });
     expect(existsSync(target)).toBe(true);
+  });
+
+  it("verify.mjs FAILS when a configured ref (sharedVoiceRef) points at a missing file (s1a r2 regression)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "modes-verify-"));
+    cpSync(join(ROOT, "fittings/seed/modes"), join(dir, "modes"), { recursive: true });
+    const cfgPath = join(dir, "modes", "modes.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+    cfg.sharedVoiceRef = "voice/DOES-NOT-EXIST.md";
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf8");
+    let failed = false;
+    try {
+      execFileSync("node", [join(dir, "modes", "scripts", "verify.mjs")], { stdio: "ignore" });
+    } catch {
+      failed = true; // non-zero exit = verify correctly rejected the broken ref
+    }
+    expect(failed).toBe(true);
   });
 
   it("the orchestrator consumes modes at optional-one alongside model-router (singleton-safe)", () => {

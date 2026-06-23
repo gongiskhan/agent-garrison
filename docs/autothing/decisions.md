@@ -333,3 +333,20 @@ open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
   same store. Not the same Claude transcript; the persistent memory store.
 - KNOWN GAP (no spike, Q4): permission-mode / allowed-tools / MCP-allowlist are NOT
   hot-swapped (would need `/config key=value`, unverified). Out of scope; recorded.
+
+## s1c addendum (cross-model gate, Codex r1) — mcp-gateway conformance gap
+The Codex re-review of s1c surfaced three real wiring bugs in the dormant souls mode,
+two now FIXED (runner sets GARRISON_ORCHESTRATOR_FITTING_ID so the gateway labels the
+orchestrator session; runner warns instead of silently downgrading when assembleSouls
+returns null with modes+mcp-gateway present). The third (f1: "souls activation gates on
+mcp-gateway being present, but it is not reachable") is REAL but bounded: mcp-gateway is
+a genuine seed fitting (`fittings/seed/mcp-gateway`, detected by `mcpGatewayPresent` via
+directory presence, installable via APM / the global composition), so the gate IS
+satisfiable. It is deliberately NOT in the curated library browser (`data/library.json`)
+because its manifest declares capability kinds (`mcp-gateway`, `agent-skill`) outside the
+current `capabilityKinds` enum — registering it there breaks the schema-conformance
+resolve tests (dev-env / runner-eager-lifecycle / seed), and adding those kinds to the
+enum would be a speculative capability-kind addition (forbidden by the project rules).
+DECISION: keep mcp-gateway installable on disk + document the requirement; bringing its
+manifest into capability-schema conformance (so it can be a library citizen) is folded
+into the orchestrator-mode↔routing unification follow-up (the dormant-souls-mode work).

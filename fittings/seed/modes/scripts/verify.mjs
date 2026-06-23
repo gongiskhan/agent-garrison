@@ -38,6 +38,17 @@ const FACULTY_IDS = new Set([
   "observability", "sessions", "surfaces", "modes"
 ]);
 
+// the CONFIGURED shared-voice + brief-template refs (modes.json) must point at real
+// files — checking only the hardcoded required[] paths above lets a mutated ref pass
+// verify while the runtime wiring (souls.ts reads sharedVoiceRef) silently breaks.
+for (const field of ["sharedVoiceRef", "briefTemplateRef"]) {
+  const rel = config[field];
+  if (typeof rel !== "string" || !existsSync(join(root, rel))) {
+    console.error(`MODES-FAIL config.${field} is missing or points at a non-existent file: ${rel}`);
+    process.exit(1);
+  }
+}
+
 const modeNames = Object.keys(config.modes ?? {});
 for (const name of ["gary", "joe", "james"]) {
   const mode = config.modes?.[name];

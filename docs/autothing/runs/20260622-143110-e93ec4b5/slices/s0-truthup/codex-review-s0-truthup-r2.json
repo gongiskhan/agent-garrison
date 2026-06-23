@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Round-1 findings are resolved in `tests/routing-assembly.test.ts`: the suite now asserts the real model-router prompt source contains both `{{routing}}` and `{{capabilities}}`, and it separately exercises the capabilities fold with a sentinel provider so `for_consumers` text must reach the substituted output.","findings":[]}
