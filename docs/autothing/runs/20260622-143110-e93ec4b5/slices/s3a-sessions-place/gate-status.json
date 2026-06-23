@@ -63,5 +63,12 @@
     "overrides": [],
     "round1Findings": "f2 path-traversal confinement (fixed); f1 reframe descope accepted (stateless compose API, no sessionId/cwd/message); f3 graceful null fallback"
   },
-  "flagged": false
+  "flagged": false,
+  "codexPwTest": {
+    "result": "pass",
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T08:45:03Z",
+    "report": "docs/autothing/runs/20260622-143110-e93ec4b5/codex-pwtest-modes-arc-consolidated.json",
+    "note": "independent cross-model functional pass: Codex ran the modes-arc committed suite (14/14 files, 93/93 tests) + spot-checked specs against production code for non-vacuousness. Backend slices verified via independent committed-spec execution (no running UI to Playwright-drive); s3c UI also has the dev-env walkthrough."
+  }
 }

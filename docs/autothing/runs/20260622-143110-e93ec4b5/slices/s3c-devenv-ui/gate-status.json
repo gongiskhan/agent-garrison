@@ -87,5 +87,12 @@
     "overrides": [],
     "round1Findings": "r1 seed-hardwiring -> r2 always-default -> r3 runner-doesn't-set-env -> r4 stale-env-on-running-devenv: all addressed (composition threaded route+caller+runner GARRISON_COMPOSITION_ID); r5 confirmed the residual already-running edge is not-applicable to the single-active-composition/single-shared-dev-env model (env-less placement falls back to the actual active 'default' composition)"
   },
-  "flagged": false
+  "flagged": false,
+  "codexPwTest": {
+    "result": "pass",
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T08:45:03Z",
+    "report": "docs/autothing/runs/20260622-143110-e93ec4b5/codex-pwtest-modes-arc-consolidated.json",
+    "note": "independent cross-model functional pass: Codex ran the modes-arc committed suite (14/14 files, 93/93 tests) + spot-checked specs against production code for non-vacuousness. Backend slices verified via independent committed-spec execution (no running UI to Playwright-drive); s3c UI also has the dev-env walkthrough."
+  }
 }
