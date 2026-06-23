@@ -368,7 +368,11 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
   const entries = await selectedLibraryEntries(composition.selections);
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
-    const extraEnv = await vaultEnvForEntry(entry);
+    // Project the ACTIVE composition id into every operative-bound own-port fitting so a
+    // runner-managed boot (the normal path) carries it — the Dev Env reads
+    // GARRISON_COMPOSITION_ID and forwards it to /api/orchestrator/place, so placement
+    // resolves THIS composition's live modes/routing rather than always "default".
+    const extraEnv = { ...(await vaultEnvForEntry(entry)), GARRISON_COMPOSITION_ID: compositionId };
     const result = await startOwnPortFitting(entry, extraEnv);
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);

@@ -90,6 +90,21 @@ describe("orchestrator placement (s3a)", () => {
     expect(resolvePlacementPaths("../../etc").routingConfigPath).toBe(def.routingConfigPath);
   });
 
+  it("the active composition flows end-to-end into placement (runner -> dev-env env -> caller -> route) (s3c r3)", () => {
+    // source-invariant on the three wiring points the live boot relies on (the spawn
+    // path is heavy to instantiate; the resolution semantics are unit-tested above):
+    const runnerSrc = readFileSync(join(ROOT, "src/lib/runner.ts"), "utf8");
+    const serverSrc = readFileSync(join(ROOT, "fittings/seed/dev-env/scripts/server.mjs"), "utf8");
+    const routeSrc = readFileSync(join(ROOT, "src/app/api/orchestrator/place/route.ts"), "utf8");
+    // 1) runner-managed boot projects the active composition id into the own-port env
+    expect(runnerSrc).toContain("GARRISON_COMPOSITION_ID: compositionId");
+    // 2) the dev-env caller forwards it to the placement route when set
+    expect(serverSrc).toContain("GARRISON_COMPOSITION_ID");
+    expect(serverSrc).toMatch(/composition\s*\?\s*\{\s*composition\s*\}/);
+    // 3) the route sanitizes + honors it (no always-default)
+    expect(routeSrc).toContain("safeComposition(body.composition)");
+  });
+
   it("returns null when the modes fitting is absent", async () => {
     const empty = mkdtempSync(join(tmpdir(), "nomodes-"));
     const r = await placeOrchestratedSession({
