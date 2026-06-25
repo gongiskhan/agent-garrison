@@ -295,3 +295,43 @@ describe("capability provides/consumes", () => {
     ).toThrow();
   });
 });
+
+describe("setup as ordered steps", () => {
+  it("normalises a single setup step into a one-element array (back-compat)", () => {
+    const metadata = parseGarrisonMetadata({
+      ...baseMetadata,
+      setup: { command: "bash scripts/setup.sh", idempotent: true, timeout_ms: 15000 }
+    });
+    expect(Array.isArray(metadata.setup)).toBe(true);
+    expect(metadata.setup).toHaveLength(1);
+    expect(metadata.setup?.[0]).toMatchObject({
+      command: "bash scripts/setup.sh",
+      idempotent: true,
+      timeout_ms: 15000
+    });
+  });
+
+  it("accepts an ordered array of setup steps and preserves order + labels", () => {
+    const metadata = parseGarrisonMetadata({
+      ...baseMetadata,
+      setup: [
+        { command: "npm i -g @playwright/test", label: "Install the Playwright CLI" },
+        { command: "playwright install chromium", label: "Install the browser" }
+      ]
+    });
+    expect(metadata.setup).toHaveLength(2);
+    expect(metadata.setup?.[0]?.label).toBe("Install the Playwright CLI");
+    expect(metadata.setup?.[1]?.command).toBe("playwright install chromium");
+    // idempotent defaults to true when omitted.
+    expect(metadata.setup?.[0]?.idempotent).toBe(true);
+  });
+
+  it("rejects an empty setup array", () => {
+    expect(() => parseGarrisonMetadata({ ...baseMetadata, setup: [] })).toThrow();
+  });
+
+  it("leaves setup undefined when absent", () => {
+    const metadata = parseGarrisonMetadata({ ...baseMetadata });
+    expect(metadata.setup).toBeUndefined();
+  });
+});

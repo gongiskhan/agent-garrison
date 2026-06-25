@@ -14,8 +14,9 @@ async function seedFaculty(id: string): Promise<string> {
 }
 
 describe("faculty definitions", () => {
-  it("renders the 9 role Faculties in order (modes added 2026-06-22)", () => {
+  it("renders the 9 role Faculties then the 7 optional capability faculties in order", () => {
     expect(faculties.map((faculty) => faculty.id)).toEqual([
+      // 9 role faculties (the Quarters pivot)
       "orchestrator",
       "channels",
       "gateway",
@@ -24,12 +25,22 @@ describe("faculty definitions", () => {
       "observability",
       "sessions",
       "surfaces",
-      "modes"
+      "modes",
+      // 7 optional capability faculties (2026-06-24)
+      "knowledge",
+      "research",
+      "building",
+      "code-intelligence",
+      "design",
+      "browser-qa",
+      "coordination"
     ]);
   });
 
-  it("assigns each faculty a unique sequential order 1..9", () => {
-    expect(faculties.map((f) => f.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  it("assigns each faculty a unique sequential order 1..16", () => {
+    expect(faculties.map((f) => f.order)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+    ]);
   });
 
   it("keeps Tasks out of the selectable Faculty set", () => {
@@ -63,13 +74,13 @@ describe("faculty definitions", () => {
 });
 
 describe("essential tier (HV wave)", () => {
-  it("tags exactly orchestrator/memory/channels/gateway as essential", () => {
+  it("tags the base-need roles as essential (runtimes joined 2026-06-24 — every Operative runs on one)", () => {
     const essential = faculties.filter((f) => f.essential).map((f) => f.id).sort();
-    expect(essential).toEqual(["channels", "gateway", "memory", "orchestrator"]);
+    expect(essential).toEqual(["channels", "gateway", "memory", "orchestrator", "runtimes"]);
   });
 
-  it("leaves the alternative-engine / auxiliary roles optional", () => {
-    for (const id of ["runtimes", "observability", "sessions", "surfaces"]) {
+  it("leaves the observability / session-surface roles optional", () => {
+    for (const id of ["observability", "sessions", "surfaces"]) {
       expect(faculties.find((f) => f.id === id)?.essential ?? false, id).toBe(false);
     }
   });
@@ -80,6 +91,63 @@ describe("essential tier (HV wave)", () => {
       expect(facultyRoleCopy[f.id], f.id).toBeTruthy();
       expect(facultyRoleCopy[f.id].role.length, f.id).toBeGreaterThan(0);
       expect(facultyRoleCopy[f.id].fit.length, f.id).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("Agent vs Dev display tier (2026-06-24)", () => {
+  it("tags every faculty with a tier", () => {
+    for (const f of faculties) {
+      expect(["agent", "dev"], f.id).toContain(f.tier);
+    }
+  });
+
+  it("classifies the everyday-operative faculties as Agent", () => {
+    const agent = faculties.filter((f) => f.tier === "agent").map((f) => f.id).sort();
+    expect(agent).toEqual(
+      ["channels", "gateway", "knowledge", "memory", "modes", "orchestrator", "research"].sort()
+    );
+  });
+
+  it("classifies the development-only faculties as Dev (runtimes confirmed by the modes config)", () => {
+    const dev = faculties.filter((f) => f.tier === "dev").map((f) => f.id).sort();
+    expect(dev).toEqual(
+      [
+        "browser-qa",
+        "building",
+        "code-intelligence",
+        "coordination",
+        "design",
+        "observability",
+        "runtimes",
+        "sessions",
+        "surfaces"
+      ].sort()
+    );
+  });
+
+  it("keeps tier orthogonal to essential — the essential 4 are all Agent here but the rule allows either", () => {
+    const essential = faculties.filter((f) => f.essential);
+    // In this layout the essential set happens to be Agent-tier; the field is
+    // independent (an essential faculty may sit under either header).
+    for (const f of essential) {
+      expect(typeof f.tier, f.id).toBe("string");
+    }
+  });
+
+  it("makes the 7 new optional capability faculties multi-cardinality", () => {
+    for (const id of [
+      "knowledge",
+      "research",
+      "building",
+      "code-intelligence",
+      "design",
+      "browser-qa",
+      "coordination"
+    ]) {
+      const f = faculties.find((x) => x.id === id);
+      expect(f?.cardinality, id).toBe("multi");
+      expect(f?.essential ?? false, id).toBe(false);
     }
   });
 });

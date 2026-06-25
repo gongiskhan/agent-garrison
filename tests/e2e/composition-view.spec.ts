@@ -5,28 +5,38 @@ function appErrors(errors: string[]): string[] {
   return errors.filter((e) => !/favicon|React DevTools|hydrat|Fast Refresh|\[HMR\]/i.test(e));
 }
 
-// HV8 — the holistic composition view: the Compose grid groups role faculties
-// (essential vs optional) AND surfaces the Claude Code components (Skills / Hooks
-// / Agent Tools / Plugins) from the live StateModel, with a real enable/disable
-// (park) toggle. Drives the seeded sandbox (~/.garrison-test), never live ~/.claude.
+// 2026-06-24 — the Compose grid groups faculties under two headers, Agent
+// faculties and Dev faculties (the display tier), and the former "Claude Code
+// components" group (Skills / Hooks / Agent Tools / Plugins) is REVERSED: those
+// primitives now appear as first-class promoted Fittings under their capability
+// faculty, never as a primitive-typed tile. Drives the seeded sandbox
+// (~/.garrison-test), never live ~/.claude.
 
-test("Compose holistic view: three groups + four component tiles", async ({ page }) => {
+test("Compose: faculties under Agent/Dev headers; promoted Fittings replace the primitive-typed group", async ({
+  page
+}) => {
   const errors: string[] = [];
   page.on("console", (m) => {
     if (m.type() === "error") errors.push(m.text());
   });
 
   await page.goto("/compose");
-  // Essential vs optional role groups
-  await expect(page.getByRole("heading", { name: "Every agent needs these" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Optional roles" })).toBeVisible();
-  // The Claude Code components group + its four tiles, sourced from the StateModel
-  await expect(page.getByRole("heading", { name: "Claude Code components" })).toBeVisible();
+  // The two display-tier headers.
+  await expect(page.getByRole("heading", { name: "Agent faculties" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dev faculties" })).toBeVisible();
+
+  // The old primitive-typed group + its four tiles are GONE.
+  await expect(page.getByRole("heading", { name: "Claude Code components" })).toHaveCount(0);
   for (const surface of ["skill", "hook", "mcp", "plugin"]) {
-    await expect(page.getByTestId(`component-tile-${surface}`)).toBeVisible();
+    await expect(page.getByTestId(`component-tile-${surface}`)).toHaveCount(0);
   }
-  // The Agent Tools (mcp) tile reports a real "enabled" count (the seeded servers)
-  await expect(page.getByTestId("component-tile-mcp")).toContainText("enabled");
+
+  // Promoted Fittings render as first-class cards under their capability faculty.
+  await expect(page.getByTestId("capability-faculty-building")).toBeVisible();
+  await expect(page.getByTestId("capability-faculty-knowledge")).toBeVisible();
+  await expect(page.getByTestId("promoted-fitting-playwright-cli")).toBeVisible();
+  // The card shows a human title, never the primitive type.
+  await expect(page.getByTestId("promoted-fitting-playwright-cli")).toContainText("Browser Automation");
 
   expect(appErrors(errors)).toEqual([]);
 });

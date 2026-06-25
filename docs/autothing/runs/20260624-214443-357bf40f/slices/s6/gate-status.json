@@ -1,0 +1,33 @@
+{
+  "sliceId": "s6",
+  "title": "Vocabulary sweep + hybrid coherence",
+  "kind": "backend",
+  "status": "passed",
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "note": "Compose-flow surfaces audited: 0 primitive-type words as user-facing labels. coordination packaged=true references real coord-mcp seed (unmodified — other session's area)."
+    },
+    "tests": {
+      "status": "passed",
+      "note": "promoted-catalog.test.ts (23): + packaged-Fitting references a real fittings/seed package (Hybrid verified, not asserted)"
+    },
+    "vocabulary": {
+      "status": "passed",
+      "note": "grep: StationGrid/PromotedFittingDetail/SetupInstructionsEditor have 0 primitive-type labels; Quarters legitimately shows them as the internal discovery mirror (out of scope, per brief)"
+    },
+    "typecheck": {
+      "status": "passed",
+      "exit": 0
+    },
+    "codexReview": {
+      "status": "approved",
+      "note": "consolidated cross-model review (round 2 approve; 5 findings found+fixed in round 1)"
+    }
+  },
+  "files": [
+    "src/lib/promoted-catalog.ts",
+    "tests/promoted-catalog.test.ts",
+    "FITTINGS_MIGRATION_PLAN.md"
+  ]
+}

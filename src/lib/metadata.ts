@@ -49,6 +49,19 @@ const consumptionSchema = z.object({
 // Orchestrator's context window with usage docs.
 const FOR_CONSUMERS_MAX_BYTES = 8 * 1024;
 
+// One ordered setup step. Exported so the Setup Instructions editor's write path
+// (promoted-fittings.ts validateSetupSteps) validates against the SAME schema the
+// apm.yml parser uses — one source of truth for "what a valid setup step is".
+export const setupStepSchema = z.object({
+  command: z.string().trim().min(1),
+  // Informational metadata (the runner does not branch on it); defaults to true
+  // since most setup steps (installs, builds) are safe to re-run.
+  idempotent: z.boolean().default(true),
+  timeout_ms: z.number().int().positive().optional(),
+  // Optional human-readable label shown in the Setup Instructions editor.
+  label: z.string().trim().min(1).optional()
+});
+
 const spawnConfigSchema = z.object({
   preset: z.enum(["claude_code", "none"]).default("claude_code"),
   allowed_tools: z.array(z.string()).optional(),
@@ -74,12 +87,14 @@ export const garrisonMetadataSchema = z.object({
   config_schema: z.array(configFieldSchema).default([]),
   provides: z.array(provisionSchema).default([]),
   consumes: z.array(consumptionSchema).default([]),
+  // Setup accepts EITHER a single step (back-compat — the historical shape every
+  // seed fitting uses) OR an ordered array of steps, and normalises both to an
+  // array. Steps run in order and the installer aborts on the first non-zero
+  // exit. This is the single source of truth the Setup Instructions editor reads
+  // and writes back.
   setup: z
-    .object({
-      command: z.string().min(1),
-      idempotent: z.boolean(),
-      timeout_ms: z.number().int().positive().optional()
-    })
+    .union([setupStepSchema, z.array(setupStepSchema).min(1, "setup must contain at least one step")])
+    .transform((value) => (Array.isArray(value) ? value : [value]))
     .optional(),
   verify: z.object({
     command: z.string().min(1),

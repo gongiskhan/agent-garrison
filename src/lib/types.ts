@@ -25,7 +25,19 @@ export const facultyIds = [
   // shared voice + name-based mode switching) composed into the orchestrator's
   // system prompt. A real Fitting (the `modes` fitting) needs this slot and none
   // of the other roles fit it — the sanctioned trigger for a new faculty.
-  "modes"
+  "modes",
+  // Optional capability faculties (2026-06-24) — the homes the promoted Claude
+  // Code primitives (skills/agent-tools/plugins, recorded only as an internal
+  // `component_shape`) fill. Named by what the capability is FOR in plain terms,
+  // never by the primitive type behind it. Two are Agent-tier (everyday base
+  // operative), five are Dev-tier (only relevant while doing development work).
+  "knowledge", // Agent — create, edit, and organize documents and notes
+  "research", // Agent — find things out and understand media
+  "building", // Dev — write, test, and ship software autonomously
+  "code-intelligence", // Dev — understand and navigate codebases
+  "design", // Dev — design and prototype user interfaces
+  "browser-qa", // Dev — drive a real browser to build and verify
+  "coordination" // Dev — keep parallel work sessions out of each other's way
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -128,6 +140,14 @@ export interface FacultyDefinition {
   // in the Compose grid; the rest are optional. Purely presentational — does not
   // affect capability resolution.
   essential?: boolean;
+  // Display tier (2026-06-24): which Compose header the faculty sits under —
+  // "agent" (everyday base operative, always available) or "dev" (only relevant
+  // while doing development work, the kind of capability a dev mode activates).
+  // ORTHOGONAL to `essential`: an optional faculty can be Agent; an essential
+  // faculty can sit under either header. Purely presentational; does not affect
+  // capability resolution. Anchored on the modes config (the dev mode, Joe,
+  // activates the dev-tier faculties).
+  tier?: "agent" | "dev";
 }
 
 export interface ConfigSchemaField {
@@ -143,6 +163,9 @@ export interface SetupStep {
   command: string;
   idempotent: boolean;
   timeout_ms?: number;
+  // Optional human-readable label for the step, shown in the Setup Instructions
+  // editor on the fitting detail view. Falls back to the command when absent.
+  label?: string;
 }
 
 export const uiPlacements = ["faculty-tab", "sidebar-surface"] as const;
@@ -222,7 +245,12 @@ export interface GarrisonMetadata {
   config_schema: ConfigSchemaField[];
   provides: CapabilityProvision[];
   consumes: CapabilityConsumption[];
-  setup?: SetupStep;
+  // Ordered setup steps run (in order, aborting on the first non-zero exit) when
+  // the composition is installed. Normalised to an array at parse time: a single
+  // YAML `setup:` step becomes a one-element array, so downstream code (the
+  // runner and the Setup Instructions editor) always sees a list. `undefined`
+  // when the fitting declares no setup.
+  setup?: SetupStep[];
   verify: {
     command: string;
     expect: string;

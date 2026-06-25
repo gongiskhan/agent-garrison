@@ -1,0 +1,43 @@
+{
+  "sliceId": "s2",
+  "title": "Faculty tier (agent|dev) + 7 new optional capability faculties",
+  "kind": "backend",
+  "status": "passed",
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "note": "FacultyDefinition.tier added; 7 faculties (knowledge/research [agent], building/code-intelligence/design/browser-qa/coordination [dev]) with cardinality/shapes/notes/roleCopy; existing 9 tagged with tier"
+    },
+    "tests": {
+      "status": "passed",
+      "note": "faculties.test.ts (16 faculties in order, orders 1..16, agent/dev tier sets, multi optional); docs-consistency.test.ts updated (16 ids + docs naming). All pass."
+    },
+    "typecheck": {
+      "status": "passed",
+      "exit": 0
+    },
+    "docs": {
+      "status": "passed",
+      "note": "FACULTIES.md + CLAUDE.md document the 7 new faculties; docs-sync guard green"
+    },
+    "regression": {
+      "status": "passed",
+      "note": "full suite back to pre-existing baseline of 9 failures (all other-session churn: memory->basic-memory rename, runtime/scheduler/placement); 0 net-new"
+    },
+    "review": {
+      "status": "pending"
+    },
+    "codexReview": {
+      "status": "approved",
+      "note": "consolidated cross-model review (round 2 approve; 5 findings found+fixed in round 1)"
+    }
+  },
+  "files": [
+    "src/lib/types.ts",
+    "src/lib/faculties.ts",
+    "tests/faculties.test.ts",
+    "tests/docs-consistency.test.ts",
+    "docs/FACULTIES.md",
+    "CLAUDE.md"
+  ]
+}

@@ -95,7 +95,7 @@ describe("seed Fittings", () => {
     expect(metadata.default_port).toBe(7086);
     expect(metadata.provides).toEqual([{ kind: "dev-env", name: "dev-env" }]);
     expect(metadata.consumes).toContainEqual({ kind: "outpost", cardinality: "any" });
-    expect(metadata.setup?.command).toContain("install-hooks");
+    expect(metadata.setup?.[0]?.command).toContain("install-hooks");
   });
 
   it("garrison-orchestrator provides the orchestrator capability (spawn retired)", async () => {

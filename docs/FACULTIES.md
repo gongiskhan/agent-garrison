@@ -39,6 +39,48 @@ bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
   One operative, three faces, one shared memory. Provided by the `modes` Fitting
   and consumed by the orchestrator.
 
+## Optional capability faculties (2026-06-24)
+
+The 2026-06-24 wave promoted the Claude Code primitives — what were surfaced as
+a separate "Claude Code components" group (skills, hooks, agent tools/MCPs,
+plugins) — into **first-class Fittings**. The primitive type survives only as an
+internal `component_shape`; users never compose a "skill" or an "MCP", they
+station a Fitting into one of these purpose-named **optional capability
+faculties**. Each is named for what the capability is *for*, never the primitive
+behind it, and carries a display **tier** — `agent` (everyday base operative) or
+`dev` (only relevant while doing development work, anchored on the modes config:
+the dev mode, Joe, is what activates the dev-tier faculties). The tier is
+orthogonal to essential/optional and only drives the Compose grid's two headers.
+
+Agent-tier (everyday):
+
+- **knowledge** — create, edit, and organize documents and notes (office files,
+  vault notes, generated reports) and pull facts back out of them.
+- **research** — find things out and make sense of media: research a question
+  across sources, watch and summarize a video, consult reference material.
+
+Dev-tier (development work):
+
+- **building** — write, test, and ship software end-to-end: plan, implement,
+  prove it works, record the evidence.
+- **code-intelligence** — understand and navigate a codebase: find where things
+  are defined and used, read structure without trawling files by hand.
+- **design** — design and prototype user interfaces: explore visual directions,
+  build hi-fi prototypes, review the result for polish.
+- **browser-qa** — drive a real browser to build and verify: click a flow, fill
+  forms, read the console, confirm a change actually works.
+- **coordination** — keep parallel work sessions out of each other's way: claim
+  files, plan before touching shared structure, pass messages between sessions.
+
+These faculties are populated by **discovery-driven projection** (the Quarters
+StateModel mirrors the live `~/.claude`; promoted primitives appear under their
+faculty with an authored description + contract + editable setup instructions) in
+the **Hybrid** model — a few genuinely general units also ship as real
+`fittings/seed/` packages. See
+[`/FITTINGS_MIGRATION_PLAN.md`](../FITTINGS_MIGRATION_PLAN.md).
+
+---
+
 Everything that used to be its own Faculty — Skills, Hooks, MCPs, Plugins,
 Scripts, Settings, Context, Plans — is now a **Quarters platform primitive**, not
 a Faculty (see [`decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./decisions/2026-06-07-faculties-as-roles-operative-folded.md)).

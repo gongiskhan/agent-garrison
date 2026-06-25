@@ -1,0 +1,43 @@
+{
+  "sliceId": "s4",
+  "title": "Compose: Agent/Dev faculty headers; promoted fittings replace the Claude Code components group",
+  "kind": "ui",
+  "status": "passed",
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "note": "StationGrid reworked: TierSection (agent/dev) + core role tiles by tier + CapabilityFacultyBlock + PromotedFittingCard; fetches /api/promoted-fittings; ComponentTile/COMPONENT_TILES removed"
+    },
+    "e2e": {
+      "status": "passed",
+      "note": "composition-view.spec.ts updated: Agent/Dev headers visible, Claude Code components group + component-tile-* GONE, promoted cards render with human titles. PASS."
+    },
+    "typecheck": {
+      "status": "passed",
+      "exit": 0
+    },
+    "build": {
+      "status": "passed",
+      "note": "next build clean; /compose 4.91kB"
+    },
+    "designAudit": {
+      "status": "passed",
+      "note": "screenshot reviewed: two tier headers + purpose-named capability blocks; cards show title+plain desc+presence pip; no primitive-type labels"
+    },
+    "evidence": {
+      "status": "passed",
+      "note": "compose-grid.png; deterministic e2e flow"
+    },
+    "review": {
+      "status": "pending-consolidated"
+    },
+    "codexReview": {
+      "status": "approved",
+      "note": "consolidated cross-model review (round 2 approve; 5 findings found+fixed in round 1)"
+    }
+  },
+  "files": [
+    "src/components/compose/StationGrid.tsx",
+    "tests/e2e/composition-view.spec.ts"
+  ]
+}

@@ -449,18 +449,30 @@ export async function runFittingSetup(
   compositionDir: string,
   config: Record<string, unknown> = {}
 ): Promise<SetupResult> {
-  const setup = entry.metadata.setup;
-  if (!setup) {
+  const steps = entry.metadata.setup;
+  if (!steps || steps.length === 0) {
     return { ok: true, stdout: "", stderr: "", exitCode: 0 };
   }
   const fittingDir = path.join(compositionDir, "apm_modules", "_local", entry.id);
-  const result = await runShellCommand(
-    fittingDir,
-    setup.command,
-    setup.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS,
-    setupConfigEnv(entry.id, config)
-  );
-  return { ...result, ok: result.exitCode === 0 };
+  const env = setupConfigEnv(entry.id, config);
+  // Run each step in order; abort on the first non-zero exit (aggregating
+  // output so the caller logs the full trail up to the failure).
+  let aggStdout = "";
+  let aggStderr = "";
+  for (const step of steps) {
+    const result = await runShellCommand(
+      fittingDir,
+      step.command,
+      step.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS,
+      env
+    );
+    if (result.stdout) aggStdout += (aggStdout ? "\n" : "") + result.stdout;
+    if (result.stderr) aggStderr += (aggStderr ? "\n" : "") + result.stderr;
+    if (result.exitCode !== 0) {
+      return { ...result, stdout: aggStdout, stderr: aggStderr, ok: false };
+    }
+  }
+  return { ok: true, stdout: aggStdout, stderr: aggStderr, exitCode: 0 };
 }
 
 async function runSetupHooks(compositionId: string): Promise<void> {
@@ -475,11 +487,15 @@ async function runSetupHooks(compositionId: string): Promise<void> {
     }
   }
   for (const entry of entries) {
-    const setup = entry.metadata.setup;
-    if (!setup) {
+    const steps = entry.metadata.setup;
+    if (!steps || steps.length === 0) {
       continue;
     }
-    appendLog(compositionId, "runner", `setup ${entry.id}: ${setup.command}`);
+    appendLog(
+      compositionId,
+      "runner",
+      `setup ${entry.id}: ${steps.map((s) => s.label ?? s.command).join(" && ")}`
+    );
     const result = await runFittingSetup(entry, composition.directory, configById.get(entry.id) ?? {});
     if (result.stdout) {
       appendLog(compositionId, "stdout", result.stdout);

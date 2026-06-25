@@ -14,7 +14,8 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["system-prompt"],
     notes: "The governing behavior spine — projected into ~/.claude as a managed prompt.",
     governing: true,
-    essential: true
+    essential: true,
+    tier: "agent"
   },
   {
     id: "channels",
@@ -23,7 +24,8 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["plugin", "skill", "script"],
     notes: "User-facing message surfaces (Slack, web channel, voice). Garrison-side runtime.",
-    essential: true
+    essential: true,
+    tier: "agent"
   },
   {
     id: "gateway",
@@ -32,7 +34,8 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["script", "manual-instructions"],
     notes: "The Claude Code execution path (stream-JSON). Garrison-side runtime.",
-    essential: true
+    essential: true,
+    tier: "agent"
   },
   {
     id: "runtimes",
@@ -46,7 +49,14 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["cli-skill", "script"],
     notes:
-      "Alternative execution engines behind the uniform runtime bridge (Agent SDK, Codex, Gemini). The composition names one primary; others are secondary delegate targets."
+      "Alternative execution engines behind the uniform runtime bridge (Agent SDK, Codex, Gemini). The composition names one primary; others are secondary delegate targets.",
+    // 2026-06-24: promoted to an essential Faculty — every Operative runs ON a
+    // runtime (the orchestrator's own engine is the primary runtime), so a
+    // runtime belongs in "Every agent needs these". Orthogonal to the `tier`
+    // axis below (essential = base-need grouping; tier = agent/dev grouping).
+    essential: true,
+    // Dev-tier: the dev mode (Joe) is the only mode that activates `runtimes`.
+    tier: "dev"
   },
   {
     id: "memory",
@@ -58,7 +68,8 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["skill", "system-prompt", "hook", "cli"],
     notes: "Produces the Context document; unified with the Basic Memory store. Also holds external recall sources (e.g. Trello-backed derived Tasks).",
-    essential: true
+    essential: true,
+    tier: "agent"
   },
   {
     id: "observability",
@@ -66,7 +77,10 @@ export const faculties: FacultyDefinition[] = [
     name: "Observability",
     cardinality: "multi",
     shapes: ["hook", "script", "plugin"],
-    notes: "Health, errors, runtime reporting; surfaces the Logs record."
+    notes: "Health, errors, runtime reporting; surfaces the Logs record.",
+    // Dev-tier: watching the operative's runtime health is a development/ops
+    // concern, not part of the everyday base operative.
+    tier: "dev"
   },
   {
     id: "sessions",
@@ -75,7 +89,8 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["plugin", "script", "cli-skill"],
     notes:
-      "The working dev session and its records — Dev Env (the consolidated tabbed terminal + browser surface) plus the artifact store. Surfaces the Sessions record."
+      "The working dev session and its records — Dev Env (the consolidated tabbed terminal + browser surface) plus the artifact store. Surfaces the Sessions record.",
+    tier: "dev"
   },
   {
     id: "surfaces",
@@ -87,7 +102,8 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["plugin", "script"],
     notes:
-      "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Views group."
+      "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Views group.",
+    tier: "dev"
   },
   {
     id: "modes",
@@ -97,7 +113,84 @@ export const faculties: FacultyDefinition[] = [
     shapes: ["system-prompt"],
     notes:
       "The operative's identity/persona layer — the souls (Gary/Joe/James) + shared voice + per-mode routing bias + name-based sticky switching, composed into the orchestrator's system prompt. One operative, three faces, one shared memory.",
-    essential: false
+    essential: false,
+    // Agent-tier: the persona layer shapes the everyday operative.
+    tier: "agent"
+  },
+  // ── Optional capability faculties (2026-06-24) ──────────────────────────────
+  // Homes for the promoted Claude Code primitives. Named by what the capability
+  // is FOR, never by the primitive type. `cardinality: multi` — each holds many
+  // promoted Fittings. `shapes` are permissive (these slots accept the shapes the
+  // promoted primitives carry). Agent vs Dev anchored on the modes config.
+  {
+    id: "knowledge",
+    order: 10,
+    name: "Knowledge",
+    cardinality: "multi",
+    shapes: ["skill", "plugin", "cli", "cli-skill", "mcp"],
+    notes:
+      "Create, edit, and organize documents and notes — office files, vault notes, generated reports — and pull facts out of them.",
+    tier: "agent"
+  },
+  {
+    id: "research",
+    order: 11,
+    name: "Research & Media",
+    cardinality: "multi",
+    shapes: ["skill", "plugin", "cli", "cli-skill", "mcp"],
+    notes:
+      "Find things out and make sense of media — research a question across sources, watch and summarize a video, consult reference material.",
+    tier: "agent"
+  },
+  {
+    id: "building",
+    order: 12,
+    name: "Software Building",
+    cardinality: "multi",
+    shapes: ["skill", "cli-skill", "script", "plugin"],
+    notes:
+      "Write, test, and ship software end-to-end — plan the work, implement it, prove it works, and record the evidence.",
+    tier: "dev"
+  },
+  {
+    id: "code-intelligence",
+    order: 13,
+    name: "Code Intelligence",
+    cardinality: "multi",
+    shapes: ["mcp", "skill", "cli-skill"],
+    notes:
+      "Understand and navigate a codebase — find where things are defined and used, and read structure without trawling files by hand.",
+    tier: "dev"
+  },
+  {
+    id: "design",
+    order: 14,
+    name: "Design Studio",
+    cardinality: "multi",
+    shapes: ["skill", "plugin"],
+    notes:
+      "Design and prototype user interfaces — explore visual directions, build hi-fi prototypes, and review the result for polish.",
+    tier: "dev"
+  },
+  {
+    id: "browser-qa",
+    order: 15,
+    name: "Browser & QA",
+    cardinality: "multi",
+    shapes: ["skill", "mcp", "cli-skill"],
+    notes:
+      "Drive a real browser to build and verify — click through a flow, fill forms, read the console, and confirm a change actually works.",
+    tier: "dev"
+  },
+  {
+    id: "coordination",
+    order: 16,
+    name: "Coordination",
+    cardinality: "multi",
+    shapes: ["mcp", "hook", "script"],
+    notes:
+      "Keep parallel work sessions out of each other's way — claim files, plan before touching shared structure, and pass messages between sessions.",
+    tier: "dev"
   }
 ];
 
@@ -140,6 +233,34 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   modes: {
     role: "Gives the operative named faces (Gary/Joe/James) over one shared memory.",
     fit: "One modes fitting supplies the souls + shared voice + per-mode routing bias + name-based switching the orchestrator composes into its system prompt."
+  },
+  knowledge: {
+    role: "Lets the operative create, edit, and organize documents and notes.",
+    fit: "Document and note capabilities — office files, vault notes, generated reports — plus pulling facts back out of them."
+  },
+  research: {
+    role: "Lets the operative find things out and make sense of media.",
+    fit: "Research a question across sources, watch and summarize a video, or consult reference material."
+  },
+  building: {
+    role: "Lets the operative write, test, and ship software end-to-end.",
+    fit: "Plan the work, implement it, prove it works, and record the evidence — the full build pipeline."
+  },
+  "code-intelligence": {
+    role: "Lets the operative understand and navigate a codebase.",
+    fit: "Find where things are defined and used, and read structure without trawling files by hand."
+  },
+  design: {
+    role: "Lets the operative design and prototype user interfaces.",
+    fit: "Explore visual directions, build hi-fi prototypes, and review the result for polish."
+  },
+  "browser-qa": {
+    role: "Lets the operative drive a real browser to build and verify.",
+    fit: "Click through a flow, fill forms, read the console, and confirm a change actually works."
+  },
+  coordination: {
+    role: "Keeps parallel work sessions out of each other's way.",
+    fit: "Claim files, plan before touching shared structure, and pass messages between sessions."
   }
 };
 
