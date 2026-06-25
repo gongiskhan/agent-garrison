@@ -140,6 +140,31 @@ async function handleVoiceInfo(res) {
   jsonRes(res, 200, ok ? { available: true, url: info.url } : { available: false });
 }
 
+// GET /api/voice/health → { available, url?, keyConfigured? } — the contract the
+// shared claude-chat VoiceClient probes (<base>/voice/health). Mirrors dev-env's
+// handleVoiceHealth so read-aloud lights up when deepgram-voice is running and
+// degrades silently (available:false, no errors) when it is absent or its key
+// is missing. Never throws to the client.
+async function handleVoiceHealth(res) {
+  const info = readVoiceInfo();
+  if (!info?.url) {
+    jsonRes(res, 200, { available: false });
+    return;
+  }
+  const voiceUrl = String(info.url).replace(/\/$/, "");
+  try {
+    const probe = await fetch(`${voiceUrl}/health`, { signal: AbortSignal.timeout(2500) });
+    if (!probe.ok) {
+      jsonRes(res, 200, { available: false, url: voiceUrl });
+      return;
+    }
+    const h = await probe.json().catch(() => ({}));
+    jsonRes(res, 200, { available: true, url: voiceUrl, keyConfigured: h.keyConfigured !== false });
+  } catch {
+    jsonRes(res, 200, { available: false, url: voiceUrl });
+  }
+}
+
 // Binary proxy to the voice Fitting. Used for both /stt (audio in → JSON) and
 // /tts (JSON in → audio out). pipeUpstreamSse/readJsonBody can't carry binary
 // bodies, so this buffers the request and pipes the upstream response straight
@@ -344,6 +369,25 @@ async function readJsonBody(req, limit = 256 * 1024) {
   });
 }
 
+// Build the gateway /chat/stream body from a channel request. GENERIC by
+// design: a fitting hands this channel an OPAQUE `context` blob and a `mode`
+// string and the channel forwards them verbatim — it never inspects or
+// interprets them (a card, a Dev Env session, James/Joe/Gary, anything). The
+// gateway's souls-mode honors `mode` + a classification hint; the channel just
+// passes through.
+//
+// Backward-compat contract (asserted by tests/web-channel-context.test.ts):
+//   - context/mode absent     → EXACTLY { message, channel: "web" }
+//   - context present          → adds `context` (forwarded untouched)
+//   - mode present (non-empty) → adds `mode`
+// `message` is required upstream; `channel` is always pinned to "web".
+export function buildGatewayChatBody({ message, context, mode } = {}) {
+  const body = { message, channel: CHANNEL_ID };
+  if (context !== undefined && context !== null) body.context = context;
+  if (typeof mode === "string" && mode.trim()) body.mode = mode.trim();
+  return body;
+}
+
 async function handleChat(req, res, opts) {
   let body;
   try {
@@ -357,7 +401,10 @@ async function handleChat(req, res, opts) {
     jsonRes(res, 400, { error: "message is required" });
     return;
   }
-  const payload = JSON.stringify({ message, channel: CHANNEL_ID });
+  // Forward the opaque context + mode through to the gateway untouched.
+  const payload = JSON.stringify(
+    buildGatewayChatBody({ message, context: body?.context, mode: body?.mode })
+  );
   const target = new URL("/chat/stream", opts.gatewayUrl);
   pipeUpstreamSse(req, res, {
     method: "POST",
@@ -468,6 +515,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const method = req.method || "GET";
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
+      if (pathname === "/api/voice/health" && method === "GET") return handleVoiceHealth(res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");

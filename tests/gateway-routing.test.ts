@@ -134,7 +134,7 @@ describe("U1 — gateway Stage-A live routing (live-route-ok)", () => {
       // be HONORED → expert → cc-opus-high, regardless of the message keywords.
       const pre = await gw.preRoute("quick: what is 2 plus 2", {
         classification: { taskType: "code", tier: "T2-deep" },
-        skill: "garrison-architecture",
+        skill: "autothing-implement",
       });
       expect(pre.route.targetId).toBe("cc-opus-high");
       expect(pre.route.role).toBe("expert");

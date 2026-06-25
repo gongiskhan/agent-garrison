@@ -22,19 +22,19 @@ describe("discipline → verb-skill mapping (s4 / deliverable #1)", () => {
     const t2 = line("T2-deep");
     expect(t1).toBeTruthy();
     expect(t2).toBeTruthy();
-    // T1-standard: self-review → code-review, tests → garrison-testing. NO UI design
+    // T1-standard: self-review → code-review, tests → autothing-test. NO UI design
     // audit at standard tier (design-audit is for deep UI review only).
     expect(t1).toContain("code-review");
-    expect(t1).toContain("garrison-testing");
-    expect(t1).not.toContain("garrison-design-audit");
+    expect(t1).toContain("autothing-test");
+    expect(t1).not.toContain("autothing-design-audit");
     // T2-deep: review-by → code-review (design-audit CONDITIONAL on UI), full-gates →
-    // garrison-testing, video → run-garrison, link → garrison-governance.
+    // autothing-test, video → autothing-walkthrough, link → autothing-validate.
     expect(t2).toContain("code-review");
-    expect(t2).toContain("garrison-design-audit");
+    expect(t2).toContain("autothing-design-audit");
     expect(t2).toContain("for UI changes"); // conditional, not a blanket second gate
-    expect(t2).toContain("garrison-testing");
-    expect(t2).toContain("run-garrison");
-    expect(t2).toContain("garrison-governance");
+    expect(t2).toContain("autothing-test");
+    expect(t2).toContain("autothing-walkthrough");
+    expect(t2).toContain("autothing-validate");
   });
 
   it("T0-trivial escalates no skills (everything 'none')", () => {
@@ -44,14 +44,14 @@ describe("discipline → verb-skill mapping (s4 / deliverable #1)", () => {
     const t0 = section.split("\n").find((l) => l.includes("T0-trivial") && l.includes("review:"));
     expect(t0).toBeTruthy();
     expect(t0).toContain("testing: none");
-    expect(t0).not.toContain("garrison-testing");
+    expect(t0).not.toContain("autothing-test");
   });
 
   it("the orchestrator prompt explains how to satisfy discipline via the skills + /goal", () => {
     expect(PROMPT).toContain("Satisfying discipline");
-    expect(PROMPT).toContain("garrison-planning");
-    expect(PROMPT).toContain("garrison-testing");
-    expect(PROMPT).toContain("garrison-governance");
+    expect(PROMPT).toContain("autothing-plan");
+    expect(PROMPT).toContain("autothing-test");
+    expect(PROMPT).toContain("autothing-validate");
     expect(PROMPT).toContain("/goal");
     expect(PROMPT).toContain("FLOW_PLAN.md");
   });

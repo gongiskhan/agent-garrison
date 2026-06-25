@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 
 interface ViewEntry {
   fittingId: string;
   port: number;
   url: string;
+  tailnetUrl: string | null;
   pid: number | null;
   startedAt: string | null;
   healthy: boolean;
@@ -86,7 +88,10 @@ export default function EmbedPage() {
     );
   }
   const qs = searchParams?.toString() ?? "";
-  const iframeSrc = qs ? `${entry.url}${entry.url.includes("?") ? "&" : "?"}${qs}` : entry.url;
+  // Pick the reachable URL for where the browser is: loopback locally, the HTTPS
+  // tailnet endpoint over Tailscale (so the iframe isn't unreachable / mixed-content).
+  const base = resolveViewUrl(entry);
+  const iframeSrc = qs ? `${base}${base.includes("?") ? "&" : "?"}${qs}` : base;
   return (
     <iframe
       key={fittingId}

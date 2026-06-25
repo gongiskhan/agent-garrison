@@ -4,7 +4,8 @@
 // on the right (desktop only). Terminals are opened on demand — the deck starts
 // empty and each new terminal splits the last one, alternating stacked/side-by-
 // side; every split is drag-resizable. Mobile collapses to a single full-screen
-// pane with a Claude | Shell segmented toggle. Sessions are polled from GET
+// pane with a Claude | Shell | Browser segmented toggle (the browser pane is
+// now a switchable tab on mobile, not hidden). Sessions are polled from GET
 // /sessions every 3s — the single channel for status / dirty / PTY state.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -141,6 +142,7 @@ const LS_SPLIT_RATIO = "garrison.devenv.splitRatio";
 const LS_CLAUDE_RATIO = "garrison.devenv.claudeRatio";
 const LS_TERMTREE = "garrison.devenv.termtree";
 const LS_SHOW_ALL = "garrison.devenv.showAll";
+const LS_MOBILE_PANE = "garrison.devenv.mobilePane";
 const POLL_MS = 3000;
 const MOBILE_QUERY = "(max-width: 720px)";
 const ACTIVE_WINDOW_MS = 90 * 60 * 1000;
@@ -601,7 +603,7 @@ function SessionWorkspace({
   session: DevEnvSession;
   active: boolean;
   isMobile: boolean;
-  mobilePane: "claude" | "shell";
+  mobilePane: "claude" | "shell" | "browser";
   splitRatio: number;
   browserPref: "open" | "closed" | undefined;
   onDividerPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
@@ -696,15 +698,29 @@ function SessionWorkspace({
     const id = window.setInterval(check, 4000);
     return () => { cancelled = true; window.clearInterval(id); };
   }, [active, isMobile, browserPref, session.worktreePath]);
-  const browserVisible =
+  // Desktop: the browser pane lives in the split, shown only while wanted
+  // (forced open, or an app.port is detected for this cwd). Mobile: every pane
+  // is a header tab, so the browser pane is always mounted for the active
+  // session (it renders its own "no app.port" empty state) and switched in via
+  // the segmented control — display-toggled, never unmounted, so the iframe and
+  // its postMessage attach handshake survive tab switches; no split divider.
+  const desktopBrowserVisible =
     !isMobile && (browserPref === "open" || (browserPref !== "closed" && hasAppPort));
+  const browserMounted = desktopBrowserVisible || (isMobile && active);
+  const showBrowser = isMobile ? mobilePane === "browser" : desktopBrowserVisible;
+  const showTerminalsCol = !isMobile || mobilePane !== "browser";
 
   return (
     <div className="workspace" style={{ display: active ? "flex" : "none" }}>
       <div
         className="terminals-col"
         ref={colRef}
-        style={!isMobile && browserVisible ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : undefined}
+        style={{
+          display: showTerminalsCol ? "flex" : "none",
+          ...(!isMobile && desktopBrowserVisible
+            ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` }
+            : {})
+        }}
       >
         <div
           className="claude-pane"
@@ -835,26 +851,28 @@ function SessionWorkspace({
           )}
         </div>
       </div>
-      {browserVisible && (
-        <>
-          <div
-            className="split-divider"
-            onPointerDown={onDividerPointerDown}
-            onPointerMove={onDividerPointerMove}
-            onPointerUp={onDividerPointerUp}
-            onPointerCancel={onDividerPointerUp}
-            role="separator"
-            aria-orientation="vertical"
-            title="Drag to resize"
-          />
+      {!isMobile && desktopBrowserVisible && (
+        <div
+          className="split-divider"
+          onPointerDown={onDividerPointerDown}
+          onPointerMove={onDividerPointerMove}
+          onPointerUp={onDividerPointerUp}
+          onPointerCancel={onDividerPointerUp}
+          role="separator"
+          aria-orientation="vertical"
+          title="Drag to resize"
+        />
+      )}
+      {browserMounted && (
+        <div className="browser-pane-host" style={{ display: showBrowser ? "flex" : "none" }}>
           <BrowserPane
             cwd={session.worktreePath}
             active={active}
             onWired={onWired}
             onManualNav={() => onPinBrowserOpen(session.id)}
-            onClose={() => onCloseBrowser(session.id)}
+            onClose={isMobile ? undefined : () => onCloseBrowser(session.id)}
           />
-        </>
+        </div>
       )}
     </div>
   );
@@ -866,7 +884,17 @@ function App() {
     () => localStorage.getItem(LS_SELECTED)
   );
   const [visited, setVisited] = useState<Set<string>>(() => new Set());
-  const [mobilePane, setMobilePane] = useState<"claude" | "shell">("claude");
+  const [mobilePane, setMobilePane] = useState<"claude" | "shell" | "browser">(() => {
+    try {
+      const v = localStorage.getItem(LS_MOBILE_PANE);
+      if (v === "claude" || v === "shell" || v === "browser") return v;
+    } catch {}
+    return "claude";
+  });
+  const chooseMobilePane = useCallback((p: "claude" | "shell" | "browser") => {
+    setMobilePane(p);
+    try { localStorage.setItem(LS_MOBILE_PANE, p); } catch {}
+  }, []);
   const [showAll, setShowAll] = useState(() => localStorage.getItem(LS_SHOW_ALL) === "1");
   // Per-session browser override ("open" = forced visible, "closed" = forced
   // hidden; unset = auto, i.e. visible only while an app.port is detected).
@@ -1410,17 +1438,30 @@ function App() {
           <div className="segmented" role="tablist" aria-label="Pane">
             <button
               type="button"
+              role="tab"
+              aria-selected={mobilePane === "claude"}
               className={mobilePane === "claude" ? "on" : ""}
-              onClick={() => setMobilePane("claude")}
+              onClick={() => chooseMobilePane("claude")}
             >
               Claude
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={mobilePane === "shell"}
               className={mobilePane === "shell" ? "on" : ""}
-              onClick={() => setMobilePane("shell")}
+              onClick={() => chooseMobilePane("shell")}
             >
               Shell
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePane === "browser"}
+              className={mobilePane === "browser" ? "on" : ""}
+              onClick={() => chooseMobilePane("browser")}
+            >
+              Browser
             </button>
           </div>
         )}

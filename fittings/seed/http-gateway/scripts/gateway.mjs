@@ -47,6 +47,8 @@ import { WorktreesProxy } from "./lib/worktrees-passthrough.mjs";
 import { buildOrchestratorTurn } from "./lib/orchestrator-prefix.mjs";
 import { resolveMode, buildSwitchEntry, appendSwitchLog } from "./lib/mode-resolver.mjs";
 import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
+import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
+import { resolveSoulsHint } from "./lib/souls-route.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -72,6 +74,13 @@ let soulsConfig = null;
 let orchestratorSessionId = null;
 let orchestratorChild = null;
 let mcpConfigPath = null;
+// Routing config + the pure resolveRoute resolver, loaded once at boot when the
+// model-router fitting is present. Lets souls mode HONOR an explicit
+// {taskType,tier} classification hint (the Kanban Loop §10 contract) the same way
+// PTY mode's preRoute does — instead of silently dropping it. Null when the
+// model-router fitting is absent (hint is then ignored, exact prior behavior).
+let routingConfig = null;
+let resolveRouteFn = null;
 
 // ───────────────────────────────────────────────────────── HTTP plumbing
 
@@ -117,6 +126,27 @@ async function loadSoulsConfig() {
   } catch (err) {
     logEvent("stderr", { kind: "souls-config-parse-failed", error: err.message });
     return null;
+  }
+}
+
+// Load the routing config + pure resolveRoute resolver (same portable loaders PTY
+// mode uses) so souls mode can honor an explicit classification hint. Best-effort:
+// if the model-router fitting is absent or the load fails, routing stays null and
+// the hint is simply ignored (exact prior souls-mode behavior).
+async function loadRoutingForSouls() {
+  try {
+    if (!resolveModelRouterDir(COMPOSITION_DIR)) {
+      logEvent("stdout", { kind: "souls-routing-absent", message: "model-router fitting not found — classification hints ignored" });
+      return;
+    }
+    const core = await loadRoutingCore(COMPOSITION_DIR);
+    routingConfig = loadRoutingConfig(COMPOSITION_DIR, core.dir);
+    resolveRouteFn = core.resolveRoute;
+    logEvent("stdout", { kind: "souls-routing-loaded", active_profile: routingConfig?.activeProfile ?? null });
+  } catch (err) {
+    routingConfig = null;
+    resolveRouteFn = null;
+    logEvent("stderr", { kind: "souls-routing-load-failed", error: err.message });
   }
 }
 
@@ -478,9 +508,28 @@ function killSessionBySoul(soul) {
 // Sticky current mode per channel (BRIEF: no name keeps the current mode).
 const modeByChannel = new Map();
 
-async function forwardChatToOrchestrator({ origin, channel, message }) {
+async function forwardChatToOrchestrator({ origin, channel, message, body }) {
   if (!orchestratorChild || !orchestratorSessionId) {
     throw new Error("orchestrator not booted");
+  }
+  // Honor an EXPLICIT {taskType,tier} classification hint (the Kanban Loop §10
+  // contract) the same way PTY mode's preRoute does. Null when the hint is
+  // absent/malformed/out-of-vocab OR the model-router fitting isn't loaded — in
+  // which case behavior is exactly as before (no annotation threaded).
+  let routeHint = null;
+  if (routingConfig && resolveRouteFn && body) {
+    routeHint = resolveSoulsHint(body, routingConfig, resolveRouteFn);
+    if (routeHint) {
+      // Mirror gateway-routing.mjs:501 so the souls-mode decision log shows the
+      // hint was honored, then attach the resolved role/tier to the turn.
+      logEvent("stdout", {
+        kind: "classification-honored",
+        taskType: routeHint.classification.taskType,
+        tier: routeHint.tier,
+        role: routeHint.role,
+        target: routeHint.targetId,
+      });
+    }
   }
   const pending = registry.drainPendingSummaries().map((p) => ({
     soul: p.soul,
@@ -518,7 +567,7 @@ async function forwardChatToOrchestrator({ origin, channel, message }) {
       logEvent("stdout", { kind: "mode-switch", channel, from: r.priorMode, to: r.mode, trigger: r.trigger });
     }
   }
-  const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending });
+  const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending, routeHint });
   const orchState = registry.get(orchestratorSessionId);
   if (orchState) orchState.lastSummary = null;
   writeUserTurn(orchestratorChild, turn);
@@ -551,7 +600,7 @@ const server = http.createServer(async (request, response) => {
       if (!message) return sendJson(response, 400, { error: "message is required" });
       const origin = (request.headers["x-garrison-origin"] ?? "channel").toString();
       const channel = String(body.channel ?? "main");
-      const waiter = await forwardChatToOrchestrator({ origin, channel, message });
+      const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
       if (waiter) {
         const result = await waiter;
         sendJson(response, 200, { reply: result.summary, session_id: orchestratorSessionId });
@@ -591,7 +640,7 @@ const server = http.createServer(async (request, response) => {
       });
 
       try {
-        const waiter = await forwardChatToOrchestrator({ origin, channel, message });
+        const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
         if (waiter) {
           const result = await waiter;
           sseWrite(response, "done", { reply: result.summary });
@@ -763,6 +812,7 @@ async function main() {
   }
   logEvent("stdout", { kind: "orchestrator-mode-note", message: "souls use PTY-backed sessions" });
   soulsConfig = await loadSoulsConfig();
+  await loadRoutingForSouls();
   mcpConfigPath = await writeSharedMcpConfig();
   server.listen(PORT, HOST, async () => {
     logEvent("stdout", {

@@ -355,10 +355,10 @@
   },
   {
     "id": "kanban-loop",
-    "name": "Kanban Loop (V1a)",
+    "name": "Kanban Loop",
     "repo": "local:fittings/seed/kanban-loop",
     "localPath": "fittings/seed/kanban-loop",
-    "summary": "Workflow state machine as a Kanban board (automation-runner). File-per-card (ULID, atomic), agent-lists run their skill + send the execute+router prompt through the orchestrator (preRoute); the router output exact-matches a valid next list or the card parks in needs-attention. Goal-mode prepends /goal. V1a engine; UI is V1b.",
+    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :7089, embedded at /embed/kanban-loop). Full autothing-* pipeline: Backlog → To Do → Discuss → Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate → Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their autothing-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
     "platforms": [
       "claude-code"
     ],
@@ -366,6 +366,36 @@
       "github_stars_url": "https://github.com/gongiskhan/garrison-kanban-loop",
       "global": 4.5,
       "claude_code": 4.5
+    }
+  },
+  {
+    "id": "claude-code-runtime",
+    "name": "Claude Code runtime",
+    "repo": "local:fittings/seed/claude-code-runtime",
+    "localPath": "fittings/seed/claude-code-runtime",
+    "summary": "Runtime Faculty (default PRIMARY) — the node-pty engine that drives the real interactive Claude Code TUI (packages/claude-pty). Hosts the Operative's orchestrator loop via the HTTP gateway or the direct PTY operative, and registers as a model-router `runtime: claude-code` target. Provider overrides (anthropic-plan default / ollama-local / deepseek / zai-glm) swap ANTHROPIC_BASE_URL so the same Claude Code engine runs against other providers.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-claude-code-runtime",
+      "global": 4.6,
+      "claude_code": 4.6
+    }
+  },
+  {
+    "id": "agent-sdk-runtime",
+    "name": "Agent SDK runtime",
+    "repo": "local:fittings/seed/agent-sdk-runtime",
+    "localPath": "fittings/seed/agent-sdk-runtime",
+    "summary": "Runtime Faculty — implements the uniform RuntimeAdapter over the Claude Agent SDK (structured request/response, native tool-calls — no PTY, no terminal scraping). THE FENCE default-denies Anthropic billing (launches only behind a non-Anthropic base URL: Ollama / DeepSeek / Z.ai / MiniMax / LLM proxy); THE HARNESS wires the full claude_code preset for coding roles or a lean system string for chat roles. The home for everything reached by base URL.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-agent-sdk-runtime",
+      "global": 4.4,
+      "claude_code": 4.4
     }
   }
 ]

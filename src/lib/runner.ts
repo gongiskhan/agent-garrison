@@ -14,10 +14,18 @@ import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPrese
 import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
+import {
+  resolvePrimaryRuntime,
+  buildPrimaryRuntimeEnv,
+  deriveRuntimeTargets,
+  mergeRuntimeTargets,
+  type RouterTarget,
+  type RuntimeEntry
+} from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
 import { reconcileCoordTeardown } from "./coord-wiring";
-import type { GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
+import type { FittingSelectionMap, GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -177,7 +185,10 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           orchestratorPromptPath: promptPath,
           orchestratorFittingId: findOrchestratorEntryId(soulEntries) ?? "orchestrator",
           capabilitiesBlock: renderCapabilitiesBlock(soulEntries),
-          routingSection: await resolveRoutingSection(composition.directory),
+          routingSection: await resolveRoutingSection(
+            composition.directory,
+            buildRuntimeEntries(soulEntries, composition.selections)
+          ),
           routingCorePath: ROUTING_CORE_PATH
         });
         if (soulsConfig) {
@@ -213,6 +224,37 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       }
     }
 
+    // Resolve the PRIMARY runtime — the Runtime-Faculty fitting that hosts the
+    // orchestrator loop. Defaults to claude-code-runtime; its model + provider
+    // (ollama/deepseek/zai base-url swap) are threaded into the orchestrator
+    // spawn. A non-claude-code engine as primary is not yet hosted as the
+    // interactive orchestrator — fail loud rather than silently run claude-code.
+    const primaryRuntime = resolvePrimaryRuntime({
+      primaryRuntimeId: composition.globalConfig.primary_runtime,
+      runtimeEntries: buildRuntimeEntries(soulEntries, composition.selections)
+    });
+    if (primaryRuntime.engine !== "claude-code") {
+      throw new Error(
+        `primary runtime "${primaryRuntime.runtimeId}" (engine ${primaryRuntime.engine}) cannot host ` +
+          `the orchestrator yet — only the Claude Code runtime is supported as primary. Set ` +
+          `primary_runtime to claude-code-runtime (or leave it unset); other runtimes are available ` +
+          `as model-router targets.`
+      );
+    }
+    const primaryEntry = soulEntries.find((entry) => entry.id === primaryRuntime.runtimeId);
+    const primaryVaultEnv = primaryEntry ? await vaultEnvForEntry(primaryEntry) : {};
+    const { env: primaryEnv, providerLaunch: primaryProviderLaunch } = buildPrimaryRuntimeEnv(
+      primaryRuntime,
+      (key) => primaryVaultEnv[key]
+    );
+    if (primaryProviderLaunch) {
+      appendLog(
+        compositionId,
+        "runner",
+        `Primary runtime ${primaryRuntime.runtimeId} on provider ${primaryEnv.GARRISON_PROVIDER} (${primaryEnv.ANTHROPIC_BASE_URL})`
+      );
+    }
+
     const gateway = await resolveGatewayFitting(compositionId);
     let child: ChildProcessWithoutNullStreams;
     if (gateway) {
@@ -228,12 +270,22 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         composition.directory,
         promptPath,
         gateway,
-        gatewayExtraEnv
+        {
+          ...(gatewayExtraEnv ?? {}),
+          ...primaryEnv,
+          ...(primaryProviderLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {})
+        }
       );
       record.gateway = gateway;
     } else {
       await requireCommand(compositionId, "claude");
-      child = spawnClaude(compositionId, composition.directory, promptPath);
+      child = spawnClaude(
+        compositionId,
+        composition.directory,
+        promptPath,
+        primaryEnv,
+        primaryProviderLaunch
+      );
       record.gateway = undefined;
     }
 
@@ -366,13 +418,22 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
 async function startOperativeBoundFittings(compositionId: string): Promise<void> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
+  // The live gateway URL (set after the gateway started above). Injected into every
+  // operative-bound own-port fitting so a runner-managed boot can REACH the gateway —
+  // e.g. the Kanban board dispatches an agent-list card's run through GARRISON_GATEWAY_URL;
+  // without this it logs "Start on agent lists is disabled" and the run loop is dead.
+  const gatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
     // Project the ACTIVE composition id into every operative-bound own-port fitting so a
     // runner-managed boot (the normal path) carries it — the Dev Env reads
     // GARRISON_COMPOSITION_ID and forwards it to /api/orchestrator/place, so placement
     // resolves THIS composition's live modes/routing rather than always "default".
-    const extraEnv = { ...(await vaultEnvForEntry(entry)), GARRISON_COMPOSITION_ID: compositionId };
+    const extraEnv = {
+      ...(await vaultEnvForEntry(entry)),
+      GARRISON_COMPOSITION_ID: compositionId,
+      ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
+    };
     const result = await startOwnPortFitting(entry, extraEnv);
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
@@ -708,7 +769,10 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
   // BRIEF v4 MR1b: inject the compiled Model Router policy via {{routing}}.
   // No-op when the orchestrator prompt has no placeholder (e.g. the live
   // garrison-orchestrator), so the default composition is untouched.
-  const routingSection = await resolveRoutingSection(composition.directory);
+  const routingSection = await resolveRoutingSection(
+    composition.directory,
+    buildRuntimeEntries(entries, composition.selections)
+  );
   if (orchestrator.includes("{{routing}}") && routingSection == null) {
     appendLog(compositionId, "stderr", MISSING_ROUTING_CONFIG_WARNING);
   }
@@ -765,7 +829,10 @@ export function substituteRoutingPlaceholder(prompt: string, section: string | n
 // composition-scoped <dir>/.garrison/routing.json (written by the fitting's
 // view PUT /routing), falling back to the model-router seed config. Returns
 // null (and the caller warns) when no valid config is found.
-export async function resolveRoutingSection(compositionDir: string): Promise<string | null> {
+export async function resolveRoutingSection(
+  compositionDir: string,
+  runtimeEntries: RuntimeEntry[] = []
+): Promise<string | null> {
   const scoped = path.join(compositionDir, ".garrison", "routing.json");
   let raw: string | null = null;
   try {
@@ -783,6 +850,14 @@ export async function resolveRoutingSection(compositionDir: string): Promise<str
   } catch {
     return null;
   }
+  // Auto-surface composed runtime fittings as model-router targets (S3): a
+  // fitted runtime becomes a selectable target without hand-editing routing.json.
+  // De-duped by id, so a hand-seeded target always wins; no-op when no runtimes
+  // are composed (preserves the seed/default behavior exactly).
+  config = mergeRuntimeTargets(
+    config as { targets?: RouterTarget[] },
+    deriveRuntimeTargets(runtimeEntries)
+  );
   try {
     const mod = (await import(pathToFileURL(ROUTING_CORE_PATH).href)) as {
       compileRouting: (c: unknown, p?: string | null) => string;
@@ -880,6 +955,26 @@ async function findFreePort(): Promise<number> {
       server.close(() => resolve(port));
     });
     server.on("error", reject);
+  });
+}
+
+/**
+ * Reduce the composition's selected Runtime-Faculty fittings to the shape the
+ * primary-runtime resolver needs (id + provided capabilities + per-fitting
+ * config). Order follows the composition's selection order.
+ */
+function buildRuntimeEntries(
+  entries: LibraryEntry[],
+  selections: FittingSelectionMap
+): RuntimeEntry[] {
+  const runtimeSelections = selections.runtimes ?? [];
+  return runtimeSelections.map((selection) => {
+    const entry = entries.find((candidate) => candidate.id === selection.id);
+    return {
+      id: selection.id,
+      provides: entry?.metadata.provides ?? [],
+      config: selection.config ?? {}
+    };
   });
 }
 
@@ -1015,7 +1110,13 @@ async function spawnGateway(
   return child;
 }
 
-function spawnClaude(compositionId: string, cwd: string, promptPath: string): ChildProcessWithoutNullStreams {
+function spawnClaude(
+  compositionId: string,
+  cwd: string,
+  promptPath: string,
+  primaryEnv: Record<string, string> = {},
+  providerLaunch = false
+): ChildProcessWithoutNullStreams {
   const compositionName = `garrison-${compositionId}`;
   const scriptPath = path.join(ROOT_DIR, "scripts", "pty-operative.mjs");
   const args = [scriptPath];
@@ -1034,7 +1135,9 @@ function spawnClaude(compositionId: string, cwd: string, promptPath: string): Ch
         AGENT_GARRISON_COMPOSITION: compositionId,
         GARRISON_SYSTEM_PROMPT_PATH: promptPath,
         GARRISON_MODEL: "opus",
-        GARRISON_PERMISSION_MODE: "bypassPermissions"
+        GARRISON_PERMISSION_MODE: "bypassPermissions",
+        ...primaryEnv,
+        ...(providerLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {})
       }
     },
     { spawnSite: "runner:spawnClaude", description: `fallback claude (${compositionName})` }

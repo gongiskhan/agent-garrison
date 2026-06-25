@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"No material issue found in this slice. The mobile browser pane now stays mounted via display toggling, and the rewritten e2e closes the original 404/empty-shell false positive by asserting a real `.app-iframe` with `/canvas/` src plus persistence checks across tab switches.","findings":[]}

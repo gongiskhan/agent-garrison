@@ -20,6 +20,19 @@ export interface WiredInfo {
 // old ones would accumulate forever.
 const tabIdByCwd = new Map<string, string>();
 
+// Device-viewport tester: render the embedded app at a FIXED device width
+// (mobile/tablet) inside a centered frame, or fluid (desktop). Global pref so
+// it carries across sessions; try/catch matches the garrison.devenv.* siblings.
+const LS_DEVICE = "garrison.devenv.deviceViewport";
+type DeviceViewport = "desktop" | "tablet" | "mobile";
+function readDevice(): DeviceViewport {
+  try {
+    const v = localStorage.getItem(LS_DEVICE);
+    if (v === "desktop" || v === "tablet" || v === "mobile") return v;
+  } catch {}
+  return "desktop";
+}
+
 export function BrowserPane({
   cwd,
   active,
@@ -45,6 +58,11 @@ export function BrowserPane({
   // auto-repoint until Refresh hands control back.
   const [urlInput, setUrlInput] = useState("");
   const [manual, setManual] = useState(false);
+  const [device, setDeviceState] = useState<DeviceViewport>(() => readDevice());
+  const chooseDevice = (d: DeviceViewport) => {
+    setDeviceState(d);
+    try { localStorage.setItem(LS_DEVICE, d); } catch {}
+  };
   const urlEditedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const onWiredRef = useRef(onWired);
@@ -286,6 +304,35 @@ export function BrowserPane({
           }}
           onKeyDown={(e) => { if (e.key === "Enter") void navigateToInput(); }}
         />
+        <div className="segmented device-selector" role="group" aria-label="Viewport">
+          <button
+            type="button"
+            className={device === "desktop" ? "on" : ""}
+            aria-pressed={device === "desktop"}
+            onClick={() => chooseDevice("desktop")}
+            title="Desktop — fluid, fills the pane"
+          >
+            Desktop
+          </button>
+          <button
+            type="button"
+            className={device === "tablet" ? "on" : ""}
+            aria-pressed={device === "tablet"}
+            onClick={() => chooseDevice("tablet")}
+            title="Tablet — fixed 820px wide"
+          >
+            Tablet
+          </button>
+          <button
+            type="button"
+            className={device === "mobile" ? "on" : ""}
+            aria-pressed={device === "mobile"}
+            onClick={() => chooseDevice("mobile")}
+            title="Mobile — fixed 390px wide"
+          >
+            Mobile
+          </button>
+        </div>
         <button
           type="button"
           className="btn"
@@ -305,25 +352,27 @@ export function BrowserPane({
         )}
       </div>
       {splitError && <div className="alert">{splitError}</div>}
-      {iframeBaseUrl ? (
-        <iframe
-          ref={iframeRef}
-          key={iframeNonce}
-          className="app-iframe"
-          src={iframeBaseUrl}
-          title="app"
-          onLoad={() => {
-            if (!browserTabId || !browserBase) return;
-            const win = iframeRef.current?.contentWindow;
-            if (!win) return;
-            try { win.postMessage({ type: "attach", tabId: browserTabId }, browserBase); } catch {}
-          }}
-        />
-      ) : (
-        <div className="app-pane-empty">
-          No <code>app.port</code> in {cwd} — type a URL above to browse.
-        </div>
-      )}
+      <div className={`app-pane-viewport device-${device}`}>
+        {iframeBaseUrl ? (
+          <iframe
+            ref={iframeRef}
+            key={iframeNonce}
+            className="app-iframe"
+            src={iframeBaseUrl}
+            title="app"
+            onLoad={() => {
+              if (!browserTabId || !browserBase) return;
+              const win = iframeRef.current?.contentWindow;
+              if (!win) return;
+              try { win.postMessage({ type: "attach", tabId: browserTabId }, browserBase); } catch {}
+            }}
+          />
+        ) : (
+          <div className="app-pane-empty">
+            No <code>app.port</code> in {cwd} — type a URL above to browse.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

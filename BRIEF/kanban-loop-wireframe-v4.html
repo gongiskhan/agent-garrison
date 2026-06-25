@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kanban Loop — wireframe & behavior schematic (v4)</title>
+<style>
+  :root{
+    --paper:#EBEEF3; --ink:#222A33; --ink-soft:#5C6773; --ink-faint:#8A95A1;
+    --line:#C3CBD5; --line-soft:#D6DCE4; --surface:#FFFFFF; --surface-2:#F3F5F8;
+    --accent:#3551B5; --accent-soft:#E5E9F7; --fail:#B23A2E; --fail-soft:#F6E6E3;
+    --ok:#2F6B4F; --ok-soft:#EAF6EE; --codex:#7A3FB0; --codex-soft:#F0E9F8;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.5; font-size:15px;
+    background-image:linear-gradient(var(--line-soft) 1px, transparent 1px),linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+    background-size:26px 26px; background-position:-1px -1px;}
+  .wrap{max-width:1120px; margin:0 auto; padding:24px 16px 80px}
+  .eyebrow{font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint); font-weight:700}
+  h1{font-size:25px; margin:.2em 0 .1em; letter-spacing:-.01em}
+  h2{font-size:19px; margin:0 0 .15em; letter-spacing:-.01em}
+  .sub{color:var(--ink-soft); margin:.2em 0 0; max-width:72ch}
+  .mono{font-family:var(--mono); font-size:.85em; background:var(--surface-2); padding:1px 5px; border-radius:3px; border:1px solid var(--line-soft); word-break:break-word}
+
+  header.doc{border:1px solid var(--line); background:var(--surface); padding:18px 20px; border-radius:6px; position:relative}
+  header.doc::after{content:""; position:absolute; top:8px; right:8px; width:14px; height:14px; border-top:2px solid var(--ink-faint); border-right:2px solid var(--ink-faint)}
+  header.doc::before{content:""; position:absolute; bottom:8px; left:8px; width:14px; height:14px; border-bottom:2px solid var(--ink-faint); border-left:2px solid var(--ink-faint)}
+  .rev{display:inline-block; font-family:var(--mono); font-size:11px; color:var(--accent); border:1px solid #B9C4EE; background:var(--accent-soft); padding:1px 8px; border-radius:999px}
+  .nonneg{display:inline-block; font-family:var(--mono); font-size:11px; color:var(--fail); border:1px solid #D9A9A1; background:var(--fail-soft); padding:1px 8px; border-radius:999px; margin-left:6px}
+
+  .tag{display:inline-block; font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; padding:1px 7px; border-radius:999px; vertical-align:middle; white-space:nowrap}
+  .tag.engine{background:#E4E8EE; color:#39434F; border:1px solid #BFC8D2}
+  .tag.planned{background:transparent; color:var(--ink-soft); border:1px dashed var(--ink-faint)}
+  .tag.verify{background:#FBF3DF; color:#7A5A12; border:1px dotted #C9A23A}
+  .tag.change{background:var(--ok-soft); color:var(--ok); border:1px solid #A9CBB8}
+  .tag.new{background:#EFE9F7; color:#5B3E97; border:1px solid #C6B6E6}
+  .tag.codex{background:var(--codex-soft); color:var(--codex); border:1px solid #CDB6E4}
+
+  .key{display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:14px; padding-top:14px; border-top:1px dashed var(--line)}
+  .key .item{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-soft)}
+  .toc{margin-top:16px; display:flex; flex-wrap:wrap; gap:6px}
+  .toc a{font-size:12.5px; text-decoration:none; color:var(--ink); border:1px solid var(--line); background:var(--surface); padding:4px 10px; border-radius:4px}
+  .toc a b{color:var(--accent); font-family:var(--mono)}
+  .toc a:hover{border-color:var(--accent)}
+
+  .modelbox{margin-top:16px; border:1px solid var(--line); border-left:4px solid var(--accent); background:linear-gradient(0deg,var(--accent-soft),#fff); border-radius:0 6px 6px 0; padding:13px 16px}
+  .modelbox b{color:var(--accent)}
+
+  section{margin-top:32px}
+  .sec-head{display:flex; align-items:baseline; gap:12px; margin-bottom:14px; flex-wrap:wrap}
+  .sec-no{font-family:var(--mono); color:var(--accent); font-size:13px; border:1px solid #B9C4EE; background:var(--accent-soft); width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:5px; flex:0 0 auto}
+
+  .board-scroll{overflow-x:auto; padding-bottom:10px; border:1px dashed var(--line); border-radius:6px; background:rgba(255,255,255,.45); -webkit-overflow-scrolling:touch}
+  .board{display:flex; gap:12px; padding:14px; min-width:max-content}
+  .list{flex:0 0 178px; background:var(--surface); border:1px solid var(--line); border-radius:6px; display:flex; flex-direction:column}
+  .list.agent{border-left:4px solid var(--accent)}
+  .list.codex{border-left:4px solid var(--codex)}
+  .list.manual{border-left:4px solid #AEB7C2}
+  .list.attn{border-left:4px solid var(--fail); flex-basis:194px}
+  .list.plan-list{border-style:dashed}
+  .list .lh{padding:9px 10px 8px; border-bottom:1px solid var(--line-soft)}
+  .list .lname{font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:6px; justify-content:space-between}
+  .list .meta{font-size:11px; color:var(--ink-faint); margin-top:4px; display:flex; flex-direction:column; gap:2px}
+  .list .meta .sk{font-family:var(--mono); color:var(--accent); font-size:10px}
+  .list .meta .cdx{font-family:var(--mono); color:var(--codex); font-size:10px}
+  .list .lbody{padding:9px; display:flex; flex-direction:column; gap:8px}
+
+  .card{background:var(--surface-2); border:1px solid var(--line); border-radius:5px; padding:8px 9px; font-size:12px}
+  .card .ct{font-weight:600; font-size:12px; display:flex; align-items:center; gap:5px}
+  .card .cmeta{display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; align-items:center}
+  .chip{font-size:9.5px; font-family:var(--mono); background:#fff; border:1px solid var(--line); border-radius:3px; padding:0 5px; color:var(--ink-soft)}
+  .dot{width:8px; height:8px; border-radius:50%; display:inline-block; flex:0 0 auto}
+  .dot.ok{background:var(--ok)} .dot.run{background:var(--accent)} .dot.attn{background:var(--fail)} .dot.cdx{background:var(--codex)}
+  .btns{display:flex; gap:4px; margin-top:8px; flex-wrap:wrap}
+  .btn{font-size:10px; border:1px solid var(--line); background:#fff; border-radius:4px; padding:2px 6px; color:var(--ink); font-family:var(--mono)}
+  .btn.primary{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+
+  .panel{background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:16px 18px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:780px){ .grid2{grid-template-columns:1fr} body{font-size:14px} .wrap{padding:20px 12px 70px} }
+
+  .flow{display:flex; flex-direction:column; align-items:stretch; gap:0}
+  .node{border:1px solid var(--line); background:var(--surface); border-radius:6px; padding:12px 14px}
+  .node.accent{border-color:var(--accent); background:linear-gradient(0deg,var(--accent-soft),#fff)}
+  .node h4{margin:0 0 4px; font-size:14px}
+  .node .body{font-size:13px; color:var(--ink-soft)}
+  .node .body .mono{color:var(--ink)}
+  .arrow{display:flex; flex-direction:column; align-items:center; color:var(--ink-faint); padding:6px 0}
+  .arrow .lbl{font-size:11px; font-family:var(--mono); color:var(--ink-soft); background:var(--paper); padding:0 6px; margin-bottom:-3px; z-index:1; text-align:center}
+  .arrow .stem{font-size:20px; line-height:1}
+  .branch{display:flex; gap:14px; margin-top:4px; flex-wrap:wrap}
+  .branch .leg{flex:1 1 200px; border:1px solid var(--line); border-radius:6px; padding:10px 12px; background:var(--surface)}
+  .branch .leg.pass{border-color:#A9CBB8; background:var(--ok-soft)}
+  .branch .leg.fail{border-color:#D9A9A1; background:var(--fail-soft)}
+  .leg .tit{font-weight:700; font-size:12.5px; display:flex; align-items:center; gap:6px}
+  .leg.pass .tit{color:var(--ok)} .leg.fail .tit{color:var(--fail)}
+
+  .cfg{border:1px solid var(--line); border-radius:6px; background:var(--surface); margin-bottom:12px; overflow:hidden}
+  .cfg.cdx{border-color:#D7C4EA}
+  .cfg .top{display:flex; align-items:center; gap:8px; padding:9px 13px; background:var(--surface-2); border-bottom:1px solid var(--line-soft); font-weight:700; font-size:14px; flex-wrap:wrap}
+  .cfg.cdx .top{background:var(--codex-soft); border-bottom-color:#E0D2EE}
+  .cfg .top .lt{margin-left:auto; display:flex; gap:6px}
+  .crow{display:grid; grid-template-columns:120px 1fr; gap:10px; padding:5px 13px; font-size:12.5px; border-top:1px dashed var(--line-soft)}
+  @media(max-width:480px){ .crow{grid-template-columns:92px 1fr; gap:8px} }
+  .crow .k{color:var(--ink-faint); font-family:var(--mono); font-size:11px; padding-top:2px}
+  .crow .v{color:var(--ink)}
+  .crow .v.cdx{color:var(--codex)}
+
+  .term{border:1px solid var(--line); border-radius:6px; overflow:hidden; background:#11161C}
+  .term .bar{background:#1C232B; padding:6px 10px; display:flex; align-items:center; gap:6px; border-bottom:1px solid #2A333D}
+  .term .bar .b{width:9px; height:9px; border-radius:50%; background:#3A4651}
+  .term .bar .ttl{margin-left:8px; color:#9AA6B2; font-family:var(--mono); font-size:11px}
+  .term .scr{padding:11px 12px; color:#C7D2DC; font-family:var(--mono); font-size:11.5px; min-height:96px; white-space:pre-wrap; word-break:break-word}
+  .term .scr .muted{color:#5E6A76} .term .scr .ac{color:#8FB3FF}
+
+  .chat{border:1px solid var(--line); border-radius:14px; overflow:hidden; background:#fff; max-width:300px}
+  .chat .ch-bar{background:var(--surface-2); padding:8px 12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--line-soft); font-size:12px; font-weight:600}
+  .chat .ch-bar .play{margin-left:auto; font-size:11px; font-family:var(--mono); color:var(--accent); border:1px solid #B9C4EE; background:var(--accent-soft); border-radius:999px; padding:1px 8px}
+  .chat .ch-body{padding:11px; display:flex; flex-direction:column; gap:8px; font-size:12.5px}
+  .bub{padding:7px 10px; border-radius:12px; max-width:85%}
+  .bub.them{background:var(--surface-2); border:1px solid var(--line-soft); align-self:flex-start}
+  .bub.me{background:var(--accent-soft); border:1px solid #C3CEEF; align-self:flex-end}
+  .doclink{align-self:flex-start; font-size:11.5px; font-family:var(--mono); color:var(--accent); border:1px dashed #B9C4EE; border-radius:6px; padding:4px 8px; background:var(--accent-soft)}
+
+  .rail{position:relative; margin-left:6px; padding-left:26px}
+  .rail::before{content:""; position:absolute; left:7px; top:6px; bottom:6px; width:2px; background:var(--line)}
+  .step{position:relative; margin-bottom:11px}
+  .step .num{position:absolute; left:-26px; top:0; width:18px; height:18px; border-radius:50%; background:var(--surface); border:2px solid var(--accent); color:var(--accent); font-size:10px; font-family:var(--mono); display:flex; align-items:center; justify-content:center; font-weight:700}
+  .step.cdx .num{border-color:var(--codex); color:var(--codex)}
+  .step.fail .num{border-color:var(--fail); color:var(--fail)}
+  .step .sc{border:1px solid var(--line); background:var(--surface); border-radius:6px; padding:8px 12px}
+  .step .sc .st{font-weight:600; font-size:13px}
+  .step .sc .sd{font-size:12.5px; color:var(--ink-soft); margin-top:2px}
+
+  .note{border-left:3px solid var(--accent); background:var(--accent-soft); padding:10px 13px; border-radius:0 5px 5px 0; font-size:13px; margin-top:10px}
+  .note.q{border-left-color:#C9A23A; background:#FBF3DF}
+  .note.ok{border-left-color:var(--ok); background:var(--ok-soft)}
+  .note.cdx{border-left-color:var(--codex); background:var(--codex-soft)}
+  ul.tight{margin:6px 0 0; padding-left:18px}
+  ul.tight li{margin:5px 0; font-size:13px}
+  .legline{font-size:12px; color:var(--ink-faint); margin-top:6px; font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="eyebrow">Garrison · automation-runner fitting</div>
+  <h1>Kanban Loop — wireframe &amp; behavior schematic</h1>
+  <div style="margin:8px 0"><span class="rev">v4 · forks settled</span><span class="nonneg">fully responsive · phone-first · non-negotiable</span></div>
+  <p class="sub">A workflow state machine wearing a board. Cards are the unit of truth and link to everything. Each agent list runs one skill, sends one run through the orchestrator, and the session returns exactly one next-list name. Every pass, including each Codex pass, is its own list for observability.</p>
+
+  <div class="modelbox">
+    <b>Skill model.</b> One family of <span class="mono">autothing-*</span> verbs, one per list; the <span class="mono">garrison-*</span> shims retire. The same verbs run in plain Claude Code sessions too. Project doctrine lives in CLAUDE.md and docs the skills read, and Garrison's resources are reachable from any session via the install coupling. Only net-new verb: <span class="mono">autothing-validate</span>. Discuss needs no skill: it is the operative in <b>James mode</b> writing a brief to disk.
+  </div>
+
+  <div class="key">
+    <div class="item"><span class="tag engine">engine</span> built</div>
+    <div class="item"><span class="tag change">change</span> decided, to build</div>
+    <div class="item"><span class="tag new">new verb</span> to extract</div>
+    <div class="item"><span class="tag codex">codex</span> cross-model pass, own list</div>
+    <div class="item"><span class="tag planned">planned</span> deferred</div>
+    <div class="item"><span class="tag verify">verify</span> code check first</div>
+  </div>
+
+  <div class="toc">
+    <a href="#board"><b>1</b> &nbsp;The board</a>
+    <a href="#card"><b>2</b> &nbsp;Card &amp; its links</a>
+    <a href="#loop"><b>3</b> &nbsp;The run loop</a>
+    <a href="#surfaces"><b>4</b> &nbsp;Watch &amp; converse</a>
+    <a href="#cfg"><b>5</b> &nbsp;Per-list config</a>
+    <a href="#flowA"><b>6</b> &nbsp;Flow A · build</a>
+    <a href="#flowB"><b>7</b> &nbsp;Flow B · conversation first</a>
+    <a href="#state"><b>8</b> &nbsp;Decided &amp; what's left</a>
+  </div>
+</header>
+
+<!-- 1. BOARD -->
+<section id="board">
+  <div class="sec-head"><span class="sec-no">1</span><div><h2>The board</h2><p class="sub">Lists left to right. The two Codex passes are now their own lists (purple), so each is a visible run with its own log and card movement.</p></div></div>
+
+  <div class="board-scroll"><div class="board">
+
+    <div class="list manual">
+      <div class="lh"><div class="lname">Backlog <span class="tag engine">engine</span></div>
+        <div class="meta"><div>inbox · manual</div><div>on entry: infer title + project</div></div></div>
+      <div class="lbody">
+        <div class="card"><div class="ct"><span class="dot ok"></span>Editable tables PNM</div>
+          <div class="cmeta"><span class="chip">pnm-ui</span></div>
+          <div class="btns"><span class="btn primary">▶ Start</span><span class="btn">⤷ Move</span></div></div>
+        <div class="card"><div class="ct"><span class="dot attn"></span>untitled drop</div>
+          <div class="cmeta"><span class="chip">tbd &lt;70%</span></div></div>
+      </div>
+    </div>
+
+    <div class="list manual">
+      <div class="lh"><div class="lname">To Do <span class="tag engine">engine</span></div>
+        <div class="meta"><div>committed · manual</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot ok"></span>SSO persist fix</div>
+        <div class="cmeta"><span class="chip">m365</span></div></div></div>
+    </div>
+
+    <div class="list agent plan-list">
+      <div class="lh"><div class="lname">Discuss <span class="tag planned">planned</span></div>
+        <div class="meta"><div class="sk">James · web chat</div><div>interactive · manual</div><div>writes a brief</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot run"></span>Notif pages scope</div>
+        <div class="cmeta"><span class="chip">ekoa</span><span class="chip">⌗ chat</span></div></div></div>
+    </div>
+
+    <div class="list agent">
+      <div class="lh"><div class="lname">Plan <span class="tag change">change</span></div>
+        <div class="meta"><div class="sk">autothing-plan</div><div>code · T2 · James</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot run"></span>Editable tables PNM</div>
+        <div class="cmeta"><span class="chip">→ Implement</span></div></div></div>
+    </div>
+
+    <div class="list agent">
+      <div class="lh"><div class="lname">Implement <span class="tag change">change</span></div>
+        <div class="meta"><div class="sk">autothing-implement</div><div>+ architecture doc</div><div>code · T2 · Joe</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot run"></span>SSO persist fix</div>
+        <div class="cmeta"><span class="chip">iter 2/10</span><span class="chip">goalMode</span></div></div></div>
+    </div>
+
+    <div class="list agent">
+      <div class="lh"><div class="lname">Review <span class="tag change">change</span></div>
+        <div class="meta"><div class="sk">autothing-review</div><div>(code-review)</div><div>review · T1 · Joe</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot run"></span>Artifact name edit</div>
+        <div class="cmeta"><span class="chip" style="border-color:#A9CBB8;color:var(--ok)">→ Adv Review</span></div></div></div>
+    </div>
+
+    <div class="list codex">
+      <div class="lh"><div class="lname">Adv Review <span class="tag codex">codex</span></div>
+        <div class="meta"><div class="cdx">autothing-adversarial-review</div><div class="cdx">cross-model Codex</div><div>review · T1 · Joe</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot cdx"></span>Auth refactor</div>
+        <div class="cmeta"><span class="chip" style="border-color:#A9CBB8;color:var(--ok)">→ Test</span><span class="chip" style="border-color:#D9A9A1;color:var(--fail)">fail → Impl</span></div></div></div>
+    </div>
+
+    <div class="list agent">
+      <div class="lh"><div class="lname">Test <span class="tag change">change</span></div>
+        <div class="meta"><div class="sk">autothing-test</div><div>code · T1 · Joe</div><div style="color:var(--accent)">beat 5h · per project</div></div></div>
+      <div class="lbody"><div class="card" style="border-color:var(--accent)"><div class="ct">3 cards · ekoa</div><div class="cmeta"><span class="chip">one session/proj</span></div></div></div>
+    </div>
+
+    <div class="list codex">
+      <div class="lh"><div class="lname">Adv Test <span class="tag codex">codex</span></div>
+        <div class="meta"><div class="cdx">autothing-adversarial-test</div><div class="cdx">cross-model Codex</div><div>code · T1 · Joe</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot cdx"></span>Checkout flow</div>
+        <div class="cmeta"><span class="chip" style="border-color:#A9CBB8;color:var(--ok)">→ Walkthrough</span></div></div></div>
+    </div>
+
+    <div class="list agent">
+      <div class="lh"><div class="lname">Walkthrough <span class="tag change">change</span></div>
+        <div class="meta"><div class="sk">autothing-walkthrough</div><div>(wraps walkthrough)</div><div>records the video</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot run"></span>Dashboard slice</div><div class="cmeta"><span class="chip">links video</span></div></div></div>
+    </div>
+
+    <div class="list agent">
+      <div class="lh"><div class="lname">Validate <span class="tag new">new verb</span></div>
+        <div class="meta"><div class="sk">autothing-validate</div><div>DoD gate + markers</div><div>ops · T1 · Joe</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot ok"></span>Ads-perms fix</div>
+        <div class="cmeta"><span class="chip" style="border-color:#A9CBB8;color:var(--ok)">→ Done</span></div></div></div>
+    </div>
+
+    <div class="list manual">
+      <div class="lh"><div class="lname">Done <span class="tag engine">engine</span></div>
+        <div class="meta"><div>terminal · manual</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot ok"></span>Templates trimmed</div></div></div>
+    </div>
+
+    <div class="list attn">
+      <div class="lh"><div class="lname">needs-attention <span class="tag engine">engine</span></div>
+        <div class="meta"><div style="color:var(--fail)">always notifies</div><div>parks: low-confidence project, no exact verdict, iteration cap, error</div></div></div>
+      <div class="lbody"><div class="card"><div class="ct"><span class="dot attn"></span>untitled drop</div>
+        <div class="btns"><span class="btn">⤷ Move</span></div></div></div>
+    </div>
+
+  </div></div>
+  <p class="legline">Pipeline: Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate. Each gate that fails ends its reply with <span class="mono">Implement</span> and the card loops back. The two adversarial lists are cross-model Codex passes, not higher tiers. Walkthrough is required, its video is what Validate's Definition of Done checks.</p>
+</section>
+
+<!-- 2. CARD -->
+<section id="card">
+  <div class="sec-head"><span class="sec-no">2</span><div><h2>The card and its links</h2><p class="sub">The card is the unit of truth, but it stores pointers, not copies. The plan, the session transcripts, the brief, the screenshots, the video all stay where they are produced. The card links to them.</p></div></div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="eyebrow" style="margin-bottom:8px">Card front · minimal</div>
+      <div class="card" style="background:#fff; padding:12px 13px; font-size:13px">
+        <div class="ct" style="font-size:14px"><span class="dot run"></span>SSO session persist fix</div>
+        <div class="cmeta" style="margin-top:8px">
+          <span class="chip">proj: m365</span><span class="chip">list: Implement</span><span class="chip">iter 2/10</span><span class="chip">goalMode</span>
+        </div>
+        <div class="btns" style="margin-top:12px">
+          <span class="btn primary">▶ Start / Advance</span><span class="btn">⤷ Move</span><span class="btn">⌗ Watch</span><span class="btn">ⓘ Open</span>
+        </div>
+      </div>
+      <ul class="tight">
+        <li><span class="mono">▶ Start</span> runs this list's skill now, or moves a card out of a manual column.</li>
+        <li><span class="mono">⤷ Move</span> is the manual gate: you pick the next list yourself.</li>
+        <li><span class="mono">⌗ Watch</span> attaches to a live run, opens the chat on an interactive list, or shows the logs if nothing is live (§4).</li>
+        <li><span class="mono">ⓘ Open</span> expands the card's links, on the right.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <div class="eyebrow" style="margin-bottom:8px">Card open · links, never copies</div>
+      <div class="cfg" style="margin:0"><div>
+        <div class="crow"><div class="k">plan</div><div class="v">link → <span class="mono">docs/autothing/runs/&lt;runId&gt;/FLOW_PLAN.md</span></div></div>
+        <div class="crow"><div class="k">brief</div><div class="v">link → <span class="mono">./briefs/&lt;slug&gt;.md</span> (James, in Discuss)</div></div>
+        <div class="crow"><div class="k">sessions</div><div class="v">link per run → the Claude Code transcript by id <span class="tag verify">verify</span> path under <span class="mono">~/.claude</span></div></div>
+        <div class="crow"><div class="k">gate markers</div><div class="v">link → <span class="mono">&lt;runDir&gt;/slices/&lt;slice&gt;/gate-status.json</span> + evidence-index, + the Codex round files</div></div>
+        <div class="crow"><div class="k">screenshots</div><div class="v">link → where produced</div></div>
+        <div class="crow"><div class="k">video</div><div class="v">link → walkthrough gallery <span class="tag verify">verify</span> confirm where the skill writes it</div></div>
+        <div class="crow"><div class="k">decision log</div><div class="v">small, on the card: <span class="mono">{mode, model, effort, provider, tier, role}</span> per run <span class="tag engine">engine</span></div></div>
+        <div class="crow"><div class="k">pointers</div><div class="v"><span class="mono">runId, runDir, sliceId, sessionIds[], briefPath, videoUrl</span> <span class="tag change">change</span> new fields, no migration</div></div>
+      </div></div>
+      <div class="note ok"><b>Link, never duplicate.</b> The card holds pointers to where things already live, and the server grows whatever machinery serves those files. One source per artifact, and the log stays the continuity mechanism for reconstituting a torn-down session.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. RUN LOOP -->
+<section id="loop">
+  <div class="sec-head"><span class="sec-no">3</span><div><h2>What one agent list does — the run loop</h2><p class="sub">A card on an agent list fires one run. The list hands the session a closed set of valid next-list names, and the only thing the engine trusts back is the last line.</p></div></div>
+
+  <div class="panel">
+    <div class="flow">
+      <div class="node">
+        <h4>① Card enters an agent list</h4>
+        <div class="body">By one of three triggers set per list: <span class="mono">immediate</span> on entry, the list's own <span class="mono">scheduler beat</span> (e.g. Test every 5h), or <span class="mono">manual</span> via Start. <span class="tag verify">verify</span> the seed lists carry no trigger yet, so today they all behave as immediate.</div>
+      </div>
+      <div class="arrow"><span class="lbl">engine mints/threads runId · builds prompt</span><span class="stem">↓</span></div>
+      <div class="node">
+        <h4>② Combined prompt is assembled</h4>
+        <div class="body"><span class="mono">execute-prompt</span> (evokes the work, which loads the skill) + <span class="mono">router-prompt</span> + the explicit <span class="mono">validNext[]</span> + the card's <span class="mono">runDir</span> so the skill writes per-run + a <span class="mono">/goal</span> prefix if goalMode. Implement also hands the writer the plan slice, acceptance, and architecture doc. Attached as a hint, not text: the list's <span class="mono">{taskType, tier}</span>.</div>
+      </div>
+      <div class="arrow"><span class="lbl">POST /chat · hint honored in both gateway modes</span><span class="stem">↓</span></div>
+      <div class="node accent">
+        <h4>③ Orchestrator resolves the route <span class="tag engine">engine</span></h4>
+        <div class="body">honor the <span class="mono">{taskType,tier}</span> hint → <span class="mono">resolveRole</span> (exception &gt; cell &gt; row &gt; column &gt; global) → role → Profile's <span class="mono">roleMap</span> → target. <b>applySwitch:</b> model/effort change is slash-injected; provider/soul change respawns. On a Codex list the operative is modest, since the cross-model strength comes from the <span class="mono">codex</span> CLI the skill shells out to.</div>
+      </div>
+      <div class="arrow"><span class="lbl">runs the combined prompt</span><span class="stem">↓</span></div>
+      <div class="node accent">
+        <h4>④ Session does the work</h4>
+        <div class="body">The operative runs the prompt, the skill loads off the content, drives the app or shells out to Codex, and writes artifacts under the run dir. Concurrent code edits across cards are kept safe by <span class="mono">agent_mail</span> file claims and <span class="mono">beads</span> awareness. <span class="tag verify">verify</span> today this is one pooled, serialized operative.</div>
+      </div>
+      <div class="arrow"><span class="lbl">reply · last line = one next-list name</span><span class="stem">↓</span></div>
+      <div class="node">
+        <h4>⑤ Engine reads the verdict</h4>
+        <div class="body">It exact-matches the <b>last non-empty line</b> against <span class="mono">validNext[]</span>. The run's session and artifacts are linked onto the card either way.</div>
+        <div class="branch">
+          <div class="leg pass"><div class="tit">✓ exact match</div><div style="font-size:12.5px;color:var(--ink-soft);margin-top:4px">Move the card forward. From Review the line is <span class="mono">Adv Review</span>.</div></div>
+          <div class="leg fail"><div class="tit">✗ no match · error · iteration cap</div><div style="font-size:12.5px;color:var(--ink-soft);margin-top:4px">Park in <span class="mono">needs-attention</span> and notify. Any failed gate ends with <span class="mono">Implement</span> and the card loops back.</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="note ok"><b>Convergence in Implement is the iteration cap.</b> Prepending <span class="mono">/goal</span> is only prompt text here; the autothing goal loop never fires for a Kanban run. The per-card iteration cap plus the loop-back edges is the guard.</div>
+  </div>
+</section>
+
+<!-- 4. SURFACES -->
+<section id="surfaces">
+  <div class="sec-head"><span class="sec-no">4</span><div><h2>Watching a run vs conversing</h2><p class="sub">Two different needs behind the one <span class="mono">⌗ Watch</span> button. Both are phone-first.</p></div></div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="eyebrow" style="margin-bottom:8px">Watch an autonomous run <span class="tag verify">verify</span></div>
+      <div class="term">
+        <div class="bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="ttl">card a1b2 · attach · Adv Review</span></div>
+        <div class="scr"><span class="muted">$ tmux attach -t kanban-a1b2</span>
+<span class="ac">[Joe]</span> codex exec --read-only …
+CODEX CALL: round 1 — 2 findings
+<span class="muted">(live — mirrors the real PTY)</span></div>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-soft);margin-top:10px">Attaches to the live session. If nothing is running, it falls back to the read-only logs the card links to. <span class="mono">verify</span> the operative / Dev Env PTYs are tmux-attachable.</div>
+    </div>
+
+    <div class="panel">
+      <div class="eyebrow" style="margin-bottom:8px">Converse (Discuss) · the web channel</div>
+      <div class="chat">
+        <div class="ch-bar">James · Notif pages <span class="play">▶ read aloud</span></div>
+        <div class="ch-body">
+          <div class="bub them">What should the notifications page let someone do, beyond reading?</div>
+          <div class="bub me">Mark read, mute a source, jump to the thing.</div>
+          <div class="bub them">Enough to shape it. I will write the brief.</div>
+          <div class="doclink">📄 briefs/notif-pages.md · saved</div>
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-soft);margin-top:10px">Interactive lists open the improved web channel, not the raw terminal: responsive, read-aloud, renders or links the documents, in James mode.</div>
+      <div class="note" style="margin-top:8px">Decided: the web channel becomes the one context-driven chat for Dev Env, the Kanban, and standalone. Fittings hand it context; it does not learn about them. The operative test interface is left untouched (§8).</div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. CONFIG -->
+<section id="cfg">
+  <div class="sec-head"><span class="sec-no">5</span><div><h2>Per-list configuration</h2><p class="sub">Each agent list, on the single <span class="mono">autothing-*</span> family. Manual lists carry none of this.</p></div></div>
+
+  <div class="cfg">
+    <div class="top">Discuss<div class="lt"><span class="tag planned">planned</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v">none — the operative in <b>James mode</b> (modes fitting, built)</div></div>
+      <div class="crow"><div class="k">surface</div><div class="v">the web channel chat: responsive, read-aloud, renders docs</div></div>
+      <div class="crow"><div class="k">produces</div><div class="v">a brief under <span class="mono">briefs_path</span>, linked from the card</div></div>
+      <div class="crow"><div class="k">advance</div><div class="v">manual → Move to Plan · auto-infer <span class="tag planned">deferred</span></div></div>
+    </div>
+  </div>
+
+  <div class="cfg">
+    <div class="top">Plan<div class="lt"><span class="tag change">change</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v"><span class="mono">autothing-plan</span> — accepts a caller-supplied per-run path</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v">end with one of: <span class="mono">Implement</span></div></div>
+      <div class="crow"><div class="k">class · mode</div><div class="v"><span class="mono">code · T2-deep</span> · James · <span class="mono">immediate</span></div></div>
+    </div>
+  </div>
+
+  <div class="cfg">
+    <div class="top">Implement<div class="lt"><span class="tag change">change</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v"><span class="mono">autothing-implement</span> — the real code writer</div></div>
+      <div class="crow"><div class="k">handed in</div><div class="v">plan slice + acceptance + architecture doc <span class="tag verify">verify</span> reads doctrine from docs</div></div>
+      <div class="crow"><div class="k">goalMode</div><div class="v">prepend <span class="mono">/goal</span>; guard is the per-card iteration cap</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v">end with one of: <span class="mono">Review</span></div></div>
+      <div class="crow"><div class="k">class · mode</div><div class="v"><span class="mono">code · T2-deep</span> · Joe · <span class="mono">immediate</span></div></div>
+    </div>
+  </div>
+
+  <div class="cfg">
+    <div class="top">Review<div class="lt"><span class="tag change">change</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v"><span class="mono">autothing-review</span> → wraps the <span class="mono">code-review</span> built-in</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v"><span class="mono">Adv Review</span> (pass), <span class="mono">Implement</span> (fail)</div></div>
+      <div class="crow"><div class="k">class · mode</div><div class="v"><span class="mono">review · T1</span> · Joe · <span class="mono">immediate</span></div></div>
+    </div>
+  </div>
+
+  <div class="cfg cdx">
+    <div class="top">Adversarial Review<div class="lt"><span class="tag codex">codex</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v cdx"><span class="mono">autothing-adversarial-review</span> — Codex tries to break the diff</div></div>
+      <div class="crow"><div class="k">model</div><div class="v cdx">cross-model via the <span class="mono">codex</span> CLI, not a higher tier</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v"><span class="mono">Test</span> (pass), <span class="mono">Implement</span> (fail)</div></div>
+      <div class="crow"><div class="k">class · mode</div><div class="v"><span class="mono">review · T1</span> (operative modest) · Joe · <span class="mono">immediate</span></div></div>
+    </div>
+  </div>
+
+  <div class="cfg">
+    <div class="top">Test <span style="font-weight:400;color:var(--accent);font-size:12px">batched per project</span><div class="lt"><span class="tag change">change</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v"><span class="mono">autothing-test</span> — reads the repo's test commands</div></div>
+      <div class="crow"><div class="k">execute</div><div class="v">group the project's waiting cards, one test plan, one session</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v"><span class="mono">Adv Test</span> (pass), <span class="mono">Implement</span> (fail)</div></div>
+      <div class="crow"><div class="k">class · mode · trigger</div><div class="v"><span class="mono">code · T1</span> · Joe · <span class="mono">scheduler beat</span> (5h) <span class="tag verify">verify</span> still to wire</div></div>
+    </div>
+  </div>
+
+  <div class="cfg cdx">
+    <div class="top">Adversarial Test<div class="lt"><span class="tag codex">codex</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v cdx"><span class="mono">autothing-adversarial-test</span> — Codex drives the app with its own pass</div></div>
+      <div class="crow"><div class="k">model</div><div class="v cdx">cross-model via the <span class="mono">codex</span> CLI; needs a running dev server</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v"><span class="mono">Walkthrough</span> (pass), <span class="mono">Implement</span> (fail)</div></div>
+      <div class="crow"><div class="k">class · mode</div><div class="v"><span class="mono">code · T1</span> (operative modest) · Joe · <span class="mono">immediate</span></div></div>
+    </div>
+  </div>
+
+  <div class="cfg">
+    <div class="top">Walkthrough<div class="lt"><span class="tag change">change</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v"><span class="mono">autothing-walkthrough</span> → wraps the real <span class="mono">walkthrough</span> skill</div></div>
+      <div class="crow"><div class="k">produces</div><div class="v">a verified video <span class="tag verify">verify</span> confirm where it is written, then link it</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v"><span class="mono">Validate</span> (pass), <span class="mono">Implement</span> (fail)</div></div>
+      <div class="crow"><div class="k">class · mode</div><div class="v"><span class="mono">code · T1</span> · Joe · <span class="mono">immediate</span></div></div>
+    </div>
+  </div>
+
+  <div class="cfg">
+    <div class="top">Validate<div class="lt"><span class="tag new">new verb</span></div></div>
+    <div>
+      <div class="crow"><div class="k">skill</div><div class="v"><span class="mono">autothing-validate</span> — extract the gate logic from the autothing parent</div></div>
+      <div class="crow"><div class="k">checks</div><div class="v">Definition of Done, including the verified walkthrough video</div></div>
+      <div class="crow"><div class="k">router · validNext</div><div class="v"><span class="mono">Done</span> (pass), <span class="mono">Implement</span> (fail)</div></div>
+      <div class="crow"><div class="k">class · mode</div><div class="v"><span class="mono">ops · T1</span> · Joe · <span class="mono">immediate</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. FLOW A -->
+<section id="flowA">
+  <div class="sec-head"><span class="sec-no">6</span><div><h2>Flow A — infer the title, then build</h2><p class="sub">The default path. Drop a card, it names itself, press Start, and it walks the pipeline on its own, looping back to Implement on any failed gate.</p></div></div>
+
+  <div class="panel"><div class="rail">
+    <div class="step"><span class="num">1</span><div class="sc"><div class="st">Drop a card into Backlog</div><div class="sd">Infers the title eagerly, and the project only at 70% or more, otherwise it parks in needs-attention until you set it.</div></div></div>
+    <div class="step"><span class="num">2</span><div class="sc"><div class="st">Press ▶ Start</div><div class="sd">The card carries its description to Plan. The engine mints a runId for the card here.</div></div></div>
+    <div class="step"><span class="num">3</span><div class="sc"><div class="st">Plan</div><div class="sd"><span class="mono">autothing-plan</span> writes the plan and acceptance under the run dir, ends with <span class="mono">Implement</span>.</div></div></div>
+    <div class="step"><span class="num">4</span><div class="sc"><div class="st">Implement</div><div class="sd"><span class="mono">autothing-implement</span> builds, handed the slice, acceptance, and architecture doc. Ends with <span class="mono">Review</span>.</div></div></div>
+    <div class="step fail"><span class="num">5</span><div class="sc"><div class="st">Review</div><div class="sd">Same-model <span class="mono">code-review</span>. Pass ends with <span class="mono">Adv Review</span>, fail with <span class="mono">Implement</span>.</div></div></div>
+    <div class="step cdx"><span class="num">6</span><div class="sc"><div class="st">Adversarial Review</div><div class="sd">Codex tries to break the diff. Pass ends with <span class="mono">Test</span>, fail with <span class="mono">Implement</span>.</div></div></div>
+    <div class="step fail"><span class="num">7</span><div class="sc"><div class="st">Test, on its beat</div><div class="sd">The project's waiting cards are tested together in one session. Pass ends with <span class="mono">Adv Test</span>, fail with <span class="mono">Implement</span>.</div></div></div>
+    <div class="step cdx"><span class="num">8</span><div class="sc"><div class="st">Adversarial Test</div><div class="sd">Codex drives the app with its own functional pass. Pass ends with <span class="mono">Walkthrough</span>, fail with <span class="mono">Implement</span>.</div></div></div>
+    <div class="step"><span class="num">9</span><div class="sc"><div class="st">Walkthrough</div><div class="sd"><span class="mono">autothing-walkthrough</span> records the verified video and links it onto the card. Ends with <span class="mono">Validate</span>.</div></div></div>
+    <div class="step"><span class="num">10</span><div class="sc"><div class="st">Validate</div><div class="sd"><span class="mono">autothing-validate</span> checks the Definition of Done, video included, and ends with <span class="mono">Done</span>.</div></div></div>
+    <div class="step"><span class="num">11</span><div class="sc"><div class="st">Done</div><div class="sd">Terminal manual column. The card still links its plan, sessions, and evidence.</div></div></div>
+  </div></div>
+</section>
+
+<!-- 7. FLOW B -->
+<section id="flowB">
+  <div class="sec-head"><span class="sec-no">7</span><div><h2>Flow B — conversation first</h2><p class="sub">An alternative entry. Before planning, the card goes through Discuss to turn a rough idea into a brief, with you in the loop. Interactive only for now.</p></div></div>
+
+  <div class="panel"><div class="rail">
+    <div class="step"><span class="num">1</span><div class="sc"><div class="st">Drop a card into Backlog, title inferred</div><div class="sd">Same start as Flow A.</div></div></div>
+    <div class="step"><span class="num">2</span><div class="sc"><div class="st">Move it to Discuss instead of Plan</div><div class="sd">You route here when the idea needs shaping first.</div></div></div>
+    <div class="step"><span class="num">3</span><div class="sc"><div class="st">Talk it through in the web chat</div><div class="sd">The operative in James mode thinks it through with you, responsive and read-aloud, and writes a brief to disk. The card links the session and the brief. You press ⤷ Move when ready.</div></div></div>
+    <div class="step"><span class="num">4</span><div class="sc"><div class="st">Brief goes to Plan</div><div class="sd">Plan builds from that brief and the card rejoins Flow A at step 3.</div></div></div>
+  </div></div>
+  <p class="legline">Auto-infer of the brief is parked until there have been enough real interactive conversations to decide what an automatic version should do.</p>
+</section>
+
+<!-- 8. STATE -->
+<section id="state">
+  <div class="sec-head"><span class="sec-no">8</span><div><h2>Decided, and what's left</h2><p class="sub">The four forks are settled. What remains is verification during the build and the build brief itself.</p></div></div>
+
+  <div class="note ok" style="margin-top:0"><b>Decided.</b>
+    <ul class="tight">
+      <li><b>One skill family</b> (<span class="mono">autothing-*</span>); doctrine in CLAUDE.md and docs; resources via the install coupling; one net-new verb, <span class="mono">autothing-validate</span>.</li>
+      <li><b>Each pass is its own list</b>, including the two cross-model Codex passes, for observability.</li>
+      <li><b>Discuss</b> is James mode plus brief-to-disk, interactive only, manual advance. Auto-infer parked.</li>
+      <li><b>Isolation</b>: per-card runId for artifacts (the engine mints and threads it), and <span class="mono">agent_mail</span> + <span class="mono">beads</span> for concurrent code edits. Full concurrency, no per-project serialization.</li>
+      <li><b>Convergence</b> in Implement is the iteration cap.</li>
+      <li><b>Walkthrough is in</b>, using the existing skill; Validate keeps its video gate.</li>
+      <li><b>Gateway</b>: target the mode that honors the routing hint, and add a small fix so it is honored in both modes, so the board is never fragile to composition changes.</li>
+      <li><b>One chat surface</b>: the context-driven web channel for Dev Env, Kanban, and standalone; operative test interface untouched.</li>
+      <li><b>Link, never duplicate</b>, and <b>fully responsive, phone-first</b>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2" style="margin-top:16px">
+    <div class="panel">
+      <div class="eyebrow" style="margin-bottom:8px">Deferred, on purpose</div>
+      <ul class="tight">
+        <li>Codex serialization. Two adversarial passes colliding is unlikely; if it bites, a board-level lock is the fix.</li>
+        <li>Auto-infer of the Discuss brief.</li>
+        <li>Autothing-as-a-preset (a dedicated session running the whole skill for true per-card convergence).</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <div class="eyebrow" style="margin-bottom:8px">Verify during the build <span class="tag verify">verify</span></div>
+      <ul class="tight">
+        <li><span class="mono">autothing-implement</span> reads doctrine from docs as well as when handed the area skill. Test one slice.</li>
+        <li>Where the <span class="mono">walkthrough</span> skill writes its video, so it can be linked.</li>
+        <li>The Claude Code session transcript path under <span class="mono">~/.claude</span>.</li>
+        <li>The operative / Dev Env PTYs are tmux-attachable.</li>
+        <li><span class="mono">autothing-validate</span> and the others honor a passed-in <span class="mono">runDir</span>.</li>
+        <li>The three-trigger model and the Test scheduler beat need wiring.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:14px"><b>Next.</b> No open forks remain. When v4 reads right to you, this turns into the build brief: the engine changes, the new <span class="mono">autothing-validate</span> verb, the doctrine rehoming, the runId threading, the gateway hint fix, the Walkthrough and Discuss wiring, and the web channel work, sequenced with the verify items up front.</div>
+</section>
+
+</div>
+</body>
+</html>

@@ -43,3 +43,9 @@ public/phase-1-demo/.playwright-artifacts/
 .serena/
 **/.serena/
 scripts/spike/chat-harness/out/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/

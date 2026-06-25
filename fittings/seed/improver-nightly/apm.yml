@@ -1,0 +1,63 @@
+name: improver-nightly
+version: 0.1.0
+description: Disabled-by-default nightly Improver proposal generator for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: single
+  component_shape: cli-skill
+  platforms:
+    - claude-code
+  summary: Reads local telemetry, evidence, and project docs, then writes reviewable improvement proposal artifacts. Setup registers a disabled scheduler job; runs never apply changes.
+  config_schema:
+    - key: autonomy_mode
+      type: select
+      default: manual
+      options:
+        - manual
+        - enabled
+      description: Default autonomy mode. manual registers the job disabled; enabled is reserved for explicit user opt-in.
+    - key: schedule_cron
+      type: string
+      default: "17 3 * * *"
+      description: Local cron schedule for the disabled nightly registration.
+    - key: state_dir
+      type: path
+      default: data/improver
+      description: Composition-relative run-record directory.
+    - key: proposal_namespace
+      type: string
+      default: improver
+      description: Artifact namespace for proposal markdown files.
+    - key: require_unlocked_vault
+      type: boolean
+      default: true
+      description: When true, scheduled runs record a skipped vault-locked run instead of operating without materialized vault state.
+  provides: []
+  consumes:
+    - kind: automation-runner
+      name: scheduler
+      cardinality: one
+    - kind: artifact-store
+      cardinality: optional-one
+    - kind: vault
+      cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/improver-nightly/scripts/improver.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Improver nightlies are proposal-only. Invoke manually with:
+      node apm_modules/_local/improver-nightly/scripts/improver.mjs run
+    The setup hook registers a disabled scheduler job named `improver-nightly`.
+    Enable it only after human review:
+      node apm_modules/_local/scheduler/scripts/scheduler.mjs enable improver-nightly
+    Runs read local telemetry/evidence/docs and write markdown proposal
+    artifacts plus JSON run records. They do not edit source files, apply
+    patches, or change Quarters primitives.

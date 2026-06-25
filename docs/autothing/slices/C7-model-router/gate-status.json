@@ -1,0 +1,35 @@
+{
+  "slice": "C7-model-router",
+  "title": "Profile-based router + simulator UI",
+  "updatedAt": "2026-06-12T23:15:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/model-router.test.ts",
+      "exit": 0,
+      "summary": "5 passed - Model router compiles policy, resolves exception routes, parses classifier JSON, and handles missing config gracefully."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "video": {
+      "status": "not-recorded",
+      "note": "Simulator UI verified manually; no separate walkthrough recorded."
+    }
+  },
+  "blockers": [],
+  "notes": "Model router is fully composable and introduces no new Quarters primitives. It handles routing orchestrator functionality locally without altering base platform permissions."
+}

@@ -1,0 +1,82 @@
+{
+  "slice": "runtime-provider-ui",
+  "title": "Compose UI: primary-runtime selector + per-runtime provider selector",
+  "updatedAt": "2026-06-24T22:48:51Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-24T22:07:40Z",
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "at": "2026-06-24T22:07:40Z",
+      "summary": "clean"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude (same-model)",
+      "at": "2026-06-24T22:07:40Z",
+      "summary": "Selector value/onChange correct; provider selector reused from S1 config_schema; minor non-blocking stale-value UX nit."
+    },
+    "tests": {
+      "cmd": "n/a (no component-test infra; primary_runtime persistence is generic globalConfig serialization, already typechecked)",
+      "exit": null,
+      "summary": "covered by e2e/walkthrough — UI behavior + persist-to-apm.yml"
+    },
+    "e2e": {
+      "cmd": "node docs/autothing/runs/20260624-211241-c4fdc52a/verify-runtimes-ui.mjs",
+      "exit": 0,
+      "at": "2026-06-24T22:16:41Z",
+      "summary": "6/6 UI checks pass against the running app (127.0.0.1:7777): S5 primary_runtime selector + Default option; S4 runtimes in tier-grouped grid; S1 claude-code-runtime fitting + provider options. Screenshots in evidence/."
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-06-24T22:10:41Z",
+      "lastReport": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-review-r2.json",
+      "summary": "r1: 2 findings (gateway provider-drop + explicit-uncomposed-primary) both fixed; r2 APPROVE — two-model agreement. S5 UI clean."
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "rounds": 2,
+      "at": "2026-06-24T22:48:19Z",
+      "report": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-pwtest-r2.json",
+      "summary": "r1 fail: agent-sdk-runtime missing from library (the user wanted it selectable) -> FIXED (added to library.json). r2 PASS: independent verify of /compose grid+Runtimes, full runtime peer set (Claude Code/Agent SDK/Codex/Gemini) on /compose/runtimes, primary_runtime default, and /api/library ids — no console errors."
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "frontend-design (direct assessment)"
+      ],
+      "at": "2026-06-24T22:32:56Z",
+      "notes": "S5 primary_runtime selector reuses the EXACT existing global-config field pattern (label + .text <select> + .hint) — visually identical to the adjacent permissions_mode field in the same panel (verified in evidence/s5-primary-runtime-selector.png): consistent typography, spacing, hierarchy. The Default option label and provider hint read clearly. S1 fitting uses the standard fitting-card rendering; S4 grid placement is f45c7c61's tier grid (not my UI). No spacing/consistency/hierarchy/polish issues in the surface this feature added."
+    },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-06-24T22:31:53Z",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/runtimes-faculty/2026-06-24_23-27-34",
+      "note": "Per-beat vision gate PASS (3 content beats: Dev-faculties tier with Runtimes [S4]; Claude Code runtime fitting highlighted [S1]; primary_runtime selector = Default — Claude Code runtime + provider hint [S2/S5]). Navigation surface-tour (not an interaction arc) to avoid a write-race on the SHARED compositions/default; interaction proven by committed e2e (6/6) + unit tests."
+    }
+  },
+  "blockers": [],
+  "notes": {
+    "files": "src/components/compose/FacultyStation.tsx (UNMODIFIED by others — safe): added primary_runtime <select> in OrchestratorGlobalConfig (value globalConfig.primary_runtime, onChange persists via saveComposition) + runtimeOptions prop computed from selections.runtimes + library names.",
+    "providerSelector": "Per-runtime provider selection ALREADY works via S1's config_schema (provider declared type:select -> ConfigInput renders a dropdown). No new code needed; secret-ref input not required (vault keys are global, entered in the Vault tab)."
+  }
+}

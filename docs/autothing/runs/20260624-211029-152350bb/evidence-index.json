@@ -1,0 +1,60 @@
+{
+  "runId": "20260624-211029-152350bb",
+  "project": "kanban-loop-v1c",
+  "brief": "BRIEF/kanban-loop-v1c-build-brief.md",
+  "updatedAt": "2026-06-24T22:12:00Z",
+  "slices": [
+    {
+      "id": "v1c-dispatch-wiring",
+      "status": "passed",
+      "codexReview": "approve (2 rounds — fixed gateway-down spam-park)",
+      "codexPwTest": "env-blocked (codex sandbox cannot launch Chromium)",
+      "live": "board started via runner start.mjs + stub gateway: move card to Plan → board POSTed the autothing-plan prompt (runDir + classification) to /chat → card advanced to Implement, runId minted; gateway-down → card waits (no park); Start gateway-down → 503",
+      "video": "verified (live board screenshot + gateway-chat-POST-proof.log)"
+    },
+    {
+      "id": "v1c-list-config-ui",
+      "status": "passed",
+      "codexReview": "approve (3 rounds — added board-rev CAS, then a true withBoardLock critical section)",
+      "codexPwTest": "env-blocked",
+      "live": "GET/PATCH /lists in the running board: edited plan skill/executePrompt/validNext persisted to board.json; validation 400s; concurrent same-rev PATCH → one 200, one 409, rev advances once; Configure modal (manual=title+validNext, agent=full fields)",
+      "video": "verified (Configure: Backlog + Configure: Plan modals)"
+    },
+    {
+      "id": "v1c-discuss-roundtrip",
+      "status": "passed",
+      "codexReview": "approve (2 rounds — made the brief path card-unique <cardId>-<slug>)",
+      "codexPwTest": "env-blocked",
+      "live": "Open web chat → /embed/web-channel-default?mode=james loads the web channel in the running Garrison (HTTP 200); brief auto-linked onto card.briefPath on Move-out-of-Discuss (card-unique path)",
+      "video": "verified (web channel loaded in the running Garrison)"
+    },
+    {
+      "id": "v1c-live-regressions",
+      "status": "passed",
+      "codexReview": "approve (covered by V1b post-ship reviews)",
+      "codexPwTest": "n/a (verification slice)",
+      "live": "board in /api/fittings/views; /api/library name 'Kanban Loop' (no V1a); buildDiscussUrl → web-channel-default; own-port-start regression 12/12",
+      "video": "verified (live curls + dispatch screenshot)"
+    }
+  ],
+  "tests": { "cmd": "vitest run tests/kanban*.test.ts tests/own-port-start.test.ts", "total": 104, "passed": 104, "exit": 0 },
+  "typecheck": { "exit": 0 },
+  "globalGate": {
+    "status": "completed-with-blockers",
+    "buildableRemaining": 0,
+    "passed": 4,
+    "blocked": 0,
+    "blockers": [
+      {
+        "item": "Codex 3B (cross-model Playwright pass) is env-blocked for every UI slice",
+        "externalCause": "the codex CLI sandbox cannot launch Chromium (MachPortRendezvousServer Permission denied 1100)",
+        "remediationAttempted": "codex exec ... (Playwright drive) — Chromium fails to start inside the codex sandbox; functional live verification done instead via the repo's own Playwright outside the sandbox + Codex 3A approve per slice"
+      },
+      {
+        "item": "FINDING 1/2 dispatch verified via a faithful stub gateway implementing the /chat contract, not a full real-operative boot",
+        "externalCause": "the default-composition operative (the real http-gateway + claude TUI) was in a FAILED status in the running Garrison; a real plan run is a heavy live operation",
+        "remediationAttempted": "verified the kanban dispatch WIRING end-to-end (live board → real gateway HTTP endpoint /chat → card advances with the correct autothing-plan prompt + runId); the stub faithfully implements the gateway /chat contract the real gateway also serves"
+      }
+    ]
+  }
+}

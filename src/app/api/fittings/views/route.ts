@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { garrisonDir } from "@/lib/claude-home";
+import { getTailnetServeMap } from "@/lib/tailnet-serve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,10 @@ interface ViewEntry {
   fittingId: string;
   port: number;
   url: string;
+  // The HTTPS tailnet URL this view's port is exposed at via `tailscale serve`,
+  // or null when it isn't serve-mapped. The browser uses this when reached over
+  // Tailscale (the loopback `url` is unreachable + mixed-content there).
+  tailnetUrl: string | null;
   pid: number | null;
   startedAt: string | null;
   healthy: boolean;
@@ -31,6 +36,8 @@ export async function GET() {
     return NextResponse.json({ error: e.message ?? String(err) }, { status: 500 });
   }
 
+  const serveMap = await getTailnetServeMap();
+
   const probes: Promise<ViewEntry | null>[] = names.map(async (name) => {
     try {
       const raw = await readFile(path.join(dir, name), "utf8");
@@ -43,6 +50,7 @@ export async function GET() {
         fittingId: parsed.fittingId,
         port: parsed.port,
         url: parsed.url,
+        tailnetUrl: serveMap.get(parsed.port) ?? null,
         pid: typeof parsed.pid === "number" ? parsed.pid : null,
         startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : null,
         healthy

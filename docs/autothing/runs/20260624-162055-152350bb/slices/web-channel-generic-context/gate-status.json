@@ -1,0 +1,23 @@
+{
+  "slice": "web-channel-generic-context",
+  "title": "Web channel: generic context + read-aloud + doc render",
+  "updatedAt": "2026-06-24T19:18:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/web-channel-context.test.ts", "exit": 0, "at": "2026-06-24T17:41:00Z", "summary": "14 passed (generic context contract, backward-compatible render, doc-render garrison://+http link handling, XSS sanitization)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-24T18:18:00Z", "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "at": "2026-06-24T18:20:00Z", "summary": "no warnings or errors" },
+    "build":     { "cmd": "node fittings/seed/web-channel-default/ui/build.mjs", "exit": 0, "at": "2026-06-24T17:41:00Z", "summary": "ui bundle built" },
+    "e2e":       { "cmd": "playwright headless render of http://127.0.0.1:7083/?mode=james&context=…", "exit": 0, "at": "2026-06-24T19:17:00Z", "summary": "shell renders the generic chat surface (Operative title, composer, mode chips); the READ-ALOUD control is present (FINDING 14); the ?mode=james&context= URL is accepted without breaking the shell (generic — no kanban knowledge); responsive at 390px; no console errors. Operative test interface (src/app/run/page.tsx + spike) git-confirmed UNCHANGED." },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex/gpt-5.4", "effort": "low", "at": "2026-06-24T17:42:00Z", "lastReport": "docs/autothing/runs/20260624-162055-152350bb/slices/web-channel-generic-context/codex-review-web-channel-generic-context-r2.json", "overrides": [], "notes": "fixed a markdown-link XSS (scheme allowlist + attr escape) + a context-opacity violation" },
+    "codexPwTest": { "result": "env-blocked", "summary": "codex sandbox cannot launch Chromium (same MachPort limitation as kanban-board-ui). Same-runtime Playwright render done; cross-model REVIEW (3A approve r2) is the second-model opinion." },
+    "designAudit": { "verdict": "clean", "by": ["vision review of the rendered shell"], "at": "2026-06-24T19:17:00Z", "notes": "generic dark chat surface; read-aloud + mic controls; markdown composer; no kanban/dev-env labels (stays generic). No emoji in UI." },
+    "video":     { "status": "verified", "verifiedAt": "2026-06-24T19:18:00Z", "flagged": false, "link": "http://100.108.210.116:8099/kanban-loop-v1b/web-channel-generic-context/demo.gif", "kind": "browser-walkthrough", "runDir": "~/.walkthrough/runs/kanban-loop-v1b/web-channel-generic-context", "notes": "render walkthrough of the generic surface + read-aloud (desktop + phone). The generic-context/doc-render/XSS contract is the committed unit suite (14)." }
+  },
+  "blockers": [
+    { "gate": "live-conversation", "cause": "a live James-mode reply rendering a produced document requires the full gateway+operative stack (spawns a real claude TUI on the Max account) — heavy + not stood up in this autonomous headless run", "remediationAttempted": "rendered the generic surface + read-aloud control via Playwright; verified the generic-context + doc-render + XSS contract via the committed unit suite (14 tests); confirmed the operative test interface untouched. The live conversation is a documented deferral, not a defect." }
+  ]
+}

@@ -324,6 +324,12 @@ export interface GlobalConfig {
     log_sink: string;
     alert_channel?: string;
   };
+  // The Runtime-Faculty fitting that hosts the orchestrator (the PRIMARY
+  // runtime). Defaults to "claude-code-runtime" (the node-pty engine) when
+  // unset — preserving the historical gateway/PTY behavior. Other composed
+  // runtimes become model-router targets; only the primary runs the
+  // orchestrator loop. See src/lib/runtime-selection.ts.
+  primary_runtime?: string;
 }
 
 export interface DerivedTasks {

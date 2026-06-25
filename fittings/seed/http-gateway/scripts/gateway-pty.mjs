@@ -45,6 +45,11 @@ const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 const PERMISSION_MODE = process.env.GARRISON_PERMISSION_MODE ?? "bypassPermissions";
 const MODEL = process.env.GARRISON_MODEL ?? "opus";
 const CLAUDE_BINARY = process.env.GARRISON_CLAUDE_BINARY ?? "claude";
+// When the primary runtime selects a non-default provider, the runner sets
+// ANTHROPIC_BASE_URL/AUTH_TOKEN + GARRISON_PROVIDER(_LAUNCH). providerLaunch keeps
+// those vars through the orchestrator spawn instead of stripping them for Max-plan.
+const PROVIDER_LAUNCH = process.env.GARRISON_PROVIDER_LAUNCH === "1";
+const PRIMARY_PROVIDER = process.env.GARRISON_PROVIDER ?? "anthropic-plan";
 
 const STARTED_AT = Date.now();
 const SESSION_ID_FILE = path.join(COMPOSITION_DIR, ".garrison", "operative-session-id");
@@ -117,6 +122,7 @@ async function initRouting() {
       permissionMode: PERMISSION_MODE,
       continueSession,
       claudeBinary: CLAUDE_BINARY,
+      providerLaunch: PROVIDER_LAUNCH,
     },
     classifierSpawnConfig: {
       compositionDir: COMPOSITION_DIR,
@@ -124,7 +130,7 @@ async function initRouting() {
       permissionMode: PERMISSION_MODE,
       claudeBinary: CLAUDE_BINARY,
     },
-    initialTarget: { provider: "anthropic-plan", model: MODEL, effort: null },
+    initialTarget: { provider: PRIMARY_PROVIDER, model: MODEL, effort: null },
     logFn: (e) => logEvent("stdout", { kind: "routing", ...e }),
   });
   await router.start();
@@ -181,6 +187,7 @@ async function spawnOperative({ resume = true } = {}) {
     permissionMode: PERMISSION_MODE,
     continueSession,
     claudeBinary: CLAUDE_BINARY,
+    providerLaunch: PROVIDER_LAUNCH,
   });
   ptyStatus = "ready";
   await markPriorSession();

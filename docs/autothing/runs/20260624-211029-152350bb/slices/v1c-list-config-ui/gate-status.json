@@ -1,0 +1,21 @@
+{
+  "slice": "v1c-list-config-ui",
+  "title": "View + edit a list's config in the board UI, persisted atomically to board.json (board-rev CAS)",
+  "updatedAt": "2026-06-24T21:55:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 3 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/kanban-list-config.test.ts", "exit": 0, "summary": "23 passed: applyListConfig (edit agent list; reject unknown list / bad validNext / bad trigger / newline+traversal in taskType+skill / agent-only field on a manual list; id/order/kind invariant) + saveBoardCAS concurrency (two same-rev edits → exactly one wins, rev advances once; stale rev conflicts)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0 },
+    "lint":      { "cmd": "npm run lint", "exit": 0 },
+    "build":     { "cmd": "node ui/build.mjs + npm run build", "exit": 0, "summary": "UI dist rebuilt; next build green" },
+    "e2e":       { "cmd": "live board :7089 (started via scripts/start.mjs)", "exit": 0, "summary": "LIVE: GET /lists → PATCH /lists/plan (skill+executePrompt+validNext) persisted to board.json on disk; bad validNext → 400; manual-list agent field → 400; board-rev CAS: rev 0 → PATCH(rev0)=200(rev→1) → PATCH(stale rev0)=409 → PATCH(rev1)=200; two CONCURRENT HTTP PATCHes same rev → one 200, one 409, on-disk rev advanced exactly once. UI: per-list gear opens Configure modal (manual=title+validNext only; agent=skill/trigger/taskType/tier/mode/execute+router prompts/validNext)" },
+    "codexReview": { "verdict": "approve", "rounds": 3, "by": "codex/gpt-5.4", "effort": "low", "at": "2026-06-24T21:54:00Z", "lastReport": "docs/autothing/runs/20260624-211029-152350bb/slices/v1c-list-config-ui/codex-review-v1c-list-config-ui-r3.json", "overrides": [], "notes": "r1: last-writer-wins on board.json (no CAS) → added board-rev + 409; r2: rev check not atomic (TOCTOU) → extracted withFileLock, added withBoardLock + saveBoardCAS (true critical section); r3 approve" },
+    "codexPwTest": { "result": "env-blocked", "summary": "codex sandbox cannot launch Chromium; UI verified via repo Playwright (Configure modal for manual + agent lists) + live HTTP CAS" },
+    "designAudit": { "verdict": "clean", "by": ["vision review of the live Configure modals"], "notes": "manual list correctly limited to title+validNext; agent list shows all fields; no emoji (GearIcon SVG); responsive Sheet" },
+    "video":     { "status": "verified", "verifiedAt": "2026-06-24T21:55:00Z", "flagged": false, "link": "http://100.108.210.116:8099/kanban-loop-v1c/v1c-list-config-ui/", "kind": "live-walkthrough", "runDir": "~/.walkthrough/runs/kanban-loop-v1c/v1c-list-config-ui", "notes": "shots: 01-board, 02-list-config-editor (Configure: Backlog — manual), 03-agent-list-config (Configure: Plan — full agent config incl. live-edited execute prompt)" }
+  },
+  "blockers": []
+}

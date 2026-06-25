@@ -12,6 +12,7 @@ dependencies:
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/model-router
     - path: ../../fittings/seed/modes
@@ -102,6 +103,11 @@ x-garrison:
             dream_model: haiku
         - id: scheduler
           config: {}
+        - id: kanban-loop
+          config:
+            board_dir: ~/.garrison/kanban-loop
+            iteration_cap: 10
+            test_beat_cron: 0 */5 * * *
       sessions:
         - id: artifact-store
           config:

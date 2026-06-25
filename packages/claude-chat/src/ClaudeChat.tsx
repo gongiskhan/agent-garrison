@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
@@ -11,6 +12,61 @@ import {
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
 
 marked.setOptions({ breaks: true, gfm: true });
+
+// Escape a value before it goes into an HTML attribute (the rendered markdown is
+// injected via dangerouslySetInnerHTML, so an unescaped href/title could break out
+// of the attribute or inject markup).
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Allow ONLY safe link targets. Active-content schemes (javascript:, data:,
+// vbscript:, file:, …) are rejected so a produced document / an injected reply
+// cannot smuggle a script payload through the chat's markdown renderer. Relative,
+// root-relative (incl. the translated /fitting/… path), anchor, query, and
+// protocol-relative links are allowed, plus the http/https/mailto/tel schemes.
+function isSafeHref(url: string): boolean {
+  const u = url.trim();
+  if (u === "") return false;
+  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(u)) return true; // relative / anchor / query
+  if (/^\/\//.test(u)) return true;                     // protocol-relative //host
+  return /^(?:https?:|mailto:|tel:)/i.test(u);          // explicit safe schemes only
+}
+
+// Generic link handling for rendered assistant markdown. Content-agnostic (no
+// kanban / dev-env knowledge):
+//   1. `garrison://<fitting-id>/<rest>` cross-fitting links → `/fitting/<id>/<rest>`
+//      (the UI-contract-v2 translation), so a produced doc/artifact link the
+//      Operative emits is a real, clickable link, never shown raw.
+//   2. http(s) links open in a new tab (rel=noopener) so following a produced
+//      document doesn't tear down the live chat.
+//   3. UNSAFE schemes (javascript:/data:/…) are NOT linkified — the text is kept,
+//      the dangerous href is dropped. href/title are HTML-attribute-escaped.
+// Additive: only the <a> attributes change; link text/structure is untouched, so
+// dev-env's existing rendering is unaffected (and safer).
+marked.use({
+  renderer: {
+    link({ href, title, tokens }: { href: string; title?: string | null; tokens: any[] }) {
+      const text = this.parser.parseInline(tokens);
+      let url = href || "";
+      const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
+      if (g) {
+        url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
+      }
+      // Drop the link (keep the text) for any non-allowlisted/active-content scheme.
+      if (!isSafeHref(url)) return text;
+      const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url)
+        ? ` target="_blank" rel="noopener noreferrer"`
+        : "";
+      const t = title ? ` title="${escapeAttr(title)}"` : "";
+      return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
+    },
+  },
+});
 
 interface Turn {
   id: string;
@@ -114,6 +170,31 @@ const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }
   },
 ];
 
+// Optional per-send metadata a host fitting can attach to every turn. GENERIC
+// by design: `context` is an OPAQUE blob and `mode` an opaque string — this
+// component never inspects either. A transport that wants them reads a second
+// `meta` argument on sendMessage; transports that don't (createHttpTransport)
+// ignore it, so default behavior is byte-for-byte unchanged.
+export interface ChatSendMeta {
+  context?: unknown;
+  mode?: string;
+}
+type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
+
+// Pure decision used by `send`: build the optional per-send meta from the
+// current opaque context/mode, or return undefined when BOTH are absent so a
+// context-unaware transport is invoked with exactly one argument (its previous
+// behavior). Exported for hermetic unit testing of the threading contract.
+export function buildSendMeta(context: unknown, mode: string | undefined): ChatSendMeta | undefined {
+  const hasContext = context !== undefined && context !== null;
+  const hasMode = typeof mode === "string" && mode.trim().length > 0;
+  if (!hasContext && !hasMode) return undefined;
+  const meta: ChatSendMeta = {};
+  if (hasContext) meta.context = context;
+  if (hasMode) meta.mode = (mode as string).trim();
+  return meta;
+}
+
 export interface ClaudeChatProps {
   transport: ChatTransport;
   /** Optional slot rendered at the left of the composer (e.g. voice controls). */
@@ -126,9 +207,20 @@ export interface ClaudeChatProps {
    * { model, effort, theme, voice }.
    */
   features?: ChatFeatures;
+  /**
+   * OPAQUE context a host fitting hands the chat (a card, a Dev Env session, …).
+   * This component does NOT interpret it — it is threaded verbatim to the
+   * transport's send as `meta.context`. Absent → exactly the previous behavior.
+   */
+  context?: unknown;
+  /**
+   * OPAQUE mode string a host fitting hands the chat (e.g. a souls face). Passed
+   * through to the transport's send as `meta.mode`; never interpreted here.
+   */
+  mode?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode }: ClaudeChatProps) {
   const feat = features ?? {};
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
@@ -284,6 +376,14 @@ export function ClaudeChat({ transport, composerAdornment, title, features }: Cl
 
   useEffect(() => setMenuIdx(0), [slashQuery]);
 
+  // Keep the latest opaque context/mode in refs so `send` stays stable while
+  // always forwarding the current values. Both default to undefined → the meta
+  // arg is omitted entirely and transports see exactly the old single-arg call.
+  const contextRef = useRef<unknown>(context);
+  contextRef.current = context;
+  const modeRef = useRef<string | undefined>(mode);
+  modeRef.current = mode;
+
   const send = useCallback(
     (text: string) => {
       const t = text.trim();
@@ -295,7 +395,13 @@ export function ClaudeChat({ transport, composerAdornment, title, features }: Cl
       setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true }]);
       setBusy(true);
       pinnedRef.current = true;
-      transport.sendMessage(wire).catch(() => {});
+      // Pass opaque context/mode as an optional second arg ONLY when present, so
+      // a context-unaware transport (createHttpTransport) is called exactly as
+      // before. The transport decides whether to read `meta`.
+      const meta = buildSendMeta(contextRef.current, modeRef.current);
+      const sendFn = transport.sendMessage as ContextAwareSend;
+      const p = meta ? sendFn(wire, meta) : sendFn(wire);
+      p.catch(() => {});
       setInput("");
     },
     [transport, effortOn]

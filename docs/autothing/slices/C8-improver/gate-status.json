@@ -1,0 +1,35 @@
+{
+  "slice": "C8-improver",
+  "title": "Nightly proposal generator",
+  "updatedAt": "2026-06-12T23:15:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/improver-nightly.test.ts",
+      "exit": 0,
+      "summary": "3 passed - Nightly improver correctly identifies missing services, generates artifact-compatible fallback, and appropriately records skipped run on vault lock."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "video": {
+      "status": "not-recorded",
+      "note": "CLI automation; no separate walkthrough recorded."
+    }
+  },
+  "blockers": [],
+  "notes": "Nightly Improver correctly registers a disabled scheduler job. Its proposal generation safely avoids direct edits via read-only telemetry and documentation review."
+}

@@ -32,6 +32,7 @@ import {
 import { useAppShell } from "./AppShell";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
+import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 import type {
   CapabilityKind,
   Composition,
@@ -380,15 +381,18 @@ function FittingViewsLinks({
           </span>
         );
         if (healthy && status) {
+          // Pick the URL reachable from where the browser is: loopback locally,
+          // the HTTPS tailnet endpoint over Tailscale, else a host rebind.
+          const openUrl = resolveViewUrl(status);
           if (isMobile) {
             return (
               <a
                 key={`own-port:${row.entry.id}`}
-                href={status.url}
+                href={openUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="item"
-                title={`Open ${row.entry.name} in new tab (${status.url})`}
+                title={`Open ${row.entry.name} in new tab (${openUrl})`}
               >
                 <span>
                   {icon}
@@ -405,7 +409,7 @@ function FittingViewsLinks({
               key={`own-port:${row.entry.id}`}
               href={embedHref}
               className={clsx("item", isActive && "active")}
-              title={`Open ${row.entry.name} embedded (${status.url})`}
+              title={`Open ${row.entry.name} embedded (${openUrl})`}
             >
               <span>
                 {icon}

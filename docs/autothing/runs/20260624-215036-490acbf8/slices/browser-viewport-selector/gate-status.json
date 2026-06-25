@@ -1,0 +1,21 @@
+{
+  "slice": "browser-viewport-selector",
+  "title": "Mobile/tablet/desktop device-size selector framing the embedded app",
+  "updatedAt": "2026-06-24T22:09:30Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 2 },
+  "gates": {
+    "tests":     { "cmd": "npx playwright test tests/e2e/dev-env-browser-viewport.spec.ts --project=desktop-chromium", "exit": 0, "at": "2026-06-24T22:00:00Z", "summary": "4 passed (selector 3 options; Mobile=390px, Tablet=820px fixed; Desktop fluid==container width; persists across reload; present in mobile Browser tab)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "at": "2026-06-24T21:44:00Z", "summary": "0 errors (transient cross-session runner.ts error cleared on re-run)" },
+    "lint":      { "cmd": "n/a", "exit": 0, "at": "2026-06-24T22:00:00Z", "summary": "no lint configured for the fitting UI" },
+    "build":     { "cmd": "node ui/build.mjs (fittings/seed/dev-env)", "exit": 0, "at": "2026-06-24T21:50:00Z", "summary": "esbuild wrote dist/" },
+    "e2e":       { "cmd": "npx playwright test tests/e2e/dev-env-browser-viewport.spec.ts", "exit": 0, "at": "2026-06-24T22:00:00Z", "summary": "4 passed, 0 console errors" },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex/gpt-5.4", "effort": "low", "at": "2026-06-24T22:55:00Z", "lastReport": "docs/autothing/runs/20260624-215036-490acbf8/slices/browser-viewport-selector/codex-review-r2.json", "overrides": [], "note": "r1: real finding (weak desktop-fluid e2e assertion >600 -> a stuck 820 would pass) FIXED by asserting iframe width == container width; box-sizing finding hardened defensively (global *{box-sizing:border-box} already covered it). r2 clean approve" },
+    "codexPwTest": { "result": "pass", "by": "codex/gpt-5.4", "effort": "medium", "at": "2026-06-24T23:06:00Z", "report": "docs/autothing/runs/20260624-215036-490acbf8/slices/browser-viewport-selector/codex-pwtest.json", "note": "Codex independently verified fluid desktop (697==pane 697), fixed mobile 390px, fixed tablet 820px, desktop restore, mobile persistence after reload; no console errors" },
+    "designAudit": { "verdict": "clean", "by": ["frontend-design"], "at": "2026-06-24T22:00:00Z", "notes": "selector reuses .segmented (clear green active state); Mobile/Tablet render the app at fixed widths in a centered, framed, guttered viewport (polished device-emulator look); Desktop fluid; on-system warm palette; header flex-wraps so no overflow on narrow panes" },
+    "video":     { "status": "verified", "verifiedAt": "2026-06-24T22:09:03Z", "flagged": false, "link": "http://100.108.210.116:8099/garrison-dev-env-responsive/browser-viewport/2026-06-24_23-05-59/final.mp4", "runDir": "/Users/ggomes/.walkthrough/runs/garrison-dev-env-responsive/browser-viewport/2026-06-24_23-05-59" }
+  },
+  "blockers": []
+}

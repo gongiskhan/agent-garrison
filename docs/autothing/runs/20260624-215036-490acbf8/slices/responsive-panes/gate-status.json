@@ -1,0 +1,21 @@
+{
+  "slice": "responsive-panes",
+  "title": "Panes collapse to a 3-way tab switcher on narrow screens (incl. browser)",
+  "updatedAt": "2026-06-24T21:39:30Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests":     { "cmd": "npx playwright test tests/e2e/dev-env-responsive.spec.ts --project=desktop-chromium", "exit": 0, "at": "2026-06-24T21:30:00Z", "summary": "3 passed (desktop 1400/820 split intact + no switcher; mobile 390 3-way switcher toggles panes, real iframe persists across tab switches, 1 tab-open, no overflow)" },
+    "typecheck": { "cmd": "npx tsc --noEmit", "exit": 0, "at": "2026-06-24T21:14:00Z", "summary": "0 errors (transient cross-session faculties.ts error cleared on re-run)" },
+    "lint":      { "cmd": "n/a", "exit": 0, "at": "2026-06-24T21:30:00Z", "summary": "no lint configured for the fitting UI (esbuild bundle, not under next lint)" },
+    "build":     { "cmd": "node ui/build.mjs (fittings/seed/dev-env)", "exit": 0, "at": "2026-06-24T21:30:00Z", "summary": "esbuild wrote dist/ (1.6mb bundle)" },
+    "e2e":       { "cmd": "npx playwright test tests/e2e/dev-env-responsive.spec.ts", "exit": 0, "at": "2026-06-24T21:30:00Z", "summary": "3 passed, 0 console errors" },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex/gpt-5.4", "effort": "low", "at": "2026-06-24T21:24:00Z", "lastReport": "docs/autothing/runs/20260624-215036-490acbf8/slices/responsive-panes/codex-review-r2.json", "overrides": [], "note": "r1 found a real false-positive (e2e never mounted a live iframe -> iframe-persistence untested); fixed (live iframe + same-element/src + single tab-open assertions); r2 clean approve" },
+    "codexPwTest": { "result": "pass", "by": "codex/gpt-5.4", "effort": "medium", "at": "2026-06-24T21:29:00Z", "report": "docs/autothing/runs/20260624-215036-490acbf8/slices/responsive-panes/codex-pwtest.json", "note": "Codex independently drove desktop 1400 + mobile 390, exercised Browser/Claude tab switching; split on desktop, 3-way switcher + pane toggle on mobile; no console errors" },
+    "designAudit": { "verdict": "clean", "by": ["frontend-design"], "at": "2026-06-24T21:33:00Z", "notes": "3-way switcher reuses the existing .segmented system (clear green active state); each mobile pane full-screen, no overflow at 390px; browser pane reachable full-width with x correctly hidden on mobile; desktop split visually unchanged. Minor by-design: compact segmented tap height, consistent with the existing dev-tool header." },
+    "video":     { "status": "verified", "verifiedAt": "2026-06-24T21:39:05Z", "flagged": false, "link": "http://100.108.210.116:8099/garrison-dev-env-responsive/panes-responsive/2026-06-24_22-36-12/final.mp4", "runDir": "/Users/ggomes/.walkthrough/runs/garrison-dev-env-responsive/panes-responsive/2026-06-24_22-36-12" }
+  },
+  "blockers": []
+}

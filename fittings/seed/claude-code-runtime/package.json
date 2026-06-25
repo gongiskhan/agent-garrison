@@ -1,0 +1,10 @@
+{
+  "name": "claude-code-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code runtime fitting — the node-pty engine that drives the interactive Claude Code TUI (default primary runtime).",
+  "scripts": {
+    "probe": "node scripts/probe.mjs --probe"
+  }
+}

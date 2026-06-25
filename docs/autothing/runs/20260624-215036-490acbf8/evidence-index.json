@@ -1,0 +1,59 @@
+{
+  "project": "garrison-dev-env-responsive",
+  "runId": "20260624-215036-490acbf8",
+  "updatedAt": "2026-06-24T22:09:30Z",
+  "galleryUrl": "http://100.108.210.116:8099/garrison-dev-env-responsive/panes-responsive/",
+  "slices": [
+    {
+      "slice": "responsive-panes",
+      "title": "Panes collapse to a 3-way tab switcher on narrow screens (incl. browser)",
+      "kind": "ui",
+      "status": "passed",
+      "video": "http://100.108.210.116:8099/garrison-dev-env-responsive/panes-responsive/2026-06-24_22-36-12/final.mp4",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260624-215036-490acbf8/slices/responsive-panes/gate-status.json",
+      "verifiedAt": "2026-06-24T21:39:05Z"
+    },
+    {
+      "slice": "browser-viewport-selector",
+      "title": "Mobile/tablet/desktop device-size selector framing the embedded app",
+      "kind": "ui",
+      "status": "passed",
+      "video": "http://100.108.210.116:8099/garrison-dev-env-responsive/browser-viewport/2026-06-24_23-05-59/final.mp4",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260624-215036-490acbf8/slices/browser-viewport-selector/gate-status.json",
+      "verifiedAt": "2026-06-24T22:09:03Z"
+    }
+  ],
+  "globalGate": {
+    "status": "passed",
+    "e2eAll": {
+      "cmd": "npx playwright test tests/e2e/dev-env-responsive.spec.ts tests/e2e/dev-env-browser-viewport.spec.ts --project=desktop-chromium",
+      "exit": 0
+    },
+    "verifyApp": {
+      "via": "e2e через UI",
+      "verdict": "clean"
+    },
+    "build": {
+      "cmd": "node ui/build.mjs",
+      "exit": 0
+    },
+    "typecheck": {
+      "cmd": "npx tsc --noEmit",
+      "exit": 0
+    },
+    "lint": {
+      "cmd": "n/a (fitting UI)",
+      "exit": 0
+    },
+    "crossModel": {
+      "reviewAllApproved": true,
+      "pwTestAllPassed": true
+    },
+    "designAudit": {
+      "verdict": "clean"
+    },
+    "everySliceVideoVerified": true
+  }
+}

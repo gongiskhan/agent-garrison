@@ -174,21 +174,24 @@ function renderMatrix(config) {
   return [header, sep, ...body, colDefaults].join("\n");
 }
 
-// Map a discipline field value to the Garrison verb-skill that satisfies it —
-// the decomposed-autothing parts the orchestrator invokes (deliverable #1). A
-// higher tier escalates the skill set; "none"/"text" need no skill.
+// Map a discipline field value to the autothing-* verb-skill that satisfies it —
+// the decomposed-autothing parts the orchestrator invokes (deliverable #1). One
+// skill family (the garrison-* shims retired once docs/architecture.md parity was
+// confirmed); a higher tier escalates the skill set; "none"/"text" need no skill.
 function disciplineSkill(field, value) {
   if (!value || value === "none") return null;
-  if (field === "testing") return "garrison-testing"; // tests / full-gates
+  if (field === "testing") return "autothing-test"; // tests / full-gates
   if (field === "review") {
     // design-audit is UI-only — annotate it as CONDITIONAL, not a blanket second
     // gate on every deep task (a non-UI deep change needs code-review, not a UI audit).
     return String(value).startsWith("review-by")
-      ? "code-review (+ garrison-design-audit for UI changes)"
+      ? "code-review (+ autothing-design-audit for UI changes)"
       : "code-review";
   }
-  if (field === "evidence") return value === "video" ? "run-garrison (walkthrough)" : null;
-  if (field === "distribution") return value === "link" ? "garrison-governance (record + link)" : null;
+  // evidence:video is recorded by autothing-walkthrough (NOT run-garrison, which is
+  // only an app launcher — corrects the prior mapping).
+  if (field === "evidence") return value === "video" ? "autothing-walkthrough" : null;
+  if (field === "distribution") return value === "link" ? "autothing-validate (record + link)" : null;
   return null;
 }
 

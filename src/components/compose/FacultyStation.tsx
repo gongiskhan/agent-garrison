@@ -288,6 +288,10 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           <OrchestratorGlobalConfig
             globalConfig={composition.globalConfig}
             onChange={(globalConfig) => void saveComposition({ globalConfig })}
+            runtimeOptions={(composition.selections.runtimes ?? []).map((sel) => ({
+              id: sel.id,
+              name: library.find((e) => e.id === sel.id)?.name ?? sel.id
+            }))}
             busy={busy}
           />
         ) : null}
@@ -756,16 +760,41 @@ function ConfigInput({
 function OrchestratorGlobalConfig({
   globalConfig,
   onChange,
+  runtimeOptions,
   busy
 }: {
   globalConfig: GlobalConfig;
   onChange: (g: GlobalConfig) => void;
+  runtimeOptions: { id: string; name: string }[];
   busy: string | null;
 }) {
   return (
     <>
       <div className="lab">Global config · owned by the Orchestrator</div>
       <div style={{ border: "1px solid var(--rule)", background: "white", padding: "4px 18px" }}>
+        <div className="field">
+          <label>primary_runtime</label>
+          <select
+            className="text"
+            value={globalConfig.primary_runtime ?? ""}
+            onChange={(e) =>
+              onChange({ ...globalConfig, primary_runtime: e.target.value || undefined })
+            }
+            disabled={Boolean(busy)}
+          >
+            <option value="">Default — Claude Code runtime</option>
+            {runtimeOptions.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <div className="hint">
+            Which composed runtime hosts the orchestrator. Leave as Default for the
+            Claude Code engine; other composed runtimes become model-router targets.
+            Pick a runtime&apos;s provider on its own card to run it on Ollama / DeepSeek / Z.ai.
+          </div>
+        </div>
         <div className="field">
           <label>projects_root</label>
           <input

@@ -1,0 +1,40 @@
+{
+  "slice": "C6-workflows",
+  "title": "Workflows Quarters category - scan project/user saved workflow scripts, read detail, remove saved files, export router targets",
+  "updatedAt": "2026-06-12T21:20:09Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/claude-workflows.test.ts tests/primitive-state.test.ts tests/quarters-crud.test.ts tests/quarters.test.ts",
+      "exit": 0,
+      "summary": "18 passed - workflow scanner covers project .claude/workflows plus user workflows, ignores non-script files, de-dupes router targets with project precedence, reads script/body detail, deletes only the addressed file; primitive-state exposes workflow records with router targets; quarters dispatch reads/deletes workflows; category registry now includes Workflows."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "summary": "No ESLint warnings or errors"
+    },
+    "e2e": {
+      "cmd": "GARRISON_E2E_PORT=3417 npx playwright test --project=desktop-chromium tests/e2e/quarters.spec.ts tests/e2e/quarters-crud.spec.ts",
+      "exit": 0,
+      "summary": "7 passed - Quarters index includes Workflows; workflow UI lists sandbox project/user workflows, opens read-only script detail, removes both saved workflow files, and shows the empty state."
+    },
+    "video": {
+      "status": "not-recorded",
+      "note": "This narrow follow-up is covered by committed unit tests and a re-runnable Playwright e2e. No new walkthrough video was recorded."
+    }
+  },
+  "blockers": [],
+  "notes": "Scope stayed within Quarters primitives: src/lib/claude-workflows.ts provides scan/detail/delete plus listWorkflowRouterTargets()/workflowToRouterTarget() using the router-compatible workflow target shape. Router, gateway/core, scheduler, improver, runner purge files, provider skills, and package dependencies were not edited."
+}

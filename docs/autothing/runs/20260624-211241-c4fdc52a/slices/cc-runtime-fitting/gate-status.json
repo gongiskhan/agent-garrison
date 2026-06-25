@@ -1,0 +1,91 @@
+{
+  "slice": "cc-runtime-fitting",
+  "title": "First-class Claude Code Runtime Fitting (node-pty engine, selectable peer)",
+  "updatedAt": "2026-06-24T22:48:51Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/claude-code-runtime.test.ts",
+      "exit": 0,
+      "at": "2026-06-24T21:30:02Z",
+      "summary": "5 passed (metadata parse: faculty=runtimes, provides runtime:claude-code, provider/model/base_url config, verify hook, library entry, clean capability resolve)"
+    },
+    "validateFitting": {
+      "cmd": "npx tsx scripts/validate-fitting.ts fittings/seed/claude-code-runtime",
+      "exit": 0,
+      "at": "2026-06-24T21:30:02Z",
+      "summary": "PASS all four checks (architecture/security/prompt-injection/quality)"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-24T21:30:02Z",
+      "summary": "tsc --noEmit, 0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "at": "2026-06-24T21:30:02Z",
+      "summary": "next lint clean, 0 warnings/errors"
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": null,
+      "summary": "pending"
+    },
+    "e2e": {
+      "cmd": "node docs/autothing/runs/20260624-211241-c4fdc52a/verify-runtimes-ui.mjs",
+      "exit": 0,
+      "at": "2026-06-24T22:16:41Z",
+      "summary": "6/6 UI checks pass against the running app (127.0.0.1:7777): S5 primary_runtime selector + Default option; S4 runtimes in tier-grouped grid; S1 claude-code-runtime fitting + provider options. Screenshots in evidence/."
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-06-24T22:10:41Z",
+      "lastReport": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-review-r2.json",
+      "summary": "r1: 2 findings (gateway provider-drop + explicit-uncomposed-primary) both fixed; r2 APPROVE — two-model agreement. S5 UI clean."
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "rounds": 2,
+      "at": "2026-06-24T22:48:19Z",
+      "report": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-pwtest-r2.json",
+      "summary": "r1 fail: agent-sdk-runtime missing from library (the user wanted it selectable) -> FIXED (added to library.json). r2 PASS: independent verify of /compose grid+Runtimes, full runtime peer set (Claude Code/Agent SDK/Codex/Gemini) on /compose/runtimes, primary_runtime default, and /api/library ids — no console errors."
+    },
+    "designAudit": {
+      "verdict": null,
+      "summary": "pending (minimal UI surface — registration list item; full UI is S5)"
+    },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-06-24T22:31:53Z",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/runtimes-faculty/2026-06-24_23-27-34",
+      "note": "Per-beat vision gate PASS (3 content beats: Dev-faculties tier with Runtimes [S4]; Claude Code runtime fitting highlighted [S1]; primary_runtime selector = Default — Claude Code runtime + provider hint [S2/S5]). Navigation surface-tour (not an interaction arc) to avoid a write-race on the SHARED compositions/default; interaction proven by committed e2e (6/6) + unit tests."
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude (same-model)",
+      "at": "2026-06-24T21:32:32Z",
+      "summary": "No correctness bugs; mirrors codex/gemini/agent-sdk runtime-fitting conventions (verify path apm_modules/_local/<id>/scripts/probe.mjs, cardinality_hint single<=runtimes(multi), valid config_schema selects, additive library entry)."
+    }
+  },
+  "blockers": [],
+  "notes": {
+    "diff": "ADDITIVE + DISJOINT: new fittings/seed/claude-code-runtime/ (apm.yml, package.json, scripts/probe.mjs, README.md); one appended entry in data/library.json; new tests/claude-code-runtime.test.ts. No edits to f45c7c61-claimed files beyond the additive library.json append.",
+    "preExistingFailure": "tests/seed.test.ts has 3 failures (seed 'memory' apm.yml missing) — NOT my regression. fittings/seed/memory was renamed to basic-memory in another session's in-flight working tree; tests/seed.test.ts (modified by another session, not me) still hardcodes 'memory'. Confirmed via git status: seed.test.ts + basic-memory/* are others' uncommitted changes; my diff does not touch them.",
+    "coord": "Re-checked coord_digest before the library.json edit (f45c7c61 intent still active on library.json); kept the edit additive (append at array end)."
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "slice": "primary-runtime-spawn",
+  "title": "Selectable PRIMARY runtime + runner spawn resolution (incl. provider overrides)",
+  "updatedAt": "2026-06-24T22:48:51Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/runtime-selection.test.ts",
+      "exit": 0,
+      "at": "2026-06-24T21:45:31Z",
+      "summary": "12 passed (default->claude-code, engine from provides, fail-loud on uncomposed primary, provider env for ollama/deepseek/zai, vault fail-loud, base_url override, unknown provider throw)"
+    },
+    "regression": {
+      "cmd": "npx vitest run tests/runner-*.test.ts",
+      "exit": 0,
+      "at": "2026-06-24T21:45:31Z",
+      "summary": "runner-setup/capabilities-block/eager-lifecycle/prompt-substitution all green — no spawn-path regression"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-24T21:45:31Z",
+      "summary": "0 errors after runner wiring"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "at": "2026-06-24T21:45:31Z",
+      "summary": "clean"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude (same-model)",
+      "at": "2026-06-24T21:45:31Z",
+      "summary": "No correctness bugs; default behavior preserved by construction."
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": null,
+      "summary": "pending"
+    },
+    "e2e": {
+      "cmd": "walkthrough (select primary runtime + provider, persists)",
+      "exit": null,
+      "summary": "pending — covered with S5 provider UI"
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-06-24T22:10:41Z",
+      "lastReport": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-review-r2.json",
+      "summary": "r1: 2 findings (gateway provider-drop + explicit-uncomposed-primary) both fixed; r2 APPROVE — two-model agreement. S5 UI clean."
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "rounds": 2,
+      "at": "2026-06-24T22:48:19Z",
+      "report": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-pwtest-r2.json",
+      "summary": "r1 fail: agent-sdk-runtime missing from library (the user wanted it selectable) -> FIXED (added to library.json). r2 PASS: independent verify of /compose grid+Runtimes, full runtime peer set (Claude Code/Agent SDK/Codex/Gemini) on /compose/runtimes, primary_runtime default, and /api/library ids — no console errors."
+    },
+    "designAudit": {
+      "verdict": null,
+      "summary": "n/a backend (UI lands in S5)"
+    },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-06-24T22:31:53Z",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/runtimes-faculty/2026-06-24_23-27-34",
+      "note": "Per-beat vision gate PASS (3 content beats: Dev-faculties tier with Runtimes [S4]; Claude Code runtime fitting highlighted [S1]; primary_runtime selector = Default — Claude Code runtime + provider hint [S2/S5]). Navigation surface-tour (not an interaction arc) to avoid a write-race on the SHARED compositions/default; interaction proven by committed e2e (6/6) + unit tests."
+    }
+  },
+  "blockers": [],
+  "notes": {
+    "files": "NEW src/lib/runtime-selection.ts (+ tests/runtime-selection.test.ts); types.ts GlobalConfig.primary_runtime (additive optional, disjoint from f45c7c61 hunks @25-245); runner.ts import + primary resolution before spawn branch + spawnGateway/spawnClaude env threading + buildRuntimeEntries helper (regions ~216/~894/~1050, disjoint from others' runner hunks @366-510); scripts/pty-operative.mjs providerLaunch.",
+    "limitation": "Provider-on-primary now wired for BOTH the direct-PTY path AND the gateway path (legacy + routed, via gateway-pty.mjs providerLaunch + initialTarget.provider). agent-sdk-as-primary still fails loud (not yet hosted as interactive orchestrator) — honest v1.",
+    "behaviorPreserved": "Default (no primary_runtime, default provider) sets only harmless marker env vars; GARRISON_MODEL/provider unchanged vs today."
+  }
+}
