@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f4ede0" />
+<title>Web-Channel Redesign — Garrison look</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ── Garrison design tokens, mapped onto the .cc-* chat surface ─────────────
+   This is the web-channel-SCOPED override (lives in fittings/.../ui/styles.css,
+   concatenated after claude-chat.css). dev-env never loads it, so the shared
+   component's dark default is untouched. */
+.cc-root {
+  --cc-bg:            #fbf8f1;  /* paper      */
+  --cc-bg-elev:       #f4ede0;  /* paper-2    */
+  --cc-bg-sunk:       #ece2cc;  /* paper-3    */
+  --cc-fg:            #18211c;  /* ink        */
+  --cc-fg-dim:        #66695f;  /* mute       */
+  --cc-fg-faint:      #7d8077;  /* mute-2     */
+  --cc-border:        #d6cdba;  /* rule       */
+  --cc-border-strong: #c4b89f;  /* rule-2     */
+  --cc-accent:        #3d6249;  /* sage-2     */
+  --cc-accent-fg:     #fbf8f1;  /* paper on accent */
+  --cc-user-bg:       #eaf1e7;  /* sage-soft  */
+  --cc-user-fg:       #18211c;
+  --cc-code-bg:       #18211c;  /* ink — dark code on cream, echoes .term */
+  --cc-code-fg:       #d7e3dc;
+  --cc-code-border:   #283731;
+  --cc-danger-bg:     #9b362d;  /* alarm      */
+  --cc-danger-border: #9b362d;
+  --cc-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cc-serif: "Source Serif 4", Georgia, serif;
+  --cc-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--cc-bg, #fbf8f1); }
+
+.cc-root {
+  display: flex; flex-direction: column; height: 100dvh;
+  max-width: 760px; margin: 0 auto;
+  background: var(--cc-bg); color: var(--cc-fg);
+  font: 15px/1.55 var(--cc-sans);
+  border-left: 1px solid var(--cc-border); border-right: 1px solid var(--cc-border);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ── */
+.cc-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top));
+  background: var(--cc-bg-elev); border-bottom: 1px solid var(--cc-border);
+}
+.cc-title {
+  font-family: var(--cc-serif); font-weight: 600; font-size: 17px;
+  letter-spacing: -0.01em; color: var(--cc-fg);
+}
+.cc-conn { width: 7px; height: 7px; border-radius: 50%; background: var(--cc-accent); box-shadow: 0 0 0 3px rgba(61,98,73,0.12); }
+.cc-conn-reconnecting { background: #b4862a; box-shadow: 0 0 0 3px rgba(180,134,42,0.12); }
+.cc-conn-closed { background: #9b362d; box-shadow: 0 0 0 3px rgba(155,54,45,0.12); }
+.cc-spacer { flex: 1; }
+.cc-model, .cc-ctx {
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--cc-fg-dim); font-variant-numeric: tabular-nums;
+}
+.cc-ctx { padding-left: 10px; border-left: 1px solid var(--cc-border); }
+.cc-rawtoggle {
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  background: transparent; color: var(--cc-fg-dim); border: 1px solid var(--cc-border);
+  border-radius: 0; padding: 4px 9px; cursor: pointer;
+}
+.cc-rawtoggle:hover { border-color: var(--cc-fg); color: var(--cc-fg); }
+
+/* ── Scroll / messages ── */
+.cc-scroll { flex: 1; overflow-y: auto; padding: 20px 16px; min-height: 0; }
+.cc-empty { text-align: center; margin-top: 18vh; color: var(--cc-fg-dim); }
+.cc-empty .e-title { font-family: var(--cc-serif); font-size: 28px; color: var(--cc-fg); margin-bottom: 8px; }
+.cc-empty .e-sub { font-family: var(--cc-mono); font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; }
+
+.cc-turn { margin-bottom: 22px; }
+
+/* user — sage-soft bubble, right */
+.cc-user {
+  background: var(--cc-user-bg); color: var(--cc-user-fg);
+  border: 1px solid #cfdcc9; border-radius: 3px;
+  padding: 9px 13px; margin-left: auto; max-width: 86%; width: fit-content;
+  white-space: pre-wrap; word-break: break-word; font-size: 14.5px;
+}
+
+/* assistant — editorial column with a mono label, no bubble */
+.cc-assistant { margin-top: 14px; max-width: 100%; }
+.cc-assistant::before {
+  content: "OPERATIVE"; display: block;
+  font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--cc-fg-faint); margin-bottom: 6px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--cc-border);
+}
+.cc-md { word-break: break-word; font-size: 15px; line-height: 1.62; }
+.cc-md p { margin: 0 0 10px; }
+.cc-md p:last-child { margin-bottom: 0; }
+.cc-md a { color: var(--cc-accent); text-decoration: underline; text-underline-offset: 2px; }
+.cc-md ul, .cc-md ol { margin: 0 0 10px; padding-left: 22px; }
+.cc-md li { margin: 2px 0; }
+.cc-md h1, .cc-md h2, .cc-md h3 { font-family: var(--cc-serif); font-weight: 600; line-height: 1.2; margin: 16px 0 8px; }
+.cc-md code {
+  font-family: var(--cc-mono); font-size: 12.5px;
+  background: var(--cc-bg-sunk); color: var(--cc-fg); padding: 1px 5px; border-radius: 2px;
+}
+
+/* code block — dark ink card, header bar with lang label + copy (echoes .term) */
+.cc-codeblock { margin: 0 0 12px; border: 1px solid var(--cc-code-border); border-radius: 3px; overflow: hidden; }
+.cc-codehead {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #11201a; border-bottom: 1px solid var(--cc-code-border);
+  padding: 6px 10px;
+}
+.cc-codelang { font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #9fb7aa; }
+.cc-codecopy {
+  font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  background: transparent; border: 1px solid #2f4239; color: #9fb7aa; border-radius: 0; padding: 3px 8px; cursor: pointer;
+}
+.cc-codecopy:hover { color: #d7e3dc; border-color: #44604f; }
+.cc-codeblock pre {
+  margin: 0; background: var(--cc-code-bg); color: var(--cc-code-fg);
+  padding: 12px 12px; overflow-x: auto; font: 12.5px/1.5 var(--cc-mono);
+}
+/* tiny built-in highlight palette (stand-in for highlight.js output) */
+.cc-codeblock .tok-kw { color: #d8a82e; }
+.cc-codeblock .tok-str { color: #74a385; }
+.cc-codeblock .tok-com { color: #6f8076; font-style: italic; }
+.cc-codeblock .tok-fn { color: #7fb0ff; }
+
+/* per-message copy on hover */
+.cc-msgactions { margin-top: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity .12s; }
+.cc-assistant:hover .cc-msgactions { opacity: 1; }
+.cc-msgcopy {
+  font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  background: transparent; border: 1px solid var(--cc-border); color: var(--cc-fg-dim); border-radius: 0; padding: 3px 8px; cursor: pointer;
+}
+.cc-msgcopy:hover { border-color: var(--cc-fg); color: var(--cc-fg); }
+
+/* ── Working indicator (the headline feedback) ── */
+.cc-working {
+  display: inline-flex; align-items: center; gap: 10px; margin-top: 4px;
+  padding: 7px 12px; border: 1px solid var(--cc-border); background: var(--cc-bg-elev); border-radius: 3px;
+}
+.cc-working-dots { display: inline-flex; gap: 4px; }
+.cc-working-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--cc-accent); display: inline-block; animation: cc-bounce 1.2s infinite ease-in-out; }
+.cc-working-dots i:nth-child(2) { animation-delay: .15s; }
+.cc-working-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes cc-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-4px); opacity: 1; } }
+.cc-working-label { font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cc-fg-dim); }
+.cc-working-time { font-family: var(--cc-mono); font-size: 10px; color: var(--cc-fg-faint); font-variant-numeric: tabular-nums; }
+.cc-working-hint { font-family: var(--cc-mono); font-size: 10px; color: var(--cc-fg-faint); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Status strip ── */
+.cc-statusstrip {
+  border-top: 1px solid var(--cc-border); background: var(--cc-bg-sunk); color: var(--cc-fg-dim);
+  padding: 5px 16px; overflow-x: auto; white-space: nowrap; font: 10.5px/1.45 var(--cc-mono);
+}
+.cc-statusrow { white-space: pre; }
+
+/* ── Mode buttons + toolbar chips ── */
+.cc-modes, .cc-toolbar { display: flex; gap: 6px; padding: 8px 16px; border-top: 1px solid var(--cc-border); background: var(--cc-bg); flex-wrap: wrap; align-items: center; }
+.cc-mode, .cc-chip {
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.04em;
+  background: #fff; color: var(--cc-fg-dim); border: 1px solid var(--cc-border); border-radius: 0;
+  padding: 5px 10px; cursor: pointer;
+}
+.cc-mode:hover, .cc-chip:hover { border-color: var(--cc-fg); color: var(--cc-fg); }
+.cc-mode-active, .cc-chip-active { background: var(--cc-fg); border-color: var(--cc-fg); color: var(--cc-bg); }
+.cc-tool-label { font-family: var(--cc-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--cc-fg-faint); margin-right: 2px; }
+.cc-tool-spacer { flex: 1; }
+
+/* ── Composer ── */
+.cc-composer { border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 12px 14px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.cc-composerrow { display: flex; gap: 8px; align-items: flex-end; }
+.cc-input {
+  flex: 1; resize: none; max-height: 160px; min-height: 42px;
+  background: #fff; color: var(--cc-fg); border: 1px solid var(--cc-border); border-radius: 2px;
+  padding: 11px 13px; font: 15px/1.4 var(--cc-sans); outline: none;
+}
+.cc-input:focus { border-color: var(--cc-fg); }
+.cc-input::placeholder { color: var(--cc-fg-faint); }
+.cc-send, .cc-stop { min-height: 42px; padding: 0 18px; font-family: var(--cc-sans); font-weight: 600; font-size: 14px; border-radius: 2px; cursor: pointer; border: 1px solid transparent; }
+.cc-send { background: var(--cc-accent); color: var(--cc-accent-fg); border-color: var(--cc-accent); }
+.cc-send:disabled { opacity: .45; cursor: default; }
+.cc-stop { background: var(--cc-danger-bg); border-color: var(--cc-danger-border); color: #fff; display: inline-flex; align-items: center; gap: 7px; }
+.cc-stopsq { width: 9px; height: 9px; background: #fff; display: inline-block; }
+.cc-mic { min-height: 42px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; background: #fff; color: var(--cc-fg-dim); border: 1px solid var(--cc-border); border-radius: 2px; cursor: pointer; }
+.cc-mic:hover { color: var(--cc-fg); border-color: var(--cc-fg); }
+</style>
+</head>
+<body>
+<div class="cc-root">
+  <header class="cc-header">
+    <span class="cc-title">Operative</span>
+    <span class="cc-conn" title="connection: open"></span>
+    <span class="cc-spacer"></span>
+    <span class="cc-model">claude-opus-4-8</span>
+    <span class="cc-ctx">12% ctx</span>
+    <button class="cc-rawtoggle">Raw</button>
+  </header>
+
+  <div class="cc-scroll">
+    <div class="cc-turn">
+      <div class="cc-user">Add a debounced autosave to the settings form and show me the hook.</div>
+      <div class="cc-assistant">
+        <div class="cc-md">
+          <p>Here's a small <code>useDebouncedSave</code> hook. It batches changes and writes after the field goes quiet for 600ms, so every edit autosaves without a Save button:</p>
+          <div class="cc-codeblock">
+            <div class="cc-codehead"><span class="cc-codelang">typescript</span><button class="cc-codecopy">Copy</button></div>
+<pre><span class="tok-com">// debounced autosave — fires 600ms after the last change</span>
+<span class="tok-kw">export function</span> <span class="tok-fn">useDebouncedSave</span>(value, save) {
+  <span class="tok-kw">const</span> t = useRef();
+  <span class="tok-fn">useEffect</span>(() =&gt; {
+    <span class="tok-kw">if</span> (t.current) <span class="tok-fn">clearTimeout</span>(t.current);
+    t.current = <span class="tok-fn">setTimeout</span>(() =&gt; <span class="tok-fn">save</span>(value), <span class="tok-str">600</span>);
+    <span class="tok-kw">return</span> () =&gt; <span class="tok-fn">clearTimeout</span>(t.current);
+  }, [value]);
+}</pre>
+          </div>
+          <p>Drop it into the form and pass your <code>PATCH /api/settings</code> writer as <code>save</code>.</p>
+        </div>
+        <div class="cc-msgactions"><button class="cc-msgcopy">Copy</button></div>
+      </div>
+    </div>
+
+    <div class="cc-turn">
+      <div class="cc-user">Now wire it into the drift banner too.</div>
+      <div class="cc-assistant">
+        <div class="cc-md">
+          <div class="cc-working">
+            <span class="cc-working-dots"><i></i><i></i><i></i></span>
+            <span class="cc-working-label">Working</span>
+            <span class="cc-working-time">0:07</span>
+            <span class="cc-working-hint">esc to interrupt · 2.1k tokens</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cc-statusstrip"><div class="cc-statusrow">garrison | 12% | opus-4-8@high · bypass permissions on (shift+tab to cycle)</div></div>
+
+  <div class="cc-modes">
+    <button class="cc-mode">Default</button>
+    <button class="cc-mode">Accept Edits</button>
+    <button class="cc-mode">Plan</button>
+    <button class="cc-mode cc-mode-active">Bypass</button>
+  </div>
+
+  <div class="cc-toolbar">
+    <span class="cc-tool-label">Actions</span>
+    <button class="cc-chip">Compact</button>
+    <button class="cc-chip">Copy last</button>
+    <span class="cc-tool-spacer"></span>
+    <button class="cc-chip cc-chip-active">Read aloud</button>
+  </div>
+
+  <div class="cc-composer">
+    <div class="cc-composerrow">
+      <button class="cc-mic" title="Talk">
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5" fill="currentColor"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      </button>
+      <textarea class="cc-input" rows="1" placeholder="Message the Operative…  (/ for commands)"></textarea>
+      <button class="cc-send">Send</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

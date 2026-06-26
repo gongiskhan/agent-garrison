@@ -1,6 +1,20 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { marked } from "marked";
+import { Marked } from "marked";
+import hljs from "highlight.js/lib/core";
+import typescript from "highlight.js/lib/languages/typescript";
+import javascript from "highlight.js/lib/languages/javascript";
+import python from "highlight.js/lib/languages/python";
+import bash from "highlight.js/lib/languages/bash";
+import json from "highlight.js/lib/languages/json";
+import css from "highlight.js/lib/languages/css";
+import xml from "highlight.js/lib/languages/xml";
+import markdown from "highlight.js/lib/languages/markdown";
+import yaml from "highlight.js/lib/languages/yaml";
+import sql from "highlight.js/lib/languages/sql";
+import rust from "highlight.js/lib/languages/rust";
+import go from "highlight.js/lib/languages/go";
+import diff from "highlight.js/lib/languages/diff";
 import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
 import {
   getChatMode,
@@ -11,7 +25,42 @@ import {
 } from "./chat-theme";
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
 
-marked.setOptions({ breaks: true, gfm: true });
+// A PRIVATE marked instance for the chat. We deliberately do NOT mutate the
+// process-wide `marked` singleton: the chat-specific link/code renderers
+// (cross-fitting links, the .cc-codeblock card) must never leak into any other
+// `marked.parse()` consumer that happens to share this bundle.
+const md = new Marked({ breaks: true, gfm: true });
+
+// Syntax highlighting for fenced code blocks. A curated language set keeps the
+// bundle small while covering what the Operative emits most (TS/JS/py/shell/json
+// /css/html/yaml/sql/rust/go/diff/markdown). hljs token classes (.hljs-*) are
+// coloured in claude-chat.css against theme-driven CSS vars, so the same output
+// reads on the dark code card (web-channel + dev-env dark) and the light one
+// (dev-env light).
+for (const [name, lang] of Object.entries({
+  typescript, javascript, python, bash, json, css, xml, markdown, yaml, sql, rust, go, diff,
+})) {
+  try { hljs.registerLanguage(name, lang as any); } catch { /* already registered */ }
+}
+
+// Write to the clipboard, resolving to whether it actually succeeded. Guards an
+// absent Clipboard API (insecure context / older webview) AND a rejected write
+// (denied permission, unfocused document) so callers never flash a false
+// "Copied" or throw on a missing API.
+function writeClipboard(text: string): Promise<boolean> {
+  const cb = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+  if (!cb?.writeText) return Promise.resolve(false);
+  return cb.writeText(text).then(() => true, () => false);
+}
+
+// Escape text destined for HTML element content (used for the code fallback and
+// the language label). Mirrors escapeAttr but for text nodes.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 // Escape a value before it goes into an HTML attribute (the rendered markdown is
 // injected via dangerouslySetInnerHTML, so an unescaped href/title could break out
@@ -48,8 +97,17 @@ function isSafeHref(url: string): boolean {
 //      the dangerous href is dropped. href/title are HTML-attribute-escaped.
 // Additive: only the <a> attributes change; link text/structure is untouched, so
 // dev-env's existing rendering is unaffected (and safer).
-marked.use({
+md.use({
   renderer: {
+    // Neutralize RAW HTML in the assistant stream. The parsed markdown is
+    // injected via dangerouslySetInnerHTML, and marked does NOT sanitize, so a
+    // reply carrying `<img src=x onerror=…>` or `<script>` (e.g. the Operative
+    // relaying a fetched page / a produced document / third-party content) would
+    // otherwise become active DOM. Escaping the raw-HTML token keeps it visible
+    // as text. Block AND inline HTML tokens both route through this method.
+    html({ text }: { text: string }) {
+      return escapeHtml(text);
+    },
     link({ href, title, tokens }: { href: string; title?: string | null; tokens: any[] }) {
       const text = this.parser.parseInline(tokens);
       let url = href || "";
@@ -64,6 +122,41 @@ marked.use({
         : "";
       const t = title ? ` title="${escapeAttr(title)}"` : "";
       return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
+    },
+    // Rich fenced code block: a dark "card" with a header (uppercase mono
+    // language label + a Copy button) over a syntax-highlighted <pre>. The Copy
+    // button carries no inline handler (the markdown is injected via
+    // dangerouslySetInnerHTML); a single delegated click handler on the scroll
+    // container (onCodeCopyClick) reads the block's text and writes the
+    // clipboard. Highlighting is applied for known languages; unknown/none falls
+    // back to escaped plain text. Additive: only `<pre><code>` markup changes,
+    // so dev-env keeps working (and gains highlighting too).
+    code({ text, lang }: { text: string; lang?: string }) {
+      // marked stores the WHOLE fence info-string in `lang` (e.g.
+      // `ts title="x.ts"` or `python {1,3}`); the language is just its first
+      // whitespace-delimited token. Use that, or both the highlight lookup and
+      // the label break for any annotated fence.
+      const language = (lang || "").trim().split(/\s+/)[0].toLowerCase();
+      let body: string;
+      if (language && hljs.getLanguage(language)) {
+        try {
+          body = hljs.highlight(text, { language, ignoreIllegals: true }).value;
+        } catch {
+          body = escapeHtml(text);
+        }
+      } else {
+        body = escapeHtml(text);
+      }
+      const label = escapeHtml(language || "text");
+      return (
+        `<div class="cc-codeblock">` +
+        `<div class="cc-codehead">` +
+        `<span class="cc-codelang">${label}</span>` +
+        `<button type="button" class="cc-codecopy" aria-label="Copy code">Copy</button>` +
+        `</div>` +
+        `<pre class="hljs"><code>${body}</code></pre>` +
+        `</div>`
+      );
     },
   },
 });
@@ -130,6 +223,13 @@ const SWITCHABLE: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassP
 
 let uid = 0;
 const nextId = () => `t${Date.now()}_${uid++}`;
+
+// m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
+function fmtElapsed(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 // SVG icons for the theme toggle (no emoji, per house rule). Mirrors the
 // dev-env terminal toggle's sun / moon / monitor set.
@@ -300,6 +400,57 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   // ── Copy-last-response ──
   const [copied, setCopied] = useState(false);
 
+  // ── Working indicator: a live elapsed timer while the turn is busy, so the
+  // user gets unmistakable "it's working" feedback (modeled on leading chat
+  // UIs). Resets to 0 each turn; ticks once a second only while busy. ──
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return; }
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [busy]);
+
+  // A compact activity hint pulled from the PTY status line (e.g.
+  // "esc to interrupt · 2.1k tokens"). Absent on the orchestrator transport
+  // (no status rows) → the indicator degrades to dots + "Working" + elapsed.
+  const workingHint = useMemo(() => {
+    const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
+    if (!row) return "";
+    // Prefer the parenthetical tail "(esc to interrupt · N tokens)" so the hint
+    // doesn't echo the activity verb already implied by the WORKING label.
+    const paren = /\(([^)]*(?:interrupt|tokens)[^)]*)\)/i.exec(row);
+    if (paren) return paren[1].trim().slice(0, 80);
+    const tail = row.includes("…") ? row.split("…").pop() : row;
+    return (tail || "").replace(/^[\s*✻✶✳·•]+/, "").trim().slice(0, 80);
+  }, [status.rows]);
+
+  // ── Per-message copy (copy-on-hover under a completed assistant turn). ──
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyMsg = useCallback((id: string, text: string) => {
+    void writeClipboard(text).then((ok) => {
+      if (!ok) return;
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1300);
+    });
+  }, []);
+
+  // ── Delegated copy for code blocks (their Copy buttons live inside
+  // dangerouslySetInnerHTML markdown, so they can't carry React handlers). One
+  // listener on the scroll container handles every block's button. ──
+  const onCodeCopyClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const btn = (e.target as HTMLElement).closest?.(".cc-codecopy") as HTMLButtonElement | null;
+    if (!btn) return;
+    const block = btn.closest(".cc-codeblock");
+    const code = block?.querySelector("pre code")?.textContent ?? "";
+    if (!code) return;
+    void writeClipboard(code).then((ok) => {
+      if (!ok) return;
+      btn.textContent = "Copied";
+      window.setTimeout(() => { if (btn.isConnected) btn.textContent = "Copy"; }, 1300);
+    });
+  }, []);
+
   // Reflect the latest assistant text into the most recent turn's assistant slot.
   const applyAssistant = useCallback((text: string) => {
     setTurns((prev) => {
@@ -452,12 +603,11 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const copyLast = useCallback(async () => {
     const last = [...turns].reverse().find((t) => t.assistant.trim());
     if (!last) return;
-    try {
-      await navigator.clipboard?.writeText(last.assistant);
+    // Only flash "Copied" when the write actually succeeded (writeClipboard
+    // resolves false on a missing API or a rejected write).
+    if (await writeClipboard(last.assistant)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable */
     }
   }, [turns]);
 
@@ -658,28 +808,54 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         </button>
       </header>
 
-      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll}>
-        {turns.length === 0 && <div className="cc-empty">Send a message to start. Type / for commands and skills.</div>}
+      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
+        {turns.length === 0 && (
+          <div className="cc-empty">Send a message to begin · type / for commands and skills</div>
+        )}
         {turns.map((t) => (
           <div className="cc-turn" key={t.id}>
             <div className="cc-user">{t.user}</div>
             {(t.assistant || t.streaming) && (
               <div className="cc-assistant">
-                <div className="cc-md" dangerouslySetInnerHTML={{ __html: marked.parse(t.assistant || "") as string }} />
-                {t.streaming && !t.assistant && <span className="cc-typing">…</span>}
-                {feat.voice && voiceUsable && t.assistant.trim() && !t.streaming && (
-                  <button
-                    type="button"
-                    className="cc-speak"
-                    title="Read this response aloud"
-                    aria-label="Read this response aloud"
-                    onClick={() => void speak(t.assistant)}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-                      <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
-                      <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                    </svg>
-                  </button>
+                <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(t.assistant || "") as string }} />
+                {/* Streaming cursor once tokens are arriving. */}
+                {t.streaming && t.assistant && <span className="cc-cursor" aria-hidden="true" />}
+                {/* Rich "working" indicator before the first token: animated dots
+                    + label + live elapsed + (PTY) activity hint. */}
+                {t.streaming && !t.assistant && (
+                  <div className="cc-working" role="status" aria-live="polite">
+                    <span className="cc-working-dots"><i /><i /><i /></span>
+                    <span className="cc-working-label">Working</span>
+                    <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
+                    {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
+                  </div>
+                )}
+                {/* Per-message actions: copy (always) + read-aloud (voice). */}
+                {t.assistant.trim() && !t.streaming && (
+                  <div className="cc-msgactions">
+                    <button
+                      type="button"
+                      className="cc-msgcopy"
+                      title="Copy this response"
+                      onClick={() => copyMsg(t.id, t.assistant)}
+                    >
+                      {copiedId === t.id ? "Copied" : "Copy"}
+                    </button>
+                    {feat.voice && voiceUsable && (
+                      <button
+                        type="button"
+                        className="cc-speak"
+                        title="Read this response aloud"
+                        aria-label="Read this response aloud"
+                        onClick={() => void speak(t.assistant)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+                          <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             )}

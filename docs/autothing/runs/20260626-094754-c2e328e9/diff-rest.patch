@@ -1,0 +1,261 @@
+diff --git a/fittings/seed/web-channel-default/ui/build.mjs b/fittings/seed/web-channel-default/ui/build.mjs
+index ccc3f49..eebc6cf 100644
+--- a/fittings/seed/web-channel-default/ui/build.mjs
++++ b/fittings/seed/web-channel-default/ui/build.mjs
+@@ -28,9 +28,11 @@ await build({
+ 
+ copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
+ 
+-// web-channel.css = base styles + the shared claude-chat stylesheet, so the
+-// single <link> in index.html covers both.
+-const baseCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
++// web-channel.css = the shared claude-chat stylesheet FIRST, then the
++// web-channel skin (styles.css) LAST, so the skin's Garrison palette/chrome
++// overrides the component's dark default on equal specificity. Order matters:
++// styles.css is the override layer and must win, so it is appended last.
++const skinCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
+ const chatCssPath = path.resolve(HERE, "..", "..", "..", "..", "packages", "claude-chat", "src", "claude-chat.css");
+ let chatCss = "";
+ if (existsSync(chatCssPath)) {
+@@ -42,6 +44,6 @@ if (existsSync(chatCssPath)) {
+     if (existsSync(nm)) chatCss = readFileSync(nm, "utf8");
+   } catch { /* ignore */ }
+ }
+-writeFileSync(path.join(DIST, "web-channel.css"), `${baseCss}\n\n/* === @garrison/claude-chat === */\n${chatCss}\n`);
++writeFileSync(path.join(DIST, "web-channel.css"), `/* === @garrison/claude-chat (base) === */\n${chatCss}\n\n/* === web-channel skin (override layer) === */\n${skinCss}\n`);
+ 
+ console.log("[web-channel:build] wrote dist/");
+diff --git a/packages/claude-chat/src/claude-chat.css b/packages/claude-chat/src/claude-chat.css
+index f64927b..4b2e40b 100644
+--- a/packages/claude-chat/src/claude-chat.css
++++ b/packages/claude-chat/src/claude-chat.css
+@@ -121,6 +121,79 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
+ .cc-md ul, .cc-md ol { margin: 0 0 8px; padding-left: 20px; }
+ .cc-typing { color: var(--cc-fg-faint); }
+ 
++/* ── Streaming cursor (shown once tokens arrive) ── */
++.cc-cursor {
++  display: inline-block; width: 7px; height: 1.05em; vertical-align: text-bottom; margin-left: 1px;
++  background: var(--cc-accent); animation: cc-blink 1s steps(1) infinite;
++}
++@keyframes cc-blink { 50% { opacity: 0; } }
++
++/* ── Working / thinking indicator (before the first token) ── */
++.cc-working {
++  display: inline-flex; align-items: center; gap: 9px; margin-top: 2px;
++  padding: 6px 11px; border: 1px solid var(--cc-border); background: var(--cc-bg-elev); border-radius: 8px;
++}
++.cc-working-dots { display: inline-flex; gap: 4px; }
++.cc-working-dots i {
++  width: 5px; height: 5px; border-radius: 50%; background: var(--cc-accent); display: inline-block;
++  animation: cc-bounce 1.2s infinite ease-in-out;
++}
++.cc-working-dots i:nth-child(2) { animation-delay: 0.15s; }
++.cc-working-dots i:nth-child(3) { animation-delay: 0.3s; }
++@keyframes cc-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-4px); opacity: 1; } }
++.cc-working-label { font-size: 11px; color: var(--cc-fg-dim); letter-spacing: 0.04em; }
++.cc-working-time { font-size: 11px; color: var(--cc-fg-faint); font-variant-numeric: tabular-nums; }
++.cc-working-hint {
++  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--cc-fg-faint);
++  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
++}
++
++/* ── Rich code block (custom marked renderer): header + highlighted body ── */
++.cc-codeblock { margin: 0 0 10px; border: 1px solid var(--cc-code-border); border-radius: 8px; overflow: hidden; }
++.cc-codehead {
++  display: flex; align-items: center; justify-content: space-between; gap: 8px;
++  background: var(--cc-bg-elev); border-bottom: 1px solid var(--cc-code-border); padding: 5px 10px;
++}
++.cc-codelang { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cc-fg-dim); }
++.cc-codecopy {
++  font-size: 10px; letter-spacing: 0.04em; background: transparent; border: 1px solid var(--cc-border-strong);
++  color: var(--cc-fg-dim); border-radius: 5px; padding: 2px 8px; cursor: pointer;
++}
++.cc-codecopy:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
++.cc-codeblock pre {
++  margin: 0; border: none; border-radius: 0; background: var(--cc-code-bg);
++  padding: 10px 12px; overflow-x: auto; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
++}
++.cc-codeblock pre code { background: none; padding: 0; color: var(--cc-fg); }
++
++/* hljs token palette — theme-driven CSS vars so it reads on the dark code card
++   (base + web-channel + dev-env dark) and the light one (dev-env light). */
++.cc-root {
++  --cc-tok-kw: #ff7b72; --cc-tok-str: #a5d6ff; --cc-tok-com: #8b949e;
++  --cc-tok-fn: #d2a8ff; --cc-tok-num: #79c0ff; --cc-tok-attr: #7ee787;
++}
++.cc-root[data-theme="light"] {
++  --cc-tok-kw: #a3303d; --cc-tok-str: #2f6347; --cc-tok-com: #7d8077;
++  --cc-tok-fn: #6b4d9a; --cc-tok-num: #2f5d86; --cc-tok-attr: #2f6347;
++}
++.hljs-keyword, .hljs-built_in, .hljs-type, .hljs-literal { color: var(--cc-tok-kw); }
++.hljs-string, .hljs-meta .hljs-string, .hljs-regexp { color: var(--cc-tok-str); }
++.hljs-comment, .hljs-quote { color: var(--cc-tok-com); font-style: italic; }
++.hljs-title, .hljs-title.function_, .hljs-section { color: var(--cc-tok-fn); }
++.hljs-number { color: var(--cc-tok-num); }
++.hljs-attr, .hljs-attribute, .hljs-name, .hljs-tag, .hljs-selector-tag, .hljs-symbol { color: var(--cc-tok-attr); }
++.hljs-addition { color: #7ee787; }
++.hljs-deletion { color: #ff7b72; }
++
++/* ── Per-message actions (copy / read-aloud) ── */
++.cc-msgactions { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; opacity: 0.55; transition: opacity 0.12s; }
++.cc-assistant:hover .cc-msgactions, .cc-msgactions:focus-within { opacity: 1; }
++.cc-msgcopy {
++  font-size: 11px; background: transparent; border: 1px solid var(--cc-border-strong); color: var(--cc-fg-dim);
++  border-radius: 5px; padding: 2px 9px; cursor: pointer;
++}
++.cc-msgcopy:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
++
+ /* Per-message read-aloud button (appears under a completed assistant turn). */
+ .cc-speak {
+   margin-top: 4px; display: inline-flex; align-items: center; justify-content: center;
+diff --git a/tests/e2e/web-channel-chat.spec.ts b/tests/e2e/web-channel-chat.spec.ts
+index 0e1efb6..eca262b 100644
+--- a/tests/e2e/web-channel-chat.spec.ts
++++ b/tests/e2e/web-channel-chat.spec.ts
+@@ -5,9 +5,10 @@ import net from "node:net";
+ import path from "node:path";
+ 
+ // Deterministic UI smoke for the rich Claude chat (web-channel). Boots a FAKE
+-// gateway (canned /claude/* responses) + the web-channel server, then drives
+-// the page directly — no live claude, so it's fast and stable. Runs under the
+-// existing playwright projects (incl. the 390x844 mobile project).
++// gateway (canned /claude/* responses, incl. a STREAMED reply with a fenced code
++// block) + the web-channel server, then drives the page directly — no live
++// claude, so it's fast and stable. Runs under the existing playwright projects
++// (incl. the 390x844 mobile project).
+ 
+ // Playwright transpiles specs to CJS, so use process.cwd() (it runs from the
+ // repo root) rather than import.meta.url.
+@@ -40,7 +41,25 @@ const COMMANDS = [
+   { name: "deploy", description: "Deploy to prod", source: "project" },
+ ];
+ 
++// The streamed assistant reply (sent in chunks on POST /claude/message). Carries
++// a fenced TypeScript code block so the test can assert syntax highlighting +
++// the per-block copy button.
++const CODE_BODY = [
++  "export function useDebouncedSave(value, save) {\n",
++  "  const t = useRef();\n",
++  "  return value;\n",
++  "}",
++].join("");
++const REPLY_CHUNKS = [
++  "Here's a `useDebouncedSave` hook:\n\n",
++  "```typescript\n",
++  CODE_BODY + "\n",
++  "```\n\n",
++  "Drop it into the form.",
++];
++
+ function startFakeGateway(port: number): http.Server {
++  let stream: http.ServerResponse | null = null;
+   const srv = http.createServer((req, res) => {
+     const url = req.url ?? "/";
+     if (url === "/claude/status") {
+@@ -56,7 +75,32 @@ function startFakeGateway(port: number): http.Server {
+     if (url === "/claude/stream") {
+       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+       res.write(`event: hello\ndata: ${JSON.stringify({ mode: STATUS.mode, status: STATUS, busy: false, assistant: "", screen: ["welcome"] })}\n\n`);
+-      // keep open
++      stream = res;
++      req.on("close", () => { if (stream === res) stream = null; });
++      return;
++    }
++    if (url === "/claude/message" && req.method === "POST") {
++      res.setHeader("content-type", "application/json");
++      res.end("{}");
++      const s = stream;
++      if (!s) return;
++      let acc = "";
++      // turn:active + a status row carrying an activity hint, then a deliberate
++      // pause so the test can observe the "working" indicator before tokens.
++      s.write(`event: turn\ndata: ${JSON.stringify({ active: true })}\n\n`);
++      s.write(`event: status\ndata: ${JSON.stringify({ rows: ["myproj | 12% | Sonnet 4.6@high", "* Forging… (esc to interrupt · 2.1k tokens)"], mode: STATUS.mode, contextPct: 12, model: STATUS.model })}\n\n`);
++      let i = 0;
++      const tick = () => {
++        if (!stream) return;
++        if (i < REPLY_CHUNKS.length) {
++          acc += REPLY_CHUNKS[i++];
++          s.write(`event: assistant\ndata: ${JSON.stringify({ text: acc })}\n\n`);
++          setTimeout(tick, 90);
++        } else {
++          s.write(`event: turn\ndata: ${JSON.stringify({ active: false })}\n\n`);
++        }
++      };
++      setTimeout(tick, 1400); // hold "working" visible ~1.4s before first token
+       return;
+     }
+     res.statusCode = 200;
+@@ -68,6 +112,9 @@ function startFakeGateway(port: number): http.Server {
+ }
+ 
+ test.describe("web-channel rich chat UI", () => {
++  // Clipboard assertions need write+read permission in the headless context.
++  test.use({ permissions: ["clipboard-read", "clipboard-write"] });
++
+   let fake: http.Server;
+   let wc: ChildProcess;
+   let wcPort: number;
+@@ -122,4 +169,61 @@ test.describe("web-channel rich chat UI", () => {
+     await page.locator(".cc-input").fill("/sum");
+     await expect(page.locator(".cc-slashitem", { hasText: "summarize" }).locator(".cc-badge-skill")).toBeVisible();
+   });
++
++  test("wears the Garrison skin (cream paper + serif title)", async ({ page }) => {
++    await page.goto(`http://127.0.0.1:${wcPort}/`);
++    await expect(page.locator(".cc-root")).toBeVisible();
++
++    // The web-channel skin re-points the component palette at Garrison "paper"
++    // (#fbf8f1 = rgb(251, 248, 241)) — proving the override layer won, not the
++    // shared dark default (#0d1117).
++    const bg = await page.locator(".cc-root").evaluate((el) => getComputedStyle(el).backgroundColor);
++    expect(bg).toBe("rgb(251, 248, 241)");
++
++    // Title is set in the Source Serif display face.
++    const titleFont = await page.locator(".cc-title").evaluate((el) => getComputedStyle(el).fontFamily);
++    expect(titleFont.toLowerCase()).toContain("source serif");
++  });
++
++  test("shows a working indicator, then highlights code with working copy buttons", async ({ page }) => {
++    await page.goto(`http://127.0.0.1:${wcPort}/`);
++    await expect(page.locator(".cc-input")).toBeVisible();
++
++    await page.locator(".cc-input").fill("Add a debounced autosave and show me the hook.");
++    await page.locator(".cc-send").click();
++
++    // 1) Working indicator: visible before the first token, with a live elapsed
++    //    timer and the activity hint pulled from the PTY status line.
++    const working = page.locator(".cc-working");
++    await expect(working).toBeVisible();
++    await expect(working.locator(".cc-working-label")).toHaveText("Working");
++    await expect(working.locator(".cc-working-time")).toHaveText(/^\d+:\d\d$/);
++    await expect(working.locator(".cc-working-hint")).toContainText("esc to interrupt");
++
++    // 2) Once the stream completes, the fenced block is a rich code card with a
++    //    language label and syntax highlighting (hljs token spans).
++    const block = page.locator(".cc-codeblock");
++    await expect(block).toBeVisible({ timeout: 8000 });
++    await expect(block.locator(".cc-codelang")).toHaveText("typescript");
++    await expect(block.locator(".hljs-keyword").first()).toBeVisible(); // export/function/const/return
++
++    // The working indicator is gone now the reply has rendered.
++    await expect(working).toHaveCount(0);
++
++    // 3) Per-block copy button copies the code to the clipboard.
++    const copyBtn = block.locator(".cc-codecopy");
++    await expect(copyBtn).toBeVisible();
++    await copyBtn.click();
++    await expect(copyBtn).toHaveText("Copied");
++    const codeClip = await page.evaluate(() => navigator.clipboard.readText());
++    expect(codeClip).toContain("useDebouncedSave");
++
++    // 4) Per-message copy button copies the whole assistant response.
++    const msgCopy = page.locator(".cc-msgcopy").last();
++    await expect(msgCopy).toBeVisible();
++    await msgCopy.click();
++    await expect(msgCopy).toHaveText("Copied");
++    const msgClip = await page.evaluate(() => navigator.clipboard.readText());
++    expect(msgClip).toContain("Drop it into the form");
++  });
+ });
