@@ -17,8 +17,8 @@
 // isReadableFile) are EXPORTED so tests/kanban-board-ui.test.ts can unit-test
 // them without a live socket.
 
-import { createReadStream, existsSync, statSync, accessSync, realpathSync, constants as fsConstants } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, statSync, accessSync, realpathSync, readFileSync, readdirSync, constants as fsConstants } from "node:fs";
+import { mkdir, readFile, unlink, writeFile, rm } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -32,6 +32,7 @@ import {
   loadCard,
   createCard,
   saveCardCAS,
+  deleteCard,
   deriveMembership,
   appendCardLog
 } from "../lib/board.mjs";
@@ -39,10 +40,17 @@ import {
   getList,
   validNextFor,
   processCard,
+  processChain,
+  processBatch,
   triggerFor,
-  isInteractive
+  isInteractive,
+  withEvent,
+  replySnippet
 } from "../lib/engine.mjs";
+import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
+import { gatewayRunFn, inferenceRunFn } from "../lib/gateway-client.mjs";
+import { inferProject } from "../lib/infer-project.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
 
 const FITTING_ID = "kanban-loop";
@@ -113,8 +121,60 @@ export function cardSummary(card) {
     sessionIds: Array.isArray(card.sessionIds) ? card.sessionIds : [],
     briefPath: card.briefPath ?? null,
     videoUrl: card.videoUrl ?? null,
+    // The last dispatch failure (set by engine.processCard on transport defer
+    // or run-failed, and by handlePatchCard when an auto-dispatch can't reach
+    // the gateway). The UI renders a clear badge + Retry button when this is
+    // non-null. A successful dispatch clears it back to null.
+    lastDispatchError: card.lastDispatchError ?? null,
+    // Why a card is parked + where it came from (set by the engine when it moves a
+    // card to the needs-attention column). The UI shows the reason on the card.
+    attentionReason: card.attentionReason ?? null,
+    parkedFrom: card.parkedFrom ?? null,
+    // ── execution visibility (board front) ────────────────────────────────
+    // A short task description (the operative's context + the card front tooltip);
+    // the operative's last reply snippet (so the card shows WHAT it said, not just
+    // that it parked); the most-recent timeline event + the total count (the card
+    // front shows "last: …"; the full timeline is on the detail); and when the
+    // current run started (the live elapsed timer). The full `events` array is NOT
+    // in this projection (it can be long) — GET /cards/:id carries it for the detail.
+    description: typeof card.description === "string" ? card.description : "",
+    lastReply: card.lastReply ?? null,
+    lastEvent: lastEventOf(card),
+    eventCount: Array.isArray(card.events) ? card.events.length : 0,
+    runningSince: card.runningSince ?? null,
+    // Project-inference state for a no-project card: running | done | none | skipped |
+    // failed | null (never attempted). The UI shows "inferring project…" while running.
+    inferState: card.inferState ?? null,
     updated: card.updated ?? null
   };
+}
+
+// The most recent timeline event (or null) — what the card front shows as "last
+// activity". The full history is on the detail (GET /cards/:id).
+function lastEventOf(card) {
+  const ev = Array.isArray(card.events) ? card.events : [];
+  return ev.length ? ev[ev.length - 1] : null;
+}
+
+// The last few non-empty lines of a running card's current iteration log — the live
+// "tail" the card front shows so you can see the operative WORKING without opening
+// Watch. Best-effort + bounded: a missing/short log just yields "".
+function liveTailFor(root, card, maxLines = 3, maxChars = 240) {
+  try {
+    const n = card.iterations ?? 0;
+    if (!n || card.status !== "running") return "";
+    const f = path.join(root, "cards", card.id, `log-${n}.md`);
+    if (!isReadableFile(f)) return "";
+    const text = readFileSync(f, "utf8");
+    const lines = text
+      .split("\n")
+      .map((l) => l.replace(/\s+$/, ""))
+      .filter((l) => l.trim() && !/^# iteration \d+$/.test(l.trim()) && l.trim() !== "_dispatching to the operative…_");
+    const tail = lines.slice(-maxLines).join("\n");
+    return tail.length > maxChars ? "…" + tail.slice(tail.length - maxChars) : tail;
+  } catch {
+    return "";
+  }
 }
 
 // The decision-10 links for a card (the v4 wireframe §2 "Card open" table). Each
@@ -140,6 +200,11 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
     brief: null,
     gateMarkers: null,
     evidenceIndex: null,
+    // The always-on evidence bundle (<runDir>/evidence/): screenshots + an evidence.md
+    // log the pipeline produces even when the heavy walkthrough VIDEO is size-skipped.
+    // Each entry carries `name` + `image` so the UI renders images inline and links the
+    // rest. Enumerated from disk (read-only) so whatever the operative wrote shows up.
+    evidence: [],
     sessions: [],
     video: null,
     logs: []
@@ -148,6 +213,20 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
     links.plan = mk("plan");
     links.evidenceIndex = mk("evidenceIndex");
     if (card.sliceId) links.gateMarkers = mk("gateMarkers");
+    // List the evidence dir (confined first), newest meaningful order: images before the
+    // log so the visual proof leads. A missing dir / read error just yields no evidence.
+    const evDir = confinePath(path.resolve(cwd, card.runDir, "evidence"), roots);
+    if (evDir && existsSync(evDir)) {
+      let names = [];
+      // Only REGULAR FILES are servable evidence — a subdir would otherwise enumerate as
+      // a serve link that 404s on click (and hide any nested file), so filter it here.
+      try { names = readdirSync(evDir, { withFileTypes: true }).filter((d) => d.isFile() && isSafeEvidenceName(d.name)).map((d) => d.name); } catch { names = []; }
+      names.sort((a, b) => (isEvidenceImage(b) ? 1 : 0) - (isEvidenceImage(a) ? 1 : 0) || a.localeCompare(b));
+      for (const name of names) {
+        const ref = serveRef(card.id, `evidence:${name}`, resolveArtifactRef(card, `evidence:${name}`, { root, cwd }), roots);
+        if (ref.kind === "serve") links.evidence.push({ name, image: isEvidenceImage(name), ...ref });
+      }
+    }
   }
   if (card.briefPath) links.brief = mk("brief");
   // The Claude Code transcript per run: ~/.claude/projects/<encoded-cwd>/<id>.jsonl.
@@ -187,6 +266,15 @@ export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = proje
       : null;
   }
   if (ref === "brief") return card.briefPath ? path.resolve(cwd, card.briefPath) : null;
+  // evidence:<filename> → <runDir>/evidence/<filename>. The name is guarded
+  // (isSafeEvidenceName: no separators, no `..`, no leading dot) so the read stays inside
+  // THIS card's evidence dir; handleArtifact re-confines the resolved path as well.
+  const em = ref.match(/^evidence:(.+)$/);
+  if (em) {
+    return card.runDir && isSafeEvidenceName(em[1])
+      ? path.resolve(cwd, card.runDir, "evidence", em[1])
+      : null;
+  }
   const sm = ref.match(/^session:(\d+)$/);
   if (sm) {
     const sid = (Array.isArray(card.sessionIds) ? card.sessionIds : [])[Number(sm[1])];
@@ -274,6 +362,24 @@ export function isValidCardId(id) {
 // otherwise steer the read to another run's (or any) gate-status.json file.
 export function isValidSliceId(s) {
   return typeof s === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(s) && s !== "." && s !== "..";
+}
+
+// An evidence file name (under <runDir>/evidence/) flows into a served path, so it MUST
+// be a plain filename — no separators, no `..`, no leading dot. The first-char class
+// rejects ".", "..", and ".hidden"; the body allows only filename-safe chars, so a `/`
+// or `\` can never appear. Belt-and-suspenders: confinePath re-checks the resolved path.
+export function isSafeEvidenceName(s) {
+  return typeof s === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(s) && !s.includes("..");
+}
+
+// The image extensions the Evidence section renders inline as a thumbnail (everything
+// else — e.g. evidence.md / a .txt log — is surfaced as a link). SVG is deliberately
+// EXCLUDED: an SVG can carry script, and serving it as a navigable image/svg+xml
+// document on the board origin is a stored-XSS vector — evidence SVGs are served as an
+// inert download instead (see handleArtifact), so they never render inline.
+const EVIDENCE_IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+export function isEvidenceImage(name) {
+  return EVIDENCE_IMAGE_EXT.has(path.extname(String(name || "")).toLowerCase());
 }
 
 // A list id is client-editable (PATCH /lists/:listId) and flows into a board
@@ -519,7 +625,20 @@ async function handleBoard(req, res, opts) {
   const root = opts.root;
   const board = await loadBoard(root);
   const cards = await loadAllCards(root);
-  jsonRes(res, 200, buildBoardView(board, cards));
+  const view = buildBoardView(board, cards);
+  // Enrich RUNNING cards with a live log tail so the card front shows the operative
+  // actually working (not just a pulsing dot). Done here rather than in the pure
+  // cardSummary because it needs the board root + a file read; running cards are few
+  // (usually 0–1), so the cost is negligible. Both the per-list and the flat card
+  // projections are separate objects, so patch both.
+  const tails = {};
+  for (const c of cards) {
+    if (c.status === "running") tails[c.id] = liveTailFor(root, c);
+  }
+  const patch = (cs) => { if (cs && tails[cs.id]) cs.liveTail = tails[cs.id]; };
+  for (const l of view.lists) l.cards.forEach(patch);
+  view.cards.forEach(patch);
+  jsonRes(res, 200, view);
 }
 
 async function handleGetCard(req, res, opts, id) {
@@ -529,11 +648,95 @@ async function handleGetCard(req, res, opts, id) {
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id — never trust the on-disk id field
   const links = resolveCardLinks(card, { root, cwd: opts.cwd });
-  jsonRes(res, 200, { card: cardSummary(card), links, decisionLog: card.decisionLog ?? card.runs ?? [] });
+  jsonRes(res, 200, {
+    card: cardSummary(card),
+    links,
+    decisionLog: card.decisionLog ?? card.runs ?? [],
+    // The FULL execution timeline (the detail's Activity feed). Newest first so the
+    // UI renders most-recent-at-top without re-sorting.
+    events: (Array.isArray(card.events) ? card.events : []).slice().reverse()
+  });
+}
+
+// Apply a mutation to a card CAS-safely, re-reading + retrying a few times on a
+// concurrent write — so a background inference write and a user move never clobber each
+// other. `mutate(card)` returns the next card, or null to abort (no write). Returns the
+// final card or null.
+async function updateCard(root, id, mutate, tries = 6) {
+  for (let i = 0; i < tries; i++) {
+    let card;
+    try { card = await loadCard(root, id); } catch { return null; }
+    card.id = id;
+    const next = mutate(card);
+    if (!next) return card;
+    const res = await saveCardCAS(root, next, card.rev ?? 0);
+    if (res.ok) return res.card;
+  }
+  return null;
+}
+
+// Distinct projects already in use across the board (capped) — bias inference toward an
+// existing project when one fits, instead of minting a fresh slug each time.
+function knownProjectsFrom(cards, max = 24) {
+  const seen = [];
+  for (const c of cards) {
+    const p = typeof c.project === "string" ? c.project.trim() : "";
+    if (p && !seen.includes(p)) seen.push(p);
+    if (seen.length >= max) break;
+  }
+  return seen;
+}
+
+const inferEvent = (kind, message, detail) => ({ at: new Date().toISOString(), kind: "inference", message, ...(detail ? { detail } : {}) });
+
+// Infer a no-project card's project via a short gateway turn, writing a VISIBLE event
+// at EACH step so the attempt is never silent (the exact gap the user hit: "I didn't
+// see a try to infer anywhere"). Best-effort + fire-and-forget: every failure mode
+// leaves the card usable (project blank) with an honest event saying why. Guarded so it
+// only runs while the card still has no project.
+async function runProjectInference(opts, id, { manual = false } = {}) {
+  const root = opts.root;
+  const gatewayUrl = opts.gatewayUrl;
+  // Mark "inferring…" immediately so the UI shows the attempt — but only for a card
+  // that still has no project and isn't already inferring.
+  const started = await updateCard(root, id, (card) => {
+    if (card.project) return null;
+    if (!manual && card.inferState === "running") return null;
+    return { ...card, inferState: "running", events: withEvent(card, inferEvent("inference", "Inferring the project from the title + description…")) };
+  });
+  if (!started || started.project) return;
+
+  if (!gatewayUrl || !(await gatewayReachable(gatewayUrl))) {
+    await updateCard(root, id, (card) => card.project ? null : ({
+      ...card,
+      inferState: "skipped",
+      events: withEvent(card, inferEvent("inference", "Project inference skipped — no operative is running. Set a project manually, or it'll be inferred on the next run."))
+    }));
+    return;
+  }
+
+  try {
+    const knownProjects = knownProjectsFrom(await loadAllCards(root));
+    const { project, reply } = await inferProject(started, inferenceRunFn(gatewayUrl), { knownProjects });
+    await updateCard(root, id, (card) => {
+      if (card.project) return null; // the user set one while we inferred — respect it
+      if (project) {
+        return { ...card, project, inferState: "done", events: withEvent(card, inferEvent("inference", `Inferred the project: ${project}`, replySnippet(reply))) };
+      }
+      return { ...card, inferState: "none", events: withEvent(card, inferEvent("inference", "Couldn't confidently infer a project — left blank. Set one on the card if you know it.", replySnippet(reply))) };
+    });
+  } catch (err) {
+    await updateCard(root, id, (card) => card.project ? null : ({
+      ...card,
+      inferState: "failed",
+      events: withEvent(card, inferEvent("inference", "Project inference failed (the operative was busy or unavailable) — left blank.", String(err?.message || err)))
+    }));
+  }
 }
 
 // POST /cards — create a card in Backlog. Body: { title, description?, project?,
-// goalMode?, acceptance? }.
+// goalMode?, acceptance? }. A card created WITHOUT a project kicks a visible,
+// fire-and-forget inference (so the attempt shows on the card instead of nothing).
 async function handleCreateCard(req, res, opts) {
   const body = (await readBody(req)) || {};
   const title = typeof body.title === "string" ? body.title.trim() : "";
@@ -546,7 +749,26 @@ async function handleCreateCard(req, res, opts) {
     goalMode: body.goalMode === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null
   });
+  // Visible project inference for a no-project card — fire-and-forget so create returns
+  // at once; the events land on the card and surface on the next board poll.
+  if (!card.project) {
+    void runProjectInference(opts, card.id).catch((err) => console.error(`[kanban-loop] inference failed for ${card.id}:`, err?.message || err));
+  }
   jsonRes(res, 201, { card: cardSummary(card) });
+}
+
+// POST /cards/:id/infer-project — manually (re)run project inference for a no-project
+// card. Fire-and-forget: returns at once with inferState=running; the result events
+// land on the card and show on the next poll.
+async function handleInferProject(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin inference rejected" });
+  let card;
+  try { card = await loadCard(opts.root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id;
+  if (card.project) return jsonRes(res, 200, { card: cardSummary(card), note: "card already has a project" });
+  void runProjectInference(opts, id, { manual: true }).catch((err) => console.error(`[kanban-loop] manual inference failed for ${id}:`, err?.message || err));
+  jsonRes(res, 200, { card: cardSummary({ ...card, inferState: "running" }), inferring: true });
 }
 
 // PATCH /cards/:id — manual gate: Move to a list and/or set editable fields
@@ -566,6 +788,28 @@ async function handlePatchCard(req, res, opts, id) {
     if (!getList(board, body.list)) return jsonRes(res, 400, { error: `unknown list: ${body.list}` });
     next.list = body.list;
     next.status = "ok"; // a manual Move clears a parked/needs-attention status
+    // Record the manual move on the timeline so the activity feed shows human moves
+    // alongside the engine's dispatches (a complete "what happened" history).
+    if (body.list !== card.list) {
+      const fromTitle = getList(board, card.list)?.title || card.list;
+      const toTitle = getList(board, body.list)?.title || body.list;
+      const recovered = card.list === "needs-attention" && body.list !== "needs-attention";
+      next.events = withEvent(card, {
+        at: new Date().toISOString(),
+        kind: recovered ? "recovered" : "moved",
+        message: recovered ? `Recovered: moved ${fromTitle} → ${toTitle}` : `Moved ${fromTitle} → ${toTitle}`
+      });
+    }
+    // Recovery: moving a card OUT of the needs-attention column is a fresh retry —
+    // clear the park reason + the prior dispatch error and reset the iteration count
+    // so a re-run isn't instantly re-capped (otherwise an iteration-cap park would
+    // re-park on the very next run).
+    if (card.list === "needs-attention" && body.list !== "needs-attention") {
+      next.attentionReason = null;
+      next.parkedFrom = null;
+      next.lastDispatchError = null;
+      next.iterations = 0;
+    }
     // Auto-link a Discuss brief: when a card LEAVES the interactive Discuss list,
     // look for the brief James was asked to write (briefs/<slug>.md — the
     // buildDiscussUrl convention) and link it onto the card if present + not already
@@ -601,16 +845,80 @@ async function handlePatchCard(req, res, opts, id) {
   const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list);
   if (autoDispatch && opts.gatewayUrl) {
     if (await gatewayReachable(opts.gatewayUrl)) {
-      void processCard({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap })
+      // processChain runs the AUTOMATED FLOW: this list, then the next immediate
+      // agent list, and so on (Plan → Implement → Review → …) without waiting for a
+      // Start press or the next tick. Fire-and-forget — the card flips to running and
+      // is watchable; the PATCH returns at once.
+      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd })
         .catch((err) => console.error(`[kanban-loop] auto-dispatch on move failed for ${id}:`, err?.message || err));
       return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: true });
     }
     // Gateway down: the card stays on the target list (already moved, status ok) and
     // WAITS — it dispatches on the next tick or via Start once an operative is up. We
     // do NOT fire a doomed run that would park it in needs-attention just for moving.
-    return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: false, note: "gateway not reachable — card waits on this list until an operative is up" });
+    // Persist the reason on the card so the UI can render a visible badge instead of
+    // leaving the user to discover a silent failure in the patch response.
+    const withError = {
+      ...result.card,
+      lastDispatchError: {
+        at: new Date().toISOString(),
+        reason: "gateway-unavailable",
+        listId: body.list,
+        message: "gateway not reachable — start an operative (composition up) and Retry"
+      }
+    };
+    const errSave = await saveCardCAS(root, withError, result.card.rev ?? 0);
+    const finalCard = errSave.ok ? errSave.card : result.card;
+    return jsonRes(res, 200, { card: cardSummary(finalCard), dispatched: false, note: "gateway not reachable — card waits on this list until an operative is up" });
   }
   jsonRes(res, 200, { card: cardSummary(result.card) });
+}
+
+// DELETE /cards/:id — delete the card AND the artifacts it produced that are safe to
+// remove. WHAT gets deleted (decided here, not asked):
+//   - the card's own dir (cards/<id>/: card.json + every log-<n>.md) — always;
+//   - the run directory it produced (docs/autothing/runs/<runId>/: the plan + gate
+//     scratch) — only the card's OWN minted ULID runId, confined under the project's
+//     runs dir so it can never delete an unrelated/timestamped autothing run;
+//   - its Discuss brief (card.briefPath) — confined under the briefs dir.
+// What is NEVER deleted: the Claude Code session transcripts (shared ~/.claude), the
+// external walkthrough video, and any code the operative committed to the repo (that
+// lives in version control, not "the card's" to remove). originAllowed guard like the
+// other mutating routes; the id is already validated (clean ULID) by the router.
+async function handleDeleteCard(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin delete rejected" });
+  let card;
+  try { card = await loadCard(opts.root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id; // pin to the validated route id
+  const removed = [];
+
+  // 1. The card's own directory (always).
+  if (await deleteCard(opts.root, id)) removed.push(`cards/${id}`);
+
+  // 2. The run directory it produced — only the card's own ULID runId, confined.
+  if (card.runId && isValidCardId(card.runId)) {
+    const runsRoot = path.resolve(projectRoot(), "docs", "autothing", "runs");
+    const candidate = path.resolve(runsRoot, card.runId);
+    const confined = confinePath(candidate, [runsRoot]);
+    if (confined && existsSync(confined)) {
+      try { await rm(confined, { recursive: true, force: true }); removed.push(`docs/autothing/runs/${card.runId}`); }
+      catch { /* best-effort */ }
+    }
+  }
+
+  // 3. Its Discuss brief — confined under the briefs dir.
+  if (typeof card.briefPath === "string" && card.briefPath) {
+    const briefsDir = (opts.briefsPath || process.env.KANBAN_BRIEFS_PATH || "./briefs/").replace(/^\.\/+/, "").replace(/\/+$/, "");
+    const briefsRoot = path.resolve(projectRoot(), briefsDir);
+    const confined = confinePath(path.resolve(projectRoot(), card.briefPath), [briefsRoot]);
+    if (confined && existsSync(confined) && statSync(confined).isFile()) {
+      try { await unlink(confined); removed.push(card.briefPath); }
+      catch { /* best-effort */ }
+    }
+  }
+
+  jsonRes(res, 200, { ok: true, deleted: id, removed });
 }
 
 // POST /cards/:id/brief — record the James-mode Discuss brief PATH onto the card
@@ -669,9 +977,24 @@ async function handleStartCard(req, res, opts, id) {
   if (list.kind !== "agent") {
     const targets = validNextFor(board, card.list);
     if (!targets.length) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
-    const next = { ...card, list: targets[0], status: "ok" };
+    const recover = card.list === "needs-attention"
+      ? { attentionReason: null, parkedFrom: null, lastDispatchError: null, iterations: 0 }
+      : {};
+    const fromTitle = list.title || card.list;
+    const toTitle = getList(board, targets[0])?.title || targets[0];
+    const advanceEvent = withEvent(card, {
+      at: new Date().toISOString(),
+      kind: card.list === "needs-attention" ? "recovered" : "moved",
+      message: card.list === "needs-attention" ? `Recovered: advanced ${fromTitle} → ${toTitle}` : `Advanced ${fromTitle} → ${toTitle}`
+    });
+    const next = { ...card, list: targets[0], status: "ok", events: advanceEvent, ...recover };
     const result = await saveCardCAS(root, next, card.rev ?? 0);
     if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
+    // If we advanced onto an immediate agent list, kick the automated flow.
+    if (shouldAutoDispatch(board, targets[0]) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
+      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd })
+        .catch((err) => console.error(`[kanban-loop] advance-chain failed for ${id}:`, err?.message || err));
+    }
     return jsonRes(res, 200, { card: cardSummary(result.card), advanced: targets[0] });
   }
 
@@ -683,41 +1006,33 @@ async function handleStartCard(req, res, opts, id) {
     return jsonRes(res, 503, { error: "gateway not reachable — start an operative (composition up) before dispatching an agent list" });
   }
   const cap = opts.cap;
-  try {
-    const { card: updated, outcome } = await processCard({
-      root,
-      board,
-      card,
-      runFn: gatewayRunFn(gatewayUrl),
-      cap
-    });
-    jsonRes(res, 200, { card: cardSummary(updated), outcome });
-  } catch (err) {
-    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+
+  // A BATCHED list (Test) runs one session per PROJECT with a per-card-verdict router
+  // format, so a manual Run must drive the BATCHED path — not the per-card chain (whose
+  // single-card reply can't satisfy the batch router prompt). Run just THIS card's
+  // project group, exactly as the scheduler beat would. This is what makes "Run" work
+  // on Test without waiting for the beat or fiddling with the trigger.
+  if (list.batched) {
+    const all = await loadAllCards(root);
+    const projectKey = card.project || "(no-project)";
+    const projectCards = all.filter((c) => c.list === card.list && (c.project || "(no-project)") === projectKey);
+    void processBatch({ root, board, listId: card.list, cards: projectCards, batchRunFn: batchGatewayRunFn(gatewayUrl), cap })
+      .catch((err) => console.error(`[kanban-loop] start/batch failed for ${id}:`, err?.message || err));
+    return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true, batched: true });
   }
+
+  // Run the AUTOMATED FLOW fire-and-forget (a real chain is minutes long — never block
+  // the HTTP response on it). The card flips to running and is watchable; the response
+  // returns at once. This is the manual Run / Retry path (the UI shows it on any agent
+  // list card that isn't already running; immediate agent lists also auto-run on entry).
+  void processChain({ root, board, card, runFn: gatewayRunFn(gatewayUrl), cap, cwd: opts.cwd })
+    .catch((err) => console.error(`[kanban-loop] start/chain failed for ${id}:`, err?.message || err));
+  jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true });
 }
 
-// Dispatch one card's combined prompt through the gateway /chat front door — the
-// same wire shape kanban.mjs uses (channel "kanban", classification + skill so
-// preRoute honors the {taskType,tier} hint in both gateway modes).
-function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt, classification, list, suppressContinuations }) => {
-    const r = await fetch(`${gatewayUrl}/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
-      body: JSON.stringify({
-        channel: "kanban",
-        message: prompt,
-        classification: classification ?? null,
-        skill: list?.skill ?? null,
-        suppressContinuations: suppressContinuations ?? true
-      })
-    });
-    if (!r.ok) throw new Error(`kanban dispatch failed: HTTP ${r.status}`);
-    const data = await r.json().catch(() => ({}));
-    return { reply: data.reply ?? data.text ?? "" };
-  };
-}
+// Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs)
+// so the board + the scheduler tick use one wire shape + one failure classification (a
+// transient gateway failure must REVERT a card, not park it).
 
 // GET /cards/:id/watch — SSE. For a LIVE run (card.status === "running") it tails
 // the latest log-<iterations>.md as it grows; otherwise it sends the linked
@@ -761,18 +1076,22 @@ async function handleWatchCard(req, res, opts, id) {
     return res.end();
   }
 
-  // Live: tail log-<n>.md. Emit what is already there, then poll for growth.
+  // Live: the engine OVERWRITES log-<n>.md with the operative's growing reply as
+  // chunks stream in (atomic temp+rename), so we re-read the whole file each poll and
+  // send the full current text with replace:true — the UI replaces its pane. (Offset
+  // tailing would break on an overwrite that re-flows or shrinks.)
   send("mode", { live: true, status: "running", n });
-  let offset = 0;
+  let lastSent = null;
   const pump = async () => {
-    if (!isReadableFile(logFile)) return;
-    try {
-      const text = await readFile(logFile, "utf8");
-      if (text.length > offset) {
-        send("log", { n, text: text.slice(offset), append: offset > 0 });
-        offset = text.length;
-      }
-    } catch {}
+    if (isReadableFile(logFile)) {
+      try {
+        const text = await readFile(logFile, "utf8");
+        if (text !== lastSent) {
+          send("log", { n, text, replace: true });
+          lastSent = text;
+        }
+      } catch {}
+    }
     // Stop tailing once the card is no longer running (the engine moved/parked it).
     try {
       const fresh = await loadCard(root, id);
@@ -817,13 +1136,28 @@ async function handleArtifact(req, res, opts, cardId, ref) {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
-    ".svg": "image/svg+xml",
     ".webp": "image/webp",
     ".gif": "image/gif"
   };
   res.statusCode = 200;
-  res.setHeader("Content-Type", ct[ext] ?? "application/octet-stream");
+  // Defense-in-depth for served artifacts (evidence files are "whatever the operative
+  // wrote", and the operative processes untrusted repos/pages — so treat them as
+  // untrusted content): never let the browser sniff a different type, and fully sandbox
+  // the response if it is ever navigated to as a document (no script, no network).
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
   res.setHeader("Cache-Control", "no-store");
+  // An SVG can carry <script>/onload; serving it as a navigable image/svg+xml document on
+  // the board origin would be stored-XSS. Serve it (and any unknown/active type) as an
+  // inert download — text for svg so it's readable, attachment so a top-level click can
+  // never execute it as a document.
+  if (ext === ".svg") {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment");
+  } else {
+    res.setHeader("Content-Type", ct[ext] ?? "application/octet-stream");
+    if (!ct[ext]) res.setHeader("Content-Disposition", "attachment");
+  }
   createReadStream(confined).pipe(res);
 }
 
@@ -885,6 +1219,64 @@ async function handlePatchList(req, res, opts, listId) {
 
 function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, fittingId: FITTING_ID, port: opts.port, pid: process.pid });
+}
+
+// GET /board/runtime — runtime context the UI needs to wire deep-links the
+// composition's actual fittings serve. Channel embed id is NOT hardcoded
+// (`web-channel-default` is just the seed name); we scan the
+// ~/.garrison/ui-fittings/ status files and pick the first one whose fittingId
+// starts with `web-channel` (the channel id convention) and which carries a
+// reachable live URL. Returns:
+//   - webChannelEmbedId   the fitting id (e.g. "web-channel-default") whose
+//                         /embed/<id> route the board UI should link to. null
+//                         when no web channel is installed/running, so the
+//                         Discuss WatchSheet can show "no web channel
+//                         installed" instead of a dead `<a>`.
+//   - webChannelUrl       the channel's live own-port URL (for callers that
+//                         want the direct, non-embedded URL).
+//   - gatewayBaseUrl      the gateway URL injected by the runner.
+//   - noGateway           true when no GARRISON_GATEWAY_URL is set at all,
+//                         so the UI can render a global "no gateway running"
+//                         banner without polling /health.
+export async function readWebChannelStatus(statusDir = STATUS_ROOT) {
+  try {
+    const dir = statusDir;
+    const fs = await import("node:fs/promises");
+    let names;
+    try { names = await fs.readdir(dir); } catch { return { id: null, url: null }; }
+    // Prefer the conventional name when present so the test surface is stable.
+    const preferred = "web-channel-default.json";
+    const sorted = names
+      .filter((n) => n.endsWith(".json") && n.startsWith("web-channel"))
+      .sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
+    for (const name of sorted) {
+      try {
+        const raw = await fs.readFile(path.join(dir, name), "utf8");
+        const parsed = JSON.parse(raw);
+        const fittingId = typeof parsed?.fittingId === "string" ? parsed.fittingId : null;
+        const url = typeof parsed?.url === "string" ? parsed.url : null;
+        // Trust the status file's own pid liveness check: if the pid is dead
+        // the runner's startup sweep removes the file, so a present file is
+        // good enough for a UI hint. We don't HEAD the URL here — the WatchSheet
+        // navigates to /embed/<id> on the parent Next app, not directly to the
+        // channel's port, so a live status file means /embed/<id> will resolve.
+        if (fittingId && fittingId.startsWith("web-channel")) {
+          return { id: fittingId, url };
+        }
+      } catch { /* ignore one bad file */ }
+    }
+  } catch { /* ignore */ }
+  return { id: null, url: null };
+}
+
+async function handleBoardRuntime(req, res, opts) {
+  const channel = await readWebChannelStatus();
+  jsonRes(res, 200, {
+    webChannelEmbedId: channel.id,
+    webChannelUrl: channel.url,
+    gatewayBaseUrl: opts.gatewayUrl || null,
+    noGateway: !opts.gatewayUrl
+  });
 }
 
 // ─────────────────────────── static serve + bootstrap
@@ -987,6 +1379,7 @@ export function makeRequestHandler(opts, distDir) {
 
       if (pathname === "/health") return handleHealth(req, res, opts);
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
+      if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);
 
@@ -1002,7 +1395,7 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
@@ -1010,9 +1403,11 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/artifact" && method === "GET") return await handleArtifact(req, res, opts, id, parsed.query.ref);
         if (sub === "/start" && method === "POST") return await handleStartCard(req, res, opts, id);
         if (sub === "/brief" && method === "POST") return await handleBriefCard(req, res, opts, id);
+        if (sub === "/infer-project" && method === "POST") return await handleInferProject(req, res, opts, id);
         if (sub === "/watch" && method === "GET") return await handleWatchCard(req, res, opts, id);
         if (sub === "" && method === "GET") return await handleGetCard(req, res, opts, id);
         if (sub === "" && method === "PATCH") return await handlePatchCard(req, res, opts, id);
+        if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);
       }
 
       return serveStatic(req, res, distDir);

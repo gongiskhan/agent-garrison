@@ -50,6 +50,14 @@ export async function createCard(root, { title, description = "", project = null
     cost: null,
     goalMode: Boolean(goalMode),
     acceptance,
+    // ── execution visibility ──────────────────────────────────────────────
+    // The card's activity timeline (engine.withEvent appends to it on every
+    // transition); the last operative reply snippet (shown on the card front);
+    // and when the current run started (drives the live elapsed timer). All
+    // start empty/null and are filled CAS-safely as the card moves.
+    events: [{ at, kind: "created", message: project ? `Created in ${list} (project ${project})` : `Created in ${list} — no project yet` }],
+    lastReply: null,
+    runningSince: null,
     // V1b pointer fields (FINDING 10 — the card stores POINTERS, never inlined
     // document bodies). runId/runDir are minted lazily on the card's first
     // agent-list entry (FINDING 4); the rest are filled by the skills/surfaces as
@@ -234,9 +242,36 @@ export function deriveMembership(cards) {
 }
 
 // Append a per-session log line for a card (cards/<id>/log-N.md).
+// Delete a card's OWN directory (cards/<id>/ — card.json + every log-<n>.md). This is
+// the card itself + its iteration logs; it never touches the run dir, brief, or shared
+// transcripts (the server's delete handler decides those). Idempotent: a missing dir is
+// a no-op. Returns true if a directory was removed.
+export async function deleteCard(root, id) {
+  const dir = path.join(root, "cards", id);
+  try {
+    await fs.rm(dir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function appendCardLog(root, id, n, text) {
   const file = path.join(root, "cards", id, `log-${n}.md`);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, text.endsWith("\n") ? text : text + "\n", "utf8");
+  return file;
+}
+
+// Overwrite a card's iteration log atomically (temp + rename). Used for the LIVE
+// stream: the engine rewrites log-<n>.md with the operative's growing reply as
+// chunks arrive (so Watch shows progress), then once more with the clean final
+// reply. Atomic so a tailing Watch never reads a torn half-written file.
+export async function writeCardLog(root, id, n, text) {
+  const file = path.join(root, "cards", id, `log-${n}.md`);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}`;
+  await fs.writeFile(tmp, text.endsWith("\n") ? text : text + "\n", "utf8");
+  await fs.rename(tmp, file);
   return file;
 }

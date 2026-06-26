@@ -49,3 +49,6 @@ scripts/spike/chat-harness/out/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Stray Playwright run output (screenshots + npm/browser caches — large, regenerated)
+output/

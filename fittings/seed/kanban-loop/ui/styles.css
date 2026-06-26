@@ -258,6 +258,17 @@ body {
 .chip.attn { border-color: #D9A9A1; color: var(--fail); background: var(--fail-soft); }
 .chip.goal { border-color: #B9C4EE; color: var(--accent); background: var(--accent-soft); }
 
+.card .dispatch-err {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid #D9A9A1;
+  background: var(--fail-soft);
+  color: var(--fail);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .card .btns {
   display: flex;
   gap: 5px;
@@ -489,4 +500,185 @@ body {
   /* list-config editor stacks to one column at phone width */
   .field.grid2 { grid-template-columns: 1fr; }
   .next-grid { grid-template-columns: 1fr; }
+}
+
+/* Delete (danger) — the card detail's destructive action. Text label, no emoji. */
+.danger-zone { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border, #e5e7eb); }
+.btn.danger { color: #b42318; border-color: #f3b4ad; background: #fff; }
+.btn.danger:hover { background: #fef3f2; }
+.confirm-del { display: flex; flex-direction: column; gap: 8px; }
+.confirm-del .row { display: flex; gap: 8px; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Execution visibility — running state, live tail, last activity, park reason,
+   the activity timeline, project inference. The whole point of V1d: the user can
+   SEE what is happening with each card's run.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root { --warn: #8A5A12; --warn-soft: #FBF1DE; }
+
+/* a running card glows faintly accent; a parked one faintly fail */
+.card.running { border-color: #AEBEF0; box-shadow: 0 0 0 1px var(--accent-soft) inset; }
+.card.parked { border-color: #E0BCB5; }
+
+/* spinner ring — used on the card front + the detail callout */
+.run-spin {
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  display: inline-block; flex: 0 0 auto;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.chip.infer { border-color: #CBB6E6; color: var(--codex); background: var(--codex-soft); display: inline-flex; align-items: center; gap: 4px; }
+.chip.infer svg { width: 10px; height: 10px; }
+
+/* live run block on the card front */
+.run-live {
+  margin-top: 8px;
+  border: 1px solid #C7D2F2;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.run-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px; font-weight: 600;
+}
+.run-head .run-elapsed { margin-left: auto; font-family: var(--mono); font-weight: 500; }
+.run-tail {
+  margin: 0; padding: 7px 9px;
+  font-family: var(--mono); font-size: 10.5px; line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 72px; overflow: hidden;
+  background: var(--surface);
+}
+.run-wait { padding: 7px 9px; font-size: 11px; font-style: italic; color: var(--ink-faint); }
+
+/* the operative's reply snippet on a parked card */
+.card-reply {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  border-radius: 0 6px 6px 0;
+  font-size: 11.5px; line-height: 1.4;
+  font-style: italic;
+}
+
+/* compact last-activity line on the card front */
+.card-last {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 8px;
+  font-size: 11px; color: var(--ink-faint);
+}
+.card-last .cl-msg {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-soft);
+}
+.card-last .cl-when { flex: 0 0 auto; font-family: var(--mono); font-size: 10px; }
+
+/* per-kind timeline/activity dot */
+.ev-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; display: inline-block; background: var(--ink-faint); }
+.ev-created { background: var(--ink-faint); }
+.ev-dispatch { background: var(--accent); }
+.ev-routed { background: var(--ok); }
+.ev-moved, .ev-recovered { background: #6B7DC4; }
+.ev-parked { background: var(--fail); }
+.ev-failed { background: var(--fail); }
+.ev-deferred { background: var(--warn); }
+.ev-inference { background: var(--codex); }
+
+/* current-state callout in the detail / watch sheets */
+.state-callout {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 11px; margin-bottom: 14px;
+  border-radius: 8px; font-size: 13px; line-height: 1.4;
+}
+.state-callout.running { background: var(--accent-soft); color: var(--accent); border: 1px solid #B9C4EE; }
+.state-callout.running .run-spin { margin-top: 2px; }
+.state-callout.parked { background: var(--fail-soft); color: var(--fail); border: 1px solid #D9A9A1; }
+
+/* description / last-reply blocks in the detail */
+.detail-desc { margin-bottom: 14px; }
+.detail-desc .dd-title {
+  font-size: 11px; font-weight: 700; color: var(--ink-soft);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;
+}
+.detail-desc p { margin: 0; font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+.detail-desc .reply-quote { font-style: italic; color: var(--ink-soft); }
+
+/* ── evidence bundle (screenshots + log) — the proof, surfaced prominently ── */
+.evidence { margin-bottom: 16px; }
+.evidence .dd-title {
+  font-size: 11px; font-weight: 700; color: var(--ink-soft);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;
+}
+.ev-grid {
+  display: flex; flex-wrap: wrap; gap: 10px;
+}
+.ev-shot {
+  display: flex; flex-direction: column; gap: 4px;
+  text-decoration: none; color: var(--ink-soft);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  background: var(--surface-2); max-width: 240px;
+}
+.ev-shot img {
+  display: block; width: 100%; max-width: 240px; height: auto; max-height: 180px;
+  object-fit: contain; background: #fff; border-bottom: 1px solid var(--line-soft);
+}
+.ev-shot .ev-name {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint);
+  padding: 4px 8px; word-break: break-all;
+}
+.ev-shot:hover { border-color: var(--accent); }
+.ev-file {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--accent);
+  font-family: var(--mono); font-size: 12px; text-decoration: none;
+}
+.ev-file:hover { background: var(--accent-soft); }
+.ev-file svg { width: 13px; height: 13px; }
+.ev-none {
+  font-size: 12px; padding: 9px 11px;
+  border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-2); margin: 0;
+}
+
+/* the activity timeline */
+.timeline { margin-bottom: 16px; }
+.timeline .tl-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 700; color: var(--ink-soft);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;
+}
+.timeline .tl-title svg { width: 13px; height: 13px; }
+.tl-ev {
+  display: grid; grid-template-columns: 12px 1fr; gap: 9px;
+  padding: 7px 0;
+  border-top: 1px dashed var(--line-soft);
+}
+.tl-ev:first-of-type { border-top: 0; }
+.tl-ev .ev-dot { margin-top: 5px; }
+.tl-body { min-width: 0; }
+.tl-line { display: flex; align-items: baseline; gap: 8px; }
+.tl-line .tl-msg { flex: 1 1 auto; font-size: 12.5px; color: var(--ink); line-height: 1.4; }
+.tl-line .tl-when { flex: 0 0 auto; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+.tl-toggle {
+  margin-top: 4px; padding: 0; border: 0; background: none;
+  color: var(--accent); font-size: 11px; cursor: pointer; font-family: var(--sans);
+}
+.tl-toggle:hover { text-decoration: underline; }
+.tl-detail {
+  margin: 6px 0 0; padding: 8px 10px;
+  background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 6px;
+  font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--ink-soft);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow-y: auto;
 }

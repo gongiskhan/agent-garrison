@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards } from "../lib/board.mjs";
 import { processCard, processBatch, getList, triggerFor, isInteractive } from "../lib/engine.mjs";
+import { gatewayRunFn } from "../lib/gateway-client.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,7 +53,7 @@ export function seedBoard() {
         skill: "autothing-plan", taskType: "code", tier: "T2-deep", mode: "james",
         executePrompt:
           "Plan this card with autothing-plan: explore, then write the implementation plan and machine-checkable acceptance under the run directory.",
-        routerPrompt: "When the plan + acceptance are written, end with `implement`.",
+        routerPrompt: "When the plan + acceptance are written (or already exist in the run directory), end with `implement` on its own final line.",
         validNext: ["implement"]
       },
       {
@@ -63,14 +64,14 @@ export function seedBoard() {
         // (engine prepends /goal <acceptance>); the guard is the per-card iteration cap.
         executePrompt:
           `Implement the planned slice end-to-end with autothing-implement. Read the plan + acceptance from the run directory and the architecture doc at ${ARCH_DOC}; follow existing conventions; fix forward.`,
-        routerPrompt: "When the code is written and self-checks pass, end with `review`.",
+        routerPrompt: "When the code is written and self-checks pass — or the change is already present and complete — end with `review` on its own final line.",
         validNext: ["review"]
       },
       {
         id: "review", title: "Review", order: 5, kind: "agent", trigger: "immediate",
         skill: "autothing-review", taskType: "review", tier: "T1-standard", mode: "joe",
         executePrompt: "Review the slice diff for correctness then quality with autothing-review.",
-        routerPrompt: "If clean, end with `adversarial-review`; if real issues remain, end with `implement`.",
+        routerPrompt: "If the review is clean OR the slice is already complete (no real issues), end with `adversarial-review`. Only if real issues remain, end with `implement`. End with the bare token on its own final line.",
         validNext: ["adversarial-review", "implement"]
       },
       {
@@ -79,7 +80,7 @@ export function seedBoard() {
         // Codex, so this is T1-standard, NOT a higher tier.
         skill: "autothing-adversarial-review", taskType: "review", tier: "T1-standard", mode: "joe",
         executePrompt: "Run autothing-adversarial-review: have Codex (codex CLI) try to break the diff and iterate to approve.",
-        routerPrompt: "If both models approve, end with `test`; if Codex found real issues, end with `implement`.",
+        routerPrompt: "If both models approve — or there is nothing left to review (already complete/clean) — end with `test`. Only if Codex found real issues, end with `implement`. End with the bare token on its own final line.",
         validNext: ["test", "implement"]
       },
       {
@@ -89,7 +90,7 @@ export function seedBoard() {
         // one test plan, one verdict per card (FINDING 7 / processBatch).
         skill: "autothing-test", taskType: "code", tier: "T1-standard", mode: "joe", batched: true,
         executePrompt: "Run autothing-test: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice.",
-        routerPrompt: "For each card, emit `<cardId> adversarial-test` if green or `<cardId> implement` if failing.",
+        routerPrompt: "For each card, emit `<cardId> adversarial-test` if green (or already passing), or `<cardId> implement` only if it is genuinely failing.",
         validNext: ["adversarial-test", "implement"]
       },
       {
@@ -97,23 +98,39 @@ export function seedBoard() {
         // Cross-model Codex functional pass; needs a running dev server. Operative modest.
         skill: "autothing-adversarial-test", taskType: "code", tier: "T1-standard", mode: "joe",
         executePrompt: "Run autothing-adversarial-test: have Codex (codex CLI) drive the running app through the acceptance with its own pass.",
-        routerPrompt: "If Codex's pass passed, end with `walkthrough`; if it failed, end with `implement`.",
+        routerPrompt: "If Codex's pass passed — or there is nothing left to test (already complete) — end with `walkthrough`. Only if it genuinely failed, end with `implement`. End with the bare token on its own final line.",
         validNext: ["walkthrough", "implement"]
       },
       {
         id: "walkthrough", title: "Walkthrough", order: 9, kind: "agent", trigger: "immediate",
         skill: "autothing-walkthrough", taskType: "code", tier: "T1-standard", mode: "joe",
-        // Records the verified video and links videoUrl onto the card.
-        executePrompt: "Run autothing-walkthrough: record self-verified video evidence and surface the scrubbable link; write the link as the card's videoUrl.",
-        routerPrompt: "If the walkthrough verified, end with `validate`; if it could not, end with `implement`.",
+        // The engine ENFORCES this: the card cannot advance off Walkthrough unless
+        // <runDir>/evidence/ actually contains a file (screenshot or evidence.md). The
+        // "ALWAYS write evidence" prompt is thus a real gate, not just self-attestation.
+        requiresEvidence: true,
+        // Records the verified video and links videoUrl onto the card — BUT size-aware,
+        // exactly like Test / Adversarial Review / Adversarial Test (which skip their heavy
+        // external calls for a trivial change). A 1-line static-text/copy/config tweak has
+        // no user-visible behavior to record, so DON'T attempt a video for it — note the
+        // size-skip and route to validate (the earlier "tried to record nothing → empty
+        // reply → park" was the missing skip path, not a real failure).
+        executePrompt:
+          "Leave TANGIBLE EVIDENCE for this change under the run directory's evidence/ folder (create `<runDir>/evidence/`). This is the proof the user opens on the finished card, so it must always exist:\n" +
+          "1. ALWAYS write `<runDir>/evidence/evidence.md` — a short log: WHAT changed (the diff or a concise summary with file:line), and HOW you verified it (the commands you ran + their key output).\n" +
+          "2. If the change has ANY visual / UI surface, ALSO capture at least one screenshot of the affected page or state into `<runDir>/evidence/` as a .png (render the page headlessly — e.g. Playwright/chromium against the local file or dev server — and screenshot it). Name it descriptively (e.g. after.png).\n" +
+          "3. If the change genuinely warrants a full recorded walkthrough video (real multi-step UI behavior), run autothing-walkthrough and also set the card's videoUrl.\n" +
+          "For a trivial change (a static text/copy/config tweak), steps 1 (and 2 if there's a page) are enough — do NOT force a video. Keep your reply short.",
+        routerPrompt: "If you produced the evidence bundle (a screenshot and/or evidence.md under <runDir>/evidence/, plus a video if warranted), end with `validate`. Only if you could not produce ANY evidence at all, end with `implement`. End with the bare token on its own final line.",
         validNext: ["validate", "implement"]
       },
       {
         id: "validate", title: "Validate", order: 10, kind: "agent", trigger: "immediate",
         skill: "autothing-validate", taskType: "ops", tier: "T1-standard", mode: "joe",
         executePrompt:
-          "Run autothing-validate against this card's run directory + slice: check every DoD gate (tests/typecheck/lint/build/e2e, review, adversarial passes, and the VERIFIED walkthrough video), write the durable gate record.",
-        routerPrompt: "If the Definition of Done holds, end with `done`; else end with `implement`.",
+          "Run autothing-validate against this card's run directory + slice: check every APPLICABLE DoD gate (tests/typecheck/lint/build/e2e, review, adversarial passes) and write the durable gate record. " +
+          "CONFIRM the evidence bundle exists under `<runDir>/evidence/` (a screenshot and/or evidence.md, plus a video if one was warranted) — that tangible proof is part of the DoD. " +
+          "A gate that was legitimately size-skipped for a trivial change (e.g. a Codex pass or a full video on a 1-line text change) COUNTS AS SATISFIED — do not fail the DoD for an artifact a trivial change never needed, but DO expect at least the evidence.md log. Keep your reply short.",
+        routerPrompt: "If the Definition of Done holds — all applicable gates pass or are size-skip-satisfied AND the evidence bundle exists — end with `done`. Only if a gate genuinely FAILED or NO evidence was produced, end with `implement`. End with the bare token on its own final line.",
         validNext: ["done", "implement"]
       },
       { id: "done", title: "Done", order: 11, kind: "manual", trigger: "manual", terminal: true, validNext: [] },
@@ -208,35 +225,17 @@ async function probe() {
   console.log("KANBAN-OK");
 }
 
-// Dispatch a card's combined prompt through the orchestrator front door (the gateway
-// /chat → preRoute). The board's cards must reach a running gateway; with no
-// GARRISON_GATEWAY_URL this is a no-op tick. classification + skill are forwarded on
-// the wire so preRoute honors the explicit {taskType,tier} (the souls-hint slice made
-// the gateway honor classification in both modes).
-function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt, classification, list, suppressContinuations }) => {
-    const res = await fetch(`${gatewayUrl}/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
-      body: JSON.stringify({
-        channel: "kanban",
-        message: prompt,
-        classification: classification ?? null,
-        skill: list?.skill ?? null,
-        suppressContinuations: suppressContinuations ?? true
-      })
-    });
-    if (!res.ok) throw new Error(`kanban dispatch failed: HTTP ${res.status}`);
-    const data = await res.json().catch(() => ({}));
-    return { reply: data.reply ?? data.text ?? "" };
-  };
-}
+// Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs,
+// imported at the top of this file): one wire shape + one failure classification across the
+// tick and the board, so a transient gateway failure reverts a card rather than parking it.
 
 // Batched dispatch for the Test list: ONE session per project covering all of the
 // project's waiting cards. The prompt is the list's execute/router prompt plus the
 // card roster (id + runDir + slice), and the session is asked to emit one verdict line
 // per card (`<cardId> <next-list>`); processBatch parses each verdict per card.
-function batchGatewayRunFn(gatewayUrl) {
+// Exported so the board server's manual "Run" can drive a batched list (Test) through
+// the SAME batch wire shape the scheduler beat uses (one session per project).
+export function batchGatewayRunFn(gatewayUrl) {
   return async ({ project, cards, list, classification, suppressContinuations }) => {
     const roster = cards
       .map((c) => `- ${c.id} :: title="${c.title}" runDir=${c.runDir || "(none)"} slice=${c.sliceId || "(none)"}`)

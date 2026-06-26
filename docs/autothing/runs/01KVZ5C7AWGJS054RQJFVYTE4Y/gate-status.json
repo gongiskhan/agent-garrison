@@ -1,0 +1,17 @@
+{
+  "runId": "01KVZ5C7AWGJS054RQJFVYTE4Y",
+  "cardId": "01KVZ5BNVGH5MWQK36XM04WDBC",
+  "sliceId": "s1",
+  "validatedAt": "2026-06-26T00:00:00.000Z",
+  "verdict": "done",
+  "gates": {
+    "tests": { "status": "pass", "note": "grep gate: new text present (1), old absent (0)" },
+    "typecheck": { "status": "skipped", "note": "static HTML — no type checker" },
+    "lint": { "status": "skipped", "note": "static HTML — no linter" },
+    "build": { "status": "skipped", "note": "static HTML — no build step" },
+    "review": { "status": "pass", "note": "same-model review: clean, no issues" },
+    "adversarial_review": { "status": "skipped(size)", "note": "1 line, 1 file, no logic surface" },
+    "adversarial_test": { "status": "skipped(size)", "note": "static HTML, no runtime to drive" },
+    "video": { "status": "skipped(size)", "note": "static text rename, no behavior to demonstrate" }
+  }
+}

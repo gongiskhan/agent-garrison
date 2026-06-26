@@ -34,6 +34,15 @@ export function CloseIcon(): JSX.Element {
 export function LinkIcon(): JSX.Element {
   return <svg {...base}><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" /></svg>;
 }
+export function ClockIcon(): JSX.Element {
+  return <svg {...base}><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>;
+}
+export function ActivityIcon(): JSX.Element {
+  return <svg {...base}><polyline points="3 12 7 12 10 5 14 19 17 12 21 12" /></svg>;
+}
+export function SparkIcon(): JSX.Element {
+  return <svg {...base}><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
@@ -475,7 +475,16 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
       walkthrough: "validate",
       validate: "done"
     };
-    const runFn = async ({ card: c }: { card: any }) => ({ reply: passReply[c.list] });
+    // Walkthrough now ENFORCES evidence on disk before advancing, so the stub must
+    // actually leave a file under <cwd>/<runDir>/evidence/ when it runs that step.
+    const cwd = mkdtempSync(join(tmpdir(), "kanban-pipe-cwd-"));
+    const runFn = async ({ card: c }: { card: any }) => {
+      if (c.list === "walkthrough") {
+        mkdirSync(join(cwd, c.runDir, "evidence"), { recursive: true });
+        writeFileSync(join(cwd, c.runDir, "evidence", "evidence.md"), "# evidence\nstub\n");
+      }
+      return { reply: passReply[c.list] };
+    };
     // walk immediate lists; the test list is scheduler-beat/batched so drive it via processBatch.
     const guard = 20;
     let steps = 0;
@@ -488,7 +497,7 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
         card = await loadCard(root, card.id);
         continue;
       }
-      const { card: moved } = await processCard({ root, board: seeded, card, runFn, cap: 20 });
+      const { card: moved } = await processCard({ root, board: seeded, card, runFn, cap: 20, cwd });
       card = moved;
     }
     expect(card.list).toBe("done");
