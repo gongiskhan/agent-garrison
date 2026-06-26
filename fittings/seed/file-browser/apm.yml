@@ -1,0 +1,46 @@
+name: file-browser
+version: 0.1.0
+description: Mobile-first File Browser — browse, view, and edit files in a scoped workspace.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: single
+  component_shape: plugin
+  own_port: true
+  default_port: 7091
+  lifecycle: operative-bound
+  platforms:
+    - claude-code
+  summary: A mobile-first File Browser that browses, views, and edits files under a SCOPED workspace root (default ~/.garrison/files). Syntax-highlit code via Monaco, rendered Markdown via marked, inline images — the artifact surface that replaces the artifact-store. Path-traversal-confined to its root; refuses to serve credential files.
+  config_schema:
+    - key: root
+      type: string
+      default: ~/.garrison/files
+      description: The workspace root the browser is confined to. Never escapes this dir (path-traversal-safe).
+    - key: port
+      type: integer
+      default: 7091
+      description: HTTP port; falls back to the next free port.
+  provides: []
+  consumes: []
+  ui:
+    views:
+      - id: file-browser
+        placement: faculty-tab
+        entry: ./dist/index.html
+        route: /
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: node apm_modules/_local/file-browser/scripts/server.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    A mobile-first File Browser surface (own port). Browse/view/edit files under a
+    scoped workspace root. Linkable from the sidebar Views. Replaces the
+    artifact-store: write run outputs / documents under the workspace root and the
+    user can read them on phone or desktop.

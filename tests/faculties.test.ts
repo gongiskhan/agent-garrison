@@ -14,7 +14,7 @@ async function seedFaculty(id: string): Promise<string> {
 }
 
 describe("faculty definitions", () => {
-  it("renders the 9 role Faculties then the 7 optional capability faculties in order", () => {
+  it("renders the 9 role Faculties, the 7 optional capability faculties, then connectors, in order", () => {
     expect(faculties.map((faculty) => faculty.id)).toEqual([
       // 9 role faculties (the Quarters pivot)
       "orchestrator",
@@ -33,13 +33,15 @@ describe("faculty definitions", () => {
       "code-intelligence",
       "design",
       "browser-qa",
-      "coordination"
+      "coordination",
+      // connectors (2026-06-26) — authenticated connections to external services
+      "connectors"
     ]);
   });
 
-  it("assigns each faculty a unique sequential order 1..16", () => {
+  it("assigns each faculty a unique sequential order 1..17", () => {
     expect(faculties.map((f) => f.order)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
     ]);
   });
 
@@ -105,7 +107,7 @@ describe("Agent vs Dev display tier (2026-06-24)", () => {
   it("classifies the everyday-operative faculties as Agent", () => {
     const agent = faculties.filter((f) => f.tier === "agent").map((f) => f.id).sort();
     expect(agent).toEqual(
-      ["channels", "gateway", "knowledge", "memory", "modes", "orchestrator", "research"].sort()
+      ["channels", "connectors", "gateway", "knowledge", "memory", "modes", "orchestrator", "research"].sort()
     );
   });
 
@@ -165,9 +167,9 @@ describe("sessions split (2026-06-18)", () => {
     }
   });
 
-  it("keeps dev-env + artifact-store in sessions", async () => {
+  it("keeps dev-env + file-browser in sessions", async () => {
     expect(await seedFaculty("dev-env")).toBe("sessions");
-    expect(await seedFaculty("artifact-store")).toBe("sessions");
+    expect(await seedFaculty("file-browser")).toBe("sessions");
   });
 
   it("folds the legacy screen-share/browser/outposts aliases into surfaces", () => {

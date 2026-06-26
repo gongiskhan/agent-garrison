@@ -1,0 +1,89 @@
+name: trello
+version: 0.1.0
+description: Trello connector seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: connectors
+  cardinality_hint: multi
+  component_shape: cli
+  platforms:
+    - all
+  summary: Trello connector — board lists and cards as a callable action catalog (list/create/move/archive/comment) over the Trello REST API. Auth (key + token) is sealed in the Vault and delivered scoped at call time; nothing plaintext in the manifest or logs.
+  config_schema:
+    - key: board_id
+      type: string
+      description: Default Trello board id (TRELLO_BOARD_ID) actions operate on.
+      required: true
+  connector:
+    auth: api_key
+    actions:
+      - name: lists
+        mutates: false
+        description: List the board's lists.
+      - name: list_cards
+        args:
+          - list_id
+        mutates: false
+        description: Open cards in a list.
+      - name: create_card
+        args:
+          - list_id
+          - name
+          - desc
+        mutates: true
+        description: Create a card.
+      - name: move_card
+        args:
+          - card_id
+          - to_list_id
+        mutates: true
+        description: Move a card between lists.
+      - name: archive_card
+        args:
+          - card_id
+        mutates: true
+        description: Archive (complete) a card.
+      - name: comment
+        args:
+          - card_id
+          - text
+        mutates: true
+        description: Add a comment to a card.
+  secret_scope:
+    - TRELLO_KEY
+    - TRELLO_TOKEN
+    - TRELLO_BOARD_ID
+  provides:
+    - kind: connector
+      name: trello
+  consumes:
+    - kind: vault
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: node apm_modules/_local/trello/scripts/connector.mjs --probe
+    expect: connectorOk
+    timeout_ms: 15000
+  for_consumers: |
+    Trello is a connector: a catalog of actions on a board, callable by an
+    automation's `connector` step or directly via the connector CLI. Auth
+    (TRELLO_KEY / TRELLO_TOKEN / TRELLO_BOARD_ID) is sealed in the Vault and
+    materialized scoped only into the call.
+
+      node apm_modules/_local/trello/scripts/connector.mjs catalog
+        -> the action catalog as JSON.
+      node apm_modules/_local/trello/scripts/connector.mjs call lists
+        -> the board's lists [{ id, name, closed }]. Run FIRST to resolve a human
+          list name ("To Do", "Doing", "Done") to its id.
+      node .../connector.mjs call create_card '{"list_id":"<id>","name":"<task>"}'
+      node .../connector.mjs call move_card '{"card_id":"<id>","to_list_id":"<id>"}'
+      node .../connector.mjs call archive_card '{"card_id":"<id>"}'
+      node .../connector.mjs call comment '{"card_id":"<id>","text":"<note>"}'
+
+    Each call prints { ok, result } (or { ok:false, awaiting_connector:true }
+    when Trello is not connected — prompt the user to connect it).

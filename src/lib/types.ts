@@ -37,7 +37,13 @@ export const facultyIds = [
   "code-intelligence", // Dev — understand and navigate codebases
   "design", // Dev — design and prototype user interfaces
   "browser-qa", // Dev — drive a real browser to build and verify
-  "coordination" // Dev — keep parallel work sessions out of each other's way
+  "coordination", // Dev — keep parallel work sessions out of each other's way
+  // connectors (2026-06-26): authenticated, reusable connections to the external
+  // services the operative acts on, each exposing a discoverable action catalog
+  // with Vault-sealed auth. A new faculty because no existing role expresses "a
+  // connected service with callable actions + triggers"; it absorbs the dropped
+  // read-only data-source case (Honesty-Test: real connector Fittings need it).
+  "connectors" // Agent — connect to external services and act on them
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -79,15 +85,20 @@ export const capabilityKinds = [
   // kind expresses it.
   "modes",
   "memory-store",
-  // data-source: re-added 2026-06-10 because trello-data-source is a real Fitting that cannot be expressed without it (Honesty-Test convention) — it was dropped 2026-06-07 with the parked PA fittings.
-  "data-source",
+  // data-source: dropped 2026-06-26 — superseded by `connector`, which is
+  // strictly more general (a connector both reads AND acts, with a callable
+  // action catalog + Vault-sealed auth). Trello moved to the `trello` connector.
   // automation-runner: re-added 2026-06-13 (MR wave) — the scheduler Fitting and the new Improver both need it; dropped 2026-06-07, re-added on the same data-source precedent (add a kind only when a real Fitting needs one).
   "automation-runner",
+  // connector (2026-06-26): a connected external service exposing callable
+  // catalog actions + Vault-sealed auth + optional triggers. Strictly more
+  // general than the read-only data-source kind it replaces. Real connector
+  // Fittings (trello/google/slack/deepgram) cannot be expressed without it.
+  "connector",
   // runtime: added 2026-06-14 (BRIEF v4 Runtime faculty) — a runtime Fitting (Claude Code, Codex, Gemini-CLI) hosts the agent loop and exposes a uniform delegate() bridge. Multiple may coexist; the composition names one primary, others secondary. Same "add a kind when a real Fitting needs one" precedent (codex-runtime / gemini-runtime need it).
   "runtime",
   "channel",
   "vault",
-  "artifact-store",
   // dev-env: the consolidated Dev Env surface (2026-06-11). Replaces the
   // dropped terminal-session / worktree / session-view kinds, whose three
   // Fittings collapsed into the single dev-env Fitting.
@@ -235,6 +246,35 @@ export type WorktreeStatus = "active" | "merged" | "discarded";
 
 export type FittingLifecycle = "operative-bound" | "detached";
 
+// A connector Fitting's action-catalog entry — one callable action on the
+// connected service. `mutates` flags write actions (rendered distinctly and
+// weighed by the planner); `args` names the templated arguments the action takes.
+export interface ConnectorAction {
+  name: string;
+  args?: string[];
+  mutates?: boolean;
+  description?: string;
+}
+
+// An inbound trigger a connector can register: a webhook routed through the
+// Gateway, or a polling listener run by the Scheduler daemon.
+export interface ConnectorTrigger {
+  type: "webhook" | "listener";
+  event?: string;
+  cron?: string;
+  description?: string;
+}
+
+// The connector metadata sub-block: how the connector authenticates (the
+// credential is sealed in the Vault — never inlined here), the catalog of
+// actions it exposes, and any triggers. Present only on Fittings that provide
+// kind:connector.
+export interface ConnectorSpec {
+  auth: "oauth2" | "api_key" | "none";
+  actions: ConnectorAction[];
+  triggers?: ConnectorTrigger[];
+}
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -280,6 +320,14 @@ export interface GarrisonMetadata {
   //     user manages it manually (via /api/fittings/<id>/start|stop or shell).
   // The field is ignored for non-own-port Fittings.
   lifecycle?: FittingLifecycle;
+  // Connector Fittings (kind:connector) declare their auth method, action
+  // catalog, and optional triggers here. Absent on non-connector Fittings.
+  connector?: ConnectorSpec;
+  // The named Vault secrets this Fitting is permitted to read. This is what
+  // makes per-connector secret scoping real: vault materialization delivers
+  // ONLY these named secrets to the Fitting's process (see vault scoping),
+  // replacing the historical all-or-nothing delivery to any kind:vault consumer.
+  secret_scope?: string[];
 }
 
 export interface RatingInfo {

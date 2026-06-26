@@ -52,10 +52,10 @@ describe("orchestrator prompt + {{capabilities}} substitution", () => {
     expect(raw).toContain("{{capabilities}}");
   });
 
-  it("substituting against a Composition with Trello selected lists data-source:trello", async () => {
+  it("substituting against a Composition with Trello selected lists channel:trello", async () => {
     const raw = await fs.readFile(ORCH_PROMPT, "utf8");
     const trello = entry(
-      "trello-data-source",
+      "trello",
       "sessions",
       "cli",
       "multi",
@@ -68,7 +68,7 @@ describe("orchestrator prompt + {{capabilities}} substitution", () => {
     expect(result).toContain("Trello board access");
   });
 
-  it("removing Trello from the Composition removes data-source:trello from the assembled prompt", async () => {
+  it("removing Trello from the Composition removes channel:trello from the assembled prompt", async () => {
     const raw = await fs.readFile(ORCH_PROMPT, "utf8");
     const slack = entry(
       "slack-channel",

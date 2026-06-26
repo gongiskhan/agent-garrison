@@ -1,0 +1,33 @@
+{
+  "slice": "S1",
+  "title": "Capability vocabulary: connector kind + connectors faculty + connector/secret_scope metadata schema",
+  "kind": "mixed",
+  "sharedStructure": true,
+  "status": "passed",
+  "gates": {
+    "implement": { "status": "done" },
+    "test": {
+      "status": "passed",
+      "detail": "npm run typecheck clean; 78/78 in faculties+docs-consistency+metadata+capabilities+seed; full suite introduces zero new failures vs the stash-measured 12-test pre-existing baseline; corrected the pre-existing memory->basic-memory drift in seed.test.ts",
+      "command": "npm run typecheck && npx vitest run tests/faculties.test.ts tests/docs-consistency.test.ts tests/metadata.test.ts tests/capabilities.test.ts tests/seed.test.ts"
+    },
+    "review": { "status": "self-reviewed", "detail": "additive vocabulary; code-derived docs gate keeps it honest" },
+    "codexReview": { "status": "batched", "detail": "mechanical vocab+docs; batched into G0 group codex review" },
+    "codexPwTest": { "status": "n/a", "detail": "no UI behavior" },
+    "designAudit": { "status": "n/a", "detail": "no UI" },
+    "walkthrough": { "status": "n/a", "detail": "no runtime UI to record; Compose grid render covered by later UI slices" }
+  },
+  "files": [
+    "src/lib/types.ts",
+    "src/lib/metadata.ts",
+    "src/lib/faculties.ts",
+    "src/components/chrome/Sidebar.tsx",
+    "tests/faculties.test.ts",
+    "tests/docs-consistency.test.ts",
+    "tests/seed.test.ts",
+    "docs/CAPABILITIES.md",
+    "docs/METADATA.md",
+    "docs/FACULTIES.md",
+    "CLAUDE.md"
+  ]
+}

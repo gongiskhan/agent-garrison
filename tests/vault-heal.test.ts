@@ -33,7 +33,12 @@ const PROBE_KEY = "HEAL_PROBE_KEY";
 const PROBE_VALUE = "test-secret-value";
 
 vi.mock("@/lib/vault", () => ({
-  readVaultSecrets: vi.fn(async () => [{ key: "HEAL_PROBE_KEY", value: "test-secret-value" }])
+  scopedSecrets: vi.fn(async (scope: string[]) =>
+    scope.includes("HEAL_PROBE_KEY") ? [{ key: "HEAL_PROBE_KEY", value: "test-secret-value" }] : []
+  )
+}));
+vi.mock("@/lib/vault-audit", () => ({
+  recordVaultAccess: vi.fn(async () => {})
 }));
 
 // Writes the ui-fittings status file (removed on SIGTERM), captures the probe
@@ -104,7 +109,9 @@ function makeEntry(id: string, fittingDir: string, consumesVault: boolean): Libr
       verify: { command: "node --version", expect: "v" },
       own_port: true,
       default_port: 7098,
-      ...(consumesVault ? { consumes: [{ kind: "vault", cardinality: "one" }] } : {})
+      ...(consumesVault
+        ? { consumes: [{ kind: "vault", cardinality: "one" }], secret_scope: ["HEAL_PROBE_KEY"] }
+        : {})
     })
   };
 }

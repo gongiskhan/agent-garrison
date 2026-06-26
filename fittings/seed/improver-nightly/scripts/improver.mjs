@@ -151,8 +151,8 @@ async function findArtifactCli(rootDir, compositionDir, explicit) {
   const candidates = [
     explicit,
     process.env.GARRISON_ARTIFACT_CLI,
-    path.join(compositionDir, "apm_modules", "_local", "artifact-store", "scripts", "artifacts.py"),
-    path.join(rootDir, "fittings", "seed", "artifact-store", "scripts", "artifacts.py")
+    path.join(compositionDir, "apm_modules", "_local", "documents", "scripts", "artifacts.py"),
+    path.join(rootDir, "fittings", "seed", "documents", "scripts", "artifacts.py")
   ].filter(Boolean);
   for (const candidate of candidates) {
     const resolved = path.resolve(expandTilde(candidate));
@@ -429,11 +429,15 @@ async function writeProposal({ artifactCli, artifactFallback, artifactRoot, name
   if (artifactCli) {
     const result = await writeWithArtifactCli(artifactCli, artifactRoot, namespace, filename, title, markdown);
     if (result.ok) {
+      const filePath = path.join(artifactRoot, namespace, filename);
       return {
-        mode: "artifact-store",
+        // The artifact-store view was dropped 2026-06-26; reference the proposal by
+        // its real filesystem location (openable via the File Browser / directly),
+        // not a garrison:// link to a Fitting that no longer exists.
+        mode: "documents-store",
         id: result.id,
-        uri: `garrison://artifacts/${result.id}`,
-        path: path.join(artifactRoot, namespace, filename)
+        uri: `file://${filePath}`,
+        path: filePath
       };
     }
     if (!artifactFallback) {
@@ -447,7 +451,7 @@ async function writeProposal({ artifactCli, artifactFallback, artifactRoot, name
   return {
     mode: "artifact-compatible-fallback",
     id: fallback.id,
-    uri: `garrison://artifacts/${fallback.id}`,
+    uri: `file://${fallback.artifactPath}`,
     path: fallback.artifactPath
   };
 }

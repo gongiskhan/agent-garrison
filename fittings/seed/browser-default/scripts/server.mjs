@@ -8,7 +8,7 @@
 //   - tabs list + canvas page UI at HTTP / and /canvas/:tabId
 
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import http from "node:http";
@@ -28,6 +28,9 @@ const tabs = new Map();
 let browser = null;
 let context = null;
 let chromiumChild = null;
+// The temp user-data-dir for a NON-persistent launch — removed on shutdown so the
+// default really is ephemeral (no cookies/session left under /tmp).
+let ephemeralProfileDir = null;
 let cdpPort = 0;
 let cdpHttpEndpoint = "";
 let cdpWsEndpoint = "";
@@ -404,7 +407,18 @@ async function launchChromium(opts) {
   cdpWsEndpoint = `ws://127.0.0.1:${cdpPort}`;
 
   const exe = resolveFullChromiumBinary();
-  const userDataDir = await mkdtemp(path.join(tmpdir(), "garrison-browser-"));
+  // Opt-in PERSISTENT PROFILE: reuse a stable user-data-dir so cookies/consent
+  // survive across runs (set GARRISON_BROWSER_PERSISTENT=1, dir overridable via
+  // GARRISON_BROWSER_PROFILE_DIR). Default stays an ephemeral temp profile.
+  const persistent = process.env.GARRISON_BROWSER_PERSISTENT === "1";
+  const userDataDir = persistent
+    ? (process.env.GARRISON_BROWSER_PROFILE_DIR
+        || path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "browser-profile"))
+    : await mkdtemp(path.join(tmpdir(), "garrison-browser-"));
+  if (persistent) await mkdir(userDataDir, { recursive: true });
+  ephemeralProfileDir = persistent ? null : userDataDir;
+  // Opt-in STEALTH: reduce headless/automation fingerprints (GARRISON_BROWSER_STEALTH=1).
+  const stealth = process.env.GARRISON_BROWSER_STEALTH === "1";
 
   chromiumChild = spawn(exe, [
     "--headless=new",
@@ -418,7 +432,8 @@ async function launchChromium(opts) {
     "--disable-features=IsolateOrigins,site-per-process,TranslateUI",
     "--disable-component-update",
     "--disable-background-networking",
-    "--no-startup-window"
+    "--no-startup-window",
+    ...(stealth ? ["--disable-blink-features=AutomationControlled"] : [])
   ], { stdio: ["ignore", "pipe", "pipe"] });
 
   chromiumChild.stdout.on("data", () => {});
@@ -446,7 +461,18 @@ async function launchChromium(opts) {
     viewport: { width: opts.viewportWidth, height: opts.viewportHeight }
   }));
 
-  console.log(`[browser] chromium up on rdp port ${cdpPort} (exe=${exe})`);
+  if (stealth && context) {
+    // Mask the most common automation tell (navigator.webdriver) on every page.
+    try {
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+      });
+    } catch (err) {
+      console.error(`[browser] stealth init failed: ${err.message}`);
+    }
+  }
+
+  console.log(`[browser] chromium up on rdp port ${cdpPort} (exe=${exe})${persistent ? " [persistent]" : ""}${stealth ? " [stealth]" : ""}`);
 }
 
 // Drop all references to a dead/disconnected chromium so the next openTab
@@ -615,6 +641,18 @@ function handleHealth(_req, res, opts) {
   });
 }
 
+// Confine navigation to web schemes so a caller cannot pivot the browser to
+// file:/chrome:/view-source: and read local files/internal pages back.
+function isAllowedNavScheme(u) {
+  if (!u || u === "about:blank") return true;
+  try {
+    const proto = new URL(u).protocol.replace(":", "").toLowerCase();
+    return ["http", "https", "about", "data"].includes(proto);
+  } catch {
+    return false;
+  }
+}
+
 async function handleListTabs(_req, res) {
   jsonRes(res, 200, { tabs: await listTabs() });
 }
@@ -622,6 +660,7 @@ async function handleListTabs(_req, res) {
 async function handleCreateTab(req, res) {
   const body = (await readBody(req)) || {};
   const initialUrl = typeof body.url === "string" ? body.url : "about:blank";
+  if (!isAllowedNavScheme(initialUrl)) return jsonRes(res, 400, { error: "navigation scheme not allowed" });
   try {
     const tab = await openTab(initialUrl);
     jsonRes(res, 201, { tabId: tab.tabId, url: tab.page.url() });
@@ -636,6 +675,7 @@ async function handleNavigateTab(req, res, tabId) {
   const body = (await readBody(req)) || {};
   const target = typeof body.url === "string" ? body.url : "";
   if (!target) return jsonRes(res, 400, { error: "url required" });
+  if (!isAllowedNavScheme(target)) return jsonRes(res, 400, { error: "navigation scheme not allowed" });
   tab.requestedUrl = target;
   tab.lastActivityAt = Date.now();
   try {
@@ -784,6 +824,112 @@ async function handleDom(_req, res, tabId, query) {
     res.end(String(result.value));
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Post-action OBSERVATION envelope: the fingerprint inputs (url/title/heading +
+// DOM-shape counts + viewport) the Automations orchestration layer keys its
+// action cache on, plus optional a11y snapshot + screenshot for vision. ?a11y=1
+// includes the accessibility tree; ?screenshot=1 includes a base64 JPEG.
+async function handleObserve(_req, res, tabId, query) {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
+  try {
+    const page = tab.page;
+    const pageUrl = page.url();
+    const title = await page.title();
+    const parts = await page.evaluate(() => {
+      const h = document.querySelector("h1,h2");
+      const headingText = h ? (h.textContent || "").trim().slice(0, 300) : "";
+      const counts = {};
+      for (const el of document.querySelectorAll("*")) {
+        const t = el.tagName.toLowerCase();
+        counts[t] = (counts[t] || 0) + 1;
+        const r = el.getAttribute && el.getAttribute("role");
+        if (r) counts["role:" + r] = (counts["role:" + r] || 0) + 1;
+      }
+      counts["__landmarks"] = document.querySelectorAll("main,nav,header,footer,aside,form").length;
+      return { headingText, counts };
+    });
+    const shapeSketch = Object.entries(parts.counts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}:${v}`)
+      .join(",");
+    const vp = page.viewportSize() || { width: 0, height: 0 };
+    const observation = { url: pageUrl, title, headingText: parts.headingText, shapeSketch, viewport: { w: vp.width, h: vp.height } };
+    if (query && query.a11y === "1") {
+      observation.a11y = await accessibilityTree(tab);
+    }
+    if (query && query.screenshot === "1") {
+      const buf = await page.screenshot({ type: "jpeg", quality: 50 });
+      observation.screenshotB64 = buf.toString("base64");
+    }
+    jsonRes(res, 200, observation);
+  } catch (err) {
+    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Accessibility tree via CDP (page.accessibility was removed in modern
+// Playwright). Returns a compact [{role,name}] list — enough for vision/fixer
+// grounding without dumping the whole tree.
+async function accessibilityTree(tab) {
+  if (!tab.cdpSession) return [];
+  try {
+    await tab.cdpSession.send("Accessibility.enable");
+    const { nodes } = await tab.cdpSession.send("Accessibility.getFullAXTree");
+    return (nodes || [])
+      .map((n) => ({ role: n.role?.value, name: n.name?.value }))
+      .filter((n) => n.role && n.role !== "none" && n.role !== "generic")
+      .slice(0, 200);
+  } catch {
+    return [];
+  }
+}
+
+async function handleA11y(_req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.cdpSession) return jsonRes(res, 404, { error: "tab not found" });
+  jsonRes(res, 200, { a11y: await accessibilityTree(tab) });
+}
+
+// Locator fallback ladder (ported from ekoa's executor): resolve a vision/cache
+// action to a Playwright locator by the strongest available hint.
+function resolveActionLocator(page, a) {
+  if (a.selector) return page.locator(a.selector).first();
+  if (a.role && a.name) return page.getByRole(a.role, { name: a.name }).first();
+  if (a.testId) return page.getByTestId(a.testId).first();
+  if (a.label) return page.getByLabel(a.label).first();
+  if (a.placeholder) return page.getByPlaceholder(a.placeholder).first();
+  if (a.text) return page.getByText(a.text).first();
+  if (a.role) return page.getByRole(a.role).first();
+  throw new Error("action has no locator hint (selector/role+name/testId/label/placeholder/text)");
+}
+
+// Execute a resolved Playwright action — the orchestration layer's cache/vision
+// decides WHAT; the Browser fitting (which holds the Page) runs it.
+async function handleExecute(req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
+  const body = (await readBody(req)) || {};
+  const action = body.action ?? body;
+  const page = tab.page;
+  try {
+    const kind = action.kind || "click";
+    if (kind === "press") {
+      await page.keyboard.press(action.value ?? "Enter");
+    } else {
+      const loc = resolveActionLocator(page, action);
+      if (kind === "click") await loc.click({ timeout: action.timeoutMs ?? 8000 });
+      else if (kind === "fill") await loc.fill(String(action.value ?? ""), { timeout: action.timeoutMs ?? 8000 });
+      else if (kind === "select") await loc.selectOption(action.value);
+      else if (kind === "check") await loc.check({ timeout: action.timeoutMs ?? 8000 });
+      else if (kind === "hover") await loc.hover({ timeout: action.timeoutMs ?? 8000 });
+      else throw new Error(`unknown action kind: ${kind}`);
+    }
+    jsonRes(res, 200, { ok: true });
+  } catch (err) {
+    jsonRes(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -1411,7 +1557,25 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const server = createServer(async (req, res) => {
     try {
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      // CSRF defense: this localhost service can drive a real browser + read page
+      // content, so a malicious webpage in the user's browser must NOT be able to
+      // POST to it. Reject any request carrying a CROSS-ORIGIN (non-loopback)
+      // Origin. Server-to-server callers (the Automations/dev-env fetch) send no
+      // Origin; the same-origin canvas sends a loopback Origin — both allowed.
+      const reqOrigin = req.headers.origin;
+      if (reqOrigin) {
+        let loopback = false;
+        try {
+          const h = new URL(reqOrigin).hostname;
+          loopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
+        } catch { loopback = false; }
+        if (!loopback) {
+          res.statusCode = 403;
+          res.setHeader("content-type", "application/json");
+          return res.end(JSON.stringify({ error: "cross-origin forbidden" }));
+        }
+        res.setHeader("Access-Control-Allow-Origin", reqOrigin);
+      }
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
       if (req.method === "OPTIONS") { res.statusCode = 204; return res.end(); }
@@ -1446,6 +1610,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
       const domMatch = pathname.match(/^\/tabs\/([^/]+)\/dom$/);
       if (domMatch && method === "GET") return await handleDom(req, res, decodeURIComponent(domMatch[1]), parsed.query);
+      const obsMatch = pathname.match(/^\/tabs\/([^/]+)\/(observe|fingerprint)$/);
+      if (obsMatch && method === "GET") return await handleObserve(req, res, decodeURIComponent(obsMatch[1]), parsed.query);
+      const a11yMatch = pathname.match(/^\/tabs\/([^/]+)\/a11y$/);
+      if (a11yMatch && method === "GET") return await handleA11y(req, res, decodeURIComponent(a11yMatch[1]));
+      const execMatch = pathname.match(/^\/tabs\/([^/]+)\/execute$/);
+      if (execMatch && method === "POST") return await handleExecute(req, res, decodeURIComponent(execMatch[1]));
 
       const evalMatch = pathname.match(/^\/tabs\/([^/]+)\/eval$/);
       if (evalMatch && method === "POST") return await handleEval(req, res, decodeURIComponent(evalMatch[1]));
@@ -1479,6 +1649,21 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       socket.destroy();
       return;
     }
+    // CSRF defense for the drivable WS surfaces (/input drives the browser): reject
+    // a cross-origin (non-loopback) Origin, same as the HTTP guard.
+    const wsOrigin = request.headers.origin;
+    if (wsOrigin) {
+      let loopback = false;
+      try {
+        const h = new URL(wsOrigin).hostname;
+        loopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
+      } catch { loopback = false; }
+      if (!loopback) {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
       const tab = tabs.get(decodeURIComponent(route.tabId));
       if (!tab) {
@@ -1507,6 +1692,11 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     console.log(`[browser] shutdown (${signal})`);
     await shutdownChromium();
     await clearStatusFile();
+    // Remove the ephemeral profile so the default leaves no cookies/session behind.
+    if (ephemeralProfileDir) {
+      await rm(ephemeralProfileDir, { recursive: true, force: true }).catch(() => {});
+      ephemeralProfileDir = null;
+    }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 3000);
   };

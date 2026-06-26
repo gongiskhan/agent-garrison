@@ -52,7 +52,9 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
         "code-intelligence",
         "design",
         "browser-qa",
-        "coordination"
+        "coordination",
+        // connectors (2026-06-26) — authenticated connections to external services
+        "connectors"
       ].sort()
     );
     for (const dropped of [...DROPPED_KINDS, ...DROPPED_KINDS_2026_06]) {

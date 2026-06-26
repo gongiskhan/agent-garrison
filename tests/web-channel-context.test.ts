@@ -20,7 +20,7 @@
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { marked } from "marked";
+import { renderMarkdown } from "@/lib/markdown";
 // @ts-ignore — pure .mjs server
 import { buildGatewayChatBody } from "../fittings/seed/web-channel-default/scripts/server.mjs";
 import { ClaudeChat, buildSendMeta } from "../packages/claude-chat/src/index";
@@ -134,40 +134,40 @@ describe("ClaudeChat — new props are additive + backward-compatible", () => {
 
 describe("doc render — produced documents render as links, not raw", () => {
   it("translates garrison:// cross-fitting links to /fitting/<id>/<rest>", () => {
-    const html = marked.parse("See [the brief](garrison://artifact-store/docs/brief.md).") as string;
+    const html = renderMarkdown("See [the brief](garrison://artifact-store/docs/brief.md).") as string;
     expect(html).toContain('href="/fitting/artifact-store/docs/brief.md"');
     expect(html).not.toContain("garrison://");
   });
 
   it("opens http(s) document links in a new tab (noopener)", () => {
-    const html = marked.parse("Open [the report](https://example.com/report.md).") as string;
+    const html = renderMarkdown("Open [the report](https://example.com/report.md).") as string;
     expect(html).toContain('href="https://example.com/report.md"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
   });
 
   it("renders a fenced/document block as HTML, never raw markdown", () => {
-    const html = marked.parse("# Brief\n\nA produced **document**.") as string;
+    const html = renderMarkdown("# Brief\n\nA produced **document**.") as string;
     expect(html).toContain("<h1");
     expect(html).toContain("<strong>document</strong>");
   });
 
   it("does NOT linkify active-content schemes (javascript:/data:/vbscript:) — drops the href, keeps the text", () => {
-    const js = marked.parse("Click [me](javascript:alert(1)).") as string;
+    const js = renderMarkdown("Click [me](javascript:alert(1)).") as string;
     expect(js).not.toContain("javascript:");
     expect(js).not.toContain("<a ");      // no anchor emitted for an unsafe scheme
     expect(js).toContain("me");            // link text is preserved
 
-    const data = marked.parse("[x](data:text/html;base64,PHNjcmlwdD4=)") as string;
+    const data = renderMarkdown("[x](data:text/html;base64,PHNjcmlwdD4=)") as string;
     expect(data).not.toContain("data:text/html");
     expect(data).not.toContain("<a ");
 
-    const vb = marked.parse("[y](vbscript:msgbox(1))") as string;
+    const vb = renderMarkdown("[y](vbscript:msgbox(1))") as string;
     expect(vb).not.toContain("vbscript:");
   });
 
   it("escapes the href attribute so a crafted URL cannot break out of it", () => {
-    const html = marked.parse('[x](https://e.com/a"onmouseover="alert(1))') as string;
+    const html = renderMarkdown('[x](https://e.com/a"onmouseover="alert(1))') as string;
     // The raw double-quote-and-handler must not appear unescaped in the markup.
     expect(html).not.toContain('"onmouseover="alert(1)');
   });

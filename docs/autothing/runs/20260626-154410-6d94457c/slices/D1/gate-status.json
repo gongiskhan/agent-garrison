@@ -1,0 +1,53 @@
+{
+  "slice": "D1",
+  "title": "Mobile-first File Browser fitting (own-port, Monaco/Markdown/images, scoped+confined)",
+  "kind": "mixed",
+  "sharedStructure": false,
+  "status": "passed",
+  "gates": {
+    "implement": {
+      "status": "done",
+      "detail": "fittings/seed/file-browser: own-port server (port 7091) with a path-traversal-SAFE scoped file API (resolveInRoot + realpath ancestor guard + lstat symlink-target refusal), credential-file refusal (vault.json/internal-token/.env/*.key), same-origin CSRF guard, status-file/probe/free-port scaffolding; mobile-first dist/index.html (file list, Monaco-idiom textarea editor + Save, marked Markdown preview in a sandbox='' iframe, inline images); setup.sh + start.mjs; library.json entry + seedIds."
+    },
+    "test": {
+      "status": "passed",
+      "detail": "file-browser (9, REAL server): list (dirs-first, credential hidden), read text+markdown, write-in-root, traversal 403 (read+write), credential 403, write-THROUGH-symlinked-dir 403, overwrite-THROUGH-symlinked-file 403, READ-through-symlink 403 (O_NOFOLLOW), cross-origin 403.",
+      "command": "npx vitest run tests/file-browser.test.ts"
+    },
+    "review": {
+      "status": "self-reviewed"
+    },
+    "codexReview": {
+      "status": "approve-with-override",
+      "rounds": 3,
+      "detail": "R1 (2 high): symlink write-escape + markdown XSS -> FIXED+tested (deepest-ancestor realpath, lstat target refusal, sandbox=\"\" iframe). R2: confirmed; raised final-component + ancestor TOCTOU. R3: HARDENED reads (O_NOFOLLOW open) + writes (temp+rename, no follow-through) -> final-component swaps CLOSED+tested; residual ANCESTOR-DIR mid-syscall TOCTOU REBUTTED: immaterial in the localhost single-user trust model (a racer already has FS-write-as-user) AND not atomically closable in Node public fs API (no openat). All concrete/practical vectors closed+tested (9 tests).",
+      "artifacts": [
+        "codex-review-D1.json",
+        "codex-review-D1-r2.json",
+        "codex-review-D1-r3.json"
+      ]
+    },
+    "codexPwTest": {
+      "status": "deferred",
+      "detail": "Z1 opens the downloaded PDF in the browser"
+    },
+    "designAudit": {
+      "status": "deferred",
+      "detail": "mobile-first viewer recorded in Z1"
+    },
+    "walkthrough": {
+      "status": "deferred",
+      "detail": "Z1"
+    }
+  },
+  "files": [
+    "fittings/seed/file-browser/apm.yml",
+    "fittings/seed/file-browser/scripts/server.mjs",
+    "fittings/seed/file-browser/scripts/start.mjs",
+    "fittings/seed/file-browser/scripts/setup.sh",
+    "fittings/seed/file-browser/dist/index.html",
+    "data/library.json",
+    "tests/seed.test.ts",
+    "tests/file-browser.test.ts"
+  ]
+}

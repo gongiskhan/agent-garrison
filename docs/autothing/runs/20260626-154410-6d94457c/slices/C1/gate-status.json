@@ -1,0 +1,21 @@
+{
+  "slice": "C1",
+  "title": "Trello -> trello connector fitting + disconnect derived Tasks (F4)",
+  "kind": "mixed",
+  "sharedStructure": true,
+  "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "git mv trello-data-source -> trello; apm.yml faculty connectors + provides connector:trello + connector catalog (lists/list_cards/create_card/move_card/archive_card/comment) + secret_scope + setup/verify; new uniform scripts/connector.mjs (--probe/catalog/call, scoped env, awaiting_connector); removed trello.py; library.json + ratings.json renamed; compositions.ts deriveTasks REMOVED (F4 disconnect), derivedTasks always undefined" },
+    "test": {
+      "status": "passed",
+      "detail": "tests/connector-trello.test.ts (5): catalog, lists/create_card via mock fetch, awaiting_connector, unknown-action. seed.test trello assertions -> connector. validate-fitting fittings/seed/trello = 4/4 PASS. typecheck clean.",
+      "command": "node_modules/.bin/tsx scripts/validate-fitting.ts fittings/seed/trello && npx vitest run tests/connector-trello.test.ts tests/seed.test.ts"
+    },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "detail": "reviewed jointly with C2 (connector contract); 3 findings fixed incl. trello path-encoding + board guard; round-2 clean approve. See slices/C2 codexReview." },
+    "codexPwTest": { "status": "n/a" },
+    "designAudit": { "status": "n/a", "detail": "Connectors registry UI is C6" },
+    "walkthrough": { "status": "deferred", "detail": "connector actions exercised in the Z1 e2e proof" }
+  },
+  "files": ["fittings/seed/trello/apm.yml", "fittings/seed/trello/scripts/connector.mjs", "fittings/seed/trello/scripts/setup.sh", "data/library.json", "data/ratings.json", "src/lib/compositions.ts", "tests/seed.test.ts", "tests/connector-trello.test.ts"]
+}

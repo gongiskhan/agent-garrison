@@ -1,0 +1,26 @@
+{
+  "slice": "B1",
+  "title": "Scheduler -> platform-agnostic always-on Node daemon",
+  "kind": "mixed",
+  "sharedStructure": false,
+  "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "register/enable/disable CLI (register idempotent, preserves enable choice); daemon hardened: /health HTTP, SIGTERM/SIGINT graceful shutdown that awaits + group-kills listeners, listener supervision (one detached-process-group worker per type:listener job, restart w/ tracked backoff timers, excluded from cron tick); apm.yml platforms claude-code->all + health_port; launchers/ for systemd/launchd/pm2/docker" },
+    "test": {
+      "status": "passed",
+      "detail": "scheduler-cli (3): register-disabled+tick-skip, listener-not-cron-fired, enable+register-preserve. scheduler-daemon (3): cron fires with NO Claude in env + /health ok, SIGTERM graceful exit 0, listener restart-on-exit. Also fixed pre-existing memory-drift: improver-nightly now green, validation + claude-install -> basic-memory.",
+      "command": "npx vitest run tests/scheduler-cli.test.ts tests/scheduler-daemon.test.ts tests/improver-nightly.test.ts"
+    },
+    "review": { "status": "self-reviewed" },
+    "codexReview": {
+      "status": "approve",
+      "rounds": 2,
+      "detail": "R1 needs-attention 3 findings ALL AGREED+FIXED: listener cron-double-fire (tick skips listeners), untracked restart-timer double-spawn race (listenerTimers + guards), shutdown orphan (await child exit, bounded, then SIGKILL). R2 raised process-tree orphan -> FIXED (detached process group + killListenerGroup negative-pid). No rebuttals.",
+      "artifacts": ["codex-review-B1.json", "codex-review-B1-r2.json"]
+    },
+    "codexPwTest": { "status": "n/a", "detail": "daemon is headless; behavior covered by daemon integration tests" },
+    "designAudit": { "status": "n/a" },
+    "walkthrough": { "status": "n/a", "detail": "no UI; daemon behavior is asserted by committed integration tests" }
+  },
+  "files": ["fittings/seed/scheduler/scripts/scheduler.mjs", "fittings/seed/scheduler/apm.yml", "fittings/seed/scheduler/launchers/", "tests/scheduler-cli.test.ts", "tests/scheduler-daemon.test.ts", "tests/validation.test.ts", "tests/claude-install.test.ts"]
+}

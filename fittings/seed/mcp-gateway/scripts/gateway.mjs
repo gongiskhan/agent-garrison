@@ -32,7 +32,10 @@ import {
   callListWorktrees,
   callCreateWorktree,
   callGetWorktree,
-  callCloseWorktree
+  callCloseWorktree,
+  automationsAvailable,
+  callListAutomations,
+  callRunAutomation
 } from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
@@ -66,6 +69,28 @@ async function discoverTools() {
         required: ["cwd"]
       }
     });
+  }
+
+  if (automationsAvailable()) {
+    tools.push(
+      {
+        name: "list_automations",
+        description: "List saved Garrison automations (id, name, step count, trigger). Use before run_automation.",
+        inputSchema: { type: "object", properties: {} }
+      },
+      {
+        name: "run_automation",
+        description: "Run a saved automation by id and return its run status + per-step outcomes. Pass inputs for the automation's declared inputs.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "The automation id (from list_automations)." },
+            inputs: { type: "object", description: "Values for the automation's declared inputs." }
+          },
+          required: ["id"]
+        }
+      }
+    );
   }
 
   if (isGarrisonControlEnabled()) {
@@ -186,6 +211,8 @@ async function discoverTools() {
 async function dispatchTool(name, input) {
   if (name === "classify_tier") return callClassifyTier(input);
   if (name === "run_tests") return callRunTests(input);
+  if (name === "list_automations") return callListAutomations(input);
+  if (name === "run_automation") return callRunAutomation(input);
   if (name === "talk_to") return callTalkTo(input);
   if (name === "wait_for") return callWaitFor(input);
   if (name === "list_active_sessions") return callListActiveSessions(input);

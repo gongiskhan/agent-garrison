@@ -11,9 +11,59 @@ import {
 } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { currentSecretValuesSync } from "./vault";
+import { redactSecretValues } from "./secret-redaction";
 
 const REDACT_PATTERN = /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PASSWORD$|^KEY$)/i;
 const REDACTED = "***REDACTED***";
+
+// Tee child output to its log file with JIT value redaction: any current vault
+// secret VALUE is masked before it is persisted. (env KEY redaction in meta.json
+// is complementary, by name pattern.)
+//
+// Redaction is STATEFUL, not chunk-local: a secret value can span two stream
+// `data` chunks, so a per-chunk redactor would persist the unmasked halves. The
+// tee buffers up to the last newline (and force-flushes very long lines, holding
+// back a secret-length-1 tail) so any secret that doesn't straddle a newline is
+// fully assembled before redaction. No-op fast path when the vault is locked.
+const FORCE_FLUSH_BYTES = 65536;
+
+interface RedactingTee {
+  write: (chunk: Buffer) => void;
+  flush: () => void;
+}
+
+function makeRedactingTee(stream: WriteStream | null): RedactingTee {
+  let buf = "";
+  const emit = (text: string) => {
+    if (!stream || !text) return;
+    const values = currentSecretValuesSync();
+    stream.write(values.length ? redactSecretValues(text, values) : text);
+  };
+  return {
+    write(chunk: Buffer) {
+      if (!stream) return;
+      buf += chunk.toString("utf8");
+      const nl = buf.lastIndexOf("\n");
+      if (nl !== -1) {
+        emit(buf.slice(0, nl + 1));
+        buf = buf.slice(nl + 1);
+      }
+      if (buf.length > FORCE_FLUSH_BYTES) {
+        const values = currentSecretValuesSync();
+        const hold = values.length ? Math.max(0, Math.max(...values.map((v) => v.length)) - 1) : 0;
+        if (buf.length > hold) {
+          emit(buf.slice(0, buf.length - hold));
+          buf = buf.slice(buf.length - hold);
+        }
+      }
+    },
+    flush() {
+      emit(buf);
+      buf = "";
+    }
+  };
+}
 
 export interface SpawnTrackedMeta {
   spawnSite: string;
@@ -196,16 +246,24 @@ export function spawnTracked(
   let stdoutStream: WriteStream | null = null;
   let stderrStream: WriteStream | null = null;
 
+  let stdoutTee: RedactingTee | null = null;
+  let stderrTee: RedactingTee | null = null;
+
   if (child.stdout) {
     stdoutStream = createWriteStream(stdoutPath, { flags: "a" });
-    child.stdout.on("data", (chunk) => stdoutStream?.write(chunk));
+    stdoutTee = makeRedactingTee(stdoutStream);
+    child.stdout.on("data", (chunk: Buffer) => stdoutTee?.write(chunk));
   }
   if (child.stderr) {
     stderrStream = createWriteStream(stderrPath, { flags: "a" });
-    child.stderr.on("data", (chunk) => stderrStream?.write(chunk));
+    stderrTee = makeRedactingTee(stderrStream);
+    child.stderr.on("data", (chunk: Buffer) => stderrTee?.write(chunk));
   }
 
   const closeLogs = () => {
+    // Flush any held partial line (redacted) before closing the streams.
+    stdoutTee?.flush();
+    stderrTee?.flush();
     stdoutStream?.end();
     stderrStream?.end();
   };

@@ -26,8 +26,6 @@ Edit your composition's `apm.yml` and add `morning-briefing` to the
 ```yaml
 selections:
   automations:
-    - id: browser-automation
-      config: { browser: chromium, headless: false }
     - id: morning-briefing
       config:
         briefing_time: "08:00"

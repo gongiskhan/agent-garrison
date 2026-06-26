@@ -53,11 +53,11 @@ describe("renderCapabilitiesBlock", () => {
   it("lists kind:name with each Fitting's summary, sorted by kind then name", () => {
     const entries = [
       entry(
-        "trello-data-source",
+        "trello",
         "memory",
         "cli",
         "multi",
-        [{ kind: "data-source", name: "trello" }],
+        [{ kind: "connector", name: "trello" }],
         "Trello board access"
       ),
       entry(
@@ -71,9 +71,9 @@ describe("renderCapabilitiesBlock", () => {
     ];
     const block = renderCapabilitiesBlock(entries);
     expect(block).toContain("- channel:slack — Slack inbound/outbound");
-    expect(block).toContain("- data-source:trello — Trello board access");
+    expect(block).toContain("- connector:trello — Trello board access");
     const channelIdx = block.indexOf("channel:slack");
-    const dataIdx = block.indexOf("data-source:trello");
+    const dataIdx = block.indexOf("connector:trello");
     expect(channelIdx).toBeLessThan(dataIdx);
   });
 
@@ -96,24 +96,24 @@ describe("renderCapabilitiesBlock", () => {
 
   it("falls back to the summary line when for_consumers is absent", () => {
     const trello = entry(
-      "trello-data-source",
+      "trello",
       "memory",
       "cli",
       "multi",
-      [{ kind: "data-source", name: "trello" }],
+      [{ kind: "connector", name: "trello" }],
       "Trello board access"
     );
     const block = renderCapabilitiesBlock([trello]);
-    expect(block).toBe("- data-source:trello — Trello board access");
+    expect(block).toBe("- connector:trello — Trello board access");
   });
 
   it("separates entries with a blank line when any provider ships for_consumers", () => {
     const trello = entry(
-      "trello-data-source",
+      "trello",
       "memory",
       "cli",
       "multi",
-      [{ kind: "data-source", name: "trello" }],
+      [{ kind: "connector", name: "trello" }],
       "Trello board access"
     );
     const docs = entry(
@@ -126,27 +126,27 @@ describe("renderCapabilitiesBlock", () => {
       "Use this when capturing decisions."
     );
     const block = renderCapabilitiesBlock([trello, docs]);
-    // Sorted by kind: channel comes before data-source. The blank line
+    // Sorted by kind: channel comes before connector. The blank line
     // separator only kicks in once at least one provider ships for_consumers.
     expect(block).toContain(
-      "  Use this when capturing decisions.\n\n- data-source:trello — Trello board access"
+      "  Use this when capturing decisions.\n\n- connector:trello — Trello board access"
     );
   });
 
   it("includes only declared providers, not consumers", () => {
     const entries = [
       entry(
-        "trello-data-source",
+        "trello",
         "memory",
         "cli",
         "multi",
-        [{ kind: "data-source", name: "trello" }],
+        [{ kind: "connector", name: "trello" }],
         "Trello"
       ),
       entry("personal-operative", "orchestrator", "system-prompt", "single", [], "Orchestrator")
     ];
     const block = renderCapabilitiesBlock(entries);
-    expect(block).toContain("data-source:trello");
+    expect(block).toContain("connector:trello");
     expect(block).not.toContain("personal-operative");
   });
 });

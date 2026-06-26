@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS launchd agent for the Garrison scheduler daemon. Replace the
+     ABS_PATH_TO placeholders with absolute paths for your install, then:
+       launchctl load -w ~/Library/LaunchAgents/io.garrison.scheduler.plist -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.garrison.scheduler</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>node</string>
+    <string>ABS_PATH_TO/scheduler.mjs</string>
+    <string>daemon</string>
+    <string>--health-port</string>
+    <string>7088</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>GARRISON_SCHEDULER_HEALTH_PORT</key>
+    <string>7088</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>ABS_PATH_TO/scheduler.daemon.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>ABS_PATH_TO/scheduler.daemon.err.log</string>
+</dict>
+</plist>

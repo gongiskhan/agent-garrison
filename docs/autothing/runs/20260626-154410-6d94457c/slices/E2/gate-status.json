@@ -1,0 +1,17 @@
+{
+  "slice": "E2", "title": "Run engine: non-browser steps + template vars + run records + connector auth", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "lib/engine.mjs run loop (wait/local_command/api_call/connector/sub_automation; browser deferred to F via runBrowser); lib/template-vars.mjs ({{input/capture/event}}); lib/redact.mjs; store run records; server /run + /runs; backend src/app/api/connectors/[id]/auth-env (token-guarded, api_key scoped / oauth2 fresh token / 409 not-connected); src/lib/internal-token.ts (0600, symlink-reject, mode-repair, timing-safe verify)" },
+    "test": { "status": "passed", "detail": "automations-engine (10: template vars, wait/api_call/connector/local_command-streaming/sub_automation, awaiting_connector, failure, browser-deferred, secret redaction); internal-token (2); live /run smoke ok; typecheck clean" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": {
+      "status": "approve", "rounds": 2,
+      "detail": "R1 needs-attention 4 ALL AGREED+FIXED: (F1 critical) connector scriptPath override -> server-resolved only; (F2 high) run records persisted raw -> redactDeep of injected auth values on persist+emit; (F3 high) auth-env unauthenticated -> 0600 internal-token guard; (F4 med) auth:none over-delivers -> empty env. R2 confirmed 1/2/4 fixed, raised token-file-mode not enforced -> FIXED (lstat symlink-reject + 0600 repair) + test. No rebuttals.",
+      "artifacts": ["codex-review-E1E2.json", "codex-review-E1E2-r2.json"]
+    },
+    "codexPwTest": { "status": "n/a", "detail": "engine covered by committed tests + live smoke; UI run viewer is E3" },
+    "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred", "detail": "folded into Z1 e2e" }
+  },
+  "files": ["fittings/seed/automations/lib/engine.mjs", "fittings/seed/automations/lib/template-vars.mjs", "fittings/seed/automations/lib/redact.mjs", "fittings/seed/automations/lib/store.mjs", "fittings/seed/automations/scripts/server.mjs", "src/app/api/connectors/[id]/auth-env/route.ts", "src/lib/internal-token.ts", "tests/automations-engine.test.ts", "tests/internal-token.test.ts"]
+}

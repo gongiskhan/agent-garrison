@@ -40,8 +40,6 @@ x-garrison:
     - kind: automation-runner
       name: scheduler
       cardinality: one
-    - kind: artifact-store
-      cardinality: optional-one
     - kind: vault
       cardinality: optional-one
   setup:

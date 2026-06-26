@@ -139,8 +139,8 @@ describe("claude-install backend", () => {
 });
 
 describe("claude-install-source resolver (real APM deployed_files)", () => {
-  it("resolves the memory fitting's skill from compositions/default", async () => {
-    const manifest = await resolveArtifacts("memory");
+  it("resolves the basic-memory fitting's skill from compositions/default", async () => {
+    const manifest = await resolveArtifacts("basic-memory");
     const skill = manifest.artifacts.find((a) => a.target === "skills/garrison-memory");
     expect(skill).toBeDefined();
     expect(skill?.kind).toBe("skill-dir");

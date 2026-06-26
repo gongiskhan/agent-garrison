@@ -153,7 +153,7 @@ Runtimes                                         trello-data-source
 agent-sdk-runtime        ────────
 codex-runtime            http-gateway            Doing stuff
 gemini-runtime           mcp-gateway             ─────────────
-deepgram-voice           model-router            browser-automation
+deepgram-voice           model-router            automations
                          vault-sync              coding-subagent
 Outposts                                         testing
 ─────────                Own-port (views)

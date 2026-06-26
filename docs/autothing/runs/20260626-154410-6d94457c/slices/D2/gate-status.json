@@ -1,0 +1,13 @@
+{
+  "slice": "D2", "title": "Drop artifact-store (kind + Fitting + routes); documents self-contained; shared markdown renderer", "kind": "mixed",
+  "sharedStructure": true, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "Removed the artifact-store capability KIND (types.ts) + faculty alias (metadata.ts), the Fitting (fittings/seed/artifact-store), its 2 routes, registry views, sidebar icons, library entry, browser-automation residue. Repurposed src/lib/artifact-store.ts -> document-store.ts (resolves the documents store; legacy storage_root fallback). documents now self-contained: vendors its OWN artifacts.py (resolved via __file__), setup.sh uses it, routes import document-store. Rewired consumers off the kind: documents/coding-subagent/improver-nightly. NEW src/lib/markdown.ts shared safe renderer (garrison://->/fitting, http target/noopener, unsafe schemes dropped, HTML escaped). improver emits file:// not dead garrison://artifacts. Removed artifact-store from compositions/{default,router-v4,dogfood-orch} + 2 lockfiles." },
+    "test": { "status": "passed", "detail": "FULL suite 1366 passed; only 2 parked-WIP fails remain (gemini-runtime, orchestrator-placement — outside blast radius, evidence stash@{1}). D2 FIXED 4 pre-existing baseline failures: web-channel-context x3 (shared markdown renderer) + fitting-files-api x1 (stale memory->basic-memory ref). typecheck + all composition YAML/lockfiles valid.", "command": "npm test" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 2, "detail": "R1 (1 critical + 2 high + 1 medium): shipped compositions+lockfiles dangling artifact-store dep (apm install would fail) -> removed; documents setup.sh required deleted CLI -> vendored; document-store dropped legacy storage_root -> fallback added; improver dead garrison://artifacts links -> file://. R2: APPROVE, no remaining dangling dep.", "artifacts": ["codex-review-D2.json", "codex-review-D2-r2.json"] },
+    "codexPwTest": { "status": "deferred", "detail": "Z1 uses documents + file-browser" },
+    "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["src/lib/types.ts", "src/lib/metadata.ts", "src/lib/document-store.ts", "src/lib/markdown.ts", "src/app/api/fittings/documents", "src/components/fitting-views/registry.tsx", "src/components/chrome/Sidebar.tsx", "fittings/seed/documents", "fittings/seed/improver-nightly/scripts/improver.mjs", "compositions", "data/library.json", "tests/web-channel-context.test.ts", "tests/view-instances.test.ts", "tests/fitting-files-api.test.ts", "tests/seed.test.ts", "tests/faculties.test.ts", "tests/composition-migration.test.ts"]
+}

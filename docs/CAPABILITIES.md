@@ -12,8 +12,14 @@ Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
 via the `capabilityKinds` array in `src/lib/types.ts`: `orchestrator`, `modes`,
-`memory-store`, `data-source`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`,
+`memory-store`, `connector`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`,
 `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`.
+
+> **`data-source` dropped 2026-06-26** — superseded by `connector`, which is
+> strictly more general (a connector both reads AND acts, with a callable action
+> catalog + Vault-sealed auth). Trello moved to the `trello` connector. The
+> `## data-source` section below is retained for historical context only; the
+> resolver rejects the kind.
 
 `runtime` (added 2026-06-14, BRIEF v4 Runtime faculty) is a Fitting that hosts the
 agent loop and exposes a uniform `delegate(task_spec) -> {summary, artifacts}`
@@ -29,6 +35,17 @@ mode switching, composed into the orchestrator's system prompt. It is a
 singleton kind provided by the `modes` Fitting (the `modes` faculty) and
 consumed by the orchestrator at `optional-one`. Same "add a kind only when a
 real Fitting needs one" precedent.
+
+`connector` (added 2026-06-26) is a connected external service exposing a
+discoverable catalog of callable actions, Vault-sealed credentials, and optional
+inbound triggers (a webhook routed through the Gateway, or a polling listener run
+by the Scheduler daemon). It lives under the `connectors` faculty and is **multi**
+(many services coexist). It is strictly more general than the read-only
+`data-source` kind it replaces — a connector both reads and acts — and absorbs
+that case (a database such as Supabase is just another connector). A connector
+Fitting declares its catalog in the `x-garrison.connector` block (`auth`,
+`actions[]` with `mutates`/`args`, `triggers[]`) and the named secrets it may
+read in `x-garrison.secret_scope` (the per-connector scoping the Vault enforces).
 
 `view` is **derived, never declared**: fittings do not list it in `provides` —
 the resolver synthesises one `view` provision per produced view (each

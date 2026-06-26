@@ -1,0 +1,14 @@
+{
+  "slice": "C6", "title": "Vault <-> Connectors UI (registry, Vault-sealed badges, OAuth health, audit, rotation)", "kind": "ui",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "src/lib/connectors-view.ts (pure buildConnectorsView: sealed status from scoped-secret NAMES present / OAuth health; statusKnown=false when vault unreadable); GET /api/connectors (library+vaultView names-only+oauthHealth), GET /api/vault/audit, POST /api/connectors/[id]/revoke; src/app/connectors/page.tsx + ConnectorsPanel.tsx (Vault-sealed marquee, auth/action/mutating/trigger chips, scoped-secret present/missing chips by NAME, OAuth health + Revoke, vault access log); Sidebar Connectors link (Plug). No secret VALUE on any path." },
+    "test": { "status": "passed", "detail": "connectors-view (6: api_key all-present sealed / partial not-sealed, no-value-leak, oauth valid/expired/revoked, counts, locked->unknown, non-connector ignored). typecheck + eslint clean.", "command": "npx vitest run tests/connectors-view.test.ts" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 2, "detail": "R1 (high): a locked/unreadable vault rendered as 'all secrets missing / not connected' -> added statusKnown tri-state (route flags vault.locked; UI shows 'Status unknown' + banner, gates detail). R2: approve — honest unknown state, no value leakage.", "artifacts": ["codex-review-C6.json", "codex-review-C6-r2.json"] },
+    "codexPwTest": { "status": "deferred", "detail": "Z1 shows the Vault-sealed Google connector" },
+    "designAudit": { "status": "deferred", "detail": "recorded in Z1 walkthrough" },
+    "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["src/lib/connectors-view.ts", "src/app/api/connectors/route.ts", "src/app/api/vault/audit/route.ts", "src/app/api/connectors/[id]/revoke/route.ts", "src/app/connectors/page.tsx", "src/components/connectors/ConnectorsPanel.tsx", "src/components/chrome/Sidebar.tsx", "tests/connectors-view.test.ts"]
+}

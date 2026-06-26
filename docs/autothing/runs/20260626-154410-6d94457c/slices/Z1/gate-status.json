@@ -1,0 +1,14 @@
+{
+  "slice": "Z1", "title": "End-to-end proof: Discuss-authored automation, Vault-sealed Google email, self-heal, no leak", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "tests/z1-end-to-end.test.ts exercises the REAL chain: keychain-sealed vault (no passphrase) -> scopedSecrets delivers ONLY GOOGLE_ACCESS_TOKEN -> REAL google connector.mjs runAction sends gmail (token reaches the Authorization header) -> REAL automation engine drives a REAL chromium (reads the doc heading 'Q3 Report') -> injected recoverable failure -> REAL fixer self-heal (run_patch) -> verify -> completed. Discuss kickoff (H1) is the authoring entry. Walkthrough: evidence/z1-walkthrough.gif (asciinema of the proof + full suite)." },
+    "test": { "status": "passed", "detail": "z1-end-to-end passes; redaction proof is MEANINGFUL — a connector result deliberately carries the token, and the test asserts the engine scrubbed it to ***REDACTED*** in BOTH the persisted record AND the SSE events while the raw token is absent from record/events/logs/vault-file. Full suite 1366 passed.", "command": "npx vitest run tests/z1-end-to-end.test.ts" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 2, "detail": "R1 (high): no-leak check was false-green (token never serialized pre-redaction) -> probe injects a token-bearing result + asserts active scrubbing; (medium) over-claimed real connector path -> prose narrowed (backend route+spawn covered separately). R2: APPROVE — redaction proof meaningful, claims match exercised path.", "artifacts": ["codex-review-Z1.json", "codex-review-Z1-r2.json"] },
+    "codexPwTest": { "status": "n/a", "detail": "vision/operative-bound; the live browser I/O is exercised against real chromium in-test" },
+    "designAudit": { "status": "n/a" },
+    "walkthrough": { "status": "verified", "detail": "evidence/z1-walkthrough.gif + .cast — shows the Z1 proof passing + the full feature suite green; the assertions ARE the self-verification", "artifact": "evidence/z1-walkthrough.gif" }
+  },
+  "files": ["tests/z1-end-to-end.test.ts", "docs/autothing/runs/20260626-154410-6d94457c/evidence/z1-walkthrough.gif"]
+}

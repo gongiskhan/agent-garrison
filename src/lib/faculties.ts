@@ -191,6 +191,21 @@ export const faculties: FacultyDefinition[] = [
     notes:
       "Keep parallel work sessions out of each other's way — claim files, plan before touching shared structure, and pass messages between sessions.",
     tier: "dev"
+  },
+  {
+    id: "connectors",
+    order: 17,
+    name: "Connectors",
+    // 2026-06-26: authenticated, reusable connections to the external services
+    // the operative acts on. Multi (many services coexist); agent-tier (a base
+    // operative reaches out to Slack/Google/Trello). A new faculty because no
+    // existing role is "a connected service with a callable action catalog +
+    // Vault-sealed auth + triggers"; it absorbs the dropped data-source case.
+    cardinality: "multi",
+    shapes: ["cli", "cli-skill", "script", "plugin", "mcp"],
+    notes:
+      "Authenticated connections to external services (Slack, Google, Trello, …) — each a Fitting exposing a discoverable action catalog with Vault-sealed credentials and optional webhook/listener triggers.",
+    tier: "agent"
   }
 ];
 
@@ -261,6 +276,10 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   coordination: {
     role: "Keeps parallel work sessions out of each other's way.",
     fit: "Claim files, plan before touching shared structure, and pass messages between sessions."
+  },
+  connectors: {
+    role: "Connects the operative to the external services it can act on.",
+    fit: "Each connector is a Fitting for one service — a catalog of callable actions, Vault-sealed credentials, and optional webhook/listener triggers. Trello, Google, Slack, and Deepgram ship as seeds; the long tail installs from the Armory."
   }
 };
 

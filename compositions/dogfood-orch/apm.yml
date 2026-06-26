@@ -3,7 +3,6 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
-    - path: ../../fittings/seed/artifact-store
     - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/documents
@@ -105,10 +104,6 @@ x-garrison:
       orchestrator:
         - id: garrison-orchestrator
           config: {}
-      artifact-store:
-        - id: artifact-store
-          config:
-            storage_root: artifacts
       sessions:
         - id: dev-env
           config:

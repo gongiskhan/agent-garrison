@@ -37,16 +37,16 @@ describe("capability resolver", () => {
     }
   });
 
-  it("a provider with no consumer resolves ok (unconsumed data-source)", () => {
+  it("a provider with no consumer resolves ok (unconsumed connector)", () => {
     const result = resolveCapabilities([
-      fitting("trello-data-source", {
-        provides: [{ kind: "data-source", name: "trello" }],
+      fitting("trello", {
+        provides: [{ kind: "connector", name: "trello" }],
         consumes: [{ kind: "vault", cardinality: "one" }]
       })
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.graph.providers.has("data-source:trello")).toBe(true);
+      expect(result.graph.providers.has("connector:trello")).toBe(true);
     }
   });
 

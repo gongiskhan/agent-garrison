@@ -1,0 +1,16 @@
+{
+  "slice": "C5", "title": "Migrate 3 consumers data-source->connector; drop data-source kind", "kind": "mixed",
+  "sharedStructure": true, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "removed data-source from capabilityKinds (types.ts) + data-sources alias (metadata.ts) + data-source icon (Sidebar.tsx, Database import dropped); migrated knowledge/morning-briefing/personal-operative consumes -> connector; updated fixtures (capabilities/runner-capabilities-block/runner-prompt-substitution), removed the data-sources alias test (metadata.test); CAPABILITIES.md/METADATA.md/FACULTIES.md mark data-source dropped. Historical narrative docs (conversations/phases/DECISIONS/EXPLAINED/handoffs/old FLOW_PLAN) left as point-in-time records." },
+    "test": {
+      "status": "passed",
+      "detail": "73 across capabilities/runner-capabilities-block/runner-prompt-substitution/metadata/docs-consistency/seed; full suite zero new failures vs the 5 pre-existing; grep confirms no live data-source usage (src refs are comments only; no manifest uses it). typecheck clean.",
+      "command": "npm run typecheck && npm test"
+    },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "skipped", "detail": "mechanical shared-structure deletion+migration; no novel logic (connector logic already codex-approved in C1-C4); gated by the deterministic resolver/metadata/docs-consistency suite + a grep proof of no live data-source. Logged per the no-silent-caps calibration." },
+    "codexPwTest": { "status": "n/a" }, "designAudit": { "status": "n/a" }, "walkthrough": { "status": "n/a" }
+  },
+  "files": ["src/lib/types.ts", "src/lib/metadata.ts", "src/components/chrome/Sidebar.tsx", "fittings/seed/knowledge/apm.yml", "fittings/seed/morning-briefing/apm.yml", "fittings/seed/personal-operative/apm.yml", "tests/capabilities.test.ts", "tests/runner-capabilities-block.test.ts", "tests/runner-prompt-substitution.test.ts", "tests/metadata.test.ts", "docs/CAPABILITIES.md", "docs/METADATA.md", "docs/FACULTIES.md"]
+}

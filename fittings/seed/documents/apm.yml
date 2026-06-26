@@ -42,9 +42,7 @@ x-garrison:
   provides:
     - kind: agent-skill
       name: project-documents
-  consumes:
-    - kind: artifact-store
-      cardinality: one
+  consumes: []
   setup:
     command: bash scripts/setup.sh
     idempotent: true

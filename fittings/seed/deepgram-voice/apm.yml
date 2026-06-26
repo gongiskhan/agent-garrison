@@ -5,13 +5,13 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: channels
+  faculty: connectors
   cardinality_hint: single
   own_port: true
   default_port: 7085
   component_shape: plugin
   platforms:
-    - claude-code
+    - all
   summary: Deepgram-backed speech I/O. POST audio to /stt for a transcript; POST text to /tts for spoken audio. The Deepgram key is read from the vault (DEEPGRAM_API_KEY) and never leaves the host.
   config_schema:
     - key: port
@@ -30,8 +30,29 @@ x-garrison:
       type: string
       default: aura-asteria-en
       description: Deepgram text-to-speech voice used by /tts.
+  connector:
+    auth: api_key
+    actions:
+      - name: transcribe
+        args:
+          - audio_base64
+          - path
+          - mime_type
+          - model
+        mutates: false
+        description: Speech-to-text — transcribe audio.
+      - name: synthesize
+        args:
+          - text
+          - model
+        mutates: false
+        description: Text-to-speech — returns base64 audio.
+  secret_scope:
+    - DEEPGRAM_API_KEY
   provides:
     - kind: voice
+      name: deepgram
+    - kind: connector
       name: deepgram
   consumes:
     - kind: vault

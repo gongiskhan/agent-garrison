@@ -109,7 +109,7 @@ describe("improver-nightly.mjs", () => {
     const record = JSON.parse(result.stdout);
     expect(record.status).toBe("completed");
     expect(record.artifact.mode).toBe("artifact-compatible-fallback");
-    expect(record.artifact.uri).toMatch(/^garrison:\/\/artifacts\//);
+    expect(record.artifact.uri).toMatch(/^file:\/\//);
 
     const proposal = await fs.readFile(record.artifact.path, "utf8");
     expect(proposal).toContain("# Improver Proposal");

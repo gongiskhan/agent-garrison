@@ -1,0 +1,10 @@
+{
+  "name": "garrison-automations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Automations engine fitting for Agent Garrison.",
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

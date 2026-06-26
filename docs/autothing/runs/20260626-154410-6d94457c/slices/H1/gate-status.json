@@ -1,0 +1,13 @@
+{
+  "slice": "H1", "title": "Chat-to-build authoring (discuss-automation skill, reuses Kanban Discuss handoff)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "lib/discuss.mjs (slugify + buildAutomationKickoff james-mode + buildAutomationDiscussUrl base64 context+kickoff, reusing the verified Kanban Discuss->web-channel handoff); GET /api/automations/discuss-url; run-viewer '+ Discuss an automation' button -> window.open the web-channel; discuss-automation skill fitting (apm.yml type:skill, SKILL.md, install-skill.sh + verify.sh resolving COMPOSITION_DIR from $0)." },
+    "test": { "status": "passed", "detail": "automations-discuss (3: slugify, james-mode kickoff -> brief path, discuss URL decodes to source=automations + james mode). validate 4/4. Functional path-resolution test: setup+verify both land the skill at <composition>/.claude/skills/discuss-automation/SKILL.md. typecheck clean.", "command": "npx vitest run tests/automations-discuss.test.ts" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 1, "detail": "R1 (high): install/verify used a cwd-relative .claude/skills (self-consistent but wrong target) -> rewrote both to resolve COMPOSITION_DIR from $0 and target <composition>/.claude/skills absolutely; functionally proven in a simulated apm_modules/_local layout. Agreed + fixed.", "artifacts": ["codex-review-H1.json"] },
+    "codexPwTest": { "status": "deferred", "detail": "Z1 authors the example automation via Discuss" },
+    "designAudit": { "status": "deferred", "detail": "Z1" }, "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["fittings/seed/automations/lib/discuss.mjs", "fittings/seed/automations/scripts/server.mjs", "fittings/seed/automations/dist/index.html", "fittings/seed/discuss-automation/apm.yml", "fittings/seed/discuss-automation/.apm/skills/discuss-automation/SKILL.md", "fittings/seed/discuss-automation/scripts/install-skill.sh", "fittings/seed/discuss-automation/scripts/verify.sh", "tests/automations-discuss.test.ts"]
+}

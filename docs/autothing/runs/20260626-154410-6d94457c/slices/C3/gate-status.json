@@ -1,0 +1,12 @@
+{
+  "slice": "C3", "title": "Deepgram dual connector (voice + connector)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "deepgram-voice faculty channels->connectors, dual provides voice+connector, connector block (transcribe/synthesize) + secret_scope [DEEPGRAM_API_KEY], connector.mjs (Deepgram listen/speak API); id kept (live own-port voice service consumed by web-channel)" },
+    "test": { "status": "passed", "detail": "connector-deepgram.test (3) + seed dual assertion; validate 4/4; typecheck clean" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 1, "detail": "reviewed with C4; clean approve", "artifacts": ["codex-review-C3C4.json"] },
+    "codexPwTest": { "status": "n/a" }, "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred" }
+  },
+  "files": ["fittings/seed/deepgram-voice/apm.yml", "fittings/seed/deepgram-voice/scripts/connector.mjs", "tests/connector-deepgram.test.ts", "tests/seed.test.ts"]
+}

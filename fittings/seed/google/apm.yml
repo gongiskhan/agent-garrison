@@ -1,0 +1,74 @@
+name: google
+version: 0.1.0
+description: Google Workspace connector seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: connectors
+  cardinality_hint: multi
+  component_shape: cli
+  platforms:
+    - all
+  summary: Google Workspace connector — Gmail send, Drive list, and Calendar create/list as a callable action catalog over Google's REST APIs. OAuth2 is sealed in the keychain Vault; the engine injects a freshly-refreshed access token per call. No token.json on disk, nothing plaintext in the manifest or logs.
+  config_schema: []
+  connector:
+    auth: oauth2
+    actions:
+      - name: gmail.send
+        args:
+          - to
+          - subject
+          - body
+          - cc
+          - attachments
+        mutates: true
+        description: Send an email (optionally with attachments) via Gmail.
+      - name: drive.list
+        args:
+          - query
+          - page_size
+        mutates: false
+        description: List Drive files, most-recently-modified first.
+      - name: calendar.create_event
+        args:
+          - summary
+          - start
+          - end
+          - calendar_id
+        mutates: true
+        description: Create a calendar event.
+      - name: calendar.list_events
+        args:
+          - calendar_id
+          - time_min
+          - max
+        mutates: false
+        description: List upcoming calendar events.
+  provides:
+    - kind: connector
+      name: google
+  consumes:
+    - kind: vault
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: node apm_modules/_local/google/scripts/connector.mjs --probe
+    expect: connectorOk
+    timeout_ms: 15000
+  for_consumers: |
+    Google Workspace is an OAuth2 connector. Call a catalog action; the engine
+    resolves a fresh access token from the Vault and injects it
+    (GOOGLE_ACCESS_TOKEN) only into the call. The token is never displayed or
+    logged.
+
+      node apm_modules/_local/google/scripts/connector.mjs catalog
+      node .../connector.mjs call gmail.send '{"to":"a@b.com","subject":"Report","body":"see attached","attachments":[{"filename":"report.pdf","mime_type":"application/pdf","path":"/abs/report.pdf"}]}'
+      node .../connector.mjs call drive.list '{"query":"name contains '\''Q3'\''"}'
+      node .../connector.mjs call calendar.create_event '{"summary":"Sync","start":"2026-07-01T09:00:00Z","end":"2026-07-01T09:30:00Z"}'
+
+    Each call prints { ok, result } (or { ok:false, awaiting_connector:true }
+    when Google is not connected — prompt the user to connect it).

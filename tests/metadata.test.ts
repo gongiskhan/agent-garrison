@@ -66,26 +66,9 @@ describe("x-garrison metadata", () => {
     }
   });
 
-  it("folds the deprecated data-sources faculty into memory", () => {
-    const warn = console.warn;
-    const calls: unknown[] = [];
-    console.warn = (...args: unknown[]) => calls.push(args);
-    try {
-      const metadata = parseGarrisonMetadata({
-        faculty: "data-sources",
-        cardinality_hint: "multi",
-        component_shape: "cli",
-        platforms: ["claude-code"],
-        provides: [{ kind: "data-source", name: "trello" }],
-        verify: { command: "echo ok", expect: "ok" }
-      });
-      expect(metadata.faculty).toBe("memory");
-      expect(metadata.provides).toContainEqual({ kind: "data-source", name: "trello" });
-      expect(calls.length).toBeGreaterThan(0);
-    } finally {
-      console.warn = warn;
-    }
-  });
+  // (The deprecated `data-sources` faculty alias + the `data-source` kind were
+  // dropped 2026-06-26 — superseded by the `connectors` faculty + `connector`
+  // kind. Trello is now the `trello` connector. See connector-*.test.ts.)
 
   it("folds a deprecated own-port faculty into its role (terminal -> sessions)", () => {
     const warn = console.warn;

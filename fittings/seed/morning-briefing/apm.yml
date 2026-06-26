@@ -28,7 +28,7 @@ x-garrison:
     - kind: channel
       name: slack
       cardinality: one
-    - kind: data-source
+    - kind: connector
       name: trello
       cardinality: optional-one
     - kind: automation-runner

@@ -13,18 +13,19 @@ const SEED_DIR = path.resolve(__dirname, "..", "fittings", "seed");
 // parse against the shrunk schema. trello-data-source was revived 2026-06-10
 // under the memory role (the data-source kind came back with it).
 const seedIds = [
-  "memory",
-  "trello-data-source",
+  "basic-memory",
+  "trello",
+  "google",
   "http-gateway",
   "slack-channel",
   "web-channel-default",
   "deepgram-voice",
-  "artifact-store",
   "dev-env",
   "screen-share-default",
   "outpost-tailscale-host",
   "monitor-default",
   "browser-default",
+  "file-browser",
   "garrison-orchestrator"
 ] as const;
 
@@ -47,20 +48,24 @@ describe("seed Fittings", () => {
     }
   });
 
-  it("memory provides memory-store and optionally consumes vault", async () => {
-    const metadata = await loadSeed("memory");
+  it("basic-memory provides memory-store and optionally consumes vault", async () => {
+    const metadata = await loadSeed("basic-memory");
     expect(metadata.faculty).toBe("memory");
-    expect(metadata.provides).toContainEqual({ kind: "memory-store", name: "garrison-memory" });
+    expect(metadata.provides).toContainEqual({ kind: "memory-store", name: "basic-memory" });
     expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "optional-one" });
   });
 
-  it("trello-data-source rejoins the memory role with its Trello-backed derived Tasks", async () => {
-    const metadata = await loadSeed("trello-data-source");
-    expect(metadata.faculty).toBe("memory");
+  it("trello is a Vault-sealed connector with an action catalog and no derived-tasks wiring", async () => {
+    const metadata = await loadSeed("trello");
+    expect(metadata.faculty).toBe("connectors");
     expect(metadata.component_shape).toBe("cli");
-    expect(metadata.provides).toContainEqual({ kind: "data-source", name: "trello" });
+    expect(metadata.provides).toContainEqual({ kind: "connector", name: "trello" });
     expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
-    expect(metadata.tasks).toEqual({ source: "trello", truth_file: "tasks/trello.md" });
+    expect(metadata.connector?.auth).toBe("api_key");
+    expect(metadata.connector?.actions.map((a) => a.name)).toContain("create_card");
+    expect(metadata.secret_scope).toContain("TRELLO_KEY");
+    // Derived Tasks disconnected (F4) — the connector no longer declares tasks.
+    expect(metadata.tasks).toBeUndefined();
   });
 
   it("web-channel-default folds into the channels role and provides channel:web", async () => {
@@ -71,11 +76,14 @@ describe("seed Fittings", () => {
     expect(metadata.consumes).toContainEqual({ kind: "voice", cardinality: "optional-one" });
   });
 
-  it("deepgram-voice folds into the channels role and provides voice:deepgram", async () => {
+  it("deepgram is a dual connector — connectors role, provides voice + connector", async () => {
     const metadata = await loadSeed("deepgram-voice");
-    expect(metadata.faculty).toBe("channels");
+    expect(metadata.faculty).toBe("connectors");
     expect(metadata.own_port).toBe(true);
     expect(metadata.provides).toContainEqual({ kind: "voice", name: "deepgram" });
+    expect(metadata.provides).toContainEqual({ kind: "connector", name: "deepgram" });
+    expect(metadata.connector?.actions.map((a) => a.name)).toContain("transcribe");
+    expect(metadata.secret_scope).toContain("DEEPGRAM_API_KEY");
     expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
   });
 

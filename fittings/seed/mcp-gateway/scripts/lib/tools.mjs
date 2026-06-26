@@ -3,10 +3,52 @@
 // GARRISON_COMPOSITION_DIR must be set before importing this module.
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
+
+// ── Automations engine tools (own-port REST) ────────────────────────────────
+// The automations fitting registers its live URL in ~/.garrison/ui-fittings/
+// automations.json. These tools let the Operative list + run automations as a
+// tool (E5 — provides automation-runner to the operative via MCP).
+function automationsBaseUrl() {
+  try {
+    const home = process.env.GARRISON_HOME ?? path.join(os.homedir(), ".garrison");
+    const status = JSON.parse(readFileSync(path.join(home, "ui-fittings", "automations.json"), "utf8"));
+    return status.url || null;
+  } catch {
+    return null;
+  }
+}
+
+export function automationsAvailable() {
+  return automationsBaseUrl() !== null;
+}
+
+export async function callListAutomations() {
+  const base = automationsBaseUrl();
+  if (!base) throw new Error("automations engine not running");
+  const res = await fetch(`${base}/api/automations`);
+  if (!res.ok) throw new Error(`automations ${res.status}`);
+  const { automations } = await res.json();
+  return (automations ?? []).map((a) => ({ id: a.id, name: a.name, steps: a.steps?.length ?? 0, trigger: a.trigger?.type }));
+}
+
+export async function callRunAutomation(input) {
+  const base = automationsBaseUrl();
+  if (!base) throw new Error("automations engine not running");
+  if (!input?.id) throw new Error("id is required");
+  const res = await fetch(`${base}/api/automations/${encodeURIComponent(input.id)}/run?sync=1`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ inputs: input.inputs ?? {}, triggeredBy: "agent" })
+  });
+  if (!res.ok) throw new Error(`run ${res.status}`);
+  const { run } = await res.json();
+  return { runId: run.id, status: run.status, steps: run.steps?.map((s) => ({ type: s.type, status: s.status })) ?? [] };
+}
 
 function resolveScript(fittingId, scriptName) {
   return path.join(COMPOSITION_DIR, "apm_modules", "_local", fittingId, "scripts", scriptName);

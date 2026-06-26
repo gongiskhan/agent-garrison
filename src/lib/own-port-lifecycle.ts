@@ -7,7 +7,8 @@ import { garrisonDir } from "./claude-home";
 import { ROOT_DIR } from "./paths";
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
-import { readVaultSecrets } from "./vault";
+import { scopedSecrets } from "./vault";
+import { recordVaultAccess } from "./vault-audit";
 import type { LibraryEntry } from "./types";
 
 // The lifecycle-managed env keys whose drift triggers a heal. Adding a key here
@@ -127,8 +128,21 @@ export function isOperativeBound(entry: LibraryEntry): boolean {
 export async function vaultEnvForEntry(entry: LibraryEntry): Promise<Record<string, string>> {
   const consumesVault = entry.metadata.consumes.some((c) => c.kind === "vault");
   if (!consumesVault) return {};
+  const scope = entry.metadata.secret_scope;
+  if (!scope || scope.length === 0) {
+    // Fail-closed (A2): per-connector scoping requires an explicit secret_scope.
+    // A vault consumer that declares none receives NO secrets — never the whole
+    // vault. Audited so the denied (unscoped) delivery is visible.
+    console.warn(
+      `[garrison] ${entry.id} consumes vault but declares no x-garrison.secret_scope; delivering no secrets.`
+    );
+    await recordVaultAccess({ connector: entry.id, secrets: [], action: "denied", outcome: "denied", detail: "no-secret-scope" });
+    return {};
+  }
   try {
-    const secrets = await readVaultSecrets();
+    // Deliver ONLY the secrets the Fitting declared in its scope.
+    const secrets = await scopedSecrets(scope);
+    await recordVaultAccess({ connector: entry.id, secrets: secrets.map((s) => s.key), action: "deliver", outcome: "ok" });
     return Object.fromEntries(secrets.map((s) => [s.key, s.value]));
   } catch {
     return {};

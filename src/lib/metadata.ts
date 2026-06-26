@@ -62,6 +62,29 @@ export const setupStepSchema = z.object({
   label: z.string().trim().min(1).optional()
 });
 
+const connectorActionSchema = z.object({
+  name: z.string().min(1),
+  args: z.array(z.string()).optional(),
+  mutates: z.boolean().optional(),
+  description: z.string().optional()
+});
+
+const connectorTriggerSchema = z.object({
+  type: z.enum(["webhook", "listener"]),
+  event: z.string().optional(),
+  cron: z.string().optional(),
+  description: z.string().optional()
+});
+
+// The connector sub-block (kind:connector Fittings). Auth names HOW the
+// credential is obtained; the credential itself is sealed in the Vault, never
+// inlined here.
+const connectorSpecSchema = z.object({
+  auth: z.enum(["oauth2", "api_key", "none"]),
+  actions: z.array(connectorActionSchema).default([]),
+  triggers: z.array(connectorTriggerSchema).optional()
+});
+
 const spawnConfigSchema = z.object({
   preset: z.enum(["claude_code", "none"]).default("claude_code"),
   allowed_tools: z.array(z.string()).optional(),
@@ -128,14 +151,17 @@ export const garrisonMetadataSchema = z.object({
   spawn: spawnConfigSchema.optional(),
   own_port: z.boolean().optional(),
   default_port: z.number().int().positive().optional(),
-  lifecycle: z.enum(["operative-bound", "detached"]).optional()
+  lifecycle: z.enum(["operative-bound", "detached"]).optional(),
+  connector: connectorSpecSchema.optional(),
+  secret_scope: z.array(z.string().min(1)).optional()
 });
 
 // Legacy faculty names fold into the role faculties (the Quarters pivot). The
 // own-port residue keeps working — its Fittings just declare a role faculty + the
 // own_port flag. Parked config-projection faculties (heartbeat/scheduler/skills/…)
 // are not aliased; their Fittings are de-listed from the library and never parsed.
-// Exception: data-sources folds into memory (trello-data-source revived 2026-06-10).
+// (The `data-sources` alias + `data-source` kind were dropped 2026-06-26 —
+// Trello moved to the `trello` connector under the `connectors` faculty.)
 const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
   terminal: "sessions",
   // screen-share / browser / outposts split out of sessions into the new
@@ -145,12 +171,10 @@ const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
   "session-view": "sessions",
   outposts: "surfaces",
   browser: "surfaces",
-  "artifact-store": "sessions",
   "web-channel": "channels",
   voice: "channels",
   monitor: "observability",
-  "testing-framework": "sessions",
-  "data-sources": "memory"
+  "testing-framework": "sessions"
 };
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {

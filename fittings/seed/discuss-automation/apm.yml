@@ -1,0 +1,35 @@
+name: discuss-automation
+version: 0.1.0
+description: Chat-to-build authoring skill for Garrison automations.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: building
+  cardinality_hint: multi
+  component_shape: skill
+  platforms:
+    - all
+  summary: The "Discuss an automation" skill — opens a James conversation ("What would you like to automate?"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/<slug>.md, then drives the Router-routed planner to turn the brief into reviewable, editable steps. Reuses the Kanban Discuss -> web-channel handoff; the plain-English goal box is replaced by this flow.
+  config_schema: []
+  provides: []
+  consumes:
+    - kind: automation-runner
+      cardinality: optional-one
+  setup:
+    command: bash scripts/install-skill.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: bash apm_modules/_local/discuss-automation/scripts/verify.sh
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    To author an automation by conversation, invoke "Discuss an automation":
+    open the web-channel in James mode with the kickoff "What would you like to
+    automate?" (the Automations view's Discuss button builds the URL via
+    lib/discuss.mjs). Ask the user the clarifying questions, then write the brief
+    to ~/.garrison/automations/briefs/<slug>.md. Hand it to the planner:
+      POST <automations>/api/automations/plan-from-brief { briefSlug, name }
+    which routes the brief through the Model Router into steps, saves the
+    automation, and returns it for review. Steps remain hand-editable after.

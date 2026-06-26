@@ -1,0 +1,12 @@
+{
+  "slice": "C4", "title": "Slack dual (channel + connector)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "slack-channel keeps channel + adds provides connector:slack, connector block (send_message/list_channels + app_mention webhook trigger) + secret_scope [SLACK_BOT_TOKEN], connector.mjs (Slack Web API, handles HTTP-200 ok:false)" },
+    "test": { "status": "passed", "detail": "connector-slack.test (4) incl. logical-error + awaiting_connector; validate 4/4; typecheck clean" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 1, "detail": "reviewed with C3; clean approve", "artifacts": ["codex-review-C3C4.json"] },
+    "codexPwTest": { "status": "n/a" }, "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred" }
+  },
+  "files": ["fittings/seed/slack-channel/apm.yml", "fittings/seed/slack-channel/scripts/connector.mjs", "tests/connector-slack.test.ts"]
+}

@@ -24,9 +24,9 @@ import {
   Archive,
   Radio,
   Brain,
-  Database,
   Cpu,
   Network,
+  Plug,
   type LucideIcon
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
@@ -161,6 +161,13 @@ export function Sidebar() {
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
         <NavLink
+          href="/connectors"
+          pathname={pathname}
+          icon={<Plug aria-hidden />}
+          label="Connectors"
+          active={pathname === "/connectors" || pathname.startsWith("/connectors")}
+        />
+        <NavLink
           href="/quarters"
           pathname={pathname}
           icon={<LayoutGrid aria-hidden />}
@@ -243,7 +250,7 @@ function useIsMobileViewport(): boolean {
 // file: exact id first (most meaningful), then the capability kind it
 // provides, then its Faculty role, then a generic embedded/own-port fallback.
 const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
-  "artifact-store": Archive,
+  "file-browser": Archive,
   "browser-default": Globe,
   "dev-env": SquareTerminal,
   improver: Sparkles,
@@ -257,7 +264,6 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
 };
 
 const VIEW_ICON_BY_KIND: Partial<Record<CapabilityKind, LucideIcon>> = {
-  "artifact-store": Archive,
   "dev-env": SquareTerminal,
   "screen-share": ScreenShare,
   monitor: Activity,
@@ -265,7 +271,7 @@ const VIEW_ICON_BY_KIND: Partial<Record<CapabilityKind, LucideIcon>> = {
   channel: MessagesSquare,
   outpost: Radio,
   "memory-store": Brain,
-  "data-source": Database,
+  connector: Plug,
   runtime: Cpu,
   "automation-runner": Sparkles,
   view: LayoutGrid
@@ -278,7 +284,8 @@ const VIEW_ICON_BY_FACULTY: Partial<Record<FacultyId, LucideIcon>> = {
   observability: Activity,
   runtimes: Cpu,
   memory: Brain,
-  gateway: Network
+  gateway: Network,
+  connectors: Plug
 };
 
 function viewIcon(entry: LibraryEntry, ownPort: boolean): LucideIcon {

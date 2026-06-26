@@ -10,7 +10,7 @@ function entry(id: string, faculty: string): LibraryEntry {
 
 const entries = [
   entry("dev-env", "sessions"),
-  entry("artifact-store", "sessions"),
+  entry("file-browser", "sessions"),
   entry("codex-runtime", "runtimes"),
   entry("gemini-runtime", "runtimes"),
   entry("browser-default", "surfaces"),
@@ -22,7 +22,7 @@ describe("composition faculty migration (2026-06-18 sessions split)", () => {
     const stored: FittingSelectionMap = {
       sessions: [
         { id: "dev-env", config: { port: 7086 } },
-        { id: "artifact-store", config: {} },
+        { id: "file-browser", config: {} },
         { id: "codex-runtime", config: {} },
         { id: "gemini-runtime", config: {} },
         { id: "browser-default", config: { port: 7084 } },
@@ -30,7 +30,7 @@ describe("composition faculty migration (2026-06-18 sessions split)", () => {
       ]
     };
     const out = migrateSelectionsByFaculty(stored, entries);
-    expect(out.sessions?.map((s) => s.id).sort()).toEqual(["artifact-store", "dev-env"]);
+    expect(out.sessions?.map((s) => s.id).sort()).toEqual(["dev-env", "file-browser"]);
     expect(out.runtimes?.map((s) => s.id).sort()).toEqual(["codex-runtime", "gemini-runtime"]);
     expect(out.surfaces?.map((s) => s.id).sort()).toEqual(["browser-default", "screen-share-default"]);
     // config preserved across the move

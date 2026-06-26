@@ -25,7 +25,7 @@ x-garrison:
     - kind: memory-store
       name: knowledge
   consumes:
-    - kind: data-source
+    - kind: connector
       cardinality: any
   setup:
     command: echo knowledge-ready

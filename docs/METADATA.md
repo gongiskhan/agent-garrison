@@ -100,7 +100,7 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `data-source`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `mcp-gateway`; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer). Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
+| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `connector`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `mcp-gateway`; `data-source` dropped 2026-06-26 — superseded by `connector`; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer); `connector` added 2026-06-26 for the Connectors faculty — a connected service with a callable action catalog + Vault-sealed auth, more general than `data-source`. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):
@@ -161,6 +161,19 @@ ui:
 
 A `console.warn` is emitted on rewrite. v1 manifests keep working
 unchanged at the rendering layer.
+
+Connector schema (`connector`, for Fittings that provide `kind: connector`):
+
+| Field | Type | Required | Notes |
+|---|---:|---:|---|
+| `auth` | enum | yes | `oauth2`, `api_key`, or `none`. Names HOW the credential is obtained; the credential itself is sealed in the Vault and never inlined here. |
+| `actions` | array | no | The action catalog. Each entry: `name` (the callable action, e.g. `gmail.send`), optional `args` (templated argument names), optional `mutates` (true for write actions), optional `description`. |
+| `triggers` | array | no | Inbound triggers. Each entry: `type` (`webhook` routed through the Gateway, or `listener` polled by the Scheduler daemon), optional `event`, optional `cron` (listener cadence), optional `description`. |
+
+`secret_scope` (top-level, array of strings, optional): the named Vault secrets
+this Fitting is permitted to read. This is what makes per-connector scoping real —
+vault materialization delivers ONLY these named secrets to the Fitting's process,
+replacing the historical all-or-nothing delivery to any `kind: vault` consumer.
 
 Tasks schema:
 

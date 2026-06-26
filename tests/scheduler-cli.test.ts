@@ -69,6 +69,15 @@ describe("scheduler.mjs CLI", () => {
     await expect(fs.stat(env.MARKER_PATH)).rejects.toThrow();
   });
 
+  it("does not cron-fire a listener job via tick (it is supervised separately)", async () => {
+    const command = "node -e \"require('fs').writeFileSync(process.env.MARKER_PATH, 'ran')\"";
+    await runScheduler(["register", "poller", "* * * * *", "--type", "listener", "--", command], env);
+    const tick = await runScheduler(["tick"], env);
+    expect(tick.exitCode).toBe(0);
+    expect(JSON.parse(tick.stdout).ran).toEqual([]);
+    await expect(fs.stat(env.MARKER_PATH)).rejects.toThrow();
+  });
+
   it("enable allows a registered job to run, and later register preserves that choice", async () => {
     const command = "node -e \"require('fs').writeFileSync(process.env.MARKER_PATH, 'ran')\"";
     await runScheduler(["register", "improver-nightly", "* * * * *", "--disabled", "--", command], env);

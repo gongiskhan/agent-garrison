@@ -19,9 +19,9 @@ bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
   of `sessions` on 2026-06-18.
 - **memory** — within-session and cross-session recall; a plain-markdown
   Obsidian vault indexed into a local SQLite knowledge graph (Basic Memory),
-  with write/search/read tools shared across runtimes. Since 2026-06-10 it also
-  holds external data sources (trello-data-source, revived with the
-  `data-source` capability kind); `data-sources` is a deprecation alias for it.
+  with write/search/read tools shared across runtimes. (External services that
+  were briefly modelled here as `data-source` Fittings moved to the **connectors**
+  faculty on 2026-06-26 — Trello is now the `trello` connector.)
 - **observability** — health, logs, runtime reporting (the read-only Logs view).
 - **sessions** — the working dev session and its records, headlined since the
   2026-06-11 Dev Env consolidation by the **dev-env** Fitting: a tabbed surface
@@ -78,6 +78,24 @@ faculty with an authored description + contract + editable setup instructions) i
 the **Hybrid** model — a few genuinely general units also ship as real
 `fittings/seed/` packages. See
 [`/FITTINGS_MIGRATION_PLAN.md`](../FITTINGS_MIGRATION_PLAN.md).
+
+## Connectors faculty (2026-06-26)
+
+- **connectors** (Agent-tier, multi) — authenticated, reusable connections to the
+  external services the operative acts on. Each connector is a Fitting for one
+  service providing `kind: connector`: a discoverable **action catalog** (each
+  action flagged `mutates` or read-only), a **Vault-sealed** auth method
+  (`oauth2`/`api_key`), and optional **triggers** (a webhook routed through the
+  Gateway, or a polling listener run by the Scheduler daemon). It is a new faculty
+  because no existing role expresses "a connected service with callable actions +
+  sealed auth + triggers", and it **absorbs the read-only `data-source` case** — a
+  connector both reads and acts, and a database (e.g. Supabase) is just another
+  connector. Trello, Google, Slack (dual: also a Channel), and Deepgram ship as
+  seed connectors; the long tail installs from the Armory. The credential each
+  connector reads is named in the Fitting's `secret_scope` so the Vault delivers
+  only that secret to the connector's process. See
+  [`CAPABILITIES.md`](./CAPABILITIES.md) (the `connector` kind) and the
+  Connectors + Automations build brief.
 
 ---
 

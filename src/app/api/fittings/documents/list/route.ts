@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listArtifacts } from "@/lib/artifact-store";
+import { listArtifacts } from "@/lib/document-store";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";

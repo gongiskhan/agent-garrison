@@ -8,7 +8,7 @@ The directory holds more Fittings than the live stack: the 2026-06-07
 Quarters pivot parked the personal-assistant generation (souls,
 `personal-operative`, `loop-heartbeat`, `tier-classifier`, `scheduler`,
 `coding-subagent`, `documents`, `projects-index`, `testing`,
-`mcp-gateway`, `browser-automation`, `google-calendar`,
+`mcp-gateway`,
 `morning-briefing`, `outpost-actions`, `vault-sync`). Those directories
 stay on disk for history but are de-listed from `data/library.json` —
 they carry dropped capability kinds and no longer parse against the

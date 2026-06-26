@@ -9,10 +9,10 @@ import {
 } from "@/lib/fitting-files";
 import { ROOT_DIR } from "@/lib/paths";
 
-const TEST_FITTING_ID = "memory";
+const TEST_FITTING_ID = "basic-memory";
 const TEMP_FILENAME = ".garrison-test-write.tmp";
 const TEMP_RELATIVE = TEMP_FILENAME;
-const TEMP_ABSOLUTE = path.resolve(ROOT_DIR, "fittings/seed/memory", TEMP_FILENAME);
+const TEMP_ABSOLUTE = path.resolve(ROOT_DIR, "fittings/seed/basic-memory", TEMP_FILENAME);
 
 describe("fitting files api", () => {
   beforeAll(async () => {
