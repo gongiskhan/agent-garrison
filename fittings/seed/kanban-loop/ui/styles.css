@@ -421,6 +421,74 @@ body {
 .next-opt input[type="checkbox"] { width: 17px; height: 17px; flex: 0 0 auto; }
 .next-opt span:nth-of-type(1) { flex: 1 1 auto; }
 
+/* list-config: validNext as a removable tag list + an "add" dropdown (the "next
+   action" editor — clearer than a grid of checkboxes). */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 0;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid #B9C4EE;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.tag .tag-label { line-height: 1; }
+.tag .tag-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.tag .tag-x:hover { background: #fff; }
+.tag-add { margin-top: 8px; }
+
+/* list-config: the scheduler-beat schedule builder (cadence + the resulting cron). */
+.sched { display: flex; flex-direction: column; gap: 8px; }
+.sched input[type="number"],
+.sched input[type="time"],
+.sched select,
+.sched-custom {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.sched-cadence { width: 100%; }
+.sched-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.sched-row input[type="number"] { width: 72px; }
+.sched-custom { width: 100%; font-family: var(--mono); }
+.cron-preview { font-size: 12px; color: var(--ink-faint); }
+.cron-preview code { font-family: var(--mono); color: var(--accent); }
+
 .move-list {
   display: flex;
   flex-direction: column;

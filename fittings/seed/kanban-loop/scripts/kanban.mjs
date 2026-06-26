@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards } from "../lib/board.mjs";
 import { processCard, processBatch, getList, triggerFor, isInteractive } from "../lib/engine.mjs";
 import { gatewayRunFn } from "../lib/gateway-client.mjs";
+import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,9 +86,10 @@ export function seedBoard() {
       },
       {
         id: "test", title: "Test", order: 7, kind: "agent", trigger: "scheduler-beat",
-        // Runs on its OWN scheduler beat (default every 5h, configurable), not the
-        // global heartbeat, and is BATCHED per project: one session per project against
-        // one test plan, one verdict per card (FINDING 7 / processBatch).
+        // Runs on its OWN scheduler beat (default every 5h, editable in the list config
+        // as a cron), not the global heartbeat, and is BATCHED per project: one session
+        // per project against one test plan, one verdict per card (FINDING 7 / processBatch).
+        beatCron: "0 */5 * * *",
         skill: "autothing-test", taskType: "code", tier: "T1-standard", mode: "joe", batched: true,
         executePrompt: "Run autothing-test: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice.",
         routerPrompt: "For each card, emit `<cardId> adversarial-test` if green (or already passing), or `<cardId> implement` only if it is genuinely failing.",
@@ -152,27 +154,12 @@ function schedulerCli() {
     || path.resolve(__dirname, "..", "..", "scheduler", "scripts", "scheduler.mjs");
 }
 
-async function registerTestBeat() {
-  // The Test list fires on its own cadence (default every 5h), NOT the global
-  // heartbeat. Register it with the scheduler at setup time (idempotent: remove + add),
-  // mirroring the improver/morning-briefing pattern. Cadence is configurable via
-  // KANBAN_TEST_BEAT_CRON.
-  const cron = process.env.KANBAN_TEST_BEAT_CRON || "0 */5 * * *"; // every 5 hours
-  const cli = schedulerCli();
-  const self = path.resolve(__dirname, "kanban.mjs");
-  const cmd = `node ${self} --tick-list test`;
-  if (!existsSync(cli)) {
-    console.log(`kanban-loop: scheduler CLI not found at ${cli} (skipping Test beat; register manually).`);
-    return;
-  }
-  const { spawnSync } = await import("node:child_process");
-  spawnSync("node", [cli, "remove", "kanban-test-beat"], { stdio: "ignore" });
-  const add = spawnSync("node", [cli, "add", "kanban-test-beat", cron, cmd], { encoding: "utf8" });
-  if (add.status === 0) {
-    console.log(`kanban-loop: registered kanban-test-beat @ '${cron}' -> ${cmd}`);
-  } else {
-    console.log(`kanban-loop: scheduler add failed (non-fatal in dev): ${add.stderr || add.stdout || add.status}`);
-  }
+// Register a scheduler beat for EVERY scheduler-beat list, each on its own `beatCron`
+// (the Test list seeds one; the user can add/edit a beat per list in the list config).
+// Delegates to the shared lib so --setup and PATCH /lists register beats identically.
+async function registerSchedulerBeats() {
+  const board = await loadBoard().catch(() => seedBoard());
+  await syncAllBeats(board);
 }
 
 // Register the IMMEDIATE-list tick (FINDING 1: "a scheduler job ticks it"). Immediate
@@ -209,7 +196,7 @@ async function setup() {
     console.log("kanban-loop: board exists at", boardFile);
   }
   await registerTick();
-  await registerTestBeat();
+  await registerSchedulerBeats();
 }
 
 async function probe() {
@@ -240,7 +227,11 @@ export function batchGatewayRunFn(gatewayUrl) {
     const roster = cards
       .map((c) => `- ${c.id} :: title="${c.title}" runDir=${c.runDir || "(none)"} slice=${c.sliceId || "(none)"}`)
       .join("\n");
+    // Lead with the list's mode so the gateway switches the operative's face (same as
+    // the per-card buildCardPrompt). Inert if the gateway ignores it.
+    const mode = (list?.mode || "").trim();
     const prompt = [
+      ...(mode ? [`${mode}, take on the following batched test run.`, ""] : []),
       `Batched test run for project "${project}". Test ALL of these cards' slices in ONE session against one test plan:`,
       roster,
       "",

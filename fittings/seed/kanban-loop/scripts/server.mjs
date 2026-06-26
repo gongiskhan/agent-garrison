@@ -51,6 +51,8 @@ import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn } from "../lib/gateway-client.mjs";
 import { inferProject } from "../lib/infer-project.mjs";
+import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
+import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
 
 const FITTING_ID = "kanban-loop";
@@ -405,6 +407,22 @@ function cleanScalarField(v) {
   return { value: s };
 }
 
+// A cron field for a scheduler-beat list (the schedule the beat fires on) or null.
+// Validate the SHAPE — a 5-field POSIX cron (min hour dom mon dow), each field built
+// only from cron-legal chars — so a bad value can't register a never-firing/garbage
+// beat; the scheduler does the authoritative parse at fire time. Empty → null.
+function cleanCronField(v) {
+  if (v == null) return { value: null };
+  if (typeof v !== "string") return { error: "must be a cron string or null" };
+  const s = v.trim();
+  if (!s) return { value: null };
+  if (/[\n\r]/.test(s)) return { error: "must be a single line" };
+  const fields = s.split(/\s+/);
+  if (fields.length !== 5) return { error: "must be a 5-field cron expression (min hour day-of-month month day-of-week)" };
+  if (!fields.every((f) => /^[*0-9,\-/]+$/.test(f))) return { error: "contains characters that aren't valid in a cron field" };
+  return { value: s };
+}
+
 // A skill name token: a clean skill id (e.g. autothing-plan, plugin:skill) or
 // null. No whitespace / separators / `..` — it is forwarded to the gateway as a
 // skill hint and must not carry traversal or shell-ish junk.
@@ -438,7 +456,7 @@ const VALID_TRIGGERS = new Set(["immediate", "manual", "scheduler-beat"]);
 const MANUAL_EDITABLE = new Set(["title", "validNext"]);
 // The agent-only fields a manual list must NEVER accept (rejected with a clear
 // error rather than silently ignored, so the UI can't half-configure a column).
-const AGENT_ONLY_FIELDS = ["skill", "executePrompt", "routerPrompt", "trigger", "mode", "taskType", "tier"];
+const AGENT_ONLY_FIELDS = ["skill", "executePrompt", "routerPrompt", "trigger", "beatCron", "mode", "taskType", "tier"];
 
 // applyListConfig — the pure list-config updater. Reads `listId` from `board`,
 // applies ONLY the editable fields PRESENT in `patch`, validates each, and
@@ -519,6 +537,12 @@ export function applyListConfig(board, listId, patch) {
       return { error: `trigger must be one of: ${[...VALID_TRIGGERS].join(", ")}` };
     }
     next.trigger = patch.trigger;
+  }
+
+  if ("beatCron" in patch) {
+    const r = cleanCronField(patch.beatCron);
+    if (r.error) return { error: `beatCron: ${r.error}` };
+    next.beatCron = r.value;
   }
 
   if ("mode" in patch) {
@@ -734,16 +758,35 @@ async function runProjectInference(opts, id, { manual = false } = {}) {
   }
 }
 
-// POST /cards — create a card in Backlog. Body: { title, description?, project?,
-// goalMode?, acceptance? }. A card created WITHOUT a project kicks a visible,
-// fire-and-forget inference (so the attempt shows on the card instead of nothing).
+// Derive a card title from its description when the user left the title blank: the
+// first non-empty line, stripped of leading markdown bullet/heading/quote markers and
+// collapsed to one short line. The user can rename it later — this just gives the card a
+// real, legible name at creation instead of "(untitled)".
+export function deriveTitle(description, max = 80) {
+  const first = String(description ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (!first) return "";
+  const cleaned = first.replace(/^[#>\-*\s]+/, "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.length > max ? cleaned.slice(0, max).trimEnd() + "…" : cleaned;
+}
+
+// POST /cards — create a card in Backlog. Body: { title?, description?, project?,
+// goalMode?, acceptance? }. Title is OPTIONAL: a blank title is inferred from the
+// description's first line (only when BOTH are blank is there nothing to name it by).
+// A card created WITHOUT a project kicks a visible, fire-and-forget project inference
+// (so the attempt shows on the card instead of nothing).
 async function handleCreateCard(req, res, opts) {
   const body = (await readBody(req)) || {};
-  const title = typeof body.title === "string" ? body.title.trim() : "";
-  if (!title) return jsonRes(res, 400, { error: "title required" });
+  const description = typeof body.description === "string" ? body.description : "";
+  const rawTitle = typeof body.title === "string" ? body.title.trim() : "";
+  const title = rawTitle || deriveTitle(description);
+  if (!title) return jsonRes(res, 400, { error: "give the card a title or a description to infer one from" });
   const card = await createCard(opts.root, {
     title,
-    description: typeof body.description === "string" ? body.description : "",
+    description,
     project: typeof body.project === "string" && body.project.trim() ? body.project.trim() : null,
     list: "backlog",
     goalMode: body.goalMode === true,
@@ -1179,6 +1222,7 @@ async function handleGetLists(req, res, opts) {
       order: l.order ?? 0,
       kind: l.kind || "manual",
       trigger: triggerFor(l),
+      beatCron: l.beatCron ?? null,
       interactive: Boolean(isInteractive(l)),
       terminal: Boolean(l.terminal),
       skill: l.skill ?? null,
@@ -1214,7 +1258,33 @@ async function handlePatchList(req, res, opts, listId) {
   const result = await saveBoardCAS(opts.root, expectedRev, (board) => applyListConfig(board, listId, patch));
   if (result.conflict) return jsonRes(res, 409, { error: "board changed under you — reload the list config", rev: result.rev });
   if (result.error) return jsonRes(res, 400, { error: result.error });
+  // If the trigger or schedule changed, (re)register or remove this list's scheduler
+  // beat NOW so a UI edit takes effect immediately — not only at the next --setup.
+  // Fire-and-forget (spawnSync inside): the save already succeeded; don't block the
+  // response on the scheduler CLI.
+  if ("trigger" in patch || "beatCron" in patch) {
+    void syncListBeat(result.list).catch((err) =>
+      console.error(`[kanban-loop] beat sync for ${listId} failed:`, err?.message || err));
+  }
   jsonRes(res, 200, { list: result.list, rev: result.rev });
+}
+
+// GET /projects — the git repos under the dev-root (dev-env parity), for the New Card
+// project picker. Returns { devRoot, projects:[{name,path}] }. Read-only + best-effort:
+// a missing dev-root just yields an empty list (the UI still offers a custom path).
+function handleProjects(req, res) {
+  const devRoot = readDevRoot();
+  let projects = [];
+  try { projects = listProjects(devRoot); } catch { projects = []; }
+  jsonRes(res, 200, { devRoot, projects });
+}
+
+// GET /skills — the skills installed under ~/.claude/skills, for the list-config skill
+// field. Returns { skills:[{name,description}] }. Best-effort (empty when none found).
+function handleSkills(req, res) {
+  let skills = [];
+  try { skills = listSkills(); } catch { skills = []; }
+  jsonRes(res, 200, { skills });
 }
 
 function handleHealth(req, res, opts) {
@@ -1381,6 +1451,8 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
+      if (pathname === "/projects" && method === "GET") return handleProjects(req, res);
+      if (pathname === "/skills" && method === "GET") return handleSkills(req, res);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);
 
       // PATCH /lists/:listId — configure a list. Validate the id (clean kebab,

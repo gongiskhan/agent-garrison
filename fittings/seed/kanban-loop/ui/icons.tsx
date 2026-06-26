@@ -43,6 +43,9 @@ export function ActivityIcon(): JSX.Element {
 export function SparkIcon(): JSX.Element {
   return <svg {...base}><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18" /></svg>;
 }
+export function ChatIcon(): JSX.Element {
+  return <svg {...base}><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>

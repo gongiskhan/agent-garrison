@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garrison · Connectors + Automations — Wireframe</title>
+<style>
+  :root{
+    --paper:#f4f1e8; --paper-2:#efebe0; --card:#fbf9f3; --ink:#1c1b17; --muted:#6f6a5e;
+    --faint:#948f80; --line:#d9d2c1; --line-2:#c8c0ad; --gold:#937f3c; --gold-soft:#a8923f;
+    --running:#3a7d44; --amber:#9a6b12; --amber-bg:#f6edd7; --violet:#5b34b8; --violet-bg:#efe9fb;
+    --cyan:#0d6e86; --cyan-bg:#e0f0f4; --red:#a72121; --red-bg:#f6e4e1; --emerald:#0a6b4e; --emerald-bg:#e0efe6;
+    --blue:#2a5599; --blue-bg:#e4ebf6; --orange:#a85a18; --orange-bg:#f6e9da; --slate:#4b5563; --slate-bg:#e9e7e1;
+    --indigo:#3b3a8f; --indigo-bg:#e7e7f4;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:Georgia,"Iowan Old Style","Times New Roman",serif;line-height:1.5;font-size:16px}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  code,kbd,.k{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:.84em;
+    background:var(--paper-2);border:1px solid var(--line);border-radius:4px;padding:.05em .35em}
+  h1,h2,h3,h4{font-weight:600;line-height:1.15;margin:0}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .lbl{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--gold-soft);font-weight:600}
+  .muted{color:var(--muted)}
+  .faint{color:var(--faint)}
+
+  /* ---- top nav ---- */
+  header.top{position:sticky;top:0;z-index:50;background:rgba(244,241,232,.94);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line);}
+  .top-inner{max-width:1180px;margin:0 auto;padding:10px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:17px}
+  .brand .fence{width:22px;height:18px;display:inline-block}
+  nav.jump{display:flex;gap:2px;flex-wrap:wrap;font-family:"SF Mono",ui-monospace,monospace;font-size:11.5px;
+    letter-spacing:.04em;text-transform:uppercase}
+  nav.jump a{color:var(--muted);padding:5px 9px;border-radius:5px}
+  nav.jump a:hover{background:var(--paper-2);color:var(--ink);text-decoration:none}
+
+  main{max-width:1180px;margin:0 auto;padding:0 22px 120px}
+  section.block{padding:54px 0 10px;border-top:1px solid var(--line);scroll-margin-top:60px}
+  section.block:first-of-type{border-top:none}
+  .eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .eyebrow .num{font-family:"SF Mono",monospace;font-size:12px;color:var(--faint)}
+  h2.title{font-size:34px;letter-spacing:-.01em;margin:2px 0 6px}
+  h3.sub{font-size:23px;margin:34px 0 10px}
+  h4.sub4{font-size:17px;margin:22px 0 8px}
+  p.lede{font-size:18px;color:#34322b;max-width:74ch;margin:8px 0 4px}
+  p{max-width:78ch}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:880px){.grid2,.grid3,.grid4{grid-template-columns:1fr}}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px 17px}
+  .card.tight{padding:12px 13px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-family:"SF Mono",monospace;font-size:10.5px;
+    letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line-2)}
+  .badge{display:inline-block;font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.07em;
+    text-transform:uppercase;padding:2px 7px;border-radius:4px;border:1px solid transparent;font-weight:600}
+  .b-run{background:var(--amber-bg);color:var(--amber)} .b-ok{background:var(--emerald-bg);color:var(--emerald)}
+  .b-fail{background:var(--red-bg);color:var(--red)} .b-fix{background:var(--violet-bg);color:var(--violet)}
+  .b-pause{background:var(--cyan-bg);color:var(--cyan)} .b-wait{background:var(--slate-bg);color:var(--slate)}
+  .b-green{background:var(--emerald-bg);color:var(--running)} .b-installed{background:#ece8db;color:#5d5742}
+  .dotpre::before{content:"●";margin-right:6px;font-size:9px;vertical-align:middle}
+
+  /* framed live-area placeholder — the thing the user asked for */
+  .frame{border:2px dashed var(--line-2);border-radius:8px;background:
+      repeating-linear-gradient(135deg,#f6f3ea,#f6f3ea 11px,#f1ede1 11px,#f1ede1 22px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    padding:22px 16px;gap:6px;min-height:120px;color:var(--muted)}
+  .frame .ftag{font-family:"SF Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--gold-soft);font-weight:600}
+  .frame .fbig{font-size:15px;color:#3a382f;max-width:46ch}
+  .frame .fmeta{font-family:"SF Mono",monospace;font-size:11px;color:var(--faint)}
+  .frame.live{border-color:#8aa0a8;background:repeating-linear-gradient(135deg,#eef4f5,#eef4f5 11px,#e7eff1 11px,#e7eff1 22px)}
+  .frame.live .ftag{color:var(--cyan)}
+
+  /* app chrome mock (Garrison shell) */
+  .appshell{display:grid;grid-template-columns:182px 1fr;border:1px solid var(--line-2);border-radius:10px;
+    overflow:hidden;background:var(--card);box-shadow:0 1px 0 #e7e1d1}
+  .appside{background:var(--paper);border-right:1px solid var(--line);padding:12px 10px;font-size:13px}
+  .appside .s-brand{display:flex;align-items:center;gap:7px;font-weight:600;font-size:14px;margin:2px 4px 12px}
+  .appside .navi{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;
+    color:#3a382f;margin-bottom:1px}
+  .appside .navi.active{background:#e7e2d2;color:#1c1b17;font-weight:600}
+  .appside .navi .live{font-family:"SF Mono",monospace;font-size:9.5px;color:var(--running)}
+  .appside .grp{margin:11px 4px 5px;font-family:"SF Mono",monospace;font-size:9.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--faint)}
+  .appmain{padding:18px 20px;min-height:300px;background:var(--card)}
+  .crumb{font-family:"SF Mono",monospace;font-size:11px;color:var(--faint);letter-spacing:.05em;margin-bottom:8px}
+  .crumb b{color:var(--ink)}
+
+  /* step-type pills row */
+  .typerow{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  .tchip{font-family:"SF Mono",monospace;font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--line-2);
+    color:#3a382f;background:#fbf9f3;cursor:default}
+  .tchip.on{color:#fff;border-color:transparent;font-weight:600}
+  .t-browser.on{background:#0f766e}.t-verify.on{background:var(--indigo)}.t-connector.on{background:var(--amber)}
+  .t-sub.on{background:var(--violet)}.t-nav.on{background:var(--slate)}.t-wait.on{background:var(--slate)}
+  .t-cmd.on{background:var(--orange)}.t-api.on{background:var(--blue)}
+  .t-browser{color:#0f766e}.t-verify{color:var(--indigo)}.t-connector{color:var(--amber)}.t-sub{color:var(--violet)}
+  .t-nav,.t-wait{color:var(--slate)}.t-cmd{color:var(--orange)}.t-api{color:var(--blue)}
+
+  /* flow diagram */
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+  .fnode{background:#fbf9f3;border:1px solid var(--line-2);border-radius:7px;padding:9px 11px;min-width:104px;
+    font-size:12.5px;text-align:center;display:flex;flex-direction:column;justify-content:center;gap:2px}
+  .fnode .ft{font-family:"SF Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .farr{display:flex;align-items:center;color:var(--gold-soft);font-size:18px;padding:0 7px}
+  .fnode.k-plan{background:var(--blue-bg);border-color:#b9c6e0}.fnode.k-run{background:var(--amber-bg);border-color:#e2d2a8}
+  .fnode.k-ok{background:var(--emerald-bg);border-color:#bcd8c8}.fnode.k-fix{background:var(--violet-bg);border-color:#d2c4ef}
+  .fnode.k-pause{background:var(--cyan-bg);border-color:#a8cdd6}
+
+  table.ref{width:100%;border-collapse:collapse;font-size:13.5px;margin:8px 0}
+  table.ref th,table.ref td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  table.ref th{background:var(--paper-2);font-family:"SF Mono",monospace;font-size:11px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--muted);font-weight:600}
+  table.ref td .mono{font-size:12.5px}
+
+  ul.tight{margin:6px 0;padding-left:20px}ul.tight li{margin:3px 0;max-width:78ch}
+  .callout{border-left:3px solid var(--gold);background:#f8f4e8;padding:12px 15px;border-radius:0 7px 7px 0;margin:14px 0}
+  .callout.warn{border-left-color:var(--red);background:#f8ece9}
+  .callout.good{border-left-color:var(--running);background:#eef4ec}
+  .kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:13.5px}
+  .kv dt{font-family:"SF Mono",monospace;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:1px}
+  .kv dd{margin:0}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .swatch{width:11px;height:11px;border-radius:3px;display:inline-block;border:1px solid rgba(0,0,0,.12)}
+
+  /* fake form controls */
+  .ctl{display:block;width:100%;background:#fff;border:1px solid var(--line-2);border-radius:6px;padding:7px 9px;
+    font-family:Georgia,serif;font-size:13.5px;color:#3a382f}
+  .ctl.mono{font-family:"SF Mono",monospace;font-size:12px}
+  .ctl.area{min-height:64px}
+  .lab{font-family:"SF Mono",monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);display:block;margin:10px 0 4px;font-weight:600}
+  .btn{display:inline-flex;align-items:center;gap:6px;font-family:Georgia,serif;font-size:13.5px;padding:7px 13px;
+    border-radius:6px;border:1px solid var(--line-2);background:#fbf9f3;color:#3a382f;cursor:default}
+  .btn.primary{background:#2f6f4f;border-color:#2f6f4f;color:#fff}
+  .btn.gold{background:var(--gold);border-color:var(--gold);color:#fff}
+  .btn.danger{background:#fff;border-color:#d9b3ad;color:var(--red)}
+  .btn.sm{font-size:12px;padding:4px 9px}
+
+  .steprow{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .steprow:last-child{border-bottom:none}
+  .stepno{font-family:"SF Mono",monospace;font-size:11px;color:var(--faint);min-width:46px;padding-top:3px}
+  .grip{color:var(--faint);cursor:grab}
+  .twocol{display:grid;grid-template-columns:1.05fr .95fr;gap:16px}
+  @media(max-width:980px){.twocol{grid-template-columns:1fr}}
+
+  .tag-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0}
+  .note{font-size:12.5px;color:var(--muted)}
+  hr.soft{border:none;border-top:1px solid var(--line);margin:18px 0}
+  .anchor{position:relative;top:-50px;visibility:hidden}
+  .toc{columns:2;gap:30px;font-size:13.5px}
+  @media(max-width:700px){.toc{columns:1}}
+  .toc a{display:block;padding:3px 0;color:#3a382f}
+  .toc a .mono{color:var(--faint);font-size:11px;margin-right:7px}
+  .fitcard{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:13px 14px}
+  .fitcard h4{font-size:16px;margin-bottom:3px}
+  .fitcard .role{font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold-soft)}
+  .stat{font-family:"SF Mono",monospace;font-size:11.5px;color:var(--muted)}
+  .scr-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);
+    padding-bottom:8px;margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <svg class="fence" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6">
+        <path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>
+      Garrison <span class="muted" style="font-weight:400;font-size:13px">· Connectors + Automations wireframe</span>
+    </div>
+    <nav class="jump">
+      <a href="#overview">Overview</a>
+      <a href="#governance">Governance</a>
+      <a href="#placement">Placement</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#connectors">Connectors</a>
+      <a href="#list">Automations</a>
+      <a href="#builder">Builder</a>
+      <a href="#steptypes">Step types</a>
+      <a href="#runviewer">Run viewer</a>
+      <a href="#selfheal">Self-healing</a>
+      <a href="#pause">Pause / Consent</a>
+      <a href="#states">States</a>
+      <a href="#open">Open questions</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- =================================================================== OVERVIEW -->
+<section class="block" id="overview"><span class="anchor"></span>
+  <div class="eyebrow"><span class="lbl">Wireframe · low-fidelity prototype</span></div>
+  <h2 class="title">Connectors &amp; Automations for Agent Garrison</h2>
+  <p class="lede">Bring ekoa's automation engine — bash &amp; browser steps, vision-driven self-healing,
+  live streaming, per-step feedback, human-in-the-loop — into Garrison as <b>two new Fittings that compose
+  capabilities Garrison already owns</b>. Plus a new <b>Connectors</b> faculty so external services (Slack, Google,
+  GitHub, Stripe, …) are connected once and called from anywhere. The ekoa-specific <span class="k">ekoa_action</span>
+  step is deliberately left out.</p>
+
+  <div class="callout good">
+    <b>This is a wireframe, not an implementation.</b> Nothing here is built. Framed dashed boxes
+    (<span class="k">LIVE BROWSER STREAM RENDERS HERE</span>) mark areas that render live data at runtime.
+    Everything is styled in Garrison's real visual language so it reads as "what it will look like in the app."
+    The governance section argues why this is allowed to exist in Garrison at all.
+  </div>
+
+  <h3 class="sub">The one-paragraph thesis</h3>
+  <p>ekoa hand-rolled a Playwright browser harness, a CDP screencast streamer, an AES-256-GCM credential store,
+  an artifact/screenshot store, a scheduler, and an MCP tool surface — <em>all of which Garrison already has as
+  first-class capabilities</em>. So the heavy substrate is not rebuilt. <b>Connectors</b> and the <b>Automations
+  engine</b> are thin Fittings that wire those existing capabilities together. That reuse is exactly what makes the
+  addition pass Garrison's Honesty Test instead of being "ekoa leaking into the platform."</p>
+
+  <h3 class="sub">What ekoa has → where it lands in Garrison</h3>
+  <div class="grid2">
+    <div class="card">
+      <span class="lbl">Reused — already in Garrison</span>
+      <dl class="kv" style="margin-top:8px">
+        <dt>Browser + stream</dt><dd>ekoa's Playwright session + CDP <span class="k">Page.startScreencast</span> over WS → <b>Garrison Browser Fitting</b> (<span class="k">browser-default</span>, :7084) already does Chromium + JPEG screencast + input + CDP proxy.</dd>
+        <dt>Secrets</dt><dd>ekoa's own crypto → <b>Garrison Vault</b> (AES-256-GCM, <span class="k">data/vault.json</span> 0600). Connectors store creds as vault secret-refs.</dd>
+        <dt>Screenshots / recordings</dt><dd>ekoa's run dir → <b>Artifact Store</b>, the <span class="k">artifacts/automations/</span> namespace that already exists.</dd>
+        <dt>Schedule / poll</dt><dd>listener polling + cadence → <b>Scheduler</b> (<span class="k">automation-runner</span> kind, already live).</dd>
+        <dt>Webhooks in</dt><dd>Stripe/Slack/GitHub event triggers → <b>HTTP Gateway</b> inbound routes.</dd>
+        <dt>Agent can call it</dt><dd><span class="k">call_automation</span> tool → exposed via the <b>MCP Gateway</b> so the Operative runs automations as tools.</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <span class="lbl">New — what these two Fittings add</span>
+      <dl class="kv" style="margin-top:8px">
+        <dt>Connectors faculty</dt><dd>A home for connected external services: a catalog of callable <b>actions</b> (mutating or not), OAuth2 / API-key auth backed by the Vault, and webhook / listener <b>triggers</b>. Generalizes today's read-only <span class="k">data-source</span>.</dd>
+        <dt>Automations engine</dt><dd>One own-port Fitting with a rich run-viewer UI (Kanban-Loop pattern). Stores named automations; executes the 8 step types; owns the cache/vision tiers, the self-healing fixer, pause-for-user, and consent.</dd>
+        <dt>8 step types</dt><dd><span class="t-browser mono">browser</span> · <span class="t-verify mono">verify</span> · <span class="t-nav mono">navigate</span> · <span class="t-wait mono">wait</span> · <span class="t-cmd mono">local_command</span> · <span class="t-api mono">api_call</span> · <span class="t-connector mono">connector</span> · <span class="t-sub mono">sub_automation</span>. (ekoa's 9th, <span class="k">ekoa_action</span>, dropped.)</dd>
+        <dt>Self-healing</dt><dd>On a recoverable step failure an LLM "fixer" proposes a patch (insert / replace / skip / pause / abort) and retries — within a budget.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h3 class="sub">Contents</h3>
+  <nav class="toc">
+    <a href="#governance"><span class="mono">01</span>Governance — does this belong in Garrison?</a>
+    <a href="#placement"><span class="mono">02</span>Faculty placement in the Composition grid</a>
+    <a href="#architecture"><span class="mono">03</span>Architecture &amp; flow diagrams</a>
+    <a href="#connectors"><span class="mono">04</span>Connectors faculty — registry, connect, actions, triggers</a>
+    <a href="#list"><span class="mono">05</span>Automations list</a>
+    <a href="#builder"><span class="mono">06</span>Automation builder — goal → steps → run</a>
+    <a href="#steptypes"><span class="mono">07</span>The 8 step types — author + what each shows</a>
+    <a href="#runviewer"><span class="mono">08</span>Run viewer — live, with browser stream</a>
+    <a href="#selfheal"><span class="mono">09</span>Self-healing &amp; the fixer loop</a>
+    <a href="#pause"><span class="mono">10</span>Pause-for-user &amp; consent</a>
+    <a href="#states"><span class="mono">11</span>Run states reference</a>
+    <a href="#open"><span class="mono">12</span>Open questions to decide together</a>
+  </nav>
+</section>
+
+<!-- =================================================================== GOVERNANCE -->
+<section class="block" id="governance"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">01</span><span class="lbl">Governance</span></div>
+  <h2 class="title">Does this belong in Garrison?</h2>
+  <p class="lede">Garrison's job is <b>compose · run · observe · quarters</b>. Anything beyond that lives in Fittings.
+  The Honesty Test gates every choice: <em>"Does this make sense for Claude&nbsp;Code on its own merits, with no
+  reference to any specific downstream consumer?"</em> ekoa is a consumer — so the design must be justifiable
+  without ever saying "because ekoa needs it."</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">The Honesty-Test framing (passes)</h4>
+      <ul class="tight">
+        <li><b>Connectors</b> — "A long-running operative needs authenticated, reusable connections to the external
+          services it acts on, with a discoverable catalog of actions it can call. <span class="muted">Trello / Slack /
+          ekoa happen to use this too.</span>" → load-bearing for <em>any</em> Claude Code operative.</li>
+        <li><b>Automations</b> — "An operative benefits from saving a proven multi-step procedure (browser + shell +
+          HTTP + service calls) and re-running it reliably, with self-correction and a human handoff when it hits a
+          CAPTCHA / MFA." → load-bearing on its own merits.</li>
+        <li>Both are <b>compositions of existing capabilities</b>, which is precisely Garrison's purpose. No new
+          shell surface duplicates a Fitting's UI: the rich run-viewer lives in the <em>Automations Fitting's own
+          view</em>, surfaced like Kanban Loop — Garrison only renders the view, doesn't own it.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">Precedent already in the tree</h4>
+      <ul class="tight">
+        <li><span class="k">faculty: automations</span> is already a live deprecation alias — the
+          <span class="k">browser-automation</span> seed declares it today.</li>
+        <li><span class="k">data-source</span> capability kind exists (Trello) — Honesty-Test-added "because a real
+          Fitting needed it." Connectors generalizes the same idea to read+write+auth+triggers.</li>
+        <li><span class="k">automation-runner</span> kind exists (Scheduler, Google Calendar, Improver).</li>
+        <li>The historical Faculty list literally had <b>#3 Data Sources</b> and <b>#5 Automations</b>
+          ("actions the operative can take in external UIs or systems; example: Playwright browser automation seed").</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <b>Where leakage would happen — and how this avoids it.</b> ekoa's <span class="k">ekoa_action</span> step
+    (operate on an ekoa-built artifact via its manifest) is consumer-specific → <b>excluded</b>. ekoa's Portuguese
+    strings, its "needs the local ekoa daemon" model, and its bespoke credential crypto do not come across — Garrison
+    uses its own Vault, its own Browser Fitting, its own Artifact Store. No hardcoded user paths, no "EKOA port,"
+    no consumer naming in the capability definitions.
+  </div>
+
+  <h3 class="sub">New vocabulary this introduces (each Honesty-Test-gated)</h3>
+  <table class="ref">
+    <tr><th>Add</th><th>Kind</th><th>Justification (Claude-Code-merit)</th><th>Cardinality</th></tr>
+    <tr><td><b>Connectors</b></td><td>Faculty (optional capability faculty, Agent-tier)</td>
+      <td>A purpose-named home for "connect &amp; act on external services." None of the 9 roles is this; <span class="k">memory</span> only hosts read-only data-source today.</td><td>multi</td></tr>
+    <tr><td><span class="k">connector</span></td><td>capability kind</td>
+      <td>A connected service exposing a catalog of callable actions + auth + triggers. Supersedes/extends <span class="k">data-source</span> (which stays as a read-only alias).</td><td>any</td></tr>
+    <tr><td><b>Automations</b></td><td>Faculty section (reuses <span class="k">automation-runner</span>)</td>
+      <td>The engine Fitting <em>provides</em> the existing <span class="k">automation-runner</span> kind. No new kind needed — only a new home/section + one Fitting.</td><td>single engine, multi automations</td></tr>
+  </table>
+  <p class="note">Recommendation: <b>Connectors</b> is a genuine new faculty; <b>Automations</b> rides the existing
+  <span class="k">automation-runner</span> kind (so it adds a Fitting + a Composition section, not new core vocabulary).
+  The exact shape of <span class="k">connector</span> vs <span class="k">data-source</span> is an
+  <a href="#open">open question</a> for us to settle.</p>
+</section>
+
+<!-- =================================================================== PLACEMENT -->
+<section class="block" id="placement"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">02</span><span class="lbl">Placement</span></div>
+  <h2 class="title">Where it slots in the Composition grid</h2>
+  <p class="lede">The Compose page already groups faculties into <b>Agent faculties</b> and <b>Dev faculties</b>, with
+  capability-faculty <b>card sections</b> beneath (KNOWLEDGE, RESEARCH &amp; MEDIA, SOFTWARE BUILDING…). Connectors and
+  Automations slot in as two new sections — no layout invention.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand">
+        <svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>
+        Agent Garrison</div>
+      <div class="navi">Garrison</div>
+      <div class="navi active">Composition <span class="mono faint">10/17</span></div>
+      <div class="navi">Vault</div>
+      <div class="navi">Quarters</div>
+      <div class="navi">Coordination</div>
+      <div class="navi">Artifact store</div>
+      <div class="grp">Views</div>
+      <div class="navi">Browser <span class="live">live</span></div>
+      <div class="navi">Connectors <span class="live">live</span></div>
+      <div class="navi active" style="background:#e7e2d2">Automations <span class="live">live</span></div>
+      <div class="navi">Dev Env <span class="live">live</span></div>
+      <div class="navi">Kanban Loop <span class="live">live</span></div>
+    </aside>
+    <div class="appmain">
+      <div class="crumb">Composition · <b>Overview</b></div>
+      <h3 style="font-size:26px;margin:2px 0 4px">Dogfood Operative</h3>
+      <p class="note" style="margin:0 0 14px">17 Faculty stations · 22 Fittings stationed. Click a tile to configure that station.</p>
+
+      <div class="lbl" style="color:var(--gold-soft)">Connectors <span class="faint mono" style="font-weight:400;text-transform:none;letter-spacing:0">— connect once, call from any automation, channel, or the operative itself</span></div>
+      <div class="grid4" style="margin:8px 0 18px">
+        <div class="fitcard"><div class="role">Connector · OAuth2</div><h4>Google Workspace</h4><div class="stat">Gmail · Calendar · Drive · Sheets</div><div class="tag-row" style="margin-top:7px"><span class="badge b-green dotpre">Connected</span></div></div>
+        <div class="fitcard"><div class="role">Connector · API key</div><h4>Slack</h4><div class="stat">send_message · list_channels +webhook</div><div class="tag-row" style="margin-top:7px"><span class="badge b-green dotpre">Connected</span></div></div>
+        <div class="fitcard"><div class="role">Connector · OAuth2</div><h4>GitHub</h4><div class="stat">issues · PRs · repos</div><div class="tag-row" style="margin-top:7px"><span class="badge b-installed">Not connected</span></div></div>
+        <div class="fitcard"><div class="role">Connector · data-source</div><h4>Trello</h4><div class="stat">cards · lists (read+write)</div><div class="tag-row" style="margin-top:7px"><span class="badge b-green dotpre">Connected</span></div></div>
+      </div>
+
+      <div class="lbl" style="color:var(--gold-soft)">Automations <span class="faint mono" style="font-weight:400;text-transform:none;letter-spacing:0">— saved, self-healing, multi-step procedures · provides automation-runner</span></div>
+      <div class="grid3" style="margin:8px 0 4px">
+        <div class="fitcard" style="border-color:var(--line-2);background:#faf7ee">
+          <div class="role">11 · Automation engine</div><h4>Automations</h4>
+          <div class="stat">own-port :7090 · 6 automations · 1 running</div>
+          <div class="tag-row" style="margin-top:7px"><span class="badge b-run dotpre">1 running</span><span class="badge b-installed">view live</span></div>
+        </div>
+        <div class="fitcard"><div class="role">Derived · Triggers</div><h4>2 webhook · 1 listener</h4><div class="stat">Stripe · Slack · IMAP poll 5m</div></div>
+        <div class="fitcard" style="border-style:dashed;color:var(--muted);display:flex;align-items:center;justify-content:center"><div style="text-align:center"><div class="lbl">+ Station a Fitting</div><div class="note">search across every Faculty</div></div></div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:10px">Sidebar gains two live <b>Views</b> entries — <b>Connectors</b> and <b>Automations</b> — exactly like Browser / Dev Env / Kanban Loop today (own-port Fittings linked from the Views group).</p>
+</section>
+
+<!-- =================================================================== ARCHITECTURE -->
+<section class="block" id="architecture"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">03</span><span class="lbl">Architecture</span></div>
+  <h2 class="title">How the pieces wire together</h2>
+
+  <h3 class="sub">A · Capability wiring — the Automations Fitting composes what Garrison owns</h3>
+  <div class="card">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px">
+      <div class="fnode" style="min-width:240px;background:#faf7ee;border-color:var(--gold-soft)">
+        <div class="ft">Fitting · own-port :7090</div><b style="font-size:15px">Automations engine</b>
+        <div class="note">provides <span class="k">automation-runner</span></div>
+      </div>
+      <div style="color:var(--gold-soft);font-size:13px;font-family:'SF Mono',monospace">consumes ↓</div>
+      <div class="flow" style="justify-content:center;gap:10px;flex-wrap:wrap">
+        <div class="fnode"><div class="ft">consumes</div>Connectors<div class="note">connector.*</div></div>
+        <div class="fnode"><div class="ft">consumes</div>Browser Fitting<div class="note">:7084 screencast+CDP</div></div>
+        <div class="fnode"><div class="ft">consumes</div>Vault<div class="note">secret-refs</div></div>
+        <div class="fnode"><div class="ft">consumes</div>Artifact Store<div class="note">screenshots/recordings</div></div>
+        <div class="fnode"><div class="ft">consumes</div>Scheduler<div class="note">listener cadence</div></div>
+        <div class="fnode"><div class="ft">consumes</div>Gateway<div class="note">inbound webhooks · MCP tool</div></div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px;text-align:center">Every arrow is an existing Garrison capability. The new Fitting is the wiring, not the substrate.</p>
+  </div>
+
+  <h3 class="sub">B · Run lifecycle — author → plan → rehearse → run → done</h3>
+  <div class="card" style="overflow-x:auto">
+    <div class="flow">
+      <div class="fnode k-plan"><div class="ft">author</div>Goal (plain English)</div>
+      <div class="farr">→</div>
+      <div class="fnode k-plan"><div class="ft">LLM planner</div>Draft steps</div>
+      <div class="farr">→</div>
+      <div class="fnode k-fix"><div class="ft">rehearse</div>Dry-run + self-correct</div>
+      <div class="farr">→</div>
+      <div class="fnode"><div class="ft">save</div>Automation spec</div>
+      <div class="farr">→</div>
+      <div class="fnode k-run"><div class="ft">run</div>Execute steps</div>
+      <div class="farr">→</div>
+      <div class="fnode k-ok"><div class="ft">done</div>Completed + summary</div>
+    </div>
+    <hr class="soft">
+    <div class="lbl">Per-step execution (the inner loop)</div>
+    <div class="flow" style="margin-top:8px">
+      <div class="fnode"><div class="ft">step</div>Dispatch by type</div>
+      <div class="farr">→</div>
+      <div class="fnode k-ok"><div class="ft">tier 1</div>Cache hit<br><span class="note">replay resolved action</span></div>
+      <div class="farr">→</div>
+      <div class="fnode k-fix"><div class="ft">tier 2</div>Vision resolve<br><span class="note">screenshot → LLM → action</span></div>
+      <div class="farr">→</div>
+      <div class="fnode k-run"><div class="ft">emit</div>SSE step event</div>
+    </div>
+    <div class="flow" style="margin-top:10px">
+      <div class="fnode b-fail" style="background:var(--red-bg);border-color:#e0b8b2"><div class="ft">on fail</div>recoverable?</div>
+      <div class="farr">→</div>
+      <div class="fnode k-fix"><div class="ft">fixer</div>Propose patch</div>
+      <div class="farr">→</div>
+      <div class="fnode"><div class="ft">apply</div>insert / replace / skip</div>
+      <div class="farr">→</div>
+      <div class="fnode k-run"><div class="ft">retry</div>same index (budget-capped)</div>
+      <div class="farr">·</div>
+      <div class="fnode k-pause"><div class="ft">or</div>Pause for user<br><span class="note">CAPTCHA / MFA / payment</span></div>
+    </div>
+    <div class="legend" style="margin-top:12px">
+      <span><i class="swatch" style="background:var(--blue-bg)"></i>author / plan</span>
+      <span><i class="swatch" style="background:var(--violet-bg)"></i>self-correct</span>
+      <span><i class="swatch" style="background:var(--amber-bg)"></i>running</span>
+      <span><i class="swatch" style="background:var(--emerald-bg)"></i>success</span>
+      <span><i class="swatch" style="background:var(--cyan-bg)"></i>human handoff</span>
+      <span><i class="swatch" style="background:var(--red-bg)"></i>failure</span>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:18px">
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">C · Credential flow (Connectors → Vault → run)</h4>
+      <div class="flow" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="fnode" style="min-width:0"><div class="ft">connect</div>OAuth2 consent / API-key form</div>
+        <div class="farr" style="justify-content:center">↓</div>
+        <div class="fnode" style="min-width:0"><div class="ft">store</div>Encrypt → <span class="k">data/vault.json</span> (AES-256-GCM, 0600)</div>
+        <div class="farr" style="justify-content:center">↓</div>
+        <div class="fnode" style="min-width:0"><div class="ft">reference</div>Connector + step hold a <span class="k">secret-ref</span>, never plaintext</div>
+        <div class="farr" style="justify-content:center">↓</div>
+        <div class="fnode k-run" style="min-width:0"><div class="ft">run</div>materialized JIT into the request; redacted in logs</div>
+      </div>
+      <p class="note" style="margin-top:8px">An <span class="t-api mono">api_call</span> step can borrow a connector's auth via
+      <span class="k">authConnectorKey</span> — raw HTTP with a connected service's token, no new connector needed.</p>
+    </div>
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">D · Browser-stream pipeline (reuses Browser Fitting)</h4>
+      <div class="flow" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="fnode" style="min-width:0"><div class="ft">browser fitting :7084</div>Playwright Chromium drives the page</div>
+        <div class="farr" style="justify-content:center">↓</div>
+        <div class="fnode" style="min-width:0"><div class="ft">CDP</div><span class="k">Page.startScreencast</span> → JPEG frames</div>
+        <div class="farr" style="justify-content:center">↓</div>
+        <div class="fnode" style="min-width:0"><div class="ft">WS</div><span class="k">/viewport/:tabId</span> frames · <span class="k">/input/:tabId</span> mouse+key</div>
+        <div class="farr" style="justify-content:center">↓</div>
+        <div class="fnode k-pause" style="min-width:0"><div class="ft">run viewer</div>&lt;canvas&gt; renders frames · user can drive during pause</div>
+      </div>
+      <p class="note" style="margin-top:8px">ekoa built this from scratch. In Garrison it is the Browser Fitting's existing
+      <span class="k">Garrison-viewport-v1</span> / <span class="k">Garrison-input-v1</span> protocol.</p>
+    </div>
+  </div>
+</section>
+
+<!-- =================================================================== CONNECTORS -->
+<section class="block" id="connectors"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">04</span><span class="lbl">Connectors faculty</span></div>
+  <h2 class="title">Connectors — connect once, act everywhere</h2>
+  <p class="lede">A connector is a connected external service: a <b>catalog of actions</b> (each marked mutating or read-only),
+  an <b>auth method</b> (OAuth2 / API key / service account / none) backed by the Vault, and optional <b>triggers</b>
+  (webhook in, or a polling listener). Automations call them via the <span class="t-connector mono">connector</span> step;
+  channels and the Operative can call them too.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="navi">Garrison</div><div class="navi">Composition</div><div class="navi">Vault</div>
+      <div class="grp">Views</div>
+      <div class="navi active">Connectors <span class="live">live</span></div>
+      <div class="navi">Automations <span class="live">live</span></div>
+    </aside>
+    <div class="appmain">
+      <div class="crumb">Compose · Connectors · <b>Registry</b></div>
+      <div class="scr-head"><h3 style="font-size:22px">Connectors</h3><span class="btn gold sm">+ Add connector</span></div>
+
+      <div class="grid2">
+        <!-- connected oauth -->
+        <div class="card tight">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">OAuth2</div><h4 style="font-size:17px">Google Workspace</h4></div>
+            <span class="badge b-green dotpre">Connected</span>
+          </div>
+          <div class="note" style="margin:4px 0 8px">goncalo@gmail.com · token valid · refresh ok</div>
+          <div class="lbl">Actions (catalog)</div>
+          <div class="typerow">
+            <span class="tchip">gmail.send <span class="faint">mutates</span></span>
+            <span class="tchip">calendar.create_event <span class="faint">mutates</span></span>
+            <span class="tchip">drive.list</span>
+            <span class="tchip">sheets.append <span class="faint">mutates</span></span>
+            <span class="tchip faint">+8 more</span>
+          </div>
+          <div class="tag-row" style="margin-top:8px"><span class="btn sm">Reconnect</span><span class="btn sm">Edit scopes</span><span class="btn sm danger">Disconnect</span></div>
+        </div>
+
+        <!-- connected api key -->
+        <div class="card tight">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">API key</div><h4 style="font-size:17px">Slack</h4></div>
+            <span class="badge b-green dotpre">Connected</span>
+          </div>
+          <div class="note" style="margin:4px 0 8px">bot token in vault · workspace "Ekoa"</div>
+          <div class="lbl">Actions</div>
+          <div class="typerow">
+            <span class="tchip">send_message <span class="faint">mutates</span></span>
+            <span class="tchip">list_channels</span>
+          </div>
+          <div class="lbl" style="margin-top:8px">Triggers</div>
+          <div class="typerow"><span class="tchip t-connector">webhook · app_mention</span><span class="tchip t-connector">webhook · message</span></div>
+          <div class="tag-row" style="margin-top:8px"><span class="btn sm">Edit credentials</span><span class="btn sm danger">Disconnect</span></div>
+        </div>
+
+        <!-- not connected oauth -->
+        <div class="card tight" style="opacity:.96">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">OAuth2</div><h4 style="font-size:17px">GitHub</h4></div>
+            <span class="badge b-installed">Not connected</span>
+          </div>
+          <div class="note" style="margin:4px 0 8px">issues · pull requests · repos · actions</div>
+          <div class="frame" style="min-height:78px;padding:14px">
+            <div class="ftag">Connect flow</div>
+            <div class="fbig">"Connect with GitHub" → OAuth consent in a new tab → callback stores token in Vault → status flips to Connected.</div>
+          </div>
+          <div class="tag-row" style="margin-top:8px"><span class="btn primary sm">Connect with GitHub</span></div>
+        </div>
+
+        <!-- api key form (inline) -->
+        <div class="card tight">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">API key · connect</div><h4 style="font-size:17px">Stripe</h4></div>
+            <span class="badge b-installed">Setup</span>
+          </div>
+          <span class="lab">Secret key</span><input class="ctl mono" value="sk_live_••••••••••••••••" readonly>
+          <span class="lab">Webhook signing secret</span><input class="ctl mono" value="whsec_••••••••" readonly>
+          <div class="note" style="margin-top:6px">Values are written straight to the Vault and replaced by a <span class="k">secret-ref</span>. Auto-registers the Stripe webhook endpoint on save.</div>
+          <div class="tag-row" style="margin-top:8px"><span class="btn primary sm">Save to Vault</span><span class="btn sm">Cancel</span></div>
+        </div>
+      </div>
+
+      <h4 class="sub4">Per-connector detail (drill-in)</h4>
+      <div class="card">
+        <table class="ref" style="margin:0">
+          <tr><th>Action</th><th>Args (summary)</th><th>Mutates</th><th>Returns</th></tr>
+          <tr><td class="mono">send_message</td><td class="mono">channel:string, text:string, thread_ts?:string</td><td><span class="badge b-fail">yes</span></td><td class="mono">{ ok, ts }</td></tr>
+          <tr><td class="mono">list_channels</td><td class="mono">types?:string, limit?:number</td><td><span class="badge b-ok">no</span></td><td class="mono">{ channels[] }</td></tr>
+        </table>
+        <p class="note" style="margin-top:8px">The catalog is what an automation's <span class="t-connector mono">connector</span> step and the Operative's
+        <span class="k">list_connector_actions</span> tool read from. Each action is a templated HTTP request
+        (<span class="k">method · baseUrl · path · headers · body</span>) with <span class="k">{{credential}}</span> and
+        <span class="k">{{input.x}}</span> placeholders — no per-service code.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================================================================== LIST -->
+<section class="block" id="list"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">05</span><span class="lbl">Automations</span></div>
+  <h2 class="title">Automations list</h2>
+  <p class="lede">The catalog of saved automations, each showing step count and last-run status. "New automation" starts
+  the goal-first builder. This is the Automations Fitting's own view, surfaced in Garrison like Kanban Loop.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="navi">Garrison</div><div class="navi">Composition</div>
+      <div class="grp">Views</div>
+      <div class="navi">Connectors <span class="live">live</span></div>
+      <div class="navi active">Automations <span class="live">live</span></div>
+    </aside>
+    <div class="appmain">
+      <div class="scr-head"><div><h3 style="font-size:22px">Automations</h3><span class="note">6 total · 1 running now</span></div><span class="btn gold sm">+ New automation</span></div>
+      <div style="border-top:1px solid var(--line)">
+        <div class="steprow" style="align-items:center"><div style="flex:1"><div style="font-weight:600">Email screenshot of top result</div><div class="note">open google, search a term, open first result, email a screenshot of it</div></div><span class="badge b-run dotpre">running</span><span class="note mono" style="min-width:64px;text-align:right">10 steps</span><span class="btn sm">Open</span></div>
+        <div class="steprow" style="align-items:center"><div style="flex:1"><div style="font-weight:600">Nightly Stripe → Slack digest</div><div class="note">listener: Stripe payment_intent.succeeded → post to #revenue</div></div><span class="badge b-ok dotpre">completed</span><span class="note mono" style="min-width:64px;text-align:right">5 steps</span><span class="btn sm">Open</span></div>
+        <div class="steprow" style="align-items:center"><div style="flex:1"><div style="font-weight:600">Sync calendar to a board card</div><div class="note">connector: google.calendar.list → trello.create_card per event</div></div><span class="badge b-ok dotpre">completed</span><span class="note mono" style="min-width:64px;text-align:right">7 steps</span><span class="btn sm">Open</span></div>
+        <div class="steprow" style="align-items:center"><div style="flex:1"><div style="font-weight:600">Click reCAPTCHA demo checkbox</div><div class="note">go to recaptcha demo, click "I'm not a robot"</div></div><span class="badge b-pause dotpre">paused_for_user</span><span class="note mono" style="min-width:64px;text-align:right">4 steps</span><span class="btn sm">Open</span></div>
+        <div class="steprow" style="align-items:center"><div style="flex:1"><div style="font-weight:600">local-bridge smoke test</div><div class="note">run a shell command, then navigate to example.com</div></div><span class="badge b-fail dotpre">failed</span><span class="note mono" style="min-width:64px;text-align:right">2 steps</span><span class="btn sm">Open</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================================================================== BUILDER -->
+<section class="block" id="builder"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">06</span><span class="lbl">Builder</span></div>
+  <h2 class="title">Automation builder — goal → steps → run</h2>
+  <p class="lede">Two-panel editor. <b>Left:</b> the goal, the trigger, and a drag-sortable step list — each step has a
+  type pill-selector and a type-specific form. <b>Right:</b> the run viewer (live). New automations start goal-first:
+  describe it in plain English; the planner drafts steps; rehearsal validates and self-corrects before you review.</p>
+
+  <h3 class="sub">Goal-first creation</h3>
+  <div class="card" style="max-width:680px">
+    <span class="lab">Goal (required)</span>
+    <textarea class="ctl area">Open my latest Google Doc and export it as PDF, then email it to me.</textarea>
+    <span class="lab">Name (optional)</span>
+    <input class="ctl" placeholder="Leave blank to let the planner pick one">
+    <div class="frame" style="min-height:70px;margin-top:10px">
+      <div class="ftag">After "Draft steps"</div>
+      <div class="fbig">Planner streams drafted steps in; rehearsal dry-runs them in a real browser and patches failures before you see the plan. Loading shows an elapsed timer + progress.</div>
+    </div>
+    <div class="tag-row" style="margin-top:10px;justify-content:flex-end"><span class="btn sm">Cancel</span><span class="btn primary sm">→ Draft steps</span></div>
+  </div>
+
+  <h3 class="sub">The two-panel editor</h3>
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="navi">Garrison</div>
+      <div class="grp">Views</div>
+      <div class="navi active">Automations <span class="live">live</span></div>
+    </aside>
+    <div class="appmain" style="padding:14px 16px">
+      <div class="scr-head"><div style="display:flex;align-items:center;gap:10px"><h3 style="font-size:19px">Export latest doc &amp; email it</h3><span class="note mono">Editor · Run history</span></div><div class="tag-row"><span class="btn sm">Save</span><span class="btn danger sm">Delete</span></div></div>
+
+      <div class="twocol">
+        <!-- LEFT: authoring -->
+        <div>
+          <div class="card tight" style="margin-bottom:10px">
+            <span class="lab">Goal</span>
+            <div class="note">Open my latest Google Doc and export it as PDF, then email it to me.</div>
+            <div class="tag-row" style="margin-top:6px"><span class="btn sm">↺ Regenerate steps</span></div>
+          </div>
+
+          <div class="card tight" style="margin-bottom:10px">
+            <span class="lab">Trigger</span>
+            <div class="typerow">
+              <span class="tchip t-nav on">Manual</span>
+              <span class="tchip">Webhook (connector event)</span>
+              <span class="tchip">Listener (poll)</span>
+            </div>
+            <div class="note">Manual = run when asked. Webhook/Listener bind to a <a href="#connectors">connector</a> trigger.</div>
+          </div>
+
+          <div class="card tight" style="margin-bottom:10px">
+            <span class="lab">Inputs (schema)</span>
+            <div class="note mono">recipient_email · required · "where to send the PDF"</div>
+            <div class="tag-row" style="margin-top:6px"><span class="btn sm">+ Add input field</span></div>
+          </div>
+
+          <span class="lab">Steps · drag to reorder · click a pill to change type</span>
+          <div class="card tight" style="padding:4px 10px">
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">Step 1</span><div style="flex:1">
+              <div class="typerow"><span class="tchip t-nav on">navigate</span><span class="tchip t-browser">browser</span><span class="tchip t-verify">verify</span><span class="tchip t-connector">connector</span><span class="tchip faint">+4</span></div>
+              <div class="note">Go to https://docs.google.com</div>
+            </div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">Step 2</span><div style="flex:1">
+              <div class="typerow"><span class="tchip t-browser on">browser</span></div>
+              <div class="note">Open the most recently edited document</div>
+              <div class="note faint">expected: a document is open in the editor</div>
+            </div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">Step 3</span><div style="flex:1">
+              <div class="typerow"><span class="tchip t-browser on">browser</span></div>
+              <div class="note">File → Download → PDF</div>
+            </div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">Step 4</span><div style="flex:1">
+              <div class="typerow"><span class="tchip t-connector on">connector</span></div>
+              <div class="note">google.gmail.send → to {{input.recipient_email}}, attach the PDF</div>
+            </div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">Step 5</span><div style="flex:1">
+              <div class="typerow"><span class="tchip t-verify on">verify</span></div>
+              <div class="note">expected: the email shows as sent</div>
+            </div></div>
+            <div style="text-align:center;padding:8px"><span class="btn sm">+ Add step</span></div>
+          </div>
+        </div>
+
+        <!-- RIGHT: run viewer (compact) -->
+        <div>
+          <div class="card tight">
+            <div class="scr-head" style="margin-bottom:8px;padding-bottom:6px"><div style="display:flex;gap:8px;align-items:center"><b style="font-size:15px">Run</b><span class="badge b-wait">idle</span></div><span class="btn primary sm">▶ Run</span></div>
+            <span class="lab">Inputs for this run</span>
+            <input class="ctl" placeholder="recipient_email — (leave blank to auto-extract)">
+            <div class="frame" style="margin-top:10px">
+              <div class="ftag">Run viewer renders here</div>
+              <div class="fbig">Live step list with status badges, the browser stream, per-step output panels, self-healing notices, and per-step feedback. Full detail in §08.</div>
+              <a class="fmeta" href="#runviewer">→ see Run viewer</a>
+            </div>
+          </div>
+          <p class="note" style="margin-top:8px">The run viewer is the same component whether embedded here (compact) or full-screen in the Automations view.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================================================================== STEP TYPES -->
+<section class="block" id="steptypes"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">07</span><span class="lbl">Step types</span></div>
+  <h2 class="title">The 8 step types — what each authors &amp; shows</h2>
+  <p class="lede">This is the heart of it. For each step type: the <b>type pill</b>, what it <b>does</b>, its <b>authoring
+  form</b>, and — framed — <b>what it shows in the run viewer</b>. The ekoa 9th type
+  (<span class="k">ekoa_action</span>) is omitted.</p>
+
+  <div class="typerow" style="margin:6px 0 18px">
+    <span class="tchip t-browser on">browser</span>
+    <span class="tchip t-verify on">verify</span>
+    <span class="tchip t-nav on">navigate</span>
+    <span class="tchip t-wait on">wait</span>
+    <span class="tchip t-cmd on">local_command</span>
+    <span class="tchip t-api on">api_call</span>
+    <span class="tchip t-connector on">connector</span>
+    <span class="tchip t-sub on">sub_automation</span>
+  </div>
+
+  <!-- BROWSER -->
+  <div class="card" style="margin-bottom:14px;border-left:4px solid #0f766e">
+    <div class="tag-row"><span class="tchip t-browser on">browser</span><b style="font-size:17px">Browser action</b><span class="note">click · type · scroll · in a real page — vision-resolved, cached after first success</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div>
+        <span class="lab">Authoring</span>
+        <input class="ctl" value="Click the blue 'Export' button in the toolbar">
+        <span class="lab">Expected outcome (optional)</span>
+        <input class="ctl" value="a download / format menu opens">
+        <p class="note">Natural language. At run time: tier 1 replays a cached selector; tier 2 screenshots the page and asks an LLM for the precise action, then caches it.</p>
+      </div>
+      <div>
+        <span class="lab">What it shows in the run viewer</span>
+        <div class="frame live">
+          <div class="ftag">▣ Live browser stream renders here</div>
+          <div class="fbig">JPEG screencast of the page over WebSocket (Browser Fitting <span class="k">/viewport/:tabId</span>). A per-step screenshot thumbnail is saved to the Artifact Store.</div>
+          <div class="fmeta">tier badge: <span class="badge b-ok">cached</span> / <span class="badge b-fix">vision</span> · duration</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VERIFY -->
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--indigo)">
+    <div class="tag-row"><span class="tchip t-verify on">verify</span><b style="font-size:17px">Verify outcome</b><span class="note">check the page reached the expected state — vision assertion, can extract values</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div>
+        <span class="lab">Authoring</span>
+        <input class="ctl" value="expected: the PDF finished downloading">
+        <p class="note">A verify after a connector/sub-automation can short-circuit (the side effect already confirmed it). Can read the page to auto-fill blank inputs.</p>
+      </div>
+      <div>
+        <span class="lab">What it shows</span>
+        <div class="frame live">
+          <div class="ftag">Vision verdict panel</div>
+          <div class="fbig">Pass / fail + the model's one-line reasoning, over the page screenshot. On fail → recoverable → hands to the fixer.</div>
+          <div class="fmeta"><span class="badge b-ok">passed</span> · "download bar shows 'report.pdf'"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NAVIGATE + WAIT (paired) -->
+  <div class="grid2" style="margin-bottom:14px">
+    <div class="card" style="border-left:4px solid var(--slate)">
+      <div class="tag-row"><span class="tchip t-nav on">navigate</span><b style="font-size:16px">Navigate</b></div>
+      <span class="lab">Authoring</span>
+      <input class="ctl mono" value="https://docs.google.com">
+      <div class="frame" style="min-height:74px;margin-top:8px"><div class="ftag">Shows</div><div class="fbig">URL loaded + screenshot. Minimal — deterministic, no vision.</div></div>
+    </div>
+    <div class="card" style="border-left:4px solid var(--slate)">
+      <div class="tag-row"><span class="tchip t-wait on">wait</span><b style="font-size:16px">Wait</b></div>
+      <span class="lab">Authoring · duration (ms)</span>
+      <input class="ctl mono" value="2000">
+      <div class="frame" style="min-height:74px;margin-top:8px"><div class="ftag">Shows</div><div class="fbig">A small "waited 2.0s" note. No output.</div></div>
+    </div>
+  </div>
+
+  <!-- LOCAL COMMAND -->
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--orange)">
+    <div class="tag-row"><span class="tchip t-cmd on">local_command</span><b style="font-size:17px">Run a command</b><span class="note">execute a shell command — first use of each command "shape" needs a consent approval</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div>
+        <span class="lab">Authoring</span>
+        <input class="ctl mono" value='git -C ~/reports status --short'>
+        <div class="tag-row" style="margin-top:6px"><span class="note">cwd</span><input class="ctl mono" style="width:120px" value="~/reports"><span class="note">timeout</span><input class="ctl mono" style="width:90px" value="300000"></div>
+        <p class="note">argv array · supports <span class="k">{{input.x}}</span>. Shape <span class="k">git status</span> is computed for the consent gate (<a href="#pause">§10</a>).</p>
+      </div>
+      <div>
+        <span class="lab">What it shows</span>
+        <div class="frame live">
+          <div class="ftag">▤ stdout / stderr stream here</div>
+          <div class="fbig">Live output chunks (<span class="k">automation_step_output_chunk</span>) into a dark terminal panel — stdout (light) + stderr (red) — plus an exit-code badge.</div>
+          <div class="fmeta"><span class="badge b-ok">exit 0</span> · 240ms · truncated? timed&nbsp;out?</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- API CALL -->
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--blue)">
+    <div class="tag-row"><span class="tchip t-api on">api_call</span><b style="font-size:17px">API call</b><span class="note">raw HTTP — optionally borrowing a connector's auth via <span class="k">authConnectorKey</span></span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div>
+        <span class="lab">Authoring</span>
+        <div class="tag-row"><select class="ctl mono" style="width:100px"><option>GET</option></select><input class="ctl mono" value="https://api.github.com/repos/{{input.repo}}"></div>
+        <span class="lab">Headers</span><input class="ctl mono" value="Authorization: Bearer {{connector.github.token}}">
+        <span class="lab">Auth connector (optional)</span><input class="ctl mono" value="github">
+        <span class="lab">Body kind</span><select class="ctl mono" style="width:130px"><option>none</option><option>json</option></select>
+      </div>
+      <div>
+        <span class="lab">What it shows</span>
+        <div class="frame live">
+          <div class="ftag">▥ Request / response panel</div>
+          <div class="fbig">Status badge (HTTP 200), duration, and tabs <b>Body</b> / <b>Headers</b>. JSON bodies get a collapsible syntax-colored tree (Preview / Raw). Secrets redacted.</div>
+          <div class="fmeta"><span class="badge b-ok">HTTP 200</span> · 180ms · application/json</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONNECTOR -->
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--amber)">
+    <div class="tag-row"><span class="tchip t-connector on">connector</span><b style="font-size:17px">Connector action</b><span class="note">call a connected service's catalog action (the renamed ekoa "integration" step)</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div>
+        <span class="lab">Authoring · pick from catalog</span>
+        <select class="ctl mono"><option>slack.send_message — channel, text (mutates)</option></select>
+        <span class="lab">Args (templated)</span>
+        <input class="ctl mono" value='channel: "#revenue"'>
+        <input class="ctl mono" style="margin-top:5px" value='text: "New payment: {{input.amount}}"'>
+        <p class="note">Args resolve from <span class="k">{{input.x}}</span>, prior-step <span class="k">{{capture.x}}</span>, and trigger <span class="k">{{event.path}}</span>. Auth is materialized from the Vault JIT.</p>
+      </div>
+      <div>
+        <span class="lab">What it shows</span>
+        <div class="frame live">
+          <div class="ftag">Connector result</div>
+          <div class="fbig">The action + its return value (e.g. <span class="k">{ ok:true, ts:"171..." }</span>). If the connector isn't connected → run pauses <span class="badge b-run">awaiting_connector</span> with a "Connect Slack" button.</div>
+          <div class="fmeta">on error: full request/response detail panel, secrets masked</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUB AUTOMATION -->
+  <div class="card" style="margin-bottom:6px;border-left:4px solid var(--violet)">
+    <div class="tag-row"><span class="tchip t-sub on">sub_automation</span><b style="font-size:17px">Sub-automation</b><span class="note">run another saved automation as a single step</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div>
+        <span class="lab">Authoring · pick automation</span>
+        <select class="ctl mono"><option>"Fetch &amp; format invoice" — 6 steps</option></select>
+        <span class="lab">Args passed in</span><input class="ctl mono" value='customer_id: "{{input.customer}}"'>
+      </div>
+      <div>
+        <span class="lab">What it shows</span>
+        <div class="frame">
+          <div class="ftag">Nested run summary</div>
+          <div class="fbig">A collapsible child-run row (its own step list nests below). Recursion lets you compose automations from building blocks.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================================================================== RUN VIEWER -->
+<section class="block" id="runviewer"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">08</span><span class="lbl">Run viewer</span></div>
+  <h2 class="title">Run viewer — live execution</h2>
+  <p class="lede">Streamed over SSE. A header with status + Run/Cancel; the live step list (each step shows status, tier,
+  duration, type-specific output); the browser stream for browser steps; self-healing notices inline; and per-step
+  feedback. This is the Automations Fitting's signature surface.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="grp">Views</div>
+      <div class="navi active">Automations <span class="live">live</span></div>
+    </aside>
+    <div class="appmain" style="padding:14px 16px">
+      <div class="scr-head" style="margin-bottom:10px">
+        <div style="display:flex;gap:10px;align-items:center"><b style="font-size:16px">Run</b><span class="badge b-run dotpre">running</span><span class="note">step 3 of 5 · driving browser…</span></div>
+        <span class="btn danger sm">◼ Cancel</span>
+      </div>
+
+      <div class="twocol">
+        <!-- step list -->
+        <div>
+          <div class="card tight" style="padding:0">
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">Step 1</span><span class="tchip t-nav on" style="font-size:10px">navigate</span><span class="badge b-ok">completed</span><span class="badge b-ok">cached</span><span class="note mono">120ms</span></div><div class="note">Go to https://docs.google.com</div></div></div>
+
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">Step 2</span><span class="tchip t-browser on" style="font-size:10px">browser</span><span class="badge b-ok">completed</span><span class="badge b-fix">vision</span><span class="note mono">2.1s</span></div><div class="note">Open the most recently edited document</div>
+              <div class="note faint" style="margin-top:3px">screenshot saved · <span class="t-browser">thumbnail ▣</span></div></div></div>
+
+            <div class="steprow" style="padding:9px 11px;background:#fbf6ea"><div style="flex:1"><div class="tag-row"><span class="stepno">Step 3</span><span class="tchip t-browser on" style="font-size:10px">browser</span><span class="badge b-run dotpre">running</span></div><div class="note">File → Download → PDF</div>
+              <div class="frame live" style="min-height:140px;margin-top:8px">
+                <div class="ftag">▣ Live browser stream</div>
+                <div class="fbig">The page Garrison is driving, streamed frame-by-frame. You watch the menu open and the PDF export happen in real time.</div>
+                <div class="fmeta">Browser Fitting :7084 · viewport 1280×800 · ~15 fps</div>
+              </div></div></div>
+
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">Step 4</span><span class="tchip t-connector on" style="font-size:10px">connector</span><span class="badge b-wait">pending</span></div><div class="note">google.gmail.send → {{input.recipient_email}}</div></div></div>
+
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">Step 5</span><span class="tchip t-verify on" style="font-size:10px">verify</span><span class="badge b-wait">pending</span></div><div class="note">expected: the email shows as sent</div></div></div>
+          </div>
+        </div>
+
+        <!-- side: output examples + feedback -->
+        <div>
+          <span class="lab">local_command output (example)</span>
+          <div class="frame" style="min-height:84px;background:#23211c;border-color:#3a362d">
+            <div class="ftag" style="color:#9fd3b0">stdout / stderr terminal panel</div>
+            <div class="fbig" style="color:#cfc9bb">Dark panel: stdout in light text, stderr in red, with an <span class="badge b-ok">exit 0</span> badge + duration.</div>
+          </div>
+
+          <span class="lab">api_call output (example)</span>
+          <div class="frame" style="min-height:84px">
+            <div class="ftag">Body / Headers tabs · JSON tree</div>
+            <div class="fbig">Collapsible syntax-colored JSON; toggle Preview / Raw; status + duration badges.</div>
+          </div>
+
+          <span class="lab">Per-step feedback</span>
+          <div class="card tight">
+            <div class="tag-row"><span class="btn sm" style="color:var(--emerald)">▲ Good</span><span class="btn sm" style="color:var(--red)">▼ Bad <span class="faint">(evicts cache)</span></span><span class="btn sm">Suggest correction…</span></div>
+            <div class="note" style="margin-top:6px">Feedback is per step, collected after it runs. Thumbs-down evicts the cached action; a correction guides future runs (written to memory).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================================================================== SELF-HEAL -->
+<section class="block" id="selfheal"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">09</span><span class="lbl">Self-healing</span></div>
+  <h2 class="title">Self-healing — the fixer loop</h2>
+  <p class="lede">When a step fails recoverably, an LLM "fixer" looks at the screenshot + accessibility tree + the plan
+  window and proposes one patch. The engine applies it and retries the same step — within a budget (max fixer calls,
+  max patches per step, wall-clock). Every move is shown inline.</p>
+
+  <div class="grid3">
+    <div class="card" style="border-left:4px solid var(--amber)">
+      <span class="badge b-run dotpre">proposing</span>
+      <h4 class="sub4" style="margin-top:8px">Fixing step 3 · attempt 2</h4>
+      <p class="note">Spinner + "Asking the model to patch the plan. Usually 5–15s." Shows what failed: <span class="note">"button not found"</span>.</p>
+    </div>
+    <div class="card" style="border-left:4px solid var(--violet)">
+      <span class="badge b-fix dotpre">applied</span>
+      <h4 class="sub4" style="margin-top:8px">Inserted a step before this one</h4>
+      <p class="note">Verb by patch kind — <b>Inserted</b> / <b>Rewrote</b> / <b>Skipped</b>. Shows the new step + one-line reasoning ("a cookie banner is covering the button — dismiss it first").</p>
+    </div>
+    <div class="card" style="border-left:4px solid var(--red)">
+      <span class="badge b-fail dotpre">aborted</span>
+      <h4 class="sub4" style="margin-top:8px">Fixer aborted</h4>
+      <p class="note">When the plan is unrecoverable. Shows the reasoning; the run ends failed (honestly — never edited to look passed).</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>Patch kinds:</b> <span class="k">insert_before</span> (add a prerequisite) · <span class="k">replace_current</span>
+    (rewrite the action) · <span class="k">skip_current</span> (no longer needed) · <span class="k">pause_for_user</span>
+    (CAPTCHA / MFA / payment — hand to the human) · <span class="k">abort</span>. A fast regex path catches
+    CAPTCHA/MFA/payment without an LLM call. Failure kinds: <span class="k">verify_failed</span> ·
+    <span class="k">browser_failed</span> · <span class="k">navigate_failed</span> · <span class="k">connector_failed</span>.
+  </div>
+
+  <h4 class="sub4">Also shown in the live activity bar</h4>
+  <div class="card" style="border:1px solid var(--violet);background:var(--violet-bg)">
+    <div class="tag-row"><span style="font-size:15px">✦</span><b>Fixing step 3 (attempt 2)…</b><span class="note">— rewriting the click target. What failed: element intercepted.</span><span class="btn danger sm" style="margin-left:auto">Cancel</span></div>
+  </div>
+  <p class="note" style="margin-top:6px">A sticky activity bar surfaces the current state (running / fixing / paused / completed) and auto-hides terminal states — so you can scroll the steps while still seeing what's happening.</p>
+</section>
+
+<!-- =================================================================== PAUSE / CONSENT -->
+<section class="block" id="pause"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">10</span><span class="lbl">Human-in-the-loop</span></div>
+  <h2 class="title">Pause-for-user &amp; consent</h2>
+  <p class="lede">Two distinct gates where a human is required: <b>pause-for-user</b> (the agent hands you a live browser to
+  finish a CAPTCHA / MFA / payment, then you click Continue) and <b>consent</b> (first-time approval of a shell command
+  shape). Both block the run on a resume signal.</p>
+
+  <div class="grid2">
+    <!-- pause-for-user -->
+    <div class="card" style="border:2px solid #6aa3b0">
+      <div class="tag-row"><span style="font-size:18px">✋</span><div><span class="lbl" style="color:var(--cyan)">Garrison needs you</span><h4 class="sub4" style="margin-top:2px">Step 3 — please act on the page</h4></div><span class="badge b-pause dotpre" style="margin-left:auto">paused_for_user</span></div>
+      <div class="card tight" style="background:var(--cyan-bg);border-color:#a8cdd6;margin:8px 0">
+        <div class="note" style="color:#0a5468">Solve the "I'm not a robot" check, then click Continue. The browser the agent is driving is shown below — interact with it directly.</div>
+      </div>
+      <div class="frame live" style="min-height:150px">
+        <div class="ftag">▣ Drivable live browser canvas</div>
+        <div class="fbig">Same screencast stream, but <b>interactive</b>: your mouse + keyboard are relayed to the page over <span class="k">/input/:tabId</span>. A connection badge shows Live / Reconnecting / Offline.</div>
+        <div class="fmeta">falls back to a static screenshot if the stream is unavailable</div>
+      </div>
+      <div class="tag-row" style="margin-top:10px;justify-content:flex-end"><span class="btn danger sm">◼ Stop run</span><span class="btn primary sm">▶ I've handled it — Continue</span></div>
+    </div>
+
+    <!-- consent -->
+    <div class="card">
+      <div class="tag-row"><div><span class="lbl" style="color:var(--orange)">First-time command</span><h4 class="sub4" style="margin-top:2px">Approve local command?</h4></div><span class="badge" style="background:var(--orange-bg);color:var(--orange);margin-left:auto">awaiting_consent</span></div>
+      <p class="note">First use of any new command <em>shape</em> needs your approval. This automation wants to <b>run a git command</b> on your machine.</p>
+      <span class="lab">Shape</span>
+      <div class="card tight mono" style="font-size:12.5px;background:var(--paper-2)">git status</div>
+      <a class="note" href="#pause" style="display:inline-block;margin:8px 0">▸ Show the exact command that will run</a>
+      <div class="card tight mono" style="font-size:11.5px;background:#23211c;color:#cfc9bb">[ "git", "-C", "~/reports", "status", "--short" ]</div>
+      <p class="note" style="margin-top:8px">Approvals are revocable from the Vault / settings. Shapes normalize variable parts (<span class="k">&lt;FILE&gt;</span>, <span class="k">&lt;URL&gt;</span>) so one approval covers a family.</p>
+      <div class="tag-row" style="margin-top:8px;justify-content:flex-end"><span class="btn sm">Stop</span><span class="btn sm">Approve once</span><span class="btn" style="background:var(--orange);color:#fff;border-color:var(--orange)">Approve always</span></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>A third pause is structural:</b> <span class="badge b-run">awaiting_connector</span> — a
+    <span class="t-connector mono">connector</span> step whose service isn't connected pauses the run and offers a
+    "Connect &lt;service&gt;" button (deep-link to the <a href="#connectors">Connectors</a> registry). Connect → resume.
+    (ekoa also has <span class="k">awaiting_daemon</span> for its local executor; in Garrison the Browser Fitting plays
+    that role, so it collapses into a "Browser Fitting not running" health note rather than a run state.)
+  </div>
+</section>
+
+<!-- =================================================================== STATES -->
+<section class="block" id="states"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">11</span><span class="lbl">Reference</span></div>
+  <h2 class="title">Run states &amp; live events</h2>
+  <div class="grid2">
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">Run statuses</h4>
+      <div class="tag-row" style="gap:8px"><span class="badge b-run dotpre">running</span><span class="badge b-ok dotpre">completed</span><span class="badge b-fail dotpre">failed</span><span class="badge b-wait dotpre">cancelled</span></div>
+      <div class="tag-row" style="gap:8px;margin-top:8px"><span class="badge b-run">awaiting_connector</span><span class="badge b-pause">paused_for_user</span><span class="badge" style="background:var(--orange-bg);color:var(--orange)">awaiting_consent</span></div>
+      <p class="note" style="margin-top:8px">ekoa's <span class="k">awaiting_integration</span> → <span class="k">awaiting_connector</span>; <span class="k">awaiting_daemon</span> dropped (Browser Fitting replaces the local daemon).</p>
+    </div>
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">SSE event stream (run viewer subscribes)</h4>
+      <ul class="tight mono" style="font-size:12.5px">
+        <li>run_step · run_complete · run_error</li>
+        <li>run_patch (proposing / applied / aborted)</li>
+        <li>run_pause_for_user · run_resumed</li>
+        <li>run_awaiting_consent · run_awaiting_connector</li>
+        <li>step_output_chunk (stdout/stderr)</li>
+        <li>run_streaming_available (wsUrl + token + viewport)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 class="sub">Tier &amp; status badges used throughout</h3>
+  <div class="legend" style="gap:18px">
+    <span><span class="badge b-ok">cached</span> deterministic replay</span>
+    <span><span class="badge b-fix">vision</span> LLM-resolved</span>
+    <span><span class="badge b-run">recovered</span> after a patch</span>
+    <span><span class="badge b-ok">completed</span></span>
+    <span><span class="badge b-run">running</span></span>
+    <span><span class="badge b-fail">failed</span></span>
+    <span><span class="badge b-pause">paused</span></span>
+  </div>
+</section>
+
+<!-- =================================================================== OPEN QUESTIONS -->
+<section class="block" id="open"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">12</span><span class="lbl">Decide together</span></div>
+  <h2 class="title">Open questions before we build</h2>
+  <p class="lede">The wireframe assumes a recommended shape, but these are genuine forks worth settling first — they
+  affect phasing and the core vocabulary.</p>
+
+  <ol class="tight" style="font-size:15px">
+    <li><b>Connector vs data-source.</b> Make <span class="k">connector</span> a new capability kind that <em>supersedes</em>
+      <span class="k">data-source</span> (Trello migrates), or keep <span class="k">data-source</span> for read-only and add
+      <span class="k">connector</span> only for action+auth+trigger services? <span class="muted">Recommendation: one
+      <span class="k">connector</span> kind; <span class="k">data-source</span> becomes a read-only profile of it.</span></li>
+    <li><b>Connectors faculty: role or capability-faculty?</b> A 10th core <em>role</em>, or an optional Agent-tier
+      <em>capability faculty</em> like Knowledge/Research? <span class="muted">Recommendation: capability faculty (multi),
+      so it stays optional and discovery-driven.</span></li>
+    <li><b>Where do connector definitions live?</b> One connector = one Fitting (clean APM packaging, heavier), or a
+      registry of HTTP-templated connector specs inside one "Connectors" Fitting (lighter, ekoa-like)?
+      <span class="muted">Recommendation: a registry Fitting for the long tail + real Fittings for the marquee ones
+      (Slack/Google), mirroring the Hybrid model the capability faculties already use.</span></li>
+    <li><b>Automation storage.</b> Automations as data inside one engine Fitting (recommended — they're user content,
+      not packages), or each automation as its own APM Fitting? Quarters already shows the precedent for "owned content
+      vs packages."</li>
+    <li><b>The planner LLM.</b> Route goal→steps and the fixer through the <b>Model Router</b> / gateway (so it uses the
+      operative's own auth + tiering), rather than a hardcoded model. <span class="muted">Strongly recommended — keeps it
+      Honesty-Test clean and free of API-key billing.</span></li>
+    <li><b>Phasing.</b> Suggested order: <b>(1)</b> Connectors faculty + Vault-backed auth + catalog →
+      <b>(2)</b> Automations engine with the non-browser steps (navigate/wait/command/api_call/connector/sub) + run viewer →
+      <b>(3)</b> browser + verify steps on the Browser Fitting + live stream → <b>(4)</b> self-healing fixer + pause/consent →
+      <b>(5)</b> triggers (webhook via Gateway, listener via Scheduler) + the <span class="k">call_automation</span> MCP tool.</li>
+    <li><b>The dropped <span class="k">ekoa_action</span>.</b> Confirm we omit it entirely, or replace it later with a
+      Garrison-native <span class="k">capability</span> step that calls any installed Fitting's capability via the
+      <span class="k">any</span> discovery mechanism. <span class="muted">Recommendation: omit for v1, revisit as a native step.</span></li>
+  </ol>
+
+  <div class="callout good">
+    <b>Next step.</b> This is exploration only — nothing is built. When the forks above are settled we can turn the
+    phasing into a real plan (beads epic + slices) and start with Phase 1 (Connectors), which is the smallest, most
+    independently-useful piece and unblocks everything else.
+  </div>
+
+  <p class="note" style="margin-top:24px">Wireframe generated from: deep read of <span class="k">ekoa-dev/cortex/src/automation/*</span> +
+  <span class="k">ekoa/components/automations/*</span>, the integrations layer, Garrison's <span class="k">src/lib/types.ts</span>
+  + <span class="k">docs/FACULTIES.md</span> / <span class="k">GOVERNANCE.md</span>, and live inspection of the Garrison shell.
+  No code was modified.</p>
+</section>
+
+</main>
+</body>
+</html>

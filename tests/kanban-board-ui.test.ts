@@ -113,7 +113,7 @@ describe("buildBoardView", () => {
       sessionIds: ["sess-1"],
       briefPath: "briefs/x.md",
       videoUrl: "https://example/v",
-      description: "SHOULD NOT LEAK", // not a front field
+      description: "a short description", // a front field (card tooltip + operative context)
       acceptance: "SHOULD NOT LEAK"
     };
     const s = cardSummary(card);
@@ -122,8 +122,9 @@ describe("buildBoardView", () => {
       iterations: 3, goalMode: true, rev: 5, runId: "RUN1", sliceId: "slice-x",
       videoUrl: "https://example/v"
     });
-    // The summary is a fixed projection — it must NOT include the inlined bodies.
-    expect((s as any).description).toBeUndefined();
+    // description IS a deliberate front field (execution-visibility: the card tooltip +
+    // operative context). The acceptance body, however, must NOT leak into the projection.
+    expect((s as any).description).toBe("a short description");
     expect((s as any).acceptance).toBeUndefined();
   });
 });

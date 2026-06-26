@@ -40,8 +40,10 @@ export function inferenceRunFn(gatewayUrl) {
         body: JSON.stringify({
           channel: "kanban",
           message: prompt,
-          // Cheap classification hint: a tiny lookup, not deep work.
-          classification: { taskType: "other", tier: "T0-quick" },
+          // Cheap classification hint: a tiny lookup, not deep work. This is the ONE
+          // kanban turn that still hints (it is an internal helper, not a routed task) —
+          // use a VALID tier so the gateway actually honors it and routes it fast.
+          classification: { taskType: "other", tier: "T0-trivial" },
           suppressContinuations: true,
           timeoutMs: KANBAN_INFER_TIMEOUT_MS
         }),
@@ -60,6 +62,10 @@ export function inferenceRunFn(gatewayUrl) {
   };
 }
 
+// The board/tick pass `classification: null` here (the engine no longer pins a per-list
+// {taskType,tier}): the gateway then classifies the turn itself and routes it, biased by
+// the mode the prompt leads with. A non-null classification is still forwarded verbatim
+// for callers that want to force one.
 export function gatewayRunFn(gatewayUrl) {
   return async ({ prompt, classification, list, suppressContinuations, onChunk }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real autothing-*

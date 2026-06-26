@@ -67,14 +67,48 @@ export function briefRelPath(card, { briefsPath = "./briefs/" } = {}) {
   return dir ? `${dir}/${stem}` : stem;
 }
 
+// Base64-encode a raw string (the TRANSPORT layer the web channel un-wraps with the
+// same round-trip check). Buffer in Node, btoa in the browser — usable from the UI
+// bundle and a test.
+function encodeString(s) {
+  const str = String(s ?? "");
+  if (typeof btoa === "function") return btoa(unescape(encodeURIComponent(str)));
+  return Buffer.from(str, "utf8").toString("base64");
+}
+
 // Base64-encode the JSON context (the TRANSPORT layer the web channel un-wraps).
-// Buffer in Node, btoa in the browser — so this same module is usable from the
-// UI bundle and from a test. The channel's decodeContext does the inverse:
-// atob(raw) iff btoa(atob(raw)) === raw, else forwards verbatim.
+// The channel's decodeContext does the inverse: atob(raw) iff btoa(atob(raw)) === raw.
 function encodeContext(obj) {
-  const json = JSON.stringify(obj);
-  if (typeof btoa === "function") return btoa(unescape(encodeURIComponent(json)));
-  return Buffer.from(json, "utf8").toString("base64");
+  return encodeString(JSON.stringify(obj));
+}
+
+// The opening message the Discuss session AUTO-SENDS to start the conversation. It
+// LEADS WITH "James," so the gateway's parseLeadingMode switches the operative to the
+// James face (the gateway resolves the mode from the message text, not body.mode), and
+// it carries the card title + description IN THE MESSAGE (the gateway does not inject
+// body.context, so the description must be in the text James actually reads). It tells
+// James to analyse + ask clarifying questions, then write the brief to the SAME path
+// the board auto-links on Move-out-of-Discuss (briefRelPath), so the discussion result
+// becomes the card's downstream context. Pure (no node imports) → bundles into the UI.
+export function buildDiscussKickoff(card, { briefsPath = "./briefs/" } = {}) {
+  const title = (typeof card?.title === "string" && card.title.trim()) ? card.title.trim() : "(untitled)";
+  const project = card?.project ? String(card.project) : "(none assigned yet)";
+  const desc = (typeof card?.description === "string" && card.description.trim())
+    ? card.description.trim()
+    : "(no description was provided — ask Goncalo what this card is about before going further)";
+  const briefPath = briefRelPath(card, { briefsPath });
+  return [
+    `James, let's talk this work item through before it goes to planning.`,
+    ``,
+    `# Card: ${title}`,
+    `Project: ${project}`,
+    ``,
+    desc,
+    ``,
+    `Start the discussion now: think it through out loud, surface the key decisions, tradeoffs and risks, and ask me the clarifying questions you need answered before this is ready to build. Don't jump to code.`,
+    ``,
+    `When the thinking has settled, write the brief to \`${briefPath}\` using the brief template (what this is, decisions, approach, open questions, acceptance) — that brief is the handoff the build reads, so capture what we decided. Begin with your analysis and your first questions.`
+  ].join("\n");
 }
 
 // Build the James-mode web-channel URL for a Discuss card. The card is encoded
@@ -94,6 +128,9 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
     cardId: card?.id ?? null,
     title: card?.title ?? null,
     project: card?.project ?? null,
+    // The description so a context-honoring channel/operative has it too (the kickoff
+    // message carries it as well, for the gateway path that ignores body.context).
+    description: card?.description ?? null,
     briefsPath,
     // CARD-UNIQUE stem (<cardId>-<slug>) so James writes briefs/<stem>.md and the
     // board's Move-out-of-Discuss auto-link finds THIS card's brief, never another
@@ -101,8 +138,12 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
     suggestedSlug: briefStem(card)
   };
   const encoded = encodeURIComponent(encodeContext(context));
+  // The auto-sent opening message (carries the description + the brief path). base64 +
+  // url-encoded so a long description survives the query string; the channel decodes it
+  // and hands it to the chat as initialMessage.
+  const kickoff = encodeURIComponent(encodeString(buildDiscussKickoff(card, { briefsPath })));
   const base = webChannelBase.replace(/\/+$/, "");
-  return `${base}?mode=james&context=${encoded}`;
+  return `${base}?mode=james&context=${encoded}&kickoff=${kickoff}`;
 }
 
 // Is `briefPath` a SAFE relative path CONTAINED UNDER briefsPath? It must be

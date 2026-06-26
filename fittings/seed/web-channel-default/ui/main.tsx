@@ -35,8 +35,14 @@ function decodeContext(raw: string | null): unknown {
   // value that merely looks base64-ish). Otherwise forward the url-decoded string.
   if (typeof atob === "function" && typeof btoa === "function") {
     try {
-      const decoded = atob(raw);
-      if (btoa(decoded) === raw) return decoded; // genuine base64 wrapper → unwrap
+      const bytes = atob(raw);
+      if (btoa(bytes) === raw) {
+        // Genuine base64 wrapper → unwrap. Fittings encode UTF-8-safely
+        // (btoa(unescape(encodeURIComponent(s)))), so reverse that here or a
+        // multi-byte char (em-dash, curly quote, accent in a card description)
+        // arrives mangled. Fall back to the raw bytes if the reverse fails.
+        try { return decodeURIComponent(escape(bytes)); } catch { return bytes; }
+      }
     } catch {
       /* not base64 — fall through and forward verbatim */
     }
@@ -44,13 +50,19 @@ function decodeContext(raw: string | null): unknown {
   return raw; // opaque, forwarded verbatim
 }
 
-function readUrlContext(): { context: unknown; mode: string | undefined } {
-  if (typeof window === "undefined") return { context: undefined, mode: undefined };
+function readUrlContext(): { context: unknown; mode: string | undefined; kickoff: string | undefined } {
+  if (typeof window === "undefined") return { context: undefined, mode: undefined, kickoff: undefined };
   const q = new URLSearchParams(window.location.search);
   const modeRaw = q.get("mode");
+  // `kickoff` is a generic opening message a fitting wants auto-sent once on load
+  // (same transport-decoding as context: base64-unwrap iff it round-trips). OPAQUE:
+  // the channel never inspects it — it just hands it to the chat as initialMessage.
+  const kickoffRaw = decodeContext(q.get("kickoff"));
+  const kickoff = typeof kickoffRaw === "string" && kickoffRaw.trim() ? kickoffRaw : undefined;
   return {
     context: decodeContext(q.get("context")),
     mode: modeRaw && modeRaw.trim() ? modeRaw.trim() : undefined,
+    kickoff,
   };
 }
 
@@ -140,11 +152,11 @@ function createOrchestratorTransport(base = "/api"): ChatTransport {
   };
 }
 
-const { context, mode } = readUrlContext();
-const contextDriven = context !== undefined || mode !== undefined;
+const { context, mode, kickoff } = readUrlContext();
+const contextDriven = context !== undefined || mode !== undefined || kickoff !== undefined;
 
-// Rich PTY surface by default (unchanged); orchestrator path when context/mode
-// are supplied. Both forward voice through the same same-origin /api/voice/*.
+// Rich PTY surface by default (unchanged); orchestrator path when context/mode/
+// kickoff are supplied. Both forward voice through the same same-origin /api/voice/*.
 const transport = contextDriven
   ? createOrchestratorTransport("/api")
   : createHttpTransport("/api");
@@ -157,6 +169,7 @@ function App() {
       features={{ voice: true }}
       context={context}
       mode={mode}
+      initialMessage={kickoff}
     />
   );
 }

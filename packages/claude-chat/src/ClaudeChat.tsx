@@ -218,9 +218,16 @@ export interface ClaudeChatProps {
    * through to the transport's send as `meta.mode`; never interpreted here.
    */
   mode?: string;
+  /**
+   * An opening message to AUTO-SEND once, on mount, as if the user had typed it —
+   * so a host can have the operative start proactively (e.g. Kanban Discuss seeds
+   * a "James, analyse this card…" kickoff). Absent → exactly the previous behavior
+   * (the chat waits for the user). Sent exactly once per mount.
+   */
+  initialMessage?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features, context, mode }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage }: ClaudeChatProps) {
   const feat = features ?? {};
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
@@ -406,6 +413,20 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     },
     [transport, effortOn]
   );
+
+  // Auto-send the opening message ONCE on mount, when a host provided one — so the
+  // operative can start proactively (Kanban Discuss seeds a "James, analyse this
+  // card…" kickoff). A ref guards against React's double-invoke (StrictMode) and a
+  // changing `send` identity, so it fires exactly once per mount.
+  const kickedRef = useRef(false);
+  useEffect(() => {
+    if (kickedRef.current) return;
+    const msg = (initialMessage ?? "").trim();
+    if (!msg) return;
+    kickedRef.current = true;
+    send(msg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessage]);
 
   // Submit a slash command line into the live TUI WITHOUT a transcript turn.
   // Used for /model <id>, /compact, /clear. Falls back to sendMessage when the

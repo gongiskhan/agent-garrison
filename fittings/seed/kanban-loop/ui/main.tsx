@@ -32,7 +32,8 @@ import {
   LinkIcon,
   GearIcon,
   ActivityIcon,
-  SparkIcon
+  SparkIcon,
+  ChatIcon
 } from "./icons";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
@@ -110,6 +111,7 @@ function Card({
   onWatch,
   onOpen,
   onInfer,
+  onDiscuss,
   busy
 }: {
   card: CardSummary;
@@ -119,6 +121,7 @@ function Card({
   onWatch: (c: CardSummary) => void;
   onOpen: (c: CardSummary) => void;
   onInfer: (c: CardSummary) => void;
+  onDiscuss: (c: CardSummary) => void;
   busy: boolean;
 }) {
   // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a card
@@ -226,9 +229,17 @@ function Card({
         <button className="btn small" disabled={busy} onClick={() => onMove(card)}>
           <MoveIcon /> Move
         </button>
-        <button className="btn small" onClick={() => onWatch(card)}>
-          <WatchIcon /> Watch
-        </button>
+        {/* Discuss list (interactive) gets a dedicated Discuss button that opens a
+            James-mode session seeded with this card; everything else gets Watch (logs). */}
+        {list.interactive ? (
+          <button className="btn small primary" title="open a James-mode discussion seeded with this card" onClick={() => onDiscuss(card)}>
+            <ChatIcon /> Discuss
+          </button>
+        ) : (
+          <button className="btn small" onClick={() => onWatch(card)}>
+            <WatchIcon /> Watch
+          </button>
+        )}
         <button className="btn small" onClick={() => onOpen(card)}>
           <OpenIcon /> Open
         </button>
@@ -238,20 +249,42 @@ function Card({
 }
 
 // ── new-card sheet ──────────────────────────────────────────────────────────
+// Sentinel select value for the "type a custom project path" option (kept distinct
+// from any real project name).
+const PROJECT_CUSTOM = "__custom__";
+
 function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
+  // Project picker: "auto" = leave blank (the server infers it from the description);
+  // "pick" = a repo chosen from the dev-root list; "custom" = a free-typed name/path.
+  const [projectMode, setProjectMode] = useState<"auto" | "pick" | "custom">("auto");
   const [project, setProject] = useState("");
+  const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // The repos under the dev-root (dev-env parity). Best-effort — on failure the picker
+  // still offers "(auto-infer)" + "Custom path…".
+  useEffect(() => {
+    let alive = true;
+    api.projects().then((v) => { if (alive) setProjects(v.projects); }).catch(() => { /* leave empty */ });
+    return () => { alive = false; };
+  }, []);
+
   async function submit() {
-    if (!title.trim()) { setErr("Title is required"); return; }
+    // Title is optional — it's inferred from the description when blank. Only block when
+    // there's nothing at all to name the card by.
+    if (!title.trim() && !description.trim()) {
+      setErr("Add a title or a description — the title is inferred from the description when left blank.");
+      return;
+    }
     setSaving(true);
     setErr(null);
+    const proj = projectMode === "auto" ? undefined : (project.trim() || undefined);
     try {
-      await api.create({ title: title.trim(), project: project.trim() || undefined, description, goalMode });
+      await api.create({ title: title.trim() || undefined, project: proj, description, goalMode });
       onCreated();
       onClose();
     } catch (e) {
@@ -260,22 +293,53 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     }
   }
 
+  const selectValue = projectMode === "custom" ? PROJECT_CUSTOM : projectMode === "auto" ? "" : project;
+
   return (
     <Sheet title="New card → Backlog" onClose={onClose}>
       <div className="field">
-        <label htmlFor="nc-title">Title</label>
+        <label htmlFor="nc-title">Title <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
         <input id="nc-title" type="text" value={title} autoFocus
+          placeholder="optional — inferred from the description if left blank"
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
       </div>
       <div className="field">
-        <label htmlFor="nc-project">Project</label>
-        <input id="nc-project" type="text" value={project} placeholder="optional"
-          onChange={(e) => setProject(e.target.value)} />
+        <label htmlFor="nc-project">Project <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+        <select
+          id="nc-project"
+          value={selectValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "") { setProjectMode("auto"); setProject(""); }
+            else if (v === PROJECT_CUSTOM) { setProjectMode("custom"); setProject(""); }
+            else { setProjectMode("pick"); setProject(v); }
+          }}
+        >
+          <option value="">(auto-infer from the description)</option>
+          {projects.map((p) => <option key={p.path} value={p.name}>{p.name}</option>)}
+          <option value={PROJECT_CUSTOM}>Custom path…</option>
+        </select>
+        {projectMode === "custom" && (
+          <input
+            id="nc-project-custom"
+            type="text"
+            value={project}
+            placeholder="project name or absolute path"
+            style={{ marginTop: 8 }}
+            autoFocus
+            onChange={(e) => setProject(e.target.value)}
+          />
+        )}
+        {projectMode === "auto" && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            Left blank — Garrison infers the project from the description (you can change it later).
+          </div>
+        )}
       </div>
       <div className="field">
         <label htmlFor="nc-desc">Description</label>
-        <textarea id="nc-desc" value={description} placeholder="optional"
+        <textarea id="nc-desc" value={description} placeholder="what needs doing (also used to infer the title/project)"
           onChange={(e) => setDescription(e.target.value)} />
       </div>
       <div className="field">
@@ -579,16 +643,15 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
   );
 }
 
-// ── watch sheet — SSE log / web-chat / static logs (never tmux) ─────────────
+// ── watch sheet — SSE log / static logs (never tmux) ────────────────────────
+// Tails a running card's log over SSE, or replays the linked static logs when
+// nothing is live. The interactive Discuss list does NOT use this — it has its own
+// Discuss button that opens a James-mode session (see App.onDiscuss).
 function WatchSheet({
   card,
-  list,
-  runtime,
   onClose
 }: {
   card: CardSummary;
-  list: ListView | undefined;
-  runtime: BoardRuntime | null;
   onClose: () => void;
 }) {
   const [lines, setLines] = useState<string>("");
@@ -596,13 +659,7 @@ function WatchSheet({
   const [done, setDone] = useState<string | null>(null);
   const scrRef = useRef<HTMLDivElement | null>(null);
 
-  // Interactive list (Discuss): Watch means CONVERSE, not tail a log. Open the
-  // shared web channel in James mode (the one context-driven chat surface),
-  // carrying the card context. We never open a raw terminal.
-  const interactive = Boolean(list?.interactive);
-
   useEffect(() => {
-    if (interactive) return;
     const es = new EventSource(api.watchUrl(card.id));
     es.addEventListener("mode", (e) => {
       try { setLive(JSON.parse((e as MessageEvent).data).live); } catch { /* ignore */ }
@@ -622,63 +679,11 @@ function WatchSheet({
     });
     es.onerror = () => { es.close(); setDone((d) => d ?? "disconnected"); };
     return () => es.close();
-  }, [card.id, interactive]);
+  }, [card.id]);
 
   useEffect(() => {
     if (scrRef.current) scrRef.current.scrollTop = scrRef.current.scrollHeight;
   }, [lines]);
-
-  if (interactive) {
-    // Runtime tells us which web channel id is actually installed/running in this
-    // composition — the seed is "web-channel-default", but a composition may name
-    // it differently, and "none installed" is also a real state. When no channel
-    // is up, show a clear note instead of a dead link.
-    const channelId = runtime?.webChannelEmbedId ?? null;
-    if (!channelId) {
-      return (
-        <Sheet title={`Discuss: ${card.title}`} onClose={onClose}>
-          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-            Discuss normally opens a James-mode web chat seeded with this card. But no web
-            channel is installed/running in this composition right now — there is nothing to
-            open. Install/start a web channel fitting and try again.
-          </p>
-          <button className="btn" onClick={onClose}>Close</button>
-        </Sheet>
-      );
-    }
-    // buildDiscussUrl carries the card as an OPAQUE base64 context blob the
-    // generic web channel forwards verbatim to James (the operative), who
-    // decodes it and writes the brief to disk under briefsPath. The embed base is
-    // composed from the live channel id discovered at runtime (not hardcoded), so
-    // a non-default channel works too.
-    const chatHref = buildDiscussUrl(card, { webChannelBase: `/embed/${channelId}` });
-    // Opening the web channel must cross fittings. The board runs in an iframe served
-    // from its OWN origin (:7090), so a relative href + target=_top resolves against
-    // the board's origin and navigates the top window to a URL Garrison doesn't serve
-    // → "nothing happens". When embedded, ask the Garrison shell to swap the embedded
-    // view (its postMessage listener: {type:"garrison:navigate-fitting", fittingId,
-    // params}). Standalone (not embedded) → navigate directly.
-    const openWebChat = () => {
-      const u = new URL(chatHref, window.location.origin);
-      const fittingId = u.pathname.split("/").filter(Boolean).pop() || channelId;
-      const params: Record<string, string> = {};
-      u.searchParams.forEach((v, k) => { params[k] = v; });
-      if (window.top && window.top !== window.self) {
-        window.top.postMessage({ type: "garrison:navigate-fitting", fittingId, params }, "*");
-      } else {
-        window.location.href = chatHref;
-      }
-    };
-    return (
-      <Sheet title={`Discuss: ${card.title}`} onClose={onClose}>
-        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          This is an interactive list — Watch opens the conversation, not a log. The operative in James
-          mode talks it through with you and writes a brief to disk.
-        </p>
-        <button className="btn primary" onClick={openWebChat}>Open web chat (James mode)</button>
-      </Sheet>
-    );
-  }
 
   // Highlight the Adv-Review "CODEX CALL" line (FINDING 6).
   const rendered = lines.split("\n").map((l, i) => (
@@ -718,6 +723,108 @@ function WatchSheet({
 // them too); an AGENT/interactive list shows the full set. validNext is a
 // multi-select of the REAL list ids (you can only route to lists that exist).
 const TRIGGERS = ["immediate", "manual", "scheduler-beat"];
+// The three operative faces. Mode is a dropdown (not free text): a card is routed to
+// one of these. "(none)" leaves it to the orchestrator's default.
+const MODES = ["gary", "joe", "james"];
+
+// ── schedule builder (scheduler-beat trigger) ────────────────────────────────
+// The backend honors a 5-field POSIX cron. Rather than make the user hand-write cron,
+// offer the common cadences (every N hours / daily at a time / weekly on a day) plus a
+// raw "custom cron" escape hatch, and always show the resulting cron.
+type SchedForm = { cadence: string; everyN: number; hour: number; minute: number; dow: string; custom: string };
+const DOW_OPTS = [
+  { v: "1", label: "Mon" }, { v: "2", label: "Tue" }, { v: "3", label: "Wed" },
+  { v: "4", label: "Thu" }, { v: "5", label: "Fri" }, { v: "6", label: "Sat" }, { v: "0", label: "Sun" }
+];
+
+// Best-effort parse of a cron back into the friendly form (so opening an existing beat
+// shows the right cadence); anything unrecognised falls to "custom" with the raw cron.
+function parseCronToForm(cron: string | null | undefined): SchedForm {
+  const def: SchedForm = { cadence: "everyHours", everyN: 5, hour: 9, minute: 0, dow: "1", custom: cron ?? "" };
+  if (!cron || !cron.trim()) return def;
+  const f = cron.trim().split(/\s+/);
+  if (f.length === 5) {
+    const [mi, hh, dom, mon, dw] = f;
+    const everyH = hh.match(/^\*\/(\d+)$/);
+    if (mi === "0" && everyH && dom === "*" && mon === "*" && dw === "*") {
+      return { ...def, cadence: "everyHours", everyN: Math.max(1, Number(everyH[1])), custom: cron };
+    }
+    if (/^\d+$/.test(mi) && /^\d+$/.test(hh) && dom === "*" && mon === "*") {
+      if (dw === "*") return { ...def, cadence: "daily", hour: Number(hh), minute: Number(mi), custom: cron };
+      if (/^[0-6]$/.test(dw)) return { ...def, cadence: "weekly", hour: Number(hh), minute: Number(mi), dow: dw, custom: cron };
+    }
+  }
+  return { ...def, cadence: "custom", custom: cron };
+}
+
+function formToCron(s: SchedForm): string {
+  const mm = Math.max(0, Math.min(59, Math.trunc(s.minute) || 0));
+  const hh = Math.max(0, Math.min(23, Math.trunc(s.hour) || 0));
+  if (s.cadence === "everyHours") return `0 */${Math.max(1, Math.trunc(s.everyN) || 1)} * * *`;
+  if (s.cadence === "daily") return `${mm} ${hh} * * *`;
+  if (s.cadence === "weekly") return `${mm} ${hh} * * ${s.dow}`;
+  return (s.custom || "").trim();
+}
+
+function pad2(n: number): string { return String(n).padStart(2, "0"); }
+
+function ScheduleField({ value, onChange }: { value: string | null; onChange: (cron: string) => void }) {
+  const [form, setForm] = useState<SchedForm>(() => parseCronToForm(value));
+  // Seed a sensible default cron when this opens with no schedule yet (e.g. the user
+  // just switched the trigger to scheduler-beat), so saving registers a real beat.
+  useEffect(() => {
+    if (!value || !value.trim()) onChange(formToCron(form));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const update = (partial: Partial<SchedForm>) => {
+    const next = { ...form, ...partial };
+    setForm(next);
+    onChange(formToCron(next));
+  };
+  const cron = formToCron(form);
+  const time = `${pad2(form.hour)}:${pad2(form.minute)}`;
+  const onTime = (v: string) => {
+    const [h, m] = v.split(":").map((x) => Number(x));
+    update({ hour: Number.isFinite(h) ? h : 0, minute: Number.isFinite(m) ? m : 0 });
+  };
+  return (
+    <div className="sched">
+      <select className="sched-cadence" value={form.cadence} onChange={(e) => update({ cadence: e.target.value })}>
+        <option value="everyHours">Every N hours</option>
+        <option value="daily">Daily at a time</option>
+        <option value="weekly">Weekly on a day</option>
+        <option value="custom">Custom cron</option>
+      </select>
+      {form.cadence === "everyHours" && (
+        <label className="sched-row">
+          every
+          <input type="number" min={1} max={23} value={form.everyN}
+            onChange={(e) => update({ everyN: Number(e.target.value) })} />
+          hours
+        </label>
+      )}
+      {form.cadence === "daily" && (
+        <label className="sched-row">
+          at <input type="time" value={time} onChange={(e) => onTime(e.target.value)} />
+        </label>
+      )}
+      {form.cadence === "weekly" && (
+        <label className="sched-row">
+          on
+          <select value={form.dow} onChange={(e) => update({ dow: e.target.value })}>
+            {DOW_OPTS.map((d) => <option key={d.v} value={d.v}>{d.label}</option>)}
+          </select>
+          at <input type="time" value={time} onChange={(e) => onTime(e.target.value)} />
+        </label>
+      )}
+      {form.cadence === "custom" && (
+        <input className="sched-custom" type="text" value={form.custom} placeholder="min hour day-of-month month day-of-week"
+          onChange={(e) => update({ custom: e.target.value })} />
+      )}
+      <div className="cron-preview" title="the cron the scheduler fires this list on">cron: <code>{cron || "—"}</code></div>
+    </div>
+  );
+}
 
 function ListConfigSheet({
   listId,
@@ -734,6 +841,14 @@ function ListConfigSheet({
   const [rev, setRev] = useState<number | null>(null); // board-level CAS token from GET /lists
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
+
+  // The installed skills, for the Skill field's searchable list. Best-effort.
+  useEffect(() => {
+    let alive = true;
+    api.skills().then((v) => { if (alive) setSkills(v.skills); }).catch(() => { /* leave empty */ });
+    return () => { alive = false; };
+  }, []);
 
   // Load the full list config (prompt bodies included). The board only carries
   // the lists' metadata, not the execute/router prompt text. Capture the board
@@ -761,6 +876,11 @@ function ListConfigSheet({
   // itself in principle, but the seed never does; we still list it so the user is
   // not blocked.
   const allListIds = board.lists.map((l) => ({ id: l.id, title: l.title }));
+  // The mode dropdown offers the three faces; if a list carries a legacy/custom mode
+  // not in that set, keep it as an extra option so a save doesn't silently drop it.
+  const modeOptions = cfg.mode && !MODES.includes(cfg.mode) ? [...MODES, cfg.mode] : MODES;
+  // The lists not yet in validNext — the "+ add a next list" dropdown's options.
+  const addableNext = allListIds.filter((l) => !cfg.validNext.includes(l.id));
 
   function set<K extends keyof ListConfig>(key: K, value: ListConfig[K]) {
     setCfg((c) => (c ? { ...c, [key]: value } : c));
@@ -781,6 +901,8 @@ function ListConfigSheet({
     setErr(null);
     // Send only the editable fields. A manual list sends just title + validNext
     // (the server rejects agent-only fields on a manual list).
+    // taskType/tier are intentionally NOT sent — the orchestrator classifies the tier.
+    // beatCron is only meaningful for a scheduler-beat list (cleared otherwise).
     const base: ListConfigPatch = isManual
       ? { title: cfg.title.trim(), validNext: cfg.validNext }
       : {
@@ -790,9 +912,8 @@ function ListConfigSheet({
           routerPrompt: cfg.routerPrompt,
           validNext: cfg.validNext,
           trigger: cfg.trigger,
-          mode: cfg.mode && cfg.mode.trim() ? cfg.mode.trim() : null,
-          taskType: cfg.taskType && cfg.taskType.trim() ? cfg.taskType.trim() : null,
-          tier: cfg.tier && cfg.tier.trim() ? cfg.tier.trim() : null
+          beatCron: cfg.trigger === "scheduler-beat" ? (cfg.beatCron && cfg.beatCron.trim() ? cfg.beatCron.trim() : null) : null,
+          mode: cfg.mode && cfg.mode.trim() ? cfg.mode.trim() : null
         };
     // Carry the rev we loaded so the server can reject a stale write (409).
     const patch: ListConfigPatch = rev != null ? { ...base, rev } : base;
@@ -835,8 +956,19 @@ function ListConfigSheet({
         <>
           <div className="field">
             <label htmlFor="lc-skill">Skill</label>
-            <input id="lc-skill" type="text" value={cfg.skill ?? ""} placeholder="e.g. autothing-plan (blank = none)"
+            <input id="lc-skill" type="text" list="lc-skill-options" value={cfg.skill ?? ""}
+              placeholder="search installed skills (blank = none)"
               onChange={(e) => set("skill", e.target.value)} />
+            <datalist id="lc-skill-options">
+              {skills.map((s) => <option key={s.name} value={s.name}>{s.description}</option>)}
+            </datalist>
+          </div>
+          <div className="field">
+            <label htmlFor="lc-mode">Mode</label>
+            <select id="lc-mode" value={cfg.mode ?? ""} onChange={(e) => set("mode", e.target.value || null)}>
+              <option value="">(none — orchestrator default)</option>
+              {modeOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
           </div>
           <div className="field">
             <label htmlFor="lc-trigger">Trigger</label>
@@ -844,23 +976,15 @@ function ListConfigSheet({
               {TRIGGERS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
-          <div className="field grid2">
-            <div>
-              <label htmlFor="lc-tasktype">Task type</label>
-              <input id="lc-tasktype" type="text" value={cfg.taskType ?? ""} placeholder="e.g. code"
-                onChange={(e) => set("taskType", e.target.value)} />
+          {cfg.trigger === "scheduler-beat" && (
+            <div className="field">
+              <label>Schedule</label>
+              <ScheduleField value={cfg.beatCron} onChange={(cron) => set("beatCron", cron)} />
             </div>
-            <div>
-              <label htmlFor="lc-tier">Tier</label>
-              <input id="lc-tier" type="text" value={cfg.tier ?? ""} placeholder="e.g. T1-standard"
-                onChange={(e) => set("tier", e.target.value)} />
-            </div>
-          </div>
-          <div className="field">
-            <label htmlFor="lc-mode">Mode</label>
-            <input id="lc-mode" type="text" value={cfg.mode ?? ""} placeholder="e.g. joe / james (blank = none)"
-              onChange={(e) => set("mode", e.target.value)} />
-          </div>
+          )}
+          <p className="muted" style={{ marginTop: -2, marginBottom: 12, fontSize: 12 }}>
+            Tier is chosen by the orchestrator per task — there's no per-list tier to set.
+          </p>
           <div className="field">
             <label htmlFor="lc-exec">Execute prompt</label>
             <textarea id="lc-exec" value={cfg.executePrompt} placeholder="What the operative is told to do on this list"
@@ -875,17 +999,28 @@ function ListConfigSheet({
       )}
 
       <div className="field">
-        <label>Next action (valid next lists)</label>
-        <div className="next-grid">
-          {allListIds.length === 0 && <span className="muted">no lists</span>}
-          {allListIds.map((l) => (
-            <label key={l.id} className="next-opt">
-              <input type="checkbox" checked={cfg.validNext.includes(l.id)} onChange={() => toggleNext(l.id)} />
-              <span>{l.title}</span>
-              <span className="muted" style={{ fontFamily: "var(--mono)", fontSize: 10 }}>{l.id}</span>
-            </label>
-          ))}
+        <label>Next action (where a card can go from here)</label>
+        <div className="tag-list">
+          {cfg.validNext.length === 0 && (
+            <span className="muted" style={{ fontSize: 12.5 }}>none yet — a card here can't advance until you add one</span>
+          )}
+          {cfg.validNext.map((id) => {
+            const l = allListIds.find((x) => x.id === id);
+            return (
+              <span key={id} className="tag">
+                <span className="tag-label">{l?.title ?? id}</span>
+                <button type="button" className="tag-x" aria-label={`remove ${l?.title ?? id}`} title="remove"
+                  onClick={() => toggleNext(id)}>×</button>
+              </span>
+            );
+          })}
         </div>
+        {addableNext.length > 0 && (
+          <select className="tag-add" value="" onChange={(e) => { if (e.target.value) toggleNext(e.target.value); }}>
+            <option value="">+ add a next list…</option>
+            {addableNext.map((l) => <option key={l.id} value={l.id}>{l.title} ({l.id})</option>)}
+          </select>
+        )}
       </div>
 
       {err && <div className="banner" style={{ marginTop: 12 }}>{err}</div>}
@@ -965,8 +1100,6 @@ function App() {
     return () => clearInterval(t);
   }, [load, loadRuntime]);
 
-  const listFor = (id: string) => board?.lists.find((l) => l.id === id);
-
   async function onStart(card: CardSummary) {
     setBusyCard(card.id);
     setNotice(null);
@@ -978,6 +1111,30 @@ function App() {
       setNotice(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyCard(null);
+    }
+  }
+
+  // Open a James-mode Discuss session seeded with this card. buildDiscussUrl carries
+  // the card context + an auto-sent kickoff (analyse the description, ask questions,
+  // write the brief). Crossing fittings: the board runs embedded (/embed/kanban-loop),
+  // so when embedded we ask the Garrison shell to swap the embedded view (its
+  // postMessage listener); standalone we navigate directly. The channel id is
+  // discovered at runtime (not hardcoded) so a non-default web channel works too.
+  function onDiscuss(card: CardSummary) {
+    const channelId = runtime?.webChannelEmbedId ?? null;
+    if (!channelId) {
+      setNotice("No web channel is installed/running — install/start a web channel fitting to use Discuss.");
+      return;
+    }
+    const chatHref = buildDiscussUrl(card, { webChannelBase: `/embed/${channelId}` });
+    const u = new URL(chatHref, window.location.origin);
+    const fittingId = u.pathname.split("/").filter(Boolean).pop() || channelId;
+    const params: Record<string, string> = {};
+    u.searchParams.forEach((v, k) => { params[k] = v; });
+    if (window.top && window.top !== window.self) {
+      window.top.postMessage({ type: "garrison:navigate-fitting", fittingId, params }, "*");
+    } else {
+      window.location.href = chatHref;
     }
   }
 
@@ -1052,6 +1209,7 @@ function App() {
                     busy={busyCard === card.id}
                     onStart={onStart}
                     onInfer={onInfer}
+                    onDiscuss={onDiscuss}
                     onMove={(c) => {
                       // One valid next list → just move (the server auto-dispatches if
                       // it's an immediate agent list); only ASK when there's a choice.
@@ -1084,8 +1242,6 @@ function App() {
       {overlay?.kind === "watch" && (
         <WatchSheet
           card={overlay.card}
-          list={listFor(overlay.card.list)}
-          runtime={runtime}
           onClose={() => setOverlay(null)}
         />
       )}

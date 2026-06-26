@@ -8,15 +8,17 @@
 // never auto-advances. Hermetic: a per-test tmpdir, no live socket.
 
 import { describe, it, expect } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
-import { buildDiscussUrl, briefSlug, briefRelPath, recordBrief, isSafeBriefPath } from "../fittings/seed/kanban-loop/scripts/discuss.mjs";
+import { buildDiscussUrl, buildDiscussKickoff, briefSlug, briefRelPath, recordBrief, isSafeBriefPath } from "../fittings/seed/kanban-loop/scripts/discuss.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { processCard, isInteractive, getList } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { processCard, isInteractive, getList, buildCardPrompt, readBriefContext } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+// @ts-ignore — pure .mjs
+import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-discuss-"));
 
@@ -28,8 +30,11 @@ const tmp = () => mkdtempSync(join(tmpdir(), "kanban-discuss-"));
 function channelDecodeContext(raw: string | null): unknown {
   if (!raw) return undefined;
   try {
-    const decoded = atob(raw);
-    if (btoa(decoded) === raw) return decoded; // genuine base64 wrapper → unwrap
+    const bytes = atob(raw);
+    if (btoa(bytes) === raw) {
+      // UTF-8-safe reverse of the encoder (btoa(unescape(encodeURIComponent(s)))).
+      try { return decodeURIComponent(escape(bytes)); } catch { return bytes; }
+    }
   } catch {
     /* not base64 — forward verbatim */
   }
@@ -76,6 +81,89 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
     const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
     expect(ctx.briefsPath).toBe("docs/briefs/");
     expect(ctx.project).toBe(null);
+  });
+});
+
+describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)", () => {
+  it("leads with 'James,' (so the gateway switches the face) and carries the title + description + brief path", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "garrison", description: "Users hit a redirect loop on Safari." };
+    const k = buildDiscussKickoff(card);
+    expect(k.startsWith("James,")).toBe(true);
+    expect(k).toContain("# Card: Add SSO");
+    expect(k).toContain("Project: garrison");
+    expect(k).toContain("Users hit a redirect loop on Safari.");
+    // It points James at the SAME path the board auto-links on Move-out-of-Discuss.
+    expect(k).toContain(`\`${briefRelPath(card)}\``);
+    expect(k.toLowerCase()).toContain("clarifying question");
+  });
+  it("falls back to an ask-Goncalo line when the card has no description", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Vague card", project: null };
+    const k = buildDiscussKickoff(card);
+    expect(k).toContain("(none assigned yet)");
+    expect(k.toLowerCase()).toContain("no description");
+  });
+});
+
+describe("kanban discuss — buildDiscussUrl carries the kickoff + description", () => {
+  it("adds a kickoff param that decodes (same as context) to the James opening message", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "g", description: "loop on Safari" };
+    const url = buildDiscussUrl(card);
+    const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
+    const kickoff = channelDecodeContext(q.get("kickoff"));
+    expect(typeof kickoff).toBe("string");
+    expect((kickoff as string).startsWith("James,")).toBe(true);
+    expect(kickoff).toContain("loop on Safari");
+    // Non-ASCII survives the base64 transport (the em-dash in the brief instruction) —
+    // a regression guard for the UTF-8 decode fix (atob alone mangled multi-byte chars).
+    expect(kickoff).toContain("—");
+    // The context blob now also carries the description (for a context-honoring path).
+    const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
+    expect(ctx.description).toBe("loop on Safari");
+  });
+
+  it("round-trips non-ASCII in the card description through the transport", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Café", project: "g", description: "Use an em‑dash — and “curly quotes”." };
+    const q = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
+    const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
+    expect(ctx.description).toBe("Use an em‑dash — and “curly quotes”.");
+    expect((channelDecodeContext(q.get("kickoff")) as string)).toContain("“curly quotes”");
+  });
+});
+
+describe("kanban discuss — the discussion result becomes downstream context", () => {
+  it("readBriefContext reads a linked brief, confines to cwd, and caps size", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kanban-brief-"));
+    mkdirSync(join(cwd, "briefs"), { recursive: true });
+    writeFileSync(join(cwd, "briefs", "b.md"), "# BRIEF\nDecision: build the widget.");
+    expect(readBriefContext(cwd, "briefs/b.md")).toContain("build the widget");
+    expect(readBriefContext(cwd, "../escape.md")).toBeNull();   // confined to cwd
+    expect(readBriefContext(cwd, "briefs/missing.md")).toBeNull();
+    expect(readBriefContext(cwd, null)).toBeNull();
+  });
+
+  it("buildCardPrompt injects the discussion brief as a Discussion section", () => {
+    const list = getList(seedBoard(), "implement");
+    const prompt = buildCardPrompt({
+      list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"],
+      discussionContext: "Decision: ship the widget behind a flag."
+    });
+    expect(prompt).toContain("## Discussion");
+    expect(prompt).toContain("ship the widget behind a flag");
+  });
+
+  it("processCard folds a card's linked brief into the dispatched prompt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kanban-discuss-brief-"));
+    const cwd = mkdtempSync(join(tmpdir(), "kanban-discuss-cwd-"));
+    mkdirSync(join(cwd, "briefs"), { recursive: true });
+    writeFileSync(join(cwd, "briefs", "x.md"), "AGREED: build the widget behind a flag.");
+    const board = seedBoard();
+    const card = await createCard(root, { title: "T", project: "p", list: "plan" });
+    await recordBrief(root, card.id, "briefs/x.md");
+    let captured = "";
+    const runFn = async ({ prompt }: any) => { captured = prompt; return { reply: "implement" }; };
+    await processCard({ root, board, card: await loadCard(root, card.id), runFn, cap: 10, cwd });
+    expect(captured).toContain("## Discussion");
+    expect(captured).toContain("AGREED: build the widget behind a flag.");
   });
 });
 

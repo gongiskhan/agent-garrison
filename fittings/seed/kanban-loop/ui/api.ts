@@ -122,12 +122,18 @@ export interface ListConfig {
   order: number;
   kind: string;
   trigger: string;
+  // The cron a scheduler-beat list fires on (null for other triggers). Configured in
+  // the list-config Schedule builder; only meaningful when trigger === "scheduler-beat".
+  beatCron: string | null;
   interactive: boolean;
   terminal: boolean;
   skill: string | null;
   executePrompt: string;
   routerPrompt: string;
   mode: string | null;
+  // taskType/tier are no longer edited in the UI — a card routes through the
+  // orchestrator, which classifies the tier itself. Kept on the type for back-compat
+  // with the server payload (the fields persist but are inert).
   taskType: string | null;
   tier: string | null;
   validNext: string[];
@@ -149,10 +155,22 @@ export interface ListConfigPatch {
   routerPrompt?: string;
   validNext?: string[];
   trigger?: string;
+  beatCron?: string | null;
   mode?: string | null;
   taskType?: string | null;
   tier?: string | null;
   rev?: number; // board-level optimistic-concurrency token from GET /lists
+}
+
+// GET /projects — the dev-root repos for the New Card project picker (dev-env parity).
+export interface ProjectsView {
+  devRoot: string;
+  projects: { name: string; path: string }[];
+}
+
+// GET /skills — the skills installed under ~/.claude/skills, for the list-config skill field.
+export interface SkillsView {
+  skills: { name: string; description: string }[];
 }
 
 export interface DecisionRun {
@@ -198,7 +216,10 @@ export const api = {
       body: JSON.stringify(body)
     }),
   card: (id: string) => jfetch<CardDetail>(`/cards/${encodeURIComponent(id)}`),
-  create: (body: { title: string; description?: string; project?: string; goalMode?: boolean }) =>
+  projects: () => jfetch<ProjectsView>("/projects"),
+  skills: () => jfetch<SkillsView>("/skills"),
+  // Title is optional — the server infers it from the description when blank.
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
   patch: (id: string, body: Record<string, unknown>) =>
     jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}`, {

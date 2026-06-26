@@ -21,7 +21,7 @@
 // agent lists; and Test batching (FINDING 7) — one session per project on the test
 // list's own scheduler beat.
 import path from "node:path";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { saveCard, saveCardCAS, appendCardLog, writeCardLog } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 
@@ -38,6 +38,27 @@ export function hasEvidence(cwd, runDir) {
     return readdirSync(dir, { withFileTypes: true }).some((d) => d.isFile());
   } catch {
     return false;
+  }
+}
+
+// Read the Discuss brief a card links (card.briefPath), so the discussion's RESULT
+// becomes context for the downstream phases (plan/implement/…). The brief path is set
+// by the server (recordBrief / the Move-out-of-Discuss auto-link) and is project-
+// relative; we confine the read to the project root (cwd) defensively, require a
+// regular readable file, and cap the size so a huge brief can't blow up the prompt.
+// Best-effort: any miss returns null and the prompt simply omits the section.
+export function readBriefContext(cwd, briefPath, max = 6000) {
+  if (!briefPath || typeof briefPath !== "string") return null;
+  try {
+    const base = path.resolve(cwd || process.cwd());
+    const abs = path.resolve(base, briefPath);
+    if (abs !== base && !abs.startsWith(base + path.sep)) return null; // confine to cwd
+    if (!existsSync(abs)) return null;
+    const text = readFileSync(abs, "utf8").trim();
+    if (!text) return null;
+    return text.length > max ? text.slice(0, max).trimEnd() + "\n\n…(brief truncated)" : text;
+  } catch {
+    return null;
   }
 }
 
@@ -79,8 +100,12 @@ export function mintRunFields(card, now = Date.now) {
   return { runId, runDir: `${RUN_DIR_BASE}/${runId}` };
 }
 
-// §10: an agent-list carries an explicit {taskType, tier} so the kanban builds a
-// classification for preRoute without inventing a phase→classification mapper.
+// Tier/taskType are NO LONGER pinned per list (the user's call): a kanban card routes
+// through the orchestrator, which CLASSIFIES the work itself (picks tier/model/effort)
+// from the prompt — the per-list `mode` still biases that routing. So the engine sends
+// NO classification hint (see the `classification = null` at the dispatch sites + the
+// note in lib/gateway-client.mjs). Retained, unused by dispatch, only so an external
+// caller/test that still wants the old {taskType,tier} projection can derive it.
 export function classificationFor(list) {
   return { taskType: list?.taskType || "other", tier: list?.tier || "T1-standard" };
 }
@@ -163,8 +188,18 @@ export function parseNextList(routerOutput, validNext) {
 // runDir is threaded in as literal text (the gateway `skill` field is inert, so the
 // run dir must be IN the prompt for the autothing skill to write per-run — FINDING
 // 4/10); the valid next-list ids are injected so the router output can exact-match.
-export function buildCardPrompt({ list, card, validNext }) {
+export function buildCardPrompt({ list, card, validNext, discussionContext = null }) {
   const parts = [];
+  // Lead with the list's MODE so the gateway's mode resolver switches the operative's
+  // face (Gary/Joe/James) for this turn. The per-list mode is otherwise inert — the
+  // kanban channel has no mode default, so it falls back to the global default. The
+  // gateway's parseLeadingMode matches a mode name at the VERY START of the message,
+  // so this clause must come before /goal and the work item. Harmless if the gateway
+  // ignores it (it just reads as an addressing line to the operative).
+  const mode = (list?.mode || "").trim();
+  if (mode && list.kind === AGENT_KIND) {
+    parts.push(`${mode}, take on the following work item.`, "");
+  }
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
     parts.push(`/goal ${acceptance}`, "");
@@ -182,6 +217,17 @@ export function buildCardPrompt({ list, card, validNext }) {
   );
   if (card.description && card.description.trim()) {
     parts.push("", card.description.trim());
+  }
+  // The Discuss step's RESULT (the brief James wrote) — the agreed direction the
+  // downstream phases must build from. Injected verbatim so plan/implement/review have
+  // the decisions/approach/open-questions/acceptance the discussion settled on.
+  if (discussionContext && String(discussionContext).trim()) {
+    parts.push(
+      "",
+      "## Discussion (decided in the Discuss step — this is the agreed direction; build from it)",
+      "",
+      String(discussionContext).trim()
+    );
   }
   parts.push("");
   // Thread the per-run pointers so the autothing skill writes its plan/gate files
@@ -278,8 +324,13 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const runningCard = acq.card;
   const runRev = runningCard.rev;
 
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext });
-  const classification = classificationFor(list);
+  // Fold the Discuss brief (if any) into the prompt so every downstream phase builds
+  // from the agreed direction the discussion settled on.
+  const discussionContext = readBriefContext(cwd, runningCard.briefPath);
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext });
+  // No classification hint: route through the orchestrator and let IT classify the
+  // work (tier/model/effort). The per-list mode (led into the prompt above) biases it.
+  const classification = null;
   // Live log: write the iteration header immediately (Watch shows the run STARTED,
   // not a blank pane), then overwrite the log with the operative's growing reply as
   // chunks stream in — so Watch shows progress instead of nothing-until-the-result.
@@ -630,7 +681,8 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     if (acquired.length === 0) continue;
 
     const runningCards = acquired.map((a) => a.running);
-    const classification = classificationFor(list);
+    // No classification hint (route through the orchestrator) — same as processCard.
+    const classification = null;
     let out;
     try {
       out = await batchRunFn({ project, cards: runningCards, list, classification, suppressContinuations: true });
