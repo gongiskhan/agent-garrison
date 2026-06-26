@@ -65,6 +65,7 @@ import {
   setSessionOpen
 } from "./state.mjs";
 import { listHistory } from "./claude-sessions.mjs";
+import { tailnetUrlForPort } from "./tailnet.mjs";
 import {
   createProjectSession,
   createWorktree,
@@ -341,9 +342,16 @@ async function handleBrowserTarget(_req, res) {
     if (!parsed || typeof parsed.url !== "string") {
       return jsonRes(res, 404, { error: "browser status file invalid" });
     }
+    // When this dev-env page is reached over Tailscale, the browser fitting's
+    // raw http://host:7084 is mixed-content-blocked. Hand the UI the browser
+    // fitting's HTTPS tailnet URL (from `tailscale serve`) so its canvas + the
+    // same-origin wss the canvas opens both proxy over Tailscale.
+    const tailnetUrl =
+      typeof parsed.port === "number" ? await tailnetUrlForPort(parsed.port) : null;
     jsonRes(res, 200, {
       url: parsed.url,
       port: parsed.port ?? null,
+      tailnetUrl,
       pid: parsed.pid ?? null,
       cdpWsEndpoint: parsed.cdpWsEndpoint ?? null
     });

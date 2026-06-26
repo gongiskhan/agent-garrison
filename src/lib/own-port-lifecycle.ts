@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, writeSync } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -8,6 +9,29 @@ import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
 import { readVaultSecrets } from "./vault";
 import type { LibraryEntry } from "./types";
+
+// The lifecycle-managed env keys whose drift triggers a heal. Adding a key here
+// makes a runtime change to that env (e.g. the gateway URL changing across an
+// `up`) automatically restart any already-running own-port fitting so it sees
+// the new value, without the caller having to opt in. Vault secrets are handled
+// separately (the SpawnRecord's secretsDelivered bit), so this list is just the
+// runner-projected configuration the fitting reads from process.env on boot.
+const TRACKED_ENV_KEYS = ["GARRISON_GATEWAY_URL", "GARRISON_COMPOSITION_ID"] as const;
+
+// Stable fingerprint of the tracked env keys in extraEnv. Only the tracked keys
+// participate, so adding an unrelated key to extraEnv never forces a restart.
+// Missing keys count as the literal string "<absent>" (NOT "" — an empty string
+// is a value the user might intentionally set). The fingerprint is sha256 of
+// `key=value` lines so two runs with the same tracked env hash identically
+// regardless of how the runner ordered the keys.
+export function envFingerprintForExtraEnv(extraEnv: Record<string, string> | undefined): string {
+  const hash = createHash("sha256");
+  for (const key of TRACKED_ENV_KEYS) {
+    const value = extraEnv && key in extraEnv ? extraEnv[key] : "<absent>";
+    hash.update(`${key}=${value}\n`);
+  }
+  return hash.digest("hex");
+}
 
 // Lifecycle helpers for own-port Fittings (detected per-Fitting via the
 // `own_port` metadata flag — Monitor pattern). Garrison reads:
@@ -116,6 +140,11 @@ export interface StartResult {
   pid?: number;
   alreadyRunning?: boolean;
   healed?: boolean;
+  // What triggered the heal — "vault" (keyless process gained secrets) or
+  // "env-drift" (a tracked env value changed; the gateway URL is the canonical
+  // case). Only set when healed is true; lets the runner log the right
+  // explanation.
+  healReason?: "vault" | "env-drift";
   // Set when onlyIfRunning was requested and the fitting was not running.
   notRunning?: boolean;
   error?: string;
@@ -127,6 +156,14 @@ export interface SpawnRecord {
   pid: number;
   startedAt: string;
   secretsDelivered: boolean;
+  // sha256 of the tracked env keys (envFingerprintForExtraEnv). A subsequent
+  // start with a different fingerprint triggers a heal (kill + respawn) so the
+  // fitting picks up the new value — e.g. a Kanban board left running across a
+  // gateway restart, where GARRISON_GATEWAY_URL drifted, gets restarted with
+  // the fresh URL on the next `up`. Missing on records written by an earlier
+  // version (no field) — treated as a wildcard match so the field's absence
+  // never spuriously heals; the next spawn writes the real fingerprint.
+  envFingerprint?: string;
 }
 
 function entryConsumesVault(entry: LibraryEntry): boolean {
@@ -142,7 +179,8 @@ async function readSpawnRecord(fittingId: string): Promise<SpawnRecord | null> {
       fittingId,
       pid: parsed.pid,
       startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : "",
-      secretsDelivered: parsed.secretsDelivered === true
+      secretsDelivered: parsed.secretsDelivered === true,
+      envFingerprint: typeof parsed.envFingerprint === "string" ? parsed.envFingerprint : undefined
     };
   } catch {
     // Missing or corrupt record reads as "secrets not delivered" — pre-fix
@@ -240,12 +278,29 @@ async function startOwnPortFittingLocked(
     return { ok: true, notRunning: true };
   }
   let heal = false;
+  let healReason: "vault" | "env-drift" | null = null;
   if (livePid !== null) {
     // secretsDelivered is only believed when the recorded pid IS the live
     // process — a process restarted outside Garrison inherits a stale record
     // that says nothing about ITS env.
     const delivered = record?.secretsDelivered === true && record.pid === livePid;
-    heal = consumesVault && hasExtraEnv && !delivered;
+    if (consumesVault && hasExtraEnv && !delivered) {
+      heal = true;
+      healReason = "vault";
+    }
+    // Tracked-env drift: if the running fitting was last spawned with a
+    // different GARRISON_GATEWAY_URL / GARRISON_COMPOSITION_ID than we want now,
+    // restart it so it picks up the fresh value. Same recorded-pid gate as the
+    // vault check — a process restarted outside Garrison says nothing about
+    // ITS env, so we don't act on its drift. A record with no envFingerprint
+    // (legacy) matches anything (no spurious heal); the respawn writes one.
+    if (!heal && record?.pid === livePid && record.envFingerprint) {
+      const desired = envFingerprintForExtraEnv(extraEnv);
+      if (record.envFingerprint !== desired) {
+        heal = true;
+        healReason = "env-drift";
+      }
+    }
     if (!heal) {
       return { ok: true, alreadyRunning: true };
     }
@@ -323,10 +378,11 @@ async function startOwnPortFittingLocked(
     // True whenever this spawn could not have run keyless: either the Fitting
     // never asked for the vault, or the secrets are in its env right now.
     // After a heal this is always true, so the heal can never loop.
-    secretsDelivered: !consumesVault || hasExtraEnv
+    secretsDelivered: !consumesVault || hasExtraEnv,
+    envFingerprint: envFingerprintForExtraEnv(extraEnv)
   });
   if (heal) {
-    return { ok: true, pid: child.pid, healed: true };
+    return { ok: true, pid: child.pid, healed: true, healReason: healReason ?? "vault" };
   }
   return { ok: true, pid: child.pid };
 }

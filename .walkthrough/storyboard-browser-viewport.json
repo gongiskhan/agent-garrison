@@ -1,0 +1,77 @@
+{
+  "title": "Browser pane — test at mobile / tablet / desktop widths",
+  "project": "garrison-dev-env-responsive",
+  "folder": "browser-viewport",
+  "video": { "width": 1700, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Test your app at any device size — in the dev-env browser pane",
+      "subtitle": "garrison · a Desktop / Tablet / Mobile selector renders the embedded app at a fixed device width",
+      "duration": 3.0,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:7191",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "selector",
+          "caption": "The browser pane gains a Desktop / Tablet / Mobile viewport selector",
+          "expectedScreen": "the dev-env split; on the right the browser pane toolbar shows a 3-way Desktop (active) / Tablet / Mobile segmented selector next to DevTools and Refresh, with the app iframe filling the pane (Desktop = fluid)",
+          "actions": [
+            { "type": "waitFor", "selector": ".browser-pane-host" },
+            { "type": "waitFor", "selector": ".device-selector" },
+            { "type": "waitFor", "selector": ".app-iframe" }
+          ],
+          "assert": { "selector": ".device-selector", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "mobile",
+          "caption": "Mobile — the app rendered at a fixed 390px phone width, framed and centered",
+          "expectedScreen": "the embedded app iframe shrunk to a narrow ~390px column, centered in the pane with cream gutters on both sides and a rounded device frame",
+          "actions": [
+            { "type": "click", "selector": ".device-selector button:has-text(\"Mobile\")" },
+            { "type": "waitFor", "selector": ".app-pane-viewport.device-mobile" }
+          ],
+          "assert": { "selector": ".app-iframe", "highlight": true },
+          "hold": 4600
+        },
+        {
+          "id": "tablet",
+          "caption": "Tablet — a fixed 820px width (it does not fluid-fit the pane)",
+          "expectedScreen": "the embedded app iframe at a wider ~820px column, still centered in the pane within the device frame",
+          "actions": [
+            { "type": "click", "selector": ".device-selector button:has-text(\"Tablet\")" },
+            { "type": "waitFor", "selector": ".app-pane-viewport.device-tablet" }
+          ],
+          "assert": { "selector": ".app-iframe", "highlight": true },
+          "hold": 4400
+        },
+        {
+          "id": "desktop",
+          "caption": "Desktop — fluid again, the app fills the whole pane",
+          "expectedScreen": "the embedded app iframe back to filling the entire browser pane edge to edge (fluid, no gutters)",
+          "actions": [
+            { "type": "click", "selector": ".device-selector button:has-text(\"Desktop\")" },
+            { "type": "waitFor", "selector": ".app-pane-viewport.device-desktop" }
+          ],
+          "assert": { "selector": ".app-iframe", "highlight": true },
+          "hold": 4000
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "One pane, every viewport — mobile, tablet, desktop",
+      "subtitle": "the choice persists across reloads, and works on the mobile Browser tab too",
+      "duration": 3.0
+    }
+  ]
+}

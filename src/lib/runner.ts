@@ -440,7 +440,10 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
       continue;
     }
     if (result.healed) {
-      appendLog(compositionId, "runner", `own-port ${entry.id} restarted to deliver vault secrets${result.pid ? ` (pid ${result.pid})` : ""}`);
+      const reason = result.healReason === "env-drift"
+        ? "to pick up a changed env value (gateway URL / composition id)"
+        : "to deliver vault secrets";
+      appendLog(compositionId, "runner", `own-port ${entry.id} restarted ${reason}${result.pid ? ` (pid ${result.pid})` : ""}`);
     } else if (result.alreadyRunning) {
       appendLog(compositionId, "runner", `own-port ${entry.id} already running; left in place`);
     } else {

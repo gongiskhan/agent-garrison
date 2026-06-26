@@ -20,6 +20,7 @@
     "import:claude": "tsx scripts/import-claude-install.ts",
     "test:integration": "GARRISON_INTEGRATION=1 vitest run tests/orchestrator-integration.test.ts",
     "test:pty": "GARRISON_INTEGRATION=1 vitest run tests/gateway-pty.integration.test.ts",
+    "kanban:v1d:walkthrough": "node scripts/kanban-v1d-walkthrough.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.mjs"
   },
   "dependencies": {

@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "garrison",
+  "project_id": "4ab33c62-e795-4eec-be2e-9b4ecd1ae612"
+}

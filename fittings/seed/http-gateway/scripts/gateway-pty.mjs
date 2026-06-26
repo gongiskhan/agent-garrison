@@ -271,7 +271,7 @@ async function runRoutedTurn(message, onChunk, hints) {
           }
         }
       : undefined;
-  const outcome = await session.runTurn({ message: annotated, onScreen });
+  const outcome = await session.runTurn({ message: annotated, onScreen, timeoutMs: hints?.timeoutMs });
   const honored = await router.postTurn(pre.route, pre.decision, outcome.reply);
   await markPriorSession();
   // Inject a consistent runtime/model status badge for the channel UI (the
@@ -327,7 +327,7 @@ async function runTurn(message, onChunk, hints) {
         }
       }
     : undefined;
-  const outcome = await session.runTurn({ message, onScreen });
+  const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
   await markPriorSession();
   return { reply: outcome.reply, session_id: outcome.sessionId, cost_usd: null };
 }
@@ -347,6 +347,15 @@ function routeHintsFromBody(body) {
     classification,
     skill: typeof body?.skill === "string" ? body.skill : null,
     suppressContinuations: body?.suppressContinuations === true,
+    // An EXPLICIT per-turn timeout (ms). The Kanban Loop sends a generous one because a
+    // real autothing-* turn (plan/implement/review/…) runs far longer than the default
+    // 5-min turn timeout, which otherwise kills the turn → HTTP 500 → the card parks.
+    // Absent (e.g. web chat) → session.runTurn uses its default, so other channels are
+    // unaffected. Only honored when finite + positive.
+    timeoutMs:
+      typeof body?.timeoutMs === "number" && Number.isFinite(body.timeoutMs) && body.timeoutMs > 0
+        ? body.timeoutMs
+        : undefined,
   };
 }
 
@@ -570,6 +579,15 @@ const server = http.createServer(async (request, response) => {
 });
 
 async function main() {
+  // Node's http.Server defaults requestTimeout to 5 min — that would abort a long
+  // /chat turn (a real Kanban autothing-* turn runs longer) at the socket layer,
+  // regardless of the per-turn timeout, surfacing to the caller as a dropped
+  // connection. Disable the request/header socket timeouts here so a long-running
+  // turn is governed ONLY by session.runTurn's (per-request) timeout, not the HTTP
+  // server. Short channels still pass their own short turn timeout.
+  server.requestTimeout = 0;
+  server.headersTimeout = 0;
+  server.timeout = 0;
   // Listen FIRST so /health answers while the PTY spins up (the runner's
   // health-poll deadline is short; PTY readiness can take several seconds).
   server.listen(PORT, HOST, () => {

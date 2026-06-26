@@ -116,12 +116,24 @@ export function BrowserPane({
         return null;
       }
       const target = await targetRes.json();
-      // Re-host the canvas URL on whatever host the Dev Env page itself is
-      // served from so iPad-over-Tailscale links don't collapse to localhost.
-      const browserUrl = String(target.url || "").replace(
-        /\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?/,
-        `//${window.location.hostname}:${target.port}`
-      );
+      // Reach the browser fitting from wherever this Dev Env page is served:
+      //  - over Tailscale, prefer its HTTPS tailnet URL (so the canvas + the
+      //    same-origin wss it opens proxy over TLS with no mixed content);
+      //  - otherwise re-host on the page's host so localhost/LAN links still work.
+      let tailnetSameHost = false;
+      if (typeof target.tailnetUrl === "string" && target.tailnetUrl) {
+        try {
+          tailnetSameHost = new URL(target.tailnetUrl).hostname === window.location.hostname;
+        } catch {
+          tailnetSameHost = false;
+        }
+      }
+      const browserUrl = tailnetSameHost
+        ? String(target.tailnetUrl)
+        : String(target.url || "").replace(
+            /\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?/,
+            `//${window.location.hostname}:${target.port}`
+          );
 
       let tabId = existingTabId;
       if (tabId) {
