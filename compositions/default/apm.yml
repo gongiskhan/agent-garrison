@@ -12,7 +12,6 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
-    - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/model-router
     - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
@@ -82,8 +81,6 @@ x-garrison:
           config:
             tasks_truth_file: tasks/trello.md
             board_id: vl1Z8KFH
-        - id: knowledge
-          config: {}
       observability:
         - id: monitor-default
           config:

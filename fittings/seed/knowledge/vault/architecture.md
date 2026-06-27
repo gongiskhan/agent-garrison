@@ -1,3 +1,0 @@
-- Compose, don't own: capabilities are Fittings stationed into Faculty role slots; the orchestrator codes against Faculty contracts, never concrete models/CLIs/tools.
-- Every model and capability is a runtime reached via the RuntimeAdapter + runtime-bridge; there are no capability skills.
-- Knowledge is independent of Runtime: memory + code graph + conventions are projected per-runtime, so switching the runtime never loses context.

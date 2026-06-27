@@ -1,4 +1,0 @@
-- Local-first, single-user; talk only to localhost. No telemetry, no cloud calls without explicit consent.
-- Verify or don't ship: every change carries a committed, re-runnable assertion.
-- Never use emoji in UI code; use text labels or SVG icons.
-- Secrets reach scripts only as `process.env` via the vault; a locked vault fails loudly, never silently.

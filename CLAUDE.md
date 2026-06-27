@@ -309,57 +309,22 @@ than this file.
   [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md).
 
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
-## Beads Issue Tracker
+## Memory
 
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+Durable knowledge lives in **two tiers** — use these, not ad-hoc note stores:
 
-### Quick Reference
+- **Hot index — the native memory tool** (`~/.claude/projects/<slug>/memory/MEMORY.md`
+  plus per-topic notes): small, hand-curated, **auto-loaded into every session**.
+  This is the default place to record a durable fact, preference, or piece of
+  project context. Keep it short; it is always in context.
+- **Cold archive — Basic Memory** (Obsidian vault at `~/ObsidianVault`, searchable +
+  shared across Claude/Codex/Gemini): the long-term, query-on-demand store. A
+  SessionEnd/PreCompact hook auto-captures session checkpoints into it; use its
+  `search` / `read_note` tools to recall older context.
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
+Do not scatter knowledge across other stores. `bd remember`, Serena memories, and
+the former `knowledge`-fitting recall MCP are **not** part of this setup.
 
-### Rules
-
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
-
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
-
-## Agent Context Profiles
-
-The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
-
-- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
-- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
-- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
-
-## Session Completion
-
-This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
-
-1. **File issues for remaining work** - Create beads for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Handle git/sync by active profile**:
-   ```bash
-   # Conservative/minimal/default: report status and proposed commands; wait for approval.
-   git status
-
-   # Team-maintainer opt-in only, unless current instructions forbid it:
-   git pull --rebase
-   git push
-   git status
-   ```
-5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
-
-**Critical rules:**
-- Explicit user or orchestrator instructions override this Beads block.
-- Do not commit or push without clear authority from the active profile or the current user request.
-- If a required sync or push is blocked, stop and report the exact command and error.
-<!-- END BEADS INTEGRATION -->
+For task tracking, do not use TodoWrite/markdown TODO files for anything durable —
+prefer the in-session task tools for transient work and the memory tiers above for
+anything that must survive the session.

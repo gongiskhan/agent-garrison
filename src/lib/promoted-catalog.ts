@@ -426,25 +426,6 @@ export const PROMOTED_CATALOG: PromotedFitting[] = [
     ],
     notes: "Grouped: the codegraph agent tool + its codegraph-autoinit SessionStart hook (clear co-reference)."
   },
-  {
-    id: "serena",
-    title: "Symbol-Aware Editing",
-    descriptionPlain:
-      "Gives the operative precise, symbol-aware navigation and editing of code — it can jump to and rename a specific function or variable safely, the way a smart code editor does.",
-    descriptionTechnical: "The serena agent tool: LSP-grade symbol find/edit/rename over the project.",
-    faculty: "code-intelligence",
-    componentShape: "mcp",
-    provides: [{ kind: "tools", name: "find_symbol / replace_symbol_body / rename_symbol / …" }],
-    consumes: [{ kind: "orchestrator", name: "operative", cardinality: "one" }],
-    setup: [
-      {
-        command: "command -v serena >/dev/null || uvx --from git+https://github.com/oraios/serena serena --help >/dev/null",
-        idempotent: true,
-        label: "Install the serena agent tool"
-      }
-    ],
-    members: [{ surface: "mcp", name: "serena" }]
-  },
 
   // ── Design Studio (Dev) ───────────────────────────────────────────────────
   {

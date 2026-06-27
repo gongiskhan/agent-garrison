@@ -222,21 +222,6 @@
     }
   },
   {
-    "id": "knowledge",
-    "name": "Knowledge",
-    "repo": "local:fittings/seed/knowledge",
-    "localPath": "fittings/seed/knowledge",
-    "summary": "Knowledge Faculty (composite) — federates memory + context projections + code graph + symbol-nav behind one contract. Owns the canonical vault, emits cross-runtime projections (CLAUDE.md/AGENTS.md/GEMINI.md), and wires the shared MCPs (CodeGraph, Serena) into every runtime session, so switching the runtime never loses memory.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-knowledge",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
     "id": "improver",
     "name": "Improver",
     "repo": "local:fittings/seed/improver",
@@ -337,21 +322,6 @@
     "ratings": {
       "global": 4.4,
       "claude_code": 4.4
-    }
-  },
-  {
-    "id": "coord-beads",
-    "name": "Coordination — Beads",
-    "repo": "local:fittings/seed/coord-beads",
-    "localPath": "fittings/seed/coord-beads",
-    "summary": "Per-repo git-backed decision/intent/task graph (bd). User-scope SessionStart hook primes every claude run; quiet no-op in fresh repos.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gastownhall/beads",
-      "global": 4.5,
-      "claude_code": 4.5
     }
   },
   {

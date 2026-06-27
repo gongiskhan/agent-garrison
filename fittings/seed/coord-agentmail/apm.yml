@@ -15,6 +15,11 @@ x-garrison:
   cardinality_hint: single
   own_port: true
   default_port: 8765
+  # Standing server (not tied to an operative): direct `claude` sessions in any
+  # repo reach it as a user-scope http MCP, so it must outlive operative up/down.
+  # `detached` opts out of operative start/stop; eager-boot (eager-boot.json) owns
+  # its lifecycle — boots it with Garrison and the orphan sweep leaves it alone.
+  lifecycle: detached
   component_shape: cli
   platforms:
     - claude-code

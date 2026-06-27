@@ -46,10 +46,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/kanban-loop
-- repo_url: _local/knowledge
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/knowledge
 - repo_url: _local/model-router
   package_type: apm_package
   deployed_files:

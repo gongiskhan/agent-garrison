@@ -34,13 +34,13 @@ describe("stripOwnerHookGroups", () => {
       JSON.stringify({
         hooks: {
           SessionStart: [
-            { _garrison: "fitting:coord-beads", matcher: "", hooks: [{ type: "command", command: "x" }] },
+            { _garrison: "fitting:coord-mcp", matcher: "", hooks: [{ type: "command", command: "x" }] },
             { matcher: "", hooks: [{ type: "command", command: "echo user" }] }
           ]
         }
       })
     );
-    const r = stripOwnerHookGroups(settingsPath, "fitting:coord-beads");
+    const r = stripOwnerHookGroups(settingsPath, "fitting:coord-mcp");
     expect(r).toEqual({ removed: 1, aborted: false });
     const s = JSON.parse(readFileSync(settingsPath, "utf8"));
     expect(s.hooks.SessionStart).toHaveLength(1);
@@ -50,13 +50,13 @@ describe("stripOwnerHookGroups", () => {
   it("aborts without writing on a corrupt file", () => {
     const corrupt = "{ not json ";
     writeFileSync(settingsPath, corrupt);
-    const r = stripOwnerHookGroups(settingsPath, "fitting:coord-beads");
+    const r = stripOwnerHookGroups(settingsPath, "fitting:coord-mcp");
     expect(r.aborted).toBe(true);
     expect(readFileSync(settingsPath, "utf8")).toBe(corrupt);
   });
 
   it("is a no-op when the file is absent", () => {
-    const r = stripOwnerHookGroups(path.join(sb, "nope.json"), "fitting:coord-beads");
+    const r = stripOwnerHookGroups(path.join(sb, "nope.json"), "fitting:coord-mcp");
     expect(r).toEqual({ removed: 0, aborted: false });
   });
 });
@@ -88,7 +88,7 @@ describe("reconcileCoordTeardown", () => {
       settingsPath,
       JSON.stringify({
         hooks: {
-          SessionStart: [{ _garrison: "fitting:coord-beads", matcher: "", hooks: [{ type: "command", command: "x" }] }]
+          SessionStart: [{ _garrison: "fitting:coord-mcp", matcher: "", hooks: [{ type: "command", command: "x" }] }]
         }
       })
     );
@@ -98,30 +98,30 @@ describe("reconcileCoordTeardown", () => {
   it("tears down a deselected coord fitting; preserves a still-selected one", () => {
     seedLive();
     // Last time both were selected.
-    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-beads", "coord-agentmail"] }));
-    // Now only coord-beads is selected → agentmail must be torn down.
+    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-mcp", "coord-agentmail"] }));
+    // Now only coord-mcp is selected → agentmail must be torn down.
     const res = reconcileCoordTeardown({
       compositionId: "comp",
-      selectedFittingIds: ["coord-beads", "some-other-fitting"],
+      selectedFittingIds: ["coord-mcp", "some-other-fitting"],
       settingsPath,
       claudeJsonPath: cjPath,
       ledgerPath
     });
     expect(res.removed).toEqual(["coord-agentmail"]);
     expect(res.removedMcp["coord-agentmail"]).toEqual(["coord-agentmail"]);
-    // coord-beads hook still present (still selected).
+    // coord-mcp hook still present (still selected).
     const s = JSON.parse(readFileSync(settingsPath, "utf8"));
     expect(s.hooks.SessionStart).toHaveLength(1);
     // agentmail MCP gone.
     const cj = JSON.parse(readFileSync(cjPath, "utf8"));
     expect(cj.mcpServers["coord-agentmail"]).toBeUndefined();
     // ledger now records only the selected coord fitting.
-    expect(JSON.parse(readFileSync(ledgerPath, "utf8")).comp).toEqual(["coord-beads"]);
+    expect(JSON.parse(readFileSync(ledgerPath, "utf8")).comp).toEqual(["coord-mcp"]);
   });
 
-  it("tears down coord-beads hook when it is deselected", () => {
+  it("tears down coord-mcp hook when it is deselected", () => {
     seedLive();
-    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-beads"] }));
+    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-mcp"] }));
     const res = reconcileCoordTeardown({
       compositionId: "comp",
       selectedFittingIds: [],
@@ -129,16 +129,16 @@ describe("reconcileCoordTeardown", () => {
       claudeJsonPath: cjPath,
       ledgerPath
     });
-    expect(res.removed).toEqual(["coord-beads"]);
+    expect(res.removed).toEqual(["coord-mcp"]);
     const s = JSON.parse(readFileSync(settingsPath, "utf8"));
     expect((s.hooks?.SessionStart ?? []).length).toBe(0);
   });
 
   it("is idempotent — a second reconcile with the same selection removes nothing", () => {
     seedLive();
-    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-beads", "coord-agentmail"] }));
-    reconcileCoordTeardown({ compositionId: "comp", selectedFittingIds: ["coord-beads"], settingsPath, claudeJsonPath: cjPath, ledgerPath });
-    const res2 = reconcileCoordTeardown({ compositionId: "comp", selectedFittingIds: ["coord-beads"], settingsPath, claudeJsonPath: cjPath, ledgerPath });
+    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-mcp", "coord-agentmail"] }));
+    reconcileCoordTeardown({ compositionId: "comp", selectedFittingIds: ["coord-mcp"], settingsPath, claudeJsonPath: cjPath, ledgerPath });
+    const res2 = reconcileCoordTeardown({ compositionId: "comp", selectedFittingIds: ["coord-mcp"], settingsPath, claudeJsonPath: cjPath, ledgerPath });
     expect(res2.removed).toEqual([]);
   });
 
@@ -157,11 +157,11 @@ describe("reconcileCoordTeardown", () => {
   });
 
   it("retries cleanup on the next up when a corrupt live file aborted it (no silent permanent install)", () => {
-    // coord-beads was selected last time; now deselected — but settings.json is corrupt.
+    // coord-mcp was selected last time; now deselected — but settings.json is corrupt.
     const corrupt = "{ corrupt settings ";
     writeFileSync(settingsPath, corrupt);
     writeFileSync(cjPath, JSON.stringify({ mcpServers: {} }));
-    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-beads"] }));
+    writeFileSync(ledgerPath, JSON.stringify({ comp: ["coord-mcp"] }));
 
     const res1 = reconcileCoordTeardown({
       compositionId: "comp",
@@ -170,16 +170,16 @@ describe("reconcileCoordTeardown", () => {
       claudeJsonPath: cjPath,
       ledgerPath
     });
-    expect(res1.aborted).toContain("hooks:coord-beads");
+    expect(res1.aborted).toContain("hooks:coord-mcp");
     expect(readFileSync(settingsPath, "utf8")).toBe(corrupt); // never clobbered
     // CRITICAL: the fitting is RETAINED in the ledger for retry (not dropped).
-    expect(JSON.parse(readFileSync(ledgerPath, "utf8")).comp).toContain("coord-beads");
+    expect(JSON.parse(readFileSync(ledgerPath, "utf8")).comp).toContain("coord-mcp");
 
     // Repair the file (now it has the owner-tagged group) and re-run: cleanup succeeds.
     writeFileSync(
       settingsPath,
       JSON.stringify({
-        hooks: { SessionStart: [{ _garrison: "fitting:coord-beads", matcher: "", hooks: [{ type: "command", command: "x" }] }] }
+        hooks: { SessionStart: [{ _garrison: "fitting:coord-mcp", matcher: "", hooks: [{ type: "command", command: "x" }] }] }
       })
     );
     const res2 = reconcileCoordTeardown({
@@ -189,7 +189,7 @@ describe("reconcileCoordTeardown", () => {
       claudeJsonPath: cjPath,
       ledgerPath
     });
-    expect(res2.removed).toContain("coord-beads");
+    expect(res2.removed).toContain("coord-mcp");
     expect(res2.aborted).toEqual([]);
     expect((JSON.parse(readFileSync(settingsPath, "utf8")).hooks?.SessionStart ?? []).length).toBe(0);
     // now fully cleaned → dropped from the ledger.
