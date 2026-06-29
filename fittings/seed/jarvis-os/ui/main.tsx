@@ -138,6 +138,26 @@ function toSpeakable(s: string): string {
   return t;
 }
 
+// Pull COMPLETE sentences from `text` starting at index `from` — a sentence ends
+// at . ! ? … (optionally a closing quote/bracket) plus whitespace, so a still-
+// growing final sentence stays buffered until its terminator streams in (or the
+// turn's `done` flush). Lets TTS speak sentence-by-sentence as the model streams,
+// instead of waiting for the whole reply. Returns the sentences + advanced cursor.
+function takeSentences(text: string, from: number): { sentences: string[]; cursor: number } {
+  const re = /[.!?…]+[)\]"'”’»]?\s+/g;
+  re.lastIndex = Math.max(0, from);
+  const sentences: string[] = [];
+  let cursor = from;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const end = m.index + m[0].length;
+    const piece = text.slice(cursor, end).trim();
+    if (piece) sentences.push(piece);
+    cursor = end;
+  }
+  return { sentences, cursor };
+}
+
 type Turn = { id: string; role: "user" | "assistant" | "error"; content: string };
 type Callout = { id: string; label: string; content: string };
 
@@ -341,11 +361,17 @@ function App() {
     setTurns((prev) => [...prev, { id: bubbleId, role: "assistant", content: "" }]);
     let assembled = "";
     let errored = false; // error paths re-arm on their own timer; finally must not double-arm
-    // We do NOT speak the orchestrator's reply incrementally: it's a thin router,
-    // so its reply is either a short direct answer (spoken at `done`) or a
-    // delegation ack carrying `[delegated]` (shown, never spoken — the Soul's
-    // reply, arriving on the channel stream, is the spoken answer). Deciding at
-    // `done` avoids leaking the ack to TTS before the marker is known.
+    // Pipelined TTS: speak each sentence the moment it completes, overlapping synth
+    // with the model still generating, so the first words come out ~as the first
+    // sentence lands instead of at `done`. The orchestrator is a thin router — a
+    // delegation ack leads with `[delegated]` (before any prose), so once that
+    // marker is seen we suppress all speech for this turn (the Soul's reply is
+    // spoken via the channel stream). Because the marker leads, it is known before
+    // the first sentence boundary, so a real direct answer never waits on it.
+    let spokenCursor = 0;        // chars of `assembled` already handed to TTS
+    let spokenChars = 0;         // total spoken length this turn (SPEAK_CAP guard)
+    let delegated = false;       // turn is a delegation ack → never spoken
+    let capped = false;          // SPEAK_CAP hit → pointer to screen spoken once
     // Safety net: if the orchestrator turn hangs (the PTY screen-scrape can miss a
     // turn's completion on tool-call turns), don't keep the UI stuck — abort after
     // 60s and recover. A delegated soul's reply still arrives on the channel
@@ -386,23 +412,45 @@ function App() {
             assembled += ev.data.text;
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, content: t.content + ev.data.text } : t));
+            // Suppress speech the instant a delegation is detected (cut anything
+            // already queued/playing as a belt-and-suspenders — in practice the
+            // marker leads, so nothing has been spoken yet).
+            if (!delegated && /\[delegated\]/i.test(assembled)) {
+              delegated = true;
+              stopSpeech();
+            }
+            // Speak each newly-completed sentence, up to the spoken-length cap.
+            if (!delegated && spokenChars < SPEAK_CAP) {
+              const { sentences, cursor } = takeSentences(assembled, spokenCursor);
+              spokenCursor = cursor;
+              for (const s of sentences) {
+                if (spokenChars >= SPEAK_CAP) break;
+                spokenChars += s.length;
+                enqueueSpeech(s);
+              }
+              if (spokenChars >= SPEAK_CAP && !capped) { capped = true; enqueueSpeech("O resto está no ecrã."); }
+            }
           } else if (ev.event === "error") {
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, role: "error", content: t.content || (ev.data?.error ?? "error") } : t));
           } else if (ev.event === "done") {
             clearTimeout(killer); // turn completed; don't abort the lingering stream
             const finalReply = typeof ev.data?.reply === "string" ? ev.data.reply : "";
-            if (!assembled && finalReply) assembled = finalReply;
-            // Detect the delegation marker on the RAW reply, before stripping it.
-            const delegated = /\[delegated\]/i.test(assembled);
+            if (!assembled && finalReply) assembled = finalReply; // chunkless gateway path
+            // Re-check on the RAW reply (covers the chunkless path, where no chunk
+            // event ran the incremental detector above).
+            delegated = delegated || /\[delegated\]/i.test(assembled);
             const finalContent = stripMarkers(assembled);
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, content: stripMarkers(t.content || finalReply) } : t));
-            if (finalContent) {
-              pushCallout("reply", finalContent);
-              // Speak only a direct answer. A delegation ack is shown, not spoken —
-              // the Soul's reply (on the channel stream) is the spoken answer.
-              if (!delegated) enqueueSpeech(finalContent);
+            if (finalContent) pushCallout("reply", finalContent);
+            // Flush the tail not yet spoken incrementally: the final sentence (no
+            // trailing whitespace to fire a boundary) or, on the chunkless path, the
+            // whole reply. Delegation acks are shown, never spoken.
+            if (!delegated && spokenChars < SPEAK_CAP) {
+              const tail = assembled.slice(spokenCursor).trim();
+              if (tail) { enqueueSpeech(tail); spokenChars += tail.length; }
+              spokenCursor = assembled.length;
             }
             // re-arm is handled by `finally` (no TTS) or by playNextInQueue when
             // the TTS queue drains — never here, where sending is still true.
