@@ -249,20 +249,28 @@ async function handle(req, res) {
         return send(res, 200, { deleted: await deleteAutomation(id) });
       }
     }
-    // Static UI (run viewer) — index for any non-API path. Confine reads to DIST
-    // so a crafted path (../) cannot escape and read arbitrary files.
+    // Static UI (run viewer) — serve assets, with an index.html SPA fallback for
+    // any unknown non-asset path so client routes work. Confine reads to DIST so
+    // a crafted path (../) cannot escape and read arbitrary files.
     if (!pathname.startsWith("/api/")) {
+      const rel = pathname === "/" ? "index.html" : pathname.slice(1);
+      const resolved = path.resolve(DIST, rel);
+      if (resolved !== DIST && !resolved.startsWith(DIST + path.sep)) {
+        return send(res, 403, { error: "forbidden" });
+      }
       try {
-        const rel = pathname === "/" ? "index.html" : pathname.slice(1);
-        const resolved = path.resolve(DIST, rel);
-        if (resolved !== DIST && !resolved.startsWith(DIST + path.sep)) {
-          return send(res, 403, { error: "forbidden" });
-        }
-        const html = await readFile(resolved, "utf8");
+        const body = await readFile(resolved, "utf8");
         const type = rel.endsWith(".js") ? "application/javascript" : rel.endsWith(".css") ? "text/css" : "text/html; charset=utf-8";
-        return send(res, 200, html, { "content-type": type });
+        return send(res, 200, body, { "content-type": type });
       } catch {
-        return send(res, 200, "<!doctype html><title>Automations</title><body>Automations engine — UI build pending.</body>");
+        // SPA fallback: serve index.html for unknown routes; only error if the UI
+        // bundle itself is genuinely missing (so the message is never misleading).
+        try {
+          const index = await readFile(path.join(DIST, "index.html"), "utf8");
+          return send(res, 200, index, { "content-type": "text/html; charset=utf-8" });
+        } catch {
+          return send(res, 500, `<!doctype html><title>Automations</title><body>Automations UI asset missing: ${DIST}/index.html not found. Reinstall the fitting (apm install).</body>`);
+        }
       }
     }
     return send(res, 404, { error: "not found" });

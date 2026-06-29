@@ -69,6 +69,16 @@ async function readSse(runId: string, timeoutMs = 8000): Promise<any[]> {
 }
 
 describe("automations SSE run stream (E3)", () => {
+  it("serves the run-viewer UI at / and SPA-falls-back unknown routes to index.html (never the placeholder)", async () => {
+    const root = await (await fetch(`${BASE}/`)).text();
+    expect(root).toContain("<title>Automations</title>");
+    expect(root).not.toContain("UI build pending");
+    // an unknown client route must serve index.html, not the misleading placeholder
+    const spa = await (await fetch(`${BASE}/some-client-route`)).text();
+    expect(spa).toContain("<title>Automations</title>");
+    expect(spa).not.toContain("UI build pending");
+  });
+
   it("streams run_step + run_complete for an async run", async () => {
     // create
     await fetch(`${BASE}/api/automations`, {
