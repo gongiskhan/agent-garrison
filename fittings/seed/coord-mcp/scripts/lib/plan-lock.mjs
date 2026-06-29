@@ -2,7 +2,7 @@
 //
 // Self-contained file mutex (MIT, dependency-free) so the highest-stakes
 // coordination guarantee — only one session plans a repo at a time — works even
-// when Beads / agent_mail are down. TTL + heartbeat means a crashed or abandoned
+// when agent_mail is down. TTL + heartbeat means a crashed or abandoned
 // planning session auto-releases; a forgotten plan-mode session can never block
 // everyone forever.
 //

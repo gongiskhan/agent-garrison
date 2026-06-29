@@ -3,11 +3,13 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
+    - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
+    - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
@@ -18,7 +20,7 @@ dependencies:
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
-    - path: ../../fittings/seed/trello-data-source
+    - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
 x-garrison:
@@ -77,10 +79,6 @@ x-garrison:
             project_name: main
             capture_enabled: true
             register_codex_gemini: true
-        - id: trello-data-source
-          config:
-            tasks_truth_file: tasks/trello.md
-            board_id: vl1Z8KFH
       observability:
         - id: monitor-default
           config:
@@ -88,6 +86,10 @@ x-garrison:
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
+        - id: automations
+          config:
+            port: 7090
+            bind_host: 127.0.0.1
         - id: improver
           config:
             port: 7088
@@ -109,6 +111,11 @@ x-garrison:
           config:
             port: 7086
             bind_host: 127.0.0.1
+        - id: file-browser
+          config:
+            port: 7091
+            bind_host: 127.0.0.1
+            root: ~/.garrison/files
         - id: vault-git-sync
           config:
             cron: 0 4 * * *
@@ -129,6 +136,10 @@ x-garrison:
           config:
             briefs_path: ./briefs/
             default_mode: gary
+      connectors:
+        - id: trello
+          config:
+            board_id: vl1Z8KFH
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

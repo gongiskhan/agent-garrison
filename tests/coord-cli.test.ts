@@ -71,7 +71,7 @@ describe("coord status", () => {
     );
     const out = run(["status"]);
     expect(out).toContain("Liveness");
-    expect(out).toContain("Beads");
+    expect(out).toContain("agent_mail");
     expect(out).toContain("Planning locks");
     expect(out).toContain("HOLDER-SESS");
     expect(out).toContain("WAITER-SESS");

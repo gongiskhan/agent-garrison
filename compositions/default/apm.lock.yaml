@@ -1,7 +1,11 @@
 lockfile_version: '1'
-generated_at: '2026-06-24T19:29:53.501376+00:00'
+generated_at: '2026-06-29T05:46:11.818715+00:00'
 apm_version: 0.11.0
 dependencies:
+- repo_url: _local/automations
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/automations
 - repo_url: _local/basic-memory
   package_type: apm_package
   deployed_files:
@@ -26,6 +30,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
+- repo_url: _local/file-browser
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/file-browser
 - repo_url: _local/gemini-runtime
   package_type: invalid
   source: local
@@ -76,7 +84,7 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/slack-channel
-- repo_url: _local/trello-data-source
+- repo_url: _local/trello
   package_type: apm_package
   deployed_files:
   - .claude/rules/trello-data-source.md
@@ -84,7 +92,7 @@ dependencies:
   deployed_file_hashes:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local
-  local_path: ../../fittings/seed/trello-data-source
+  local_path: ../../fittings/seed/trello
 - repo_url: _local/vault-git-sync
   package_type: invalid
   source: local

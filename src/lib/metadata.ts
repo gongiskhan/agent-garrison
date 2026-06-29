@@ -79,10 +79,27 @@ const connectorTriggerSchema = z.object({
 // The connector sub-block (kind:connector Fittings). Auth names HOW the
 // credential is obtained; the credential itself is sealed in the Vault, never
 // inlined here.
+const connectorOAuthSchema = z
+  .object({
+    auth_url: z.string(),
+    token_url: z.string(),
+    scopes: z.array(z.string()).default([]),
+    client_id_secret: z.string(),
+    client_secret_secret: z.string()
+  })
+  .transform((o) => ({
+    authUrl: o.auth_url,
+    tokenUrl: o.token_url,
+    scopes: o.scopes,
+    clientIdSecret: o.client_id_secret,
+    clientSecretSecret: o.client_secret_secret
+  }));
+
 const connectorSpecSchema = z.object({
   auth: z.enum(["oauth2", "api_key", "none"]),
   actions: z.array(connectorActionSchema).default([]),
-  triggers: z.array(connectorTriggerSchema).optional()
+  triggers: z.array(connectorTriggerSchema).optional(),
+  oauth: connectorOAuthSchema.optional()
 });
 
 const spawnConfigSchema = z.object({

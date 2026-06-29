@@ -269,10 +269,23 @@ export interface ConnectorTrigger {
 // credential is sealed in the Vault — never inlined here), the catalog of
 // actions it exposes, and any triggers. Present only on Fittings that provide
 // kind:connector.
+// OAuth2 provider config a connector declares so Garrison can run the
+// authorization-code flow. The client id/secret are NOT inlined — they name
+// Vault secrets (the user registers their own OAuth app), keeping the manifest
+// secret-free.
+export interface ConnectorOAuth {
+  authUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  clientIdSecret: string; // Vault secret NAME holding the OAuth client id
+  clientSecretSecret: string; // Vault secret NAME holding the OAuth client secret
+}
+
 export interface ConnectorSpec {
   auth: "oauth2" | "api_key" | "none";
   actions: ConnectorAction[];
   triggers?: ConnectorTrigger[];
+  oauth?: ConnectorOAuth;
 }
 
 export interface GarrisonMetadata {

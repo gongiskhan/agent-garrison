@@ -7,7 +7,6 @@
 import { lockStatus } from "./plan-lock.mjs";
 import { lastReleasedPlan, recentPlans } from "./plan-store.mjs";
 import { recentIntents } from "./intent-store.mjs";
-import { readBeadsInflight } from "./beads.mjs";
 import { lookbackDays } from "./lookback.mjs";
 
 export function buildReadBundle(repo, now = new Date()) {
@@ -19,8 +18,7 @@ export function buildReadBundle(repo, now = new Date()) {
     inFlight: {
       // (c)
       lock: lockStatus(repo, now),
-      intents: recentIntents(repo, now),
-      beads: readBeadsInflight(repo)
+      intents: recentIntents(repo, now)
     }
   };
 }

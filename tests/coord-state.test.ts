@@ -34,18 +34,14 @@ afterEach(() => {
 
 describe("deriveHeroVerdict — honest, degraded/down dominate green", () => {
   const base = { sessions: [], locks: [], recentHeartbeat: true };
-  it("down when both servers are down", () => {
-    const v = deriveHeroVerdict({ ...base, liveness: { beads: { up: false }, agentMail: { up: false } } });
+  it("down when agent_mail (the coordination server) is down", () => {
+    const v = deriveHeroVerdict({ ...base, liveness: { agentMail: { up: false } } });
     expect(v.overall).toBe("down");
-  });
-  it("degraded when ONE server is down (unmissable)", () => {
-    const v = deriveHeroVerdict({ ...base, liveness: { beads: { up: true }, agentMail: { up: false } } });
-    expect(v.overall).toBe("degraded");
     expect(v.reasons.join(" ")).toMatch(/agent_mail/i);
   });
   it("degraded when a session is RED (zero-write while active)", () => {
     const v = deriveHeroVerdict({
-      liveness: { beads: { up: true }, agentMail: { up: true } },
+      liveness: { agentMail: { up: true } },
       sessions: [{ recent: true, flag: "red" }],
       locks: [],
       recentHeartbeat: true
@@ -55,7 +51,7 @@ describe("deriveHeroVerdict — honest, degraded/down dominate green", () => {
   });
   it("degraded when a planning lock is stale", () => {
     const v = deriveHeroVerdict({
-      liveness: { beads: { up: true }, agentMail: { up: true } },
+      liveness: { agentMail: { up: true } },
       sessions: [{ recent: true, flag: "active" }],
       locks: [{ expired: true }],
       recentHeartbeat: true
@@ -64,12 +60,12 @@ describe("deriveHeroVerdict — honest, degraded/down dominate green", () => {
     expect(v.reasons.join(" ")).toMatch(/stale planning lock/i);
   });
   it("idle when servers up but no active sessions", () => {
-    const v = deriveHeroVerdict({ liveness: { beads: { up: true }, agentMail: { up: true } }, sessions: [], locks: [], recentHeartbeat: true });
+    const v = deriveHeroVerdict({ liveness: { agentMail: { up: true } }, sessions: [], locks: [], recentHeartbeat: true });
     expect(v.overall).toBe("idle");
   });
   it("live-and-used when healthy + active + heartbeating", () => {
     const v = deriveHeroVerdict({
-      liveness: { beads: { up: true }, agentMail: { up: true } },
+      liveness: { agentMail: { up: true } },
       sessions: [{ recent: true, flag: "active" }],
       locks: [{ expired: false }],
       recentHeartbeat: true
