@@ -151,6 +151,17 @@ function App() {
   const [callouts, setCallouts] = useState<Callout[]>([]);
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
 
+  // Scrollable transcript: keep the newest turn in view, but only auto-scroll
+  // when the user is already near the bottom — so scrolling up to read history
+  // is not yanked back down by an incoming turn.
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [turns]);
+
   const modeRef = useRef<CoreMode>("idle");
   const setMode = useCallback((m: CoreMode) => { modeRef.current = m; setModeRaw(m); }, []);
   // Whether the hands-free voice session is armed (mirrored to a ref so the
@@ -655,8 +666,8 @@ function App() {
         ))}
       </div>
 
-      <div className="jarvis-transcript">
-        {turns.slice(-4).map((t) => (
+      <div className="jarvis-transcript" ref={transcriptRef}>
+        {turns.map((t) => (
           <div key={t.id} className={`jarvis-turn ${t.role}`}>
             <span className="jarvis-turn-role">{t.role === "user" ? "you" : t.role === "error" ? "!" : "jarvis"}</span>
             {t.role === "assistant" && t.content
