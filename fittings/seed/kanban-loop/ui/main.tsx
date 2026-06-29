@@ -33,7 +33,8 @@ import {
   GearIcon,
   ActivityIcon,
   SparkIcon,
-  ChatIcon
+  ChatIcon,
+  BoardMark
 } from "./icons";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
@@ -1254,12 +1255,18 @@ function App() {
 
 function TopBar({ onNew, status }: { onNew: () => void; status: string }) {
   return (
-    <div className="topbar">
-      <div className="brand">Kanban Loop<span className="sub">workflow board</span></div>
+    <header className="topbar">
+      <div className="brand">
+        <span className="brand-mark"><BoardMark /></span>
+        <span className="brand-text">
+          <span className="name">Kanban Loop</span>
+          <span className="sub">Workflow Board</span>
+        </span>
+      </div>
       <span className="status">{status}</span>
       <div className="spacer" />
       <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>
-    </div>
+    </header>
   );
 }
 
