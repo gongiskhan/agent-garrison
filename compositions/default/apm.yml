@@ -3,23 +3,25 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
-    - path: ../../fittings/seed/artifact-store
+    - path: ../../fittings/seed/automations
+    - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/model-router
-    - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/basic-memory
-    - path: ../../fittings/seed/knowledge
-    - path: ../../fittings/seed/monitor-default
-    - path: ../../fittings/seed/improver
-    - path: ../../fittings/seed/scheduler
-    - path: ../../fittings/seed/vault-git-sync
-    - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/gemini-runtime
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/model-router
+    - path: ../../fittings/seed/modes
+    - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
-    - path: ../../fittings/seed/trello-data-source
+    - path: ../../fittings/seed/trello
+    - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
 x-garrison:
   composition:
@@ -42,11 +44,6 @@ x-garrison:
           config:
             port: 7087
             bind_host: 127.0.0.1
-      gateway:
-        - id: http-gateway
-          config:
-            port: 4777
-            bind_host: 127.0.0.1
       channels:
         - id: slack-channel
           config:
@@ -64,6 +61,16 @@ x-garrison:
             bind_host: 127.0.0.1
             stt_model: nova-2
             tts_model: aura-asteria-en
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4777
+            bind_host: 127.0.0.1
+      runtimes:
+        - id: codex-runtime
+          config: {}
+        - id: gemini-runtime
+          config: {}
       memory:
         - id: basic-memory
           config:
@@ -72,12 +79,6 @@ x-garrison:
             project_name: main
             capture_enabled: true
             register_codex_gemini: true
-        - id: trello-data-source
-          config:
-            tasks_truth_file: tasks/trello.md
-            board_id: vl1Z8KFH
-        - id: knowledge
-          config: {}
       observability:
         - id: monitor-default
           config:
@@ -85,6 +86,10 @@ x-garrison:
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
+        - id: automations
+          config:
+            port: 7090
+            bind_host: 127.0.0.1
         - id: improver
           config:
             port: 7088
@@ -96,19 +101,21 @@ x-garrison:
             dream_model: haiku
         - id: scheduler
           config: {}
-      runtimes:
-        - id: codex-runtime
-          config: {}
-        - id: gemini-runtime
-          config: {}
-      sessions:
-        - id: artifact-store
+        - id: kanban-loop
           config:
-            storage_root: artifacts
+            board_dir: ~/.garrison/kanban-loop
+            iteration_cap: 10
+            test_beat_cron: 0 */5 * * *
+      sessions:
         - id: dev-env
           config:
             port: 7086
             bind_host: 127.0.0.1
+        - id: file-browser
+          config:
+            port: 7091
+            bind_host: 127.0.0.1
+            root: ~/.garrison/files
         - id: vault-git-sync
           config:
             cron: 0 4 * * *
@@ -124,6 +131,15 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
+      modes:
+        - id: modes
+          config:
+            briefs_path: ./briefs/
+            default_mode: gary
+      connectors:
+        - id: trello
+          config:
+            board_id: vl1Z8KFH
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md

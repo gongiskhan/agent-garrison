@@ -1,0 +1,21 @@
+{
+  "slice": "v1c-dispatch-wiring",
+  "title": "Board + tick wired to the gateway; Move onto an immediate agent list dispatches a real run",
+  "updatedAt": "2026-06-24T20:30:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 2 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/kanban-dispatch.test.ts", "exit": 0, "summary": "3 passed (shouldAutoDispatch: immediate-agent only; engine dispatch advances + mints runId)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0 },
+    "lint":      { "cmd": "npm run lint", "exit": 0 },
+    "build":     { "cmd": "npm run build", "exit": 0, "summary": "engine/runner .mjs + runner.ts compile; next build green" },
+    "e2e":       { "cmd": "live board :7089 + stub gateway", "exit": 0, "summary": "LIVE: gateway UP → move card to Plan → board POSTed the autothing-plan prompt (runDir + classification {code,T2-deep}) to /chat → card advanced to Implement, runId minted, iter 1. gateway DOWN → move → card stays on Plan/ok (waits), dispatched:false (no spam-park). Start with gateway down → 503." },
+    "codexReview": { "verdict": "approve", "rounds": 2, "by": "codex/gpt-5.4", "effort": "low", "at": "2026-06-24T20:29:00Z", "lastReport": "docs/autothing/runs/20260624-211029-152350bb/slices/v1c-dispatch-wiring/codex-review-v1c-dispatch-wiring-r2.json", "overrides": [], "notes": "r1 caught spam-park on gateway-down Move; fixed with gatewayReachable gating on Move + Start" },
+    "codexPwTest": { "result": "env-blocked", "summary": "codex sandbox cannot launch Chromium; live verification done via the repo Playwright + a stub-gateway integration against the real board server" },
+    "designAudit": { "verdict": "clean", "by": ["vision review of the live board"], "notes": "card visibly moved To Do → Plan → Implement (iter 1/10) post-dispatch" },
+    "video":     { "status": "verified", "verifiedAt": "2026-06-24T20:30:00Z", "flagged": false, "link": "http://100.108.210.116:8099/kanban-loop-v1c/v1c-dispatch-wiring/demo.png", "kind": "live-walkthrough", "runDir": "~/.walkthrough/runs/kanban-loop-v1c/v1c-dispatch-wiring", "notes": "live board screenshot (card dispatched to Implement) + gateway-chat-POST-proof.log (the real autothing-plan POST)" }
+  },
+  "blockers": []
+}

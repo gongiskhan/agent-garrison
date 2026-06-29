@@ -22,7 +22,10 @@ and spawns Claude Code via the Anthropic Agent SDK in-process.
 > transparent **control plane over the user's real `~/.claude`**: APM is
 > the single package writer; the owned/loose/parked state model and 6 roles
 > (down from the prior flat-Faculty list) are live; the Orchestrator prompt
-> is projected to `~/.claude/rules/garrison-orchestrator.md`. The
+> is assembled (soul + orchestrator + `{{capabilities}}`/`{{routing}}`) and
+> handed to the gateway at launch. The `projectOrchestrator` rules-file
+> projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but
+> not yet wired into `up()` — RC3 dormant. The
 > hosted-session launcher (RC4) is **not yet wired**, so the runner still
 > spawns a process via `spawnGateway`/`spawnClaude`. See
 > [`docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md).
@@ -54,7 +57,7 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. There are **8 roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`); the former flat 24-Faculty list collapsed into them and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section.
+- **Faculty** — a **role** slot in a composition. There are **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
 - **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
 - **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
@@ -134,11 +137,11 @@ no built-in Chat surface. Operative interaction goes through Channel
 Fittings; observability is the runtime log on the dashboard plus per-Fitting
 logs under `/fitting/<id>`.
 
-### Faculties — 8 roles (Quarters pivot + 2026-06-18 sessions split)
+### Faculties — 9 roles (Quarters pivot + 2026-06-18 sessions split + 2026-06-22 modes)
 
 Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):
 `orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
-`sessions`, `surfaces`. The 2026-06-18 split carved the overloaded `sessions`
+`sessions`, `surfaces`, `modes`. The 2026-06-18 split carved the overloaded `sessions`
 role into three: `sessions` keeps the Dev Env surface + artifact store,
 `runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini),
 and `surfaces` holds the auxiliary own-port viewers (screen-share / browser /
@@ -171,9 +174,12 @@ with orphan cleanup.
 
 `orchestrator-projection.ts` — `buildOrchestratorInstructions` (soul +
 orchestrator + `{{capabilities}}` fold) + `projectOrchestrator` (APM
-instructions primitive → `~/.claude/rules/garrison-orchestrator.md`) +
+instructions primitive → `~/.claude/rules/garrison-orchestrator.md`;
+**implemented but not called by `up()` — RC3 dormant**) +
 `orchestratorAppendSystemPrompt` (per-launch fallback via
-`--append-system-prompt`).
+`--append-system-prompt`). At runtime `up()` assembles the prompt and hands it
+to the gateway (`GARRISON_SYSTEM_PROMPT_PATH` / souls config), not the rules
+file.
 
 ### Capabilities
 
@@ -201,7 +207,8 @@ the resolver from `ui.views[]` / `own_port`, never declared in `provides`).
 5. Assemble the system prompt: soul + orchestrator + `{{capabilities}}` (each
    provider's `for_consumers` markdown indented under its capability line,
    falls back to `summary`). Write `assembled-system-prompt.md`.
-   Also project to `~/.claude/rules/garrison-orchestrator.md`.
+   (The `projectOrchestrator` rules-file projection exists but is **not**
+   called here yet — RC3 dormant.)
 6. Spawn the Operative via the Anthropic Agent SDK in-process.
    Auth uses the user's Max account; no API key billing.
 
@@ -290,6 +297,7 @@ than this file.
   [`docs/METADATA.md`](./docs/METADATA.md),
   [`docs/FITTINGS.md`](./docs/FITTINGS.md),
   [`docs/CAPABILITIES.md`](./docs/CAPABILITIES.md).
+- Implementing a `src/lib` module or UI surface → [`docs/architecture.md`](./docs/architecture.md).
 - Faculty intent and failure modes → [`docs/FACULTIES.md`](./docs/FACULTIES.md).
 - Verifying v1 readiness → [`docs/V1_DOD.md`](./docs/V1_DOD.md)
   and per-phase records under [`docs/phases/`](./docs/phases/).
@@ -299,3 +307,24 @@ than this file.
 - Why a choice was made → [`docs/DECISIONS.md`](./docs/DECISIONS.md).
 - What's queued and what just shipped →
   [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md).
+
+
+## Memory
+
+Durable knowledge lives in **two tiers** — use these, not ad-hoc note stores:
+
+- **Hot index — the native memory tool** (`~/.claude/projects/<slug>/memory/MEMORY.md`
+  plus per-topic notes): small, hand-curated, **auto-loaded into every session**.
+  This is the default place to record a durable fact, preference, or piece of
+  project context. Keep it short; it is always in context.
+- **Cold archive — Basic Memory** (Obsidian vault at `~/ObsidianVault`, searchable +
+  shared across Claude/Codex/Gemini): the long-term, query-on-demand store. A
+  SessionEnd/PreCompact hook auto-captures session checkpoints into it; use its
+  `search` / `read_note` tools to recall older context.
+
+Do not scatter knowledge across other stores. `bd remember`, Serena memories, and
+the former `knowledge`-fitting recall MCP are **not** part of this setup.
+
+For task tracking, do not use TodoWrite/markdown TODO files for anything durable —
+prefer the in-session task tools for transient work and the memory tiers above for
+anything that must survive the session.

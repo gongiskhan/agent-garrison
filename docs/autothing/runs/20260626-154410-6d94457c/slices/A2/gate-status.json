@@ -1,0 +1,26 @@
+{
+  "slice": "A2",
+  "title": "Vault: per-connector scoping + OAuth refresh/rotation + JIT value redaction + audit log",
+  "kind": "mixed",
+  "sharedStructure": false,
+  "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "scopedSecrets (fail-closed: no secret_scope => no secrets); OAuth grant storage + getAccessToken auto-refresh with per-connector in-flight lock + revoke + oauthHealth; src/lib/secret-redaction.ts (masks ALL known values, any length); src/lib/vault-audit.ts (append-only JSONL); spawn.ts stateful line-buffered redaction tee; vaultEnvForEntry scoped+audited" },
+    "test": {
+      "status": "passed",
+      "detail": "tests/vault-scoping.test.ts (14): scoping, fail-closed, OAuth valid/refresh/concurrent-refresh-lock/revoke/health, redaction incl. short-value, audit, oauth-preserved-on-write; own-port-lifecycle(11) + vault-heal(18) updated to scoped contract. typecheck clean.",
+      "command": "npm run typecheck && npx vitest run tests/vault-scoping.test.ts tests/vault.test.ts tests/own-port-lifecycle.test.ts tests/vault-heal.test.ts"
+    },
+    "review": { "status": "self-reviewed" },
+    "codexReview": {
+      "status": "approve-with-override",
+      "rounds": 2,
+      "detail": "R1 needs-attention 4 findings. AGREED+FIXED: F1 unscoped over-delivery -> fail-closed; F3 chunk-local redaction -> stateful line-buffered tee; F4 unsynchronized OAuth refresh -> per-connector in-flight lock. REBUTTED: F2 legacy real-passphrase migration (contradicts documented keychain-only decision F1; reconnect is the recovery). R2 confirmed F1/F3/F4 fixed, raised short-value redaction gap -> FIXED (mask all lengths) + test. Budget 2 rounds spent; all agreed findings fixed & tested.",
+      "artifacts": ["codex-review-r1.json", "codex-review-r2.json"]
+    },
+    "codexPwTest": { "status": "n/a", "detail": "no UI behavior; vault UI is C6, e2e sealing in Z1" },
+    "designAudit": { "status": "n/a" },
+    "walkthrough": { "status": "deferred", "detail": "vault sealing story recorded in Z1 end-to-end proof" }
+  },
+  "files": ["src/lib/vault.ts", "src/lib/vault-audit.ts", "src/lib/secret-redaction.ts", "src/lib/own-port-lifecycle.ts", "src/lib/spawn.ts", "tests/vault-scoping.test.ts", "tests/own-port-lifecycle.test.ts", "tests/vault-heal.test.ts"]
+}

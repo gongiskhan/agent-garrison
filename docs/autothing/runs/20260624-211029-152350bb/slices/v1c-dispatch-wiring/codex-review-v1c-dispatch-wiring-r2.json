@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Re-review found the spam-park path closed in `fittings/seed/kanban-loop/scripts/server.mjs`; move-triggered dispatch now gates on reachability, non-immediate moves do not dispatch, and the remaining fire-and-forget path only logs unexpected outer failures rather than masking the run-failed park behavior inside `processCard`.","findings":[]}

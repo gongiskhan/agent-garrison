@@ -1,0 +1,13 @@
+{
+  "slice": "G1s", "title": "Self-healing fixer loop (port ekoa rehearsal.ts)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "lib/fixer.mjs: REHEARSAL_BUDGET (25 calls/5 per index/4min/5 pauses), detectHumanActionable regex fast-path (CAPTCHA/MFA/payment/identity), applyPatch (insert_before/replace_current/skip_current/pause_for_user/abort), validatePatch (FIXER_ALLOWED_STEP_TYPES allowlist), proposePatch (Router-routed via vision route mode:fix). Engine fixer loop: recoverable-only gating (orchestrator marks page failures recoverable; observe/infra fails fast), human-actionable -> paused_for_user, budget gates, propose->validate->applyPatch->retry-at-index, run_patch SSE (proposing/applied/aborted)." },
+    "test": { "status": "passed", "detail": "automations-fixer (12: fast-path, applyPatch each kind, validate incl. allowlist-reject, proposePatch) + engine fixer-loop (self-heal retry, CAPTCHA pause, budget no-infinite-loop, infra fail-fast). typecheck clean." },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 2, "detail": "R1 (critical x2, same issue): fixer could inject arbitrary step types (local_command/connector/api_call/sub_automation) -> shell/network authority. FIXED: validatePatch FIXER_ALLOWED_STEP_TYPES allowlist. R2 (high): injected deps.proposePatch bypassed validatePatch -> FIXED: engine re-validates at the boundary. No rebuttals.", "artifacts": ["codex-review-G1s.json", "codex-review-G1s-r2.json"] },
+    "codexPwTest": { "status": "pending", "detail": "Z1 injects a failure + observes self-heal" },
+    "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["fittings/seed/automations/lib/fixer.mjs", "fittings/seed/automations/lib/engine.mjs", "fittings/seed/automations/lib/browser-orchestrator.mjs", "tests/automations-fixer.test.ts", "tests/automations-engine.test.ts"]
+}

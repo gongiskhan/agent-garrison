@@ -37,15 +37,13 @@ BM="$(command -v basic-memory)"
 
 # 3. Register the vault as the Basic Memory project (idempotent).
 mkdir -p "$VAULT_DIR/$MEMORY_DIR"
-CURRENT_PATH="$("$BM" project list 2>/dev/null | awk -v p="$PROJECT_NAME" '$0 ~ p {print}' | grep -o "$VAULT_DIR" || true)"
-if "$BM" project list 2>/dev/null | grep -q "[[:space:]]$PROJECT_NAME[[:space:]]"; then
-  # project exists — ensure it points at the vault
-  if [ "$CURRENT_PATH" != "$VAULT_DIR" ]; then
-    log "re-pointing project '$PROJECT_NAME' -> $VAULT_DIR"
-    "$BM" project move "$PROJECT_NAME" "$VAULT_DIR" >/dev/null 2>&1 || true
-  else
-    log "project '$PROJECT_NAME' already -> $VAULT_DIR"
-  fi
+# Existence check robust against Rich's TTY-width table collapse (grepping
+# `project list` gives a false negative when piped) — `project info` exits 0 iff
+# the project resolves. Matches verify.sh so setup + verify agree.
+if "$BM" project info "$PROJECT_NAME" >/dev/null 2>&1; then
+  # project exists — ensure it points at the vault (move is a no-op if already there)
+  log "project '$PROJECT_NAME' exists — ensuring -> $VAULT_DIR"
+  "$BM" project move "$PROJECT_NAME" "$VAULT_DIR" >/dev/null 2>&1 || true
 else
   log "adding project '$PROJECT_NAME' -> $VAULT_DIR"
   "$BM" project add "$PROJECT_NAME" "$VAULT_DIR" >/dev/null 2>&1 || \

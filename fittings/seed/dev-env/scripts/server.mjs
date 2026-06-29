@@ -8,7 +8,7 @@
 // Scaffolding (routing, WS upgrade, status file, static serving) follows the
 // terminal donor.
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync, accessSync, constants as fsConstants } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -65,6 +65,7 @@ import {
   setSessionOpen
 } from "./state.mjs";
 import { listHistory } from "./claude-sessions.mjs";
+import { tailnetUrlForPort } from "./tailnet.mjs";
 import {
   createProjectSession,
   createWorktree,
@@ -341,9 +342,16 @@ async function handleBrowserTarget(_req, res) {
     if (!parsed || typeof parsed.url !== "string") {
       return jsonRes(res, 404, { error: "browser status file invalid" });
     }
+    // When this dev-env page is reached over Tailscale, the browser fitting's
+    // raw http://host:7084 is mixed-content-blocked. Hand the UI the browser
+    // fitting's HTTPS tailnet URL (from `tailscale serve`) so its canvas + the
+    // same-origin wss the canvas opens both proxy over Tailscale.
+    const tailnetUrl =
+      typeof parsed.port === "number" ? await tailnetUrlForPort(parsed.port) : null;
     jsonRes(res, 200, {
       url: parsed.url,
       port: parsed.port ?? null,
+      tailnetUrl,
       pid: parsed.pid ?? null,
       cdpWsEndpoint: parsed.cdpWsEndpoint ?? null
     });
@@ -530,6 +538,37 @@ async function handleDeleteSession(req, res, sessionId) {
   }
 }
 
+// Ask Garrison's orchestrator front door to place a session: returns
+// { mode, promptPath, model, effort, role }. Base URL overridable via
+// GARRISON_BASE_URL (default the local Garrison Next app on 7777).
+async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  // forward the active composition when we know it (GARRISON_COMPOSITION_ID), so a
+  // non-default composition is placed against ITS live modes/routing; the route
+  // defaults to "default" when absent (the single-composition case).
+  const composition = process.env.GARRISON_COMPOSITION_ID || null;
+  const res = await fetch(`${base}/api/orchestrator/place`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ channel, ...(mode ? { mode } : {}), ...(composition ? { composition } : {}) }),
+    signal: AbortSignal.timeout(5000)
+  });
+  if (!res.ok) throw new Error(`orchestrator place failed: HTTP ${res.status}`);
+  return res.json();
+}
+
+// A path is safe to thread into `claude --append-system-prompt-file` only if it is a
+// readable REGULAR FILE — existsSync passes a directory, which claude can't read.
+function isReadableFile(p) {
+  try {
+    if (!statSync(p).isFile()) return false;
+    accessSync(p, fsConstants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // POST /sessions — "Start session": record + both PTYs for an arbitrary
 // project directory. Reuses an existing record for the same cwd; claude
 // resumes (--continue) when the reused record already saw a claude session,
@@ -551,11 +590,35 @@ async function handleCreateSession(req, res) {
       EXTERNAL_STATUSES.has(session.lastStatus);
     if (!externalNow) {
       const wantContinue = body.continue === true || body.resume === true;
+      // Start THROUGH the orchestrator (deliverable #3) when asked: resolve the
+      // face + composed mode prompt + model from /api/orchestrator/place and
+      // launch claude with those. Any failure (Garrison down, modes not installed)
+      // falls back cleanly to a bare session.
+      let orchestrated = null;
+      if (body.orchestrated === true || typeof body.mode === "string") {
+        try {
+          const spec = await placeViaOrchestrator({
+            channel: "dev-env",
+            mode: typeof body.mode === "string" ? body.mode : undefined
+          });
+          // Only thread the composed prompt into `claude` if it is a READABLE REGULAR
+          // FILE — a 200 with a bad path (missing, a directory, or unreadable) would
+          // otherwise launch claude with a broken --append-system-prompt-file. existsSync
+          // alone passes a directory, so stat isFile() + R_OK; fall back to bare on any
+          // failure.
+          if (spec && typeof spec.promptPath === "string" && isReadableFile(spec.promptPath)) {
+            orchestrated = { appendPromptFiles: [spec.promptPath], model: spec.model || null };
+          }
+        } catch {
+          orchestrated = null; // graceful fallback to a bare session
+        }
+      }
       ensurePty({
         session: stub,
         role: "claude",
         resume: wantContinue || (existed && Boolean(session.claudeSessionId)),
-        resumeId: session.claudeSessionId || null
+        resumeId: session.claudeSessionId || null,
+        orchestrated
       });
     }
     // No default shell terminal — the deck starts empty; the user opens

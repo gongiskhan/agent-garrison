@@ -2,12 +2,6 @@ lockfile_version: '1'
 generated_at: '2026-06-11T10:06:42.935061+00:00'
 apm_version: 0.11.0
 dependencies:
-- repo_url: _local/artifact-store
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/artifact-store
-  source: local
-  local_path: ../../fittings/seed/artifact-store
 - repo_url: _local/coding-subagent
   package_type: apm_package
   deployed_files:

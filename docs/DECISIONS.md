@@ -392,3 +392,100 @@ Two live-`claude` probes (committed at `scripts/probe-slash-inject.mjs` and
   never transcript-parsed).
 
 **Source:** brief §3 (P0); slice MR0e. **Status:** Settled.
+
+## 2026-06-24 · Kanban Loop V1b — build decisions (run 20260624-162055-152350bb)
+
+Autothing build of Kanban Loop V1b. Key calls recorded for the record:
+
+- **Pre-existing test baseline (NOT this run's regressions).** At build start the
+  suite had **7 failing tests** across 6 files (`seed.test.ts` ×3,
+  `validation.test.ts`, `claude-install.test.ts`, `gemini-runtime.test.ts`,
+  `orchestrator-placement.test.ts`, `fitting-files-api.test.ts`) — all about a
+  `memory`→`basic-memory` seed-fitting rename and gemini/placement WIP from a
+  concurrent session (the working tree already had `apm.lock.yaml` modified).
+  Confirmed pre-existing by stashing this run's tracked changes and re-running:
+  the failures persist. This run must not touch that other session's WIP, so it
+  treats those 7 as a **documented external baseline**; the global gate measures
+  "no NEW failures vs baseline," not a fully-green suite.
+- **Evidence policy.** UI slices (`kanban-board-ui`, `web-channel-generic-context`,
+  `discuss-james-brief`) get real vision-verified **browser** walkthrough videos.
+  CLI/lib/docs slices get **asciinema** captures of their committed re-runnable
+  test/CLI demo running green — the committed vitest IS the durable correctness
+  gate; the asciinema is the evidence artifact (autothing accepts asciinema for
+  CLI/TUI).
+- **`gateway-souls-hint` (slice D) hardening (from the Codex cross-model review).**
+  souls-route honors ONLY the documented `{taskType,tier}` contract and
+  deliberately drops a caller-supplied `matchedException` (which `resolveRole`
+  would otherwise honor — a caller could force exception routing); and
+  `resolveSoulsHint` wraps `resolveRoute` in try/catch so a malformed routing
+  config can never turn a valid `/chat` into a request-time 500. PTY mode is
+  untouched (it already honors the hint).
+- **`autothing-validate` (slice B) fails closed (from the Codex review).** A
+  missing/invalid `kind` → Implement; `codexPwTest:"n/a"` is rejected for
+  `kind:"ui"` (a UI slice always has an app); and a failed `validated`-marker
+  write downgrades the verdict to Implement (the durable record is part of the DoD).
+- **`docs/architecture.md` accuracy (from the Codex review).** `runtime="nodejs"`
+  is the only universal route flag (44/44); `dynamic="force-dynamic"` is a
+  precaution applied to 36/44 (several live-state routes omit it), not an
+  invariant. `vault.ts` and `reconcile.ts` are NOT atomic-write exemplars
+  (`vault.ts` is the surface-wiring template; `reconcile.ts` uses `fsp.cp`/
+  `writeYamlFile`).
+
+**Source:** BRIEF/kanban-loop-v1b-build-brief.md; run FLOW_PLAN at
+docs/autothing/runs/20260624-162055-152350bb/. **Status:** in progress.
+
+## 2026-06-24 · Kanban Loop V1b — garrison-* parity confirmed + shims retired (FINDING 15)
+
+**Parity confirmed (A/B probe).** Two read-only Plan agents were given the SAME task
+(add a new "Labels" host-config surface) — one handed ONLY `docs/architecture.md`, the
+other ONLY `.claude/skills/garrison-architecture/SKILL.md`. Both extracted equivalent,
+conventions-correct plans: the surface-wiring path (page→component→/api→lib→Sidebar), the
+route flags (`runtime="nodejs"` mandatory / `dynamic="force-dynamic"` situational — the
+docs probe even captured the Codex-added nuance), the host-config IO discipline
+(read-fresh→mutate→write-whole, the atomic-write helper, base-path injection,
+never-clobber), and the test pattern. The doc conveys the doctrine **as well as** the
+area skill → `autothing-implement` reading docs alone has parity.
+
+**Shims retired** (gated on the above). Deleted the 5 area shims
+`.claude/skills/garrison-{architecture,planning,testing,design-audit,governance}` (tracked
+in git → recoverable). Kept `run-garrison` (it is the app launcher / `/run` analogue, not
+a doctrine/verb shim). `fittings/seed/testing` (APM `name: garrison-testing`, the
+`run_tests` MCP tool) is a SEPARATE fitting, untouched. Rewired the one functional
+consumer — the model-router discipline→skill map (`routing-core.mjs` `disciplineSkill` +
+`.apm/prompts/model-router.prompt.md` + `tests/discipline-skills.test.ts`) — to the
+`autothing-*` family: testing→`autothing-test`, design-audit→`autothing-design-audit`,
+distribution→`autothing-validate`, and evidence:video→`autothing-walkthrough` (correcting
+the prior `run-garrison` mapping — run-garrison is only a launcher, the walkthrough video
+is recorded by `autothing-walkthrough`). No dangling code references remain (only the
+input BRIEF docs still mention garrison-* as historical design context).
+
+**Source:** brief decision 1 + Verify-first. **Status:** done.
+
+## 2026-06-24 · Kanban Loop V1b — post-ship fix: board would not start + "(V1a)" menu label
+
+Two real bugs the initial build missed (it tested the board server standalone against a
+demo dir, not THROUGH the runner in the live Garrison):
+
+1. **Board never started under Garrison.** The runner (`src/lib/own-port-lifecycle.ts`
+   `startOwnPortFitting`) boots an operative-bound own-port Fitting by spawning
+   `<fittingDir>/scripts/start.mjs` — the convention every other own-port fitting follows
+   (a one-liner that imports `startServer` from `server.mjs`). kanban-loop shipped
+   `server.mjs` but **no `scripts/start.mjs`**, so the runner errored "no start script"
+   and the board never booted (`node scripts/server.mjs` worked standalone, masking it).
+   Fix: added `fittings/seed/kanban-loop/scripts/start.mjs`. Verified live: POST
+   `/api/fittings/kanban-loop/start` → `{ok:true}`, status file written, the board
+   appears in `/api/fittings/views` (the menu) and serves the 13-list V1b pipeline on
+   :7089; `apm install` materialized it into the composition `apm_modules/_local` and the
+   verify hook returns `KANBAN-OK`.
+2. **Menu showed "Kanban Loop (V1a)".** `data/library.json`'s curated registry entry
+   still said `"name":"Kanban Loop (V1a)"`. Fixed to `"Kanban Loop"` with a V1b summary;
+   `/api/library` now serves the new name.
+
+**Regression guard added:** `tests/own-port-start.test.ts` asserts every seed Fitting with
+`x-garrison.own_port: true` and `lifecycle !== "detached"` ships `scripts/start.mjs` — so
+this class of "starts standalone but not under the runner" bug cannot recur silently.
+
+**Lesson:** an own-port fitting must be verified THROUGH the runner's start path (start.mjs
++ /api/fittings/<id>/start + the Views surfacing), not just by running its server.mjs.
+
+**Status:** fixed + verified in the live app.

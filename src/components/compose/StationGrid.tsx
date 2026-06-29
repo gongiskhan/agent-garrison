@@ -6,7 +6,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { faculties } from "@/lib/faculties";
-import type { PrimitiveSurface, StateModel } from "@/lib/primitive-state";
+import type {
+  PromotedFacultyGroup,
+  PromotedFittingsView,
+  ResolvedPromotedFitting
+} from "@/lib/promoted-catalog";
 import type {
   FacultyDefinition,
   FacultyId,
@@ -15,6 +19,20 @@ import type {
   SelectedFitting,
   VerifyResult
 } from "@/lib/types";
+
+// The 7 optional capability faculties (2026-06-24) — the homes the promoted
+// Claude Code primitives fill. They render as Fitting card-blocks (not core
+// composition tiles). `memory` also carries a promoted Fitting but is shown as
+// its core role tile, so it is excluded from the capability blocks.
+const CAPABILITY_FACULTIES = new Set<FacultyId>([
+  "knowledge",
+  "research",
+  "building",
+  "code-intelligence",
+  "design",
+  "browser-qa",
+  "coordination"
+]);
 
 export function StationGrid() {
   const {
@@ -30,16 +48,17 @@ export function StationGrid() {
   const router = useRouter();
   const [search, setSearch] = useState(params?.get("q") ?? "");
 
-  // HV8: the Claude Code components (Skills/Hooks/Agent Tools/Plugins) are
-  // sourced from the live Quarters StateModel, NOT the faculty model — they are
-  // presence-managed primitives surfaced here for one holistic view.
-  const [quarters, setQuarters] = useState<StateModel | null>(null);
+  // The promoted Fittings — the Claude Code primitives (formerly the separate
+  // "Claude Code components" group) presented as first-class Fittings, grouped by
+  // capability faculty under their Agent/Dev tier. Sourced from the live Quarters
+  // discovery via /api/promoted-fittings (reuses the existing StateModel engine).
+  const [promoted, setPromoted] = useState<PromotedFittingsView | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch("/api/quarters")
+    fetch("/api/promoted-fittings")
       .then((r) => r.json())
       .then((d) => {
-        if (alive && d && !d.error) setQuarters(d as StateModel);
+        if (alive && d && !d.error) setPromoted(d as PromotedFittingsView);
       })
       .catch(() => {});
     return () => {
@@ -272,81 +291,59 @@ export function StationGrid() {
           />
         ) : (
           <>
-            <ComposeGroup
-              title="Every agent needs these"
-              blurb="The roles a running Operative can't do without — its brain (Orchestrator), Memory, the Channels you reach it through, and the Gateway execution path."
-            >
-              {faculties
-                .filter((faculty) => faculty.essential)
-                .map((faculty) => (
-                  <StationTile
-                    key={faculty.id}
-                    faculty={faculty}
-                    selections={composition.selections[faculty.id] ?? []}
-                    library={library}
-                    verifyResults={verifyResults}
-                  />
-                ))}
-            </ComposeGroup>
+            <TierSection
+              tier="agent"
+              title="Agent faculties"
+              blurb="The everyday operative — always available. Its brain (Orchestrator), Memory, the Channels you reach it through, the Gateway it runs on, its persona, plus what it knows and can look up."
+              composition={composition}
+              library={library}
+              verifyResults={verifyResults}
+              capabilityGroups={promoted?.agent ?? null}
+            />
 
-            <ComposeGroup
-              title="Optional roles"
-              blurb="Extend the Operative — alternative execution engines, observability, the dev session, and auxiliary live surfaces."
-            >
-              {faculties
-                .filter((faculty) => !faculty.essential)
-                .map((faculty) => (
-                  <StationTile
-                    key={faculty.id}
-                    faculty={faculty}
-                    selections={composition.selections[faculty.id] ?? []}
-                    library={library}
-                    verifyResults={verifyResults}
-                  />
-                ))}
-
-              {composition.derivedTasks ? (
-                <div
-                  style={{
-                    gridColumn: "span 2",
-                    background: "var(--paper-2)",
-                    border: "1px dashed var(--rule-2)",
-                    padding: "20px 18px",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "center"
-                  }}
-                >
+            <TierSection
+              tier="dev"
+              title="Dev faculties"
+              blurb="Switched on for development work — alternative engines, observability, the dev session and surfaces, and the capabilities for building, understanding, designing, testing, and coordinating software."
+              composition={composition}
+              library={library}
+              verifyResults={verifyResults}
+              capabilityGroups={promoted?.dev ?? null}
+              footer={
+                composition.derivedTasks ? (
                   <div
-                    className="font-mono"
                     style={{
-                      fontSize: 10,
-                      letterSpacing: "0.16em",
-                      textTransform: "uppercase",
-                      color: "var(--mute)",
-                      marginBottom: 6
+                      gridColumn: "span 2",
+                      background: "var(--paper-2)",
+                      border: "1px dashed var(--rule-2)",
+                      padding: "20px 18px",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center"
                     }}
                   >
-                    Tasks · derived
+                    <div
+                      className="font-mono"
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: "0.16em",
+                        textTransform: "uppercase",
+                        color: "var(--mute)",
+                        marginBottom: 6
+                      }}
+                    >
+                      Tasks · derived
+                    </div>
+                    <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
+                      Tasks flow through {prettySource(composition.derivedTasks.source)}
+                    </div>
+                    <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", marginTop: 6 }}>
+                      truth file · <b style={{ color: "var(--ink)" }}>{composition.derivedTasks.truthFile}</b>
+                    </div>
                   </div>
-                  <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
-                    Tasks flow through {prettySource(composition.derivedTasks.source)}
-                  </div>
-                  <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", marginTop: 6 }}>
-                    truth file · <b style={{ color: "var(--ink)" }}>{composition.derivedTasks.truthFile}</b>
-                  </div>
-                </div>
-              ) : null}
-            </ComposeGroup>
-
-            <ComposeGroup
-              title="Claude Code components"
-              blurb="Skills, hooks, agent tools (MCPs), and plugins from ~/.claude — these extend the agent but aren't required. Review and manage each in Quarters."
-            >
-              {COMPONENT_TILES.map((tile) => (
-                <ComponentTile key={tile.surface} tile={tile} model={quarters} />
-              ))}
-            </ComposeGroup>
+                ) : null
+              }
+            />
           </>
         )}
       </div>
@@ -354,20 +351,33 @@ export function StationGrid() {
   );
 }
 
-// A labeled section in the Compose overview — "Every agent needs these"
-// (essential roles), "Optional roles", and (HV8) "Claude Code components". Wraps
-// its tiles in the shared station grid so every group reads identically.
-function ComposeGroup({
+// One Compose tier section — "Agent faculties" or "Dev faculties". Holds the
+// core composition-role tiles for that tier, then the optional capability
+// faculties (each a labeled block of promoted Fitting cards). The two-header
+// split is presentation only; the tier tag is orthogonal to essential/optional.
+function TierSection({
+  tier,
   title,
   blurb,
-  children
+  composition,
+  library,
+  verifyResults,
+  capabilityGroups,
+  footer
 }: {
+  tier: "agent" | "dev";
   title: string;
   blurb: string;
-  children: ReactNode;
+  composition: { selections: FittingSelectionMap };
+  library: LibraryEntry[];
+  verifyResults: VerifyResult[];
+  capabilityGroups: PromotedFacultyGroup[] | null;
+  footer?: ReactNode;
 }) {
+  const coreRoles = faculties.filter((f) => f.tier === tier && !CAPABILITY_FACULTIES.has(f.id));
+  const capBlocks = (capabilityGroups ?? []).filter((g) => CAPABILITY_FACULTIES.has(g.faculty));
   return (
-    <section style={{ marginBottom: 22 }}>
+    <section data-testid={`tier-section-${tier}`} style={{ marginBottom: 28 }}>
       <div style={{ margin: "0 0 10px" }}>
         <h2 className="font-display" style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
           {title}
@@ -384,43 +394,74 @@ function ComposeGroup({
           gap: 10
         }}
       >
-        {children}
+        {coreRoles.map((faculty) => (
+          <StationTile
+            key={faculty.id}
+            faculty={faculty}
+            selections={composition.selections[faculty.id] ?? []}
+            library={library}
+            verifyResults={verifyResults}
+          />
+        ))}
+        {footer}
       </div>
+
+      {capabilityGroups == null ? (
+        <div className="font-mono" style={{ fontSize: 11, color: "var(--mute)", marginTop: 14 }}>
+          loading capabilities…
+        </div>
+      ) : (
+        capBlocks.map((group) => <CapabilityFacultyBlock key={group.faculty} group={group} />)
+      )}
     </section>
   );
 }
 
-// The four Claude Code component categories, sourced from the StateModel (not
-// the faculty model). "Agent Tools" is the operator-facing name for MCPs.
-const COMPONENT_TILES: { surface: PrimitiveSurface; label: string; slug: string }[] = [
-  { surface: "skill", label: "Skills", slug: "skills" },
-  { surface: "hook", label: "Hooks", slug: "hooks" },
-  { surface: "mcp", label: "Agent Tools", slug: "mcps" },
-  { surface: "plugin", label: "Plugins", slug: "plugins" }
-];
+// One optional capability faculty — its name + role copy, then its promoted
+// Fitting cards. This is what replaced the old primitive-typed "Claude Code
+// components" tiles: each card is a first-class Fitting, never a "skill"/"MCP".
+function CapabilityFacultyBlock({ group }: { group: PromotedFacultyGroup }) {
+  return (
+    <div data-testid={`capability-faculty-${group.faculty}`} style={{ margin: "16px 0 4px" }}>
+      <div
+        className="font-mono"
+        style={{
+          fontSize: 10,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: "var(--brass)",
+          margin: "0 0 8px"
+        }}
+      >
+        {group.facultyName}
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 260px), 1fr))",
+          gap: 10
+        }}
+      >
+        {group.fittings.map((f) => (
+          <PromotedFittingCard key={f.id} fitting={f} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
-function ComponentTile({
-  tile,
-  model
-}: {
-  tile: { surface: PrimitiveSurface; label: string; slug: string };
-  model: StateModel | null;
-}) {
-  const recs = model?.bySurface[tile.surface] ?? [];
-  const parked = recs.filter((r) => r.presence === "parked").length;
-  const enabled = recs.length - parked;
-  // Only the presence-managed surfaces (hook/mcp/plugin) have an enabled/parked
-  // axis. Skills are APM-managed (promote/park, not a presence toggle), so their
-  // tile shows a plain installed count — never "enabled".
-  const presenceManaged = tile.surface !== "skill";
+// A single promoted Fitting card — title, plain-language description, and an
+// installed/available pip. Links to the Fitting's detail view (where its setup
+// instructions are edited). The primitive type behind it is never shown here.
+function PromotedFittingCard({ fitting }: { fitting: ResolvedPromotedFitting }) {
   return (
     <Link
-      href={`/quarters/${tile.slug}`}
-      data-testid={`component-tile-${tile.surface}`}
+      href={`/fitting/promoted/${fitting.id}`}
+      data-testid={`promoted-fitting-${fitting.id}`}
       style={{
         border: "1px solid var(--rule)",
         background: "white",
-        padding: "14px 16px",
+        padding: "13px 15px",
         display: "flex",
         flexDirection: "column",
         gap: 6,
@@ -428,34 +469,25 @@ function ComponentTile({
         color: "inherit"
       }}
     >
-      <div
-        className="font-mono"
-        style={{ fontSize: 9.5, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--brass)" }}
-      >
-        Component
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <div className="font-display" style={{ fontWeight: 600, fontSize: 15 }}>
+          {fitting.title}
+        </div>
+        <span
+          className="font-mono"
+          title={fitting.present ? "Installed in ~/.claude" : "Not installed"}
+          style={{
+            fontSize: 9.5,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: fitting.present ? "var(--sage)" : "var(--mute)",
+            whiteSpace: "nowrap"
+          }}
+        >
+          {fitting.present ? "installed" : "available"}
+        </span>
       </div>
-      <div className="font-display" style={{ fontWeight: 600, fontSize: 16 }}>
-        {tile.label}
-      </div>
-      <div className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)" }}>
-        {!model ? (
-          "…"
-        ) : presenceManaged ? (
-          <>
-            <b style={{ color: "var(--ink)" }}>{enabled}</b> enabled
-            {parked > 0 ? (
-              <>
-                {" · "}
-                <b style={{ color: "var(--ink)" }}>{parked}</b> parked
-              </>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <b style={{ color: "var(--ink)" }}>{recs.length}</b> installed
-          </>
-        )}
-      </div>
+      <div style={{ fontSize: 12.5, color: "var(--mute)", lineHeight: 1.5 }}>{fitting.descriptionPlain}</div>
     </Link>
   );
 }

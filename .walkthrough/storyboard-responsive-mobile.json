@@ -1,0 +1,65 @@
+{
+  "title": "Dev-Env responsive — panes become tabs on mobile",
+  "project": "garrison-dev-env-responsive",
+  "folder": "panes-responsive",
+  "video": { "width": 390, "height": 844, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "On a phone, the dev-env becomes tabs",
+      "subtitle": "garrison · dev-env responsive — one full-screen pane at a time, switched from a Claude / Shell / Browser control",
+      "duration": 3.0,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:7191",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "switcher",
+          "caption": "At phone width the panes collapse into a Claude / Shell / Browser switcher",
+          "expectedScreen": "a narrow phone-width dev-env: the header wraps to a 3-way segmented switcher with tabs Claude (active, green), Shell, Browser, above the Claude pane",
+          "actions": [
+            { "type": "waitFor", "selector": ".workspace" },
+            { "type": "waitFor", "selector": ".segmented[aria-label=\"Pane\"]" }
+          ],
+          "assert": { "selector": ".segmented[aria-label=\"Pane\"]", "highlight": true },
+          "hold": 4200
+        },
+        {
+          "id": "shell",
+          "caption": "Shell — the terminal deck, full-screen",
+          "expectedScreen": "the Shell tab now active; the terminal deck full-screen showing 'No terminals open' and a + New terminal button",
+          "actions": [
+            { "type": "click", "selector": ".segmented[aria-label=\"Pane\"] button:has-text(\"Shell\")" },
+            { "type": "waitFor", "selector": "text:No terminals open" }
+          ],
+          "assert": { "selector": "text:No terminals open", "highlight": true },
+          "hold": 4000
+        },
+        {
+          "id": "browser",
+          "caption": "Browser — the live browser pane, now reachable on mobile (it used to be hidden)",
+          "expectedScreen": "the Browser tab now active; the browser pane full-width with a URL bar (http://127.0.0.1:4321) plus DevTools and Refresh, and the embedded app iframe filling the rest — no close button on mobile",
+          "actions": [
+            { "type": "click", "selector": ".segmented[aria-label=\"Pane\"] button:has-text(\"Browser\")" },
+            { "type": "waitFor", "selector": ".app-iframe" }
+          ],
+          "assert": { "selector": ".app-iframe", "highlight": true },
+          "hold": 4600
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Responsive: desktop keeps the split, mobile turns the panes — including the browser — into tabs",
+      "subtitle": "Claude · Shell · Browser, one tap apart",
+      "duration": 3.0
+    }
+  ]
+}

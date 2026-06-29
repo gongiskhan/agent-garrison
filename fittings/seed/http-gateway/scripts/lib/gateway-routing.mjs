@@ -407,6 +407,29 @@ export class RoutedGateway {
     return !!t && (t.type === "secondary" || t.runtime === "codex" || t.runtime === "gemini");
   }
 
+  // A `workflow` routing target names a saved Claude Code workflow. We do NOT run a
+  // parallel workflow engine ("compose, don't own") — the operative IS a Claude Code
+  // session that runs workflows via its Workflow tool. We just route the turn to it
+  // with an instruction to invoke the named workflow (workflowTurnPrefix), so a
+  // resolved workflow target actually runs instead of falling through as a plain turn.
+  isWorkflowTarget(route) {
+    const t = route?.target;
+    return !!t && t.type === "workflow";
+  }
+
+  workflowTurnPrefix(route) {
+    const raw =
+      route?.target?.workflow ||
+      (route?.targetId || "").replace(/^workflow:/, "") ||
+      "the resolved workflow";
+    // The workflow id is route/config-derived but still untrusted for prompt
+    // embedding: a name with backticks / newlines / control chars could break the
+    // `[workflow: …]` marker or inject extra instructions into the routed turn. Strip
+    // control chars + backticks and clamp length to a safe identifier-ish string.
+    const name = String(raw).replace(/[^a-zA-Z0-9 _.\/-]/g, "").trim().slice(0, 120) || "the resolved workflow";
+    return `[workflow: ${name}] Handle this request by running the saved Claude Code workflow \`${name}\` — invoke it via the Workflow tool, then report the result.\n\n`;
+  }
+
   async getSecondaryAdapter(runtime) {
     if (this._secondaryAdapters.has(runtime)) return this._secondaryAdapters.get(runtime);
     const dir = resolveSecondaryDir(this.compositionDir, runtime);
@@ -514,7 +537,7 @@ export class RoutedGateway {
   // `fast` target. The slash-inject in applySwitch still fires once to move the
   // operative onto that target, then no-ops. This is the latency path for
   // conversational channels (e.g. Jarvis voice) where every turn is short.
-  async preRoute(message) {
+  async preRoute(message, opts = {}) {
     this._lastUserMessage = message;
     const profile = (this.config.profiles || {})[this.config.activeProfile] || {};
     const preRouteOff = (profile.preRoute ?? "on") === "off";
@@ -529,7 +552,25 @@ export class RoutedGateway {
       route = { profile: this.config.activeProfile, role: "fast", ruleId: "preroute-off", via: "preroute-off", targetId, target };
       this.lastClassification = classification;
     } else {
-      classification = await this.classify(message);
+      // Honor an EXPLICIT {taskType,tier} classification from the caller (the Kanban Loop
+      // §10 contract: each agent-list carries its own classification) instead of
+      // re-classifying from scratch — but ONLY when both values are in the router's
+      // vocabulary. A malformed/out-of-vocab/absent hint is NOT trusted; it falls back to
+      // the message classifier so a bad hint can never silently misroute a turn.
+      const explicit = opts.classification;
+      const validTask = Array.isArray(this.config.taskTypes) ? this.config.taskTypes : [];
+      const validTier = Array.isArray(this.config.tiers) ? this.config.tiers : [];
+      const honored = !!(
+        explicit &&
+        typeof explicit.taskType === "string" &&
+        typeof explicit.tier === "string" &&
+        validTask.includes(explicit.taskType) &&
+        validTier.includes(explicit.tier)
+      );
+      classification = honored ? explicit : await this.classify(message);
+      if (honored) {
+        this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });
+      }
       route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
     }
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });

@@ -1,0 +1,44 @@
+name: automations
+version: 0.1.0
+description: Automations engine seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: observability
+  cardinality_hint: single
+  own_port: true
+  default_port: 7090
+  component_shape: plugin
+  platforms:
+    - all
+  summary: Automations engine — YAML automations at ~/.garrison/automations/<id>.yml with 8 step types (browser, verify, navigate, wait, local_command, api_call, connector, sub_automation). Runs them with live SSE streaming into an own-port run viewer; the planner + per-step vision/fixer route through the Model Router; connector steps call the Connectors faculty with Vault-sealed auth. Provides the existing automation-runner kind (no new kind — same as the scheduler/improver).
+  config_schema:
+    - key: automations_dir
+      type: path
+      default: ~/.garrison/automations
+      description: Machine-local directory holding automation YAML files, briefs/, and runs/ (override via GARRISON_AUTOMATIONS_DIR).
+  provides:
+    - kind: automation-runner
+      name: automations
+  consumes:
+    - kind: automation-runner
+      name: scheduler
+      cardinality: optional-one
+    - kind: connector
+      cardinality: any
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: node apm_modules/_local/automations/scripts/server.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The Automations engine runs YAML automations and exposes automation-runner.
+    The Operative can list, read, and run automations; an automation's
+    `connector` step calls a connected service's catalog action (auth sealed in
+    the Vault), and steps stream live into the run viewer over SSE. Automations
+    are authored via the "Discuss an automation" flow (a Router-planned brief),
+    then hand-editable as steps. Files live at ~/.garrison/automations/<id>.yml.

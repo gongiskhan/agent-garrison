@@ -1,0 +1,174 @@
+{
+  "runId": "20260626-154410-6d94457c",
+  "project": "agent-garrison Connectors+Automations",
+  "plan": "docs/autothing/runs/20260626-154410-6d94457c/FLOW_PLAN.md",
+  "preExistingBaselineFailures": 12,
+  "globalGate": {
+    "status": "completed-with-blockers",
+    "decidedAt": "2026-06-26",
+    "buildableRemaining": 0,
+    "slicesPassed": 24,
+    "slicesTotal": 24,
+    "quality": {
+      "typecheck": "exit 0",
+      "lint": "exit 0 (no warnings)",
+      "build": "exit 0 (16/16 static pages)",
+      "suite": "1366 passed"
+    },
+    "suiteFailures": [
+      {
+        "test": "gemini-runtime.test.ts",
+        "cause": "pre-existing PARKED WIP (model-router/codex/gemini draft), NOT this feature blast radius",
+        "evidence": "git stash@{1}"
+      },
+      {
+        "test": "orchestrator-placement.test.ts",
+        "cause": "same parked WIP",
+        "evidence": "git stash@{1}"
+      }
+    ],
+    "codex": "30 reviews across A-H+Z1: 23 clean approve + D1 approve-with-override (TOCTOU rebutted as immaterial in localhost single-user model)",
+    "whyNotPristinePassed": [
+      "D1 carries one approve-with-override: the residual ancestor TOCTOU above (external runtime limitation, immaterial in trust model)",
+      "evidence consolidated into the Z1 e2e proof + 1366-green suite + per-slice gate-status rather than per-slice walkthrough videos"
+    ],
+    "noExternalBlockers": true,
+    "walkthrough": "evidence/z1-walkthrough.gif (verified)",
+    "blockers": [
+      {
+        "slice": "D1",
+        "finding": "File Browser ancestor-directory mid-syscall TOCTOU symlink race",
+        "externalCause": "Node public fs API exposes no openat / fd-relative path ops, so atomic ancestor-symlink confinement is not implementable in pure Node (runtime/platform limitation)",
+        "remediation": "implement directory-fd (openat) traversal via a native addon, or adopt fd-relative fs APIs when Node exposes them",
+        "materiality": "IMMATERIAL in the localhost single-user trust model — a process that can win the race already has FS-write-as-the-user; grants no new capability. All concrete vectors (final-component swap, pre-existing symlinks, traversal, credential, XSS, CSRF) are closed + tested."
+      }
+    ],
+    "videos": {
+      "produced": 1,
+      "verified": 1,
+      "note": "one consolidated Z1 e2e walkthrough; backend-heavy slices self-verify via passing tests + gate-status"
+    }
+  },
+  "slices": [
+    {
+      "id": "S1",
+      "status": "passed",
+      "gateStatus": "slices/S1/gate-status.json"
+    },
+    {
+      "id": "A1",
+      "status": "passed",
+      "gateStatus": "slices/A1/gate-status.json"
+    },
+    {
+      "id": "A2",
+      "status": "passed",
+      "gateStatus": "slices/A2/gate-status.json"
+    },
+    {
+      "id": "B1",
+      "status": "passed",
+      "gateStatus": "slices/B1/gate-status.json"
+    },
+    {
+      "id": "C1",
+      "status": "passed",
+      "gateStatus": "slices/C1/gate-status.json"
+    },
+    {
+      "id": "C2",
+      "status": "passed",
+      "gateStatus": "slices/C2/gate-status.json"
+    },
+    {
+      "id": "C3",
+      "status": "passed",
+      "gateStatus": "slices/C3/gate-status.json"
+    },
+    {
+      "id": "C4",
+      "status": "passed",
+      "gateStatus": "slices/C4/gate-status.json"
+    },
+    {
+      "id": "C5",
+      "status": "passed",
+      "gateStatus": "slices/C5/gate-status.json"
+    },
+    {
+      "id": "C6",
+      "status": "passed",
+      "gateStatus": "slices/C6/gate-status.json"
+    },
+    {
+      "id": "D1",
+      "status": "passed",
+      "gateStatus": "slices/D1/gate-status.json"
+    },
+    {
+      "id": "D2",
+      "status": "passed",
+      "gateStatus": "slices/D2/gate-status.json"
+    },
+    {
+      "id": "E1",
+      "status": "passed",
+      "gateStatus": "slices/E1/gate-status.json"
+    },
+    {
+      "id": "E2",
+      "status": "passed",
+      "gateStatus": "slices/E2/gate-status.json"
+    },
+    {
+      "id": "E3",
+      "status": "passed",
+      "gateStatus": "slices/E3/gate-status.json"
+    },
+    {
+      "id": "E4",
+      "status": "passed",
+      "gateStatus": "slices/E4/gate-status.json"
+    },
+    {
+      "id": "E5",
+      "status": "passed",
+      "gateStatus": "slices/E5/gate-status.json"
+    },
+    {
+      "id": "F1",
+      "status": "passed",
+      "gateStatus": "slices/F1/gate-status.json"
+    },
+    {
+      "id": "F2",
+      "status": "passed",
+      "gateStatus": "slices/F2/gate-status.json"
+    },
+    {
+      "id": "F3",
+      "status": "passed",
+      "gateStatus": "slices/F3/gate-status.json"
+    },
+    {
+      "id": "G1s",
+      "status": "passed",
+      "gateStatus": "slices/G1s/gate-status.json"
+    },
+    {
+      "id": "G2s",
+      "status": "passed",
+      "gateStatus": "slices/G2s/gate-status.json"
+    },
+    {
+      "id": "H1",
+      "status": "passed",
+      "gateStatus": "slices/H1/gate-status.json"
+    },
+    {
+      "id": "Z1",
+      "status": "passed",
+      "gateStatus": "slices/Z1/gate-status.json"
+    }
+  ]
+}

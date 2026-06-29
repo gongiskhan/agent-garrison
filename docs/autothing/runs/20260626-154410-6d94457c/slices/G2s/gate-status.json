@@ -1,0 +1,14 @@
+{
+  "slice": "G2s", "title": "Human-in-the-loop: pause-for-user canvas + command consent + awaiting_connector resume", "kind": "ui",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "lib/command-shape.mjs (per-script-hash shape + approved store); engine pauseAndAwait (per-pause nonce) wired to 4 pauses: CAPTCHA/MFA fast-path, fixer pause_for_user, awaiting_connector (resume->retry), local_command consent (once/always); server pendingResumes + POST /api/runs/:id/resume (nonce-checked) + SSE keeps stream open on pause; strict same-origin CSRF guard + no wildcard CORS; run-viewer HITL UI (drivable-canvas Continue, consent once/always, connect+resume)." },
+    "test": { "status": "passed", "detail": "automations-consent (4: shape normalize, per-script hash, approve roundtrip) + engine resume (CAPTCHA pause->resume->retry, awaiting_connector resume, consent once/always-persists, headless terminal-pause). 53 automations tests green; typecheck clean.", "command": "npx vitest run tests/automations-consent.test.ts tests/automations-engine.test.ts tests/automations-sse.test.ts" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 2, "detail": "R1 (3 high): /resume keyed only by runId -> per-pause NONCE; Origin guard allowed any localhost:port -> STRICT same-origin (host:port==Host); shell consent collapsed to one shape -> per-script sha256 fingerprint. R2: F1/F3 confirmed, F2 SSE still had wildcard ACAO -> removed. No rebuttals.", "artifacts": ["codex-review-G2s.json", "codex-review-G2s-r2.json"] },
+    "codexPwTest": { "status": "pending", "detail": "Z1 drives a pause+resume" },
+    "designAudit": { "status": "deferred", "detail": "pause/consent overlays recorded in Z1" },
+    "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["fittings/seed/automations/lib/command-shape.mjs", "fittings/seed/automations/lib/engine.mjs", "fittings/seed/automations/scripts/server.mjs", "fittings/seed/automations/dist/index.html", "tests/automations-consent.test.ts", "tests/automations-engine.test.ts", "tests/automations-sse.test.ts"]
+}

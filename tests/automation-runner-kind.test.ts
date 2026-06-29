@@ -35,10 +35,11 @@ describe("MR0b — automation-runner kind re-add + scheduler manifest repair", (
   });
 
   it("the automation-runner ecosystem fittings parse + validate (shape-driven role)", () => {
+    // google-calendar left this set 2026-06-26 — it became the `google` connector
+    // (provides connector, faculty connectors), covered by the connector tests.
     const expected: Record<string, "observability" | "sessions"> = {
       "loop-heartbeat": "observability",
       "morning-briefing": "sessions",
-      "google-calendar": "sessions",
       "vault-sync": "sessions"
     };
     for (const [fitting, faculty] of Object.entries(expected)) {

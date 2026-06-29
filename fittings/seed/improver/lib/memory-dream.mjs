@@ -283,7 +283,7 @@ export function buildDreamProposals({ items = [], knownPaths = [], cap = 8, at =
 // Default runTurn: dynamic import of the PTY one-shot — the ONLY model entry
 // point (no Agent SDK, no warm pool). Injected in tests / fixture replay so a
 // hermetic run never loads the package or spawns a TUI.
-async function defaultRunTurn({ systemPrompt, model, message, timeoutMs }) {
+export async function defaultRunTurn({ systemPrompt, model, message, timeoutMs }) {
   const mod = await import("@garrison/claude-pty");
   const oneShotTurn = mod.oneShotTurn;
   if (typeof oneShotTurn !== "function") {
@@ -300,6 +300,49 @@ async function defaultRunTurn({ systemPrompt, model, message, timeoutMs }) {
     message,
     timeoutMs: timeoutMs ?? 90_000,
   });
+}
+
+// Routed runTurn: dispatch the dream pass through the gateway's pre-route seam
+// (POST /chat → runRoutedTurn → preRoute classifies + picks the model) instead of
+// the default dedicated one-shot. This is the "one entry for all autonomous flows"
+// cleanup (kanban brief §10): make preRoute the universal seam. OPT-IN (the
+// Improver runs standalone/nightly and must not depend on a live gateway), so the
+// caller only selects this when a gateway is configured + reachable.
+export function makeRoutedRunTurn(gatewayUrl) {
+  return async function routedRunTurn({ systemPrompt, message, timeoutMs }) {
+    const res = await fetch(`${gatewayUrl}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
+      body: JSON.stringify({ channel: "improver", message: `${systemPrompt}\n\n${message}` }),
+      signal: AbortSignal.timeout(timeoutMs ?? 120_000),
+    });
+    if (!res.ok) throw new Error(`improver routed dream turn failed: HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    const reply = data.reply ?? data.text;
+    // A 200 with a malformed/empty body would otherwise silently disable dream
+    // proposals — surface it so the caller can fall back instead of dreaming nothing.
+    if (typeof reply !== "string" || reply.trim() === "") {
+      throw new Error("improver routed dream turn: empty/invalid reply payload");
+    }
+    return { reply };
+  };
+}
+
+// Select the dream runTurn: the routed (pre-route) path only when explicitly
+// enabled AND a gateway URL is given; otherwise the default one-shot (unchanged).
+// The routed path is wrapped so a gateway timeout / network error / malformed reply
+// DEGRADES to the one-shot path instead of crashing the nightly Improver run.
+export function chooseDreamRunTurn({ routeViaGateway = false, gatewayUrl = null, fallback = defaultRunTurn } = {}) {
+  if (!(routeViaGateway && gatewayUrl)) return fallback;
+  const routed = makeRoutedRunTurn(gatewayUrl);
+  return async function resilientRoutedRunTurn(args) {
+    try {
+      return await routed(args);
+    } catch (err) {
+      console.warn(`[improver] routed dream turn failed (${err?.message || err}); falling back to one-shot`);
+      return fallback(args);
+    }
+  };
 }
 
 // ── vault IO helpers (used by the orchestrator; pure-ish over a given dir) ─────

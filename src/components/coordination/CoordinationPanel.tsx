@@ -62,7 +62,7 @@ interface CoordState {
   repo: string | null;
   timestamp: string;
   unreachable?: boolean;
-  liveness: { beads: Liveness; agentMail: Liveness } | null;
+  liveness: { agentMail: Liveness } | null;
   sessions: SessionRow[];
   locks: LockRow[];
   recentIntents: IntentRow[];
@@ -242,7 +242,6 @@ export function CoordinationPanel() {
         <section style={card}>
           <div style={monoLabel}>Liveness</div>
           <div style={{ display: "flex", gap: 28, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <LiveDot label="Beads (bd)" l={live?.beads} />
             <LiveDot label="agent_mail" l={live?.agentMail} />
             {live && !live.agentMail.up ? (
               <button onClick={restartAgentMail} disabled={busy !== null} style={ghostBtn}>

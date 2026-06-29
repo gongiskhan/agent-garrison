@@ -1,6 +1,15 @@
 import { createRoot } from "react-dom/client";
 import { useEffect, useMemo, useState } from "react";
 
+// This monitor is itself an own-port view, opened in the browser over localhost
+// AND over Tailscale/LAN. Build per-port links against the host the browser is
+// actually on — a hardcoded "localhost" would resolve to the VIEWER's own
+// machine, not the host running the watched process.
+function portUrl(port: number | string): string {
+  const here = typeof window !== "undefined" ? window.location.hostname : "localhost";
+  return `http://${here || "localhost"}:${port}`;
+}
+
 type Entity = {
   pid: number;
   ppid: number;
@@ -98,7 +107,7 @@ function ProcessCard({ entity, onOpen }: { entity: Entity; onOpen: (pid: number)
             {ports.slice(0, 8).map((p, i) => (
               <a
                 key={`${i}-${p}`}
-                href={`http://localhost:${p}`}
+                href={portUrl(p)}
                 className="mono"
                 onClick={(ev) => ev.stopPropagation()}
                 target="_blank"
@@ -232,8 +241,8 @@ function Drilldown({
           <ul className="port-list">
             {entity.ports.listening.map((p, i) => (
               <li key={i}>
-                <a href={`http://localhost:${p.port}`} target="_blank" rel="noreferrer" className="mono">
-                  http://localhost:{p.port}
+                <a href={portUrl(p.port)} target="_blank" rel="noreferrer" className="mono">
+                  {portUrl(p.port)}
                 </a>
                 <span className="muted mono"> · {p.address}</span>
               </li>

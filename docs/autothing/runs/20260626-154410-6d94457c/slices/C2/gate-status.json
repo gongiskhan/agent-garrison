@@ -1,0 +1,26 @@
+{
+  "slice": "C2",
+  "title": "Google Workspace connector (gmail/drive/calendar over Vault OAuth)",
+  "kind": "mixed",
+  "sharedStructure": false,
+  "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "git mv google-calendar -> google; apm.yml connectors faculty + provides connector:google + oauth2 catalog (gmail.send/drive.list/calendar.create_event/calendar.list_events); connector.mjs uses GOOGLE_ACCESS_TOKEN (engine-injected from vault.getAccessToken) + REST; gmail.send builds RFC822 (multipart/mixed attachments); dropped python calendar-sync + its render test/fixtures; library.json + google entry; automation-runner-kind.test updated" },
+    "test": {
+      "status": "passed",
+      "detail": "tests/connector-google.test.ts (6): catalog, gmail.send MIME + Bearer, attachment multipart, header-injection sanitized, drive.list ordering, awaiting_connector. validate-fitting google = 4/4 PASS. typecheck clean. seed survivor stack includes google.",
+      "command": "node_modules/.bin/tsx scripts/validate-fitting.ts fittings/seed/google && npx vitest run tests/connector-google.test.ts tests/seed.test.ts tests/automation-runner-kind.test.ts"
+    },
+    "review": { "status": "self-reviewed" },
+    "codexReview": {
+      "status": "approve",
+      "rounds": 2,
+      "detail": "Reviewed jointly with C1 (connector contract). R1 needs-attention 3 findings ALL AGREED+FIXED: gmail.send RFC822 header injection (header() strips CR/LF on to/cc/subject + attachment filename/mime), trello missing-board guard, trello URL path-segment encoding. R2 clean approve, no findings.",
+      "artifacts": ["codex-review-C1C2.json", "codex-review-C1C2-r2.json"]
+    },
+    "codexPwTest": { "status": "n/a", "detail": "connector actions exercised via committed unit tests + the Z1 e2e (real gmail.send)" },
+    "designAudit": { "status": "n/a", "detail": "Connectors registry UI is C6" },
+    "walkthrough": { "status": "deferred", "detail": "gmail.send exercised in the Z1 e2e proof (the headline)" }
+  },
+  "files": ["fittings/seed/google/apm.yml", "fittings/seed/google/scripts/connector.mjs", "fittings/seed/google/scripts/setup.sh", "data/library.json", "tests/connector-google.test.ts", "tests/automation-runner-kind.test.ts", "tests/connector-mjs.d.ts"]
+}

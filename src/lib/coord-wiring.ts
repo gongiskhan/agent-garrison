@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { claudeHome, claudeJsonPath, garrisonDir } from "./claude-home";
 
-// Clean-removal wiring for the coordination Fittings (coord-beads / coord-agentmail
-// / coord-mcp). These install STANDING user-scope config (a SessionStart hook, an
+// Clean-removal wiring for the coordination Fittings (coord-agentmail / coord-mcp).
+// These install STANDING user-scope config (a SessionStart hook, an
 // http/stdio MCP server registration) that must persist across operative `down`
 // so a DIRECT `claude` run in any repo keeps coordination — but must be removed
 // cleanly and completely when the Fitting is DESELECTED.
@@ -27,7 +27,6 @@ export interface CoordOwnerSpec {
 }
 
 export const COORD_OWNERS: Record<string, CoordOwnerSpec> = {
-  "coord-beads": { hookOwner: "fitting:coord-beads", mcpNames: [] },
   "coord-agentmail": { mcpNames: ["coord-agentmail"] },
   "coord-mcp": { hookOwner: "fitting:coord-mcp", mcpNames: ["coord-mcp"] }
 };

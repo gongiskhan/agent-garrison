@@ -11,13 +11,22 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
+import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
 import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
+import {
+  resolvePrimaryRuntime,
+  buildPrimaryRuntimeEnv,
+  deriveRuntimeTargets,
+  mergeRuntimeTargets,
+  type RouterTarget,
+  type RuntimeEntry
+} from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
 import { resolveCapabilities } from "./capabilities";
 import { reconcileCoordTeardown } from "./coord-wiring";
-import type { GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
+import type { FittingSelectionMap, GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -157,6 +166,96 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     }
     const promptPath = await assembleSystemPrompt(compositionId);
 
+    // Modes (souls): when a `modes` provider is selected, compose one prompt per
+    // mode (Gary/Joe/James) and hand the gateway a GARRISON_SOULS_CONFIG, which
+    // activates its orchestrator/soul mode. No modes provider → undefined → the
+    // gateway runs its normal single-operative routed mode (the default comp).
+    let gatewayExtraEnv: Record<string, string> | undefined;
+    const soulEntries = await selectedLibraryEntries(composition.selections);
+    const modesEntry = findModesEntry(soulEntries);
+    if (modesEntry) {
+      // Orchestrator/soul mode drives souls through the mcp-gateway sidecar
+      // (talk_to / spawn-soul). Without it, booting orchestrator mode yields an
+      // orchestrator that can't reach its souls — so only activate when present;
+      // otherwise warn and stay in the working single-operative routed mode.
+      if (await mcpGatewayPresent(composition.directory)) {
+        const modesDir = path.join(composition.directory, "apm_modules", "_local", modesEntry.id);
+        const soulsConfig = await assembleSouls({
+          compositionDir: composition.directory,
+          modesDir,
+          orchestratorPromptPath: promptPath,
+          orchestratorFittingId: findOrchestratorEntryId(soulEntries) ?? "orchestrator",
+          capabilitiesBlock: renderCapabilitiesBlock(soulEntries),
+          routingSection: await resolveRoutingSection(
+            composition.directory,
+            buildRuntimeEntries(soulEntries, composition.selections)
+          ),
+          routingCorePath: ROUTING_CORE_PATH
+        });
+        if (soulsConfig) {
+          // gateway.mjs reads BOTH GARRISON_SOULS_CONFIG and the orchestrator
+          // fitting id from GARRISON_ORCHESTRATOR_FITTING_ID (it does not read
+          // soulsConfig.orchestratorFittingId), so project the id explicitly or
+          // the orchestrator session would mislabel as the bare "orchestrator".
+          gatewayExtraEnv = {
+            GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
+            GARRISON_ORCHESTRATOR_FITTING_ID: soulsConfig.orchestratorFittingId
+          };
+          appendLog(
+            compositionId,
+            "runner",
+            `modes: composed ${Object.keys(soulsConfig.souls).length} soul prompt(s) → gateway orchestrator/soul mode`
+          );
+        } else {
+          // modes + mcp-gateway are both present but assembleSouls returned null
+          // (modes.json missing/empty/malformed). Do NOT silently downgrade to
+          // routed mode without a trace — the operator selected modes.
+          appendLog(
+            compositionId,
+            "stderr",
+            `modes (${modesEntry.id}) is selected and mcp-gateway is present, but souls assembly produced no config (modes.json missing/empty/malformed) — staying in normal routed mode. Check apm_modules/_local/${modesEntry.id}/modes.json.`
+          );
+        }
+      } else {
+        appendLog(
+          compositionId,
+          "stderr",
+          `modes (${modesEntry.id}) is selected but the mcp-gateway fitting is not installed — orchestrator/soul mode needs it for talk_to; running normal gateway mode. Add the mcp-gateway fitting to enable Gary/Joe/James.`
+        );
+      }
+    }
+
+    // Resolve the PRIMARY runtime — the Runtime-Faculty fitting that hosts the
+    // orchestrator loop. Defaults to claude-code-runtime; its model + provider
+    // (ollama/deepseek/zai base-url swap) are threaded into the orchestrator
+    // spawn. A non-claude-code engine as primary is not yet hosted as the
+    // interactive orchestrator — fail loud rather than silently run claude-code.
+    const primaryRuntime = resolvePrimaryRuntime({
+      primaryRuntimeId: composition.globalConfig.primary_runtime,
+      runtimeEntries: buildRuntimeEntries(soulEntries, composition.selections)
+    });
+    if (primaryRuntime.engine !== "claude-code") {
+      throw new Error(
+        `primary runtime "${primaryRuntime.runtimeId}" (engine ${primaryRuntime.engine}) cannot host ` +
+          `the orchestrator yet — only the Claude Code runtime is supported as primary. Set ` +
+          `primary_runtime to claude-code-runtime (or leave it unset); other runtimes are available ` +
+          `as model-router targets.`
+      );
+    }
+    const primaryEntry = soulEntries.find((entry) => entry.id === primaryRuntime.runtimeId);
+    const primaryVaultEnv = primaryEntry ? await vaultEnvForEntry(primaryEntry) : {};
+    const { env: primaryEnv, providerLaunch: primaryProviderLaunch } = buildPrimaryRuntimeEnv(
+      primaryRuntime,
+      (key) => primaryVaultEnv[key]
+    );
+    if (primaryProviderLaunch) {
+      appendLog(
+        compositionId,
+        "runner",
+        `Primary runtime ${primaryRuntime.runtimeId} on provider ${primaryEnv.GARRISON_PROVIDER} (${primaryEnv.ANTHROPIC_BASE_URL})`
+      );
+    }
+
     const gateway = await resolveGatewayFitting(compositionId);
     let child: ChildProcessWithoutNullStreams;
     if (gateway) {
@@ -172,12 +271,23 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         composition.directory,
         promptPath,
         gateway,
-        orchestratorModeEnv(gateway, composition, promptPath)
+        {
+          ...(gatewayExtraEnv ?? {}),
+          ...primaryEnv,
+          ...(primaryProviderLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {}),
+          ...(orchestratorModeEnv(gateway, composition, promptPath) ?? {})
+        }
       );
       record.gateway = gateway;
     } else {
       await requireCommand(compositionId, "claude");
-      child = spawnClaude(compositionId, composition.directory, promptPath);
+      child = spawnClaude(
+        compositionId,
+        composition.directory,
+        promptPath,
+        primaryEnv,
+        primaryProviderLaunch
+      );
       record.gateway = undefined;
     }
 
@@ -318,16 +428,32 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
 async function startOperativeBoundFittings(compositionId: string): Promise<void> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
+  // The live gateway URL (set after the gateway started above). Injected into every
+  // operative-bound own-port fitting so a runner-managed boot can REACH the gateway —
+  // e.g. the Kanban board dispatches an agent-list card's run through GARRISON_GATEWAY_URL;
+  // without this it logs "Start on agent lists is disabled" and the run loop is dead.
+  const gatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
-    const extraEnv = await vaultEnvForEntry(entry);
+    // Project the ACTIVE composition id into every operative-bound own-port fitting so a
+    // runner-managed boot (the normal path) carries it — the Dev Env reads
+    // GARRISON_COMPOSITION_ID and forwards it to /api/orchestrator/place, so placement
+    // resolves THIS composition's live modes/routing rather than always "default".
+    const extraEnv = {
+      ...(await vaultEnvForEntry(entry)),
+      GARRISON_COMPOSITION_ID: compositionId,
+      ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
+    };
     const result = await startOwnPortFitting(entry, extraEnv);
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
       continue;
     }
     if (result.healed) {
-      appendLog(compositionId, "runner", `own-port ${entry.id} restarted to deliver vault secrets${result.pid ? ` (pid ${result.pid})` : ""}`);
+      const reason = result.healReason === "env-drift"
+        ? "to pick up a changed env value (gateway URL / composition id)"
+        : "to deliver vault secrets";
+      appendLog(compositionId, "runner", `own-port ${entry.id} restarted ${reason}${result.pid ? ` (pid ${result.pid})` : ""}`);
     } else if (result.alreadyRunning) {
       appendLog(compositionId, "runner", `own-port ${entry.id} already running; left in place`);
     } else {
@@ -397,18 +523,30 @@ export async function runFittingSetup(
   compositionDir: string,
   config: Record<string, unknown> = {}
 ): Promise<SetupResult> {
-  const setup = entry.metadata.setup;
-  if (!setup) {
+  const steps = entry.metadata.setup;
+  if (!steps || steps.length === 0) {
     return { ok: true, stdout: "", stderr: "", exitCode: 0 };
   }
   const fittingDir = path.join(compositionDir, "apm_modules", "_local", entry.id);
-  const result = await runShellCommand(
-    fittingDir,
-    setup.command,
-    setup.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS,
-    setupConfigEnv(entry.id, config)
-  );
-  return { ...result, ok: result.exitCode === 0 };
+  const env = setupConfigEnv(entry.id, config);
+  // Run each step in order; abort on the first non-zero exit (aggregating
+  // output so the caller logs the full trail up to the failure).
+  let aggStdout = "";
+  let aggStderr = "";
+  for (const step of steps) {
+    const result = await runShellCommand(
+      fittingDir,
+      step.command,
+      step.timeout_ms ?? SETUP_DEFAULT_TIMEOUT_MS,
+      env
+    );
+    if (result.stdout) aggStdout += (aggStdout ? "\n" : "") + result.stdout;
+    if (result.stderr) aggStderr += (aggStderr ? "\n" : "") + result.stderr;
+    if (result.exitCode !== 0) {
+      return { ...result, stdout: aggStdout, stderr: aggStderr, ok: false };
+    }
+  }
+  return { ok: true, stdout: aggStdout, stderr: aggStderr, exitCode: 0 };
 }
 
 async function runSetupHooks(compositionId: string): Promise<void> {
@@ -423,11 +561,15 @@ async function runSetupHooks(compositionId: string): Promise<void> {
     }
   }
   for (const entry of entries) {
-    const setup = entry.metadata.setup;
-    if (!setup) {
+    const steps = entry.metadata.setup;
+    if (!steps || steps.length === 0) {
       continue;
     }
-    appendLog(compositionId, "runner", `setup ${entry.id}: ${setup.command}`);
+    appendLog(
+      compositionId,
+      "runner",
+      `setup ${entry.id}: ${steps.map((s) => s.label ?? s.command).join(" && ")}`
+    );
     const result = await runFittingSetup(entry, composition.directory, configById.get(entry.id) ?? {});
     if (result.stdout) {
       appendLog(compositionId, "stdout", result.stdout);
@@ -640,7 +782,10 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
   // BRIEF v4 MR1b: inject the compiled Model Router policy via {{routing}}.
   // No-op when the orchestrator prompt has no placeholder (e.g. the live
   // garrison-orchestrator), so the default composition is untouched.
-  const routingSection = await resolveRoutingSection(composition.directory);
+  const routingSection = await resolveRoutingSection(
+    composition.directory,
+    buildRuntimeEntries(entries, composition.selections)
+  );
   if (orchestrator.includes("{{routing}}") && routingSection == null) {
     appendLog(compositionId, "stderr", MISSING_ROUTING_CONFIG_WARNING);
   }
@@ -697,7 +842,10 @@ export function substituteRoutingPlaceholder(prompt: string, section: string | n
 // composition-scoped <dir>/.garrison/routing.json (written by the fitting's
 // view PUT /routing), falling back to the model-router seed config. Returns
 // null (and the caller warns) when no valid config is found.
-export async function resolveRoutingSection(compositionDir: string): Promise<string | null> {
+export async function resolveRoutingSection(
+  compositionDir: string,
+  runtimeEntries: RuntimeEntry[] = []
+): Promise<string | null> {
   const scoped = path.join(compositionDir, ".garrison", "routing.json");
   let raw: string | null = null;
   try {
@@ -715,6 +863,14 @@ export async function resolveRoutingSection(compositionDir: string): Promise<str
   } catch {
     return null;
   }
+  // Auto-surface composed runtime fittings as model-router targets (S3): a
+  // fitted runtime becomes a selectable target without hand-editing routing.json.
+  // De-duped by id, so a hand-seeded target always wins; no-op when no runtimes
+  // are composed (preserves the seed/default behavior exactly).
+  config = mergeRuntimeTargets(
+    config as { targets?: RouterTarget[] },
+    deriveRuntimeTargets(runtimeEntries)
+  );
   try {
     const mod = (await import(pathToFileURL(ROUTING_CORE_PATH).href)) as {
       compileRouting: (c: unknown, p?: string | null) => string;
@@ -812,6 +968,26 @@ async function findFreePort(): Promise<number> {
       server.close(() => resolve(port));
     });
     server.on("error", reject);
+  });
+}
+
+/**
+ * Reduce the composition's selected Runtime-Faculty fittings to the shape the
+ * primary-runtime resolver needs (id + provided capabilities + per-fitting
+ * config). Order follows the composition's selection order.
+ */
+function buildRuntimeEntries(
+  entries: LibraryEntry[],
+  selections: FittingSelectionMap
+): RuntimeEntry[] {
+  const runtimeSelections = selections.runtimes ?? [];
+  return runtimeSelections.map((selection) => {
+    const entry = entries.find((candidate) => candidate.id === selection.id);
+    return {
+      id: selection.id,
+      provides: entry?.metadata.provides ?? [],
+      config: selection.config ?? {}
+    };
   });
 }
 
@@ -1006,7 +1182,13 @@ async function spawnGateway(
   return child;
 }
 
-function spawnClaude(compositionId: string, cwd: string, promptPath: string): ChildProcessWithoutNullStreams {
+function spawnClaude(
+  compositionId: string,
+  cwd: string,
+  promptPath: string,
+  primaryEnv: Record<string, string> = {},
+  providerLaunch = false
+): ChildProcessWithoutNullStreams {
   const compositionName = `garrison-${compositionId}`;
   const scriptPath = path.join(ROOT_DIR, "scripts", "pty-operative.mjs");
   const args = [scriptPath];
@@ -1025,7 +1207,9 @@ function spawnClaude(compositionId: string, cwd: string, promptPath: string): Ch
         AGENT_GARRISON_COMPOSITION: compositionId,
         GARRISON_SYSTEM_PROMPT_PATH: promptPath,
         GARRISON_MODEL: "opus",
-        GARRISON_PERMISSION_MODE: "bypassPermissions"
+        GARRISON_PERMISSION_MODE: "bypassPermissions",
+        ...primaryEnv,
+        ...(providerLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {})
       }
     },
     { spawnSite: "runner:spawnClaude", description: `fallback claude (${compositionName})` }

@@ -115,6 +115,21 @@ export const ROUTING_VERSION: number;
 
 export function resolveRole(config: RoutingConfig, classification: Classification): RoleResolution;
 export function resolveRoute(config: RoutingConfig, profile: string | null, classification: Classification): RouteResolution;
+
+// Mode bias (modes faculty): nudge the resolved compute-tier role per a mode's
+// {floor, prefer}, then re-map the target. Pure; never mutates config/route.
+// floor/prefer are COMPUTE roles only — biasRole ranks via COMPUTE_RANK and leaves
+// the task-specific roles (image/video/review) untouched, so the type must not admit
+// them (an image/video/review bias would type-check and then silently no-op).
+export type ComputeRole = Extract<Role, "fast" | "standard" | "expert">;
+export interface ModeBias { floor?: ComputeRole; prefer?: ComputeRole; }
+export interface ModesConfigLike {
+  modes?: Record<string, { routingBias?: string }>;
+  routingBias?: Record<string, ModeBias>;
+}
+export function biasRole(role: Role, bias: ModeBias | null | undefined): Role;
+export function modeBiasFor(mode: string, modesConfig: ModesConfigLike | null | undefined): ModeBias | null;
+
 export function resolveDiscipline(config: RoutingConfig, profile: string | null, tier: Tier): Discipline;
 export function compileRouting(config: RoutingConfig, profile?: string | null): string;
 export function routingMarker(profileName: string): string;

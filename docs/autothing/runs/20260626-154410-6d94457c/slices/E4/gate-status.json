@@ -1,0 +1,17 @@
+{
+  "slice": "E4", "title": "Planner via Model Router (brief -> steps, no hardcoded model)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "lib/planner.mjs (buildPlannerPrompt with 8 step types + connector catalog + brief; parsePlan fenced/bare JSON; planFromBrief -> validated Automation, injectable invoke); backend src/app/api/automations/plan (internal-token guarded; resolveRoute picks target=no hardcoded model; sends BINDING body.classification {taskType,tier} the gateway honors; fail-closed on broken routing config); server /api/automations/plan-from-brief (brief+catalog discovery -> plan -> save)" },
+    "test": { "status": "passed", "detail": "automations-planner.test (5): prompt names step types+catalog+brief, parse fenced/bare/reject, planFromBrief validated automation via mock invoke, rejects dropped step type (ekoa_action). typecheck clean; validate 4/4." },
+    "review": { "status": "self-reviewed" },
+    "codexReview": {
+      "status": "approve", "rounds": 2,
+      "detail": "R1: (F1 high) resolved route not sent to gateway -> send binding classification hint; (F2 med) routing failures swallowed -> fail-closed on broken config. R2: F2 confirmed; F1 hint shape wrong -> FIXED to body.classification.{taskType,tier} (verified against gateway parseClassificationHint in souls-route.mjs). No hardcoded model.",
+      "artifacts": ["codex-review-E4.json", "codex-review-E4-r2.json"]
+    },
+    "codexPwTest": { "status": "n/a", "detail": "live Router+gateway path exercised in Z1" },
+    "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["fittings/seed/automations/lib/planner.mjs", "fittings/seed/automations/scripts/server.mjs", "src/app/api/automations/plan/route.ts", "tests/automations-planner.test.ts"]
+}

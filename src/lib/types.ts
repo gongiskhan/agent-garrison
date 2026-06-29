@@ -20,7 +20,30 @@ export const facultyIds = [
   "memory",
   "observability",
   "sessions",
-  "surfaces"
+  "surfaces",
+  // modes: the operative's identity/persona layer (Gary/Joe/James souls +
+  // shared voice + name-based mode switching) composed into the orchestrator's
+  // system prompt. A real Fitting (the `modes` fitting) needs this slot and none
+  // of the other roles fit it — the sanctioned trigger for a new faculty.
+  "modes",
+  // Optional capability faculties (2026-06-24) — the homes the promoted Claude
+  // Code primitives (skills/agent-tools/plugins, recorded only as an internal
+  // `component_shape`) fill. Named by what the capability is FOR in plain terms,
+  // never by the primitive type behind it. Two are Agent-tier (everyday base
+  // operative), five are Dev-tier (only relevant while doing development work).
+  "knowledge", // Agent — create, edit, and organize documents and notes
+  "research", // Agent — find things out and understand media
+  "building", // Dev — write, test, and ship software autonomously
+  "code-intelligence", // Dev — understand and navigate codebases
+  "design", // Dev — design and prototype user interfaces
+  "browser-qa", // Dev — drive a real browser to build and verify
+  "coordination", // Dev — keep parallel work sessions out of each other's way
+  // connectors (2026-06-26): authenticated, reusable connections to the external
+  // services the operative acts on, each exposing a discoverable action catalog
+  // with Vault-sealed auth. A new faculty because no existing role expresses "a
+  // connected service with callable actions + triggers"; it absorbs the dropped
+  // read-only data-source case (Honesty-Test: real connector Fittings need it).
+  "connectors" // Agent — connect to external services and act on them
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
@@ -56,16 +79,26 @@ export type FittingShape = (typeof fittingShapes)[number];
 // explicitly.
 export const capabilityKinds = [
   "orchestrator",
+  // modes: added 2026-06-22 — the identity/persona layer (souls + shared voice +
+  // per-mode routing bias + mode switching) the `modes` Fitting provides and the
+  // orchestrator consumes. Honesty-Test: a real Fitting needs it and no existing
+  // kind expresses it.
+  "modes",
   "memory-store",
-  // data-source: re-added 2026-06-10 because trello-data-source is a real Fitting that cannot be expressed without it (Honesty-Test convention) — it was dropped 2026-06-07 with the parked PA fittings.
-  "data-source",
+  // data-source: dropped 2026-06-26 — superseded by `connector`, which is
+  // strictly more general (a connector both reads AND acts, with a callable
+  // action catalog + Vault-sealed auth). Trello moved to the `trello` connector.
   // automation-runner: re-added 2026-06-13 (MR wave) — the scheduler Fitting and the new Improver both need it; dropped 2026-06-07, re-added on the same data-source precedent (add a kind only when a real Fitting needs one).
   "automation-runner",
+  // connector (2026-06-26): a connected external service exposing callable
+  // catalog actions + Vault-sealed auth + optional triggers. Strictly more
+  // general than the read-only data-source kind it replaces. Real connector
+  // Fittings (trello/google/slack/deepgram) cannot be expressed without it.
+  "connector",
   // runtime: added 2026-06-14 (BRIEF v4 Runtime faculty) — a runtime Fitting (Claude Code, Codex, Gemini-CLI) hosts the agent loop and exposes a uniform delegate() bridge. Multiple may coexist; the composition names one primary, others secondary. Same "add a kind when a real Fitting needs one" precedent (codex-runtime / gemini-runtime need it).
   "runtime",
   "channel",
   "vault",
-  "artifact-store",
   // dev-env: the consolidated Dev Env surface (2026-06-11). Replaces the
   // dropped terminal-session / worktree / session-view kinds, whose three
   // Fittings collapsed into the single dev-env Fitting.
@@ -94,6 +127,7 @@ export interface CapabilityConsumption {
 
 export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "orchestrator",
+  "modes",
   "vault",
   "dev-env",
   "screen-share",
@@ -117,6 +151,14 @@ export interface FacultyDefinition {
   // in the Compose grid; the rest are optional. Purely presentational — does not
   // affect capability resolution.
   essential?: boolean;
+  // Display tier (2026-06-24): which Compose header the faculty sits under —
+  // "agent" (everyday base operative, always available) or "dev" (only relevant
+  // while doing development work, the kind of capability a dev mode activates).
+  // ORTHOGONAL to `essential`: an optional faculty can be Agent; an essential
+  // faculty can sit under either header. Purely presentational; does not affect
+  // capability resolution. Anchored on the modes config (the dev mode, Joe,
+  // activates the dev-tier faculties).
+  tier?: "agent" | "dev";
 }
 
 export interface ConfigSchemaField {
@@ -132,6 +174,9 @@ export interface SetupStep {
   command: string;
   idempotent: boolean;
   timeout_ms?: number;
+  // Optional human-readable label for the step, shown in the Setup Instructions
+  // editor on the fitting detail view. Falls back to the command when absent.
+  label?: string;
 }
 
 export const uiPlacements = ["faculty-tab", "sidebar-surface"] as const;
@@ -201,6 +246,48 @@ export type WorktreeStatus = "active" | "merged" | "discarded";
 
 export type FittingLifecycle = "operative-bound" | "detached";
 
+// A connector Fitting's action-catalog entry — one callable action on the
+// connected service. `mutates` flags write actions (rendered distinctly and
+// weighed by the planner); `args` names the templated arguments the action takes.
+export interface ConnectorAction {
+  name: string;
+  args?: string[];
+  mutates?: boolean;
+  description?: string;
+}
+
+// An inbound trigger a connector can register: a webhook routed through the
+// Gateway, or a polling listener run by the Scheduler daemon.
+export interface ConnectorTrigger {
+  type: "webhook" | "listener";
+  event?: string;
+  cron?: string;
+  description?: string;
+}
+
+// The connector metadata sub-block: how the connector authenticates (the
+// credential is sealed in the Vault — never inlined here), the catalog of
+// actions it exposes, and any triggers. Present only on Fittings that provide
+// kind:connector.
+// OAuth2 provider config a connector declares so Garrison can run the
+// authorization-code flow. The client id/secret are NOT inlined — they name
+// Vault secrets (the user registers their own OAuth app), keeping the manifest
+// secret-free.
+export interface ConnectorOAuth {
+  authUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  clientIdSecret: string; // Vault secret NAME holding the OAuth client id
+  clientSecretSecret: string; // Vault secret NAME holding the OAuth client secret
+}
+
+export interface ConnectorSpec {
+  auth: "oauth2" | "api_key" | "none";
+  actions: ConnectorAction[];
+  triggers?: ConnectorTrigger[];
+  oauth?: ConnectorOAuth;
+}
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -211,7 +298,12 @@ export interface GarrisonMetadata {
   config_schema: ConfigSchemaField[];
   provides: CapabilityProvision[];
   consumes: CapabilityConsumption[];
-  setup?: SetupStep;
+  // Ordered setup steps run (in order, aborting on the first non-zero exit) when
+  // the composition is installed. Normalised to an array at parse time: a single
+  // YAML `setup:` step becomes a one-element array, so downstream code (the
+  // runner and the Setup Instructions editor) always sees a list. `undefined`
+  // when the fitting declares no setup.
+  setup?: SetupStep[];
   verify: {
     command: string;
     expect: string;
@@ -241,6 +333,14 @@ export interface GarrisonMetadata {
   //     user manages it manually (via /api/fittings/<id>/start|stop or shell).
   // The field is ignored for non-own-port Fittings.
   lifecycle?: FittingLifecycle;
+  // Connector Fittings (kind:connector) declare their auth method, action
+  // catalog, and optional triggers here. Absent on non-connector Fittings.
+  connector?: ConnectorSpec;
+  // The named Vault secrets this Fitting is permitted to read. This is what
+  // makes per-connector secret scoping real: vault materialization delivers
+  // ONLY these named secrets to the Fitting's process (see vault scoping),
+  // replacing the historical all-or-nothing delivery to any kind:vault consumer.
+  secret_scope?: string[];
 }
 
 export interface RatingInfo {
@@ -285,6 +385,12 @@ export interface GlobalConfig {
     log_sink: string;
     alert_channel?: string;
   };
+  // The Runtime-Faculty fitting that hosts the orchestrator (the PRIMARY
+  // runtime). Defaults to "claude-code-runtime" (the node-pty engine) when
+  // unset — preserving the historical gateway/PTY behavior. Other composed
+  // runtimes become model-router targets; only the primary runs the
+  // orchestrator loop. See src/lib/runtime-selection.ts.
+  primary_runtime?: string;
 }
 
 export interface DerivedTasks {

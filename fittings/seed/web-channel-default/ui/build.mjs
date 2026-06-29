@@ -28,9 +28,11 @@ await build({
 
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
 
-// web-channel.css = base styles + the shared claude-chat stylesheet, so the
-// single <link> in index.html covers both.
-const baseCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
+// web-channel.css = the shared claude-chat stylesheet FIRST, then the
+// web-channel skin (styles.css) LAST, so the skin's Garrison palette/chrome
+// overrides the component's dark default on equal specificity. Order matters:
+// styles.css is the override layer and must win, so it is appended last.
+const skinCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
 const chatCssPath = path.resolve(HERE, "..", "..", "..", "..", "packages", "claude-chat", "src", "claude-chat.css");
 let chatCss = "";
 if (existsSync(chatCssPath)) {
@@ -42,6 +44,6 @@ if (existsSync(chatCssPath)) {
     if (existsSync(nm)) chatCss = readFileSync(nm, "utf8");
   } catch { /* ignore */ }
 }
-writeFileSync(path.join(DIST, "web-channel.css"), `${baseCss}\n\n/* === @garrison/claude-chat === */\n${chatCss}\n`);
+writeFileSync(path.join(DIST, "web-channel.css"), `/* === @garrison/claude-chat (base) === */\n${chatCss}\n\n/* === web-channel skin (override layer) === */\n${skinCss}\n`);
 
 console.log("[web-channel:build] wrote dist/");

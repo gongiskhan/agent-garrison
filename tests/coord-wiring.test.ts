@@ -36,8 +36,7 @@ beforeEach(() => {
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 describe("coord wiring — installs to the EXACT user-scope paths claude reads", () => {
-  it("registers both MCP servers in $HOME/.claude.json and both hook owners in $HOME/.claude/settings.json", () => {
-    node(path.join(SEED, "coord-beads", "scripts", "install-hooks.mjs"), []);
+  it("registers both MCP servers in $HOME/.claude.json and the coord-mcp hook owner in $HOME/.claude/settings.json", () => {
     node(path.join(SEED, "coord-mcp", "scripts", "register-mcp.mjs"), ["add"]);
     node(path.join(SEED, "coord-mcp", "scripts", "install-hook.mjs"), []);
     node(path.join(SEED, "coord-agentmail", "scripts", "register-mcp.mjs"), ["add", "8765"]);
@@ -52,13 +51,11 @@ describe("coord wiring — installs to the EXACT user-scope paths claude reads",
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
     const owners = (ev: string) => (settings.hooks[ev] || []).map((g: { _garrison?: string }) => g._garrison);
-    expect(owners("SessionStart")).toContain("fitting:coord-beads");
     expect(owners("SessionStart")).toContain("fitting:coord-mcp");
     expect(owners("UserPromptSubmit")).toContain("fitting:coord-mcp");
   });
 
   it("PTY-SAFE: every coord hook is type 'command' (no agent/prompt model-invoking hooks)", () => {
-    node(path.join(SEED, "coord-beads", "scripts", "install-hooks.mjs"), []);
     node(path.join(SEED, "coord-mcp", "scripts", "install-hook.mjs"), []);
     const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
     for (const groups of Object.values(settings.hooks) as Array<Array<{ _garrison?: string; hooks?: { type: string; command?: string }[] }>>) {

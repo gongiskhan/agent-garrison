@@ -1,0 +1,17 @@
+[Unit]
+Description=Agent Garrison scheduler daemon (cron + listeners, always-on)
+After=network.target
+
+[Service]
+Type=simple
+# Set these for your install (Environment lines or an EnvironmentFile):
+#   Environment=SCHEDULER=/abs/path/to/scheduler.mjs
+#   Environment=GARRISON_SCHEDULER_HEALTH_PORT=7088
+ExecStart=/usr/bin/env node ${SCHEDULER} daemon --health-port ${GARRISON_SCHEDULER_HEALTH_PORT}
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

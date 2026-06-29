@@ -1,0 +1,12 @@
+{
+  "slice": "E5", "title": "Expose automation-runner as an Operative MCP tool", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "mcp-gateway lib/tools.mjs: automationsAvailable (reads ~/.garrison/ui-fittings/automations.json), callListAutomations, callRunAutomation (POST /run?sync=1, triggeredBy:agent); gateway.mjs discovers + dispatches list_automations + run_automation tools; automations server STATUS_ROOT now respects GARRISON_HOME" },
+    "test": { "status": "passed", "detail": "automations-mcp.test (1, live server): automationsAvailable true, list_automations returns the saved automation, run_automation completes with per-step outcomes. mcp-gateway --probe ok. typecheck clean." },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "covered", "detail": "small additive REST tooling over the E2 engine (already codex-approved); no new secret-handling. Test-gated + self-review." },
+    "codexPwTest": { "status": "n/a" }, "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["fittings/seed/mcp-gateway/scripts/lib/tools.mjs", "fittings/seed/mcp-gateway/scripts/gateway.mjs", "fittings/seed/automations/scripts/server.mjs", "tests/automations-mcp.test.ts"]
+}

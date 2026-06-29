@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Files</title>
+<style>
+  :root { --paper:#faf8f3; --ink:#1c1b17; --rule:#e3ddcf; --mute:#8a8474; --sage:#3f7d53; --brass:#9a7b2e; --accent:#2f6b8f; --mono: ui-monospace, "JetBrains Mono", Menlo, monospace; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--paper); color:var(--ink); font-family: -apple-system, system-ui, sans-serif; }
+  header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--rule); position:sticky; top:0; background:var(--paper); z-index:5; }
+  header h1 { font-size:16px; margin:0; }
+  .crumbs { font-family:var(--mono); font-size:12px; color:var(--mute); overflow-x:auto; white-space:nowrap; flex:1; }
+  .crumbs a { color:var(--accent); text-decoration:none; cursor:pointer; }
+  .wrap { display:flex; flex-direction:column; height:calc(100% - 49px); }
+  #list { overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .row { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--rule); cursor:pointer; font-size:15px; min-height:48px; }
+  .row:active { background:#f0ece1; }
+  .row .ic { width:18px; text-align:center; color:var(--mute); font-family:var(--mono); }
+  .row .sz { margin-left:auto; color:var(--mute); font-size:12px; font-family:var(--mono); }
+  .row.dir { font-weight:600; }
+  #viewer { display:none; flex-direction:column; height:100%; }
+  #viewer.open { display:flex; }
+  .vbar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--rule); }
+  .vbar .name { font-family:var(--mono); font-size:13px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .btn { font:inherit; font-size:13px; padding:8px 14px; border:1px solid var(--rule); background:#fff; border-radius:7px; cursor:pointer; min-height:40px; }
+  .btn.primary { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .btn:disabled { opacity:.5; }
+  #edit { flex:1; width:100%; border:0; padding:14px; font-family:var(--mono); font-size:13px; resize:none; outline:none; background:#fff; color:var(--ink); }
+  #md { flex:1; overflow-y:auto; padding:16px 18px; line-height:1.55; }
+  #md img { max-width:100%; }
+  #img { flex:1; display:flex; align-items:center; justify-content:center; padding:16px; }
+  #img img { max-width:100%; max-height:100%; }
+  .empty { color:var(--mute); padding:24px; text-align:center; }
+  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:9px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Files</h1>
+  <div class="crumbs" id="crumbs"></div>
+</header>
+<div class="wrap">
+  <div id="list"><div class="empty">loading…</div></div>
+  <div id="viewer">
+    <div class="vbar">
+      <button class="btn" id="back">‹ Back</button>
+      <span class="name" id="vname"></span>
+      <button class="btn" id="toggleMd" style="display:none">Preview</button>
+      <button class="btn primary" id="save" style="display:none">Save</button>
+    </div>
+    <textarea id="edit" spellcheck="false" style="display:none"></textarea>
+    <div id="md" style="display:none"></div>
+    <div id="img" style="display:none"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let cwd = "";        // current dir (rel)
+let openFile = null; // {path, kind}
+let showingMd = false;
+
+function toast(m) { const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1600); }
+
+function fmtSize(n){ if(!n) return ""; if(n<1024) return n+"B"; if(n<1048576) return (n/1024).toFixed(0)+"K"; return (n/1048576).toFixed(1)+"M"; }
+
+function renderCrumbs() {
+  const c = $("crumbs"); c.textContent = "";
+  const root = document.createElement("a"); root.textContent = "~"; root.onclick = () => openDir(""); c.appendChild(root);
+  const parts = cwd ? cwd.split("/") : [];
+  let acc = "";
+  for (const p of parts) {
+    acc = acc ? acc + "/" + p : p;
+    c.appendChild(document.createTextNode(" / "));
+    const a = document.createElement("a"); a.textContent = p; const target = acc; a.onclick = () => openDir(target); c.appendChild(a);
+  }
+}
+
+async function openDir(rel) {
+  cwd = rel; openFile = null;
+  $("viewer").classList.remove("open");
+  renderCrumbs();
+  const list = $("list"); list.innerHTML = '<div class="empty">loading…</div>';
+  try {
+    const data = await (await fetch("/api/tree?path=" + encodeURIComponent(rel))).json();
+    if (data.error) throw new Error(data.error);
+    list.innerHTML = "";
+    if (!data.items.length) { list.innerHTML = '<div class="empty">Empty folder.</div>'; return; }
+    for (const it of data.items) {
+      const row = document.createElement("div"); row.className = "row " + it.type;
+      const ic = document.createElement("span"); ic.className = "ic"; ic.textContent = it.type === "dir" ? "▸" : "·";
+      const nm = document.createElement("span"); nm.textContent = it.name;
+      row.append(ic, nm);
+      if (it.type === "file") { const sz = document.createElement("span"); sz.className = "sz"; sz.textContent = fmtSize(it.size); row.appendChild(sz); }
+      row.onclick = () => it.type === "dir" ? openDir(it.path) : openFileView(it.path);
+      list.appendChild(row);
+    }
+  } catch (e) { list.innerHTML = '<div class="empty">Could not list: ' + e.message + '</div>'; }
+}
+
+async function openFileView(rel) {
+  try {
+    const data = await (await fetch("/api/file?path=" + encodeURIComponent(rel))).json();
+    if (data.error) throw new Error(data.error);
+    openFile = { path: rel, kind: data.kind };
+    $("viewer").classList.add("open");
+    $("vname").textContent = rel.split("/").pop();
+    const edit = $("edit"), md = $("md"), img = $("img");
+    edit.style.display = md.style.display = img.style.display = "none";
+    $("save").style.display = "none"; $("toggleMd").style.display = "none";
+    if (data.kind === "image") {
+      img.style.display = "flex";
+      img.innerHTML = ""; const i = document.createElement("img");
+      i.src = "data:image/" + (data.ext || "png") + ";base64," + data.content; img.appendChild(i);
+    } else {
+      edit.value = data.content;
+      if (data.kind === "markdown") { $("toggleMd").style.display = ""; showingMd = true; renderMd(); }
+      else { edit.style.display = "block"; }
+      $("save").style.display = "";
+    }
+  } catch (e) { toast("Open failed: " + e.message); }
+}
+
+function renderMd() {
+  const md = $("md"), edit = $("edit");
+  if (showingMd) {
+    // Render into a fully-sandboxed iframe (sandbox="" = no scripts, unique
+    // origin) so a malicious .md cannot run JS or reach the same-origin file API.
+    const body = window.marked ? window.marked.parse(edit.value) : edit.value;
+    md.textContent = "";
+    const frame = document.createElement("iframe");
+    frame.setAttribute("sandbox", "");
+    frame.style.cssText = "width:100%;height:100%;border:0;background:#fff";
+    frame.srcdoc = '<!doctype html><meta charset="utf-8"><style>body{font-family:system-ui;padding:14px;line-height:1.55;color:#1c1b17}img{max-width:100%}pre{background:#f4f1e8;padding:10px;overflow-x:auto}</style>' + body;
+    md.appendChild(frame);
+    md.style.display = "block"; edit.style.display = "none"; $("toggleMd").textContent = "Edit";
+  } else {
+    edit.style.display = "block"; md.style.display = "none"; $("toggleMd").textContent = "Preview";
+  }
+}
+
+$("toggleMd").onclick = () => { showingMd = !showingMd; renderMd(); };
+$("back").onclick = () => { $("viewer").classList.remove("open"); openFile = null; };
+$("save").onclick = async () => {
+  if (!openFile) return;
+  $("save").disabled = true;
+  try {
+    const r = await (await fetch("/api/file", { method:"PUT", headers:{"content-type":"application/json"}, body: JSON.stringify({ path: openFile.path, content: $("edit").value }) })).json();
+    if (r.error) throw new Error(r.error);
+    toast("Saved");
+  } catch (e) { toast("Save failed: " + e.message); } finally { $("save").disabled = false; }
+};
+
+openDir("");
+</script>
+</body>
+</html>

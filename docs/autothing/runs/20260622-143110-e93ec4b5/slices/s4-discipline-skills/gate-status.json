@@ -1,0 +1,87 @@
+{
+  "slice": "s4-discipline-skills",
+  "title": "discipline \u2192 verb-skill mapping + orchestrator prompt (deliverable #1)",
+  "updatedAt": "2026-06-22T16:47:36Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 1
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/discipline-skills.test.ts + routing regression",
+      "exit": 0,
+      "at": "2026-06-22T16:47:36Z",
+      "summary": "23 passed \u2014 compiled discipline names garrison-testing/code-review/garrison-design-audit/run-garrison/garrison-governance at the right tiers; T0 escalates none; prompt has the Satisfying-discipline section + /goal + FLOW_PLAN"
+    },
+    "syntax": {
+      "cmd": "node --check routing-core.mjs",
+      "exit": 0,
+      "at": "2026-06-22T16:47:36Z"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-22T16:47:36Z",
+      "summary": "clean"
+    },
+    "suite": {
+      "cmd": "npm test",
+      "at": "2026-06-22T16:47:36Z",
+      "summary": "890 passed; 6 PRE-EXISTING failures; no new regressions"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude/same-model",
+      "at": "2026-06-22T16:47:36Z",
+      "summary": "EXTRA-careful (no cross-model net): disciplineSkill mapping deterministic + tested; prompt section additive static text referencing real garrison-* skills; low blast radius"
+    },
+    "codexReview": {
+      "verdict": "blocked-external",
+      "by": "codex/chatgpt",
+      "at": "2026-06-22T16:47:36Z",
+      "lastReport": "Codex workspace out of credits \u2014 cross-model review unavailable",
+      "blockedExternal": true
+    },
+    "codexPwTest": {
+      "result": "blocked-external",
+      "reason": "Codex workspace out of credits"
+    },
+    "designAudit": {
+      "verdict": "n/a",
+      "reason": "no UI"
+    },
+    "video": {
+      "status": "n/a",
+      "reason": "no runtime UI/CLI flow"
+    }
+  },
+  "blockers": [
+    {
+      "gate": "codexReview/codexPwTest",
+      "cause": "external: Codex/ChatGPT workspace out of credits",
+      "failedCommand": "codex exec --output-last-message <file> \"<review prompt>\"",
+      "observed": "Your workspace is out of credits. Add credits to continue.",
+      "remediation": "Add credits to the Codex workspace, then re-run the adversarial review on this slice's diff."
+    }
+  ],
+  "codexReview": {
+    "verdict": "approve",
+    "rounds": 2,
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T05:27:21Z",
+    "lastReport": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s4-discipline-skills/codex-review-s4-discipline-skills-r2.json",
+    "overrides": [],
+    "round1Findings": "f1 design-audit now UI-conditional; f2 per-tier test assertions"
+  },
+  "flagged": false,
+  "codexPwTest": {
+    "result": "pass",
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T08:45:03Z",
+    "report": "docs/autothing/runs/20260622-143110-e93ec4b5/codex-pwtest-modes-arc-consolidated.json",
+    "note": "independent cross-model functional pass: Codex ran the modes-arc committed suite (14/14 files, 93/93 tests) + spot-checked specs against production code for non-vacuousness. Backend slices verified via independent committed-spec execution (no running UI to Playwright-drive); s3c UI also has the dev-env walkthrough."
+  }
+}

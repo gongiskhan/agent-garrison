@@ -1,0 +1,12 @@
+{
+  "slice": "F3", "title": "Chuck the browser-automation seed (subsumed by F1+F2)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "git rm fittings/seed/browser-automation; removed ratings entry; cleaned doc refs (fittings/seed/README historical list, top README grid -> the new automations engine, morning-briefing example). promoted-catalog playwright-cli (separate skill, coincidental name) left intact." },
+    "test": { "status": "passed", "detail": "typecheck clean; seed+validation (14) green; library.json+ratings.json valid; no residual browser-automation refs (grep)." },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "skipped", "detail": "mechanical deletion + doc cleanup; suite-gated + grep proof. Logged per calibration." },
+    "codexPwTest": { "status": "n/a" }, "designAudit": { "status": "n/a" }, "walkthrough": { "status": "n/a" }
+  },
+  "files": ["fittings/seed/browser-automation (deleted)", "data/ratings.json", "fittings/seed/README.md", "README.md", "fittings/seed/morning-briefing/instructions.md"]
+}

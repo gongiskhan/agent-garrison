@@ -1,0 +1,21 @@
+{
+  "slice": "A1",
+  "title": "Vault: keychain-only master key + atomic writes",
+  "kind": "mixed",
+  "sharedStructure": false,
+  "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "new src/lib/keychain.ts (macOS security / linux secret-tool / test-ephemeral / keyfile fallback, NO passphrase); vault.ts rewritten to HKDF-from-keychain + writeFileAtomic/writeJsonAtomic 0600; legacy scrypt vault migrated non-destructively; GARRISON_VAULT_PATH override for sandboxing" },
+    "test": {
+      "status": "passed",
+      "detail": "tests/vault.test.ts (7): no-passphrase keychain unlock, write/read roundtrip, sealed-at-rest (value+key absent from disk), 0600 mode, legacy scrypt->hkdf migration, locked-without-unlock. vault-heal(18)+own-port-lifecycle(10) unaffected. typecheck clean.",
+      "command": "npm run typecheck && npx vitest run tests/vault.test.ts tests/vault-heal.test.ts tests/own-port-lifecycle.test.ts"
+    },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve-with-override", "detail": "reviewed jointly with A2 (combined vault diff); see slices/A2 codexReview — all agreed findings fixed, F2 rebutted as decision F1" },
+    "codexPwTest": { "status": "n/a", "detail": "no UI behavior in A1; vault UI is C6" },
+    "designAudit": { "status": "n/a" },
+    "walkthrough": { "status": "deferred", "detail": "vault sealing story recorded in the Z1 end-to-end proof" }
+  },
+  "files": ["src/lib/keychain.ts", "src/lib/vault.ts", "tests/vault.test.ts"]
+}

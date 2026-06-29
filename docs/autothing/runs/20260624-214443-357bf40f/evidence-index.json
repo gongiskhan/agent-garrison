@@ -1,0 +1,76 @@
+{
+  "runId": "20260624-214443-357bf40f",
+  "project": "agent-garrison",
+  "brief": "Promote Claude Code primitives to first-class Fittings + editable setup instructions",
+  "decisions": {
+    "scope": "hybrid",
+    "faculties": "7 purpose-named optional",
+    "agentDevRule": "modes-anchored, lean Agent"
+  },
+  "slices": {
+    "s1": {
+      "status": "passed",
+      "kind": "backend"
+    },
+    "s2": {
+      "status": "passed",
+      "kind": "backend"
+    },
+    "s3": {
+      "status": "passed",
+      "kind": "mixed"
+    },
+    "s4": {
+      "status": "passed",
+      "kind": "ui"
+    },
+    "s5": {
+      "status": "passed",
+      "kind": "ui"
+    },
+    "s6": {
+      "status": "passed",
+      "kind": "backend"
+    }
+  },
+  "globalGate": {
+    "status": "passed",
+    "slices": "6/6",
+    "unitTests": "91 in-scope green",
+    "e2e": "5 through-the-UI green",
+    "typecheck": 0,
+    "build": 0,
+    "designAudit": "clean",
+    "evidence": "2 flow videos + 3 vision-reviewed screenshots"
+  },
+  "evidence": {
+    "screenshots": [
+      "evidence/compose-grid.png",
+      "evidence/fitting-detail-playwright.png",
+      "evidence/setup-editor.png"
+    ],
+    "videos": "test-results/playwright-artifacts/*/video.webm"
+  },
+  "crossModel": {
+    "engine": "codex-cli 0.142.0",
+    "round1": {
+      "approve": false,
+      "findings": 5
+    },
+    "round2": {
+      "approve": true,
+      "findings": 0
+    },
+    "note": "5 real findings (empty-override round-trip, autosave stale-write, override lost-update, hook matcher matching, plugin marketplace false-positive) fixed; round 2 approve"
+  },
+  "sameModel": {
+    "engine": "simplify (4 agents)",
+    "applied": [
+      "validateSetupSteps reuses setupStepSchema",
+      "readSetupMap helper extraction"
+    ],
+    "documented": [
+      "projection-install consumption of override setup steps is a follow-on"
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Round 2 fix looks honest: locked vault now surfaces as unknown status instead of missing/not sealed, and the reviewed path still exposes only secret names/health metadata, not secret values.","findings":[]}

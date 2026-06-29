@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Round-3 issue is resolved in 129f24d. `verify.mjs` now rejects directory-valued `sharedVoiceRef`, `briefTemplateRef`, and per-mode `soulRef` entries via `statSync(...).isFile()`, which aligns with the runtime `readFile` behavior.","findings":[]}

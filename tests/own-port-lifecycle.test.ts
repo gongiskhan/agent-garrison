@@ -11,9 +11,15 @@ import {
 import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry } from "@/lib/types";
 
 // Mock the vault so the positive injection path is testable without touching
-// the real data/vault.json.
+// the real data/vault.json. Per-connector scoping (A2): vaultEnvForEntry now
+// calls scopedSecrets(scope) and delivers only the declared secrets.
 vi.mock("@/lib/vault", () => ({
-  readVaultSecrets: vi.fn(async () => [{ key: "DEEPGRAM_API_KEY", value: "dg-secret" }])
+  scopedSecrets: vi.fn(async (scope: string[]) =>
+    scope.includes("DEEPGRAM_API_KEY") ? [{ key: "DEEPGRAM_API_KEY", value: "dg-secret" }] : []
+  )
+}));
+vi.mock("@/lib/vault-audit", () => ({
+  recordVaultAccess: vi.fn(async () => {})
 }));
 
 // Own-port is now declared per-Fitting via the `own_port` metadata flag (a role
@@ -22,7 +28,8 @@ vi.mock("@/lib/vault", () => ({
 function makeEntry(
   ownPort: boolean,
   lifecycle?: "operative-bound" | "detached",
-  consumes: CapabilityConsumption[] = []
+  consumes: CapabilityConsumption[] = [],
+  secretScope?: string[]
 ): LibraryEntry {
   const metadata: GarrisonMetadata = {
     faculty: "sessions",
@@ -34,7 +41,8 @@ function makeEntry(
     consumes,
     verify: { command: "true", expect: "ok", timeout_ms: 10000 },
     own_port: ownPort,
-    lifecycle
+    lifecycle,
+    ...(secretScope ? { secret_scope: secretScope } : {})
   };
   return {
     id: ownPort ? "own-port-test" : "plain-test",
@@ -69,10 +77,16 @@ describe("own-port lifecycle classification", () => {
 });
 
 describe("vaultEnvForEntry (own-port secret injection gating)", () => {
-  it("injects vault secrets only when the Fitting consumes vault", async () => {
-    const withVault = makeEntry(true, undefined, [{ kind: "vault", cardinality: "one" }]);
-    const env = await vaultEnvForEntry(withVault);
+  it("injects ONLY the scoped vault secrets when the Fitting declares secret_scope", async () => {
+    const withScope = makeEntry(true, undefined, [{ kind: "vault", cardinality: "one" }], ["DEEPGRAM_API_KEY"]);
+    const env = await vaultEnvForEntry(withScope);
     expect(env).toEqual({ DEEPGRAM_API_KEY: "dg-secret" });
+  });
+
+  it("fail-closed: a vault consumer without secret_scope gets no secrets", async () => {
+    const noScope = makeEntry(true, undefined, [{ kind: "vault", cardinality: "one" }]);
+    const env = await vaultEnvForEntry(noScope);
+    expect(env).toEqual({});
   });
 
   it("returns no secrets for a Fitting that does not consume vault", async () => {

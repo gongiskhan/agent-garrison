@@ -1,0 +1,75 @@
+name: claude-code-runtime
+version: 0.1.0
+description: >-
+  Claude Code runtime (Runtime Faculty) — the node-pty engine that drives the
+  real interactive Claude Code TUI. The DEFAULT PRIMARY runtime that hosts the
+  Operative's orchestrator loop. Selectable as a model-router claude-code target,
+  with provider/base-url overrides (Max OAuth by default; Ollama / DeepSeek / Z.ai
+  by base-url swap).
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  cardinality_hint: single
+  component_shape: cli-skill
+  platforms:
+    - all
+  own_port: false
+  summary: >-
+    The Claude Code runtime: the node-pty + @xterm/headless substrate
+    (packages/claude-pty) that drives the real interactive Claude Code TUI. This
+    is the DEFAULT PRIMARY runtime — the engine that hosts the Operative's
+    orchestrator loop, via the HTTP gateway or the direct PTY operative. It also
+    registers as a model-router `runtime: claude-code` target so the orchestrator
+    can route turns to it at a chosen model/effort. By default it runs on the
+    Max-plan Claude account (anthropic-plan, no base URL); selecting a non-default
+    provider swaps ANTHROPIC_BASE_URL (+ vault auth token) so the SAME Claude Code
+    engine runs against Ollama (local), DeepSeek, or Z.ai.
+  config_schema:
+    - key: provider
+      type: select
+      default: anthropic-plan
+      description: Inference backend for this runtime. anthropic-plan = your Max account (no base URL). Others swap ANTHROPIC_BASE_URL (+ vault key) so the Claude Code engine runs against that provider. Resolution reuses the model-router PROVIDERS registry.
+      options:
+        - anthropic-plan
+        - ollama-local
+        - deepseek
+        - zai-glm
+    - key: model
+      type: select
+      default: opus
+      description: Default model when this runtime runs the orchestrator (GARRISON_MODEL). The model-router may override per turn.
+      options:
+        - opus
+        - sonnet
+        - haiku
+    - key: base_url
+      type: string
+      default: ""
+      description: Advanced — explicit ANTHROPIC_BASE_URL override. Leave empty to use the provider's registered base URL. Ignored for anthropic-plan.
+  provides:
+    - kind: runtime
+      name: claude-code
+  consumes:
+    - kind: vault
+      cardinality: optional-one
+  verify:
+    command: node apm_modules/_local/claude-code-runtime/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    The Claude Code runtime (default PRIMARY). This is the node-pty engine that
+    runs the Operative's orchestrator loop — you are most likely already talking
+    to it. When a composition names this runtime as its `primary_runtime`, the
+    runner spawns the orchestrator on the Claude Code PTY / HTTP gateway path. The
+    model-router can also route individual turns to it as a `runtime: claude-code`
+    target at a chosen model + effort.
+
+    Provider override: pick `provider` to run the SAME Claude Code engine against
+    a different backend — anthropic-plan (Max account, default), ollama-local,
+    deepseek, or zai-glm. Non-default providers swap ANTHROPIC_BASE_URL and pull
+    the auth token from the vault; anthropic-plan uses your Max OAuth with no base
+    URL. The `base_url` field is an advanced explicit override.
+
+    Probe: node scripts/probe.mjs --probe   → prints "ok" when the `claude` CLI is reachable.

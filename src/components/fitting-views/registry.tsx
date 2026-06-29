@@ -30,33 +30,6 @@ const REGISTRY: Record<string, FittingViewComponent> = {
       )
     }
   ),
-  "artifact-store:list": dynamic(
-    () => import("../../../fittings/seed/artifact-store/ui/ArtifactList"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
-      )
-    }
-  ),
-  "artifact-store:view": dynamic(
-    () => import("../../../fittings/seed/artifact-store/ui/ArtifactView"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
-      )
-    }
-  ),
-  "artifact-store:delete": dynamic(
-    () => import("../../../fittings/seed/artifact-store/ui/ArtifactDeleteConfirm"),
-    {
-      ssr: false,
-      loading: () => (
-        <div style={{ fontSize: 13, color: "var(--mute)" }}>Loading view…</div>
-      )
-    }
-  ),
   "documents:read": dynamic(
     () => import("../../../fittings/seed/documents/ui/DocumentRead"),
     {

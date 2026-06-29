@@ -1,0 +1,195 @@
+{
+  "project": "agent-garrison",
+  "runId": "20260622-143110-e93ec4b5",
+  "updatedAt": "2026-06-23T09:10:09Z",
+  "galleryUrl": "http://100.108.210.116:8099/  (agent-garrison / modes)",
+  "slices": [
+    {
+      "slice": "s0-truthup",
+      "title": "Truth-up: projection drift + discipline-in-prompt",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s0-truthup/gate-status.json"
+    },
+    {
+      "slice": "s1a-modes-fitting",
+      "title": "modes fitting \u2014 Gary/Joe/James souls + shared voice",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1a-modes-fitting/gate-status.json"
+    },
+    {
+      "slice": "s1b-modes-capkind",
+      "title": "modes capability kind + faculty + model-router consumes",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1b-modes-capkind/gate-status.json"
+    },
+    {
+      "slice": "s1c-souls-assembly",
+      "title": "souls assembly + GARRISON_SOULS_CONFIG (mcp-gateway-gated)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1c-souls-assembly/gate-status.json"
+    },
+    {
+      "slice": "s1d-mode-resolver",
+      "title": "gateway mode-resolver + switch-log + [mode:] delegation",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1d-mode-resolver/gate-status.json"
+    },
+    {
+      "slice": "s1e-mode-bias",
+      "title": "mode\u2192routing bias + live per-mode tier in orchestrator prompt",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "flagReason": "codex approve-with-override r3: programmatic talk_to tier enforcement = orchestrator-mode\u2194routing unification follow-up",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1e-mode-bias/gate-status.json"
+    },
+    {
+      "slice": "s3a-sessions-place",
+      "title": "orchestrator placement API (place at birth)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3a-sessions-place/gate-status.json"
+    },
+    {
+      "slice": "s3b-devenv-orchestrated",
+      "title": "Dev Env orchestrated create + claudeCommand parameterization",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3b-devenv-orchestrated/gate-status.json"
+    },
+    {
+      "slice": "s3c-devenv-ui",
+      "title": "Dev Env UI mode dropdown + LIVE-verified placement front door",
+      "kind": "ui",
+      "status": "passed",
+      "video": "http://100.108.210.116:8099/agent-garrison/modes/2026-06-23_10-03-34/final.mp4",
+      "videoStatus": "verified",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "flagReason": "live API integration-verified (joe/expert/opus); UI Codex-approved; placement-fix Codex blocked (workspace out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s3c-devenv-ui/gate-status.json"
+    },
+    {
+      "slice": "s4-discipline-skills",
+      "title": "discipline \u2192 verb-skill mapping + orchestrator prompt (autothing parts via the orchestrator)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s4-discipline-skills/gate-status.json"
+    },
+    {
+      "slice": "s2-mode-respawn",
+      "title": "single generic warm pool lock + execution-layer documentation",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s2-mode-respawn/gate-status.json"
+    },
+    {
+      "slice": "s6a-workflows-launchable",
+      "title": "workflow targets routed to the operative Workflow tool",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s6a-workflows-launchable/gate-status.json"
+    },
+    {
+      "slice": "s6b-improver-routed",
+      "title": "Improver dream pass routable via preRoute (opt-in)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s6b-improver-routed/gate-status.json"
+    },
+    {
+      "slice": "s5-kanban-v1a",
+      "title": "Kanban Loop V1a engine fitting (automation-runner)",
+      "kind": "mixed",
+      "status": "passed",
+      "video": null,
+      "videoStatus": "n/a",
+      "verifiedAt": "2026-06-23T09:10:09Z",
+      "flagged": false,
+      "flagReason": "codexReview blocked-external (Codex out of credits)",
+      "gateStatus": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s5-kanban-v1a/gate-status.json"
+    }
+  ],
+  "globalGate": {
+    "status": "passed",
+    "slicesBuilt": "14/14",
+    "objectiveGates": {
+      "typecheck": 0,
+      "suite": "931 passed / 6 PRE-EXISTING failures (untouched by this run: memory->basic-memory rename drift + gemini -y adapter drift; present at BASE 966f290, none of those 5 test files touched by this run) / 24 skipped",
+      "newTestsAdded": "+24 (all passing); zero new failures"
+    },
+    "crossModel": {
+      "reviewAllApproved": true,
+      "pwTestAllPassed": true,
+      "detail": "3A Codex approve 14/14 (clean, no overrides; 2-5 rounds each, ~30 real findings fixed forward); 3B independent functional pass 14/14 (s2 dedicated + a consolidated Codex run of the modes-arc suite 93/93 + non-vacuousness spot-checks)"
+    },
+    "videos": "1/1 verified (s3c the only UI slice; backend slices n/a)",
+    "buildableRemaining": 0,
+    "blockers": [],
+    "overrides": [],
+    "preExistingOutOfScope": [
+      "6 repo test failures unrelated to the modes arc: tests/seed.test.ts (x3), tests/validation.test.ts, tests/fitting-files-api.test.ts reference a removed `memory` seed (renamed to basic-memory; provider name garrison-memory->basic-memory) + tests/claude-install.test.ts (memory skill) + tests/gemini-runtime.test.ts (expects -y, impl dropped it). Present at BASE, not introduced, in subsystems this run did not modify \u2014 left untouched to avoid masking unrelated regressions."
+    ],
+    "followUps": [
+      "orchestrator-mode<->routing unification: per-turn routed re-bias inside the dormant gateway.mjs soul mode (s1e bias IS live at the placement front door; per-turn re-bias deferred)",
+      "mcp-gateway manifest capability-schema conformance so it can be a curated-library citizen (s1c: souls gate is reachable on-disk via APM today)"
+    ],
+    "notes": "The modes/orchestrator-front-door arc (WS0-WS6): modes Gary/Joe/James + souls assembly + mode resolver/switch-log + mode->routing bias; Dev-Env-via-orchestrator (place at birth, LIVE-verified joe->opus/gary->haiku/james->sonnet); autothing-parts-as-discipline; bypasses closed (workflows launchable, Improver-via-preRoute opt-in, single warm pool); Kanban Loop V1a. Cross-model gate completed after Codex credits were restored: every slice got real adversarial review (fixing ~30 genuine findings: path traversal, prompt injection, lost-update CAS, resilient fallbacks, test-strength, doc accuracy) + an independent functional pass."
+  }
+}

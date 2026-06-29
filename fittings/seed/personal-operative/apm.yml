@@ -51,7 +51,7 @@ x-garrison:
       cardinality: any
     - kind: automation-runner
       cardinality: any
-    - kind: data-source
+    - kind: connector
       cardinality: any
     - kind: channel
       cardinality: any

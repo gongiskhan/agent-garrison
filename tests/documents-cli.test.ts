@@ -17,7 +17,7 @@ const ARTIFACTS_PY = path.join(
   REPO_ROOT,
   "fittings",
   "seed",
-  "artifact-store",
+  "documents",
   "scripts",
   "artifacts.py"
 );

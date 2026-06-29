@@ -1,13 +1,11 @@
 lockfile_version: '1'
-generated_at: '2026-06-21T07:35:36.986105+00:00'
+generated_at: '2026-06-29T05:46:11.818715+00:00'
 apm_version: 0.11.0
 dependencies:
-- repo_url: _local/artifact-store
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/artifact-store
+- repo_url: _local/automations
+  package_type: invalid
   source: local
-  local_path: ../../fittings/seed/artifact-store
+  local_path: ../../fittings/seed/automations
 - repo_url: _local/basic-memory
   package_type: apm_package
   deployed_files:
@@ -32,6 +30,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
+- repo_url: _local/file-browser
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/file-browser
 - repo_url: _local/gemini-runtime
   package_type: invalid
   source: local
@@ -48,18 +50,22 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/improver
-- repo_url: _local/knowledge
+- repo_url: _local/kanban-loop
   package_type: invalid
   source: local
-  local_path: ../../fittings/seed/knowledge
+  local_path: ../../fittings/seed/kanban-loop
 - repo_url: _local/model-router
   package_type: apm_package
   deployed_files:
   - .claude/commands/model-router.md
   deployed_file_hashes:
-    .claude/commands/model-router.md: sha256:e14d809b085f31c5c49abab081ba738cb5e0fa0b289bc1f3238422a01faf34ac
+    .claude/commands/model-router.md: sha256:1a663ea38148f2a0f9cd016a7602d53392733ed6062821c63014c621111c5e0b
   source: local
   local_path: ../../fittings/seed/model-router
+- repo_url: _local/modes
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/modes
 - repo_url: _local/monitor-default
   package_type: invalid
   source: local
@@ -78,7 +84,7 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/slack-channel
-- repo_url: _local/trello-data-source
+- repo_url: _local/trello
   package_type: apm_package
   deployed_files:
   - .claude/rules/trello-data-source.md
@@ -86,7 +92,7 @@ dependencies:
   deployed_file_hashes:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
   source: local
-  local_path: ../../fittings/seed/trello-data-source
+  local_path: ../../fittings/seed/trello
 - repo_url: _local/vault-git-sync
   package_type: invalid
   source: local

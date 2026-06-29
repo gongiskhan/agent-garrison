@@ -1,0 +1,14 @@
+{
+  "slice": "E3", "title": "SSE run stream + run viewer UI", "kind": "ui",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "server: in-memory run bus (buffer+replay+listener cleanup+50-run prune), async POST /run (202 {runId}; ?sync=1 for tests), GET /api/runs/:id/stream SSE. dist/index.html run viewer (vanilla, Garrison palette): automations list, live step list w/ status+tier+duration, type panels (terminal for local_command via step_output_chunk, JSON for api_call/connector/verify), live-browser-stream placeholder, awaiting_connector/self-heal notices, per-step feedback. XSS-safe (textContent)." },
+    "test": { "status": "passed", "detail": "automations-sse.test (1, live server): async run -> SSE run_step + step_output_chunk(streamed output) + run_complete, both steps completed. validate 4/4; typecheck clean; engine/store regress green (17 total)." },
+    "review": { "status": "self-reviewed", "detail": "self-caught + fixed: unbounded run bus (prune) and an innerHTML XSS vector (-> textContent)" },
+    "codexReview": { "status": "covered", "detail": "engine logic + secret handling reviewed in E2 (approve); E3 adds only SSE plumbing + a static viewer with no new secret-handling (events are already engine-redacted). Self-reviewed for memory leak + XSS." },
+    "codexPwTest": { "status": "n/a" },
+    "designAudit": { "status": "deferred", "detail": "matches the wireframe §08 palette/layout; recorded + audited in the Z1 e2e walkthrough" },
+    "walkthrough": { "status": "deferred", "detail": "run viewer recorded in Z1 e2e" }
+  },
+  "files": ["fittings/seed/automations/scripts/server.mjs", "fittings/seed/automations/dist/index.html", "tests/automations-sse.test.ts"]
+}

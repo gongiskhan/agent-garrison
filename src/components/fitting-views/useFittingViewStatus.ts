@@ -6,6 +6,7 @@ export interface FittingViewStatus {
   fittingId: string;
   port: number;
   url: string;
+  tailnetUrl: string | null;
   pid: number | null;
   startedAt: string | null;
   healthy: boolean | null;
@@ -22,6 +23,7 @@ interface DiscoveredView {
   fittingId: string;
   port: number;
   url: string;
+  tailnetUrl: string | null;
   pid: number | null;
   startedAt: string | null;
   healthy: boolean;

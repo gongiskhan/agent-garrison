@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FittingViewProps } from "@/components/fitting-views/registry";
-import type { ArtifactMeta } from "@/lib/artifact-store";
+import type { ArtifactMeta } from "@/lib/document-store";
 
 interface DocumentResponse {
   meta: ArtifactMeta;

@@ -12,12 +12,20 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Headless Chromium substrate (default port 7084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html.
+  summary: Headless Chromium substrate (default port 7084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Opt-in persistent profile + stealth.
   config_schema:
     - key: port
       type: integer
       default: 7084
       description: HTTP port the Browser Fitting binds to. Falls back to next free port.
+    - key: persistent_profile
+      type: boolean
+      default: false
+      description: Reuse a stable user-data-dir so cookies/consent survive across runs (env GARRISON_BROWSER_PERSISTENT=1; dir GARRISON_BROWSER_PROFILE_DIR).
+    - key: stealth
+      type: boolean
+      default: false
+      description: Reduce headless/automation fingerprints — disable AutomationControlled + mask navigator.webdriver (env GARRISON_BROWSER_STEALTH=1).
     - key: bind_host
       type: string
       default: 127.0.0.1

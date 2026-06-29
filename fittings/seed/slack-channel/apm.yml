@@ -24,8 +24,30 @@ x-garrison:
       type: integer
       default: 600000
       description: Max time to wait for the gateway's /chat reply before posting a fallback message.
+  connector:
+    auth: api_key
+    actions:
+      - name: send_message
+        args:
+          - channel
+          - text
+        mutates: true
+        description: Post a message to a channel.
+      - name: list_channels
+        args:
+          - limit
+        mutates: false
+        description: List conversations the bot can see.
+    triggers:
+      - type: webhook
+        event: app_mention
+        description: Inbound app_mention events routed through the Gateway.
+  secret_scope:
+    - SLACK_BOT_TOKEN
   provides:
     - kind: channel
+      name: slack
+    - kind: connector
       name: slack
   consumes:
     - kind: vault

@@ -1,0 +1,70 @@
+{
+  "slice": "router-target-derive",
+  "title": "Auto-surface fitted runtimes as model-router targets",
+  "updatedAt": "2026-06-24T22:48:51Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/runtime-selection.test.ts",
+      "exit": 0,
+      "at": "2026-06-24T21:50:03Z",
+      "summary": "19 passed (7 new S3: claude-code->runtime-target w/ provider+model, agent-sdk/codex/gemini->secondary, namespaced ids, dedupe-by-id seed-wins, append new, empty no-op)"
+    },
+    "regression": {
+      "cmd": "npx vitest run tests/runner-*.test.ts tests/claude-code-runtime.test.ts",
+      "exit": 0,
+      "at": "2026-06-24T21:50:03Z",
+      "summary": "34 passed — routing/runner unaffected (derivation no-op when no runtimes composed)"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-24T21:50:03Z",
+      "summary": "0 errors; resolveRoutingSection callers in scope"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "at": "2026-06-24T21:50:03Z",
+      "summary": "clean"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude (same-model)",
+      "at": "2026-06-24T21:50:03Z",
+      "summary": "Additive, dedup-by-id, no mutation, no-op when empty."
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-06-24T22:10:41Z",
+      "lastReport": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-review-r2.json",
+      "summary": "r1: 2 findings (gateway provider-drop + explicit-uncomposed-primary) both fixed; r2 APPROVE — two-model agreement. S5 UI clean."
+    },
+    "codexPwTest": {
+      "result": "covered-by-review",
+      "summary": "Pure backend derivation (no direct UI surface to pw-test); cross-model Codex REVIEW approved the resolveRoutingSection/mergeRuntimeTargets logic. Functional evidence: 7 committed unit tests."
+    },
+    "designAudit": {
+      "verdict": null,
+      "summary": "n/a backend"
+    },
+    "video": {
+      "status": "n/a-backend",
+      "note": "Pure backend (resolveRoutingSection derivation); no UI surface to walkthrough. Evidence: 7 unit tests + same-model review + codex approve."
+    }
+  },
+  "blockers": [],
+  "notes": {
+    "files": "src/lib/runtime-selection.ts (deriveRuntimeTargets + mergeRuntimeTargets, exported+tested); src/lib/runner.ts resolveRoutingSection(+runtimeEntries) injection + 2 callers pass buildRuntimeEntries (disjoint region ~823).",
+    "behavior": "Derived targets are namespaced fitted-<id>, de-duped by id (seed wins), unreferenced by roleMaps so validateRoutingConfig still passes; no-op when no runtimes composed."
+  }
+}

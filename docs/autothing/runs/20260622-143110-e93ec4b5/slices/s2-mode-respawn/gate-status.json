@@ -1,0 +1,82 @@
+{
+  "slice": "s2-mode-respawn",
+  "title": "single generic warm pool lock (FINDING 7) + execution-layer documentation",
+  "updatedAt": "2026-06-22T16:51:39Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 1
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/warm-pool-single.test.ts",
+      "exit": 0,
+      "at": "2026-06-22T16:51:39Z",
+      "summary": "2 passed \u2014 operative pool keyed by runtime not (model\u00d7effort\u00d7type); gateway wires exactly one primary 'operative' runtime, no per-model partitioning"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-22T16:51:39Z",
+      "summary": "clean"
+    },
+    "suite": {
+      "cmd": "npm test",
+      "at": "2026-06-22T16:51:39Z",
+      "summary": "892 passed; 6 PRE-EXISTING failures; no new regressions"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude/same-model",
+      "at": "2026-06-22T16:51:39Z",
+      "summary": "test + docs only; pool already monolithic (Q4 assume-current-reality). shouldRespawnForMode would be YAGNI (mode switch = separate soul session). HOT/BOOT/shared-memory recorded honestly."
+    },
+    "codexReview": {
+      "verdict": "blocked-external",
+      "by": "codex/chatgpt",
+      "at": "2026-06-22T16:51:39Z",
+      "lastReport": "Codex workspace out of credits",
+      "blockedExternal": true
+    },
+    "codexPwTest": {
+      "result": "blocked-external",
+      "reason": "Codex workspace out of credits"
+    },
+    "designAudit": {
+      "verdict": "n/a",
+      "reason": "no UI"
+    },
+    "video": {
+      "status": "n/a",
+      "reason": "no runtime UI/CLI flow"
+    }
+  },
+  "blockers": [
+    {
+      "gate": "codexReview/codexPwTest",
+      "cause": "external: Codex/ChatGPT workspace out of credits",
+      "failedCommand": "codex exec --output-last-message <file> \"<review prompt>\"",
+      "observed": "Your workspace is out of credits. Add credits to continue.",
+      "remediation": "Add credits to the Codex workspace, then re-run the adversarial review on this slice's diff."
+    }
+  ],
+  "codexReview": {
+    "verdict": "approve",
+    "rounds": 2,
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T04:16:28Z",
+    "lastReport": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s2-mode-respawn/codex-review-s2-r2.json",
+    "overrides": [],
+    "round1Findings": "README-gap + test-strength + HOT/respawn doc ambiguity \u2014 all fixed forward (http-gateway README execution-layer section, decisions.md two-path clarification, test comment)"
+  },
+  "codexPwTest": {
+    "result": "pass",
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T04:16:28Z",
+    "report": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s2-mode-respawn/codex-pwtest-s2.json",
+    "note": "backend slice \u2014 independent vitest-driven pass (no UI)"
+  },
+  "flagged": false
+}

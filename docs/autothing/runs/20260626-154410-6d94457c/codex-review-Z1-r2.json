@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"No material issues in `tests/z1-end-to-end.test.ts`; the redaction proof is now meaningful and the scope claims match the exercised path.","findings":[]}

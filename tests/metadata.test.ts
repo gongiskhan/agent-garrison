@@ -66,26 +66,9 @@ describe("x-garrison metadata", () => {
     }
   });
 
-  it("folds the deprecated data-sources faculty into memory", () => {
-    const warn = console.warn;
-    const calls: unknown[] = [];
-    console.warn = (...args: unknown[]) => calls.push(args);
-    try {
-      const metadata = parseGarrisonMetadata({
-        faculty: "data-sources",
-        cardinality_hint: "multi",
-        component_shape: "cli",
-        platforms: ["claude-code"],
-        provides: [{ kind: "data-source", name: "trello" }],
-        verify: { command: "echo ok", expect: "ok" }
-      });
-      expect(metadata.faculty).toBe("memory");
-      expect(metadata.provides).toContainEqual({ kind: "data-source", name: "trello" });
-      expect(calls.length).toBeGreaterThan(0);
-    } finally {
-      console.warn = warn;
-    }
-  });
+  // (The deprecated `data-sources` faculty alias + the `data-source` kind were
+  // dropped 2026-06-26 — superseded by the `connectors` faculty + `connector`
+  // kind. Trello is now the `trello` connector. See connector-*.test.ts.)
 
   it("folds a deprecated own-port faculty into its role (terminal -> sessions)", () => {
     const warn = console.warn;
@@ -293,5 +276,45 @@ describe("capability provides/consumes", () => {
         consumes: [{ kind: "orchestrator", cardinality: "many" }]
       })
     ).toThrow();
+  });
+});
+
+describe("setup as ordered steps", () => {
+  it("normalises a single setup step into a one-element array (back-compat)", () => {
+    const metadata = parseGarrisonMetadata({
+      ...baseMetadata,
+      setup: { command: "bash scripts/setup.sh", idempotent: true, timeout_ms: 15000 }
+    });
+    expect(Array.isArray(metadata.setup)).toBe(true);
+    expect(metadata.setup).toHaveLength(1);
+    expect(metadata.setup?.[0]).toMatchObject({
+      command: "bash scripts/setup.sh",
+      idempotent: true,
+      timeout_ms: 15000
+    });
+  });
+
+  it("accepts an ordered array of setup steps and preserves order + labels", () => {
+    const metadata = parseGarrisonMetadata({
+      ...baseMetadata,
+      setup: [
+        { command: "npm i -g @playwright/test", label: "Install the Playwright CLI" },
+        { command: "playwright install chromium", label: "Install the browser" }
+      ]
+    });
+    expect(metadata.setup).toHaveLength(2);
+    expect(metadata.setup?.[0]?.label).toBe("Install the Playwright CLI");
+    expect(metadata.setup?.[1]?.command).toBe("playwright install chromium");
+    // idempotent defaults to true when omitted.
+    expect(metadata.setup?.[0]?.idempotent).toBe(true);
+  });
+
+  it("rejects an empty setup array", () => {
+    expect(() => parseGarrisonMetadata({ ...baseMetadata, setup: [] })).toThrow();
+  });
+
+  it("leaves setup undefined when absent", () => {
+    const metadata = parseGarrisonMetadata({ ...baseMetadata });
+    expect(metadata.setup).toBeUndefined();
   });
 });

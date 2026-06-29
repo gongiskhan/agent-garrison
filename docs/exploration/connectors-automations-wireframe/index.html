@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garrison · Connectors + Automations — Wireframe v2</title>
+<style>
+  :root{
+    --paper:#f4f1e8; --paper-2:#efebe0; --card:#fbf9f3; --ink:#1c1b17; --muted:#6f6a5e;
+    --faint:#948f80; --line:#d9d2c1; --line-2:#c8c0ad; --gold:#937f3c; --gold-soft:#a8923f;
+    --running:#3a7d44; --amber:#9a6b12; --amber-bg:#f6edd7; --violet:#5b34b8; --violet-bg:#efe9fb;
+    --cyan:#0d6e86; --cyan-bg:#e0f0f4; --red:#a72121; --red-bg:#f6e4e1; --emerald:#0a6b4e; --emerald-bg:#e0efe6;
+    --blue:#2a5599; --blue-bg:#e4ebf6; --orange:#a85a18; --orange-bg:#f6e9da; --slate:#4b5563; --slate-bg:#e9e7e1;
+    --indigo:#3b3a8f; --indigo-bg:#e7e7f4; --ink-2:#26241d;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:Georgia,"Iowan Old Style","Times New Roman",serif;line-height:1.5;font-size:16px}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  code,kbd,.k{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:.84em;
+    background:var(--paper-2);border:1px solid var(--line);border-radius:4px;padding:.05em .35em}
+  h1,h2,h3,h4{font-weight:600;line-height:1.15;margin:0}
+  a{color:var(--gold)}a:hover{text-decoration:underline}
+  .lbl{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--gold-soft);font-weight:600}
+  .muted{color:var(--muted)} .faint{color:var(--faint)}
+
+  header.top{position:sticky;top:0;z-index:50;background:rgba(244,241,232,.94);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  .top-inner{max-width:1180px;margin:0 auto;padding:10px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:17px}
+  .brand .fence{width:22px;height:18px;display:inline-block}
+  nav.jump{display:flex;gap:2px;flex-wrap:wrap;font-family:"SF Mono",ui-monospace,monospace;font-size:11px;
+    letter-spacing:.03em;text-transform:uppercase}
+  nav.jump a{color:var(--muted);padding:5px 8px;border-radius:5px}
+  nav.jump a:hover{background:var(--paper-2);color:var(--ink);text-decoration:none}
+  nav.jump a.star{color:var(--gold)}
+
+  main{max-width:1180px;margin:0 auto;padding:0 22px 120px}
+  section.block{padding:54px 0 10px;border-top:1px solid var(--line);scroll-margin-top:58px}
+  section.block:first-of-type{border-top:none}
+  .eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .eyebrow .num{font-family:"SF Mono",monospace;font-size:12px;color:var(--faint)}
+  h2.title{font-size:33px;letter-spacing:-.01em;margin:2px 0 6px}
+  h3.sub{font-size:23px;margin:34px 0 10px}
+  h4.sub4{font-size:17px;margin:22px 0 8px}
+  p.lede{font-size:18px;color:#34322b;max-width:76ch;margin:8px 0 4px}
+  p{max-width:80ch}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:880px){.grid2,.grid3,.grid4{grid-template-columns:1fr}}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px 17px}
+  .card.tight{padding:12px 13px}
+  .badge{display:inline-block;font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.07em;
+    text-transform:uppercase;padding:2px 7px;border-radius:4px;border:1px solid transparent;font-weight:600}
+  .b-run{background:var(--amber-bg);color:var(--amber)} .b-ok{background:var(--emerald-bg);color:var(--emerald)}
+  .b-fail{background:var(--red-bg);color:var(--red)} .b-fix{background:var(--violet-bg);color:var(--violet)}
+  .b-pause{background:var(--cyan-bg);color:var(--cyan)} .b-wait{background:var(--slate-bg);color:var(--slate)}
+  .b-green{background:var(--emerald-bg);color:var(--running)} .b-installed{background:#ece8db;color:#5d5742}
+  .b-blue{background:var(--blue-bg);color:var(--blue)}
+  .dotpre::before{content:"●";margin-right:6px;font-size:9px;vertical-align:middle}
+
+  /* verdict chips for the audit */
+  .v{display:inline-block;font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    padding:2px 7px;border-radius:4px;font-weight:600}
+  .v-keep{background:var(--emerald-bg);color:var(--emerald)} .v-up{background:var(--blue-bg);color:var(--blue)}
+  .v-dec{background:var(--violet-bg);color:var(--violet)} .v-drop{background:var(--red-bg);color:var(--red)}
+
+  /* framed live-area placeholder */
+  .frame{border:2px dashed var(--line-2);border-radius:8px;background:
+      repeating-linear-gradient(135deg,#f6f3ea,#f6f3ea 11px,#f1ede1 11px,#f1ede1 22px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    padding:20px 16px;gap:6px;min-height:118px;color:var(--muted)}
+  .frame .ftag{font-family:"SF Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--gold-soft);font-weight:600}
+  .frame .fbig{font-size:14.5px;color:#3a382f;max-width:48ch}
+  .frame .fmeta{font-family:"SF Mono",monospace;font-size:11px;color:var(--faint)}
+  .frame.live{border-color:#8aa0a8;background:repeating-linear-gradient(135deg,#eef4f5,#eef4f5 11px,#e7eff1 11px,#e7eff1 22px)}
+  .frame.live .ftag{color:var(--cyan)}
+
+  /* marquee hero */
+  .marquee{background:linear-gradient(160deg,#26241d,#2f2b20);color:#f1ece0;border-radius:12px;padding:26px 26px 22px;
+    border:1px solid #44402f}
+  .marquee h3{font-size:25px;color:#fff} .marquee p{color:#d7d0c0;max-width:74ch}
+  .marquee .lbl{color:#cdbb7e}
+  .seal{display:inline-flex;align-items:center;gap:6px;font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid #6f654a;color:#e8dcb4;background:#332f23;font-weight:600}
+  .seal svg{width:11px;height:11px}
+  .mcard{background:#322e23;border:1px solid #46412f;border-radius:8px;padding:13px 14px;color:#e7e0cf}
+  .mcard h4{color:#fff;font-size:15px} .mcard .note{color:#bdb49f;font-size:12.5px}
+
+  /* app chrome mock */
+  .appshell{display:grid;grid-template-columns:182px 1fr;border:1px solid var(--line-2);border-radius:10px;
+    overflow:hidden;background:var(--card);box-shadow:0 1px 0 #e7e1d1}
+  .appside{background:var(--paper);border-right:1px solid var(--line);padding:12px 10px;font-size:13px}
+  .appside .s-brand{display:flex;align-items:center;gap:7px;font-weight:600;font-size:14px;margin:2px 4px 12px}
+  .appside .navi{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;color:#3a382f;margin-bottom:1px}
+  .appside .navi.active{background:#e7e2d2;color:#1c1b17;font-weight:600}
+  .appside .navi .live{font-family:"SF Mono",monospace;font-size:9.5px;color:var(--running)}
+  .appside .grp{margin:11px 4px 5px;font-family:"SF Mono",monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .appmain{padding:18px 20px;min-height:280px;background:var(--card)}
+  .crumb{font-family:"SF Mono",monospace;font-size:11px;color:var(--faint);letter-spacing:.05em;margin-bottom:8px}
+  .crumb b{color:var(--ink)}
+
+  .typerow{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  .tchip{font-family:"SF Mono",monospace;font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--line-2);color:#3a382f;background:#fbf9f3}
+  .tchip.on{color:#fff;border-color:transparent;font-weight:600}
+  .t-browser.on{background:#0f766e}.t-verify.on{background:var(--indigo)}.t-connector.on{background:var(--amber)}
+  .t-sub.on{background:var(--violet)}.t-nav.on{background:var(--slate)}.t-wait.on{background:var(--slate)}
+  .t-cmd.on{background:var(--orange)}.t-api.on{background:var(--blue)}
+  .t-browser{color:#0f766e}.t-verify{color:var(--indigo)}.t-connector{color:var(--amber)}.t-sub{color:var(--violet)}
+  .t-nav,.t-wait{color:var(--slate)}.t-cmd{color:var(--orange)}.t-api{color:var(--blue)}
+
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+  .fnode{background:#fbf9f3;border:1px solid var(--line-2);border-radius:7px;padding:9px 11px;min-width:104px;font-size:12.5px;
+    text-align:center;display:flex;flex-direction:column;justify-content:center;gap:2px}
+  .fnode .ft{font-family:"SF Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .farr{display:flex;align-items:center;color:var(--gold-soft);font-size:18px;padding:0 7px}
+  .fnode.k-plan{background:var(--blue-bg);border-color:#b9c6e0}.fnode.k-run{background:var(--amber-bg);border-color:#e2d2a8}
+  .fnode.k-ok{background:var(--emerald-bg);border-color:#bcd8c8}.fnode.k-fix{background:var(--violet-bg);border-color:#d2c4ef}
+  .fnode.k-pause{background:var(--cyan-bg);border-color:#a8cdd6}.fnode.k-vault{background:#332f23;border-color:#5a523c;color:#ecdfb6}
+  .fnode.k-vault .ft{color:#bda968}
+
+  table.ref{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+  table.ref th,table.ref td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  table.ref th{background:var(--paper-2);font-family:"SF Mono",monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  table.ref td .mono{font-size:12px}
+
+  ul.tight{margin:6px 0;padding-left:20px}ul.tight li{margin:3px 0;max-width:80ch}
+  .callout{border-left:3px solid var(--gold);background:#f8f4e8;padding:12px 15px;border-radius:0 7px 7px 0;margin:14px 0}
+  .callout.warn{border-left-color:var(--red);background:#f8ece9}
+  .callout.good{border-left-color:var(--running);background:#eef4ec}
+  .kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:13.5px}
+  .kv dt{font-family:"SF Mono",monospace;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:1px}
+  .kv dd{margin:0}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .swatch{width:11px;height:11px;border-radius:3px;display:inline-block;border:1px solid rgba(0,0,0,.12)}
+
+  .ctl{display:block;width:100%;background:#fff;border:1px solid var(--line-2);border-radius:6px;padding:7px 9px;font-family:Georgia,serif;font-size:13.5px;color:#3a382f}
+  .ctl.mono{font-family:"SF Mono",monospace;font-size:12px}
+  .ctl.area{min-height:60px}
+  .lab{font-family:"SF Mono",monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:block;margin:10px 0 4px;font-weight:600}
+  .btn{display:inline-flex;align-items:center;gap:6px;font-family:Georgia,serif;font-size:13.5px;padding:7px 13px;border-radius:6px;border:1px solid var(--line-2);background:#fbf9f3;color:#3a382f}
+  .btn.primary{background:#2f6f4f;border-color:#2f6f4f;color:#fff}
+  .btn.gold{background:var(--gold);border-color:var(--gold);color:#fff}
+  .btn.danger{background:#fff;border-color:#d9b3ad;color:var(--red)}
+  .btn.sm{font-size:12px;padding:4px 9px}
+
+  .steprow{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .steprow:last-child{border-bottom:none}
+  .stepno{font-family:"SF Mono",monospace;font-size:11px;color:var(--faint);min-width:46px;padding-top:3px}
+  .grip{color:var(--faint)}
+  .twocol{display:grid;grid-template-columns:1.05fr .95fr;gap:16px}
+  @media(max-width:980px){.twocol{grid-template-columns:1fr}}
+  .tag-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0}
+  .note{font-size:12.5px;color:var(--muted)}
+  hr.soft{border:none;border-top:1px solid var(--line);margin:18px 0}
+  .anchor{position:relative;top:-50px;visibility:hidden}
+  .toc{columns:2;gap:30px;font-size:13.5px}@media(max-width:700px){.toc{columns:1}}
+  .toc a{display:block;padding:3px 0;color:#3a382f}
+  .toc a .mono{color:var(--faint);font-size:11px;margin-right:7px}
+  .fitcard{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:13px 14px}
+  .fitcard h4{font-size:16px;margin-bottom:3px}
+  .fitcard .role{font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold-soft)}
+  .stat{font-family:"SF Mono",monospace;font-size:11.5px;color:var(--muted)}
+  .scr-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:10px}
+  .lock{display:inline-flex;align-items:center;gap:5px;font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--emerald);font-weight:600}
+  .lock svg{width:11px;height:11px}
+  .chgbar{display:inline-block;background:var(--amber-bg);color:var(--amber);font-family:"SF Mono",monospace;font-size:10px;
+    letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;font-weight:600;margin-left:6px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <svg class="fence" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>
+      Garrison <span class="muted" style="font-weight:400;font-size:13px">· Connectors + Automations · v2</span>
+    </div>
+    <nav class="jump">
+      <a href="#overview">Overview</a>
+      <a href="#audit">Substrate audit</a>
+      <a href="#governance">Governance</a>
+      <a href="#vault" class="star">★ Vault</a>
+      <a href="#connectors">Connectors</a>
+      <a href="#chat">Chat-to-build</a>
+      <a href="#builder">Builder</a>
+      <a href="#steptypes">Step types</a>
+      <a href="#runviewer">Run viewer</a>
+      <a href="#filebrowser">File Browser</a>
+      <a href="#scheduler">Scheduler</a>
+      <a href="#pause">Pause/Consent</a>
+      <a href="#decisions">Decisions</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- ============================================================ OVERVIEW -->
+<section class="block" id="overview"><span class="anchor"></span>
+  <div class="eyebrow"><span class="lbl">Wireframe v2 · low-fidelity prototype · revised per direction</span></div>
+  <h2 class="title">Connectors &amp; Automations for Agent Garrison</h2>
+  <p class="lede">Bring ekoa's automation engine into Garrison — bash &amp; browser steps, vision self-healing, live
+  streaming, human-in-the-loop — but instead of <em>reusing</em> Garrison's early substrate as-is, <b>audit it against
+  ekoa's and take the best of each</b>. That audit (and the upgrades it forces) is itself a core reason Garrison was
+  built. Paired with a new <b>Connectors</b> faculty and a <b>Vault that locks every key</b> — the headline
+  differentiator — and a <b>chat-to-build</b> authoring flow that reuses the Discuss handoff we just shipped.</p>
+
+  <div class="callout good">
+    <b>Wireframe, not implementation.</b> Nothing here is built. Framed dashed boxes
+    (<span class="k">LIVE BROWSER STREAM</span>) mark live-render areas. Everything is grounded in a verified read of the
+    real code (Discuss handoff, Vault internals, Model Router, scheduler, artifact-store consumers, browser substrate) —
+    cited where load-bearing. Styled in Garrison's actual visual language.
+  </div>
+
+  <h3 class="sub">What changed from v1 (your direction, point by point)</h3>
+  <div class="grid2">
+    <div class="card">
+      <span class="lbl">Substrate &amp; platform</span>
+      <ul class="tight">
+        <li><b>Audit, not reuse.</b> Browser/CDP, Vault, Scheduler, Store each get measured against ekoa; Garrison's wins, ekoa's wins, and what gets chucked are called out. <a href="#audit">→ Substrate audit</a></li>
+        <li><b>Scheduler → platform-agnostic Node daemon.</b> Decoupled from launchd + Claude Code; always-on sibling of the operative. <a href="#scheduler">→ Scheduler</a></li>
+        <li><b>Artifact Store dropped → File Browser fitting.</b> Plain files everywhere; a mobile-first file explorer with Monaco editing + media/markdown viewing. <a href="#filebrowser">→ File Browser</a></li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="lbl">Connectors, Vault &amp; authoring</span>
+      <ul class="tight">
+        <li><b>Data Sources removed.</b> Trello + Google Calendar + Deepgram become Connectors; Slack is dual (channel + connector). One Connector = one Fitting. <a href="#connectors">→ Connectors</a></li>
+        <li><b>Vault ↔ Connectors is the marquee.</b> Keys are sealed, scoped per-connector, never plaintext — advertised throughout the UI. <a href="#vault">→ The Vault</a></li>
+        <li><b>Goal textarea → a Discuss chat-to-build skill</b>, reusing the Kanban Discuss→web-channel handoff. Planner routes through the <b>Model Router</b>. <a href="#chat">→ Chat-to-build</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 class="sub">Decisions locked in (your answers)</h3>
+  <table class="ref">
+    <tr><th>#</th><th>Decision</th><th>Effect on the design</th></tr>
+    <tr><td>1</td><td>Trello → Connectors; drop Data Sources; a DB like Supabase is just a Connector</td><td><span class="k">data-source</span> capability kind removed; future DB Fittings reconsidered later</td></tr>
+    <tr><td>2</td><td>Connectors faculty; remove Data Sources</td><td>New <span class="k">connector</span> kind; <span class="k">data-source</span> gone</td></tr>
+    <tr><td>3</td><td>One Connector = One Fitting</td><td>Each service ships as its own APM Fitting (clean packaging)</td></tr>
+    <tr><td>4</td><td>Automations as data files in <span class="k">.garrison</span></td><td>YAML under <span class="k">~/.garrison/automations/&lt;id&gt;.yml</span> (Garrison's lingua franca)</td></tr>
+    <tr><td>5</td><td>Planner through the Model Router</td><td>The planner + per-step vision/fixer calls are Router <span class="k">skill</span>/<span class="k">native-model</span> targets — no hardcoded model, uses the operative's auth</td></tr>
+    <tr><td>6</td><td>(you decide) where connector defs live</td><td>One Fitting each (per #3); the marquee Slack/Google ship as seed Fittings, the long tail via the Armory</td></tr>
+    <tr><td>7</td><td>Drop <span class="k">ekoa_action</span></td><td>Omitted; trivially re-addable later if we ever merge with ekoa</td></tr>
+  </table>
+
+  <nav class="toc" style="margin-top:18px">
+    <a href="#audit"><span class="mono">01</span>Substrate audit — best-of-both, what gets chucked</a>
+    <a href="#governance"><span class="mono">02</span>Governance — faculties, kinds, Honesty Test</a>
+    <a href="#vault"><span class="mono">03</span>★ The Vault — sealed connector credentials (marquee)</a>
+    <a href="#connectors"><span class="mono">04</span>Connectors faculty — one service, one Fitting</a>
+    <a href="#chat"><span class="mono">05</span>Chat-to-build — the Discuss handoff reused</a>
+    <a href="#builder"><span class="mono">06</span>Builder — steps, trigger, rehearsal</a>
+    <a href="#steptypes"><span class="mono">07</span>The 8 step types</a>
+    <a href="#runviewer"><span class="mono">08</span>Run viewer — live, with browser stream</a>
+    <a href="#filebrowser"><span class="mono">09</span>File Browser fitting — files, viewers, Monaco</a>
+    <a href="#scheduler"><span class="mono">10</span>Scheduler — platform-agnostic Node daemon</a>
+    <a href="#pause"><span class="mono">11</span>Pause-for-user &amp; consent</a>
+    <a href="#decisions"><span class="mono">12</span>Decisions, phasing &amp; remaining forks</a>
+  </nav>
+</section>
+
+<!-- ============================================================ AUDIT -->
+<section class="block" id="audit"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">01</span><span class="lbl">Substrate audit</span></div>
+  <h2 class="title">Audit each substrate against ekoa — take the best, chuck the rest</h2>
+  <p class="lede">Garrison's browser/vault/scheduler/store were built early and barely touched since. The point of Garrison
+  is to be the place where these get <em>good</em>. So this isn't "reuse what exists" — it's measure each one against
+  ekoa's battle-tested equivalent, keep the winner, and upgrade or chuck the loser. Verdicts:
+  <span class="v v-keep">keep</span> <span class="v v-up">upgrade</span> <span class="v v-dec">decouple</span> <span class="v v-drop">drop / chuck</span></p>
+
+  <table class="ref">
+    <tr><th style="width:13%">Substrate</th><th style="width:30%">Garrison today (verified)</th><th style="width:30%">ekoa does better</th><th style="width:27%">Verdict</th></tr>
+    <tr>
+      <td><b>Browser / CDP</b><br><span class="note">browser-default :7084</span></td>
+      <td>Stateless CDP service: JPEG screencast (<span class="k">/viewport</span>), input (<span class="k">/input</span>), raw CDP + full DevTools proxy, multi-tab REST, console/network capture, element-pick. <b>No</b> vision, cache, fingerprint, or persistent profile.</td>
+      <td>Persistent per-profile context + <b>stealth</b> (survives cookies/consent, evades bot-detection), <b>fingerprint-keyed action cache</b>, <b>vision</b> action resolution, <b>locator fallback ladder</b>, accessibility snapshots, act-and-observe envelopes.</td>
+      <td><span class="v v-keep">keep</span> the CDP service + DevTools proxy + element-pick. <span class="v v-up">upgrade</span> it with observation/fingerprint/a11y endpoints + opt-in persistent-profile &amp; stealth. Build the cache→vision→execute <b>orchestration layer above it</b> (port ekoa's <span class="k">fingerprint.ts</span>/<span class="k">executor.ts</span>/<span class="k">cache.ts</span>). <span class="v v-drop">chuck</span> the thin <span class="k">browser-automation</span> seed — it's subsumed.</td>
+    </tr>
+    <tr>
+      <td><b>Vault</b><br><span class="note">src/lib/vault.ts</span></td>
+      <td>AES-256-GCM, scrypt KDF (N=16384), <span class="k">data/vault.json</span> 0600, in-memory passphrase. <b>Crypto is solid.</b> But: writes <b>non-atomically</b> (<span class="k">writeFile</span>+<span class="k">chmod</span>), delivers the <b>entire</b> vault to any fitting that consumes it (no per-secret scope — <span class="k">secret-ref</span> is a placeholder), no OAuth-refresh storage, no audit log, no keychain, dev passphrase hardcoded.</td>
+      <td>ekoa's per-service credential store had OAuth refresh + per-integration scoping — but used a plain <span class="k">ENCRYPTION_KEY</span> env (weaker than Garrison's scrypt). So ekoa wins on <em>scoping/lifecycle</em>, Garrison wins on <em>crypto</em>.</td>
+      <td><span class="v v-keep">keep</span> the crypto/KDF. <span class="v v-up">upgrade</span>: atomic write (the immediate correctness fix), per-connector secret scoping, OAuth refresh-token storage + rotation, an access audit log, an OS-keychain-<b>only</b> master key (no passphrase to leak). This becomes the <a href="#vault">marquee</a>.</td>
+    </tr>
+    <tr>
+      <td><b>Scheduler</b><br><span class="note">fittings/seed/scheduler</span></td>
+      <td>Node CLI (add/remove/list/tick/daemon), cron grammar, jobs in <span class="k">~/.garrison/scheduler-jobs.json</span>. Core is already platform-neutral — but the only "always-on" path is an <b>unbuilt</b> <span class="k">io.garrison.scheduler</span> launchd agent, and it's labelled <span class="k">platforms:[claude-code]</span>.</td>
+      <td>ekoa ran a long-lived listener-supervisor (one worker per polling trigger) as an always-on service — the model for connector listeners (IMAP poll, etc.).</td>
+      <td><span class="v v-keep">keep</span> the job store + cron + <span class="k">scheduler-beats.mjs</span>. <span class="v v-dec">decouple</span>: extract <span class="k">daemon()</span> into a standalone always-on Node service (systemd / Docker / PM2 / launchd), independent of Claude Code &amp; macOS, that fires whether or not the operative is up. Fold in ekoa's listener-supervisor pattern for connector polling.</td>
+    </tr>
+    <tr>
+      <td><b>Artifact Store</b><br><span class="note">src/lib/artifact-store.ts</span></td>
+      <td>A file organizer: <span class="k">&lt;root&gt;/&lt;namespace&gt;/&lt;file&gt;</span> + <span class="k">.meta.json</span> sidecars. Only 3 HTTP consumers (documents + artifact-store list/[id]). It's "barely used," and it's <b>drop-safe</b>.</td>
+      <td>ekoa worked in a run-dir of plain files — closer to how Garrison actually wants to work (files, not artifacts).</td>
+      <td><span class="v v-drop">drop</span> the artifact-store abstraction + the <span class="k">artifact-store</span> capability kind. Replace with plain files + the new <a href="#filebrowser">File Browser</a>. Documents/voice/recordings just become folders.</td>
+    </tr>
+    <tr>
+      <td><b>Data Sources</b><br><span class="note">data-source kind</span></td>
+      <td>One read-only kind (Trello), re-added 2026-06-10 for a single Fitting. Consumed by knowledge / morning-briefing / personal-operative.</td>
+      <td>—</td>
+      <td><span class="v v-drop">drop</span> the <span class="k">data-source</span> kind entirely. Trello becomes a <a href="#connectors">Connector</a>; a future DB (Supabase) is also a Connector. Migrate the knowledge / morning-briefing consumers to <span class="k">connector</span>; the Trello-backed <b>Tasks</b> wiring is dropped, not migrated (retiring it for our own Kanban).</td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    <b>Net new code this implies (beyond wiring):</b> an automation <b>orchestration layer</b> (cache→vision→execute,
+    ported from ekoa) above the upgraded Browser Fitting; the <b>Vault upgrades</b> (atomic write, per-connector scope,
+    OAuth refresh, audit); the <b>scheduler daemon</b> extraction; the <b>File Browser</b> fitting (reusing the existing
+    Monaco <span class="k">FittingEditor.tsx</span> + <span class="k">marked</span>); and the <b>Connectors</b> faculty
+    + per-service Fittings. The substrate that already exists is the foundation — not skipped, but levelled up.
+  </div>
+</section>
+
+<!-- ============================================================ GOVERNANCE -->
+<section class="block" id="governance"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">02</span><span class="lbl">Governance</span></div>
+  <h2 class="title">Faculties, kinds &amp; the Honesty Test</h2>
+  <p class="lede">Every capability must be justifiable for Claude Code on its own merits — ekoa is a consumer, never a
+  reason. The vocabulary changes are small and each is gated.</p>
+
+  <table class="ref">
+    <tr><th>Change</th><th>What</th><th>Honesty-Test justification</th></tr>
+    <tr><td><span class="v v-up">add</span></td><td>Faculty <b>Connectors</b> (multi)</td><td>"A long-running operative needs authenticated, reusable connections to the services it acts on, with a discoverable action catalog." Load-bearing for any operative.</td></tr>
+    <tr><td><span class="v v-up">add</span></td><td>Capability kind <span class="k">connector</span></td><td>A connected service exposing callable actions + sealed auth + triggers. Absorbs the read-only <span class="k">data-source</span> case.</td></tr>
+    <tr><td><span class="v v-drop">drop</span></td><td>Capability kind <span class="k">data-source</span></td><td>Only one Fitting used it; the connector kind is strictly more general. (~10 small edits: types.ts, metadata aliases, 3 consumers, docs, tests.)</td></tr>
+    <tr><td><span class="v v-drop">drop</span></td><td>Capability kind <span class="k">artifact-store</span> + faculty residue</td><td>Garrison works in files; the abstraction is barely used and drop-safe. Replaced by the File Browser + plain folders.</td></tr>
+    <tr><td><span class="v v-up">add</span></td><td>Fitting <b>File Browser</b> (own-port view; <span class="k">view</span> only)</td><td>"An operative and its user need to browse, preview, and edit the files the operative produces." Reuses the existing Monaco editor component.</td></tr>
+    <tr><td><span class="v v-up">add</span></td><td>Fitting <b>Automations</b> — provides existing <span class="k">automation-runner</span></td><td>No new kind: it provides the kind the Scheduler/Improver already provide. Just a new Fitting + a Compose section.</td></tr>
+    <tr><td><span class="v v-keep">reuse</span></td><td><b>Model Router</b> for the planner</td><td>Already exists (<span class="k">src/lib/model-router.ts</span>, :7087). Its <span class="k">DisciplineSettings.distribution</span> even already supports <span class="k">automation:&lt;id&gt;</span> — automations are already a routing concept.</td></tr>
+  </table>
+
+  <div class="callout warn"><b>Leakage avoided:</b> <span class="k">ekoa_action</span> (operate on an ekoa artifact) is dropped.
+  ekoa's daemon model, Portuguese strings, and weaker credential crypto do not come across. Garrison uses its own
+  upgraded Vault, Browser Fitting, and files. No hardcoded paths, no consumer naming in capability definitions.</div>
+</section>
+
+<!-- ============================================================ VAULT (MARQUEE) -->
+<section class="block" id="vault"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">03</span><span class="lbl">★ The marquee</span></div>
+  <h2 class="title">The Vault — your keys, sealed</h2>
+
+  <div class="marquee">
+    <div class="tag-row" style="gap:8px;margin-bottom:10px">
+      <span class="seal"><svg viewBox="0 0 24 24" fill="none" stroke="#e8dcb4" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Vault-sealed</span>
+      <span class="lbl">why this matters more than anything</span>
+    </div>
+    <h3>Most agents leak your keys. Garrison seals them.</h3>
+    <p>The biggest, least-talked-about risk with agent platforms like openclaw and hermes is <b>how they store your
+    credentials</b> — plaintext <span class="k">.env</span> files, tokens pasted into config, secrets handed wholesale to
+    every tool. When you connect Slack, Google, or Stripe to a Garrison operative, the key goes <b>into the Vault and
+    never comes back out</b>: encrypted at rest, scoped to exactly one connector, materialized only into the single
+    process that needs it, redacted from every log, and rotated without a redeploy. This is the thing we advertise
+    everywhere — because when Garrison goes public, it's the thing people should trust it for.</p>
+
+    <div class="grid3" style="margin-top:16px">
+      <div class="mcard"><h4>Sealed at rest</h4><div class="note">AES-256-GCM, master key held in the OS keychain — <b>no passphrase</b> anywhere to leak or phish. Atomic 0600 writes (fixes today's non-atomic <span class="k">writeFile+chmod</span>).</div></div>
+      <div class="mcard"><h4>Scoped per connector</h4><div class="note">A Slack connector can read the Slack key and <b>nothing else</b>. Replaces today's all-or-nothing delivery — <span class="k">secret-ref</span> becomes real per-connector binding.</div></div>
+      <div class="mcard"><h4>Never plaintext to you</h4><div class="note">You connect; you never see the token again. The UI shows <span class="k">sk_live_••••6f2a</span>, never the value. No copy-paste of secrets anywhere.</div></div>
+      <div class="mcard"><h4>OAuth, handled</h4><div class="note">Refresh tokens stored + auto-rotated; expiry tracked; a revoked grant flips the connector to "Reconnect." Today there is <b>no</b> OAuth-refresh storage at all.</div></div>
+      <div class="mcard"><h4>Materialized just-in-time</h4><div class="note">The secret enters only the one process that runs the step, for the duration of the call, then is gone. Auto-redacted in stdout/stderr and run records.</div></div>
+      <div class="mcard"><h4>Audited</h4><div class="note">Every read is logged: which connector, which secret, when, outcome. A tamper-evident trail you can show a security reviewer.</div></div>
+    </div>
+  </div>
+
+  <h3 class="sub">How a key flows — connect once, sealed forever</h3>
+  <div class="card">
+    <div class="flow">
+      <div class="fnode"><div class="ft">connect</div>OAuth consent / paste key once</div>
+      <div class="farr">→</div>
+      <div class="fnode k-vault"><div class="ft">seal</div>encrypt → Vault<br><span class="note" style="color:#bda968">scoped to this connector</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><div class="ft">bind</div>connector + step hold a <span class="k">secret-ref</span></div>
+      <div class="farr">→</div>
+      <div class="fnode k-run"><div class="ft">run</div>materialized JIT into the one request</div>
+      <div class="farr">→</div>
+      <div class="fnode k-ok"><div class="ft">after</div>wiped from process · redacted in logs · access audited</div>
+    </div>
+  </div>
+
+  <h3 class="sub">Advertised throughout the UI</h3>
+  <div class="grid3">
+    <div class="card tight">
+      <span class="lbl">On every connector card</span>
+      <div class="card tight" style="margin-top:6px"><div class="tag-row"><b>Slack</b><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Key sealed in Vault</span></div><div class="note">bot token · never displayed</div></div>
+    </div>
+    <div class="card tight">
+      <span class="lbl">On the connect form</span>
+      <div class="card tight" style="margin-top:6px"><span class="lab">Secret key</span><input class="ctl mono" value="sk_live_••••••••••••6f2a" readonly><div class="note" style="margin-top:5px"><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Goes straight to the Vault — we never store or show it again.</span></div></div>
+    </div>
+    <div class="card tight">
+      <span class="lbl">On a step that uses a key</span>
+      <div class="card tight" style="margin-top:6px"><div class="tag-row"><span class="tchip t-connector on" style="font-size:10px">connector</span><span class="note">slack.send_message</span></div><div class="note" style="margin-top:4px">auth: <span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Vault-sealed · materialized JIT</span></div></div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px">A dedicated <b>Vault</b> surface (already in the sidebar) gains: the per-connector
+  secret map, the OAuth token health (valid / expiring / revoked), the access audit log, and a one-click rotation
+  ceremony. The honest current state (non-atomic write, whole-vault delivery, no audit) is what these upgrades fix.</p>
+</section>
+
+<!-- ============================================================ CONNECTORS -->
+<section class="block" id="connectors"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">04</span><span class="lbl">Connectors faculty</span></div>
+  <h2 class="title">Connectors — one service, one Fitting</h2>
+  <p class="lede">Each connector is its own APM Fitting providing <span class="k">kind: connector</span>: an action catalog
+  (mutating / read-only), a sealed auth method (OAuth2 / API key), and optional triggers (webhook in via the Gateway,
+  or a polling listener via the Scheduler). Trello, Google Calendar, and Deepgram move here from their old homes;
+  Slack stays a Channel <b>and</b> appears here as a connector for outbound calls.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="navi">Garrison</div><div class="navi">Composition</div>
+      <div class="navi">Vault <span class="live" style="color:var(--emerald)">sealed</span></div>
+      <div class="grp">Views</div>
+      <div class="navi active">Connectors <span class="live">live</span></div>
+      <div class="navi">Automations <span class="live">live</span></div>
+      <div class="navi">Files <span class="live">live</span></div>
+    </aside>
+    <div class="appmain">
+      <div class="crumb">Compose · Connectors · <b>Registry</b></div>
+      <div class="scr-head"><h3 style="font-size:22px">Connectors</h3><span class="btn gold sm">+ Add connector (Armory)</span></div>
+
+      <div class="grid2">
+        <div class="card tight">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">Connector · OAuth2 · one Fitting</div><h4 style="font-size:17px">Google Workspace</h4></div>
+            <span class="badge b-green dotpre">Connected</span>
+          </div>
+          <div class="tag-row"><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Tokens sealed · refresh auto-rotated</span></div>
+          <div class="lbl" style="margin-top:8px">Actions</div>
+          <div class="typerow"><span class="tchip">gmail.send <span class="faint">mut</span></span><span class="tchip">calendar.create_event <span class="faint">mut</span></span><span class="tchip">drive.list</span><span class="tchip faint">+9</span></div>
+          <div class="note" style="margin-top:6px">Moved here from <span class="k">automation-runner</span>/sessions.</div>
+        </div>
+
+        <div class="card tight">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">Connector + Channel · dual</div><h4 style="font-size:17px">Slack</h4></div>
+            <span class="badge b-green dotpre">Connected</span>
+          </div>
+          <div class="tag-row"><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Bot token sealed</span><span class="badge b-blue">also a Channel</span></div>
+          <div class="lbl" style="margin-top:8px">Actions</div>
+          <div class="typerow"><span class="tchip">send_message <span class="faint">mut</span></span><span class="tchip">list_channels</span></div>
+          <div class="lbl" style="margin-top:8px">Triggers</div>
+          <div class="typerow"><span class="tchip t-connector">webhook · app_mention</span></div>
+        </div>
+
+        <div class="card tight">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">Connector · API key (was data-source)</div><h4 style="font-size:17px">Trello</h4></div>
+            <span class="badge b-green dotpre">Connected</span>
+          </div>
+          <div class="tag-row"><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Key + token sealed</span></div>
+          <div class="lbl" style="margin-top:8px">Actions</div>
+          <div class="typerow"><span class="tchip">lists</span><span class="tchip">create_card <span class="faint">mut</span></span><span class="tchip">move_card <span class="faint">mut</span></span></div>
+          <div class="note" style="margin-top:6px"><span class="chgbar">moved from Data Sources</span> derived Tasks <b>disconnected</b> — retiring Trello-as-tasks for our own Kanban; the connector stays for direct list/card actions.</div>
+        </div>
+
+        <div class="card tight" style="opacity:.97">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div><div class="role lbl">Connector · OAuth2 · connect</div><h4 style="font-size:17px">GitHub</h4></div>
+            <span class="badge b-installed">Not connected</span>
+          </div>
+          <div class="frame" style="min-height:74px;padding:14px"><div class="ftag">Connect flow</div><div class="fbig">"Connect with GitHub" → OAuth consent → token sealed straight into the Vault → status flips to Connected. You never see the token.</div></div>
+          <div class="tag-row" style="margin-top:8px"><span class="btn primary sm">Connect with GitHub</span></div>
+        </div>
+      </div>
+
+      <div class="note" style="margin-top:12px">Future services (Supabase, Airtable, Notion…) install the same way — one Fitting each, from the Armory. A database connector is just another connector.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ CHAT-TO-BUILD -->
+<section class="block" id="chat"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">05</span><span class="lbl">Authoring</span></div>
+  <h2 class="title">Chat-to-build — describe it, don't draft it</h2>
+  <p class="lede">No more plain-English goal box. Authoring starts with a <b>Discuss</b> skill that opens a real
+  conversation: "What would you like to automate?" The operative (James) asks questions, makes suggestions, and writes
+  an <b>automation brief</b>; back in the fitting, the planner (via the Model Router) turns the brief into steps,
+  rehearses them, and hands you a reviewable automation — with the same live visibility ekoa has. This reuses the exact
+  Discuss → web-channel handoff shipped for Kanban, verified in the code.</p>
+
+  <h3 class="sub">The flow (reuses the verified Kanban Discuss mechanism)</h3>
+  <div class="card" style="overflow-x:auto">
+    <div class="flow">
+      <div class="fnode k-plan"><div class="ft">click</div>"Discuss an automation"</div>
+      <div class="farr">→</div>
+      <div class="fnode"><div class="ft">handoff</div>open web-channel<br><span class="note mono" style="font-size:10px">?mode=james&amp;context=…&amp;kickoff=…</span></div>
+      <div class="farr">→</div>
+      <div class="fnode k-plan"><div class="ft">converse</div>James asks + suggests</div>
+      <div class="farr">→</div>
+      <div class="fnode"><div class="ft">capture</div>brief written to<br><span class="note mono" style="font-size:10px">.garrison/automations/briefs/&lt;slug&gt;.md</span></div>
+      <div class="farr">→</div>
+      <div class="fnode k-fix"><div class="ft">plan</div>Router-routed planner → steps</div>
+      <div class="farr">→</div>
+      <div class="fnode k-fix"><div class="ft">rehearse</div>dry-run + self-correct</div>
+      <div class="farr">→</div>
+      <div class="fnode k-ok"><div class="ft">review</div>steps ready in the fitting</div>
+    </div>
+    <hr class="soft">
+    <div class="note">Verified mechanism (<span class="k">kanban-loop/scripts/discuss.mjs</span> + <span class="k">web-channel-default</span>): the Discuss button builds a URL with a base64 <b>context</b> blob + an auto-sent <b>kickoff</b> message + <span class="k">mode=james</span>. The web-channel is a generic relay (never parses context). <b>The gateway reads the mode from the leading "James," in the message text and ignores <span class="k">body.context</span></b> — so the kickoff message itself carries everything load-bearing (card details + the instruction to write the brief to a known path). When the card leaves the Discuss list the server auto-links the brief by recomputing the same path; downstream prompts inject it. <b>We parameterize the same functions</b> — the kickoff starts "James, …" and becomes "What would you like to automate?", the embedded instruction writes to <span class="k">automations/briefs/&lt;slug&gt;.md</span>.</div>
+  </div>
+
+  <div class="grid2" style="margin-top:18px">
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">1 · The Discuss conversation (web-channel, James mode)</h4>
+      <div class="frame live" style="min-height:170px">
+        <div class="ftag">▣ Web-channel chat renders here</div>
+        <div class="fbig">"What would you like to automate?" → you describe it → James asks clarifying questions (which connector? what trigger? what should happen on failure?), suggests an approach, and confirms. The same chat surface used for Kanban Discuss — read-aloud, markdown, streaming.</div>
+        <div class="fmeta">kickoff auto-sent · mode=james · context carries the new automation id</div>
+      </div>
+    </div>
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">2 · Back in the fitting — plan + rehearse</h4>
+      <div class="frame live" style="min-height:170px">
+        <div class="ftag">Planning + rehearsal visibility</div>
+        <div class="fbig">The captured brief drives the planner (a Model Router <span class="k">skill</span> target). Steps stream in as they're drafted; then a real rehearsal dry-runs them in the browser and self-corrects — you watch it happen (elapsed timer, "drafting step 4…", "rehearsing…", patches applied) exactly like ekoa, before you review.</div>
+        <div class="fmeta">planner + vision + fixer all route through the Model Router (:7087)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout"><b>The "proper Skill":</b> a <span class="k">discuss-automation</span> skill (an Armory Fitting under
+  the Connectors/Automations area) owns the kickoff template + the brief schema + the build-from-brief planner call —
+  the operative invokes it, the same way Kanban's Discuss is a skill. The plain-English goal textarea is gone; you can
+  still hand-edit steps after the conversation.</div>
+</section>
+
+<!-- ============================================================ BUILDER -->
+<section class="block" id="builder"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">06</span><span class="lbl">Builder</span></div>
+  <h2 class="title">Builder — steps, trigger, rehearsal</h2>
+  <p class="lede">After the conversation, you land in the two-panel editor with steps already drafted &amp; rehearsed.
+  Left: the trigger, inputs, and the drag-sortable step list (8 step types). Right: the run viewer. The automation is a
+  <b>YAML file</b> in <span class="k">~/.garrison/automations/&lt;id&gt;.yml</span> — editable here or in the File Browser.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="grp">Views</div>
+      <div class="navi active">Automations <span class="live">live</span></div>
+    </aside>
+    <div class="appmain" style="padding:14px 16px">
+      <div class="scr-head"><div style="display:flex;align-items:center;gap:10px"><h3 style="font-size:19px">Export latest doc &amp; email it</h3><span class="note mono">Editor · Run history</span><span class="note mono faint">~/.garrison/automations/01KW…yml</span></div><div class="tag-row"><span class="btn sm">Save</span><span class="btn sm">Open in Files</span></div></div>
+      <div class="twocol">
+        <div>
+          <div class="card tight" style="margin-bottom:10px">
+            <span class="lab">Trigger</span>
+            <div class="typerow"><span class="tchip t-nav on">Manual</span><span class="tchip">Webhook (connector event)</span><span class="tchip">Listener (poll · scheduler)</span><span class="tchip">Cron (scheduler)</span></div>
+          </div>
+          <div class="card tight" style="margin-bottom:10px"><span class="lab">Inputs</span><div class="note mono">recipient_email · required</div><div class="tag-row" style="margin-top:6px"><span class="btn sm">+ Add input</span><span class="btn sm">↺ Re-discuss</span></div></div>
+          <span class="lab">Steps · drafted from your conversation · drag to reorder</span>
+          <div class="card tight" style="padding:4px 10px">
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">1</span><div style="flex:1"><div class="typerow"><span class="tchip t-nav on">navigate</span></div><div class="note">Go to https://docs.google.com</div></div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">2</span><div style="flex:1"><div class="typerow"><span class="tchip t-browser on">browser</span></div><div class="note">Open the most recently edited document</div></div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">3</span><div style="flex:1"><div class="typerow"><span class="tchip t-browser on">browser</span></div><div class="note">File → Download → PDF</div></div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">4</span><div style="flex:1"><div class="typerow"><span class="tchip t-connector on">connector</span></div><div class="note">google.gmail.send → {{input.recipient_email}}, attach the PDF <span class="lock" style="font-size:9px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Vault</span></div></div></div>
+            <div class="steprow"><span class="grip">⠿</span><span class="stepno">5</span><div style="flex:1"><div class="typerow"><span class="tchip t-verify on">verify</span></div><div class="note">expected: the email shows as sent</div></div></div>
+            <div style="text-align:center;padding:8px"><span class="btn sm">+ Add step</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="card tight">
+            <div class="scr-head" style="margin-bottom:8px;padding-bottom:6px"><div style="display:flex;gap:8px;align-items:center"><b style="font-size:15px">Run</b><span class="badge b-wait">idle</span></div><span class="btn primary sm">▶ Run</span></div>
+            <div class="frame" style="margin-top:4px"><div class="ftag">Run viewer renders here</div><div class="fbig">Live steps, browser stream, output panels, self-healing notices, feedback.</div><a class="fmeta" href="#runviewer">→ Run viewer</a></div>
+          </div>
+          <div class="card tight" style="margin-top:10px"><span class="lab">The automation file (YAML)</span><div class="frame" style="min-height:90px"><div class="ftag">stored as</div><div class="fbig mono" style="font-size:11px;text-align:left">id: 01KW…<br>trigger: { type: manual }<br>inputs: [recipient_email]<br>steps:<br>&nbsp;- { type: navigate, url: … }<br>&nbsp;- { type: connector, key: google, action: gmail.send, … }</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ STEP TYPES -->
+<section class="block" id="steptypes"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">07</span><span class="lbl">Step types</span></div>
+  <h2 class="title">The 8 step types — author &amp; what each shows</h2>
+  <p class="lede">For each: the type pill, what it does, the authoring form, and — framed — what it renders in the run
+  viewer. <span class="k">connector</span> replaces ekoa's <span class="k">integration</span>; <span class="k">ekoa_action</span> is gone. Browser steps run on the <a href="#audit">upgraded Browser Fitting</a>.</p>
+
+  <div class="typerow" style="margin:6px 0 18px">
+    <span class="tchip t-browser on">browser</span><span class="tchip t-verify on">verify</span><span class="tchip t-nav on">navigate</span>
+    <span class="tchip t-wait on">wait</span><span class="tchip t-cmd on">local_command</span><span class="tchip t-api on">api_call</span>
+    <span class="tchip t-connector on">connector</span><span class="tchip t-sub on">sub_automation</span>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;border-left:4px solid #0f766e">
+    <div class="tag-row"><span class="tchip t-browser on">browser</span><b style="font-size:17px">Browser action</b><span class="note">vision-resolved, cached after first success — runs on the upgraded Browser Fitting (persistent profile + stealth + fingerprint cache)</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div><span class="lab">Authoring</span><input class="ctl" value="Click the blue 'Export' button in the toolbar"><span class="lab">Expected outcome (optional)</span><input class="ctl" value="a download / format menu opens"><p class="note">Tier 1 replays a cached selector keyed by page fingerprint; tier 2 screenshots → LLM (via Model Router) → action, then caches. Locator fallback ladder before vision.</p></div>
+      <div><span class="lab">What it shows</span><div class="frame live"><div class="ftag">▣ Live browser stream renders here</div><div class="fbig">JPEG screencast over WebSocket (Browser Fitting <span class="k">/viewport/:tabId</span>). Per-step screenshot saved as a plain file (browsable in Files).</div><div class="fmeta">tier: <span class="badge b-ok">cached</span> / <span class="badge b-fix">vision</span> · duration</div></div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--indigo)">
+    <div class="tag-row"><span class="tchip t-verify on">verify</span><b style="font-size:17px">Verify outcome</b><span class="note">vision assertion the page reached the expected state; can extract values</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div><span class="lab">Authoring</span><input class="ctl" value="expected: the PDF finished downloading"><p class="note">A verify after a connector/sub-automation short-circuits (the side effect already confirmed it).</p></div>
+      <div><span class="lab">What it shows</span><div class="frame live"><div class="ftag">Vision verdict panel</div><div class="fbig">Pass / fail + the model's one-line reasoning over the screenshot. On fail → recoverable → fixer.</div><div class="fmeta"><span class="badge b-ok">passed</span> · "download bar shows 'report.pdf'"</div></div></div>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-bottom:14px">
+    <div class="card" style="border-left:4px solid var(--slate)"><div class="tag-row"><span class="tchip t-nav on">navigate</span><b style="font-size:16px">Navigate</b></div><span class="lab">URL</span><input class="ctl mono" value="https://docs.google.com"><div class="frame" style="min-height:70px;margin-top:8px"><div class="ftag">Shows</div><div class="fbig">URL loaded + screenshot. Deterministic, no vision.</div></div></div>
+    <div class="card" style="border-left:4px solid var(--slate)"><div class="tag-row"><span class="tchip t-wait on">wait</span><b style="font-size:16px">Wait</b></div><span class="lab">Duration (ms)</span><input class="ctl mono" value="2000"><div class="frame" style="min-height:70px;margin-top:8px"><div class="ftag">Shows</div><div class="fbig">"waited 2.0s". No output.</div></div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--orange)">
+    <div class="tag-row"><span class="tchip t-cmd on">local_command</span><b style="font-size:17px">Run a command</b><span class="note">a shell command — first use of each command shape needs a consent approval</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div><span class="lab">Authoring</span><input class="ctl mono" value="git -C ~/reports status --short"><div class="tag-row" style="margin-top:6px"><span class="note">cwd</span><input class="ctl mono" style="width:120px" value="~/reports"><span class="note">timeout</span><input class="ctl mono" style="width:90px" value="300000"></div></div>
+      <div><span class="lab">What it shows</span><div class="frame live"><div class="ftag">▤ stdout / stderr stream here</div><div class="fbig">Live output chunks into a dark terminal panel — stdout light, stderr red — plus an exit-code badge. Secrets redacted.</div><div class="fmeta"><span class="badge b-ok">exit 0</span> · 240ms</div></div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--blue)">
+    <div class="tag-row"><span class="tchip t-api on">api_call</span><b style="font-size:17px">API call</b><span class="note">raw HTTP — optionally borrowing a connector's sealed auth via <span class="k">authConnectorKey</span></span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div><span class="lab">Authoring</span><div class="tag-row"><select class="ctl mono" style="width:100px"><option>GET</option></select><input class="ctl mono" value="https://api.github.com/repos/{{input.repo}}"></div><span class="lab">Auth connector (optional)</span><input class="ctl mono" value="github"><p class="note">Borrows GitHub's sealed token from the Vault — no token in the file.</p></div>
+      <div><span class="lab">What it shows</span><div class="frame live"><div class="ftag">▥ Request / response panel</div><div class="fbig">Status badge, duration, Body / Headers tabs; JSON gets a collapsible syntax tree. Secrets redacted.</div><div class="fmeta"><span class="badge b-ok">HTTP 200</span> · 180ms · application/json</div></div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;border-left:4px solid var(--amber)">
+    <div class="tag-row"><span class="tchip t-connector on">connector</span><b style="font-size:17px">Connector action</b><span class="note">call a connected service's catalog action (the renamed ekoa "integration" step) — auth sealed in the Vault</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div><span class="lab">Pick from catalog</span><select class="ctl mono"><option>slack.send_message — channel, text (mutates)</option></select><span class="lab">Args (templated)</span><input class="ctl mono" value='channel: "#revenue"'><input class="ctl mono" style="margin-top:5px" value='text: "New payment: {{input.amount}}"'><p class="note">Args from <span class="k">{{input.x}}</span>, prior-step <span class="k">{{capture.x}}</span>, trigger <span class="k">{{event.path}}</span>. Auth materialized JIT from the Vault.</p></div>
+      <div><span class="lab">What it shows</span><div class="frame live"><div class="ftag">Connector result</div><div class="fbig">Action + return value. Not connected → run pauses <span class="badge b-run">awaiting_connector</span> with a "Connect Slack" button.</div><div class="fmeta">auth <span class="lock" style="font-size:9px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Vault-sealed</span></div></div></div>
+    </div>
+  </div>
+
+  <div class="card" style="border-left:4px solid var(--violet)">
+    <div class="tag-row"><span class="tchip t-sub on">sub_automation</span><b style="font-size:17px">Sub-automation</b><span class="note">run another saved automation as one step</span></div>
+    <div class="twocol" style="margin-top:8px">
+      <div><span class="lab">Pick automation</span><select class="ctl mono"><option>"Fetch &amp; format invoice" — 6 steps</option></select><span class="lab">Args passed in</span><input class="ctl mono" value='customer_id: "{{input.customer}}"'></div>
+      <div><span class="lab">What it shows</span><div class="frame"><div class="ftag">Nested run summary</div><div class="fbig">A collapsible child-run row (its own steps nest below). Compose automations from building blocks.</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ RUN VIEWER -->
+<section class="block" id="runviewer"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">08</span><span class="lbl">Run viewer</span></div>
+  <h2 class="title">Run viewer — live execution</h2>
+  <p class="lede">Streamed over SSE: status header, the live step list (status / tier / duration / type-specific output),
+  the browser stream for browser steps, self-healing notices inline, and per-step feedback. Outputs are plain files,
+  linkable into the <a href="#filebrowser">File Browser</a>.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="grp">Views</div><div class="navi active">Automations <span class="live">live</span></div>
+    </aside>
+    <div class="appmain" style="padding:14px 16px">
+      <div class="scr-head" style="margin-bottom:10px"><div style="display:flex;gap:10px;align-items:center"><b style="font-size:16px">Run</b><span class="badge b-run dotpre">running</span><span class="note">step 3 of 5 · driving browser…</span></div><span class="btn danger sm">◼ Cancel</span></div>
+      <div class="twocol">
+        <div>
+          <div class="card tight" style="padding:0">
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">1</span><span class="tchip t-nav on" style="font-size:10px">navigate</span><span class="badge b-ok">completed</span><span class="badge b-ok">cached</span><span class="note mono">120ms</span></div><div class="note">Go to https://docs.google.com</div></div></div>
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">2</span><span class="tchip t-browser on" style="font-size:10px">browser</span><span class="badge b-ok">completed</span><span class="badge b-fix">vision</span><span class="note mono">2.1s</span></div><div class="note">Open the most recently edited document · <span class="t-browser">screenshot ▣</span></div></div></div>
+            <div class="steprow" style="padding:9px 11px;background:#fbf6ea"><div style="flex:1"><div class="tag-row"><span class="stepno">3</span><span class="tchip t-browser on" style="font-size:10px">browser</span><span class="badge b-run dotpre">running</span></div><div class="note">File → Download → PDF</div>
+              <div class="frame live" style="min-height:140px;margin-top:8px"><div class="ftag">▣ Live browser stream</div><div class="fbig">The page Garrison drives, frame-by-frame — you watch the menu open and the export happen.</div><div class="fmeta">Browser Fitting :7084 · 1280×800 · ~15 fps · persistent profile</div></div></div></div>
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">4</span><span class="tchip t-connector on" style="font-size:10px">connector</span><span class="badge b-wait">pending</span></div><div class="note">google.gmail.send → {{input.recipient_email}}</div></div></div>
+            <div class="steprow" style="padding:9px 11px"><div style="flex:1"><div class="tag-row"><span class="stepno">5</span><span class="tchip t-verify on" style="font-size:10px">verify</span><span class="badge b-wait">pending</span></div><div class="note">expected: the email shows as sent</div></div></div>
+          </div>
+        </div>
+        <div>
+          <span class="lab">api_call output (example)</span>
+          <div class="frame" style="min-height:80px"><div class="ftag">Body / Headers tabs · JSON tree</div><div class="fbig">Collapsible syntax-colored JSON; Preview / Raw; status + duration.</div></div>
+          <span class="lab">Self-healing (inline)</span>
+          <div class="card tight" style="border:1px solid var(--violet);background:var(--violet-bg)"><div class="tag-row"><span class="badge b-fix dotpre">applied</span><b style="font-size:13px">Inserted a step before this one</b></div><div class="note">"a cookie banner covered the button — dismiss it first" · attempt 2</div></div>
+          <span class="lab">Per-step feedback</span>
+          <div class="card tight"><div class="tag-row"><span class="btn sm" style="color:var(--emerald)">▲ Good</span><span class="btn sm" style="color:var(--red)">▼ Bad <span class="faint">(evicts cache)</span></span><span class="btn sm">Suggest correction…</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px">Self-healing patch kinds: <span class="k">insert_before</span> · <span class="k">replace_current</span> · <span class="k">skip_current</span> · <span class="k">pause_for_user</span> (CAPTCHA/MFA/payment) · <span class="k">abort</span>. Budget-capped (max fixer calls, max patches/step, wall-clock). A failing run is shown failing — never edited to look passed.</p>
+</section>
+
+<!-- ============================================================ FILE BROWSER -->
+<section class="block" id="filebrowser"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">09</span><span class="lbl">New Fitting</span></div>
+  <h2 class="title">File Browser — files, not artifacts</h2>
+  <p class="lede">Replaces the dropped Artifact Store. An own-port view surface to browse folders, preview any file type
+  (images, video, PDF — open-in-tab for now — and a real markdown viewer), and edit with <b>Monaco</b> (reusing the
+  existing <span class="k">FittingEditor.tsx</span> on <span class="k">@monaco-editor/react</span> + <span class="k">marked</span>). Responsive, mobile-first. It's where automation YAML, run outputs, screenshots,
+  documents, and project files all live as plain files.</p>
+
+  <div class="appshell">
+    <aside class="appside">
+      <div class="s-brand"><svg width="16" height="13" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>Agent Garrison</div>
+      <div class="grp">Views</div><div class="navi active">Files <span class="live">live</span></div>
+    </aside>
+    <div class="appmain" style="padding:0">
+      <div style="display:grid;grid-template-columns:200px 1fr 1fr;min-height:320px">
+        <div style="border-right:1px solid var(--line);padding:12px 10px;font-size:13px">
+          <div class="lbl" style="margin-bottom:6px">Roots</div>
+          <div class="note mono" style="line-height:1.9">▾ ~/.garrison<br>&nbsp;&nbsp;▾ automations/<br>&nbsp;&nbsp;&nbsp;&nbsp;<b>01KW….yml</b><br>&nbsp;&nbsp;&nbsp;&nbsp;▾ briefs/<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;01KW….md<br>&nbsp;&nbsp;▸ runs/<br>&nbsp;&nbsp;▸ improver/<br>▸ ~/dev (projects)<br>▸ composition/</div>
+        </div>
+        <div style="border-right:1px solid var(--line);padding:12px">
+          <div class="crumb">~/.garrison · automations · <b>01KW….yml</b></div>
+          <div class="frame" style="min-height:230px"><div class="ftag">▤ Monaco editor (markdown/yaml/json presets)</div><div class="fbig">Reuses the existing FittingEditor component: syntax highlighting by extension, Save, dirty state. YAML automation here; markdown gets a preview toggle.</div><div class="fmeta">edit · format · save</div></div>
+        </div>
+        <div style="padding:12px">
+          <div class="lbl" style="margin-bottom:6px">Preview by type</div>
+          <div class="frame live" style="min-height:80px;margin-bottom:8px"><div class="ftag">image / video</div><div class="fbig">Inline image thumbnail; video + PDF open in a browser tab (v1).</div></div>
+          <div class="frame" style="min-height:80px;margin-bottom:8px"><div class="ftag">markdown viewer</div><div class="fbig">Rendered via <span class="k">marked</span> — briefs, logs, evidence read nicely.</div></div>
+          <div class="frame" style="min-height:60px"><div class="ftag">mobile-first</div><div class="fbig">Tree / editor / preview collapse to switchable tabs on phone &amp; tablet.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px">Browse roots (configurable): <span class="k">~/.garrison</span> (operative state — automations, runs, briefs, improver), project roots from <span class="k">$PROJECTS_ROOT</span> (dev-env parity), and the composition dir. A lightweight index lives under <span class="k">~/.garrison/ui-fittings/file-browser-…</span>. No domain logic — pure index + viewer/editor surface.</p>
+</section>
+
+<!-- ============================================================ SCHEDULER -->
+<section class="block" id="scheduler"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">10</span><span class="lbl">Decoupled</span></div>
+  <h2 class="title">Scheduler — a platform-agnostic always-on Node daemon</h2>
+  <p class="lede">The operative is meant to be always running, so triggers must fire whether or not Claude Code is up —
+  and on any OS. Today's scheduler's only "always-on" path is an <b>unbuilt</b> macOS launchd agent and it's tagged
+  Claude-Code-only. The core (job store, cron, <span class="k">scheduler-beats.mjs</span>) is already platform-neutral;
+  we extract the daemon and run it as an independent service.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">What it runs (automation triggers)</h4>
+      <ul class="tight">
+        <li><b>Cron automations</b> — "every weekday 8am" fires a run.</li>
+        <li><b>Listener automations</b> — poll a connector (IMAP, a board) on a cadence; one worker per trigger (ekoa's listener-supervisor pattern folded in).</li>
+        <li><b>Webhook automations</b> — registered with the <b>Gateway</b>, not the scheduler (inbound).</li>
+        <li>Existing Kanban ticks + Improver nightly keep working unchanged.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 class="sub4" style="margin-top:0">Decoupled shape</h4>
+      <div class="flow" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="fnode" style="min-width:0"><div class="ft">core (kept)</div>job store <span class="k">~/.garrison/scheduler-jobs.json</span> · cron · scheduler-beats</div>
+        <div class="farr" style="justify-content:center">↓ extract</div>
+        <div class="fnode k-run" style="min-width:0"><div class="ft">daemon (new)</div>standalone Node process · ticks every 60s · SIGTERM-safe · /health</div>
+        <div class="farr" style="justify-content:center">↓ supervised by</div>
+        <div class="fnode" style="min-width:0"><div class="ft">any platform</div>systemd · Docker · PM2 · launchd — same Node code, only the supervisor differs</div>
+      </div>
+      <p class="note" style="margin-top:8px">A sibling of the operative, not inside it. Fittings still register jobs via the same CLI/HTTP — nothing about registration changes.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ PAUSE / CONSENT -->
+<section class="block" id="pause"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">11</span><span class="lbl">Human-in-the-loop</span></div>
+  <h2 class="title">Pause-for-user &amp; consent</h2>
+  <div class="grid2">
+    <div class="card" style="border:2px solid #6aa3b0">
+      <div class="tag-row"><span style="font-size:18px">✋</span><div><span class="lbl" style="color:var(--cyan)">Garrison needs you</span><h4 class="sub4" style="margin-top:2px">Step 3 — please act on the page</h4></div><span class="badge b-pause dotpre" style="margin-left:auto">paused_for_user</span></div>
+      <div class="frame live" style="min-height:140px"><div class="ftag">▣ Drivable live browser canvas</div><div class="fbig">The screencast, but interactive: your mouse + keyboard relay to the page over <span class="k">/input/:tabId</span> (Browser Fitting). Solve the CAPTCHA / MFA, then Continue.</div><div class="fmeta">falls back to a static screenshot if the stream drops</div></div>
+      <div class="tag-row" style="margin-top:10px;justify-content:flex-end"><span class="btn danger sm">◼ Stop</span><span class="btn primary sm">▶ Continue</span></div>
+    </div>
+    <div class="card">
+      <div class="tag-row"><div><span class="lbl" style="color:var(--orange)">First-time command</span><h4 class="sub4" style="margin-top:2px">Approve local command?</h4></div><span class="badge" style="background:var(--orange-bg);color:var(--orange);margin-left:auto">awaiting_consent</span></div>
+      <p class="note">First use of any new command shape needs approval. This wants to <b>run a git command</b> on your machine.</p>
+      <span class="lab">Shape</span><div class="card tight mono" style="font-size:12.5px;background:var(--paper-2)">git status</div>
+      <div class="card tight mono" style="font-size:11px;background:#23211c;color:#cfc9bb;margin-top:8px">[ "git", "-C", "~/reports", "status", "--short" ]</div>
+      <div class="tag-row" style="margin-top:8px;justify-content:flex-end"><span class="btn sm">Stop</span><span class="btn sm">Approve once</span><span class="btn" style="background:var(--orange);color:#fff;border-color:var(--orange)">Approve always</span></div>
+    </div>
+  </div>
+  <div class="callout"><b>Third pause:</b> <span class="badge b-run">awaiting_connector</span> — a connector step whose service
+  isn't connected pauses with a "Connect &lt;service&gt;" deep-link to the <a href="#connectors">registry</a>. Connect →
+  resume. (ekoa's <span class="k">awaiting_daemon</span> collapses into a Browser-Fitting health note here.)</div>
+</section>
+
+<!-- ============================================================ DECISIONS -->
+<section class="block" id="decisions"><span class="anchor"></span>
+  <div class="eyebrow"><span class="num mono">12</span><span class="lbl">Decisions &amp; phasing</span></div>
+  <h2 class="title">Decided, phased, and what's still open</h2>
+
+  <h3 class="sub">Suggested build order</h3>
+  <table class="ref">
+    <tr><th>Phase</th><th>Ships</th><th>Why first</th></tr>
+    <tr><td><b>0 · Substrate</b></td><td>Vault upgrades (atomic write → per-connector scope → OAuth refresh → audit); scheduler daemon extraction</td><td>The marquee + the always-on backbone everything else leans on. Smallest, highest-trust wins.</td></tr>
+    <tr><td><b>1 · Connectors</b></td><td>Connectors faculty + <span class="k">connector</span> kind; drop <span class="k">data-source</span>; Trello/Google/Slack-dual as Fittings; the Vault↔Connectors UI</td><td>Independently useful (the operative can call services) and unblocks automations.</td></tr>
+    <tr><td><b>2 · File Browser</b></td><td>File Browser fitting (reuse Monaco + marked); drop artifact-store</td><td>Plain-files foundation; where automations + outputs live.</td></tr>
+    <tr><td><b>3 · Automations core</b></td><td>YAML automation files; non-browser steps (navigate/wait/command/api_call/connector/sub); run viewer; planner via Model Router</td><td>The engine, minus the hardest substrate.</td></tr>
+    <tr><td><b>4 · Browser steps</b></td><td>Browser Fitting upgrades (observation/fingerprint/a11y/profile/stealth) + the cache→vision→execute orchestration layer; browser + verify steps + live stream; chuck <span class="k">browser-automation</span></td><td>The substrate-audit payoff; depends on Phase 0 discipline.</td></tr>
+    <tr><td><b>5 · Self-heal + chat-to-build</b></td><td>Fixer loop + pause/consent; the Discuss skill + brief→planner→rehearsal flow</td><td>The visibility + authoring polish, on top of a working engine.</td></tr>
+  </table>
+
+  <h3 class="sub">Smaller forks — decided</h3>
+  <ul class="tight">
+    <li><b>Vault master key — keychain only.</b> The master key lives in the OS keychain (macOS Keychain / libsecret / Windows Credential Manager) with <b>no passphrase fallback</b>. The threat model is explicit: a passphrase is a stealable, phishable attack surface and a leaked one is <em>unacceptable</em>; losing keychain access in a catastrophic failure is an <em>acceptable</em> loss (the vault is simply reconnected). So there is no passphrase anywhere — Garrison would rather be unrecoverable-if-the-keychain-is-gone than hold a secret someone could take.</li>
+    <li><b>Browser orchestration home — the Automations Fitting.</b> There is no existing <span class="k">src/lib</span> home for it, so the cache→vision→execute layer lives inside the Automations Fitting (lib only if it were already there). The Browser Fitting stays a pure service; the Automations Fitting owns the orchestration.</li>
+    <li><b>Automation file scope — machine-local.</b> <span class="k">~/.garrison/automations/&lt;id&gt;.yml</span>.</li>
+    <li><b>Derived Tasks — disconnected, not rewired.</b> Move the Trello Fitting to Connectors but <b>don't wire derived Tasks to anything</b>. Trello-backed Tasks is being retired in favour of our own Kanban, so the <span class="k">tasks:</span> wiring is dropped now rather than migrated. The Trello connector stays for direct list/card actions; it just no longer backs a "Tasks" surface.</li>
+  </ul>
+
+  <div class="callout good"><b>Still exploration — nothing built.</b> When you're happy with this shape, Phase 0
+  (Vault + scheduler daemon) is the place to start: smallest, most independently valuable, and it's the trust story
+  that makes the rest worth advertising.</div>
+
+  <p class="note" style="margin-top:24px">v2 grounded in a verified read (6 parallel explorers + adversarial verification) of: the Kanban Discuss handoff
+  (<span class="k">discuss.mjs</span> + web-channel), <span class="k">src/lib/vault.ts</span> + <span class="k">runner.ts</span>,
+  <span class="k">src/lib/model-router.ts</span>, the scheduler + <span class="k">scheduler-beats.mjs</span>,
+  <span class="k">artifact-store.ts</span> consumers, <span class="k">FittingEditor.tsx</span>, and the browser substrate vs
+  <span class="k">ekoa-dev/cortex/src/automation</span>. No code modified.</p>
+</section>
+
+</main>
+</body>
+</html>

@@ -47,9 +47,7 @@ async function status() {
 
   // Liveness
   console.log(C.bold("\nLiveness"));
-  const b = st.liveness.beads;
   const a = st.liveness.agentMail;
-  console.log(`  Beads (bd CLI):   ${b.up ? C.green("UP") : C.red("DOWN")}${b.up ? C.dim(`  ${b.latencyMs}ms`) : ""}`);
   console.log(`  agent_mail HTTP:  ${a.up ? C.green("UP") : C.red("DOWN")}${a.up ? C.dim(`  ${a.latencyMs}ms  ${a.url}`) : a.reason ? C.dim(`  (${a.reason})`) : ""}`);
 
   // Sessions grouped by repo

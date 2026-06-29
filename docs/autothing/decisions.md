@@ -222,3 +222,131 @@ new `tests/dev-env-*`):
   is git-unmodified by DS.
 The DS suite is fully green: dev-env-claude-sessions 11, resume-by-id 5,
 open-set 13, sessions-endpoints 7 = 36/36; typecheck 0; dev-env bundle build 0.
+
+## run 20260622-143110-e93ec4b5
+
+- PRE-EXISTING (not introduced by this run; present at BASE c092101): 6 vitest failures —
+  tests/validation.test.ts + tests/seed.test.ts (x3) + tests/claude-install.test.ts reference a
+  `fittings/seed/memory` seed that does not exist (likely a memory→basic-memory rename left stale
+  ids/tests); tests/gemini-runtime.test.ts buildArgs; tests/fitting-files-api.test.ts. Out of the
+  modes slice's scope — logged, not fixed here.
+- modes faculty modeling: added a dedicated single-cardinality `modes` faculty (the sanctioned
+  "new faculty when a real Fitting needs one" trigger) rather than overloading the singleton
+  `orchestrator` faculty. `automation-runner` capability kind already existed (re-added 2026-06-13),
+  so only `modes` kind was added.
+- DEFERRED to s1c: resolve `briefs_path` against the composition dir in the souls config (setup.mjs
+  only pre-creates a placeholder dir relative to the fitting install dir).
+- DEFERRED doc nit: CLAUDE.md up-order step 6 still says "Anthropic Agent SDK in-process" (stale vs
+  PTY-everywhere) — a follow-up doc pass, out of s0/s1 scope.
+
+## s1c (souls assembly)
+- Modes activates the gateway's orchestrator/soul mode, which needs the mcp-gateway
+  sidecar (talk_to / spawn-soul). runner.up() gates activation on mcpGatewayPresent()
+  — absent => warn + stay in normal routed mode. A modes composition must select an
+  orchestrator + http-gateway + mcp-gateway (recorded in the modes README).
+- DEFERRED to s1d / a live run-garrison check: actually booting the gateway in
+  orchestrator/soul mode end-to-end (the dormant gateway.mjs path) — s1c's gate is the
+  committed souls unit + typecheck + suite; live boot is integration.
+
+## s1d (mode resolver + switch-log)
+- Mode resolution (which face handles a turn) lives gateway-side in
+  forwardChatToOrchestrator: name-at-start (sticky) / channel default at session
+  start, logged to the switch-log, annotated as [mode: <name>] into the
+  orchestrator turn. assembleSouls composes the orchestrator's soul-mode prompt
+  with a MODE_DELEGATION_INSTRUCTION so [mode:] is acted on (talk_to(soul)).
+- RE-SCOPE (honest): the FLOW_PLAN s1d line said "orchestrator-mode turn runs
+  preRoute". Full classifier-preRoute INSIDE orchestrator/soul mode is a larger
+  unification (the routing layer lives in gateway-pty.mjs routed mode; gateway.mjs
+  orchestrator mode is a separate engine) — tracked as a SEPARATE follow-up, not
+  silently dropped. Per-mode model/effort is delivered by s1e (applyModeBias). s1d
+  delivers face resolution + switch-log + actionable delegation, fully gated.
+
+## s1e (mode bias) + TRACKED FOLLOW-UP: orchestrator-mode↔routing unification
+- s1e ships the pure bias primitives (biasRole, modeBiasFor) + their LIVE use in
+  assembleSouls: each mode's nominal tier (Joe=expert, James/Gary=standard) is
+  computed from its routing bias and baked into the orchestrator's soul-mode
+  delegation prompt ("Per-mode tier" section) — so the orchestrator is instructed
+  to spawn each soul at its mode's tier. Dropped the premature route-variant
+  applyModeBias (no caller yet = YAGNI).
+- CODEX OVERRIDE (r3, logged honestly): the per-mode tier is currently PROMPT-LEVEL
+  (LLM-honored), not PROGRAMMATICALLY enforced in the gateway's talk_to/spawnSoulSession
+  path (which would map role→model flags). Hard enforcement requires the
+  ORCHESTRATOR-MODE↔ROUTING UNIFICATION — the same follow-up s1d flagged
+  (running classifier-preRoute / role→model mapping inside the dormant gateway.mjs
+  orchestrator/soul engine). This is a large, dormant-path integration that cannot
+  be responsibly built + gated without a live orchestrator-mode boot (claude +
+  mcp-gateway + souls). TRACKED as a dedicated follow-up; the global gate stays out
+  of clean "passed" because of it (honest).
+
+## s3a (orchestrator placement) — reorder + reframe
+- Built s3a AHEAD of s2 (deliverable #3 — Dev Env via orchestrator — is the
+  user's explicit priority; s2 respawn lives in the dormant orchestrator-mode path).
+- REFRAMED s3a from "gateway POST /sessions/place" to a LIVE Garrison API
+  "POST /api/orchestrator/place" (src/lib/orchestrator-placement.ts). Rationale:
+  the gateway's /sessions/place lives in the dormant orchestrator/soul mode; a
+  Garrison API is always available, live-testable, and reuses the same souls/mode
+  /bias logic. The Dev Env (s3b) calls it and spawns Claude Code with the composed
+  mode prompt + model. v1 sources modes + routing from the repo seed;
+  composition-scoped overrides are a noted later enhancement.
+
+## s3c (Dev Env UI) + EXTERNAL BLOCKER: Codex out of credits
+- s3c: mode <select> (default Joe) in StartSessionDialog + pure buildSessionRequest;
+  submit posts orchestrated:true+mode → server /api/orchestrator/place → claude with
+  the composed mode prompt + model.
+- LIVE INTEGRATION CHECK (the gate working): curl to the RUNNING Garrison
+  /api/orchestrator/place returned mode=joe but model=null/role=standard — caught a
+  real bug the unit test missed: orchestrator-placement.ts derived model via a
+  RUNTIME dynamic import of routing-core.mjs by file URL, which silently FAILS in
+  the Next server runtime (works under vitest). FIX: inlined biasRole/modeBiasFor as
+  pure TS (no .mjs import); re-verified live → mode=joe, role=expert, model=opus,
+  effort=high. Deliverable #3 is LIVE end-to-end.
+- EXTERNAL BLOCKER (run-wide from here): the Codex/ChatGPT workspace is OUT OF
+  CREDITS — `codex exec` returns "Your workspace is out of credits. Add credits to
+  continue." The cross-model adversarial gate (autothing-adversarial-review/-test)
+  cannot run for s3c's fix or any later slice. I cannot self-unblock (needs the user
+  to add credits). Remaining slices proceed through all OTHER gates (committed tests,
+  same-model review, typecheck, suite, live checks) with codexReview=blocked-external.
+  The global gate will be COMPLETED-WITH-BLOCKERS citing this. Remediation: add
+  credits to the Codex workspace, then re-run the adversarial gates on the run's diff.
+
+## s2 (execution layer: HOT/BOOT/shared-memory) — pool-collapse under Q4
+- Q4 = assume current reality (no /config-hotswap spike). The warm pool is ALREADY
+  one generic operative pool (FINDING 7): the gateway wires one primary "operative"
+  runtime + one "classifier"; model/effort are applied at checkout via slash-inject
+  (/model, /effort, stage-b.mjs), NOT by partitioning the pool. s2 LOCKS this with a
+  test (tests/warm-pool-single.test.ts).
+- HOT set (hot-swappable mid-session via slash-inject): {model, effort}. NOTE the two
+  distinct paths so "model is HOT" and "respawn on model change" do not read as a
+  contradiction: the ROUTED gateway (gateway-pty.mjs) slash-injects /model+/effort and
+  NEVER respawns on a model change (it re-tunes the live session in place); the DORMANT
+  orchestrator/soul mode (gateway.mjs) is the only path that respawns-with-resume, and
+  only to carry a BOOT-level change (a model change within a soul) across a fresh process.
+- BOOT set (needs a fresh session): {system prompt / soul identity}. In the gateway
+  orchestrator mode this is realized as a SEPARATE soul session per face (gary/joe/
+  james keyed in the registry); shouldRespawnForTier already respawns-with-resume on a
+  model change within a soul. A `shouldRespawnForMode` for a SINGLE operative would be
+  dead code today (mode switch routes to a different soul session) — it belongs to the
+  orchestrator-mode↔routing unification (a single operative that respawns on a
+  system-prompt/mode change).
+- Shared memory ("one operative, one memory"): the Basic Memory faculty (the vault) is
+  shared across all three modes by construction — every soul session reads/writes the
+  same store. Not the same Claude transcript; the persistent memory store.
+- KNOWN GAP (no spike, Q4): permission-mode / allowed-tools / MCP-allowlist are NOT
+  hot-swapped (would need `/config key=value`, unverified). Out of scope; recorded.
+
+## s1c addendum (cross-model gate, Codex r1) — mcp-gateway conformance gap
+The Codex re-review of s1c surfaced three real wiring bugs in the dormant souls mode,
+two now FIXED (runner sets GARRISON_ORCHESTRATOR_FITTING_ID so the gateway labels the
+orchestrator session; runner warns instead of silently downgrading when assembleSouls
+returns null with modes+mcp-gateway present). The third (f1: "souls activation gates on
+mcp-gateway being present, but it is not reachable") is REAL but bounded: mcp-gateway is
+a genuine seed fitting (`fittings/seed/mcp-gateway`, detected by `mcpGatewayPresent` via
+directory presence, installable via APM / the global composition), so the gate IS
+satisfiable. It is deliberately NOT in the curated library browser (`data/library.json`)
+because its manifest declares capability kinds (`mcp-gateway`, `agent-skill`) outside the
+current `capabilityKinds` enum — registering it there breaks the schema-conformance
+resolve tests (dev-env / runner-eager-lifecycle / seed), and adding those kinds to the
+enum would be a speculative capability-kind addition (forbidden by the project rules).
+DECISION: keep mcp-gateway installable on disk + document the requirement; bringing its
+manifest into capability-schema conformance (so it can be a library citizen) is folded
+into the orchestrator-mode↔routing unification follow-up (the dormant-souls-mode work).

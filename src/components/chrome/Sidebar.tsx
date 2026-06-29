@@ -24,14 +24,15 @@ import {
   Archive,
   Radio,
   Brain,
-  Database,
   Cpu,
   Network,
+  Plug,
   type LucideIcon
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
+import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 import type {
   CapabilityKind,
   Composition,
@@ -160,6 +161,13 @@ export function Sidebar() {
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
         <NavLink
+          href="/connectors"
+          pathname={pathname}
+          icon={<Plug aria-hidden />}
+          label="Connectors"
+          active={pathname === "/connectors" || pathname.startsWith("/connectors")}
+        />
+        <NavLink
           href="/quarters"
           pathname={pathname}
           icon={<LayoutGrid aria-hidden />}
@@ -242,7 +250,7 @@ function useIsMobileViewport(): boolean {
 // file: exact id first (most meaningful), then the capability kind it
 // provides, then its Faculty role, then a generic embedded/own-port fallback.
 const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
-  "artifact-store": Archive,
+  "file-browser": Archive,
   "browser-default": Globe,
   "dev-env": SquareTerminal,
   improver: Sparkles,
@@ -256,7 +264,6 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
 };
 
 const VIEW_ICON_BY_KIND: Partial<Record<CapabilityKind, LucideIcon>> = {
-  "artifact-store": Archive,
   "dev-env": SquareTerminal,
   "screen-share": ScreenShare,
   monitor: Activity,
@@ -264,7 +271,7 @@ const VIEW_ICON_BY_KIND: Partial<Record<CapabilityKind, LucideIcon>> = {
   channel: MessagesSquare,
   outpost: Radio,
   "memory-store": Brain,
-  "data-source": Database,
+  connector: Plug,
   runtime: Cpu,
   "automation-runner": Sparkles,
   view: LayoutGrid
@@ -277,7 +284,8 @@ const VIEW_ICON_BY_FACULTY: Partial<Record<FacultyId, LucideIcon>> = {
   observability: Activity,
   runtimes: Cpu,
   memory: Brain,
-  gateway: Network
+  gateway: Network,
+  connectors: Plug
 };
 
 function viewIcon(entry: LibraryEntry, ownPort: boolean): LucideIcon {
@@ -380,15 +388,18 @@ function FittingViewsLinks({
           </span>
         );
         if (healthy && status) {
+          // Pick the URL reachable from where the browser is: loopback locally,
+          // the HTTPS tailnet endpoint over Tailscale, else a host rebind.
+          const openUrl = resolveViewUrl(status);
           if (isMobile) {
             return (
               <a
                 key={`own-port:${row.entry.id}`}
-                href={status.url}
+                href={openUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="item"
-                title={`Open ${row.entry.name} in new tab (${status.url})`}
+                title={`Open ${row.entry.name} in new tab (${openUrl})`}
               >
                 <span>
                   {icon}
@@ -405,7 +416,7 @@ function FittingViewsLinks({
               key={`own-port:${row.entry.id}`}
               href={embedHref}
               className={clsx("item", isActive && "active")}
-              title={`Open ${row.entry.name} embedded (${status.url})`}
+              title={`Open ${row.entry.name} embedded (${openUrl})`}
             >
               <span>
                 {icon}

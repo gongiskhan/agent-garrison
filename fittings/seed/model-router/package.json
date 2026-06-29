@@ -1,0 +1,14 @@
+{
+  "name": "@garrison/model-router-fitting",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ui/build.mjs",
+    "probe": "node scripts/check-routing.mjs --check"
+  },
+  "dependencies": {
+    "@garrison/claude-pty": "file:../../../packages/claude-pty",
+    "esbuild": "^0.28.0"
+  }
+}

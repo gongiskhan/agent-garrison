@@ -1,0 +1,79 @@
+name: kanban-loop
+version: 0.2.0
+description: Kanban Loop V1b — a workflow state machine wearing a Kanban board. Cards are work items, lists are pipeline states, an agent-list's router-prompt is the transition function. The full autothing-* pipeline (Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate, plus Backlog/To Do/Discuss/Done/needs-attention). Composes the orchestrator (preRoute), the autothing skills, and the scheduler.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: observability
+  cardinality_hint: single
+  component_shape: script
+  # Own-port board UI (the kanban-board-ui slice). Garrison surfaces it at
+  # /embed/kanban-loop from the status file scripts/server.mjs writes under
+  # ~/.garrison/ui-fittings/kanban-loop.json. operative-bound = the runner starts
+  # it during `up` and stops it during `down`.
+  own_port: true
+  default_port: 7089
+  lifecycle: operative-bound
+  platforms:
+    - claude-code
+  summary: >-
+    A Garrison automation-runner. File-per-card board under ~/.garrison/kanban-loop
+    (ULID ids, atomic writes; membership derived by scanning cards, never stored; the
+    card stores POINTERS — runId/runDir/sliceId/sessionIds/briefPath/videoUrl — never
+    inlined document bodies). A manual list is a plain column; an agent-list has a named
+    autothing-* skill + execute-prompt + router-prompt and one of three triggers
+    (immediate | manual | scheduler-beat). On the card's first agent-list entry the
+    engine mints a runId + runDir and threads the run dir into every execute-prompt so
+    the autothing skills write per-run. On entry an immediate agent list sends the
+    combined prompt through the orchestrator front door (preRoute, which decides
+    effort/model from the explicit {taskType,tier} hint), then the router output must
+    EXACTLY name one of the card's valid next lists or the card parks in needs-attention.
+    The Test list runs batched per project on its own scheduler beat (default every 5h).
+    Goal-mode prepends /goal + acceptance; the convergence guard is the per-card
+    iteration cap. The two adversarial lists are cross-model Codex passes, not a higher
+    tier. The board UI is owned by other V1b slices.
+  config_schema:
+    - key: board_dir
+      type: path
+      default: ~/.garrison/kanban-loop
+      description: Per-machine board root (override via GARRISON_KANBAN_DIR).
+    - key: iteration_cap
+      type: integer
+      default: 10
+      description: Per-card iteration cap; a breach parks the card in needs-attention (the convergence guard).
+    - key: test_beat_cron
+      type: string
+      default: 0 */5 * * *
+      description: Cron cadence for the Test list's own scheduler beat (override via KANBAN_TEST_BEAT_CRON). Not the global heartbeat.
+  provides:
+    - kind: automation-runner
+      name: kanban-loop
+  consumes:
+    - kind: orchestrator
+      cardinality: optional-one
+  setup:
+    command: node ui/build.mjs && node scripts/kanban.mjs --setup
+    idempotent: true
+    timeout_ms: 60000
+  verify:
+    command: node apm_modules/_local/kanban-loop/scripts/kanban.mjs --probe
+    expect: KANBAN-OK
+    timeout_ms: 10000
+  for_consumers: |
+    The Kanban Loop sequences work items (cards) through pipeline states (lists) on a
+    single autothing-* skill family. A manual list is a plain column; an agent-list runs
+    its named autothing-* verb, sends the execute+router prompt (with the card's run
+    directory threaded in as literal text) through the orchestrator (preRoute decides
+    effort/model from the {taskType,tier} hint), and the router output's last line must
+    EXACTLY name one of the card's valid next lists, else the card parks in
+    needs-attention. Each agent list carries one of three triggers: immediate (fires on
+    entry via --tick), scheduler-beat (the Test list, batched per project on its own
+    beat), or manual (advanced by hand; interactive lists like Discuss open the web
+    chat). On a card's first agent-list entry the engine mints a runId + runDir
+    (docs/autothing/runs/<runId>) so each card's plan and gate files do not collide; the
+    card stores pointers, never copies. It does NOT own routing or skills — it sequences
+    them (one skill-decider per list, one effort/model decider in the router, no
+    overlap). Goal-mode cards prepend /goal + acceptance; the guard is the iteration cap,
+    not a goal hook. The two adversarial lists are cross-model Codex passes via the codex
+    CLI — the operative stays modest.

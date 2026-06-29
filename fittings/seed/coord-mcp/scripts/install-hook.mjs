@@ -2,9 +2,7 @@
 // Install the coord-mcp coordination hook into ~/.claude/settings.json at USER
 // scope (SessionStart + UserPromptSubmit), owner-tagged `_garrison:
 // "fitting:coord-mcp"`. Injects the repo-scoped digest + the begin_planning nudge
-// on every claude run (direct + orchestrator). Composes with coord-beads' bd-prime
-// SessionStart hook (different owner, complementary content — no double-inject of
-// the same content).
+// on every claude run (direct + orchestrator).
 //
 // Idempotent (strips its own owner groups first). Never clobbers a corrupt
 // settings.json (aborts). Fail-open hook command (guarded + `|| true`).

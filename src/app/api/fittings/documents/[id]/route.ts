@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
-import { findArtifact } from "@/lib/artifact-store";
+import { findArtifact } from "@/lib/document-store";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";

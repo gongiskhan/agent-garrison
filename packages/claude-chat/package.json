@@ -10,6 +10,7 @@
     "./styles.css": "./src/claude-chat.css"
   },
   "peerDependencies": {
+    "highlight.js": "*",
     "marked": "*",
     "react": "*",
     "react-dom": "*"

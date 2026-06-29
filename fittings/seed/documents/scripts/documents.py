@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""documents CLI — markdown workspace layered on the artifact store.
+"""documents CLI — self-contained markdown workspace.
 
-Wraps `apm_modules/_local/artifact-store/scripts/artifacts.py`. Adds:
+Wraps its OWN vendored `artifacts.py` (the artifact-store Fitting was dropped
+2026-06-26; documents now reads/writes the filesystem store directly). Adds:
 - enforces the .md extension and the `documents/` namespace
 - defaults producer to `documents`
 - list always filters to namespace=documents
@@ -28,13 +29,13 @@ PRODUCER = "documents"
 
 
 def artifact_store_cli() -> str:
-    # The Operative invokes documents.py from the composition directory; the
-    # artifact-store CLI lives at the standard install path. Override via
-    # GARRISON_ARTIFACTS_CLI for tests that don't have the real install layout.
+    # documents ships its OWN artifacts.py alongside this file (the artifact-store
+    # Fitting was dropped). Resolve relative to __file__ so it works regardless of
+    # cwd. Override via GARRISON_ARTIFACTS_CLI for tests.
     explicit = os.environ.get("GARRISON_ARTIFACTS_CLI")
     if explicit:
         return explicit
-    return "apm_modules/_local/artifact-store/scripts/artifacts.py"
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "artifacts.py")
 
 
 def call_artifacts(args: list[str], stdin: Optional[bytes] = None) -> subprocess.CompletedProcess:

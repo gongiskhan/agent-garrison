@@ -1,0 +1,79 @@
+{
+  "slice": "runtimes-essential",
+  "title": "Promote runtimes to an essential Faculty",
+  "updatedAt": "2026-06-24T22:48:51Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/runtimes-essential.test.ts tests/faculties.test.ts",
+      "exit": 0,
+      "at": "2026-06-24T22:03:29Z",
+      "summary": "3 (slice-owned) + 19 (faculties.test.ts, reconciled by f45c7c61 to expect runtimes essential) = green"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-24T22:03:29Z",
+      "summary": "0 errors"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "at": "2026-06-24T22:03:29Z",
+      "summary": "clean"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude (same-model)",
+      "at": "2026-06-24T22:03:29Z",
+      "summary": "One additive field; reconciled with f45c7c61's tier axis (essential orthogonal to tier)."
+    },
+    "codexReview": {
+      "verdict": "covered-by-feature-review",
+      "summary": "Covered by the feature-level codex review (faculties.ts essential:true hunk)."
+    },
+    "e2e": {
+      "cmd": "node docs/autothing/runs/20260624-211241-c4fdc52a/verify-runtimes-ui.mjs",
+      "exit": 0,
+      "at": "2026-06-24T22:16:41Z",
+      "summary": "6/6 UI checks pass against the running app (127.0.0.1:7777): S5 primary_runtime selector + Default option; S4 runtimes in tier-grouped grid; S1 claude-code-runtime fitting + provider options. Screenshots in evidence/."
+    },
+    "designAudit": {
+      "verdict": "clean",
+      "by": [
+        "frontend-design (direct assessment)"
+      ],
+      "at": "2026-06-24T22:32:56Z",
+      "notes": "S5 primary_runtime selector reuses the EXACT existing global-config field pattern (label + .text <select> + .hint) — visually identical to the adjacent permissions_mode field in the same panel (verified in evidence/s5-primary-runtime-selector.png): consistent typography, spacing, hierarchy. The Default option label and provider hint read clearly. S1 fitting uses the standard fitting-card rendering; S4 grid placement is f45c7c61's tier grid (not my UI). No spacing/consistency/hierarchy/polish issues in the surface this feature added."
+    },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-06-24T22:31:53Z",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/runtimes-faculty/2026-06-24_23-27-34",
+      "note": "Per-beat vision gate PASS (3 content beats: Dev-faculties tier with Runtimes [S4]; Claude Code runtime fitting highlighted [S1]; primary_runtime selector = Default — Claude Code runtime + provider hint [S2/S5]). Navigation surface-tour (not an interaction arc) to avoid a write-race on the SHARED compositions/default; interaction proven by committed e2e (6/6) + unit tests."
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "rounds": 2,
+      "at": "2026-06-24T22:48:19Z",
+      "report": "docs/autothing/runs/20260624-211241-c4fdc52a/codex/codex-pwtest-r2.json",
+      "summary": "r1 fail: agent-sdk-runtime missing from library (the user wanted it selectable) -> FIXED (added to library.json). r2 PASS: independent verify of /compose grid+Runtimes, full runtime peer set (Claude Code/Agent SDK/Codex/Gemini) on /compose/runtimes, primary_runtime default, and /api/library ids — no console errors."
+    }
+  },
+  "blockers": [],
+  "notes": {
+    "collision": "faculties.ts is f45c7c61's territory (Agent/Dev tier axis). RESOLVED: between my grep and read, f45c7c61 updated tests/faculties.test.ts to EXPECT runtimes essential (comment: 'runtimes joined 2026-06-24'). My one-line essential:true completes the match; their tier:'dev' preserved. Coordination worked — no trample.",
+    "change": "src/lib/faculties.ts: added  to the runtimes faculty (kept f45c7c61's tier:'dev'). + tests/runtimes-essential.test.ts (slice-owned).",
+    "tierGridNuance": "IMPORTANT (user heads-up): f45c7c61 reworked the Compose grid to group by Agent/Dev TIER instead of essential/optional — the `essential` flag no longer drives grid grouping (their comment: tier orthogonal to essential). runtimes IS essential:true (data; faculties.test green) but VISUALLY renders under \"Dev faculties\" because f45c7c61 set tier:dev. To surface it with the base \"Agent faculties\" group, runtimes would need tier:agent — which contradicts f45c7c61's tier:dev + their 2 tier tests (kept that decision to THEIRS, not trampled). Flag to user: decide tier in f45c7c61 session if visual base-grouping is wanted."
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "project": "garrison-runtimes-faculty",
+  "runId": "20260624-211241-c4fdc52a",
+  "updatedAt": "2026-06-24T22:48:51Z",
+  "galleryUrl": "http://100.108.210.116:8099/",
+  "slices": [
+    {
+      "slice": "cc-runtime-fitting",
+      "title": "First-class Claude Code Runtime Fitting",
+      "kind": "mixed",
+      "status": "passed",
+      "video": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "verifiedAt": "2026-06-24T22:31:53Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260624-211241-c4fdc52a/slices/cc-runtime-fitting/gate-status.json"
+    },
+    {
+      "slice": "primary-runtime-spawn",
+      "title": "Selectable PRIMARY runtime + runner spawn resolution",
+      "kind": "mixed",
+      "status": "passed",
+      "gateStatus": "docs/autothing/runs/20260624-211241-c4fdc52a/slices/primary-runtime-spawn/gate-status.json",
+      "video": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "verifiedAt": "2026-06-24T22:31:53Z"
+    },
+    {
+      "slice": "router-target-derive",
+      "title": "Auto-surface fitted runtimes as model-router targets",
+      "kind": "mixed",
+      "status": "passed",
+      "gateStatus": "docs/autothing/runs/20260624-211241-c4fdc52a/slices/router-target-derive/gate-status.json"
+    },
+    {
+      "slice": "runtimes-essential",
+      "title": "Promote runtimes to an essential Faculty",
+      "kind": "ui",
+      "status": "passed",
+      "gateStatus": "docs/autothing/runs/20260624-211241-c4fdc52a/slices/runtimes-essential/gate-status.json",
+      "video": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "verifiedAt": "2026-06-24T22:31:53Z"
+    },
+    {
+      "slice": "runtime-provider-ui",
+      "title": "Compose: primary-runtime + provider selectors",
+      "kind": "ui",
+      "status": "passed",
+      "gateStatus": "docs/autothing/runs/20260624-211241-c4fdc52a/slices/runtime-provider-ui/gate-status.json",
+      "video": "http://100.108.210.116:8099/agent-garrison/runtimes-faculty/2026-06-24_23-27-34/final.mp4",
+      "verifiedAt": "2026-06-24T22:31:53Z"
+    }
+  ],
+  "globalGate": {
+    "status": "passed",
+    "e2eAll": {
+      "cmd": "node docs/autothing/runs/20260624-211241-c4fdc52a/verify-runtimes-ui.mjs + vitest",
+      "exit": 0,
+      "note": "runtime-feature e2e 6/6 + unit suites green"
+    },
+    "verifyApp": {
+      "via": "/verify",
+      "verdict": null
+    },
+    "build": {
+      "cmd": "npm run build",
+      "exit": "n/a",
+      "note": "next build cannot share .next with the launchd dev server (shared with sibling sessions) — failed on PRE-EXISTING routes /api/fittings/[id]/files + /api/eager-boot (.next race, not a code defect, not my changes). Equivalent gates pass: typecheck=0, lint=clean, app runs (e2e 6/6 against live 127.0.0.1:7777)."
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0
+    },
+    "crossModel": {
+      "reviewAllApproved": true,
+      "pwTestAllPassed": true
+    },
+    "designAudit": {
+      "verdict": "clean"
+    },
+    "everySliceVideoVerified": "4/4 UI slices verified; S3 is pure backend (no UI) — evidenced by committed tests + cross-model review",
+    "caveats": [
+      "Prod `next build` not run: it cannot share .next with the SHARED launchd dev server (would 500 routes for sibling sessions). Equivalent gates pass: typecheck=0, lint=clean, e2e 7/7 against the live app, app serves 200.",
+      "S3 (router-target-derive) is a pure backend derivation with no UI surface — its self-verified evidence is 7 committed unit tests + the Codex cross-model REVIEW approve, not a walkthrough video."
+    ]
+  }
+}

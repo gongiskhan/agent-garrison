@@ -116,13 +116,38 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 
 /* ---- Browser pane ---- */
 .app-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); flex: 1; }
-.app-pane-header { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-2); flex-shrink: 0; }
+.app-pane-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; row-gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-2); flex-shrink: 0; }
+.device-selector { flex-shrink: 0; }
 .app-pane-url { flex: 1; font-size: 11px; color: var(--mute); background: var(--panel); padding: 3px 6px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .app-pane-url-input { flex: 1; font-size: 11px; color: var(--text); background: var(--bg); border: 1px solid var(--border); padding: 4px 8px; border-radius: 3px; font-family: "SF Mono", Menlo, Consolas, monospace; outline: none; min-width: 0; }
 .app-pane-url-input:focus { border-color: var(--accent); }
 .app-iframe { flex: 1; width: 100%; border: 0; background: #fff; min-height: 0; }
+
+/* Device-viewport tester: desktop = fluid (fills the pane); tablet/mobile =
+   the app rendered at a FIXED device width inside a centered, scrollable
+   gutter, so it does NOT fluid-fit the pane (it scrolls when wider). */
+.app-pane-viewport { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.app-pane-viewport.device-desktop > .app-iframe,
+.app-pane-viewport.device-desktop > .app-pane-empty { flex: 1; width: 100%; }
+.app-pane-viewport.device-tablet,
+.app-pane-viewport.device-mobile { display: block; overflow: auto; text-align: center; background: var(--bg-2); }
+.app-pane-viewport.device-tablet > .app-iframe,
+.app-pane-viewport.device-mobile > .app-iframe {
+  display: block; margin: 0 auto; height: 100%; flex: none; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 12px; background: #fff;
+  box-shadow: 0 2px 14px rgba(0,0,0,0.12);
+}
+.app-pane-viewport.device-tablet > .app-iframe { width: 820px; }
+.app-pane-viewport.device-mobile > .app-iframe { width: 390px; }
+.app-pane-viewport.device-tablet > .app-pane-empty,
+.app-pane-viewport.device-mobile > .app-pane-empty { padding-top: 40px; }
+
 .app-pane-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--mute); font-size: 12px; padding: 20px; text-align: center; }
 .app-pane-empty code { background: var(--panel); border: 1px solid var(--border); padding: 1px 5px; border-radius: 3px; margin: 0 4px; }
+
+/* Host wrapper for the browser pane: a flex sibling of the split on desktop,
+   and a display-toggled full-screen tab on mobile (keeps the iframe mounted). */
+.browser-pane-host { flex: 1; display: flex; min-width: 0; min-height: 0; }
 
 .split-divider { flex: 0 0 6px; background: var(--border); cursor: col-resize; position: relative; touch-action: none; user-select: none; }
 .split-divider:hover, .split-divider:active { background: var(--accent); }
@@ -160,10 +185,11 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 120; background: #1d2520; color: #f0ede4; border: 1px solid var(--sage); border-radius: 4px; padding: 9px 16px; font-size: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.35); max-width: 80vw; }
 
-/* ---- Mobile (≤720px): one terminal full-screen, no browser pane ---- */
+/* ---- Mobile (≤720px): one pane full-screen; Claude | Shell | Browser tabs ---- */
 @media (max-width: 720px) {
   .header { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
   .terminals-col { flex: 1 !important; }
+  .browser-pane-host { flex: 1 !important; }
   .claude-pane, .terminals-deck { flex: 1 !important; border-bottom: none; }
   /* 16px input font prevents iOS focus zoom */
   .quick-prompt input { font-size: 16px; }

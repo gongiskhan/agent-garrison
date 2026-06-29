@@ -40,6 +40,12 @@ async function chat(message: string): Promise<ChatResponse> {
 }
 
 beforeAll(async () => {
+  // This suite is opt-in ONLY (GARRISON_INTEGRATION=1, via `npm run test:integration`).
+  // A reachable /health does NOT imply a booted orchestrator: a plain dev gateway (e.g. the
+  // launchd dev server) answers /health but is not the Verity/[orchestrator-active] operative
+  // these tests assert on, so auto-detecting reachability would un-skip and then FAIL under a
+  // plain `npm test`. Only probe when explicitly forced.
+  if (!FORCE_RUN) return;
   // CRITICAL: this probe must NOT throw. vitest treats beforeAll throws as suite
   // failures, which would defeat skip-by-default and break `npm test` whenever
   // the operative isn't running.
@@ -58,7 +64,9 @@ beforeAll(async () => {
 });
 
 function shouldSkip(): boolean {
-  return !gatewayReachable && !FORCE_RUN;
+  // Opt-in only: never run under a plain `npm test`, regardless of whether some gateway
+  // happens to answer /health. `npm run test:integration` sets GARRISON_INTEGRATION=1.
+  return !FORCE_RUN;
 }
 
 describe("orchestrator-integration", () => {

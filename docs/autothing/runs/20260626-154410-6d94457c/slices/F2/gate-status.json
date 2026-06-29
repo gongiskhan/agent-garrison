@@ -1,0 +1,13 @@
+{
+  "slice": "F2", "title": "Orchestration layer inside Automations (cache->vision->execute) + live wiring", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "lib/fingerprint.mjs + cache.mjs + browser-orchestrator.mjs (tier model); lib/browser-client.mjs (drives browser-default observe/execute/navigate); engine makeLiveRunBrowser + visionResolve (backend /api/automations/vision, Router-routed, internal-token guarded); src/app/api/automations/vision route" },
+    "test": { "status": "passed", "detail": "automations-browser-orchestrator (7: fingerprint/cache/tier) + browser-observe browser-client live (navigate/observe/execute against real chromium) + engine browser-fitting-down path. 36 automations+browser tests green; typecheck clean.", "command": "npx vitest run tests/automations-browser-orchestrator.test.ts tests/browser-observe.test.ts tests/automations-engine.test.ts" },
+    "review": { "status": "self-reviewed" },
+    "codexReview": { "status": "approve", "rounds": 2, "detail": "R1: (F1 critical) browser CORS/auth -> Origin guard (HTTP+WS) + nav-scheme confinement; (F2 med) cache step-id collision -> dup-id rejection; (F3 med) ephemeral temp-profile leak -> cleanup on shutdown. R2: all confirmed, raised IPv6 [::1] loopback gap -> FIXED. No rebuttals.", "artifacts": ["codex-review-F1F2.json", "codex-review-F1F2-r2.json"] },
+    "codexPwTest": { "status": "pending", "detail": "Z1 drives a real browser step (cache then replay)" },
+    "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["fittings/seed/automations/lib/fingerprint.mjs", "fittings/seed/automations/lib/cache.mjs", "fittings/seed/automations/lib/browser-orchestrator.mjs", "fittings/seed/automations/lib/browser-client.mjs", "fittings/seed/automations/lib/engine.mjs", "src/app/api/automations/vision/route.ts", "tests/automations-browser-orchestrator.test.ts", "tests/browser-observe.test.ts"]
+}

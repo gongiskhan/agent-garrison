@@ -1,0 +1,54 @@
+{
+  "title": "Walkthrough: Runtimes — a selectable execution Faculty",
+  "project": "agent-garrison",
+  "folder": "runtimes-faculty",
+  "video": { "width": 1366, "height": 950, "fps": 30 },
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Runtimes — a first-class execution Faculty",
+      "subtitle": "Claude Code runtime · provider overrides · a selectable primary runtime",
+      "reflectFlag": true,
+      "hold": 3200
+    },
+    {
+      "type": "browser",
+      "id": "feature",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/compose",
+      "beats": [
+        {
+          "id": "grid",
+          "caption": "The composition grid — Runtimes is now a Faculty",
+          "expectedScreen": "Agent Garrison compose grid with an 'Agent faculties' and a 'Dev faculties' tier section; the Runtimes faculty tile sits in the Dev faculties section",
+          "actions": [ { "type": "waitFor", "selector": "text:Dev faculties" } ],
+          "assert": { "selector": "text:Dev faculties", "highlight": true },
+          "hold": 4500
+        },
+        {
+          "id": "station",
+          "caption": "The Runtimes Faculty — selectable execution engines",
+          "expectedScreen": "the Runtimes faculty station page listing runtime fittings, including a 'Claude Code runtime' fitting alongside Agent SDK / Codex / Gemini runtimes",
+          "actions": [
+            { "type": "goto", "path": "/compose/runtimes" },
+            { "type": "waitFor", "selector": "text:Claude Code runtime" }
+          ],
+          "assert": { "selector": "text:Claude Code runtime", "highlight": true },
+          "hold": 4800
+        },
+        {
+          "id": "primary",
+          "caption": "Pick the PRIMARY runtime that runs the orchestrator",
+          "expectedScreen": "the Orchestrator global-config panel showing a 'primary_runtime' selector whose value is 'Default — Claude Code runtime'",
+          "actions": [
+            { "type": "goto", "path": "/compose/orchestrator" },
+            { "type": "waitFor", "selector": "text:primary_runtime" }
+          ],
+          "assert": { "selector": "text:primary_runtime", "highlight": true },
+          "hold": 5000
+        }
+      ]
+    }
+  ]
+}

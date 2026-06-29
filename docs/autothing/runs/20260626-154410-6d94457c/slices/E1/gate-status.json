@@ -1,0 +1,12 @@
+{
+  "slice": "E1", "title": "Automations fitting scaffold (own-port, YAML store, 8 step types)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "new fittings/seed/automations own-port fitting (provides automation-runner, port 7090): lib/types.mjs (8 step types, validate/normalize), lib/store.mjs (YAML CRUD at ~/.garrison/automations, path-confined ids), lib/ulid.mjs; scripts/server.mjs (CRUD REST + /health + status-file registration + DIST static serve, path-traversal confined) + start.mjs + setup.sh (npm install js-yaml); package.json; registered in data/library.json" },
+    "test": { "status": "passed", "detail": "automations-store.test (7: 8-step-types, validate, YAML save/get/list/delete, auto-id, path-traversal reject); validate-fitting 4/4 PASS; live CRUD smoke (health+create+list) on :7195 ok; typecheck clean" },
+    "review": { "status": "self-reviewed", "detail": "self-caught + fixed a static-serve path-traversal before codex" },
+    "codexReview": { "status": "batched", "detail": "batched with E2 — store + engine live in the same fitting; review together once the run engine lands" },
+    "codexPwTest": { "status": "n/a", "detail": "run viewer UI is E3" }, "designAudit": { "status": "n/a", "detail": "E3" }, "walkthrough": { "status": "deferred", "detail": "folded into Z1 e2e" }
+  },
+  "files": ["fittings/seed/automations/apm.yml", "fittings/seed/automations/package.json", "fittings/seed/automations/lib/types.mjs", "fittings/seed/automations/lib/store.mjs", "fittings/seed/automations/lib/ulid.mjs", "fittings/seed/automations/scripts/server.mjs", "fittings/seed/automations/scripts/start.mjs", "fittings/seed/automations/scripts/setup.sh", "data/library.json", "tests/automations-store.test.ts"]
+}

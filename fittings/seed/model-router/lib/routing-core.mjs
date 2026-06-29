@@ -70,6 +70,50 @@ export function resolveRoute(config, profile, classification) {
   return { profile: name, role, ruleId, via, targetId: targetId || null, target };
 }
 
+// ── Mode bias (modes faculty) ───────────────────────────────────────────────
+// The modes faculty (Gary/Joe/James) nudges the resolved COMPUTE-tier role per
+// the mode's routing bias, WITHOUT mutating the router policy. The router stays
+// the single source of truth for task-type x tier -> role; this is an
+// identity-adjacent adjustment the gateway applies AFTER resolveRole/resolveRoute.
+// Task-specific roles (image/video/review) are never biased — they are
+// determined by the task, not the persona.
+const COMPUTE_RANK = { fast: 0, standard: 1, expert: 2 };
+const RANK_ROLE = ["fast", "standard", "expert"];
+
+// Pure: bias a role given a mode's {floor, prefer}. `floor` raises a too-cheap
+// role up (Joe's expert floor); when the router lands on the global-default
+// 'standard' and the mode prefers cheaper, dial down toward `prefer` (Gary's
+// "standard toward fast"). A role that already resolved to a higher tier than the
+// floor is never lowered (a genuinely hard task keeps its tier).
+export function biasRole(role, bias) {
+  if (!(role in COMPUTE_RANK) || !bias) return role;
+  let rank = COMPUTE_RANK[role];
+  if (role === "standard" && bias.prefer in COMPUTE_RANK && COMPUTE_RANK[bias.prefer] < rank) {
+    rank = COMPUTE_RANK[bias.prefer];
+  }
+  if (bias.floor in COMPUTE_RANK && COMPUTE_RANK[bias.floor] > rank) {
+    rank = COMPUTE_RANK[bias.floor];
+  }
+  return RANK_ROLE[rank];
+}
+
+// Look up a mode's bias ({floor, prefer}) from a modes config (modes.json shape:
+// { modes: { <mode>: { routingBias: <name> } }, routingBias: { <name>: {floor, prefer} } }).
+export function modeBiasFor(mode, modesConfig) {
+  const biasName = modesConfig && modesConfig.modes && modesConfig.modes[mode]
+    ? modesConfig.modes[mode].routingBias
+    : null;
+  return (biasName && modesConfig.routingBias && modesConfig.routingBias[biasName]) || null;
+}
+
+// NOTE: the route+target variant (bias a resolved route, then re-map its target
+// through the profile roleMap) lands with the orchestrator-mode↔routing
+// unification — when preRoute runs WITH a mode in scope. Until then the live
+// application is at assembly time: src/lib/souls.ts uses biasRole + modeBiasFor to
+// compute each mode's nominal tier and bakes per-mode tier guidance into the
+// orchestrator's delegation prompt (so the orchestrator spawns each soul at its
+// mode's tier). Building the route variant now would be dead code (YAGNI).
+
 // Merge per-tier discipline defaults with the active profile's overrides.
 export function resolveDiscipline(config, profile, tier) {
   const { profile: p } = getProfile(config, profile);
@@ -130,12 +174,37 @@ function renderMatrix(config) {
   return [header, sep, ...body, colDefaults].join("\n");
 }
 
+// Map a discipline field value to the autothing-* verb-skill that satisfies it —
+// the decomposed-autothing parts the orchestrator invokes (deliverable #1). One
+// skill family (the garrison-* shims retired once docs/architecture.md parity was
+// confirmed); a higher tier escalates the skill set; "none"/"text" need no skill.
+function disciplineSkill(field, value) {
+  if (!value || value === "none") return null;
+  if (field === "testing") return "autothing-test"; // tests / full-gates
+  if (field === "review") {
+    // design-audit is UI-only — annotate it as CONDITIONAL, not a blanket second
+    // gate on every deep task (a non-UI deep change needs code-review, not a UI audit).
+    return String(value).startsWith("review-by")
+      ? "code-review (+ autothing-design-audit for UI changes)"
+      : "code-review";
+  }
+  // evidence:video is recorded by autothing-walkthrough (NOT run-garrison, which is
+  // only an app launcher — corrects the prior mapping).
+  if (field === "evidence") return value === "video" ? "autothing-walkthrough" : null;
+  if (field === "distribution") return value === "link" ? "autothing-validate (record + link)" : null;
+  return null;
+}
+
 function renderDiscipline(config, profileName) {
   const lines = [];
+  const ann = (field, value) => {
+    const s = disciplineSkill(field, value);
+    return s ? `${value} → ${s}` : value;
+  };
   for (const tier of TIERS) {
     const d = resolveDiscipline(config, profileName, tier);
     lines.push(
-      `- **${tier}** — review: ${d.review}; testing: ${d.testing}; evidence: ${d.evidence}; distribution: ${d.distribution}`
+      `- **${tier}** — review: ${ann("review", d.review)}; testing: ${ann("testing", d.testing)}; evidence: ${ann("evidence", d.evidence)}; distribution: ${ann("distribution", d.distribution)}`
     );
   }
   return lines.join("\n");

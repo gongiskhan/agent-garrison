@@ -20,6 +20,19 @@ export interface WiredInfo {
 // old ones would accumulate forever.
 const tabIdByCwd = new Map<string, string>();
 
+// Device-viewport tester: render the embedded app at a FIXED device width
+// (mobile/tablet) inside a centered frame, or fluid (desktop). Global pref so
+// it carries across sessions; try/catch matches the garrison.devenv.* siblings.
+const LS_DEVICE = "garrison.devenv.deviceViewport";
+type DeviceViewport = "desktop" | "tablet" | "mobile";
+function readDevice(): DeviceViewport {
+  try {
+    const v = localStorage.getItem(LS_DEVICE);
+    if (v === "desktop" || v === "tablet" || v === "mobile") return v;
+  } catch {}
+  return "desktop";
+}
+
 export function BrowserPane({
   cwd,
   active,
@@ -45,6 +58,11 @@ export function BrowserPane({
   // auto-repoint until Refresh hands control back.
   const [urlInput, setUrlInput] = useState("");
   const [manual, setManual] = useState(false);
+  const [device, setDeviceState] = useState<DeviceViewport>(() => readDevice());
+  const chooseDevice = (d: DeviceViewport) => {
+    setDeviceState(d);
+    try { localStorage.setItem(LS_DEVICE, d); } catch {}
+  };
   const urlEditedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const onWiredRef = useRef(onWired);
@@ -98,12 +116,24 @@ export function BrowserPane({
         return null;
       }
       const target = await targetRes.json();
-      // Re-host the canvas URL on whatever host the Dev Env page itself is
-      // served from so iPad-over-Tailscale links don't collapse to localhost.
-      const browserUrl = String(target.url || "").replace(
-        /\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?/,
-        `//${window.location.hostname}:${target.port}`
-      );
+      // Reach the browser fitting from wherever this Dev Env page is served:
+      //  - over Tailscale, prefer its HTTPS tailnet URL (so the canvas + the
+      //    same-origin wss it opens proxy over TLS with no mixed content);
+      //  - otherwise re-host on the page's host so localhost/LAN links still work.
+      let tailnetSameHost = false;
+      if (typeof target.tailnetUrl === "string" && target.tailnetUrl) {
+        try {
+          tailnetSameHost = new URL(target.tailnetUrl).hostname === window.location.hostname;
+        } catch {
+          tailnetSameHost = false;
+        }
+      }
+      const browserUrl = tailnetSameHost
+        ? String(target.tailnetUrl)
+        : String(target.url || "").replace(
+            /\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?/,
+            `//${window.location.hostname}:${target.port}`
+          );
 
       let tabId = existingTabId;
       if (tabId) {
@@ -286,6 +316,35 @@ export function BrowserPane({
           }}
           onKeyDown={(e) => { if (e.key === "Enter") void navigateToInput(); }}
         />
+        <div className="segmented device-selector" role="group" aria-label="Viewport">
+          <button
+            type="button"
+            className={device === "desktop" ? "on" : ""}
+            aria-pressed={device === "desktop"}
+            onClick={() => chooseDevice("desktop")}
+            title="Desktop — fluid, fills the pane"
+          >
+            Desktop
+          </button>
+          <button
+            type="button"
+            className={device === "tablet" ? "on" : ""}
+            aria-pressed={device === "tablet"}
+            onClick={() => chooseDevice("tablet")}
+            title="Tablet — fixed 820px wide"
+          >
+            Tablet
+          </button>
+          <button
+            type="button"
+            className={device === "mobile" ? "on" : ""}
+            aria-pressed={device === "mobile"}
+            onClick={() => chooseDevice("mobile")}
+            title="Mobile — fixed 390px wide"
+          >
+            Mobile
+          </button>
+        </div>
         <button
           type="button"
           className="btn"
@@ -305,25 +364,27 @@ export function BrowserPane({
         )}
       </div>
       {splitError && <div className="alert">{splitError}</div>}
-      {iframeBaseUrl ? (
-        <iframe
-          ref={iframeRef}
-          key={iframeNonce}
-          className="app-iframe"
-          src={iframeBaseUrl}
-          title="app"
-          onLoad={() => {
-            if (!browserTabId || !browserBase) return;
-            const win = iframeRef.current?.contentWindow;
-            if (!win) return;
-            try { win.postMessage({ type: "attach", tabId: browserTabId }, browserBase); } catch {}
-          }}
-        />
-      ) : (
-        <div className="app-pane-empty">
-          No <code>app.port</code> in {cwd} — type a URL above to browse.
-        </div>
-      )}
+      <div className={`app-pane-viewport device-${device}`}>
+        {iframeBaseUrl ? (
+          <iframe
+            ref={iframeRef}
+            key={iframeNonce}
+            className="app-iframe"
+            src={iframeBaseUrl}
+            title="app"
+            onLoad={() => {
+              if (!browserTabId || !browserBase) return;
+              const win = iframeRef.current?.contentWindow;
+              if (!win) return;
+              try { win.postMessage({ type: "attach", tabId: browserTabId }, browserBase); } catch {}
+            }}
+          />
+        ) : (
+          <div className="app-pane-empty">
+            No <code>app.port</code> in {cwd} — type a URL above to browse.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

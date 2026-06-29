@@ -1,0 +1,22 @@
+{
+  "slice": "parity-and-shim-retire",
+  "title": "Confirm doc parity then retire garrison-* shims",
+  "updatedAt": "2026-06-24T18:50:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests":     { "cmd": "npx vitest run tests/discipline-skills.test.ts tests/gateway-routing.test.ts", "exit": 0, "at": "2026-06-24T18:46:00Z", "summary": "8 passed (router discipline map rewired garrison-* → autothing-*; gateway honors hint with autothing-implement fixture)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-06-24T18:46:00Z", "summary": "0 errors" },
+    "lint":      { "cmd": "npm run lint", "exit": 0, "at": "2026-06-24T18:46:00Z", "summary": "no warnings or errors" },
+    "build":     { "cmd": "npm run build", "exit": 0, "at": "2026-06-24T17:11:00Z", "summary": "next build green (skills/prompt are not in the bundle)" },
+    "e2e":       { "result": "n/a", "summary": "parity is an A/B probe + the rewire is unit-tested; no UI" },
+    "codexReview": { "verdict": "approve", "rounds": 1, "by": "codex/gpt-5.4", "effort": "low", "at": "2026-06-24T18:48:00Z", "lastReport": "docs/autothing/runs/20260624-162055-152350bb/slices/parity-and-shim-retire/codex-review-parity-and-shim-retire-r1.json", "overrides": [], "notes": "rewire mappings correct, no dangling refs to deleted shims, kanban uses autothing-* only" },
+    "codexPwTest": { "result": "n/a", "summary": "no running app" },
+    "designAudit": { "verdict": "n/a", "summary": "no UI" },
+    "video":     { "status": "verified", "verifiedAt": "2026-06-24T18:50:00Z", "flagged": false, "link": "http://100.108.210.116:8099/kanban-loop-v1b/parity-and-shim-retire/demo.gif", "kind": "asciinema", "runDir": "~/.walkthrough/runs/kanban-loop-v1b/parity-and-shim-retire" }
+  },
+  "parityResult": "CONFIRMED — docs/architecture.md conveys the surface-wiring + host-config IO doctrine as well as garrison-architecture (A/B probe equivalence). Shims retired after confirmation.",
+  "blockers": []
+}

@@ -250,7 +250,6 @@ function createManifest(id: string, name: string): CompositionManifest {
 function manifestToComposition(id: string, manifest: CompositionManifest): Composition {
   const composition = manifest["x-garrison"]?.composition;
   const selections = normalizeSelections(composition?.selections ?? {});
-  const derived = deriveTasks(selections, []);
   return {
     id: composition?.id ?? id,
     name: composition?.name ?? manifest.name,
@@ -259,7 +258,9 @@ function manifestToComposition(id: string, manifest: CompositionManifest): Compo
     selections,
     globalConfig: composition?.global_config ?? defaultGlobalConfig(),
     souls: composition?.souls ?? [],
-    derivedTasks: derived,
+    // Derived Tasks disconnected (decision F4): Trello-as-tasks is retired in
+    // favour of the Kanban; no Fitting backs a derived-Tasks surface anymore.
+    derivedTasks: undefined,
     capabilityIssues: [],
     capabilityGraph: { consumers: [] }
   };
@@ -281,7 +282,8 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
   return {
     ...composition,
     selections,
-    derivedTasks: deriveTasks(selections, entries),
+    // Derived Tasks disconnected (decision F4) — see manifestToComposition.
+    derivedTasks: undefined,
     capabilityIssues: issues,
     capabilityGraph: graph
   };
@@ -376,26 +378,6 @@ export function migrateSelectionsByFaculty(
     }
   }
   return moved ? migrated : selections;
-}
-
-function deriveTasks(
-  selections: FittingSelectionMap,
-  entries: LibraryEntry[]
-): Composition["derivedTasks"] {
-  // The data-sources faculty folded out; derived-task backing is now found by
-  // any selected Fitting that declares `tasks`, regardless of role.
-  const candidates = Object.values(selections).flat().filter(Boolean) as SelectedFitting[];
-  for (const selected of candidates) {
-    const entry = entries.find((candidate) => candidate.id === selected.id);
-    if (entry?.metadata.tasks) {
-      return {
-        source: entry.metadata.tasks.source,
-        truthFile: entry.metadata.tasks.truth_file,
-        fittingId: entry.id
-      };
-    }
-  }
-  return undefined;
 }
 
 export function defaultConfigForEntry(entry: LibraryEntry): SelectedFitting {

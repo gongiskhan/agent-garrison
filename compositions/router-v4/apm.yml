@@ -6,7 +6,6 @@ dependencies:
     - path: ../../fittings/seed/model-router
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/memory
-    - path: ../../fittings/seed/artifact-store
 x-garrison:
   composition:
     id: router-v4

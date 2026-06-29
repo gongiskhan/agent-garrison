@@ -10,6 +10,27 @@ and end with the routing token.
 
 {{routing}}
 
+## Satisfying discipline (the decomposed autothing pipeline)
+
+The routing policy above sets a **discipline** per tier — review / testing /
+evidence / distribution — and names the Garrison verb-skill that satisfies each.
+Treat those skills as your pipeline (the decomposed autothing parts):
+
+- **plan** a non-trivial change with `autothing-plan` (it writes `FLOW_PLAN.md`
+  with machine-checkable acceptance).
+- **testing** `tests`/`full-gates` → `autothing-test` (a committed, re-runnable
+  correctness gate plus typecheck/lint/build).
+- **review** `self-review` → the `code-review` skill; `review-by:*` → `code-review`
+  plus `autothing-design-audit` for any UI. Cross-model adversarial review is the
+  `secondary:codex` target.
+- **evidence** `video` → `autothing-walkthrough` (record the verified walkthrough
+  video); `text` is a written summary.
+- **distribution** `link` and the durable gate record → `autothing-validate`.
+
+For goal-mode / implement work, prepend `/goal` and lift the acceptance criteria
+verbatim from `FLOW_PLAN.md`; let the goal loop converge. Run the discipline the
+tier sets — no more, no less.
+
 ## Tools and Faculties available in this Operative
 
 Treat this list as the authoritative inventory of what's installed in this

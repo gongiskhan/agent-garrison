@@ -45,6 +45,11 @@ const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 const PERMISSION_MODE = process.env.GARRISON_PERMISSION_MODE ?? "bypassPermissions";
 const MODEL = process.env.GARRISON_MODEL ?? "opus";
 const CLAUDE_BINARY = process.env.GARRISON_CLAUDE_BINARY ?? "claude";
+// When the primary runtime selects a non-default provider, the runner sets
+// ANTHROPIC_BASE_URL/AUTH_TOKEN + GARRISON_PROVIDER(_LAUNCH). providerLaunch keeps
+// those vars through the orchestrator spawn instead of stripping them for Max-plan.
+const PROVIDER_LAUNCH = process.env.GARRISON_PROVIDER_LAUNCH === "1";
+const PRIMARY_PROVIDER = process.env.GARRISON_PROVIDER ?? "anthropic-plan";
 
 const STARTED_AT = Date.now();
 const SESSION_ID_FILE = path.join(COMPOSITION_DIR, ".garrison", "operative-session-id");
@@ -117,6 +122,7 @@ async function initRouting() {
       permissionMode: PERMISSION_MODE,
       continueSession,
       claudeBinary: CLAUDE_BINARY,
+      providerLaunch: PROVIDER_LAUNCH,
     },
     classifierSpawnConfig: {
       compositionDir: COMPOSITION_DIR,
@@ -124,7 +130,7 @@ async function initRouting() {
       permissionMode: PERMISSION_MODE,
       claudeBinary: CLAUDE_BINARY,
     },
-    initialTarget: { provider: "anthropic-plan", model: MODEL, effort: null },
+    initialTarget: { provider: PRIMARY_PROVIDER, model: MODEL, effort: null },
     logFn: (e) => logEvent("stdout", { kind: "routing", ...e }),
   });
   await router.start();
@@ -195,6 +201,7 @@ async function spawnOperative({ resume = true } = {}) {
       permissionMode: PERMISSION_MODE,
       continueSession: cont,
       claudeBinary: CLAUDE_BINARY,
+      providerLaunch: PROVIDER_LAUNCH,
     });
   };
 
@@ -218,9 +225,12 @@ async function spawnOperative({ resume = true } = {}) {
 
 /** Run one turn through Stage-A routing: classify → resolve → log → switch →
  *  turn → honored check. The operative session is served by the routing pool. */
-async function runRoutedTurn(message, onChunk) {
+async function runRoutedTurn(message, onChunk, hints) {
   await router.ensureOperative();
-  const pre = await router.preRoute(message); // classify + resolve + LOG + switch
+  // hints (e.g. from the Kanban Loop) carry an EXPLICIT {taskType,tier} classification
+  // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
+  // skill + suppressContinuations controls. Absent hints → classify as before.
+  const pre = await router.preRoute(message, hints || {}); // classify/honor + resolve + LOG + switch
   // Agent SDK runtime (non-Anthropic model via the Claude Agent SDK): the turn
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
@@ -271,7 +281,10 @@ async function runRoutedTurn(message, onChunk) {
     return { reply: r.reply, session_id: null, cost_usd: null, route: pre.route.targetId, runtime: r.runtime, model: r.model };
   }
   session = router.getOperativeSession();
-  const annotated = `${pre.annotation}\n${message}`;
+  // A resolved `workflow` target runs the named Claude Code workflow ON the
+  // operative (via its Workflow tool) — prepend the instruction; else a plain turn.
+  const wfPrefix = router.isWorkflowTarget(pre.route) ? router.workflowTurnPrefix(pre.route) : "";
+  const annotated = `${pre.annotation}\n${wfPrefix}${message}`;
   let lastEmitted = "";
   const onScreen =
     onChunk && session.handle
@@ -286,7 +299,7 @@ async function runRoutedTurn(message, onChunk) {
           }
         }
       : undefined;
-  const outcome = await session.runTurn({ message: annotated, onScreen });
+  const outcome = await session.runTurn({ message: annotated, onScreen, timeoutMs: hints?.timeoutMs });
   const honored = await router.postTurn(pre.route, pre.decision, outcome.reply);
   await markPriorSession();
   // Inject a consistent runtime/model status badge for the channel UI (the
@@ -321,8 +334,8 @@ async function runRoutedTurn(message, onChunk) {
 
 /** Run one turn against the live operative. Spawns/respawns on demand.
  *  onChunk(text) streams the growing assistant reply (screen-derived). */
-async function runTurn(message, onChunk) {
-  if (router) return runRoutedTurn(message, onChunk);
+async function runTurn(message, onChunk, hints) {
+  if (router) return runRoutedTurn(message, onChunk, hints);
   if (!session || session.isDisposed() || !session.isAlive()) {
     logEvent("stdout", { kind: "respawn-before-turn" });
     ptyStatus = "spawning";
@@ -342,15 +355,41 @@ async function runTurn(message, onChunk) {
         }
       }
     : undefined;
-  const outcome = await session.runTurn({ message, onScreen });
+  const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
   await markPriorSession();
   return { reply: outcome.reply, session_id: outcome.sessionId, cost_usd: null };
 }
 
 /** Serialize turns — the TUI is one-turn-at-a-time. */
-function enqueueTurn(message, onChunk) {
+// Extract optional routing hints from a request body (the Kanban Loop sends these):
+// an EXPLICIT {taskType,tier} classification preRoute can honor instead of
+// re-classifying, the per-list skill, and a suppress-continuations flag. Validated so a
+// malformed classification simply falls back to normal classification (never trusted blindly).
+function routeHintsFromBody(body) {
+  const c = body?.classification;
+  const classification =
+    c && typeof c === "object" && typeof c.taskType === "string" && typeof c.tier === "string"
+      ? { taskType: c.taskType, tier: c.tier, ...(c.matchedException ? { matchedException: c.matchedException } : {}) }
+      : null;
+  return {
+    classification,
+    skill: typeof body?.skill === "string" ? body.skill : null,
+    suppressContinuations: body?.suppressContinuations === true,
+    // An EXPLICIT per-turn timeout (ms). The Kanban Loop sends a generous one because a
+    // real autothing-* turn (plan/implement/review/…) runs far longer than the default
+    // 5-min turn timeout, which otherwise kills the turn → HTTP 500 → the card parks.
+    // Absent (e.g. web chat) → session.runTurn uses its default, so other channels are
+    // unaffected. Only honored when finite + positive.
+    timeoutMs:
+      typeof body?.timeoutMs === "number" && Number.isFinite(body.timeoutMs) && body.timeoutMs > 0
+        ? body.timeoutMs
+        : undefined,
+  };
+}
+
+function enqueueTurn(message, onChunk, hints) {
   const previous = inflight ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(() => runTurn(message, onChunk));
+  const next = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints));
   inflight = next;
   return next;
 }
@@ -434,7 +473,7 @@ const server = http.createServer(async (request, response) => {
       if (!message) return sendJson(response, 400, { error: "message is required" });
       await readyPromise;
       logEvent("stdout", { kind: "chat-in", message: message.slice(0, 200) });
-      const result = await enqueueTurn(message);
+      const result = await enqueueTurn(message, undefined, routeHintsFromBody(body));
       logEvent("stdout", { kind: "chat-out", reply: result.reply.slice(0, 200) });
       sendJson(response, 200, result);
       return;
@@ -468,7 +507,7 @@ const server = http.createServer(async (request, response) => {
           } catch {
             /* client gone */
           }
-        });
+        }, routeHintsFromBody(body));
         sseWrite(response, "done", result);
         logEvent("stdout", { kind: "chat-stream-out", reply: result.reply.slice(0, 200) });
       } catch (err) {
@@ -568,6 +607,15 @@ const server = http.createServer(async (request, response) => {
 });
 
 async function main() {
+  // Node's http.Server defaults requestTimeout to 5 min — that would abort a long
+  // /chat turn (a real Kanban autothing-* turn runs longer) at the socket layer,
+  // regardless of the per-turn timeout, surfacing to the caller as a dropped
+  // connection. Disable the request/header socket timeouts here so a long-running
+  // turn is governed ONLY by session.runTurn's (per-request) timeout, not the HTTP
+  // server. Short channels still pass their own short turn timeout.
+  server.requestTimeout = 0;
+  server.headersTimeout = 0;
+  server.timeout = 0;
   // Listen FIRST so /health answers while the PTY spins up (the runner's
   // health-poll deadline is short; PTY readiness can take several seconds).
   server.listen(PORT, HOST, () => {

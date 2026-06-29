@@ -1,0 +1,77 @@
+{
+  "slice": "s1e-mode-bias",
+  "title": "mode\u2192routing bias (biasRole/modeBiasFor) + live per-mode tier in the orchestrator prompt",
+  "updatedAt": "2026-06-22T16:00:33Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": {
+    "limit": 5,
+    "used": 3
+  },
+  "gates": {
+    "tests": {
+      "cmd": "npx vitest run tests/mode-bias.test.ts tests/souls-assembly.test.ts",
+      "exit": 0,
+      "at": "2026-06-22T16:00:33Z",
+      "summary": "32 passed \u2014 biasRole matrix (joe\u2192expert, james\u2192standard/expert, gary unchanged), task-specific untouched, nominal tier, souls tierByMode + per-mode prompt guidance"
+    },
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-06-22T16:00:33Z",
+      "summary": "clean (souls.ts dynamic-imports routing-core \u2014 not bundled)"
+    },
+    "suite": {
+      "cmd": "npm test",
+      "at": "2026-06-22T16:00:33Z",
+      "summary": "870 passed; 6 PRE-EXISTING failures unchanged; no new regressions"
+    },
+    "review": {
+      "verdict": "clean",
+      "by": "claude/same-model",
+      "at": "2026-06-22T16:00:33Z",
+      "summary": "dropped the premature route-variant applyModeBias (YAGNI); biasRole/modeBiasFor are now called live in assembleSouls"
+    },
+    "codexReview": {
+      "verdict": "approve-with-override",
+      "rounds": 3,
+      "by": "codex/chatgpt",
+      "at": "2026-06-22T16:00:33Z",
+      "lastReport": "r1 target/role divergence on unmapped role (fixed); r2 applyModeBias uncalled (dropped it, wired biasRole live); r3 tier is prompt-level not programmatically enforced in talk_to/spawn \u2014 TRUE but it is the orchestrator-mode\u2194routing unification (dormant path, no live boot to gate); s1e ships primitives + live prompt-level tier. OVERRIDE logged.",
+      "overrides": [
+        "r3: programmatic talk_to\u2192model tier enforcement deferred to the orchestrator-mode\u2194routing unification follow-up"
+      ]
+    },
+    "codexPwTest": {
+      "result": "n/a",
+      "reason": "no live orchestrator-mode boot \u2014 primitives + assembly covered by committed vitest"
+    },
+    "designAudit": {
+      "verdict": "n/a",
+      "reason": "backend, no UI"
+    },
+    "video": {
+      "status": "n/a",
+      "reason": "no runtime UI/CLI flow"
+    }
+  },
+  "blockers": [],
+  "codexReview": {
+    "verdict": "approve",
+    "rounds": 4,
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T05:27:21Z",
+    "lastReport": "docs/autothing/runs/20260622-143110-e93ec4b5/slices/s1e-mode-bias/codex-review-s1e-mode-bias-r4.json",
+    "overrides": [],
+    "round1Findings": "f1 Gary no-op + f3 ComputeRole type/verify + non-object bias; f2 bias-live-at-placement (per-turn routed re-bias = documented unification follow-up)"
+  },
+  "flagged": false,
+  "codexPwTest": {
+    "result": "pass",
+    "by": "codex/gpt-5.5",
+    "at": "2026-06-23T08:45:03Z",
+    "report": "docs/autothing/runs/20260622-143110-e93ec4b5/codex-pwtest-modes-arc-consolidated.json",
+    "note": "independent cross-model functional pass: Codex ran the modes-arc committed suite (14/14 files, 93/93 tests) + spot-checked specs against production code for non-vacuousness. Backend slices verified via independent committed-spec execution (no running UI to Playwright-drive); s3c UI also has the dev-env walkthrough."
+  }
+}

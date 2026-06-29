@@ -4,7 +4,7 @@ import { validateFitting } from "@/lib/validation";
 
 const SEED_DIR = path.resolve(__dirname, "..", "fittings", "seed");
 const seedIds = [
-  "memory",
+  "basic-memory",
   "http-gateway",
   "slack-channel",
   "monitor-default"

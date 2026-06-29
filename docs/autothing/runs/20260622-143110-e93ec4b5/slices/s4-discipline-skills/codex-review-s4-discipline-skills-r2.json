@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Confirmed the s4 discipline-skills fix in `b3b3e85`: the review annotation is now UI-conditional on the deep tier line, and the regression test now asserts the tier-specific discipline content instead of generic substring presence.","findings":[]}

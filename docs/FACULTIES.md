@@ -1,11 +1,12 @@
 # Agent Garrison Faculties
 
-## Current model: 8 roles (Quarters pivot + the 2026-06-18 sessions split)
+## Current model: 9 roles (Quarters pivot, the 2026-06-18 sessions split, the 2026-06-22 modes faculty)
 
 Faculties are now **roles only**. The flat 24-Faculty list was collapsed to six
 roles in the 2026-06-07 Quarters pivot; on 2026-06-18 the overloaded `sessions`
 role was split into three (sessions / runtimes / surfaces), bringing the total
-to eight, enforced by `facultyIds` in `src/lib/types.ts`:
+to eight; `modes` was added 2026-06-22 (the Gary/Joe/James identity layer),
+bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
 
 - **orchestrator** — the governing behaviour spine; projected to
   `~/.claude/rules/garrison-orchestrator.md` as an APM instructions primitive
@@ -18,9 +19,9 @@ to eight, enforced by `facultyIds` in `src/lib/types.ts`:
   of `sessions` on 2026-06-18.
 - **memory** — within-session and cross-session recall; a plain-markdown
   Obsidian vault indexed into a local SQLite knowledge graph (Basic Memory),
-  with write/search/read tools shared across runtimes. Since 2026-06-10 it also
-  holds external data sources (trello-data-source, revived with the
-  `data-source` capability kind); `data-sources` is a deprecation alias for it.
+  with write/search/read tools shared across runtimes. (External services that
+  were briefly modelled here as `data-source` Fittings moved to the **connectors**
+  faculty on 2026-06-26 — Trello is now the `trello` connector.)
 - **observability** — health, logs, runtime reporting (the read-only Logs view).
 - **sessions** — the working dev session and its records, headlined since the
   2026-06-11 Dev Env consolidation by the **dev-env** Fitting: a tabbed surface
@@ -32,6 +33,71 @@ to eight, enforced by `facultyIds` in `src/lib/types.ts`:
   Each is detected via the `own_port` flag and linked from the sidebar Views
   group. `screen-share`, `browser`, and `outposts` are deprecation aliases for
   this role.
+- **modes** — the operative's identity/persona layer (added 2026-06-22): the
+  souls (Gary/Joe/James), the shared voice, the per-mode routing bias, and
+  name-based mode switching, composed into the orchestrator's system prompt.
+  One operative, three faces, one shared memory. Provided by the `modes` Fitting
+  and consumed by the orchestrator.
+
+## Optional capability faculties (2026-06-24)
+
+The 2026-06-24 wave promoted the Claude Code primitives — what were surfaced as
+a separate "Claude Code components" group (skills, hooks, agent tools/MCPs,
+plugins) — into **first-class Fittings**. The primitive type survives only as an
+internal `component_shape`; users never compose a "skill" or an "MCP", they
+station a Fitting into one of these purpose-named **optional capability
+faculties**. Each is named for what the capability is *for*, never the primitive
+behind it, and carries a display **tier** — `agent` (everyday base operative) or
+`dev` (only relevant while doing development work, anchored on the modes config:
+the dev mode, Joe, is what activates the dev-tier faculties). The tier is
+orthogonal to essential/optional and only drives the Compose grid's two headers.
+
+Agent-tier (everyday):
+
+- **knowledge** — create, edit, and organize documents and notes (office files,
+  vault notes, generated reports) and pull facts back out of them.
+- **research** — find things out and make sense of media: research a question
+  across sources, watch and summarize a video, consult reference material.
+
+Dev-tier (development work):
+
+- **building** — write, test, and ship software end-to-end: plan, implement,
+  prove it works, record the evidence.
+- **code-intelligence** — understand and navigate a codebase: find where things
+  are defined and used, read structure without trawling files by hand.
+- **design** — design and prototype user interfaces: explore visual directions,
+  build hi-fi prototypes, review the result for polish.
+- **browser-qa** — drive a real browser to build and verify: click a flow, fill
+  forms, read the console, confirm a change actually works.
+- **coordination** — keep parallel work sessions out of each other's way: claim
+  files, plan before touching shared structure, pass messages between sessions.
+
+These faculties are populated by **discovery-driven projection** (the Quarters
+StateModel mirrors the live `~/.claude`; promoted primitives appear under their
+faculty with an authored description + contract + editable setup instructions) in
+the **Hybrid** model — a few genuinely general units also ship as real
+`fittings/seed/` packages. See
+[`/FITTINGS_MIGRATION_PLAN.md`](../FITTINGS_MIGRATION_PLAN.md).
+
+## Connectors faculty (2026-06-26)
+
+- **connectors** (Agent-tier, multi) — authenticated, reusable connections to the
+  external services the operative acts on. Each connector is a Fitting for one
+  service providing `kind: connector`: a discoverable **action catalog** (each
+  action flagged `mutates` or read-only), a **Vault-sealed** auth method
+  (`oauth2`/`api_key`), and optional **triggers** (a webhook routed through the
+  Gateway, or a polling listener run by the Scheduler daemon). It is a new faculty
+  because no existing role expresses "a connected service with callable actions +
+  sealed auth + triggers", and it **absorbs the read-only `data-source` case** — a
+  connector both reads and acts, and a database (e.g. Supabase) is just another
+  connector. Trello, Google, Slack (dual: also a Channel), and Deepgram ship as
+  seed connectors; the long tail installs from the Armory. The credential each
+  connector reads is named in the Fitting's `secret_scope` so the Vault delivers
+  only that secret to the connector's process. See
+  [`CAPABILITIES.md`](./CAPABILITIES.md) (the `connector` kind) and the
+  Connectors + Automations build brief.
+
+---
 
 Everything that used to be its own Faculty — Skills, Hooks, MCPs, Plugins,
 Scripts, Settings, Context, Plans — is now a **Quarters platform primitive**, not

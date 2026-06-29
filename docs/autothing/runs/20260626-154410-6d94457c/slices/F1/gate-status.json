@@ -1,0 +1,13 @@
+{
+  "slice": "F1", "title": "Browser Fitting upgrades (observe/a11y/execute/persistent/stealth)", "kind": "mixed",
+  "sharedStructure": false, "status": "passed",
+  "gates": {
+    "implement": { "status": "done", "detail": "browser-default: /tabs/:id/observe (url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot — the fingerprint inputs), /a11y (CDP Accessibility.getFullAXTree, page.accessibility was removed in modern Playwright), /execute (locator ladder: selector/role+name/testId/label/placeholder/text -> click/fill/select/check/hover/press); opt-in persistent profile (stable user-data-dir) + stealth (--disable-blink-features=AutomationControlled + navigator.webdriver mask); apm.yml config + summary" },
+    "test": { "status": "passed", "detail": "browser-observe.test (2, REAL chromium): observe returns fingerprint inputs + a11y for a page; execute clicks via the locator ladder (verified by title change via observe). validate 4/4; syntax ok.", "command": "npx vitest run tests/browser-observe.test.ts" },
+    "review": { "status": "self-reviewed", "detail": "fixed: CDP a11y (page.accessibility removed), readBody returns parsed object (not string), test isolation (shared server)" },
+    "codexReview": { "status": "approve", "detail": "reviewed jointly with F2 (2 rounds); CORS/auth Origin guard (HTTP+WS), nav-scheme confinement, ephemeral cleanup, IPv6 loopback all fixed. See slices/F2." },
+    "codexPwTest": { "status": "pending", "detail": "Z1 drives a real browser step" },
+    "designAudit": { "status": "n/a" }, "walkthrough": { "status": "deferred", "detail": "Z1" }
+  },
+  "files": ["fittings/seed/browser-default/scripts/server.mjs", "fittings/seed/browser-default/apm.yml", "tests/browser-observe.test.ts"]
+}

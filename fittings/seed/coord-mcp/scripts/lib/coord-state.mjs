@@ -16,7 +16,6 @@ import os from "node:os";
 import path from "node:path";
 import { recentIntents } from "./intent-store.mjs";
 import { recentPlans } from "./plan-store.mjs";
-import { beadsLiveness } from "./beads.mjs";
 import { agentMailLiveness, fetchActiveLeases } from "./agentmail.mjs";
 import { lookbackDays } from "./lookback.mjs";
 
@@ -233,39 +232,36 @@ function gatherIntents(now) {
 
 // Derive the one-second hero verdict. Honest: degraded/down dominate green.
 export function deriveHeroVerdict({ liveness, sessions, locks, recentHeartbeat }) {
-  const beadsUp = liveness ? Boolean(liveness.beads && liveness.beads.up) : null;
   const agentMailUp = liveness ? Boolean(liveness.agentMail && liveness.agentMail.up) : null;
   const activeSessions = sessions.filter((s) => s.recent).length;
   const redSessions = sessions.filter((s) => s.flag === "red").length;
   const staleLocks = locks.filter((l) => l.expired).length;
   const reasons = [];
 
-  // Server health
+  // Server health — agent_mail is the coordination server.
   if (liveness) {
-    if (!beadsUp && !agentMailUp) {
+    if (!agentMailUp) {
       return {
         overall: "down",
-        reasons: ["Beads CLI and agent_mail are both DOWN — coordination infrastructure is unavailable."],
-        details: { beadsUp, agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat }
+        reasons: ["agent_mail is DOWN — coordination infrastructure is unavailable."],
+        details: { agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat }
       };
     }
-    if (!beadsUp) reasons.push("Beads CLI is DOWN.");
-    if (!agentMailUp) reasons.push("agent_mail server is DOWN.");
   }
   if (redSessions > 0) reasons.push(`${redSessions} session(s) running with ZERO coordination writes — may be working blind.`);
   if (staleLocks > 0) reasons.push(`${staleLocks} stale planning lock(s) past TTL.`);
   if (liveness && activeSessions > 0 && recentHeartbeat === false) reasons.push(`${activeSessions} active session(s) but no recent hook injections — the coordination hook may not be firing.`);
 
   if (reasons.length > 0) {
-    return { overall: "degraded", reasons, details: { beadsUp, agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat } };
+    return { overall: "degraded", reasons, details: { agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat } };
   }
   if (liveness && activeSessions === 0) {
-    return { overall: "idle", reasons: ["Coordination servers are up; no sessions are currently active."], details: { beadsUp, agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat } };
+    return { overall: "idle", reasons: ["Coordination servers are up; no sessions are currently active."], details: { agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat } };
   }
   return {
     overall: "live-and-used",
     reasons: [`${activeSessions} active session(s) coordinating; servers up; locks healthy.`],
-    details: { beadsUp, agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat }
+    details: { agentMailUp, activeSessions, redSessions, staleLocks, recentHeartbeat }
   };
 }
 
@@ -319,7 +315,7 @@ export async function buildCoordState(focusRepo, now = new Date(), opts = {}) {
 
   let live = null;
   if (liveness) {
-    live = { beads: beadsLiveness(), agentMail: await agentMailLiveness() };
+    live = { agentMail: await agentMailLiveness() };
   }
   const sessions = globalSessions ? gatherSessions(now) : [];
   const locks = gatherLocks(now, focusRepo);

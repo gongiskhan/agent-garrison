@@ -31,17 +31,32 @@ const DROPPED_KINDS_2026_06 = ["terminal-session", "worktree", "session-view"];
 const STALE_FACULTY_COUNT = /24 flat top-level|24 flat\b|24 Faculties/i;
 
 describe("docs reflect the Quarters pivot (RC5 sync)", () => {
-  it("source is the truth this test guards against: 6 roles, dropped kinds gone", () => {
-    expect([...facultyIds].sort()).toEqual([
-      "channels",
-      "gateway",
-      "memory",
-      "observability",
-      "orchestrator",
-      "runtimes",
-      "sessions",
-      "surfaces"
-    ]);
+  it("source is the truth this test guards against: the role set + dropped kinds gone", () => {
+    expect([...facultyIds].sort()).toEqual(
+      [
+        // 9 role faculties (Quarters pivot + sessions split + modes)
+        "channels",
+        "gateway",
+        "memory",
+        "modes",
+        "observability",
+        "orchestrator",
+        "runtimes",
+        "sessions",
+        "surfaces",
+        // 7 optional capability faculties (2026-06-24) — homes for the promoted
+        // Claude Code primitives, named by purpose not primitive type
+        "knowledge",
+        "research",
+        "building",
+        "code-intelligence",
+        "design",
+        "browser-qa",
+        "coordination",
+        // connectors (2026-06-26) — authenticated connections to external services
+        "connectors"
+      ].sort()
+    );
     for (const dropped of [...DROPPED_KINDS, ...DROPPED_KINDS_2026_06]) {
       expect(capabilityKinds as readonly string[], `${dropped} must not be a live kind`).not.toContain(
         dropped

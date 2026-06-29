@@ -9,8 +9,8 @@ x-garrison:
   cardinality_hint: single
   component_shape: script
   platforms:
-    - claude-code
-  summary: Cron-style job scheduler. Reads a machine-global jobs file (~/.garrison/scheduler-jobs.json), runs due jobs, persists last_run. CLI exposes add/remove/list/run-now plus tick (one-shot) and daemon (long-running) modes. Fitting setup hooks register jobs via `add`; the io.garrison.scheduler launchd agent runs `daemon` so they actually fire.
+    - all
+  summary: Platform-agnostic always-on job scheduler. A plain Node daemon (no Claude Code dependency, no single OS) that ticks cron jobs and supervises listeners independent of the operative — it fires whether or not the operative is up. Reads a machine-global jobs file (~/.garrison/scheduler-jobs.json), persists last_run, exposes a /health endpoint, and is SIGTERM-safe. CLI exposes add/register/enable/disable/remove/list/run-now plus tick (one-shot) and daemon (long-running, --health-port). Fitting setup hooks register jobs via `register` (idempotent; preserves the user's enable/disable choice); any supervisor (systemd / Docker / PM2 / launchd — see launchers/) keeps the daemon alive.
   config_schema:
     - key: jobs_file
       type: path
@@ -20,6 +20,10 @@ x-garrison:
       type: path
       default: ~/.garrison/scheduler.log
       description: Absolute, per-machine path where job execution output is appended (override via GARRISON_SCHEDULER_LOG).
+    - key: health_port
+      type: integer
+      default: 7088
+      description: Port the daemon's /health endpoint binds on 127.0.0.1 (override via GARRISON_SCHEDULER_HEALTH_PORT or `daemon --health-port`). A busy port is tolerated; the daemon keeps ticking without /health.
   provides:
     - kind: automation-runner
       name: scheduler

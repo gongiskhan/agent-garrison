@@ -41,9 +41,9 @@ describe("instance ref codec", () => {
   });
 
   it("omits the default instance id and parses it back", () => {
-    const ref = { fittingId: "artifact-store", viewId: "list", instanceId: DEFAULT_INSTANCE_ID };
-    expect(formatInstanceRef(ref)).toBe("artifact-store:list");
-    expect(parseInstanceRef("artifact-store:list")).toEqual(ref);
+    const ref = { fittingId: "monitor", viewId: "list", instanceId: DEFAULT_INSTANCE_ID };
+    expect(formatInstanceRef(ref)).toBe("monitor:list");
+    expect(parseInstanceRef("monitor:list")).toEqual(ref);
   });
 
   it("rejects malformed and traversal-shaped refs", () => {
@@ -77,10 +77,10 @@ describe("view descriptor + provision derivation", () => {
         ]
       }
     });
-    const descriptors = deriveViewDescriptors("artifact-store", md);
+    const descriptors = deriveViewDescriptors("monitor", md);
     expect(descriptors).toEqual([
-      expect.objectContaining({ fittingId: "artifact-store", viewId: "list", surface: "embedded" }),
-      expect.objectContaining({ fittingId: "artifact-store", viewId: "view", surface: "embedded" })
+      expect.objectContaining({ fittingId: "monitor", viewId: "list", surface: "embedded" }),
+      expect.objectContaining({ fittingId: "monitor", viewId: "view", surface: "embedded" })
     ]);
   });
 
@@ -114,9 +114,9 @@ describe("view descriptor + provision derivation", () => {
 describe("resolver exposes derived view capability", () => {
   const selection: ResolverInput[] = [
     {
-      id: "artifact-store",
+      id: "monitor",
       metadata: metadata({
-        provides: [{ kind: "artifact-store", name: "default" }],
+        provides: [{ kind: "monitor", name: "default" }],
         ui: {
           views: [{ id: "list", placement: "sidebar-surface", entry: "./ui/A.tsx", route: "/" }]
         }
@@ -141,7 +141,7 @@ describe("resolver exposes derived view capability", () => {
     const consumer = result.graph.consumers.find((c) => c.fittingId === "view-consumer");
     expect(consumer).toBeTruthy();
     const matchedNames = consumer!.matched.map((node) => node.provision.name).sort();
-    expect(matchedNames).toEqual(["artifact-store:list", "dev-env:main"]);
+    expect(matchedNames).toEqual(["dev-env:main", "monitor:list"]);
   });
 
   it("a named view consumption targets one fitting's view", () => {
@@ -149,20 +149,20 @@ describe("resolver exposes derived view capability", () => {
       ...selection.slice(0, 2),
       {
         id: "view-consumer",
-        metadata: metadata({ consumes: [{ kind: "view", name: "artifact-store:list" }] })
+        metadata: metadata({ consumes: [{ kind: "view", name: "monitor:list" }] })
       }
     ]);
     expect(result.ok).toBe(true);
     const consumer = result.graph.consumers.find((c) => c.fittingId === "view-consumer");
     expect(consumer!.matched).toHaveLength(1);
-    expect(consumer!.matched[0].fittingId).toBe("artifact-store");
+    expect(consumer!.matched[0].fittingId).toBe("monitor");
   });
 
   it("backward compat: compositions without view consumers resolve exactly as before", () => {
     const result = resolveCapabilities(selection.slice(0, 2));
     expect(result.ok).toBe(true);
     expect(result.graph.providers.get("dev-env")).toHaveLength(1);
-    expect(result.graph.providers.get("artifact-store")).toHaveLength(1);
+    expect(result.graph.providers.get("monitor")).toHaveLength(1);
   });
 
   it("derived view provisions never leak into the assembled prompt's capabilities block", () => {
@@ -179,7 +179,7 @@ describe("resolver exposes derived view capability", () => {
       })
     );
     const block = renderCapabilitiesBlock(entries);
-    expect(block).toContain("artifact-store:default");
+    expect(block).toContain("monitor:default");
     expect(block).toContain("dev-env:dev-env");
     expect(block).not.toContain("view:");
   });

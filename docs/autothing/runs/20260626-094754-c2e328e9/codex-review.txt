@@ -1,0 +1,3780 @@
+Reading additional input from stdin...
+OpenAI Codex v0.142.0
+--------
+workdir: /Users/ggomes/dev/garrison
+model: gpt-5.4
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 019f0342-5092-7373-9a86-4514e1e540fc
+--------
+user
+You are an ADVERSARIAL code reviewer. Try to BREAK this change. Repo root is the cwd.
+
+Read the diff: docs/autothing/runs/20260626-094754-c2e328e9/full-diff.patch
+And for context the full file: packages/claude-chat/src/ClaudeChat.tsx
+
+Context: this restyles the web-channel Fitting to a cream "Garrison" look (web-channel-scoped CSS override layer) and adds to the SHARED @garrison/claude-chat React component: a marked v14 `code` renderer that syntax-highlights fenced code via highlight.js and emits a Copy button with NO inline handler; a delegated onClick on .cc-scroll (onCodeCopyClick) that copies the code; a "working" indicator with a live elapsed timer (useEffect on busy); a workingHint from PTY status rows; per-message Copy (copiedId state); a streaming cursor. dev-env also consumes this shared component (must not regress).
+
+Hunt for REAL correctness bugs with a concrete trigger: XSS via dangerouslySetInnerHTML (is highlighted HTML + the language label escaped?); null/undefined deref; missing await; React stale-closure / effect-deps / interval-leak bugs; the delegated handler breaking link clicks or autoscroll; marked v14 renderer signature mismatch; the code renderer throwing on unknown/odd languages; dev-env regression from the new shared CSS/JS.
+
+End your response with a line exactly: "VERDICT: approve" if you found no real correctness bug, or "VERDICT: needs-changes" followed by a numbered list of concrete bugs (file:line + trigger + fix). Do not modify any files.
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+Reviewing the patch and the shared component side by side. I’ll pull the diff, the target file, and the repo context docs first, then trace the new render/copy/timer behavior for concrete failure modes.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '1,260p' docs/autothing/runs/20260626-094754-c2e328e9/full-diff.patch" in /Users/ggomes/dev/garrison
+exec
+/bin/zsh -lc "pwd && ls -1 && printf '\\n---\\n' && [ -d .codegraph ] && echo CODEGRAPH_PRESENT || echo CODEGRAPH_ABSENT && printf '\\n---\\n' && for f in PRD.md PLANING.md TASKS.md CLAUDE.md docs/SPEC.md docs/GARRISON_ROADMAP.md docs/autothing/runs/20260626-094754-c2e328e9/full-diff.patch packages/claude-chat/src/ClaudeChat.tsx; do if [ -e \""'$f" ]; then echo "FOUND $f"; else echo "MISSING $f"; fi; done' in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+diff --git a/fittings/seed/web-channel-default/ui/build.mjs b/fittings/seed/web-channel-default/ui/build.mjs
+index ccc3f49..eebc6cf 100644
+--- a/fittings/seed/web-channel-default/ui/build.mjs
++++ b/fittings/seed/web-channel-default/ui/build.mjs
+@@ -28,9 +28,11 @@ await build({
+ 
+ copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
+ 
+-// web-channel.css = base styles + the shared claude-chat stylesheet, so the
+-// single <link> in index.html covers both.
+-const baseCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
++// web-channel.css = the shared claude-chat stylesheet FIRST, then the
++// web-channel skin (styles.css) LAST, so the skin's Garrison palette/chrome
++// overrides the component's dark default on equal specificity. Order matters:
++// styles.css is the override layer and must win, so it is appended last.
++const skinCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
+ const chatCssPath = path.resolve(HERE, "..", "..", "..", "..", "packages", "claude-chat", "src", "claude-chat.css");
+ let chatCss = "";
+ if (existsSync(chatCssPath)) {
+@@ -42,6 +44,6 @@ if (existsSync(chatCssPath)) {
+     if (existsSync(nm)) chatCss = readFileSync(nm, "utf8");
+   } catch { /* ignore */ }
+ }
+-writeFileSync(path.join(DIST, "web-channel.css"), `${baseCss}\n\n/* === @garrison/claude-chat === */\n${chatCss}\n`);
++writeFileSync(path.join(DIST, "web-channel.css"), `/* === @garrison/claude-chat (base) === */\n${chatCss}\n\n/* === web-channel skin (override layer) === */\n${skinCss}\n`);
+ 
+ console.log("[web-channel:build] wrote dist/");
+diff --git a/fittings/seed/web-channel-default/ui/index.html b/fittings/seed/web-channel-default/ui/index.html
+index b9eec71..c7419ef 100644
+--- a/fittings/seed/web-channel-default/ui/index.html
++++ b/fittings/seed/web-channel-default/ui/index.html
+@@ -3,10 +3,18 @@
+   <head>
+     <meta charset="utf-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+-    <meta name="theme-color" content="#0b0d10" />
++    <meta name="theme-color" content="#f4ede0" />
+     <meta name="apple-mobile-web-app-capable" content="yes" />
+-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+-    <title>Garrison · Web channel</title>
++    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
++    <title>Garrison · Operative</title>
++    <!-- Garrison typeface stack (Inter / Source Serif 4 / JetBrains Mono). System
++         fallbacks in web-channel.css keep the UI readable if fonts don't load. -->
++    <link rel="preconnect" href="https://fonts.googleapis.com" />
++    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
++    <link
++      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500;600&display=swap"
++      rel="stylesheet"
++    />
+     <link rel="stylesheet" href="/web-channel.css" />
+   </head>
+   <body>
+diff --git a/fittings/seed/web-channel-default/ui/styles.css b/fittings/seed/web-channel-default/ui/styles.css
+index 1e32189..adcac64 100644
+--- a/fittings/seed/web-channel-default/ui/styles.css
++++ b/fittings/seed/web-channel-default/ui/styles.css
+@@ -1,415 +1,325 @@
+-:root {
+-  --bg: #fbf8f1;
+-  --surface: #f4ede0;
+-  --surface-elev: #fbf8f1;
+-  --border: #d6cdba;
+-  --text: #18211c;
+-  --text-dim: #66695f;
+-  --text-muted: #7d8077;
+-  --accent: #3d6249;
+-  --accent-dim: #a9c5b3;
+-  --user-bubble: #eaf1e7;
+-  --assistant-bubble: #f4ede0;
+-  --danger: #9b362d;
+-  --warn-banner: #f6ecd0;
+-  --warn-text: #b07215;
+-  color-scheme: light;
+-}
++/* ============================================================================
++   Web-Channel — Garrison look-and-feel skin for the shared @garrison/claude-chat
++   component.
+ 
+-* {
+-  box-sizing: border-box;
+-}
++   This file is concatenated AFTER packages/claude-chat/src/claude-chat.css by
++   ui/build.mjs and is loaded ONLY by the web-channel (dev-env never loads it).
++   So everything here overrides the shared component's dark default for the
++   web-channel surface alone — dev-env's light/dark themes are untouched.
++
++   Design language (matches src/app/globals.css): warm cream "paper", ink text,
++   1px "rule" hairlines, restrained sage-green accent, uppercase letter-spaced
++   mono micro-labels, Source Serif headlines, sharp (near-zero-radius) chrome.
++   ============================================================================ */
++
++* { box-sizing: border-box; }
+ 
+ html, body {
+   margin: 0;
+-  padding: 0;
+-  background: var(--bg);
+-  color: var(--text);
+-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+-  font-size: 16px;
+-  line-height: 1.45;
++  background: #fbf8f1; /* paper — fills any area outside the centered column */
+   -webkit-text-size-adjust: 100%;
+-}
+-
+-body {
+-  min-height: 100vh;
+-  min-height: 100dvh;
+-  overflow: hidden;
+-}
+-
+-#root {
+-  height: 100vh;
+-  height: 100dvh;
+-  display: flex;
+-  flex-direction: column;
+-}
++  overscroll-behavior: none;
++}
++
++/* ── Token override: re-point the component's --cc-* palette at Garrison's.
++   Same specificity as claude-chat.css's base `.cc-root`, declared later, so it
++   wins for the web-channel only (no data-theme is set here). ── */
++.cc-root {
++  --cc-bg:            #fbf8f1;  /* paper            */
++  --cc-bg-elev:       #f4ede0;  /* paper-2          */
++  --cc-bg-sunk:       #ece2cc;  /* paper-3          */
++  --cc-fg:            #18211c;  /* ink              */
++  --cc-fg-dim:        #66695f;  /* mute             */
++  --cc-fg-faint:      #7d8077;  /* mute-2           */
++  --cc-border:        #d6cdba;  /* rule             */
++  --cc-border-strong: #c4b89f;  /* rule-2           */
++  --cc-accent:        #3d6249;  /* sage-2           */
++  --cc-accent-fg:     #fbf8f1;  /* paper on accent  */
++  --cc-user-bg:       #eaf1e7;  /* sage-soft        */
++  --cc-user-fg:       #18211c;
++  --cc-code-bg:       #18211c;  /* ink — dark code card on cream (echoes .term) */
++  --cc-code-fg:       #d7e3dc;
++  --cc-code-border:   #283731;
++  --cc-slash-active:  #ece2cc;
++  --cc-danger-bg:     #9b362d;  /* alarm            */
++  --cc-danger-border: #9b362d;
++
++  /* Garrison typefaces (loaded via index.html), with the original fallbacks. */
++  --cc-sans:  "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
++  --cc-serif: "Source Serif 4", Georgia, serif;
++  --cc-mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
++
++  /* Reusable micro-label recipe (uppercase letter-spaced mono). */
++  font-family: var(--cc-sans);
++  font-size: 15px;
++  line-height: 1.55;
++  -webkit-font-smoothing: antialiased;
+ 
+-.app {
+-  display: flex;
+-  flex-direction: column;
+-  height: 100%;
+-  width: 100%;
++  /* A centered editorial column with hairline side rules on wide viewports. */
+   max-width: 760px;
+   margin: 0 auto;
++  border-left: 1px solid var(--cc-border);
++  border-right: 1px solid var(--cc-border);
+ }
+ 
+-.app-header {
+-  display: flex;
+-  align-items: center;
+-  justify-content: space-between;
+-  gap: 12px;
+-  padding: calc(env(safe-area-inset-top) + 10px) max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left));
+-  border-bottom: 1px solid var(--border);
+-  background: var(--surface);
++/* ── Header ── */
++.cc-header {
++  gap: 10px;
++  padding: 12px 16px;
++  padding-top: max(12px, env(safe-area-inset-top));
+ }
+-
+-.app-title {
+-  font-size: 15px;
++.cc-title {
++  font-family: var(--cc-serif);
+   font-weight: 600;
+-  letter-spacing: 0.02em;
+-  color: var(--text);
+-}
+-
+-.app-title small {
+-  display: block;
++  font-size: 17px;
++  letter-spacing: -0.01em;
++  color: var(--cc-fg);
++}
++.cc-conn {
++  width: 7px; height: 7px;
++  background: var(--cc-accent);
++  box-shadow: 0 0 0 3px rgba(61, 98, 73, 0.12);
++}
++.cc-conn-reconnecting { background: #b4862a; box-shadow: 0 0 0 3px rgba(180, 134, 42, 0.12); }
++.cc-conn-closed { background: #9b362d; box-shadow: 0 0 0 3px rgba(155, 54, 45, 0.12); }
++.cc-model, .cc-ctx {
++  font-family: var(--cc-mono);
++  font-size: 10px;
++  letter-spacing: 0.06em;
++  text-transform: uppercase;
++  color: var(--cc-fg-dim);
++  font-variant-numeric: tabular-nums;
++}
++.cc-ctx { padding-left: 10px; border-left: 1px solid var(--cc-border); }
++.cc-rawtoggle {
++  font-family: var(--cc-mono);
++  font-size: 10px;
++  letter-spacing: 0.06em;
++  text-transform: uppercase;
++  background: transparent;
++  color: var(--cc-fg-dim);
++  border: 1px solid var(--cc-border);
++  border-radius: 0;
++  padding: 4px 9px;
++}
++.cc-rawtoggle:hover { border-color: var(--cc-fg); color: var(--cc-fg); background: transparent; }
++
++/* ── Scroll / empty state ── */
++.cc-scroll { padding: 20px 16px; }
++.cc-empty {
++  color: var(--cc-fg-dim);
++  margin-top: 16vh;
++  font-family: var(--cc-mono);
+   font-size: 11px;
+-  font-weight: 400;
+-  color: var(--text-muted);
+-  letter-spacing: 0;
+-  margin-top: 2px;
+-}
+-
+-.app-actions a {
+-  font-size: 13px;
+-  color: var(--accent);
+-  text-decoration: none;
+-  padding: 8px 12px;
+-  border: 1px solid var(--accent-dim);
+-  border-radius: 8px;
+-  min-height: 36px;
+-  display: inline-flex;
+-  align-items: center;
+-}
+-
+-.app-actions a:active {
+-  background: var(--accent-dim);
+-}
+-
+-.history-banner {
+-  background: var(--warn-banner);
+-  color: var(--warn-text);
+-  font-size: 12px;
+-  padding: 8px 14px;
+
+ succeeded in 0ms:
+/Users/ggomes/dev/garrison
+AGENTS.md
+BRIEF
+CLAUDE.md
+EXPLORATION_REPORT_router_improver.md
+FITTINGS_MIGRATION_PLAN.md
+README.md
+WHATS-NEW.md
+briefs
+compositions
+data
+docs
+fittings
+logs
+next-env.d.ts
+next.config.mjs
+node_modules
+output
+package-lock.json
+package.json
+packages
+playwright.config.ts
+postcss.config.mjs
+public
+scripts
+src
+tailwind.config.ts
+test-results
+tests
+tsconfig.json
+tsconfig.tsbuildinfo
+verification
+vitest.config.ts
+
+---
+CODEGRAPH_PRESENT
+
+---
+MISSING PRD.md
+MISSING PLANING.md
+MISSING TASKS.md
+FOUND CLAUDE.md
+FOUND docs/SPEC.md
+FOUND docs/GARRISON_ROADMAP.md
+FOUND docs/autothing/runs/20260626-094754-c2e328e9/full-diff.patch
+FOUND packages/claude-chat/src/ClaudeChat.tsx
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '1,320p' packages/claude-chat/src/ClaudeChat.tsx" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+import * as React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { marked } from "marked";
+import hljs from "highlight.js/lib/core";
+import typescript from "highlight.js/lib/languages/typescript";
+import javascript from "highlight.js/lib/languages/javascript";
+import python from "highlight.js/lib/languages/python";
+import bash from "highlight.js/lib/languages/bash";
+import json from "highlight.js/lib/languages/json";
+import css from "highlight.js/lib/languages/css";
+import xml from "highlight.js/lib/languages/xml";
+import markdown from "highlight.js/lib/languages/markdown";
+import yaml from "highlight.js/lib/languages/yaml";
+import sql from "highlight.js/lib/languages/sql";
+import rust from "highlight.js/lib/languages/rust";
+import go from "highlight.js/lib/languages/go";
+import diff from "highlight.js/lib/languages/diff";
+import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
+import {
+  getChatMode,
+  resolvedChatScheme,
+  setChatMode,
+  subscribeChatTheme,
+  type ChatThemeMode,
+} from "./chat-theme";
+import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
+
+marked.setOptions({ breaks: true, gfm: true });
+
+// Syntax highlighting for fenced code blocks. A curated language set keeps the
+// bundle small while covering what the Operative emits most (TS/JS/py/shell/json
+// /css/html/yaml/sql/rust/go/diff/markdown). hljs token classes (.hljs-*) are
+// coloured in claude-chat.css against theme-driven CSS vars, so the same output
+// reads on the dark code card (web-channel + dev-env dark) and the light one
+// (dev-env light).
+for (const [name, lang] of Object.entries({
+  typescript, javascript, python, bash, json, css, xml, markdown, yaml, sql, rust, go, diff,
+})) {
+  try { hljs.registerLanguage(name, lang as any); } catch { /* already registered */ }
+}
+
+// Escape text destined for HTML element content (used for the code fallback and
+// the language label). Mirrors escapeAttr but for text nodes.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Escape a value before it goes into an HTML attribute (the rendered markdown is
+// injected via dangerouslySetInnerHTML, so an unescaped href/title could break out
+// of the attribute or inject markup).
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Allow ONLY safe link targets. Active-content schemes (javascript:, data:,
+// vbscript:, file:, …) are rejected so a produced document / an injected reply
+// cannot smuggle a script payload through the chat's markdown renderer. Relative,
+// root-relative (incl. the translated /fitting/… path), anchor, query, and
+// protocol-relative links are allowed, plus the http/https/mailto/tel schemes.
+function isSafeHref(url: string): boolean {
+  const u = url.trim();
+  if (u === "") return false;
+  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(u)) return true; // relative / anchor / query
+  if (/^\/\//.test(u)) return true;                     // protocol-relative //host
+  return /^(?:https?:|mailto:|tel:)/i.test(u);          // explicit safe schemes only
+}
+
+// Generic link handling for rendered assistant markdown. Content-agnostic (no
+// kanban / dev-env knowledge):
+//   1. `garrison://<fitting-id>/<rest>` cross-fitting links → `/fitting/<id>/<rest>`
+//      (the UI-contract-v2 translation), so a produced doc/artifact link the
+//      Operative emits is a real, clickable link, never shown raw.
+//   2. http(s) links open in a new tab (rel=noopener) so following a produced
+//      document doesn't tear down the live chat.
+//   3. UNSAFE schemes (javascript:/data:/…) are NOT linkified — the text is kept,
+//      the dangerous href is dropped. href/title are HTML-attribute-escaped.
+// Additive: only the <a> attributes change; link text/structure is untouched, so
+// dev-env's existing rendering is unaffected (and safer).
+marked.use({
+  renderer: {
+    link({ href, title, tokens }: { href: string; title?: string | null; tokens: any[] }) {
+      const text = this.parser.parseInline(tokens);
+      let url = href || "";
+      const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
+      if (g) {
+        url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
+      }
+      // Drop the link (keep the text) for any non-allowlisted/active-content scheme.
+      if (!isSafeHref(url)) return text;
+      const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url)
+        ? ` target="_blank" rel="noopener noreferrer"`
+        : "";
+      const t = title ? ` title="${escapeAttr(title)}"` : "";
+      return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
+    },
+    // Rich fenced code block: a dark "card" with a header (uppercase mono
+    // language label + a Copy button) over a syntax-highlighted <pre>. The Copy
+    // button carries no inline handler (the markdown is injected via
+    // dangerouslySetInnerHTML); a single delegated click handler on the scroll
+    // container (onCodeCopyClick) reads the block's text and writes the
+    // clipboard. Highlighting is applied for known languages; unknown/none falls
+    // back to escaped plain text. Additive: only `<pre><code>` markup changes,
+    // so dev-env keeps working (and gains highlighting too).
+    code({ text, lang }: { text: string; lang?: string }) {
+      // marked stores the WHOLE fence info-string in `lang` (e.g.
+      // `ts title="x.ts"` or `python {1,3}`); the language is just its first
+      // whitespace-delimited token. Use that, or both the highlight lookup and
+      // the label break for any annotated fence.
+      const language = (lang || "").trim().split(/\s+/)[0].toLowerCase();
+      let body: string;
+      if (language && hljs.getLanguage(language)) {
+        try {
+          body = hljs.highlight(text, { language, ignoreIllegals: true }).value;
+        } catch {
+          body = escapeHtml(text);
+        }
+      } else {
+        body = escapeHtml(text);
+      }
+      const label = escapeHtml(language || "text");
+      return (
+        `<div class="cc-codeblock">` +
+        `<div class="cc-codehead">` +
+        `<span class="cc-codelang">${label}</span>` +
+        `<button type="button" class="cc-codecopy" aria-label="Copy code">Copy</button>` +
+        `</div>` +
+        `<pre class="hljs"><code>${body}</code></pre>` +
+        `</div>`
+      );
+    },
+  },
+});
+
+interface Turn {
+  id: string;
+  user: string;
+  assistant: string;
+  streaming: boolean;
+}
+
+// ── Toolbar feature flags (all default OFF so web-channel is unaffected) ──
+// dev-env opts in via <ClaudeChat features={{ model, effort, theme, voice }} />.
+export interface ChatFeatures {
+  /** Model selector (Opus/Sonnet/Haiku) — switches the live session via /model. */
+  model?: boolean;
+  /** Effort/thinking-level selector — prepends a thinking directive to the next message. */
+  effort?: boolean;
+  /** Light/dark/system theme toggle for the chat surface. */
+  theme?: boolean;
+  /** Read-aloud + push-to-talk via the host's same-origin /voice proxy. */
+  voice?: boolean;
+}
+
+// Model picks. Selecting one submits `/model <id>` into the Claude Code TUI,
+// which drives its model picker live; the status line then reflects the change
+// through the existing `status` event (no extra wiring). Ids track the current
+// Claude Code model aliases; the short aliases also work if an id is rejected.
+const MODELS: { id: string; label: string }[] = [
+  { id: "claude-opus-4-8", label: "Opus" },
+  { id: "claude-sonnet-4-6", label: "Sonnet" },
+  { id: "claude-haiku-4-5", label: "Haiku" },
+];
+
+// Effort / thinking levels. MECHANISM: Claude Code escalates its thinking budget
+// on trigger phrases in the prompt ("think" < "think hard" < "ultrathink"). We
+// prepend the chosen directive to the user's next message at send time. "Normal"
+// prepends nothing. The choice persists in localStorage and shows active; it is
+// a per-message modifier, not a session setting, so it survives reconnects.
+const EFFORTS: { id: string; label: string; directive: string }[] = [
+  { id: "normal", label: "Normal", directive: "" },
+  { id: "think", label: "Think", directive: "think" },
+  { id: "think-hard", label: "Think hard", directive: "think hard" },
+  { id: "ultrathink", label: "Ultrathink", directive: "ultrathink" },
+];
+const LS_EFFORT = "garrison.chat.effort";
+
+function readEffort(): string {
+  try {
+    const v = localStorage.getItem(LS_EFFORT);
+    if (v && EFFORTS.some((e) => e.id === v)) return v;
+  } catch {}
+  return "normal";
+}
+
+const MODE_LABELS: Record<PermissionMode, string> = {
+  default: "Default",
+  acceptEdits: "Accept Edits",
+  plan: "Plan",
+  bypassPermissions: "Bypass",
+  unknown: "—",
+};
+const SWITCHABLE: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+
+let uid = 0;
+const nextId = () => `t${Date.now()}_${uid++}`;
+
+// m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
+function fmtElapsed(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// SVG icons for the theme toggle (no emoji, per house rule). Mirrors the
+// dev-env terminal toggle's sun / moon / monitor set.
+const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }[] = [
+  {
+    mode: "light",
+    label: "Light",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+          <line x1="8" y1="1" x2="8" y2="2.8" /><line x1="8" y1="13.2" x2="8" y2="15" />
+          <line x1="1" y1="8" x2="2.8" y2="8" /><line x1="13.2" y1="8" x2="15" y2="8" />
+          <line x1="3.1" y1="3.1" x2="4.3" y2="4.3" /><line x1="11.7" y1="11.7" x2="12.9" y2="12.9" />
+          <line x1="12.9" y1="3.1" x2="11.7" y2="4.3" /><line x1="4.3" y1="11.7" x2="3.1" y2="12.9" />
+        </g>
+      </svg>
+    ),
+  },
+  {
+    mode: "dark",
+    label: "Dark",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    mode: "system",
+    label: "System",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.5" y="2.5" width="13" height="8.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <line x1="5.5" y1="13.5" x2="10.5" y2="13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+];
+
+// Optional per-send metadata a host fitting can attach to every turn. GENERIC
+// by design: `context` is an OPAQUE blob and `mode` an opaque string — this
+// component never inspects either. A transport that wants them reads a second
+// `meta` argument on sendMessage; transports that don't (createHttpTransport)
+// ignore it, so default behavior is byte-for-byte unchanged.
+export interface ChatSendMeta {
+  context?: unknown;
+  mode?: string;
+}
+type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
+
+// Pure decision used by `send`: build the optional per-send meta from the
+// current opaque context/mode, or return undefined when BOTH are absent so a
+// context-unaware transport is invoked with exactly one argument (its previous
+// behavior). Exported for hermetic unit testing of the threading contract.
+export function buildSendMeta(context: unknown, mode: string | undefined): ChatSendMeta | undefined {
+  const hasContext = context !== undefined && context !== null;
+  const hasMode = typeof mode === "string" && mode.trim().length > 0;
+  if (!hasContext && !hasMode) return undefined;
+  const meta: ChatSendMeta = {};
+  if (hasContext) meta.context = context;
+  if (hasMode) meta.mode = (mode as string).trim();
+  return meta;
+}
+
+export interface ClaudeChatProps {
+  transport: ChatTransport;
+  /** Optional slot rendered at the left of the composer (e.g. voice controls). */
+  composerAdornment?: React.ReactNode;
+  /** Optional title shown in the header. */
+  title?: string;
+  /**
+   * Opt-in toolbar features. ALL DEFAULT OFF — omitting this prop (as
+   * web-channel does) yields exactly the previous chat. dev-env passes
+   * { model, effort, theme, voice }.
+   */
+  features?: ChatFeatures;
+  /**
+   * OPAQUE context a host fitting hands the chat (a card, a Dev Env session, …).
+   * This component does NOT interpret it — it is threaded verbatim to the
+   * transport's send as `meta.context`. Absent → exactly the previous behavior.
+   */
+  context?: unknown;
+  /**
+   * OPAQUE mode string a host fitting hands the chat (e.g. a souls face). Passed
+   * through to the transport's send as `meta.mode`; never interpreted here.
+   */
+  mode?: string;
+  /**
+   * An opening message to AUTO-SEND once, on mount, as if the user had typed it —
+   * so a host can have the operative start proactively (e.g. Kanban Discuss seeds
+   * a "James, analyse this card…" kickoff). Absent → exactly the previous behavior
+   * (the chat waits for the user). Sent exactly once per mount.
+   */
+  initialMessage?: string;
+}
+
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage }: ClaudeChatProps) {
+  const feat = features ?? {};
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
+  const [busy, setBusy] = useState(false);
+  const [conn, setConn] = useState<"open" | "closed" | "reconnecting">("reconnecting");
+  const [screen, setScreen] = useState<string[]>([]);
+  const [showRaw, setShowRaw] = useState(false);
+  const [input, setInput] = useState("");
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [menuIdx, setMenuIdx] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+codex
+I have the renderer and top-level state. Next I’m reading the rest of `ClaudeChat.tsx` around the delegated copy handler, markdown injection, timer effect, and streaming message assembly to check for breakage paths.
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse
+exec
+/bin/zsh -lc "sed -n '321,760p' packages/claude-chat/src/ClaudeChat.tsx" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+
+  // ── Theme (opt-in). Mirrors the dev-env terminal toggle: shared LS key, so
+  // flipping either re-themes the other. When the feature is off the root
+  // carries no data-theme attribute and the CSS falls back to its fixed dark
+  // look (web-channel unchanged). ──
+  const themeOn = Boolean(feat.theme);
+  const [themeMode, setThemeMode] = useState<ChatThemeMode>(() => getChatMode());
+  const [scheme, setScheme] = useState<"light" | "dark">(() => resolvedChatScheme());
+  useEffect(() => {
+    if (!themeOn) return;
+    const off = subscribeChatTheme(() => {
+      setThemeMode(getChatMode());
+      setScheme(resolvedChatScheme());
+    });
+    return off;
+  }, [themeOn]);
+
+  // ── Effort / thinking level (opt-in). Persisted; prepended at send time. ──
+  const effortOn = Boolean(feat.effort);
+  const [effort, setEffort] = useState<string>(() => readEffort());
+  const effortRef = useRef(effort);
+  effortRef.current = effort;
+  const pickEffort = useCallback((id: string) => {
+    setEffort(id);
+    try { localStorage.setItem(LS_EFFORT, id); } catch {}
+  }, []);
+
+  // ── Voice (opt-in). Discovers availability via the host's /voice/health
+  // proxy; gates all controls on it. ──
+  const voiceOn = Boolean(feat.voice);
+  const voiceClient = useMemo<VoiceClient | null>(
+    () => (voiceOn ? createVoiceClient(transport.base ?? "") : null),
+    [voiceOn, transport]
+  );
+  const [voiceHealth, setVoiceHealth] = useState<VoiceHealth>({ available: false });
+  const [readAloud, setReadAloud] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recBusyRef = useRef(false);
+  const voiceMountedRef = useRef(true);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastSpokenRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!voiceOn || !voiceClient) return;
+    let cancelled = false;
+    const probe = () => voiceClient.health().then((h) => { if (!cancelled) setVoiceHealth(h); }).catch(() => {});
+    void probe();
+    const id = window.setInterval(probe, 15000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [voiceOn, voiceClient]);
+
+  const voiceUsable = voiceOn && voiceHealth.available && voiceHealth.keyConfigured !== false;
+
+  // ── Copy-last-response ──
+  const [copied, setCopied] = useState(false);
+
+  // ── Working indicator: a live elapsed timer while the turn is busy, so the
+  // user gets unmistakable "it's working" feedback (modeled on leading chat
+  // UIs). Resets to 0 each turn; ticks once a second only while busy. ──
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return; }
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [busy]);
+
+  // A compact activity hint pulled from the PTY status line (e.g.
+  // "esc to interrupt · 2.1k tokens"). Absent on the orchestrator transport
+  // (no status rows) → the indicator degrades to dots + "Working" + elapsed.
+  const workingHint = useMemo(() => {
+    const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
+    if (!row) return "";
+    // Prefer the parenthetical tail "(esc to interrupt · N tokens)" so the hint
+    // doesn't echo the activity verb already implied by the WORKING label.
+    const paren = /\(([^)]*(?:interrupt|tokens)[^)]*)\)/i.exec(row);
+    if (paren) return paren[1].trim().slice(0, 80);
+    const tail = row.includes("…") ? row.split("…").pop() : row;
+    return (tail || "").replace(/^[\s*✻✶✳·•]+/, "").trim().slice(0, 80);
+  }, [status.rows]);
+
+  // ── Per-message copy (copy-on-hover under a completed assistant turn). ──
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyMsg = useCallback((id: string, text: string) => {
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopiedId(id);
+        window.setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1300);
+      },
+      () => {/* clipboard unavailable */}
+    );
+  }, []);
+
+  // ── Delegated copy for code blocks (their Copy buttons live inside
+  // dangerouslySetInnerHTML markdown, so they can't carry React handlers). One
+  // listener on the scroll container handles every block's button. ──
+  const onCodeCopyClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const btn = (e.target as HTMLElement).closest?.(".cc-codecopy") as HTMLButtonElement | null;
+    if (!btn) return;
+    const block = btn.closest(".cc-codeblock");
+    const code = block?.querySelector("pre code")?.textContent ?? "";
+    if (!code) return;
+    navigator.clipboard?.writeText(code).then(
+      () => {
+        btn.textContent = "Copied";
+        window.setTimeout(() => { if (btn.isConnected) btn.textContent = "Copy"; }, 1300);
+      },
+      () => {/* clipboard unavailable */}
+    );
+  }, []);
+
+  // Reflect the latest assistant text into the most recent turn's assistant slot.
+  const applyAssistant = useCallback((text: string) => {
+    setTurns((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      if (last.assistant === text) return prev;
+      const copy = prev.slice();
+      copy[copy.length - 1] = { ...last, assistant: text };
+      return copy;
+    });
+  }, []);
+
+  useEffect(() => {
+    const off = transport.connect((ev: ChatEvent) => {
+      switch (ev.type) {
+        case "hello":
+          setStatus(ev.status);
+          setBusy(ev.busy);
+          setScreen(ev.screen ?? []);
+          break;
+        case "assistant":
+          applyAssistant(ev.text);
+          break;
+        case "status":
+          setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
+          break;
+        case "turn":
+          setBusy(ev.active);
+          if (!ev.active) {
+            setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 ? { ...t, streaming: false } : t)));
+          }
+          break;
+        case "screen":
+          setScreen(ev.lines);
+          break;
+        case "connection":
+          setConn(ev.state);
+          break;
+        case "error":
+          // Surface as an assistant note on the latest turn.
+          applyAssistant(`_error: ${ev.message}_`);
+          break;
+      }
+    });
+    return off;
+  }, [transport, applyAssistant]);
+
+  useEffect(() => {
+    transport.fetchCommands().then(setCommands).catch(() => setCommands([]));
+  }, [transport]);
+
+  // Auto-scroll when pinned to bottom.
+  useEffect(() => {
+    if (pinnedRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [turns, busy]);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
+
+  const slashQuery = useMemo(() => {
+    const m = /^\/([\w:-]*)$/.exec(input.trim());
+    return m ? m[1].toLowerCase() : null;
+  }, [input]);
+
+  const filtered = useMemo(() => {
+    if (slashQuery === null) return [];
+    return commands
+      .filter((c) => c.name.toLowerCase().includes(slashQuery))
+      .sort((a, b) => {
+        const ap = a.name.toLowerCase().startsWith(slashQuery) ? 0 : 1;
+        const bp = b.name.toLowerCase().startsWith(slashQuery) ? 0 : 1;
+        return ap - bp || a.name.localeCompare(b.name);
+      })
+      .slice(0, 8);
+  }, [commands, slashQuery]);
+
+  useEffect(() => setMenuIdx(0), [slashQuery]);
+
+  // Keep the latest opaque context/mode in refs so `send` stays stable while
+  // always forwarding the current values. Both default to undefined → the meta
+  // arg is omitted entirely and transports see exactly the old single-arg call.
+  const contextRef = useRef<unknown>(context);
+  contextRef.current = context;
+  const modeRef = useRef<string | undefined>(mode);
+  modeRef.current = mode;
+
+  const send = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t) return;
+      // Effort directive (Think / Think hard / Ultrathink) is prepended to the
+      // wire text only — the transcript shows what the user actually typed.
+      const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
+      const wire = dir ? `${dir}\n\n${t}` : t;
+      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true }]);
+      setBusy(true);
+      pinnedRef.current = true;
+      // Pass opaque context/mode as an optional second arg ONLY when present, so
+      // a context-unaware transport (createHttpTransport) is called exactly as
+      // before. The transport decides whether to read `meta`.
+      const meta = buildSendMeta(contextRef.current, modeRef.current);
+      const sendFn = transport.sendMessage as ContextAwareSend;
+      const p = meta ? sendFn(wire, meta) : sendFn(wire);
+      p.catch(() => {});
+      setInput("");
+    },
+    [transport, effortOn]
+  );
+
+  // Auto-send the opening message ONCE on mount, when a host provided one — so the
+  // operative can start proactively (Kanban Discuss seeds a "James, analyse this
+  // card…" kickoff). A ref guards against React's double-invoke (StrictMode) and a
+  // changing `send` identity, so it fires exactly once per mount.
+  const kickedRef = useRef(false);
+  useEffect(() => {
+    if (kickedRef.current) return;
+    const msg = (initialMessage ?? "").trim();
+    if (!msg) return;
+    kickedRef.current = true;
+    send(msg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessage]);
+
+  // Submit a slash command line into the live TUI WITHOUT a transcript turn.
+  // Used for /model <id>, /compact, /clear. Falls back to sendMessage when the
+  // transport predates sendCommand.
+  const runCommand = useCallback(
+    (line: string) => {
+      const fn = transport.sendCommand ?? transport.sendMessage;
+      fn.call(transport, line).catch(() => {});
+    },
+    [transport]
+  );
+
+  const switchModel = useCallback(
+    (id: string) => {
+      // Optimistically reflect in the status line until the TUI repaints it.
+      setStatus((s) => ({ ...s, model: id }));
+      runCommand(`/model ${id}`);
+    },
+    [runCommand]
+  );
+
+  // Copy the most recent assistant response to the clipboard.
+  const copyLast = useCallback(async () => {
+    const last = [...turns].reverse().find((t) => t.assistant.trim());
+    if (!last) return;
+    try {
+      await navigator.clipboard?.writeText(last.assistant);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }, [turns]);
+
+  // ── Voice: speak a single message's text via the /voice/tts proxy. ──
+  const speak = useCallback(
+    async (text: string) => {
+      if (!voiceClient || !text.trim()) return;
+      try {
+        setSpeaking(true);
+        const blob = await voiceClient.tts(text);
+        const urlObj = URL.createObjectURL(blob);
+        if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+        const audio = new Audio(urlObj);
+        audioRef.current = audio;
+        audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+        audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+        await audio.play();
+      } catch {
+        setSpeaking(false);
+      }
+    },
+    [voiceClient]
+  );
+
+  const stopSpeaking = useCallback(() => {
+    if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+    setSpeaking(false);
+  }, []);
+
+  // Auto-read each new COMPLETED assistant turn when read-aloud is on.
+  const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  useEffect(() => {
+    if (!readAloud || !voiceUsable || !latestAssistant) return;
+    if (latestAssistant.streaming) return;
+    const text = latestAssistant.assistant.trim();
+    if (!text || text === lastSpokenRef.current) return;
+    lastSpokenRef.current = text;
+    void speak(text);
+  }, [readAloud, voiceUsable, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
+
+  // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
+  // and drop the transcript into the composer for review/edit. ──
+  const startRecording = useCallback(async () => {
+    // recBusyRef is a SYNCHRONOUS guard set before the await — the `recording`
+    // state flips only after getUserMedia resolves, so two rapid clicks would
+    // otherwise both pass and the second would orphan the first recorder/stream
+    // (leaking a live mic). The ref stays set through the active recording and
+    // clears on stop / bail / error.
+    if (!voiceClient || recBusyRef.current) return;
+    recBusyRef.current = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!voiceMountedRef.current) {
+        // Unmounted while the permission prompt was pending — release the mic
+        // and bail before constructing/starting the recorder.
+        stream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+        recBusyRef.current = false;
+        return;
+      }
+      streamRef.current = stream;
+      const rec = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        recBusyRef.current = false;
+        if (!voiceMountedRef.current) return; // unmounted — don't touch state/network
+        setRecording(false);
+        const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+        if (!blob.size) return;
+        try {
+          const transcript = await voiceClient.stt(blob);
+          if (transcript) {
+            setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+            taRef.current?.focus();
+          }
+        } catch {
+          /* stt failed — leave composer untouched */
+        }
+      };
+      recorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch {
+      recBusyRef.current = false;
+      setRecording(false);
+    }
+  }, [voiceClient]);
+
+  const stopRecording = useCallback(() => {
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
+  }, []);
+
+  // Release the microphone if the chat pane unmounts mid-recording (dev-env can
+  // swap ChatPane for the Terminal view, or switch sessions, while recording).
+  // Without this the MediaRecorder + mic tracks would keep the mic open.
+  useEffect(() => {
+    return () => {
+      voiceMountedRef.current = false;
+      recBusyRef.current = false;
+      const rec = recorderRef.current;
+      if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
+      streamRef.current?.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      streamRef.current = null;
+    };
+  }, []);
+
+  const pickCommand = useCallback(
+    (c: SlashCommand) => {
+      const next = `/${c.name}${c.argumentHint ? " " : ""}`;
+      setInput(next);
+      taRef.current?.focus();
+    },
+    []
+  );
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashQuery !== null && filtered.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setMenuIdx((i) => Math.min(filtered.length - 1, i + 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setMenuIdx((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (e.key === "Tab") {
+          e.preventDefault();
+          pickCommand(filtered[menuIdx]);
+          return;
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+          // If the input is exactly a slash query with a highlighted command
+          // that takes an argument, fill it; otherwise send.
+          const exact = filtered.find((c) => `/${c.name}` === input.trim());
+          if (!exact && filtered[menuIdx]?.argumentHint) {
+            e.preventDefault();
+            pickCommand(filtered[menuIdx]);
+            return;
+          }
+        }
+      }
+      // IME-safe Enter to send (Shift+Enter = newline). On coarse pointers we
+      // keep Enter as newline and rely on the Send button.
+      const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
+      if (e.key === "Enter" && !e.shiftKey && !(e as any).isComposing && !coarse) {
+        e.preventDefault();
+        send(input);
+      }
+    },
+    [slashQuery, filtered, menuIdx, input, send, pickCommand]
+  );
+
+  const onSetMode = useCallback(
+    async (mode: PermissionMode) => {
+      try {
+        const r = await transport.setMode(mode);
+        setStatus((s) => ({ ...s, mode: r.mode }));
+      } catch {
+        /* ignore */
+      }
+    },
+    [transport]
+
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'codegraph explore "ClaudeChat onCodeCopyClick busy elapsed copiedId marked renderer streaming cursor workingHint"' in /Users/ggomes/dev/garrison
+ succeeded in 334ms:
+## Dynamic-dispatch links among your symbols
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- DocumentRead → RenderedMarkdown   [dynamic: renders <RenderedMarkdown>]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+## Exploration: ClaudeChat onCodeCopyClick busy elapsed copiedId marked renderer streaming cursor workingHint
+
+Found 87 symbols across 31 files.
+
+### Blast radius — what depends on these (update/verify before editing)
+
+- `RenderedMarkdown` (fittings/seed/documents/ui/DocumentRead.tsx:97) — 1 caller in `fittings/seed/documents/ui/DocumentRead.tsx`; ⚠️ no covering tests found
+- `chat` (scripts/integration-check.mjs:123) — 1 caller in `scripts/integration-check.mjs`; ⚠️ no covering tests found
+- `chat` (scripts/probe-live-gateway.mjs:65) — 1 caller in `scripts/probe-live-gateway.mjs`; ⚠️ no covering tests found
+
+### Relationships
+
+**calls:**
+- RenderedMarkdown → parseMarkdown
+- RenderedMarkdown → renderBlock
+- DocumentRead → RenderedMarkdown
+- renderBlock → headingSize
+- renderBlock → renderInline
+- DocumentRead → formatTime
+- DocumentRead → Notice
+- DocumentEdit → Notice
+- ClaudeChat → getChatMode
+- ClaudeChat → resolvedChatScheme
+- ... and 55 more
+
+**references:**
+- parseMarkdown → MdBlock
+- DocumentRead → FittingViewProps
+- ArtifactDeleteConfirm → FittingViewProps
+- ArtifactList → FittingViewProps
+- ArtifactView → FittingViewProps
+- TierClassifierInspector → FittingViewProps
+- FittingViewComponent → FittingViewProps
+- COPY → LogCategory
+- ReadOnlyTailPanel → LogCategory
+- CATEGORIES → LogCategory
+- ... and 26 more
+
+### Source Code
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+#### packages/claude-chat/src/ClaudeChat.tsx — ChatFeatures(interface), readEffort(function), nextId(function), fmtElapsed(function)
+
+```tsx
+147	
+148	// ── Toolbar feature flags (all default OFF so web-channel is unaffected) ──
+149	// dev-env opts in via <ClaudeChat features={{ model, effort, theme, voice }} />.
+150	export interface ChatFeatures {
+151	  /** Model selector (Opus/Sonnet/Haiku) — switches the live session via /model. */
+152	  model?: boolean;
+153	  /** Effort/thinking-level selector — prepends a thinking directive to the next message. */
+154	  effort?: boolean;
+155	  /** Light/dark/system theme toggle for the chat surface. */
+156	  theme?: boolean;
+157	  /** Read-aloud + push-to-talk via the host's same-origin /voice proxy. */
+158	  voice?: boolean;
+159	}
+160	
+161	// Model picks. Selecting one submits `/model <id>` into the Claude Code TUI,
+162	// which drives its model picker live; the status line then reflects the change
+
+... (gap) ...
+
+181	];
+182	const LS_EFFORT = "garrison.chat.effort";
+183	
+184	function readEffort(): string {
+185	  try {
+186	    const v = localStorage.getItem(LS_EFFORT);
+187	    if (v && EFFORTS.some((e) => e.id === v)) return v;
+188	  } catch {}
+189	  return "normal";
+190	}
+191	
+192	const MODE_LABELS: Record<PermissionMode, string> = {
+193	  default: "Default",
+194	  acceptEdits: "Accept Edits",
+195	  plan: "Plan",
+196	  bypassPermissions: "Bypass",
+197	  unknown: "—",
+198	};
+199	const SWITCHABLE: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+200	
+201	let uid = 0;
+202	const nextId = () => `t${Date.now()}_${uid++}`;
+203	
+204	// m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
+205	function fmtElapsed(sec: number): string {
+206	  const m = Math.floor(sec / 60);
+207	  const s = sec % 60;
+208	  return `${m}:${s.toString().padStart(2, "0")}`;
+209	}
+210	
+211	// SVG icons for the theme toggle (no emoji, per house rule). Mirrors the
+212	// dev-env terminal toggle's sun / moon / monitor set.
+```
+
+#### fittings/seed/kanban-loop/ui/main.tsx — fmtElapsed(function), Elapsed(function), fmtElapsed(calls)
+
+```tsx
+74	}
+75	
+76	// mm:ss (or h:mm:ss) elapsed since an ISO instant — the running timer.
+77	function fmtElapsed(iso: string | null | undefined): string {
+78	  if (!iso) return "";
+79	  const t = Date.parse(iso);
+80	  if (Number.isNaN(t)) return "";
+81	  let s = Math.max(0, Math.round((Date.now() - t) / 1000));
+82	  const h = Math.floor(s / 3600); s -= h * 3600;
+83	  const m = Math.floor(s / 60); s -= m * 60;
+84	  const mm = String(m).padStart(h ? 2 : 1, "0");
+85	  const ss = String(s).padStart(2, "0");
+86	  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+87	}
+88	
+89	// A self-ticking elapsed label (updates every second) for a running card, so the live
+90	// "running 1:23" timer advances without re-rendering the whole board.
+91	function Elapsed({ since }: { since: string | null | undefined }): React.ReactElement {
+92	  const [, setTick] = useState(0);
+93	  useEffect(() => {
+94	    const t = setInterval(() => setTick((n) => n + 1), 1000);
+95	    return () => clearInterval(t);
+96	  }, []);
+97	  return <>{fmtElapsed(since)}</>;
+98	}
+99	
+100	// Per-event-kind dot colour on the timeline.
+101	function eventDotClass(kind: string): string {
+```
+
+#### scripts/integration-check.mjs — record(calls), truncate(calls), recordSkippedNetwork(calls), calls(calls), chat(calls), record(function), truncate(function), checkAuth(function), checkAssembledPrompt(function), checkGatewayHealth(function), +12 more
+
+```javascript
+10	
+11	const results = [];
+12	
+13	function record(name, status, detail, evidence) {
+14	  results.push({ name, status, detail, evidence });
+15	}
+16	
+17	function truncate(value, max = 400) {
+18	  const str = typeof value === "string" ? value : JSON.stringify(value);
+19	  return str.length > max ? `${str.slice(0, max)}…` : str;
+20	}
+21	
+22	async function pathExists(target) {
+23	  try {
+24	    await fs.access(target);
+25	    return true;
+26	  } catch {
+27	    return false;
+28	  }
+29	}
+30	
+31	async function checkAuth() {
+32	  if (process.env.ANTHROPIC_API_KEY) {
+33	    record(
+34	      "Auth source",
+35	      "fail",
+36	      "ANTHROPIC_API_KEY is set — turns will bill against the API key, not your Max plan.",
+37	      "Unset ANTHROPIC_API_KEY in this shell (and ~/.zshrc / ~/.bashrc if exported there) before running the operative."
+38	    );
+39	    return;
+40	  }
+41	  const claudeDir = path.join(os.homedir(), ".claude");
+42	  if (await pathExists(claudeDir)) {
+43	    record(
+44	      "Auth source",
+45	      "pass",
+46	      "Agent SDK will use Claude Code OAuth credentials.",
+47	      `~/.claude exists and ANTHROPIC_API_KEY is unset.`
+48	    );
+49	    return;
+50	  }
+51	  record(
+52	    "Auth source",
+53	    "warn",
+54	    "Not authenticated at all.",
+55	    "ANTHROPIC_API_KEY is unset and ~/.claude is missing — run `claude` once to log in."
+56	  );
+57	}
+58	
+59	async function checkAssembledPrompt() {
+60	  const promptPath = path.join(COMPOSITION_DIR, ".garrison", "assembled-system-prompt.md");
+61	  if (!(await pathExists(promptPath))) {
+62	    record(
+63	      "Assembled system prompt",
+64	      "fail",
+65	      `Missing ${path.relative(REPO_ROOT, promptPath)}`,
+66	      "Run the operative once (Run button in the Garrison UI) to generate the assembled prompt."
+67	    );
+68	    return;
+69	  }
+70	  const contents = await fs.readFile(promptPath, "utf8");
+71	  const missing = [];
+72	  if (!contents.includes("[orchestrator-active]")) missing.push("[orchestrator-active] marker");
+73	  if (!contents.includes("Verity")) missing.push("Verity");
+74	  if (missing.length > 0) {
+75	    record(
+76	      "Assembled system prompt",
+77	      "warn",
+78	      `Assembled prompt is present but missing: ${missing.join(", ")}`,
+79	      `Run \`npm run refresh:prompts -- ${COMPOSITION_ID}\` and restart the operative.`
+80	    );
+81	    return;
+82	  }
+83	  record(
+84	    "Assembled system prompt",
+85	    "pass",
+86	    "Assembled prompt contains the orchestrator marker and the Verity identity.",
+87	    path.relative(REPO_ROOT, promptPath)
+88	  );
+89	}
+90	
+91	async function checkGatewayHealth() {
+92	  try {
+93	    const response = await fetch(`${GATEWAY_URL}/health`, {
+94	      signal: AbortSignal.timeout(3000)
+95	    });
+96	    if (!response.ok) {
+97	      record(
+98	        "Gateway health",
+99	        "fail",
+100	        `GET /health returned ${response.status}`,
+101	        truncate(await response.text())
+102	      );
+103	      return false;
+104	    }
+105	    const body = await response.json();
+106	    if (body?.ok !== true) {
+107	      record("Gateway health", "fail", "GET /health did not return { ok: true }", truncate(body));
+108	      return false;
+109	    }
+110	    record("Gateway health", "pass", `Gateway responding at ${GATEWAY_URL}`, `session_id=${body.session_id ?? "?"}, uptime_ms=${body.uptime_ms ?? "?"}`);
+111	    return true;
+112	  } catch (error) {
+113	    record(
+114	      "Gateway health",
+115	      "fail",
+116	      `Gateway unreachable at ${GATEWAY_URL}`,
+117	      error instanceof Error ? error.message : String(error)
+118	    );
+119	    return false;
+120	  }
+121	}
+122	
+123	async function chat(message) {
+124	  const response = await fetch(`${GATEWAY_URL}/chat`, {
+125	    method: "POST",
+126	    headers: { "content-type": "application/json" },
+127	    body: JSON.stringify({ message }),
+128	    signal: AbortSignal.timeout(120_000)
+129	  });
+130	  if (!response.ok) {
+131	    throw new Error(`POST /chat returned ${response.status}: ${await response.text()}`);
+132	  }
+133	  return response.json();
+134	}
+135	
+136	function recordSkippedNetwork(name, reason = "skipped: gateway not reachable") {
+137	  record(name, "fail", reason, "");
+138	}
+139	
+140	async function runNetworkChecks() {
+141	  let turn1;
+142	  try {
+143	    turn1 = await chat("Briefly say hello.");
+144	  } catch (error) {
+145	    record("Orchestrator routing (turn 1)", "fail", "chat call failed", error instanceof Error ? error.message : String(error));
+146	    recordSkippedNetwork("Soul + session resume (turn 2)", "skipped: turn 1 failed");
+147	    recordSkippedNetwork("In-session memory", "skipped: turn 1 failed");
+148	    return;
+149	  }
+150	  if (turn1.reply?.includes("[orchestrator-active]")) {
+151	    record("Orchestrator routing (turn 1)", "pass", "Reply ended with the orchestrator marker.", `session_id=${turn1.session_id}`);
+152	  } else {
+153	    record(
+154	      "Orchestrator routing (turn 1)",
+155	      "fail",
+156	      "Reply did NOT contain the [orchestrator-active] marker.",
+157	      truncate(turn1.reply ?? "(empty reply)")
+158	    );
+159	  }
+160	
+161	  let turn2;
+162	  try {
+163	    turn2 = await chat("What is your name?");
+164	  } catch (error) {
+165	    record("Soul + session resume (turn 2)", "fail", "chat call failed", error instanceof Error ? error.message : String(error));
+166	    recordSkippedNetwork("In-session memory", "skipped: turn 2 failed");
+167	    return;
+168	  }
+169	  const sameSession = turn2.session_id === turn1.session_id;
+170	  const namedVerity = /\bVerity\b/i.test(turn2.reply ?? "");
+171	  if (sameSession && namedVerity) {
+172	    record("Soul + session resume (turn 2)", "pass", "Session resumed and operative identified as Verity.", `session_id=${turn2.session_id}`);
+173	  } else {
+174	    const misses = [];
+175	    if (!sameSession) misses.push(`session_id changed: turn1=${turn1.session_id} turn2=${turn2.session_id}`);
+176	    if (!namedVerity) misses.push(`reply did not contain "Verity": ${truncate(turn2.reply ?? "(empty reply)")}`);
+177	    record("Soul + session resume (turn 2)", "fail", "Conditions failed.", misses.join(" | "));
+178	  }
+179	
+180	  try {
+181	    await chat("Please remember: my favorite color is teal.");
+182	  } catch (error) {
+183	    record("In-session memory", "fail", "First memory chat call failed", error instanceof Error ? error.message : String(error));
+184	    return;
+185	  }
+186	  let turn4;
+187	  try {
+188	    turn4 = await chat("What did I just tell you my favorite color was?");
+189	  } catch (error) {
+190	    record("In-session memory", "fail", "Second memory chat call failed", error instanceof Error ? error.message : String(error));
+191	    return;
+192	  }
+193	  if (/\bteal\b/i.test(turn4.reply ?? "")) {
+194	    record("In-session memory", "pass", "Operative recalled the color across turns within one session.", truncate(turn4.reply));
+195	  } else {
+196	    record("In-session memory", "fail", "Operative did not recall the color.", truncate(turn4.reply ?? "(empty reply)"));
+197	  }
+198	}
+199	
+200	async function checkCrossSessionMemory() {
+201	  const memoryPath = path.join(COMPOSITION_DIR, "memory", "compiled.md");
+202	  if (!(await pathExists(memoryPath))) {
+203	    record(
+204	      "Cross-session memory file",
+205	      "warn",
+206	      "memory/compiled.md is missing.",
+207	      "The memory Fitting in this milestone ships a SKILL.md only — there is no hook that writes durable memory yet. Cross-session recall is currently NOT working. This is the next milestone."
+208	    );
+209	    return;
+210	  }
+211	  const contents = await fs.readFile(memoryPath, "utf8");
+212	  if (contents.trim().length === 0) {
+213	    record(
+214	      "Cross-session memory file",
+215	      "warn",
+216	      "memory/compiled.md exists but is empty.",
+217	      "The memory Fitting describes persistence but no hook has written to it yet."
+218	    );
+219	    return;
+220	  }
+221	  record("Cross-session memory file", "pass", "memory/compiled.md exists with content.", path.relative(REPO_ROOT, memoryPath));
+222	}
+223	
+224	function indicator(status) {
+225	  if (status === "pass") return "PASS";
+226	  if (status === "fail") return "FAIL";
+227	  return "WARN";
+228	}
+229	
+230	function printReport() {
+231	  console.log("");
+232	  console.log(`Agent Garrison integration check — composition: ${COMPOSITION_ID}`);
+233	  console.log(`Gateway: ${GATEWAY_URL}`);
+234	  console.log("");
+235	  for (const result of results) {
+236	    console.log(`[${indicator(result.status)}] ${result.name}`);
+237	    console.log(`       ${result.detail}`);
+238	    if (result.evidence) {
+239	      console.log(`       evidence: ${result.evidence}`);
+240	    }
+241	  }
+242	  const counts = results.reduce(
+243	    (acc, r) => {
+244	      acc[r.status] += 1;
+245	      return acc;
+246	    },
+247	    { pass: 0, fail: 0, warn: 0 }
+248	  );
+249	  console.log("");
+250	  console.log(`Summary: ${counts.pass} pass / ${counts.warn} warn / ${counts.fail} fail`);
+251	}
+252	
+253	async function main() {
+254	  await checkAuth();
+255	  await checkAssembledPrompt();
+256	  const gatewayUp = await checkGatewayHealth();
+257	  if (gatewayUp) {
+258	    await runNetworkChecks();
+259	  } else {
+260	    recordSkippedNetwork("Orchestrator routing (turn 1)");
+261	    recordSkippedNetwork("Soul + session resume (turn 2)");
+262	    recordSkippedNetwork("In-session memory");
+263	  }
+264	  await checkCrossSessionMemory();
+265	  printReport();
+266	  const hasFail = results.some((r) => r.status === "fail");
+267	  process.exit(hasFail ? 1 : 0);
+268	}
+269	
+270	main().catch((error) => {
+271	  console.error(error);
+```
+
+#### scripts/probe-live-gateway.mjs — chat(function), probe-live-gateway.mjs(file)
+
+```javascript
+1	// U1 live probe — a REAL prompt through the gateway with a LIVE claude session.
+2	//
+3	// Boots the real gateway-pty.mjs (NO stub) with a tiny system prompt that makes
+4	// the operative honor the [gateway-route:] annotation, then POSTs two prompts
+5	// over HTTP: one resolving to cc-sonnet-med, one (trivial) resolving to
+6	// cc-haiku-low. Asserts the decisions.jsonl entry + the honored route token from
+7	// a real model (live-route-ok), and that the second prompt landed on a different
+8	// target via the in-place slash-inject switch (live-switch-ok).
+9	//
+10	// Evidence, not a gate (the committed gate is tests/gateway-routing.test.ts +
+11	// tests/gateway-live-route.integration.test.ts). Hard-timeout guarded; prints
+12	// *-inconclusive (never fakes) if claude is unavailable. Re-runnable:
+13	//   node scripts/probe-live-gateway.mjs
+14	
+15	import { spawn } from "node:child_process";
+16	import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+17	import { tmpdir } from "node:os";
+18	import net from "node:net";
+19	import path from "node:path";
+20	import { fileURLToPath } from "node:url";
+21	
+22	const HERE = path.dirname(fileURLToPath(import.meta.url));
+23	const ROOT = path.join(HERE, "..");
+24	const GATEWAY = path.join(ROOT, "fittings/seed/http-gateway/scripts/gateway-pty.mjs");
+25	const HARD_MS = 240_000;
+26	
+27	let done = false;
+28	let proc;
+29	function finish(routeState, switchState, note) {
+30	  if (done) return;
+31	  done = true;
+32	  console.log(routeState === "ok" ? "live-route-ok" : routeState === "inconclusive" ? "live-route-inconclusive" : "live-route-FAILED");
+33	  console.log(switchState === "ok" ? "live-switch-ok" : switchState === "inconclusive" ? "live-switch-inconclusive" : "live-switch-FAILED");
+34	  if (note) console.log(`(${note})`);
+35	  try { proc?.kill("SIGTERM"); } catch { /* ignore */ }
+36	  setTimeout(() => process.exit(0), 500).unref();
+37	}
+38	const timer = setTimeout(() => finish("inconclusive", "inconclusive", "hard timeout"), HARD_MS);
+39	
+40	function freePort() {
+41	  return new Promise((resolve, reject) => {
+42	    const srv = net.createServer();
+43	    srv.listen(0, "127.0.0.1", () => {
+44	      const port = srv.address().port;
+45	      srv.close(() => resolve(port));
+46	    });
+47	    srv.on("error", reject);
+48	  });
+49	}
+50	
+51	async function waitReady(port, timeoutMs) {
+52	  const start = Date.now();
+53	  while (Date.now() - start < timeoutMs) {
+54	    try {
+55	      const r = await fetch(`http://127.0.0.1:${port}/health`);
+56	      const j = await r.json();
+57	      if (j.pty_status === "ready") return true;
+58	      if (j.pty_status === "failed") throw new Error(`gateway failed: ${j.error}`);
+59	    } catch { /* not up */ }
+60	    await new Promise((r) => setTimeout(r, 500));
+61	  }
+62	  return false;
+63	}
+64	
+65	async function chat(port, message, timeoutMs = 120_000) {
+66	  const r = await fetch(`http://127.0.0.1:${port}/chat`, {
+67	    method: "POST",
+68	    headers: { "content-type": "application/json" },
+69	    body: JSON.stringify({ message }),
+70	    signal: AbortSignal.timeout(timeoutMs),
+71	  });
+72	  if (!r.ok) throw new Error(`/chat ${r.status}: ${await r.text()}`);
+73	  return r.json();
+74	}
+75	
+76	function readDecisions(file) {
+77	  if (!existsSync(file)) return [];
+78	  return readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+79	}
+80	
+81	try {
+82	  const port = await freePort();
+83	  const tmp = mkdtempSync(path.join(tmpdir(), "gar-live-gw-"));
+84	  mkdirSync(path.join(tmp, ".garrison"), { recursive: true });
+85	  const sysPrompt = path.join(tmp, "system-prompt.md");
+86	  writeFileSync(
+87	    sysPrompt,
+88	    [
+89	      "You are a terse routing-test operative.",
+90	      "Every user message begins with a line `[gateway-route: target=T rule=R profile=P]`.",
+91	      "Answer the task in ONE short sentence, then on the FINAL line emit EXACTLY:",
+92	      "`[route: T | rule: R | profile: P]` — copy T, R, P verbatim from the gateway-route line.",
+93	      "Do not add anything after that token.",
+94	    ].join("\n"),
+95	    "utf8"
+96	  );
+97	
+98	  proc = spawn("node", [GATEWAY], {
+99	    env: {
+100	      ...process.env,
+101	      GARRISON_GATEWAY_PORT: String(port),
+102	      GARRISON_GATEWAY_HOST: "127.0.0.1",
+103	      GARRISON_COMPOSITION_DIR: tmp,
+104	      GARRISON_SYSTEM_PROMPT_PATH: sysPrompt,
+105	      GARRISON_PERMISSION_MODE: "bypassPermissions",
+106	      GARRISON_MODEL: "sonnet",
+107	      GARRISON_CLASSIFIER_MODEL: "haiku",
+108	    },
+109	    stdio: ["ignore", "pipe", "pipe"],
+110	  });
+111	  proc.stderr.on("data", (b) => process.stderr.write(`[gw] ${b}`));
+112	
+113	  const ready = await waitReady(port, 90_000);
+114	  if (!ready) {
+115	    finish("inconclusive", "inconclusive", "gateway did not become ready (claude unavailable?)");
+116	  } else {
+117	    const decisionsFile = path.join(tmp, ".garrison", "decisions.jsonl");
+118	    // Turn 1 → cc-sonnet-med
+119	    const r1 = await chat(port, "fix the failing login unit test");
+120	    const d1 = readDecisions(decisionsFile);
+121	    const routeOk =
+122	      r1.honored === true &&
+123	      r1.route === "cc-sonnet-med" &&
+124	      d1.some((d) => d.targetId === "cc-sonnet-med" && d.profile === "balanced");
+125	
+126	    // Turn 2 → cc-haiku-low (trivial), drives the in-place switch
+127	    const r2 = await chat(port, "quick: what is 2 plus 2");
+128	    const d2 = readDecisions(decisionsFile);
+129	    const switchOk =
+130	      r2.route === "cc-haiku-low" &&
+131	      r2.honored === true &&
+132	      d2.some((d) => d.targetId === "cc-haiku-low");
+133	
+134	    clearTimeout(timer);
+135	    finish(
+136	      routeOk ? "ok" : "inconclusive",
+137	      switchOk ? "ok" : "inconclusive",
+138	      `t1.route=${r1.route} honored=${r1.honored}; t2.route=${r2.route} honored=${r2.honored}; decisions=${d2.length}`
+139	    );
+140	  }
+141	} catch (err) {
+142	  clearTimeout(timer);
+143	  finish("inconclusive", "inconclusive", `live error: ${err?.message}`);
+144	}
+```
+
+
+... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '760,1160p' packages/claude-chat/src/ClaudeChat.tsx" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+    [transport]
+  );
+
+  return (
+    <div className="cc-root" data-theme={themeOn ? scheme : undefined}>
+      <header className="cc-header">
+        <span className="cc-title">{title ?? "Claude"}</span>
+        <span className={`cc-conn cc-conn-${conn}`} title={`connection: ${conn}`} />
+        <span className="cc-spacer" />
+        {status.model && <span className="cc-model" title="Active model">{status.model}</span>}
+        {status.contextPct != null && <span className="cc-ctx">{status.contextPct}% ctx</span>}
+        {themeOn && (
+          <div className="cc-theme" role="group" aria-label="Chat theme">
+            {THEME_ICONS.map((opt) => (
+              <button
+                key={opt.mode}
+                type="button"
+                className={themeMode === opt.mode ? "cc-theme-active" : ""}
+                aria-pressed={themeMode === opt.mode}
+                title={`${opt.label} theme`}
+                aria-label={`${opt.label} theme`}
+                onClick={() => { setChatMode(opt.mode); setThemeMode(opt.mode); setScheme(resolvedChatScheme()); }}
+              >
+                {opt.icon}
+              </button>
+            ))}
+          </div>
+        )}
+        <button className="cc-rawtoggle" onClick={() => setShowRaw((v) => !v)} title="Show raw terminal">
+          {showRaw ? "Hide raw" : "Raw"}
+        </button>
+      </header>
+
+      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
+        {turns.length === 0 && (
+          <div className="cc-empty">Send a message to begin · type / for commands and skills</div>
+        )}
+        {turns.map((t) => (
+          <div className="cc-turn" key={t.id}>
+            <div className="cc-user">{t.user}</div>
+            {(t.assistant || t.streaming) && (
+              <div className="cc-assistant">
+                <div className="cc-md" dangerouslySetInnerHTML={{ __html: marked.parse(t.assistant || "") as string }} />
+                {/* Streaming cursor once tokens are arriving. */}
+                {t.streaming && t.assistant && <span className="cc-cursor" aria-hidden="true" />}
+                {/* Rich "working" indicator before the first token: animated dots
+                    + label + live elapsed + (PTY) activity hint. */}
+                {t.streaming && !t.assistant && (
+                  <div className="cc-working" role="status" aria-live="polite">
+                    <span className="cc-working-dots"><i /><i /><i /></span>
+                    <span className="cc-working-label">Working</span>
+                    <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
+                    {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
+                  </div>
+                )}
+                {/* Per-message actions: copy (always) + read-aloud (voice). */}
+                {t.assistant.trim() && !t.streaming && (
+                  <div className="cc-msgactions">
+                    <button
+                      type="button"
+                      className="cc-msgcopy"
+                      title="Copy this response"
+                      onClick={() => copyMsg(t.id, t.assistant)}
+                    >
+                      {copiedId === t.id ? "Copied" : "Copy"}
+                    </button>
+                    {feat.voice && voiceUsable && (
+                      <button
+                        type="button"
+                        className="cc-speak"
+                        title="Read this response aloud"
+                        aria-label="Read this response aloud"
+                        onClick={() => void speak(t.assistant)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+                          <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {showRaw && (
+          <pre className="cc-raw">{screen.join("\n")}</pre>
+        )}
+      </div>
+
+      <div className="cc-statusstrip" title="Claude Code status line">
+        {status.rows.length > 0 ? status.rows.map((r, i) => <div key={i} className="cc-statusrow">{r}</div>) : <div className="cc-statusrow cc-dim">no status</div>}
+      </div>
+
+      <div className="cc-modes">
+        {SWITCHABLE.map((m) => (
+          <button
+            key={m}
+            className={`cc-mode ${status.mode === m ? "cc-mode-active" : ""}`}
+            disabled={status.mode === "unknown"}
+            onClick={() => onSetMode(m)}
+            title={`Switch to ${MODE_LABELS[m]} mode`}
+          >
+            {MODE_LABELS[m]}
+          </button>
+        ))}
+      </div>
+
+      {(feat.model || feat.effort || feat.voice) && (
+        <div className="cc-toolbar">
+          {feat.model && (
+            <div className="cc-tool-group" role="group" aria-label="Model">
+              <span className="cc-tool-label">Model</span>
+              {MODELS.map((m) => {
+                const active = (status.model ?? "").toLowerCase().includes(m.label.toLowerCase());
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`cc-chip ${active ? "cc-chip-active" : ""}`}
+                    title={`Switch to ${m.label} (${m.id})`}
+                    onClick={() => switchModel(m.id)}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {feat.effort && (
+            <div className="cc-tool-group" role="group" aria-label="Thinking effort">
+              <span className="cc-tool-label">Effort</span>
+              {EFFORTS.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  className={`cc-chip ${effort === e.id ? "cc-chip-active" : ""}`}
+                  title={e.directive ? `Prepend "${e.directive}" to your next message` : "No extra thinking directive"}
+                  onClick={() => pickEffort(e.id)}
+                >
+                  {e.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="cc-tool-spacer" />
+          <button
+            type="button"
+            className="cc-chip"
+            title="Compact the conversation (frees context)"
+            onClick={() => runCommand("/compact")}
+          >
+            Compact
+          </button>
+          <button
+            type="button"
+            className="cc-chip"
+            title="Copy the last response"
+            disabled={!turns.some((t) => t.assistant.trim())}
+            onClick={() => void copyLast()}
+          >
+            {copied ? "Copied" : "Copy last"}
+          </button>
+          {feat.voice && (
+            <button
+              type="button"
+              className={`cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking ? "cc-chip-pulse" : ""}`}
+              disabled={!voiceUsable}
+              aria-pressed={readAloud}
+              title={
+                voiceUsable
+                  ? speaking ? "Speaking — click to stop auto-read" : "Read each new response aloud"
+                  : "Voice fitting not running"
+              }
+              onClick={() => {
+                const next = !readAloud;
+                setReadAloud(next);
+                if (!next) stopSpeaking();
+              }}
+            >
+              <svg className="cc-ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+                {voiceUsable && (
+                  <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                )}
+              </svg>
+              Read aloud
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="cc-composer">
+        {slashQuery !== null && filtered.length > 0 && (
+          <div className="cc-slashmenu">
+            {filtered.map((c, i) => (
+              <button
+                key={c.name}
+                className={`cc-slashitem ${i === menuIdx ? "cc-slashitem-active" : ""}`}
+                onMouseEnter={() => setMenuIdx(i)}
+                onClick={() => pickCommand(c)}
+              >
+                <span className="cc-slashname">/{c.name}<span className={`cc-badge cc-badge-${c.source}`}>{c.source}</span></span>
+                <span className="cc-slashdesc">{c.description || c.argumentHint || ""}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="cc-composerrow">
+          {composerAdornment}
+          {feat.voice && (
+            <button
+              type="button"
+              className={`cc-mic ${recording ? "cc-mic-rec" : ""}`}
+              disabled={!voiceUsable}
+              aria-pressed={recording}
+              title={
+                voiceUsable
+                  ? recording ? "Stop recording and transcribe" : "Talk — record then transcribe into the composer"
+                  : "Voice fitting not running"
+              }
+              onClick={() => (recording ? stopRecording() : void startRecording())}
+            >
+              {recording ? (
+                <span className="cc-mic-dot" aria-hidden="true" />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="5.5" y="1.5" width="5" height="8" rx="2.5" fill="currentColor" />
+                  <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
+          )}
+          <textarea
+            ref={taRef}
+            className="cc-input"
+            value={input}
+            placeholder="Message Claude…  (/ for commands)"
+            rows={1}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+          {busy ? (
+            <button className="cc-stop" onClick={() => transport.interrupt().catch(() => {})} title="Stop (Esc)">
+              <span className="cc-stopsq" /> Stop
+            </button>
+          ) : (
+            <button className="cc-send" onClick={() => send(input)} disabled={!input.trim()} title="Send">
+              Send
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+codex
+The render path is clear now. I’m checking library versions and the exact `marked` typings/runtime contract next, because the most likely hard break here is a renderer signature mismatch rather than the React wiring.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "nl -ba packages/claude-chat/src/ClaudeChat.tsx | sed -n '1,180p'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import * as React from "react";
+     2	import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+     3	import { marked } from "marked";
+     4	import hljs from "highlight.js/lib/core";
+     5	import typescript from "highlight.js/lib/languages/typescript";
+     6	import javascript from "highlight.js/lib/languages/javascript";
+     7	import python from "highlight.js/lib/languages/python";
+     8	import bash from "highlight.js/lib/languages/bash";
+     9	import json from "highlight.js/lib/languages/json";
+    10	import css from "highlight.js/lib/languages/css";
+    11	import xml from "highlight.js/lib/languages/xml";
+    12	import markdown from "highlight.js/lib/languages/markdown";
+    13	import yaml from "highlight.js/lib/languages/yaml";
+    14	import sql from "highlight.js/lib/languages/sql";
+    15	import rust from "highlight.js/lib/languages/rust";
+    16	import go from "highlight.js/lib/languages/go";
+    17	import diff from "highlight.js/lib/languages/diff";
+    18	import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
+    19	import {
+    20	  getChatMode,
+    21	  resolvedChatScheme,
+    22	  setChatMode,
+    23	  subscribeChatTheme,
+    24	  type ChatThemeMode,
+    25	} from "./chat-theme";
+    26	import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
+    27	
+    28	marked.setOptions({ breaks: true, gfm: true });
+    29	
+    30	// Syntax highlighting for fenced code blocks. A curated language set keeps the
+    31	// bundle small while covering what the Operative emits most (TS/JS/py/shell/json
+    32	// /css/html/yaml/sql/rust/go/diff/markdown). hljs token classes (.hljs-*) are
+    33	// coloured in claude-chat.css against theme-driven CSS vars, so the same output
+    34	// reads on the dark code card (web-channel + dev-env dark) and the light one
+    35	// (dev-env light).
+    36	for (const [name, lang] of Object.entries({
+    37	  typescript, javascript, python, bash, json, css, xml, markdown, yaml, sql, rust, go, diff,
+    38	})) {
+    39	  try { hljs.registerLanguage(name, lang as any); } catch { /* already registered */ }
+    40	}
+    41	
+    42	// Escape text destined for HTML element content (used for the code fallback and
+    43	// the language label). Mirrors escapeAttr but for text nodes.
+    44	function escapeHtml(s: string): string {
+    45	  return s
+    46	    .replace(/&/g, "&amp;")
+    47	    .replace(/</g, "&lt;")
+    48	    .replace(/>/g, "&gt;");
+    49	}
+    50	
+    51	// Escape a value before it goes into an HTML attribute (the rendered markdown is
+    52	// injected via dangerouslySetInnerHTML, so an unescaped href/title could break out
+    53	// of the attribute or inject markup).
+    54	function escapeAttr(s: string): string {
+    55	  return s
+    56	    .replace(/&/g, "&amp;")
+    57	    .replace(/"/g, "&quot;")
+    58	    .replace(/</g, "&lt;")
+    59	    .replace(/>/g, "&gt;");
+    60	}
+    61	
+    62	// Allow ONLY safe link targets. Active-content schemes (javascript:, data:,
+    63	// vbscript:, file:, …) are rejected so a produced document / an injected reply
+    64	// cannot smuggle a script payload through the chat's markdown renderer. Relative,
+    65	// root-relative (incl. the translated /fitting/… path), anchor, query, and
+    66	// protocol-relative links are allowed, plus the http/https/mailto/tel schemes.
+    67	function isSafeHref(url: string): boolean {
+    68	  const u = url.trim();
+    69	  if (u === "") return false;
+    70	  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(u)) return true; // relative / anchor / query
+    71	  if (/^\/\//.test(u)) return true;                     // protocol-relative //host
+    72	  return /^(?:https?:|mailto:|tel:)/i.test(u);          // explicit safe schemes only
+    73	}
+    74	
+    75	// Generic link handling for rendered assistant markdown. Content-agnostic (no
+    76	// kanban / dev-env knowledge):
+    77	//   1. `garrison://<fitting-id>/<rest>` cross-fitting links → `/fitting/<id>/<rest>`
+    78	//      (the UI-contract-v2 translation), so a produced doc/artifact link the
+    79	//      Operative emits is a real, clickable link, never shown raw.
+    80	//   2. http(s) links open in a new tab (rel=noopener) so following a produced
+    81	//      document doesn't tear down the live chat.
+    82	//   3. UNSAFE schemes (javascript:/data:/…) are NOT linkified — the text is kept,
+    83	//      the dangerous href is dropped. href/title are HTML-attribute-escaped.
+    84	// Additive: only the <a> attributes change; link text/structure is untouched, so
+    85	// dev-env's existing rendering is unaffected (and safer).
+    86	marked.use({
+    87	  renderer: {
+    88	    link({ href, title, tokens }: { href: string; title?: string | null; tokens: any[] }) {
+    89	      const text = this.parser.parseInline(tokens);
+    90	      let url = href || "";
+    91	      const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
+    92	      if (g) {
+    93	        url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
+    94	      }
+    95	      // Drop the link (keep the text) for any non-allowlisted/active-content scheme.
+    96	      if (!isSafeHref(url)) return text;
+    97	      const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url)
+    98	        ? ` target="_blank" rel="noopener noreferrer"`
+    99	        : "";
+   100	      const t = title ? ` title="${escapeAttr(title)}"` : "";
+   101	      return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
+   102	    },
+   103	    // Rich fenced code block: a dark "card" with a header (uppercase mono
+   104	    // language label + a Copy button) over a syntax-highlighted <pre>. The Copy
+   105	    // button carries no inline handler (the markdown is injected via
+   106	    // dangerouslySetInnerHTML); a single delegated click handler on the scroll
+   107	    // container (onCodeCopyClick) reads the block's text and writes the
+   108	    // clipboard. Highlighting is applied for known languages; unknown/none falls
+   109	    // back to escaped plain text. Additive: only `<pre><code>` markup changes,
+   110	    // so dev-env keeps working (and gains highlighting too).
+   111	    code({ text, lang }: { text: string; lang?: string }) {
+   112	      // marked stores the WHOLE fence info-string in `lang` (e.g.
+   113	      // `ts title="x.ts"` or `python {1,3}`); the language is just its first
+   114	      // whitespace-delimited token. Use that, or both the highlight lookup and
+   115	      // the label break for any annotated fence.
+   116	      const language = (lang || "").trim().split(/\s+/)[0].toLowerCase();
+   117	      let body: string;
+   118	      if (language && hljs.getLanguage(language)) {
+   119	        try {
+   120	          body = hljs.highlight(text, { language, ignoreIllegals: true }).value;
+   121	        } catch {
+   122	          body = escapeHtml(text);
+   123	        }
+   124	      } else {
+   125	        body = escapeHtml(text);
+   126	      }
+   127	      const label = escapeHtml(language || "text");
+   128	      return (
+   129	        `<div class="cc-codeblock">` +
+   130	        `<div class="cc-codehead">` +
+   131	        `<span class="cc-codelang">${label}</span>` +
+   132	        `<button type="button" class="cc-codecopy" aria-label="Copy code">Copy</button>` +
+   133	        `</div>` +
+   134	        `<pre class="hljs"><code>${body}</code></pre>` +
+   135	        `</div>`
+   136	      );
+   137	    },
+   138	  },
+   139	});
+   140	
+   141	interface Turn {
+   142	  id: string;
+   143	  user: string;
+   144	  assistant: string;
+   145	  streaming: boolean;
+   146	}
+   147	
+   148	// ── Toolbar feature flags (all default OFF so web-channel is unaffected) ──
+   149	// dev-env opts in via <ClaudeChat features={{ model, effort, theme, voice }} />.
+   150	export interface ChatFeatures {
+   151	  /** Model selector (Opus/Sonnet/Haiku) — switches the live session via /model. */
+   152	  model?: boolean;
+   153	  /** Effort/thinking-level selector — prepends a thinking directive to the next message. */
+   154	  effort?: boolean;
+   155	  /** Light/dark/system theme toggle for the chat surface. */
+   156	  theme?: boolean;
+   157	  /** Read-aloud + push-to-talk via the host's same-origin /voice proxy. */
+   158	  voice?: boolean;
+   159	}
+   160	
+   161	// Model picks. Selecting one submits `/model <id>` into the Claude Code TUI,
+   162	// which drives its model picker live; the status line then reflects the change
+   163	// through the existing `status` event (no extra wiring). Ids track the current
+   164	// Claude Code model aliases; the short aliases also work if an id is rejected.
+   165	const MODELS: { id: string; label: string }[] = [
+   166	  { id: "claude-opus-4-8", label: "Opus" },
+   167	  { id: "claude-sonnet-4-6", label: "Sonnet" },
+   168	  { id: "claude-haiku-4-5", label: "Haiku" },
+   169	];
+   170	
+   171	// Effort / thinking levels. MECHANISM: Claude Code escalates its thinking budget
+   172	// on trigger phrases in the prompt ("think" < "think hard" < "ultrathink"). We
+   173	// prepend the chosen directive to the user's next message at send time. "Normal"
+   174	// prepends nothing. The choice persists in localStorage and shows active; it is
+   175	// a per-message modifier, not a session setting, so it survives reconnects.
+   176	const EFFORTS: { id: string; label: string; directive: string }[] = [
+   177	  { id: "normal", label: "Normal", directive: "" },
+   178	  { id: "think", label: "Think", directive: "think" },
+   179	  { id: "think-hard", label: "Think hard", directive: "think hard" },
+   180	  { id: "ultrathink", label: "Ultrathink", directive: "ultrathink" },
+
+exec
+/bin/zsh -lc "rg -n '\"marked\"|\"highlight.js\"' package.json packages/claude-chat/package.json package-lock.json" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+packages/claude-chat/package.json:13:    "highlight.js": "*",
+packages/claude-chat/package.json:14:    "marked": "*",
+package.json:36:    "highlight.js": "^11.11.1",
+package.json:39:    "marked": "^14.0.0",
+package-lock.json:21:        "highlight.js": "^11.11.1",
+package-lock.json:24:        "marked": "^14.0.0",
+package-lock.json:5270:        "marked": "bin/marked.js"
+package-lock.json:5351:        "marked": "14.0.0"
+package-lock.json:8946:        "marked": "*",
+
+exec
+/bin/zsh -lc "node -p \"const {marked}=require('marked'); const r=new marked.Renderer(); console.log(typeof r.code, r.code.length); console.log(require('marked/package.json').version); console.log(require('highlight.js/package.json').version)\"" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+function 1
+14.0.0
+11.11.1
+undefined
+
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "nl -ba packages/claude-chat/src/ClaudeChat.tsx | sed -n '360,520p'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+   360	  const streamRef = useRef<MediaStream | null>(null);
+   361	  const recBusyRef = useRef(false);
+   362	  const voiceMountedRef = useRef(true);
+   363	  const audioRef = useRef<HTMLAudioElement | null>(null);
+   364	  const lastSpokenRef = useRef<string>("");
+   365	
+   366	  useEffect(() => {
+   367	    if (!voiceOn || !voiceClient) return;
+   368	    let cancelled = false;
+   369	    const probe = () => voiceClient.health().then((h) => { if (!cancelled) setVoiceHealth(h); }).catch(() => {});
+   370	    void probe();
+   371	    const id = window.setInterval(probe, 15000);
+   372	    return () => { cancelled = true; window.clearInterval(id); };
+   373	  }, [voiceOn, voiceClient]);
+   374	
+   375	  const voiceUsable = voiceOn && voiceHealth.available && voiceHealth.keyConfigured !== false;
+   376	
+   377	  // ── Copy-last-response ──
+   378	  const [copied, setCopied] = useState(false);
+   379	
+   380	  // ── Working indicator: a live elapsed timer while the turn is busy, so the
+   381	  // user gets unmistakable "it's working" feedback (modeled on leading chat
+   382	  // UIs). Resets to 0 each turn; ticks once a second only while busy. ──
+   383	  const [elapsed, setElapsed] = useState(0);
+   384	  useEffect(() => {
+   385	    if (!busy) { setElapsed(0); return; }
+   386	    setElapsed(0);
+   387	    const id = window.setInterval(() => setElapsed((e) => e + 1), 1000);
+   388	    return () => window.clearInterval(id);
+   389	  }, [busy]);
+   390	
+   391	  // A compact activity hint pulled from the PTY status line (e.g.
+   392	  // "esc to interrupt · 2.1k tokens"). Absent on the orchestrator transport
+   393	  // (no status rows) → the indicator degrades to dots + "Working" + elapsed.
+   394	  const workingHint = useMemo(() => {
+   395	    const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
+   396	    if (!row) return "";
+   397	    // Prefer the parenthetical tail "(esc to interrupt · N tokens)" so the hint
+   398	    // doesn't echo the activity verb already implied by the WORKING label.
+   399	    const paren = /\(([^)]*(?:interrupt|tokens)[^)]*)\)/i.exec(row);
+   400	    if (paren) return paren[1].trim().slice(0, 80);
+   401	    const tail = row.includes("…") ? row.split("…").pop() : row;
+   402	    return (tail || "").replace(/^[\s*✻✶✳·•]+/, "").trim().slice(0, 80);
+   403	  }, [status.rows]);
+   404	
+   405	  // ── Per-message copy (copy-on-hover under a completed assistant turn). ──
+   406	  const [copiedId, setCopiedId] = useState<string | null>(null);
+   407	  const copyMsg = useCallback((id: string, text: string) => {
+   408	    navigator.clipboard?.writeText(text).then(
+   409	      () => {
+   410	        setCopiedId(id);
+   411	        window.setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1300);
+   412	      },
+   413	      () => {/* clipboard unavailable */}
+   414	    );
+   415	  }, []);
+   416	
+   417	  // ── Delegated copy for code blocks (their Copy buttons live inside
+   418	  // dangerouslySetInnerHTML markdown, so they can't carry React handlers). One
+   419	  // listener on the scroll container handles every block's button. ──
+   420	  const onCodeCopyClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+   421	    const btn = (e.target as HTMLElement).closest?.(".cc-codecopy") as HTMLButtonElement | null;
+   422	    if (!btn) return;
+   423	    const block = btn.closest(".cc-codeblock");
+   424	    const code = block?.querySelector("pre code")?.textContent ?? "";
+   425	    if (!code) return;
+   426	    navigator.clipboard?.writeText(code).then(
+   427	      () => {
+   428	        btn.textContent = "Copied";
+   429	        window.setTimeout(() => { if (btn.isConnected) btn.textContent = "Copy"; }, 1300);
+   430	      },
+   431	      () => {/* clipboard unavailable */}
+   432	    );
+   433	  }, []);
+   434	
+   435	  // Reflect the latest assistant text into the most recent turn's assistant slot.
+   436	  const applyAssistant = useCallback((text: string) => {
+   437	    setTurns((prev) => {
+   438	      if (prev.length === 0) return prev;
+   439	      const last = prev[prev.length - 1];
+   440	      if (last.assistant === text) return prev;
+   441	      const copy = prev.slice();
+   442	      copy[copy.length - 1] = { ...last, assistant: text };
+   443	      return copy;
+   444	    });
+   445	  }, []);
+   446	
+   447	  useEffect(() => {
+   448	    const off = transport.connect((ev: ChatEvent) => {
+   449	      switch (ev.type) {
+   450	        case "hello":
+   451	          setStatus(ev.status);
+   452	          setBusy(ev.busy);
+   453	          setScreen(ev.screen ?? []);
+   454	          break;
+   455	        case "assistant":
+   456	          applyAssistant(ev.text);
+   457	          break;
+   458	        case "status":
+   459	          setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
+   460	          break;
+   461	        case "turn":
+   462	          setBusy(ev.active);
+   463	          if (!ev.active) {
+   464	            setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 ? { ...t, streaming: false } : t)));
+   465	          }
+   466	          break;
+   467	        case "screen":
+   468	          setScreen(ev.lines);
+   469	          break;
+   470	        case "connection":
+   471	          setConn(ev.state);
+   472	          break;
+   473	        case "error":
+   474	          // Surface as an assistant note on the latest turn.
+   475	          applyAssistant(`_error: ${ev.message}_`);
+   476	          break;
+   477	      }
+   478	    });
+   479	    return off;
+   480	  }, [transport, applyAssistant]);
+   481	
+   482	  useEffect(() => {
+   483	    transport.fetchCommands().then(setCommands).catch(() => setCommands([]));
+   484	  }, [transport]);
+   485	
+   486	  // Auto-scroll when pinned to bottom.
+   487	  useEffect(() => {
+   488	    if (pinnedRef.current && scrollRef.current) {
+   489	      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+   490	    }
+   491	  }, [turns, busy]);
+   492	
+   493	  const onScroll = useCallback(() => {
+   494	    const el = scrollRef.current;
+   495	    if (!el) return;
+   496	    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+   497	  }, []);
+   498	
+   499	  const slashQuery = useMemo(() => {
+   500	    const m = /^\/([\w:-]*)$/.exec(input.trim());
+   501	    return m ? m[1].toLowerCase() : null;
+   502	  }, [input]);
+   503	
+   504	  const filtered = useMemo(() => {
+   505	    if (slashQuery === null) return [];
+   506	    return commands
+   507	      .filter((c) => c.name.toLowerCase().includes(slashQuery))
+   508	      .sort((a, b) => {
+   509	        const ap = a.name.toLowerCase().startsWith(slashQuery) ? 0 : 1;
+   510	        const bp = b.name.toLowerCase().startsWith(slashQuery) ? 0 : 1;
+   511	        return ap - bp || a.name.localeCompare(b.name);
+   512	      })
+   513	      .slice(0, 8);
+   514	  }, [commands, slashQuery]);
+   515	
+   516	  useEffect(() => setMenuIdx(0), [slashQuery]);
+   517	
+   518	  // Keep the latest opaque context/mode in refs so `send` stays stable while
+   519	  // always forwarding the current values. Both default to undefined → the meta
+   520	  // arg is omitted entirely and transports see exactly the old single-arg call.
+
+exec
+/bin/zsh -lc "nl -ba packages/claude-chat/src/ClaudeChat.tsx | sed -n '780,860p'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+   780	                aria-label={`${opt.label} theme`}
+   781	                onClick={() => { setChatMode(opt.mode); setThemeMode(opt.mode); setScheme(resolvedChatScheme()); }}
+   782	              >
+   783	                {opt.icon}
+   784	              </button>
+   785	            ))}
+   786	          </div>
+   787	        )}
+   788	        <button className="cc-rawtoggle" onClick={() => setShowRaw((v) => !v)} title="Show raw terminal">
+   789	          {showRaw ? "Hide raw" : "Raw"}
+   790	        </button>
+   791	      </header>
+   792	
+   793	      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
+   794	        {turns.length === 0 && (
+   795	          <div className="cc-empty">Send a message to begin · type / for commands and skills</div>
+   796	        )}
+   797	        {turns.map((t) => (
+   798	          <div className="cc-turn" key={t.id}>
+   799	            <div className="cc-user">{t.user}</div>
+   800	            {(t.assistant || t.streaming) && (
+   801	              <div className="cc-assistant">
+   802	                <div className="cc-md" dangerouslySetInnerHTML={{ __html: marked.parse(t.assistant || "") as string }} />
+   803	                {/* Streaming cursor once tokens are arriving. */}
+   804	                {t.streaming && t.assistant && <span className="cc-cursor" aria-hidden="true" />}
+   805	                {/* Rich "working" indicator before the first token: animated dots
+   806	                    + label + live elapsed + (PTY) activity hint. */}
+   807	                {t.streaming && !t.assistant && (
+   808	                  <div className="cc-working" role="status" aria-live="polite">
+   809	                    <span className="cc-working-dots"><i /><i /><i /></span>
+   810	                    <span className="cc-working-label">Working</span>
+   811	                    <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
+   812	                    {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
+   813	                  </div>
+   814	                )}
+   815	                {/* Per-message actions: copy (always) + read-aloud (voice). */}
+   816	                {t.assistant.trim() && !t.streaming && (
+   817	                  <div className="cc-msgactions">
+   818	                    <button
+   819	                      type="button"
+   820	                      className="cc-msgcopy"
+   821	                      title="Copy this response"
+   822	                      onClick={() => copyMsg(t.id, t.assistant)}
+   823	                    >
+   824	                      {copiedId === t.id ? "Copied" : "Copy"}
+   825	                    </button>
+   826	                    {feat.voice && voiceUsable && (
+   827	                      <button
+   828	                        type="button"
+   829	                        className="cc-speak"
+   830	                        title="Read this response aloud"
+   831	                        aria-label="Read this response aloud"
+   832	                        onClick={() => void speak(t.assistant)}
+   833	                      >
+   834	                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+   835	                          <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+   836	                          <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+   837	                        </svg>
+   838	                      </button>
+   839	                    )}
+   840	                  </div>
+   841	                )}
+   842	              </div>
+   843	            )}
+   844	          </div>
+   845	        ))}
+   846	        {showRaw && (
+   847	          <pre className="cc-raw">{screen.join("\n")}</pre>
+   848	        )}
+   849	      </div>
+   850	
+   851	      <div className="cc-statusstrip" title="Claude Code status line">
+   852	        {status.rows.length > 0 ? status.rows.map((r, i) => <div key={i} className="cc-statusrow">{r}</div>) : <div className="cc-statusrow cc-dim">no status</div>}
+   853	      </div>
+   854	
+   855	      <div className="cc-modes">
+   856	        {SWITCHABLE.map((m) => (
+   857	          <button
+   858	            key={m}
+   859	            className={`cc-mode ${status.mode === m ? "cc-mode-active" : ""}`}
+   860	            disabled={status.mode === "unknown"}
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "node -e 'const {marked}=require(\"marked\"); marked.use({renderer:{code({text,lang}){return \"LANG=\"+JSON.stringify(lang)+\" TEXT=\"+JSON.stringify(text)}, link({href,title,tokens}){return \"LINK[\"+href+\"|\"+title+\"|\"+this.parser.parseInline(tokens)+\"]\";}}}); console.log(marked.parse(\""'```js title='"\\\"x\\\"\\nconst x = 1\\n"'```")); console.log(marked.parse("[x](javascript:alert(1) '"\\\"t\\\\\\\"x\\\")\"));'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+LANG="js title=\"x\"" TEXT="const x = 1"
+<p>LINK[javascript:alert(1)|t&quot;x|x]</p>
+
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'rg -n "ClaudeChat.tsx|marked.use|cc-codecopy|cc-working|cc-cursor|copiedId|workingHint" docs/autothing/runs/20260626-094754-c2e328e9/full-diff.patch' in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+729:+.cc-working {
+733:+.cc-working-dots { display: inline-flex; gap: 4px; }
+734:+.cc-working-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--cc-accent); display: inline-block; animation: cc-bounce 1.2s infinite ease-in-out; }
+735:+.cc-working-dots i:nth-child(2) { animation-delay: 0.15s; }
+736:+.cc-working-dots i:nth-child(3) { animation-delay: 0.3s; }
+738:+.cc-working-label { font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cc-fg-dim); }
+739:+.cc-working-time { font-family: var(--cc-mono); font-size: 10px; color: var(--cc-fg-faint); font-variant-numeric: tabular-nums; }
+740:+.cc-working-hint { font-family: var(--cc-mono); font-size: 10px; color: var(--cc-fg-faint); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+746:+.cc-codecopy { font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; background: transparent; border: 1px solid #2f4239; color: #9fb7aa; border-radius: 0; padding: 3px 8px; cursor: pointer; }
+747:+.cc-codecopy:hover { color: #d7e3dc; border-color: #44604f; }
+781:diff --git a/packages/claude-chat/src/ClaudeChat.tsx b/packages/claude-chat/src/ClaudeChat.tsx
+783:--- a/packages/claude-chat/src/ClaudeChat.tsx
+784:+++ b/packages/claude-chat/src/ClaudeChat.tsx
+834:@@ -65,6 +100,41 @@ marked.use({
+867:+        `<button type="button" class="cc-codecopy" aria-label="Copy code">Copy</button>` +
+908:+  const workingHint = useMemo(() => {
+920:+  const [copiedId, setCopiedId] = useState<string | null>(null);
+935:+    const btn = (e.target as HTMLElement).closest?.(".cc-codecopy") as HTMLButtonElement | null;
+983:+                {t.streaming && t.assistant && <span className="cc-cursor" aria-hidden="true" />}
+987:+                  <div className="cc-working" role="status" aria-live="polite">
+988:+                    <span className="cc-working-dots"><i /><i /><i /></span>
+989:+                    <span className="cc-working-label">Working</span>
+990:+                    <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
+991:+                    {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
+1003:+                      {copiedId === t.id ? "Copied" : "Copy"}
+1032:+.cc-cursor {
+1039:+.cc-working {
+1043:+.cc-working-dots { display: inline-flex; gap: 4px; }
+1044:+.cc-working-dots i {
+1048:+.cc-working-dots i:nth-child(2) { animation-delay: 0.15s; }
+1049:+.cc-working-dots i:nth-child(3) { animation-delay: 0.3s; }
+1051:+.cc-working-label { font-size: 11px; color: var(--cc-fg-dim); letter-spacing: 0.04em; }
+1052:+.cc-working-time { font-size: 11px; color: var(--cc-fg-faint); font-variant-numeric: tabular-nums; }
+1053:+.cc-working-hint {
+1065:+.cc-codecopy {
+1069:+.cc-codecopy:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+1227:+    const working = page.locator(".cc-working");
+1229:+    await expect(working.locator(".cc-working-label")).toHaveText("Working");
+1230:+    await expect(working.locator(".cc-working-time")).toHaveText(/^\d+:\d\d$/);
+1231:+    await expect(working.locator(".cc-working-hint")).toContainText("esc to interrupt");
+1244:+    const copyBtn = block.locator(".cc-codecopy");
+
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '781,1015p' docs/autothing/runs/20260626-094754-c2e328e9/full-diff.patch" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+diff --git a/packages/claude-chat/src/ClaudeChat.tsx b/packages/claude-chat/src/ClaudeChat.tsx
+index 18e470c..85c666f 100644
+--- a/packages/claude-chat/src/ClaudeChat.tsx
++++ b/packages/claude-chat/src/ClaudeChat.tsx
+@@ -1,6 +1,20 @@
+ import * as React from "react";
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { marked } from "marked";
++import hljs from "highlight.js/lib/core";
++import typescript from "highlight.js/lib/languages/typescript";
++import javascript from "highlight.js/lib/languages/javascript";
++import python from "highlight.js/lib/languages/python";
++import bash from "highlight.js/lib/languages/bash";
++import json from "highlight.js/lib/languages/json";
++import css from "highlight.js/lib/languages/css";
++import xml from "highlight.js/lib/languages/xml";
++import markdown from "highlight.js/lib/languages/markdown";
++import yaml from "highlight.js/lib/languages/yaml";
++import sql from "highlight.js/lib/languages/sql";
++import rust from "highlight.js/lib/languages/rust";
++import go from "highlight.js/lib/languages/go";
++import diff from "highlight.js/lib/languages/diff";
+ import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
+ import {
+   getChatMode,
+@@ -13,6 +27,27 @@ import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
+ 
+ marked.setOptions({ breaks: true, gfm: true });
+ 
++// Syntax highlighting for fenced code blocks. A curated language set keeps the
++// bundle small while covering what the Operative emits most (TS/JS/py/shell/json
++// /css/html/yaml/sql/rust/go/diff/markdown). hljs token classes (.hljs-*) are
++// coloured in claude-chat.css against theme-driven CSS vars, so the same output
++// reads on the dark code card (web-channel + dev-env dark) and the light one
++// (dev-env light).
++for (const [name, lang] of Object.entries({
++  typescript, javascript, python, bash, json, css, xml, markdown, yaml, sql, rust, go, diff,
++})) {
++  try { hljs.registerLanguage(name, lang as any); } catch { /* already registered */ }
++}
++
++// Escape text destined for HTML element content (used for the code fallback and
++// the language label). Mirrors escapeAttr but for text nodes.
++function escapeHtml(s: string): string {
++  return s
++    .replace(/&/g, "&amp;")
++    .replace(/</g, "&lt;")
++    .replace(/>/g, "&gt;");
++}
++
+ // Escape a value before it goes into an HTML attribute (the rendered markdown is
+ // injected via dangerouslySetInnerHTML, so an unescaped href/title could break out
+ // of the attribute or inject markup).
+@@ -65,6 +100,41 @@ marked.use({
+       const t = title ? ` title="${escapeAttr(title)}"` : "";
+       return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
+     },
++    // Rich fenced code block: a dark "card" with a header (uppercase mono
++    // language label + a Copy button) over a syntax-highlighted <pre>. The Copy
++    // button carries no inline handler (the markdown is injected via
++    // dangerouslySetInnerHTML); a single delegated click handler on the scroll
++    // container (onCodeCopyClick) reads the block's text and writes the
++    // clipboard. Highlighting is applied for known languages; unknown/none falls
++    // back to escaped plain text. Additive: only `<pre><code>` markup changes,
++    // so dev-env keeps working (and gains highlighting too).
++    code({ text, lang }: { text: string; lang?: string }) {
++      // marked stores the WHOLE fence info-string in `lang` (e.g.
++      // `ts title="x.ts"` or `python {1,3}`); the language is just its first
++      // whitespace-delimited token. Use that, or both the highlight lookup and
++      // the label break for any annotated fence.
++      const language = (lang || "").trim().split(/\s+/)[0].toLowerCase();
++      let body: string;
++      if (language && hljs.getLanguage(language)) {
++        try {
++          body = hljs.highlight(text, { language, ignoreIllegals: true }).value;
++        } catch {
++          body = escapeHtml(text);
++        }
++      } else {
++        body = escapeHtml(text);
++      }
++      const label = escapeHtml(language || "text");
++      return (
++        `<div class="cc-codeblock">` +
++        `<div class="cc-codehead">` +
++        `<span class="cc-codelang">${label}</span>` +
++        `<button type="button" class="cc-codecopy" aria-label="Copy code">Copy</button>` +
++        `</div>` +
++        `<pre class="hljs"><code>${body}</code></pre>` +
++        `</div>`
++      );
++    },
+   },
+ });
+ 
+@@ -131,6 +201,13 @@ const SWITCHABLE: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassP
+ let uid = 0;
+ const nextId = () => `t${Date.now()}_${uid++}`;
+ 
++// m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
++function fmtElapsed(sec: number): string {
++  const m = Math.floor(sec / 60);
++  const s = sec % 60;
++  return `${m}:${s.toString().padStart(2, "0")}`;
++}
++
+ // SVG icons for the theme toggle (no emoji, per house rule). Mirrors the
+ // dev-env terminal toggle's sun / moon / monitor set.
+ const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }[] = [
+@@ -300,6 +377,61 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
+   // ── Copy-last-response ──
+   const [copied, setCopied] = useState(false);
+ 
++  // ── Working indicator: a live elapsed timer while the turn is busy, so the
++  // user gets unmistakable "it's working" feedback (modeled on leading chat
++  // UIs). Resets to 0 each turn; ticks once a second only while busy. ──
++  const [elapsed, setElapsed] = useState(0);
++  useEffect(() => {
++    if (!busy) { setElapsed(0); return; }
++    setElapsed(0);
++    const id = window.setInterval(() => setElapsed((e) => e + 1), 1000);
++    return () => window.clearInterval(id);
++  }, [busy]);
++
++  // A compact activity hint pulled from the PTY status line (e.g.
++  // "esc to interrupt · 2.1k tokens"). Absent on the orchestrator transport
++  // (no status rows) → the indicator degrades to dots + "Working" + elapsed.
++  const workingHint = useMemo(() => {
++    const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
++    if (!row) return "";
++    // Prefer the parenthetical tail "(esc to interrupt · N tokens)" so the hint
++    // doesn't echo the activity verb already implied by the WORKING label.
++    const paren = /\(([^)]*(?:interrupt|tokens)[^)]*)\)/i.exec(row);
++    if (paren) return paren[1].trim().slice(0, 80);
++    const tail = row.includes("…") ? row.split("…").pop() : row;
++    return (tail || "").replace(/^[\s*✻✶✳·•]+/, "").trim().slice(0, 80);
++  }, [status.rows]);
++
++  // ── Per-message copy (copy-on-hover under a completed assistant turn). ──
++  const [copiedId, setCopiedId] = useState<string | null>(null);
++  const copyMsg = useCallback((id: string, text: string) => {
++    navigator.clipboard?.writeText(text).then(
++      () => {
++        setCopiedId(id);
++        window.setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1300);
++      },
++      () => {/* clipboard unavailable */}
++    );
++  }, []);
++
++  // ── Delegated copy for code blocks (their Copy buttons live inside
++  // dangerouslySetInnerHTML markdown, so they can't carry React handlers). One
++  // listener on the scroll container handles every block's button. ──
++  const onCodeCopyClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
++    const btn = (e.target as HTMLElement).closest?.(".cc-codecopy") as HTMLButtonElement | null;
++    if (!btn) return;
++    const block = btn.closest(".cc-codeblock");
++    const code = block?.querySelector("pre code")?.textContent ?? "";
++    if (!code) return;
++    navigator.clipboard?.writeText(code).then(
++      () => {
++        btn.textContent = "Copied";
++        window.setTimeout(() => { if (btn.isConnected) btn.textContent = "Copy"; }, 1300);
++      },
++      () => {/* clipboard unavailable */}
++    );
++  }, []);
++
+   // Reflect the latest assistant text into the most recent turn's assistant slot.
+   const applyAssistant = useCallback((text: string) => {
+     setTurns((prev) => {
+@@ -658,28 +790,54 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
+         </button>
+       </header>
+ 
+-      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll}>
+-        {turns.length === 0 && <div className="cc-empty">Send a message to start. Type / for commands and skills.</div>}
++      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
++        {turns.length === 0 && (
++          <div className="cc-empty">Send a message to begin · type / for commands and skills</div>
++        )}
+         {turns.map((t) => (
+           <div className="cc-turn" key={t.id}>
+             <div className="cc-user">{t.user}</div>
+             {(t.assistant || t.streaming) && (
+               <div className="cc-assistant">
+                 <div className="cc-md" dangerouslySetInnerHTML={{ __html: marked.parse(t.assistant || "") as string }} />
+-                {t.streaming && !t.assistant && <span className="cc-typing">…</span>}
+-                {feat.voice && voiceUsable && t.assistant.trim() && !t.streaming && (
+-                  <button
+-                    type="button"
+-                    className="cc-speak"
+-                    title="Read this response aloud"
+-                    aria-label="Read this response aloud"
+-                    onClick={() => void speak(t.assistant)}
+-                  >
+-                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+-                      <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+-                      <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+-                    </svg>
+-                  </button>
++                {/* Streaming cursor once tokens are arriving. */}
++                {t.streaming && t.assistant && <span className="cc-cursor" aria-hidden="true" />}
++                {/* Rich "working" indicator before the first token: animated dots
++                    + label + live elapsed + (PTY) activity hint. */}
++                {t.streaming && !t.assistant && (
++                  <div className="cc-working" role="status" aria-live="polite">
++                    <span className="cc-working-dots"><i /><i /><i /></span>
++                    <span className="cc-working-label">Working</span>
++                    <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
++                    {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
++                  </div>
++                )}
++                {/* Per-message actions: copy (always) + read-aloud (voice). */}
++                {t.assistant.trim() && !t.streaming && (
++                  <div className="cc-msgactions">
++                    <button
++                      type="button"
++                      className="cc-msgcopy"
++                      title="Copy this response"
++                      onClick={() => copyMsg(t.id, t.assistant)}
++                    >
++                      {copiedId === t.id ? "Copied" : "Copy"}
++                    </button>
++                    {feat.voice && voiceUsable && (
++                      <button
++                        type="button"
++                        className="cc-speak"
++                        title="Read this response aloud"
++                        aria-label="Read this response aloud"
++                        onClick={() => void speak(t.assistant)}
++                      >
++                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
++                          <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
++                          <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+
+exec
+/bin/zsh -lc "sed -n '1210,1265p' docs/autothing/runs/20260626-094754-c2e328e9/full-diff.patch" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
++    const bg = await page.locator(".cc-root").evaluate((el) => getComputedStyle(el).backgroundColor);
++    expect(bg).toBe("rgb(251, 248, 241)");
++
++    // Title is set in the Source Serif display face.
++    const titleFont = await page.locator(".cc-title").evaluate((el) => getComputedStyle(el).fontFamily);
++    expect(titleFont.toLowerCase()).toContain("source serif");
++  });
++
++  test("shows a working indicator, then highlights code with working copy buttons", async ({ page }) => {
++    await page.goto(`http://127.0.0.1:${wcPort}/`);
++    await expect(page.locator(".cc-input")).toBeVisible();
++
++    await page.locator(".cc-input").fill("Add a debounced autosave and show me the hook.");
++    await page.locator(".cc-send").click();
++
++    // 1) Working indicator: visible before the first token, with a live elapsed
++    //    timer and the activity hint pulled from the PTY status line.
++    const working = page.locator(".cc-working");
++    await expect(working).toBeVisible();
++    await expect(working.locator(".cc-working-label")).toHaveText("Working");
++    await expect(working.locator(".cc-working-time")).toHaveText(/^\d+:\d\d$/);
++    await expect(working.locator(".cc-working-hint")).toContainText("esc to interrupt");
++
++    // 2) Once the stream completes, the fenced block is a rich code card with a
++    //    language label and syntax highlighting (hljs token spans).
++    const block = page.locator(".cc-codeblock");
++    await expect(block).toBeVisible({ timeout: 8000 });
++    await expect(block.locator(".cc-codelang")).toHaveText("typescript");
++    await expect(block.locator(".hljs-keyword").first()).toBeVisible(); // export/function/const/return
++
++    // The working indicator is gone now the reply has rendered.
++    await expect(working).toHaveCount(0);
++
++    // 3) Per-block copy button copies the code to the clipboard.
++    const copyBtn = block.locator(".cc-codecopy");
++    await expect(copyBtn).toBeVisible();
++    await copyBtn.click();
++    await expect(copyBtn).toHaveText("Copied");
++    const codeClip = await page.evaluate(() => navigator.clipboard.readText());
++    expect(codeClip).toContain("useDebouncedSave");
++
++    // 4) Per-message copy button copies the whole assistant response.
++    const msgCopy = page.locator(".cc-msgcopy").last();
++    await expect(msgCopy).toBeVisible();
++    await msgCopy.click();
++    await expect(msgCopy).toHaveText("Copied");
++    const msgClip = await page.evaluate(() => navigator.clipboard.readText());
++    expect(msgClip).toContain("Drop it into the form");
++  });
+ });
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "rg -n \"from \\\"marked\\\"|require\\(['\\\"]marked['\\\"]\\)\" -g'*.ts' -g'*.tsx' -g'*.js' -g'*.mjs'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+packages/claude-chat/src/ClaudeChat.tsx:3:import { marked } from "marked";
+src/components/quarters/FilePrimitiveForm.tsx:4:import { marked } from "marked";
+src/components/quarters/MarkdownEditor.tsx:4:import { marked } from "marked";
+tests/web-channel-context.test.ts:23:import { marked } from "marked";
+fittings/seed/web-channel-default/ui/legacy-voice.tsx:3:import { marked } from "marked";
+
+codex
+There’s one non-obvious risk surface: `marked.use(...)` mutates the shared singleton, so I’m checking whether other app code in the same bundle also calls `marked.parse` and would inherit this custom code/link renderer unintentionally.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '1,220p' src/components/quarters/FilePrimitiveForm.tsx" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { marked } from "marked";
+import { QuartersDrawer } from "./QuartersDrawer";
+import type { SurfaceEditorProps } from "./surfaceEditors";
+import type { FilePrimitiveSurface } from "@/lib/primitive-files";
+
+const FIELD: React.CSSProperties = {
+  width: "100%",
+  fontSize: 13,
+  padding: "7px 10px",
+  border: "1px solid var(--rule)",
+  background: "white",
+  fontFamily: "var(--font-mono), monospace"
+};
+const LABEL: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, margin: "0 0 5px" };
+
+type ContentMode = "edit" | "preview";
+
+// Generic create/edit form for a file primitive (skill SKILL.md, command .md,
+// rule .md). Name is editable on create, fixed on edit (rename is a move — out of
+// scope). Content is a markdown textarea with an edit/preview toggle. Explicit
+// Save (not autosave) because it lives in a modal with a name field.
+export function FilePrimitiveForm({
+  surface,
+  noun,
+  template,
+  rec,
+  onClose,
+  onSaved
+}: SurfaceEditorProps & { surface: FilePrimitiveSurface; noun: string; template: (name: string) => string }) {
+  const isEdit = !!rec;
+  const isOwned = rec?.state === "owned";
+  const dirName = surface === "skill" ? "skills" : surface === "command" ? "commands" : "rules";
+  const subtitle = isOwned
+    ? "APM-managed (owned) — saving edits the deployed file and creates drift from the lockfile."
+    : `Written to ~/.claude/${dirName}/ — loose, hand-authored.`;
+  const [name, setName] = useState(rec ? rec.name : "");
+  const [content, setContent] = useState(isEdit ? "" : template(""));
+  const [mode, setMode] = useState<ContentMode>("edit");
+  const [loading, setLoading] = useState(isEdit);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Track whether the user has typed in the body yet, so retitling on create can
+  // refresh the still-pristine template without clobbering real edits.
+  const [touched, setTouched] = useState(false);
+
+  useEffect(() => {
+    if (!rec) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/quarters/primitive?id=${encodeURIComponent(rec.id)}`);
+        const data = await res.json();
+        if (!active) return;
+        if (!res.ok) throw new Error(data?.error ?? res.statusText);
+        setContent(typeof data.content === "string" ? data.content : "");
+      } catch (e) {
+        if (active) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [rec]);
+
+  const html = useMemo(() => {
+    if (mode !== "preview") return "";
+    try {
+      return marked.parse(content, { async: false }) as string;
+    } catch {
+      return "<p>(could not render markdown)</p>";
+    }
+  }, [content, mode]);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    const body = isEdit
+      ? { action: "file.update", surface, name: rec!.name, content }
+      : { action: "file.create", surface, name: name.trim(), content };
+    try {
+      const res = await fetch("/api/quarters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) throw new Error(data?.error ?? data?.code ?? res.statusText);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <QuartersDrawer
+      title={isEdit ? `Edit ${noun} — ${rec!.name}` : `New ${noun}`}
+      subtitle={subtitle}
+      onClose={onClose}
+      testId="file-form"
+      footer={
+        <>
+          <button type="button" className="btn small ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" className="btn small" data-testid="file-save" onClick={() => void save()} disabled={busy || loading}>
+            {busy ? "Saving…" : isEdit ? "Save changes" : `Create ${noun}`}
+          </button>
+        </>
+      }
+    >
+      {loading ? (
+        <p className="ld" style={{ fontSize: 13 }}>Loading…</p>
+      ) : (
+        <>
+          {isOwned ? (
+            <div className="banner warn" data-testid="owned-drift-warning" style={{ marginBottom: 14 }}>
+              <span className="glyph">!</span>
+              <div>
+                <p style={{ margin: 0, fontSize: 12.5 }}>
+                  This {noun} is <b>APM-managed</b>. Saving edits the deployed file directly and creates
+                  drift from the lockfile. To stop managing it, Park it instead.
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {!isEdit ? (
+            <div style={{ marginBottom: 14 }}>
+              <label style={LABEL}>Name</label>
+              <input
+                className="text"
+                data-testid="file-name"
+                style={FIELD}
+                value={name}
+                placeholder={surface === "skill" ? "my-skill" : "my-command"}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setName(next);
+                  if (!touched) setContent(template(next));
+                }}
+              />
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+            <label style={{ ...LABEL, margin: 0 }}>{surface === "skill" ? "SKILL.md" : "Content"}</label>
+            <div style={{ display: "flex", gap: 4 }} role="tablist" aria-label="Editor mode">
+              {(["edit", "preview"] as ContentMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === m}
+                  data-testid={`file-mode-${m}`}
+                  className="btn small ghost"
+                  style={{ textTransform: "capitalize", fontWeight: mode === m ? 600 : 400, background: mode === m ? "var(--paper)" : "transparent" }}
+                  onClick={() => setMode(m)}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {mode === "edit" ? (
+            <textarea
+              className="text"
+              data-testid="file-content"
+              style={{ ...FIELD, minHeight: 300, lineHeight: 1.5 }}
+              value={content}
+              onChange={(e) => {
+                setContent(e.target.value);
+                setTouched(true);
+              }}
+            />
+          ) : (
+            <div
+              className="markdown-body"
+              data-testid="file-content-preview"
+              style={{ minHeight: 300, border: "1px solid var(--rule)", background: "white", padding: "14px 18px", overflow: "auto", fontSize: 13.5, lineHeight: 1.6 }}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          )}
+
+          {error ? (
+            <div className="banner alarm" data-testid="file-form-error" style={{ marginTop: 12 }}>
+              <span className="glyph">!</span>
+              <div><p style={{ margin: 0 }}>{error}</p></div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </QuartersDrawer>
+  );
+}
+
+exec
+/bin/zsh -lc "sed -n '1,220p' src/components/quarters/MarkdownEditor.tsx" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { marked } from "marked";
+import { useAutosave, type AutosaveStatus } from "@/hooks/useAutosave";
+
+const STATUS_WORD: Record<AutosaveStatus, string> = {
+  idle: "",
+  saving: "saving…",
+  saved: "saved",
+  error: "save failed"
+};
+
+type Mode = "edit" | "preview" | "split";
+
+// Reusable autosaving markdown editor — no save button. Debounced writes, flush
+// on blur. Edit / Preview / Split modes render the markdown via `marked` (the
+// content is the user's own ~/.claude files in a single-user local app, so
+// rendering it with dangerouslySetInnerHTML is acceptable). Used by the Context
+// (CLAUDE.md) and Plans surfaces.
+export function MarkdownEditor({
+  value,
+  onSave,
+  minHeight = 420,
+  testId
+}: {
+  value: string;
+  onSave: (value: string) => Promise<void>;
+  minHeight?: number;
+  testId?: string;
+}) {
+  const [text, setText] = useState(value);
+  const [mode, setMode] = useState<Mode>("edit");
+
+  // Reload when the source changes (e.g. switching files / scopes).
+  useEffect(() => {
+    setText(value);
+  }, [value]);
+
+  const { status, schedule, flush } = useAutosave({ value: text, onSave });
+
+  const html = useMemo(() => {
+    if (mode === "edit") return "";
+    try {
+      return marked.parse(text, { async: false }) as string;
+    } catch {
+      return "<p>(could not render markdown)</p>";
+    }
+  }, [text, mode]);
+
+  const editor = (
+    <textarea
+      className="text"
+      data-testid={testId}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        schedule();
+      }}
+      onBlur={() => void flush()}
+      style={{
+        width: "100%",
+        minHeight,
+        fontFamily: "var(--font-mono), monospace",
+        fontSize: 13,
+        lineHeight: 1.5
+      }}
+    />
+  );
+
+  const preview = (
+    <div
+      data-testid={testId ? `${testId}-preview` : "markdown-preview"}
+      className="markdown-body"
+      style={{
+        minHeight,
+        border: "1px solid var(--rule)",
+        background: "white",
+        padding: "14px 18px",
+        overflow: "auto",
+        fontSize: 13.5,
+        lineHeight: 1.6
+      }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 8 }} role="tablist" aria-label="Editor mode">
+        {(["edit", "preview", "split"] as Mode[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            data-testid={testId ? `${testId}-mode-${m}` : `md-mode-${m}`}
+            onClick={() => setMode(m)}
+            className="btn small ghost"
+            style={{
+              textTransform: "capitalize",
+              background: mode === m ? "var(--paper)" : "transparent",
+              fontWeight: mode === m ? 600 : 400
+            }}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+
+      {mode === "split" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {editor}
+          {preview}
+        </div>
+      ) : mode === "preview" ? (
+        preview
+      ) : (
+        editor
+      )}
+
+      <div style={{ marginTop: 6, fontSize: 11.5, color: status === "error" ? "var(--alarm)" : "var(--mute)" }}>
+        <span data-testid="autosave-status">{STATUS_WORD[status]}</span>
+      </div>
+    </div>
+  );
+}
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '1,220p' fittings/seed/web-channel-default/ui/legacy-voice.tsx" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+import { createRoot } from "react-dom/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { marked } from "marked";
+
+// Mirror of src/lib/message-body.ts:29-30 (cannot import from Garrison core).
+const GARRISON_URI = /\bgarrison:\/\/([A-Za-z0-9_-]+)(?:\/([^\s)<>"']+))?/g;
+
+marked.setOptions({ breaks: true, gfm: true });
+
+// Milliseconds of silence before a hands-free/streaming utterance is auto-sent.
+// A normal mid-sentence pause is ~1–2s, so 5s avoids premature sends. Override
+// for testing/tuning with ?silence_ms=<n> (clamped to Deepgram's [1000,20000]).
+const SILENCE_MS = (() => {
+  try {
+    const n = Number(new URLSearchParams(window.location.search).get("silence_ms"));
+    if (Number.isFinite(n) && n >= 1000 && n <= 20000) return Math.round(n);
+  } catch {}
+  return 5000;
+})();
+
+// Streaming is primary in any capable browser, which makes the batch
+// MediaRecorder fallback unreachable on demand. ?voice=batch forces it so the
+// fallback stays drivable and debuggable.
+const FORCE_BATCH = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("voice") === "batch";
+  } catch {}
+  return false;
+})();
+
+// A tiny valid silent WAV. Played once inside a user gesture (a toggle/mic/send
+// tap) to UNLOCK mobile audio playback, so read-aloud can auto-play replies
+// later without the user first tapping a speaker button (mobile autoplay policy).
+const SILENT_WAV = (() => {
+  const sr = 8000, n = 400;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const dv = new DataView(buf);
+  const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); ws(8, "WAVE"); ws(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  ws(36, "data"); dv.setUint32(40, n * 2, true);
+  let bin = ""; const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return "data:audio/wav;base64," + btoa(bin);
+})();
+
+type Role = "user" | "assistant" | "error";
+
+interface Message {
+  id: string;
+  role: Role;
+  content: string;
+  sessionId?: string | null;
+  streaming?: boolean;
+}
+
+interface MonitorInfo {
+  available: boolean;
+  url?: string;
+}
+
+interface VoiceInfo {
+  available: boolean;
+  url?: string;
+}
+
+// Secure context is required for getUserMedia (mic capture). localhost counts
+// as secure; a LAN IP over plain http does not. We use this to disable the mic
+// button with an explanatory title rather than throwing on click.
+function micCaptureAllowed(): boolean {
+  return Boolean(
+    typeof window !== "undefined" &&
+      window.isSecureContext &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function" &&
+      typeof window.MediaRecorder !== "undefined"
+  );
+}
+
+function genId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function preprocessMarkdown(raw: string): string {
+  return raw.replace(GARRISON_URI, (_match, fittingId, rest) => {
+    const tail = rest ? `/${rest}` : "";
+    const display = `garrison://${fittingId}${tail}`;
+    return `[${display}](garrison://${fittingId}${tail})`;
+  });
+}
+
+function renderMarkdown(content: string): string {
+  const pre = preprocessMarkdown(content);
+  return marked.parse(pre) as string;
+}
+
+function MessageBubble({
+  message,
+  onSpeak
+}: {
+  message: Message;
+  onSpeak?: (text: string) => void;
+}) {
+  const html = useMemo(() => renderMarkdown(message.content || ""), [message.content]);
+  const onClick = useCallback((ev: React.MouseEvent<HTMLDivElement>) => {
+    const target = ev.target as HTMLElement;
+    if (target.tagName !== "A") return;
+    const href = target.getAttribute("href") || "";
+    if (href.startsWith("garrison://")) {
+      ev.preventDefault();
+      const match = href.match(/^garrison:\/\/([^/]+)(?:\/(.*))?$/);
+      if (!match) return;
+      const fittingId = match[1];
+      const rest = match[2] ? `/${match[2]}` : "";
+      // Open the parent shell route. Web-channel is typically a different
+      // origin from the Garrison Next.js shell (port 7083 vs 7777), so we
+      // can't navigate same-origin — show the URL in a new tab for the user
+      // to resolve manually.
+      window.open(`/fitting/${fittingId}${rest}`, "_blank", "noopener,noreferrer");
+    }
+  }, []);
+  const canSpeak = message.role === "assistant" && !message.streaming && Boolean(message.content.trim()) && Boolean(onSpeak);
+  return (
+    <div className={`bubble ${message.role}${message.streaming ? " streaming" : ""}`} onClick={onClick}>
+      {message.role === "error"
+        ? <div className="meta">error</div>
+        : null}
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+      {canSpeak ? (
+        <button
+          type="button"
+          className="speak-button"
+          title="Read this reply aloud"
+          aria-label="Read this reply aloud"
+          data-testid="speak-button"
+          onClick={(ev) => { ev.stopPropagation(); onSpeak?.(message.content); }}
+        >
+          <SpeakerIcon />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
+}
+
+function parseSseEvent(raw: string): { event: string; data: any } | null {
+  let event = "message";
+  let dataText = "";
+  for (const line of raw.split("\n")) {
+    if (line.startsWith(":")) continue; // SSE comment / keepalive
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataText += (dataText ? "\n" : "") + line.slice(5).trim();
+  }
+  if (!dataText) return { event, data: null };
+  try { return { event, data: JSON.parse(dataText) }; }
+  catch { return { event, data: dataText }; }
+}
+
+function extractTextFromAssistantEvent(wrapped: any): string {
+  const ev = wrapped?.event;
+  if (!ev || ev.type !== "assistant") return "";
+  const msg = ev.message || {};
+  const blocks = Array.isArray(msg.content) ? msg.content : [];
+  let text = "";
+  for (const block of blocks) {
+    if (block?.type === "text" && typeof block.text === "string") {
+      text += block.text;
+    }
+  }
+  return text;
+}
+
+function App() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [composing, setComposing] = useState("");
+  const [sending, setSending] = useState(false);
+  const [monitor, setMonitor] = useState<MonitorInfo>({ available: false });
+  const [voice, setVoice] = useState<VoiceInfo>({ available: false });
+  const [recording, setRecording] = useState(false);
+  const [readAloud, setReadAloud] = useState(false);
+  const [autoSend, setAutoSend] = useState(true);
+  const [handsFree, setHandsFree] = useState(false);
+  const [connected, setConnected] = useState(false);
+  // Voice state machine: idle → arming(countdown) → listening → speaking → …
+  const [voiceState, setVoiceStateRaw] = useState<"idle" | "arming" | "listening" | "speaking">("idle");
+  const [armCountdown, setArmCountdown] = useState(0);
+  const [interim, setInterim] = useState("");
+  const [level, setLevel] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioPrimedRef = useRef(false);
+  const audioUrlRef = useRef<string | null>(null);
+  // Refs mirror state for use inside async callbacks/timers/ws handlers.
+  const readAloudRef = useRef(false);
+  const autoSendRef = useRef(true);
+  const handsFreeRef = useRef(false);
+  const voiceStateRef = useRef<"idle" | "arming" | "listening" | "speaking">("idle");
+  const sendRef = useRef<(m?: string) => void>(() => {});
+  const streamRef = useRef<{ ws: WebSocket; ctx: AudioContext; proc: ScriptProcessorNode; src: MediaStreamAudioSourceNode; stream: MediaStream; sink: GainNode } | null>(null);
+
+codex
+I found one definite runtime bug in the copy path. I’m checking whether the global `marked` mutation also leaks into other markdown previews in the app, because that would make this change regress unrelated client surfaces with chat-specific HTML.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "nl -ba src/components/quarters/MarkdownEditor.tsx | sed -n '1,120p'" in /Users/ggomes/dev/garrison
+exec
+/bin/zsh -lc "rg -n \"MarkdownEditor|FilePrimitiveForm|ClaudeChat\" src packages fittings -g'*.tsx'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	"use client";
+     2	
+     3	import { useEffect, useMemo, useState } from "react";
+     4	import { marked } from "marked";
+     5	import { useAutosave, type AutosaveStatus } from "@/hooks/useAutosave";
+     6	
+     7	const STATUS_WORD: Record<AutosaveStatus, string> = {
+     8	  idle: "",
+     9	  saving: "saving…",
+    10	  saved: "saved",
+    11	  error: "save failed"
+    12	};
+    13	
+    14	type Mode = "edit" | "preview" | "split";
+    15	
+    16	// Reusable autosaving markdown editor — no save button. Debounced writes, flush
+    17	// on blur. Edit / Preview / Split modes render the markdown via `marked` (the
+    18	// content is the user's own ~/.claude files in a single-user local app, so
+    19	// rendering it with dangerouslySetInnerHTML is acceptable). Used by the Context
+    20	// (CLAUDE.md) and Plans surfaces.
+    21	export function MarkdownEditor({
+    22	  value,
+    23	  onSave,
+    24	  minHeight = 420,
+    25	  testId
+    26	}: {
+    27	  value: string;
+    28	  onSave: (value: string) => Promise<void>;
+    29	  minHeight?: number;
+    30	  testId?: string;
+    31	}) {
+    32	  const [text, setText] = useState(value);
+    33	  const [mode, setMode] = useState<Mode>("edit");
+    34	
+    35	  // Reload when the source changes (e.g. switching files / scopes).
+    36	  useEffect(() => {
+    37	    setText(value);
+    38	  }, [value]);
+    39	
+    40	  const { status, schedule, flush } = useAutosave({ value: text, onSave });
+    41	
+    42	  const html = useMemo(() => {
+    43	    if (mode === "edit") return "";
+    44	    try {
+    45	      return marked.parse(text, { async: false }) as string;
+    46	    } catch {
+    47	      return "<p>(could not render markdown)</p>";
+    48	    }
+    49	  }, [text, mode]);
+    50	
+    51	  const editor = (
+    52	    <textarea
+    53	      className="text"
+    54	      data-testid={testId}
+    55	      value={text}
+    56	      onChange={(e) => {
+    57	        setText(e.target.value);
+    58	        schedule();
+    59	      }}
+    60	      onBlur={() => void flush()}
+    61	      style={{
+    62	        width: "100%",
+    63	        minHeight,
+    64	        fontFamily: "var(--font-mono), monospace",
+    65	        fontSize: 13,
+    66	        lineHeight: 1.5
+    67	      }}
+    68	    />
+    69	  );
+    70	
+    71	  const preview = (
+    72	    <div
+    73	      data-testid={testId ? `${testId}-preview` : "markdown-preview"}
+    74	      className="markdown-body"
+    75	      style={{
+    76	        minHeight,
+    77	        border: "1px solid var(--rule)",
+    78	        background: "white",
+    79	        padding: "14px 18px",
+    80	        overflow: "auto",
+    81	        fontSize: 13.5,
+    82	        lineHeight: 1.6
+    83	      }}
+    84	      dangerouslySetInnerHTML={{ __html: html }}
+    85	    />
+    86	  );
+    87	
+    88	  return (
+    89	    <div>
+    90	      <div style={{ display: "flex", gap: 4, marginBottom: 8 }} role="tablist" aria-label="Editor mode">
+    91	        {(["edit", "preview", "split"] as Mode[]).map((m) => (
+    92	          <button
+    93	            key={m}
+    94	            type="button"
+    95	            role="tab"
+    96	            aria-selected={mode === m}
+    97	            data-testid={testId ? `${testId}-mode-${m}` : `md-mode-${m}`}
+    98	            onClick={() => setMode(m)}
+    99	            className="btn small ghost"
+   100	            style={{
+   101	              textTransform: "capitalize",
+   102	              background: mode === m ? "var(--paper)" : "transparent",
+   103	              fontWeight: mode === m ? 600 : 400
+   104	            }}
+   105	          >
+   106	            {m}
+   107	          </button>
+   108	        ))}
+   109	      </div>
+   110	
+   111	      {mode === "split" ? (
+   112	        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+   113	          {editor}
+   114	          {preview}
+   115	        </div>
+   116	      ) : mode === "preview" ? (
+   117	        preview
+   118	      ) : (
+   119	        editor
+   120	      )}
+
+ succeeded in 0ms:
+packages/claude-chat/src/index.tsx:1:export { ClaudeChat, buildSendMeta } from "./ClaudeChat";
+packages/claude-chat/src/index.tsx:2:export type { ClaudeChatProps, ChatFeatures, ChatSendMeta } from "./ClaudeChat";
+packages/claude-chat/src/ClaudeChat.tsx:149:// dev-env opts in via <ClaudeChat features={{ model, effort, theme, voice }} />.
+packages/claude-chat/src/ClaudeChat.tsx:275:export interface ClaudeChatProps {
+packages/claude-chat/src/ClaudeChat.tsx:307:export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage }: ClaudeChatProps) {
+src/components/quarters/PlansPanel.tsx:4:import { MarkdownEditor } from "./MarkdownEditor";
+src/components/quarters/PlansPanel.tsx:104:              <MarkdownEditor value={view.content} onSave={save} testId="plan-editor" />
+src/components/quarters/MarkdownEditor.tsx:21:export function MarkdownEditor({
+src/components/quarters/ContextPanel.tsx:4:import { MarkdownEditor } from "./MarkdownEditor";
+src/components/quarters/ContextPanel.tsx:82:          <MarkdownEditor value={view.content} onSave={save} testId="context-editor" />
+src/components/quarters/surfaceEditors.tsx:6:import { FilePrimitiveForm } from "./FilePrimitiveForm";
+src/components/quarters/surfaceEditors.tsx:28:  return <FilePrimitiveForm surface="skill" noun="skill" template={skillTemplate} {...props} />;
+src/components/quarters/surfaceEditors.tsx:32:  return <FilePrimitiveForm surface="command" noun="command" template={commandTemplate} {...props} />;
+src/components/quarters/surfaceEditors.tsx:36:  return <FilePrimitiveForm surface="rule" noun="rule" template={ruleTemplate} {...props} />;
+src/components/quarters/FilePrimitiveForm.tsx:25:export function FilePrimitiveForm({
+fittings/seed/dev-env/ui/chat-pane.tsx:8:import { ClaudeChat, createHttpTransport } from "@garrison/claude-chat";
+fittings/seed/dev-env/ui/chat-pane.tsx:15:  // web-channel mounts ClaudeChat without `features`, so it is unaffected.
+fittings/seed/dev-env/ui/chat-pane.tsx:17:    <ClaudeChat
+fittings/seed/web-channel-default/ui/main.tsx:18:  ClaudeChat,
+fittings/seed/web-channel-default/ui/main.tsx:166:    <ClaudeChat
+
+exec
+/bin/zsh -lc "node -e 'const hljs=require(\"highlight.js/lib/core\").default; const ts=require(\"highlight.js/lib/languages/typescript\").default; hljs.registerLanguage(\"typescript\", ts); console.log(\"ts\", "'!!hljs.getLanguage("ts"), "typescript", !!hljs.getLanguage("typescript"), "js", !!hljs.getLanguage("js"), "javascript", !!hljs.getLanguage("javascript"), "sh", !!hljs.getLanguage("sh"), "bash", !!hljs.getLanguage("bash"));'"'" in /Users/ggomes/dev/garrison
+ exited 1 in 0ms:
+Language definition for 'typescript' could not be registered.
+TypeError: languageDefinition is not a function
+    at Object.registerLanguage (/Users/ggomes/dev/garrison/node_modules/highlight.js/lib/core.js:2402:14)
+    at [eval]:1:126
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_string:71:3
+/Users/ggomes/dev/garrison/node_modules/highlight.js/lib/core.js:2416
+    lang.rawDefinition = languageDefinition.bind(null, hljs);
+                                            ^
+
+TypeError: Cannot read properties of undefined (reading 'bind')
+    at Object.registerLanguage (/Users/ggomes/dev/garrison/node_modules/highlight.js/lib/core.js:2416:45)
+    at [eval]:1:126
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_string:71:3
+
+Node.js v25.6.1
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "nl -ba packages/claude-chat/src/ClaudeChat.tsx | sed -n '520,620p'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+   520	  // arg is omitted entirely and transports see exactly the old single-arg call.
+   521	  const contextRef = useRef<unknown>(context);
+   522	  contextRef.current = context;
+   523	  const modeRef = useRef<string | undefined>(mode);
+   524	  modeRef.current = mode;
+   525	
+   526	  const send = useCallback(
+   527	    (text: string) => {
+   528	      const t = text.trim();
+   529	      if (!t) return;
+   530	      // Effort directive (Think / Think hard / Ultrathink) is prepended to the
+   531	      // wire text only — the transcript shows what the user actually typed.
+   532	      const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
+   533	      const wire = dir ? `${dir}\n\n${t}` : t;
+   534	      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true }]);
+   535	      setBusy(true);
+   536	      pinnedRef.current = true;
+   537	      // Pass opaque context/mode as an optional second arg ONLY when present, so
+   538	      // a context-unaware transport (createHttpTransport) is called exactly as
+   539	      // before. The transport decides whether to read `meta`.
+   540	      const meta = buildSendMeta(contextRef.current, modeRef.current);
+   541	      const sendFn = transport.sendMessage as ContextAwareSend;
+   542	      const p = meta ? sendFn(wire, meta) : sendFn(wire);
+   543	      p.catch(() => {});
+   544	      setInput("");
+   545	    },
+   546	    [transport, effortOn]
+   547	  );
+   548	
+   549	  // Auto-send the opening message ONCE on mount, when a host provided one — so the
+   550	  // operative can start proactively (Kanban Discuss seeds a "James, analyse this
+   551	  // card…" kickoff). A ref guards against React's double-invoke (StrictMode) and a
+   552	  // changing `send` identity, so it fires exactly once per mount.
+   553	  const kickedRef = useRef(false);
+   554	  useEffect(() => {
+   555	    if (kickedRef.current) return;
+   556	    const msg = (initialMessage ?? "").trim();
+   557	    if (!msg) return;
+   558	    kickedRef.current = true;
+   559	    send(msg);
+   560	    // eslint-disable-next-line react-hooks/exhaustive-deps
+   561	  }, [initialMessage]);
+   562	
+   563	  // Submit a slash command line into the live TUI WITHOUT a transcript turn.
+   564	  // Used for /model <id>, /compact, /clear. Falls back to sendMessage when the
+   565	  // transport predates sendCommand.
+   566	  const runCommand = useCallback(
+   567	    (line: string) => {
+   568	      const fn = transport.sendCommand ?? transport.sendMessage;
+   569	      fn.call(transport, line).catch(() => {});
+   570	    },
+   571	    [transport]
+   572	  );
+   573	
+   574	  const switchModel = useCallback(
+   575	    (id: string) => {
+   576	      // Optimistically reflect in the status line until the TUI repaints it.
+   577	      setStatus((s) => ({ ...s, model: id }));
+   578	      runCommand(`/model ${id}`);
+   579	    },
+   580	    [runCommand]
+   581	  );
+   582	
+   583	  // Copy the most recent assistant response to the clipboard.
+   584	  const copyLast = useCallback(async () => {
+   585	    const last = [...turns].reverse().find((t) => t.assistant.trim());
+   586	    if (!last) return;
+   587	    try {
+   588	      await navigator.clipboard?.writeText(last.assistant);
+   589	      setCopied(true);
+   590	      window.setTimeout(() => setCopied(false), 1400);
+   591	    } catch {
+   592	      /* clipboard unavailable */
+   593	    }
+   594	  }, [turns]);
+   595	
+   596	  // ── Voice: speak a single message's text via the /voice/tts proxy. ──
+   597	  const speak = useCallback(
+   598	    async (text: string) => {
+   599	      if (!voiceClient || !text.trim()) return;
+   600	      try {
+   601	        setSpeaking(true);
+   602	        const blob = await voiceClient.tts(text);
+   603	        const urlObj = URL.createObjectURL(blob);
+   604	        if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+   605	        const audio = new Audio(urlObj);
+   606	        audioRef.current = audio;
+   607	        audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+   608	        audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+   609	        await audio.play();
+   610	      } catch {
+   611	        setSpeaking(false);
+   612	      }
+   613	    },
+   614	    [voiceClient]
+   615	  );
+   616	
+   617	  const stopSpeaking = useCallback(() => {
+   618	    if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+   619	    setSpeaking(false);
+   620	  }, []);
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "node -e 'const {marked}=require(\"marked\"); function install(){ marked.use({renderer:{code(){return \"<div class=cc-codeblock></div>\";}}}); } function preview(md){ return marked.parse(md,{async:false}); } console.log(\"before:\", preview(\""'```js'"\\n1\\n"'```")); install(); console.log("after:", preview("```js'"\\n1\\n"'```"));'"'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+before: <pre><code class="language-js">1
+</code></pre>
+
+after: <div class=cc-codeblock></div>
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "nl -ba src/components/quarters/FilePrimitiveForm.tsx | sed -n '1,110p'" in /Users/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	"use client";
+     2	
+     3	import { useEffect, useMemo, useState } from "react";
+     4	import { marked } from "marked";
+     5	import { QuartersDrawer } from "./QuartersDrawer";
+     6	import type { SurfaceEditorProps } from "./surfaceEditors";
+     7	import type { FilePrimitiveSurface } from "@/lib/primitive-files";
+     8	
+     9	const FIELD: React.CSSProperties = {
+    10	  width: "100%",
+    11	  fontSize: 13,
+    12	  padding: "7px 10px",
+    13	  border: "1px solid var(--rule)",
+    14	  background: "white",
+    15	  fontFamily: "var(--font-mono), monospace"
+    16	};
+    17	const LABEL: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, margin: "0 0 5px" };
+    18	
+    19	type ContentMode = "edit" | "preview";
+    20	
+    21	// Generic create/edit form for a file primitive (skill SKILL.md, command .md,
+    22	// rule .md). Name is editable on create, fixed on edit (rename is a move — out of
+    23	// scope). Content is a markdown textarea with an edit/preview toggle. Explicit
+    24	// Save (not autosave) because it lives in a modal with a name field.
+    25	export function FilePrimitiveForm({
+    26	  surface,
+    27	  noun,
+    28	  template,
+    29	  rec,
+    30	  onClose,
+    31	  onSaved
+    32	}: SurfaceEditorProps & { surface: FilePrimitiveSurface; noun: string; template: (name: string) => string }) {
+    33	  const isEdit = !!rec;
+    34	  const isOwned = rec?.state === "owned";
+    35	  const dirName = surface === "skill" ? "skills" : surface === "command" ? "commands" : "rules";
+    36	  const subtitle = isOwned
+    37	    ? "APM-managed (owned) — saving edits the deployed file and creates drift from the lockfile."
+    38	    : `Written to ~/.claude/${dirName}/ — loose, hand-authored.`;
+    39	  const [name, setName] = useState(rec ? rec.name : "");
+    40	  const [content, setContent] = useState(isEdit ? "" : template(""));
+    41	  const [mode, setMode] = useState<ContentMode>("edit");
+    42	  const [loading, setLoading] = useState(isEdit);
+    43	  const [busy, setBusy] = useState(false);
+    44	  const [error, setError] = useState<string | null>(null);
+    45	  // Track whether the user has typed in the body yet, so retitling on create can
+    46	  // refresh the still-pristine template without clobbering real edits.
+    47	  const [touched, setTouched] = useState(false);
+    48	
+    49	  useEffect(() => {
+    50	    if (!rec) return;
+    51	    let active = true;
+    52	    (async () => {
+    53	      try {
+    54	        const res = await fetch(`/api/quarters/primitive?id=${encodeURIComponent(rec.id)}`);
+    55	        const data = await res.json();
+    56	        if (!active) return;
+    57	        if (!res.ok) throw new Error(data?.error ?? res.statusText);
+    58	        setContent(typeof data.content === "string" ? data.content : "");
+    59	      } catch (e) {
+    60	        if (active) setError(e instanceof Error ? e.message : String(e));
+    61	      } finally {
+    62	        if (active) setLoading(false);
+    63	      }
+    64	    })();
+    65	    return () => {
+    66	      active = false;
+    67	    };
+    68	  }, [rec]);
+    69	
+    70	  const html = useMemo(() => {
+    71	    if (mode !== "preview") return "";
+    72	    try {
+    73	      return marked.parse(content, { async: false }) as string;
+    74	    } catch {
+    75	      return "<p>(could not render markdown)</p>";
+    76	    }
+    77	  }, [content, mode]);
+    78	
+    79	  const save = async () => {
+    80	    setBusy(true);
+    81	    setError(null);
+    82	    const body = isEdit
+    83	      ? { action: "file.update", surface, name: rec!.name, content }
+    84	      : { action: "file.create", surface, name: name.trim(), content };
+    85	    try {
+    86	      const res = await fetch("/api/quarters", {
+    87	        method: "POST",
+    88	        headers: { "Content-Type": "application/json" },
+    89	        body: JSON.stringify(body)
+    90	      });
+    91	      const data = await res.json();
+    92	      if (!res.ok || data?.ok === false) throw new Error(data?.error ?? data?.code ?? res.statusText);
+    93	      onSaved();
+    94	    } catch (e) {
+    95	      setError(e instanceof Error ? e.message : String(e));
+    96	      setBusy(false);
+    97	    }
+    98	  };
+    99	
+   100	  return (
+   101	    <QuartersDrawer
+   102	      title={isEdit ? `Edit ${noun} — ${rec!.name}` : `New ${noun}`}
+   103	      subtitle={subtitle}
+   104	      onClose={onClose}
+   105	      testId="file-form"
+   106	      footer={
+   107	        <>
+   108	          <button type="button" className="btn small ghost" onClick={onClose} disabled={busy}>
+   109	            Cancel
+   110	          </button>
+
+codex
+1. `[packages/claude-chat/src/ClaudeChat.tsx:407-414](./packages/claude-chat/src/ClaudeChat.tsx:407), [420-432](./packages/claude-chat/src/ClaudeChat.tsx:420), [584-590](./packages/claude-chat/src/ClaudeChat.tsx:584)` — the new copy paths are not actually guarded against a missing Clipboard API. `navigator.clipboard?.writeText(...)` returns `undefined` when `clipboard` is unavailable; `copyMsg` and `onCodeCopyClick` then immediately call `.then(...)` on `undefined`, which throws on click in insecure/non-supporting contexts. `copyLast` is also wrong in the opposite direction: `await undefined` succeeds, so it shows `Copied` even though nothing was copied. Trigger: run the shared component in an HTTP/non-secure embedding or a browser/webview without `navigator.clipboard`, then click any new copy button. Fix: capture `const write = navigator.clipboard?.writeText.bind(navigator.clipboard); if (!write) return;` and only call/await it when present.
+
+2. `[packages/claude-chat/src/ClaudeChat.tsx:86-139](./packages/claude-chat/src/ClaudeChat.tsx:86)` mutates the process-wide `marked` singleton at module load, and other client components in the app reuse that same singleton: `[src/components/quarters/MarkdownEditor.tsx:42-49](./src/components/quarters/MarkdownEditor.tsx:42)` and `[src/components/quarters/FilePrimitiveForm.tsx:70-77](./src/components/quarters/FilePrimitiveForm.tsx:70)`. Trigger: load any page that imports `ClaudeChat` (for example dev-env), then open a Context/Plans/File preview containing fenced code. Those previews no longer render normal markdown code blocks; they inherit chat-specific `cc-codeblock` HTML and dead `Copy` buttons, but they do not mount the delegated click handler or chat stylesheet. Fix: stop using the global singleton for chat rendering; create a dedicated `Marked` instance (or equivalent instance-scoped renderer) inside the shared component and leave the app-wide `marked` export untouched.
+
+VERDICT: needs-changes
+hook: Stop
+hook: Stop Completed
+tokens used
+110,811
+1. `[packages/claude-chat/src/ClaudeChat.tsx:407-414](./packages/claude-chat/src/ClaudeChat.tsx:407), [420-432](./packages/claude-chat/src/ClaudeChat.tsx:420), [584-590](./packages/claude-chat/src/ClaudeChat.tsx:584)` — the new copy paths are not actually guarded against a missing Clipboard API. `navigator.clipboard?.writeText(...)` returns `undefined` when `clipboard` is unavailable; `copyMsg` and `onCodeCopyClick` then immediately call `.then(...)` on `undefined`, which throws on click in insecure/non-supporting contexts. `copyLast` is also wrong in the opposite direction: `await undefined` succeeds, so it shows `Copied` even though nothing was copied. Trigger: run the shared component in an HTTP/non-secure embedding or a browser/webview without `navigator.clipboard`, then click any new copy button. Fix: capture `const write = navigator.clipboard?.writeText.bind(navigator.clipboard); if (!write) return;` and only call/await it when present.
+
+2. `[packages/claude-chat/src/ClaudeChat.tsx:86-139](./packages/claude-chat/src/ClaudeChat.tsx:86)` mutates the process-wide `marked` singleton at module load, and other client components in the app reuse that same singleton: `[src/components/quarters/MarkdownEditor.tsx:42-49](./src/components/quarters/MarkdownEditor.tsx:42)` and `[src/components/quarters/FilePrimitiveForm.tsx:70-77](./src/components/quarters/FilePrimitiveForm.tsx:70)`. Trigger: load any page that imports `ClaudeChat` (for example dev-env), then open a Context/Plans/File preview containing fenced code. Those previews no longer render normal markdown code blocks; they inherit chat-specific `cc-codeblock` HTML and dead `Copy` buttons, but they do not mount the delegated click handler or chat stylesheet. Fix: stop using the global singleton for chat rendering; create a dedicated `Marked` instance (or equivalent instance-scoped renderer) inside the shared component and leave the app-wide `marked` export untouched.
+
+VERDICT: needs-changes
