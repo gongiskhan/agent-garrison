@@ -11,10 +11,15 @@ import { spawn } from "node:child_process";
 export function buildArgs(config = {}) {
   const argv = [];
   if (config.model) argv.push("-m", config.model);
-  // gemini CLI 0.46+: `--approval-mode yolo` replaces the old `-y` + `--skip-trust`
-  // pair (auto-approve every tool call + trust the workspace). The prompt arrives
-  // on stdin (verified live: `printf '<prompt>' | gemini --approval-mode yolo`).
+  // gemini CLI 0.46+: `--approval-mode yolo` is the modern replacement for `-y`
+  // (auto-approve every tool call). `--skip-trust` is STILL required: delegations run
+  // in throwaway cwds, and in an untrusted folder gemini silently DOWNGRADES yolo back
+  // to "default" and exits 55 on the first tool call. Verified live 2026-06-29: bare
+  // `--approval-mode yolo` prints "overridden to default ... not trusted" + exits 55;
+  // adding `--skip-trust` keeps yolo active. The prompt arrives on stdin (no -p needed —
+  // piped, non-TTY stdin selects headless mode on its own).
   argv.push("--approval-mode", "yolo");
+  argv.push("--skip-trust");
   return { bin: config.bin || "gemini", argv, stdinFromPrompt: true };
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { placeOrchestratedSession, resolvePlacementMode, safeComposition, resolvePlacementPaths } from "../src/lib/orchestrator-placement";
@@ -78,16 +78,31 @@ describe("orchestrator placement (s3a)", () => {
   });
 
   it("resolvePlacementPaths prefers the composition's LIVE config, falling back to seed (s3c r2)", () => {
-    // the default composition ships a scoped routing.json (live) but no installed modes
-    const def = resolvePlacementPaths("default");
-    expect(def.routingConfigPath).toContain(join("compositions", "default", ".garrison", "routing.json"));
-    expect(def.modesDir).toContain(join("fittings", "seed", "modes")); // modes not installed → seed
-    // an unknown composition has neither → both fall back to the seed defaults
-    const ghost = resolvePlacementPaths("nonexistent-comp");
+    // The installed state this probes (apm_modules/_local/modes, .garrison/routing.json) is
+    // local + gitignored, so it MUST NOT be asserted against the real compositions dir — its
+    // content varies by machine. Drive both branches with a controlled fixture root instead.
+    const compositionsDir = mkdtempSync(join(tmpdir(), "comps-"));
+    const rootDir = ROOT; // real repo root → the seed fallbacks resolve to the actual seed dirs
+
+    // a composition with BOTH pieces installed → resolves to the LIVE paths
+    const liveModes = join(compositionsDir, "live", "apm_modules", "_local", "modes");
+    const liveGarrison = join(compositionsDir, "live", ".garrison");
+    mkdirSync(liveModes, { recursive: true });
+    mkdirSync(liveGarrison, { recursive: true });
+    writeFileSync(join(liveModes, "modes.json"), "{}", "utf8");
+    writeFileSync(join(liveGarrison, "routing.json"), "{}", "utf8");
+    const live = resolvePlacementPaths("live", { compositionsDir, rootDir });
+    expect(live.modesDir).toBe(liveModes);
+    expect(live.routingConfigPath).toBe(join(liveGarrison, "routing.json"));
+
+    // a composition with NEITHER installed → both fall back to the seed defaults
+    const ghost = resolvePlacementPaths("nonexistent-comp", { compositionsDir, rootDir });
     expect(ghost.modesDir).toContain(join("fittings", "seed", "modes"));
     expect(ghost.routingConfigPath).toContain("routing.seed.json");
-    // a traversal id is sanitized to default before any path join
-    expect(resolvePlacementPaths("../../etc").routingConfigPath).toBe(def.routingConfigPath);
+
+    // a traversal id is sanitized to "default" before any path join (same result as "default")
+    const def = resolvePlacementPaths("default", { compositionsDir, rootDir });
+    expect(resolvePlacementPaths("../../etc", { compositionsDir, rootDir })).toEqual(def);
   });
 
   it("the active composition flows end-to-end into placement (runner -> dev-env env -> caller -> route) (s3c r3)", () => {

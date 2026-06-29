@@ -5,14 +5,18 @@ import { GeminiAdapter, buildArgs, scrapeArtifactPaths } from "../fittings/seed/
 import { delegate, validateDelegationResult, runAdapterConformance } from "../packages/claude-pty/src/index.mjs";
 
 describe("Gemini runtime adapter (MRr-gemini)", () => {
-  it("buildArgs: gemini -m <model> -y -p '' (headless), prompt via STDIN (never argv)", () => {
+  it("buildArgs: gemini -m <model> --approval-mode yolo --skip-trust (headless), prompt via STDIN (never argv)", () => {
     const { bin, argv, stdinFromPrompt } = buildArgs({ model: "gemini-2.5-flash" });
     expect(bin).toBe("gemini");
     expect(argv).toContain("-m");
     expect(argv).toContain("gemini-2.5-flash");
-    expect(argv).toContain("-y");
-    expect(argv).toContain("--skip-trust"); // trust the throwaway workspace (verified live U4)
-    expect(argv).toContain("-p");
+    // gemini CLI 0.46+: `--approval-mode yolo` supersedes the old `-y`, but `--skip-trust`
+    // is still required — in an untrusted throwaway cwd gemini downgrades yolo to "default"
+    // and exits 55 without it (verified live 2026-06-29).
+    expect(argv).toContain("--approval-mode");
+    expect(argv).toContain("yolo");
+    expect(argv).toContain("--skip-trust");
+    expect(argv).not.toContain("-y"); // superseded by --approval-mode yolo
     expect(stdinFromPrompt).toBe(true);
     expect(argv.join(" ")).not.toContain("generate a logo");
   });

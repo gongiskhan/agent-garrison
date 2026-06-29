@@ -70,11 +70,23 @@ describe("scheduler daemon (B1)", () => {
     }, 12000);
     expect(fired).toBe(true);
 
-    const res = await fetch(`http://127.0.0.1:${HEALTH_PORT}/health`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; pid: number };
-    expect(body.status).toBe("ok");
-    expect(typeof body.pid).toBe("number");
+    // The cron loop and the HTTP listener come up independently, so the marker firing
+    // does NOT imply /health is bound yet. Under parallel CPU load the listen() can lag
+    // the first tick; poll until it answers (otherwise an unguarded fetch → ECONNREFUSED).
+    let body: { status: string; pid: number } | null = null;
+    const healthy = await waitFor(async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${HEALTH_PORT}/health`);
+        if (res.status !== 200) return false;
+        body = (await res.json()) as { status: string; pid: number };
+        return true;
+      } catch {
+        return false;
+      }
+    }, 10000);
+    expect(healthy).toBe(true);
+    expect(body!.status).toBe("ok");
+    expect(typeof body!.pid).toBe("number");
   }, 20000);
 
   it("shuts down gracefully (exit 0) on SIGTERM", async () => {

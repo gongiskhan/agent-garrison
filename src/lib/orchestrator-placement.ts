@@ -23,18 +23,28 @@ export function safeComposition(id: unknown): string {
 // placement reflects the user's actual modes.json / composition-scoped routing.json
 // rather than the repo seed defaults (which can diverge). Falls back to the seed when a
 // piece is not installed in the named composition.
-export function resolvePlacementPaths(composition: string): { modesDir: string; routingConfigPath: string } {
+export function resolvePlacementPaths(
+  composition: string,
+  // Roots are injectable so the resolution logic can be exercised against controlled
+  // fixtures. In production both default to the repo's real dirs; the installed-state
+  // they probe (apm_modules/_local/modes, .garrison/routing.json) is local + gitignored,
+  // so a test must never assert against the real COMPOSITIONS_DIR (its content varies by
+  // machine — see tests/orchestrator-placement.test.ts).
+  roots: { compositionsDir?: string; rootDir?: string } = {}
+): { modesDir: string; routingConfigPath: string } {
   const comp = safeComposition(composition);
-  const compDir = path.join(COMPOSITIONS_DIR, comp);
+  const compositionsDir = roots.compositionsDir ?? COMPOSITIONS_DIR;
+  const rootDir = roots.rootDir ?? ROOT_DIR;
+  const compDir = path.join(compositionsDir, comp);
   const installedModes = path.join(compDir, "apm_modules", "_local", "modes");
   const scopedRouting = path.join(compDir, ".garrison", "routing.json");
   return {
     modesDir: existsSync(path.join(installedModes, "modes.json"))
       ? installedModes
-      : path.join(ROOT_DIR, "fittings/seed/modes"),
+      : path.join(rootDir, "fittings/seed/modes"),
     routingConfigPath: existsSync(scopedRouting)
       ? scopedRouting
-      : path.join(ROOT_DIR, "fittings/seed/model-router/config/routing.seed.json")
+      : path.join(rootDir, "fittings/seed/model-router/config/routing.seed.json")
   };
 }
 
