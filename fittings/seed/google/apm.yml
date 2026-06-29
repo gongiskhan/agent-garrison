@@ -45,6 +45,18 @@ x-garrison:
           - max
         mutates: false
         description: List upcoming calendar events.
+    oauth:
+      auth_url: https://accounts.google.com/o/oauth2/v2/auth
+      token_url: https://oauth2.googleapis.com/token
+      scopes:
+        - https://www.googleapis.com/auth/gmail.send
+        - https://www.googleapis.com/auth/drive.readonly
+        - https://www.googleapis.com/auth/calendar
+      client_id_secret: GOOGLE_OAUTH_CLIENT_ID
+      client_secret_secret: GOOGLE_OAUTH_CLIENT_SECRET
+  secret_scope:
+    - GOOGLE_OAUTH_CLIENT_ID
+    - GOOGLE_OAUTH_CLIENT_SECRET
   provides:
     - kind: connector
       name: google

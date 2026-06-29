@@ -68,6 +68,17 @@ describe("seed Fittings", () => {
     expect(metadata.tasks).toBeUndefined();
   });
 
+  it("google is an oauth2 connector declaring its provider endpoints + client-secret scope", async () => {
+    const metadata = await loadSeed("google");
+    expect(metadata.faculty).toBe("connectors");
+    expect(metadata.connector?.auth).toBe("oauth2");
+    expect(metadata.connector?.oauth?.authUrl).toContain("accounts.google.com");
+    expect(metadata.connector?.oauth?.tokenUrl).toContain("oauth2.googleapis.com");
+    expect(metadata.connector?.oauth?.clientIdSecret).toBe("GOOGLE_OAUTH_CLIENT_ID");
+    expect(metadata.connector?.oauth?.scopes.length).toBeGreaterThan(0);
+    expect(metadata.secret_scope).toContain("GOOGLE_OAUTH_CLIENT_SECRET");
+  });
+
   it("web-channel-default folds into the channels role and provides channel:web", async () => {
     const metadata = await loadSeed("web-channel-default");
     expect(metadata.faculty).toBe("channels");
