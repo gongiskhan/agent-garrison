@@ -6,11 +6,11 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, writeFile, unlink, readFile } from "node:fs/promises";
+import { mkdir, writeFile, unlink, readFile, readdir } from "node:fs/promises";
 import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, automationsDir } from "../lib/store.mjs";
 import { runAutomation } from "../lib/engine.mjs";
 import { planFromBrief } from "../lib/planner.mjs";
-import { buildAutomationDiscussUrl } from "../lib/discuss.mjs";
+import { buildAutomationDiscussUrl, buildDiscussParams } from "../lib/discuss.mjs";
 import { ulid } from "../lib/ulid.mjs";
 import { readFile as readFileAsync } from "node:fs/promises";
 
@@ -95,6 +95,30 @@ const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
+
+// Resolve the running web-channel fitting id (the channel id is NOT hardcoded —
+// `web-channel-default` is just the seed name). Scan the ui-fittings status dir
+// for the first fitting whose id starts with `web-channel`. Mirrors kanban-loop's
+// readWebChannelStatus so Discuss links the composition's actual channel.
+async function readWebChannelStatus(statusDir = STATUS_ROOT) {
+  try {
+    const names = await readdir(statusDir);
+    const preferred = "web-channel-default.json";
+    const sorted = names
+      .filter((n) => n.endsWith(".json") && n.startsWith("web-channel"))
+      .sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
+    for (const name of sorted) {
+      try {
+        const parsed = JSON.parse(await readFile(path.join(statusDir, name), "utf8"));
+        const fittingId = typeof parsed?.fittingId === "string" ? parsed.fittingId : null;
+        if (fittingId && fittingId.startsWith("web-channel")) {
+          return { id: fittingId, url: typeof parsed?.url === "string" ? parsed.url : null };
+        }
+      } catch { /* skip one bad file */ }
+    }
+  } catch { /* no status dir */ }
+  return { id: null, url: null };
+}
 
 function send(res, code, body, headers = {}) {
   const data = typeof body === "string" ? body : JSON.stringify(body);
@@ -186,10 +210,21 @@ async function handle(req, res) {
       req.on("close", () => b.listeners.delete(listener));
       return;
     }
-    // The "Discuss an automation" web-channel URL (chat-to-build authoring).
+    // The "Discuss an automation" target (chat-to-build authoring). Returns the
+    // running web-channel fitting id + the query params; the embedded UI posts
+    // these to Garrison's top window so it navigates to /embed/<channel> (a
+    // relative/own-port URL would resolve against THIS server, not Garrison). The
+    // absolute `url` is a standalone fallback. 409 when no web channel runs.
     if (pathname === "/api/automations/discuss-url" && req.method === "GET") {
       const name = url.searchParams.get("name") || undefined;
-      return send(res, 200, { url: buildAutomationDiscussUrl({ name }) });
+      const channel = await readWebChannelStatus();
+      if (!channel.id) {
+        return send(res, 409, { error: "no web channel installed/running — add a web-channel fitting" });
+      }
+      const params = buildDiscussParams({ name });
+      const qs = new URLSearchParams(params).toString();
+      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777").replace(/\/+$/, "");
+      return send(res, 200, { fittingId: channel.id, params, url: `${base}/embed/${channel.id}?${qs}` });
     }
     // Plan an automation from a Discuss brief, routed through the Model Router.
     if (pathname === "/api/automations/plan-from-brief" && req.method === "POST") {

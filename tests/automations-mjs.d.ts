@@ -44,6 +44,7 @@ declare module "*/automations/lib/discuss.mjs" {
   export function slugify(name: string): string;
   export function buildAutomationKickoff(opts?: any): string;
   export function buildAutomationDiscussUrl(opts?: any): string;
+  export function buildDiscussParams(opts?: any): { mode: string; context: string; kickoff: string };
 }
 declare module "*/automations/lib/command-shape.mjs" {
   export function computeCommandShape(argv: string[]): string;

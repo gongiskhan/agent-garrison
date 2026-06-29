@@ -33,6 +33,25 @@ export function buildAutomationKickoff({ name, slug } = {}) {
   ].join("\n");
 }
 
+// The query params the web channel reads (mode + base64 context + kickoff). Used
+// for the postMessage("garrison:navigate-fitting") path so the embedded UI can
+// ask Garrison's top window to open /embed/<channel>?<params> — a relative or
+// own-port URL would resolve against the automations server, not Garrison.
+export function buildDiscussParams({ name, slug } = {}) {
+  const s = slug || slugify(name);
+  const context = {
+    source: "automations",
+    name: name ?? null,
+    briefsPath: "~/.garrison/automations/briefs/",
+    suggestedSlug: s
+  };
+  return {
+    mode: "james",
+    context: b64(JSON.stringify(context)),
+    kickoff: b64(buildAutomationKickoff({ name, slug: s }))
+  };
+}
+
 // Build the web-channel Discuss URL (same shape as kanban-loop/discuss.mjs).
 export function buildAutomationDiscussUrl({ name, slug, webChannelBase = "/embed/web-channel-default" } = {}) {
   const s = slug || slugify(name);

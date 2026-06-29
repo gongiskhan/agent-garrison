@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { slugify, buildAutomationKickoff, buildAutomationDiscussUrl } from "../fittings/seed/automations/lib/discuss.mjs";
+import { slugify, buildAutomationKickoff, buildAutomationDiscussUrl, buildDiscussParams } from "../fittings/seed/automations/lib/discuss.mjs";
 
 // H1 — chat-to-build authoring (reuses the Kanban Discuss -> web-channel handoff).
 
@@ -14,6 +14,15 @@ describe("discuss-automation handoff (H1)", () => {
     expect(k.startsWith("James,")).toBe(true); // gateway reads mode from the leading "James,"
     expect(k).toContain("~/.garrison/automations/briefs/weekly-report.md");
     expect(k).toContain("What would you like to automate?");
+  });
+
+  it("buildDiscussParams yields james mode + base64 context/kickoff for the postMessage navigate path", () => {
+    const p = buildDiscussParams({ name: "Weekly Report" });
+    expect(p.mode).toBe("james");
+    const ctx = JSON.parse(Buffer.from(p.context, "base64").toString("utf8"));
+    expect(ctx.source).toBe("automations");
+    expect(ctx.suggestedSlug).toBe("weekly-report");
+    expect(Buffer.from(p.kickoff, "base64").toString("utf8").startsWith("James,")).toBe(true);
   });
 
   it("discuss URL targets the web-channel embed in james mode with base64 context+kickoff", () => {
