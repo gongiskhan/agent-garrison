@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Automations</title>
+<style>
+  :root{
+    --paper:#f4f1e8;--card:#fbf9f3;--ink:#1c1b17;--muted:#6f6a5e;--faint:#948f80;
+    --line:#d9d2c1;--gold:#937f3c;--running:#9a6b12;--running-bg:#f6edd7;
+    --ok:#0a6b4e;--ok-bg:#e0efe6;--fail:#a72121;--fail-bg:#f6e4e1;
+    --vision:#5b34b8;--vision-bg:#efe9fb;--cyan:#0d6e86;--cyan-bg:#e0f0f4;--slate:#4b5563;--slate-bg:#e9e7e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:Georgia,"Iowan Old Style",serif;font-size:15px;line-height:1.5}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,monospace}
+  header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:rgba(244,241,232,.95);position:sticky;top:0;z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  .wrap{display:grid;grid-template-columns:240px 1fr;gap:0;min-height:calc(100vh - 49px)}
+  @media(max-width:760px){.wrap{grid-template-columns:1fr}}
+  aside{border-right:1px solid var(--line);padding:12px;background:var(--paper)}
+  aside .lbl{font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:4px 0 8px}
+  .auto-item{padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .auto-item:hover{background:#efebe0}
+  .auto-item.active{background:#e7e2d2;border-color:var(--line)}
+  .auto-item .nm{font-weight:600;font-size:14px}
+  .auto-item .meta{font-size:12px;color:var(--muted)}
+  main{padding:18px 22px}
+  .runbar{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .btn{font-family:Georgia,serif;font-size:14px;padding:7px 14px;border-radius:6px;border:1px solid #2f6f4f;background:#2f6f4f;color:#fff;cursor:pointer}
+  .btn.sec{background:#fbf9f3;color:#3a382f;border-color:var(--line)}
+  .badge{display:inline-block;font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;font-weight:600}
+  .b-run{background:var(--running-bg);color:var(--running)}.b-ok{background:var(--ok-bg);color:var(--ok)}
+  .b-fail{background:var(--fail-bg);color:var(--fail)}.b-vision{background:var(--vision-bg);color:var(--vision)}
+  .b-cache{background:var(--ok-bg);color:var(--ok)}.b-wait{background:var(--slate-bg);color:var(--slate)}
+  .b-pause{background:var(--cyan-bg);color:var(--cyan)}
+  .step{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--card)}
+  .step .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .step .no{font-family:"SF Mono",monospace;font-size:11px;color:var(--faint)}
+  .step .ty{font-family:"SF Mono",monospace;font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:#3a382f}
+  .step .desc{font-size:13px;color:var(--muted);margin-top:4px}
+  .panel{margin-top:8px;border-radius:6px;font-size:12px}
+  .term{background:#23211c;color:#cfc9bb;font-family:"SF Mono",monospace;font-size:12px;padding:8px 10px;border-radius:6px;white-space:pre-wrap;max-height:220px;overflow:auto}
+  .term .err{color:#e0998f}
+  .json{background:#f6f3ea;border:1px solid var(--line);padding:8px 10px;border-radius:6px;white-space:pre-wrap;max-height:220px;overflow:auto;font-family:"SF Mono",monospace;font-size:11.5px}
+  .browser-stream{border:2px dashed #8aa0a8;background:repeating-linear-gradient(135deg,#eef4f5,#eef4f5 11px,#e7eff1 11px,#e7eff1 22px);border-radius:8px;padding:14px;text-align:center;color:var(--cyan);min-height:120px;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .browser-stream img{max-width:100%;border-radius:6px}
+  .feedback{display:flex;gap:6px;margin-top:8px}
+  .feedback button{font-size:12px;padding:3px 8px;border-radius:5px;border:1px solid var(--line);background:#fbf9f3;cursor:pointer}
+  .notice{border-left:3px solid var(--vision);background:var(--vision-bg);padding:8px 10px;border-radius:0 6px 6px 0;font-size:12.5px;margin-top:8px}
+  .notice.pause{border-left-color:var(--cyan);background:var(--cyan-bg)}
+  .empty{color:var(--muted);font-size:14px;padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <svg width="20" height="16" viewBox="0 0 22 18" fill="none" stroke="#1c1b17" stroke-width="1.6"><path d="M3 17V6l2-2 2 2v11M9 17V4l2-2 2 2v13M15 17V6l2-2 2 2v11M1 9h20"/></svg>
+  <h1>Automations</h1>
+  <span class="badge b-ok" id="conn">live</span>
+</header>
+<div class="wrap">
+  <aside>
+    <button class="btn" id="discussBtn" style="width:100%;margin-bottom:10px">+ Discuss an automation</button>
+    <div class="lbl">Automations</div>
+    <div id="list"><div class="empty">loading…</div></div>
+  </aside>
+  <main>
+    <div id="detail"><div class="empty">Select an automation to run it.</div></div>
+  </main>
+</div>
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+let current = null;
+let steps = {}; // index -> element
+let currentRunId = null;
+let lastNonce = null;
+
+function resume(decision) {
+  if (!currentRunId) return;
+  const payload = { nonce: lastNonce };
+  if (decision) payload.decision = decision;
+  fetch(`/api/runs/${currentRunId}/resume`, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(payload) });
+}
+
+async function loadList() {
+  const r = await fetch("/api/automations");
+  const { automations } = await r.json();
+  const list = $("#list");
+  if (!automations.length) { list.innerHTML = '<div class="empty">No automations yet.</div>'; return; }
+  list.innerHTML = "";
+  for (const a of automations) {
+    const el = document.createElement("div");
+    el.className = "auto-item" + (current === a.id ? " active" : "");
+    el.innerHTML = `<div class="nm"></div><div class="meta">${a.steps.length} steps · ${a.trigger?.type||"manual"}</div>`;
+    el.querySelector(".nm").textContent = a.name;
+    el.onclick = () => selectAuto(a);
+    list.appendChild(el);
+  }
+}
+
+function selectAuto(a) {
+  current = a.id;
+  loadList();
+  steps = {};
+  const d = $("#detail");
+  d.innerHTML = `
+    <div class="runbar">
+      <strong style="font-size:18px"></strong>
+      <button class="btn" id="runbtn">▶ Run</button>
+      <span id="status" class="badge b-wait">idle</span>
+    </div>
+    <div id="steps"></div>`;
+  d.querySelector("strong").textContent = a.name;
+  // pre-render planned steps
+  const sc = $("#steps");
+  a.steps.forEach((s, i) => sc.appendChild(renderStep(i, s.type, s.description || stepSummary(s), "pending")));
+  $("#runbtn").onclick = () => runAuto(a.id);
+}
+
+function stepSummary(s){
+  if (s.type==="navigate") return s.url||"navigate";
+  if (s.type==="connector") return (s.connector||"")+"."+(s.action||"");
+  if (s.type==="wait") return "wait "+((s.durationMs||0))+"ms";
+  if (s.type==="local_command") return s.command||(s.argv||[]).join(" ");
+  if (s.type==="api_call") return (s.apiRequest?.method||"GET")+" "+(s.apiRequest?.url||s.url||"");
+  return s.type;
+}
+
+function renderStep(i, type, desc, status) {
+  const el = document.createElement("div");
+  el.className = "step";
+  el.dataset.i = i;
+  el.innerHTML = `<div class="row"><span class="no">${i+1}</span><span class="ty">${type}</span><span class="st badge b-wait">${status}</span><span class="tier"></span><span class="dur no"></span></div><div class="desc"></div><div class="out"></div>`;
+  el.querySelector(".desc").textContent = desc || "";
+  steps[i] = el;
+  return el;
+}
+
+function setStatus(i, status) {
+  const el = steps[i]; if (!el) return;
+  const b = el.querySelector(".st");
+  b.textContent = status;
+  b.className = "st badge " + ({running:"b-run",completed:"b-ok",failed:"b-fail",pending:"b-wait"}[status]||"b-wait");
+}
+
+function runAuto(id) {
+  for (const k in steps) { setStatus(k, "pending"); steps[k].querySelector(".out").innerHTML=""; steps[k].querySelector(".tier").innerHTML=""; }
+  $("#status").textContent = "running"; $("#status").className = "badge b-run";
+  fetch(`/api/automations/${id}/run`, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({inputs:{}}) })
+    .then(r => r.json()).then(({ runId }) => stream(runId));
+}
+
+function stream(runId) {
+  currentRunId = runId;
+  const es = new EventSource(`/api/runs/${runId}/stream`);
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    handle(ev);
+    if (ev.type === "run_complete" || ev.type === "run_error") es.close();
+  };
+  es.onerror = () => es.close();
+}
+
+function handle(ev) {
+  if (ev.nonce) lastNonce = ev.nonce; // capture the per-pause resume nonce
+  if (ev.type === "run_step") {
+    setStatus(ev.stepIndex, ev.status);
+    const el = steps[ev.stepIndex]; if (!el) return;
+    if (ev.tier) { const t = el.querySelector(".tier"); t.className="tier badge "+(ev.tier==="cached"||ev.tier==="cache"?"b-cache":ev.tier==="vision"?"b-vision":"b-ok"); t.textContent=ev.tier; }
+    if (ev.durationMs!=null) el.querySelector(".dur").textContent = ev.durationMs+"ms";
+    if (ev.status==="completed" && ev.result!=null) renderResult(el, ev.stepType, ev.result);
+  } else if (ev.type === "step_output_chunk") {
+    const el = steps[ev.stepIndex]; if(!el) return;
+    let term = el.querySelector(".term"); if(!term){ term=document.createElement("div"); term.className="term panel"; el.querySelector(".out").appendChild(term);}
+    const span = document.createElement("span"); if(ev.stream==="stderr") span.className="err"; span.textContent=ev.chunk; term.appendChild(span); term.scrollTop=term.scrollHeight;
+  } else if (ev.type === "run_awaiting_connector") {
+    const el = steps[ev.stepIndex]; if(el){ const n=document.createElement("div"); n.className="notice pause"; const a=document.createElement("a"); a.href="/compose"; a.textContent="Connect "+ev.service; const b=document.createElement("button"); b.className="btn"; b.textContent="Resume"; b.onclick=()=>resume(); n.append("Awaiting connector — ", a, " then ", b); el.querySelector(".out").appendChild(n);}
+    $("#status").textContent="awaiting_connector"; $("#status").className="badge b-pause";
+  } else if (ev.type === "run_pause_for_user") {
+    const el = steps[ev.stepIndex]; if(el){ const n=document.createElement("div"); n.className="notice pause";
+      const title=document.createElement("div"); title.innerHTML="<strong>Garrison needs you</strong>"; const r=document.createElement("div"); r.textContent=ev.userInstructions||ev.reasoning||"Act on the page, then Continue.";
+      const canvas=document.createElement("div"); canvas.className="browser-stream"; canvas.style.minHeight="120px"; canvas.innerHTML='<div class="mono" style="font-size:11px">▣ Drivable browser — solve the CAPTCHA/MFA in the live browser, then Continue</div>';
+      const cont=document.createElement("button"); cont.className="btn"; cont.style.marginTop="8px"; cont.textContent="▶ Continue"; cont.onclick=()=>resume();
+      n.append(title, r, canvas, cont); el.querySelector(".out").appendChild(n);}
+    $("#status").textContent="paused_for_user"; $("#status").className="badge b-pause";
+  } else if (ev.type === "run_awaiting_consent") {
+    const el = steps[ev.stepIndex]; if(el){ const n=document.createElement("div"); n.className="notice pause";
+      const t=document.createElement("div"); t.innerHTML="<strong>Approve local command?</strong>"; const sh=document.createElement("div"); sh.className="mono"; sh.textContent=ev.shape||(ev.argv||[]).join(" ");
+      const once=document.createElement("button"); once.className="btn"; once.textContent="Approve once"; once.onclick=()=>resume("once");
+      const always=document.createElement("button"); always.className="btn"; always.style.marginLeft="6px"; always.textContent="Approve always"; always.onclick=()=>resume("always");
+      n.append(t, sh, once, always); el.querySelector(".out").appendChild(n);}
+    $("#status").textContent="awaiting_consent"; $("#status").className="badge b-pause";
+  } else if (ev.type === "run_resumed") {
+    $("#status").textContent="running"; $("#status").className="badge b-run";
+  } else if (ev.type === "run_patch") {
+    const el = steps[ev.stepIndex]; if(el){ const n=document.createElement("div"); n.className="notice"; n.textContent=`Self-heal (${ev.phase}): ${ev.reasoning||ev.patchKind||""}`; el.querySelector(".out").appendChild(n);}
+  } else if (ev.type === "run_streaming_available") {
+    const el = steps[ev.stepIndex]; if(el){ let bs=el.querySelector(".browser-stream"); if(!bs){bs=document.createElement("div");bs.className="browser-stream panel";bs.innerHTML='<div class="mono" style="font-size:11px">▣ LIVE BROWSER STREAM</div>';el.querySelector(".out").appendChild(bs);} }
+  } else if (ev.type === "run_complete") {
+    $("#status").textContent="completed"; $("#status").className="badge b-ok";
+  } else if (ev.type === "run_error") {
+    $("#status").textContent="failed"; $("#status").className="badge b-fail";
+    const el = steps[ev.stepIndex]; if(el){ const n=document.createElement("div"); n.className="notice"; n.style.borderLeftColor="var(--fail)"; n.style.background="var(--fail-bg)"; n.textContent=ev.error; el.querySelector(".out").appendChild(n);}
+  }
+}
+
+function renderResult(el, type, result) {
+  const out = el.querySelector(".out");
+  if (type === "local_command") return; // streamed already
+  const fb = document.createElement("div"); fb.className="feedback";
+  fb.innerHTML = `<button title="good">▲ Good</button><button title="bad">▼ Bad</button>`;
+  if (type === "api_call") {
+    const p=document.createElement("div"); p.className="json panel"; p.textContent=typeof result==="object"?JSON.stringify(result,null,2):String(result); out.appendChild(p);
+  } else if (type === "connector" || type === "verify") {
+    const p=document.createElement("div"); p.className="json panel"; p.textContent=typeof result==="object"?JSON.stringify(result,null,2):String(result); out.appendChild(p);
+  }
+  out.appendChild(fb);
+}
+
+// H1 — chat-to-build authoring: open the web-channel Discuss conversation.
+// This UI runs on the automations own port, so a relative/own-port URL would
+// resolve against THIS server, not Garrison. When embedded in Garrison (the
+// normal path), post a navigate request to the top window so Garrison opens
+// /embed/<web-channel>; standalone, fall back to the absolute Garrison URL.
+const discussBtn = document.getElementById("discussBtn");
+if (discussBtn) discussBtn.onclick = async () => {
+  try {
+    const res = await fetch("/api/automations/discuss-url");
+    const r = await res.json();
+    if (!res.ok || !r.fittingId) { toast(r.error || "No web channel installed/running."); return; }
+    if (window.top && window.top !== window.self) {
+      window.top.postMessage({ type: "garrison:navigate-fitting", fittingId: r.fittingId, params: r.params }, "*");
+    } else if (r.url) {
+      window.location.href = r.url; // standalone (not embedded in Garrison)
+    }
+  } catch (e) { toast("Could not open Discuss."); }
+};
+
+loadList();
+</script>
+</body>
+</html>

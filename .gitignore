@@ -3,6 +3,10 @@
 node_modules/
 coverage/
 dist/
+# Own-port Fitting UIs under fittings/seed/*/dist are HAND-AUTHORED static assets
+# (source), not build output — keep them tracked despite the global dist/ ignore.
+!fittings/seed/*/dist/
+!fittings/seed/*/dist/**
 *.log
 *.tsbuildinfo
 .env
