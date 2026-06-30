@@ -93,6 +93,12 @@ function buildHeadlessArgs({ sessionUuid, spawnConfig, resume, tierFlags = [], m
     "--verbose",
     "--dangerously-skip-permissions"
   ];
+  // Stream token-level text deltas (stream_event) so the orchestrator's reply can
+  // be spoken sentence-by-sentence AS it generates, not delivered whole at the
+  // end. Only the orchestrator needs it — souls ignore raw events (onEvent noop)
+  // and publish one clean summary on result, so enabling it for them is wasted
+  // stdout.
+  if (isOrchestrator) args.push("--include-partial-messages");
   if (spawnConfig?.model) args.push("--model", String(spawnConfig.model));
   if (resume) args.push("--resume", sessionUuid);
   else args.push("--session-id", sessionUuid);

@@ -642,15 +642,24 @@ const server = http.createServer(async (request, response) => {
         try { response.write(": keepalive\n\n"); } catch { /* ignore */ }
       }, 15_000);
 
-      const unsubscribe = channels.subscribe(channel, (wrapped) => {
+      // The orchestrator publishes its stream-JSON events on its OWN bound channel
+      // (it's pinned to "main" at boot), NOT the caller's request channel — so
+      // subscribe where it actually publishes, else the chunks never arrive (this
+      // was the latent bug: callers use "web"/etc, orchestrator stays on "main",
+      // so /chat/stream emitted 0 chunks and the whole reply only landed at `done`).
+      // With --include-partial-messages the orchestrator emits incremental
+      // text_delta events; forward each as a `chunk` so the caller speaks each
+      // sentence as it streams. replay:false so we stream only THIS turn's deltas,
+      // not the channel ring's prior turns.
+      const orchChannel = channels.channelFor(orchestratorSessionId) ?? channel;
+      const unsubscribe = channels.subscribe(orchChannel, (wrapped) => {
         if (wrapped.session_id !== orchestratorSessionId) return;
         const ev = wrapped.event;
-        if (ev?.type === "assistant") {
-          for (const block of ev.message?.content ?? []) {
-            if (block?.type === "text") sseWrite(response, "chunk", { text: block.text });
-          }
+        if (ev?.type === "stream_event" && ev.event?.delta?.type === "text_delta") {
+          const t = ev.event.delta.text;
+          if (t) sseWrite(response, "chunk", { text: t });
         }
-      });
+      }, { replay: false });
 
       try {
         const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
