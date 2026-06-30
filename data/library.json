@@ -150,21 +150,6 @@
     }
   },
   {
-    "id": "artifact-store",
-    "name": "Artifact store",
-    "repo": "local:fittings/seed/artifact-store",
-    "localPath": "fittings/seed/artifact-store",
-    "summary": "Filesystem-backed artifact store. Documents, recordings, and other producer-Fitting output land here and surface in the sidebar browser.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-artifact-store",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
     "id": "dev-env",
     "name": "Dev Env",
     "repo": "local:fittings/seed/dev-env",
