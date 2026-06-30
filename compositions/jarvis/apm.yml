@@ -43,6 +43,18 @@ x-garrison:
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
             whisper_model: small
+            # Pin STT to Portuguese. With `small` (multilingual) and NO pin,
+            # whisper's per-utterance auto-detect flips to EN on short/imperfect
+            # audio and transcribes PT as English garbage ("liga as luzes" →
+            # "Liga's loses to Sella"), so the Orchestrator never understands the
+            # phrase. Pinning forces Portuguese decoding. See voice-server/server.py.
+            whisper_lang: pt
+            # Bias whisper toward the assistant's domain vocabulary. whisper-small
+            # mishears real-mic Portuguese WITHOUT context ("liga as luzes da sala"
+            # → "a liga é luz da ação"); a natural-language prime with example
+            # commands fixes it (verified on real captured mic clips). Safe now that
+            # the language is pinned — an initial_prompt no longer skews detection.
+            whisper_prompt: "Estou a falar em português com o meu assistente Jarvis. Por exemplo: liga as luzes da sala, marca uma reunião amanhã, que horas são, abre o email."
             wake_word: "off"
       gateway:
         - id: http-gateway

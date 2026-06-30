@@ -433,13 +433,25 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
   // e.g. the Kanban board dispatches an agent-list card's run through GARRISON_GATEWAY_URL;
   // without this it logs "Start on agent lists is disabled" and the run loop is dead.
   const gatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
+  // Map each selected fitting id → its apm.yml config so the own-port spawn can
+  // honor that config at runtime (see ownPortConfigEnv) — e.g. local-voice's
+  // whisper_lang/whisper_model/kokoro_voice. Previously unprojected, so the
+  // process silently ran on server.mjs defaults.
+  const configById = new Map<string, Record<string, unknown>>();
+  for (const items of Object.values(composition.selections)) {
+    for (const item of items ?? []) {
+      configById.set(item.id, (item.config ?? {}) as Record<string, unknown>);
+    }
+  }
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
     // Project the ACTIVE composition id into every operative-bound own-port fitting so a
     // runner-managed boot (the normal path) carries it — the Dev Env reads
     // GARRISON_COMPOSITION_ID and forwards it to /api/orchestrator/place, so placement
     // resolves THIS composition's live modes/routing rather than always "default".
+    // Config is projected first so the vault/GARRISON_* keys below always win.
     const extraEnv = {
+      ...ownPortConfigEnv(configById.get(entry.id) ?? {}),
       ...(await vaultEnvForEntry(entry)),
       GARRISON_COMPOSITION_ID: compositionId,
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
@@ -514,6 +526,32 @@ export function setupConfigEnv(
     if (value === undefined || value === null) continue;
     if (typeof value === "object") continue;
     env[`${prefix}_${norm(key)}`] = String(value);
+  }
+  return env;
+}
+
+// Config keys NEVER projected as a bare runtime env var: PORT/HOST collide with
+// names half the ecosystem reads, and gateway_url is delivered canonically as
+// GARRISON_GATEWAY_URL — projecting an (often empty) apm.yml value would clobber it.
+const OWN_PORT_CONFIG_ENV_SKIP = new Set(["port", "bind_host", "host", "gateway_url"]);
+
+// Project an own-port Fitting's SELECTED config into the runtime spawn env under
+// bare UPPER_SNAKE names (whisper_lang → WHISPER_LANG, kokoro_voice → KOKORO_VOICE),
+// which is what the Fitting servers actually read. Without this the apm.yml config
+// is decorative at runtime — the process runs on its server.mjs defaults, which is
+// why pinning the STT language (whisper_lang) never took effect. Empty strings are
+// skipped so an unset apm.yml value can't override a sensible default; objects and
+// the collision-prone keys above are skipped too.
+export function ownPortConfigEnv(config: Record<string, unknown>): Record<string, string> {
+  const norm = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(config ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === "object") continue;
+    if (OWN_PORT_CONFIG_ENV_SKIP.has(key)) continue;
+    const str = String(value);
+    if (str === "") continue;
+    env[norm(key)] = str;
   }
   return env;
 }

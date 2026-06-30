@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runFittingSetup, setupConfigEnv } from "@/lib/runner";
+import { runFittingSetup, setupConfigEnv, ownPortConfigEnv } from "@/lib/runner";
 import type { GarrisonMetadata } from "@/lib/types";
 
 const tempRoots: string[] = [];
@@ -92,6 +92,27 @@ describe("runFittingSetup", () => {
     expect(setupConfigEnv("vault-git-sync", { cron: "0 4 * * *", nested: { a: 1 } })).toEqual({
       VAULT_GIT_SYNC_CRON: "0 4 * * *",
     });
+  });
+
+  it("projects own-port config into bare UPPER_SNAKE runtime env vars", () => {
+    // local-voice reads bare names (WHISPER_LANG, WHISPER_MODEL, KOKORO_VOICE),
+    // so the runtime projection must NOT prefix with the fitting id.
+    expect(ownPortConfigEnv({ whisper_lang: "pt", whisper_model: "small", kokoro_voice: "bm_george" })).toEqual({
+      WHISPER_LANG: "pt",
+      WHISPER_MODEL: "small",
+      KOKORO_VOICE: "bm_george",
+    });
+  });
+
+  it("own-port projection skips collision-prone keys, empty strings, and objects", () => {
+    expect(ownPortConfigEnv({
+      port: 7090,            // collides with the ubiquitous PORT — skipped
+      bind_host: "127.0.0.1",// skipped
+      gateway_url: "",       // delivered as GARRISON_GATEWAY_URL — skipped
+      wake_word: "",         // empty must not clobber the server default
+      nested: { a: 1 },      // objects skipped
+      whisper_lang: "pt",    // the one that matters
+    })).toEqual({ WHISPER_LANG: "pt" });
   });
 
   it("config values reach the setup command as env vars", async () => {
