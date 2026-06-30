@@ -1,0 +1,44 @@
+name: knowledge
+version: 0.1.0
+description: Knowledge faculty (composite) — federates memory + context projections + code graph + symbol-nav behind ONE contract. Owns the canonical vault, emits cross-runtime projections (CLAUDE.md/AGENTS.md/GEMINI.md), wires the shared MCPs into every runtime session, and provisions a project on first touch. Independent of Runtime, so switching the runtime never loses memory.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: memory
+  cardinality_hint: multi
+  component_shape: cli
+  platforms:
+    - all
+  summary: >-
+    Fills the memory role with the Knowledge composite. v1: a canonical markdown
+    vault + idempotent cross-runtime projections (AGENTS.md canonical; CLAUDE.md +
+    GEMINI.md thin imports of @AGENTS.md) + a minimal stdio MCP server (recall over
+    the vault) + idempotent provisioning that wires the knowledge/codegraph/serena
+    MCP servers into a project. CodeGraph + Serena join as consumed sub-fittings.
+  config_schema:
+    - key: vault_dir
+      type: path
+      default: vault
+      description: Canonical markdown vault (Obsidian-compatible).
+  provides:
+    - kind: memory-store
+      name: knowledge
+  consumes:
+    - kind: connector
+      cardinality: any
+  setup:
+    command: echo knowledge-ready
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/knowledge/scripts/knowledge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    The Knowledge faculty federates memory + code-graph + symbol-nav behind ONE
+    contract. At session start the runtime fitting ensures the projections are
+    present; mid-task, the wired MCP servers (knowledge `recall`, codegraph,
+    serena) let any provider/model query the live workspace as tools — this is
+    what lets memory + code knowledge survive a runtime/provider switch.
+    CLI: knowledge.mjs project|harvest|provision|--probe
