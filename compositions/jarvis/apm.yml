@@ -38,6 +38,19 @@ x-garrison:
             port: 7090
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
+            # Spoken cadence: seconds of silence inserted after each punctuation
+            # boundary so the reply breathes instead of running together. Bigger
+            # boundary → longer pause (comma ticks, full stop breathes, a
+            # paragraph/topic change gets a real beat). Projected to the voice
+            # server as PAUSE_* / MIN_CLAUSE env vars. Verified 2026-07-01 on the
+            # live Piper pt_PT path — measured gaps matched these to the ms.
+            pause_comma: 0.12       # ,
+            pause_clause: 0.22      # ; :  — –
+            pause_sentence: 0.32    # .
+            pause_question: 0.38    # ! ?
+            pause_ellipsis: 0.48    # … / ...
+            pause_para: 0.6         # line break / paragraph / topic change
+            min_clause: 26          # a comma only becomes its own pause past this many chars
             # large-v3 is the only checkpoint that transcribes European Portuguese
             # reliably. Round-trip test on clean audio ("Que horas são em Lisboa?"):
             # small → "Então é só uma luz boa"; medium → "Então horas são é Lisboa";

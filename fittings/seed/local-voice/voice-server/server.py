@@ -449,24 +449,118 @@ def wav_header(sample_rate: int) -> bytes:
     )
 
 
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
+# --- prosody-aware segmentation -------------------------------------------
+# The reply is spoken as a sequence of (segment, trailing-pause) pairs so the
+# cadence tracks the punctuation instead of running everything together. A
+# stronger boundary → a longer silence: a comma barely ticks, a full stop
+# breathes, a paragraph/topic change gets a real beat. Every duration is env-
+# tunable (seconds) so the rhythm can be dialed in per voice without code.
+def _pause_s(env: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(env, default)))
+    except (TypeError, ValueError):
+        return default
+
+PAUSE_COMMA = _pause_s("PAUSE_COMMA", 0.12)          # ,
+PAUSE_CLAUSE = _pause_s("PAUSE_CLAUSE", 0.22)        # ; :  — –
+PAUSE_SENTENCE = _pause_s("PAUSE_SENTENCE", 0.32)    # .
+PAUSE_QUESTION = _pause_s("PAUSE_QUESTION", 0.38)    # ! ?
+PAUSE_ELLIPSIS = _pause_s("PAUSE_ELLIPSIS", 0.48)    # … / ...
+PAUSE_PARA = _pause_s("PAUSE_PARA", 0.60)            # line break / paragraph / topic
+# A soft boundary (comma etc.) only becomes its OWN spoken segment once the
+# clause before it reaches this many characters. Short clauses ("Sim,",
+# "Claro,") stay glued to the next so the voice never chops into staccato
+# fragments — the engine's own comma intonation carries those. Longer clauses
+# get a real, audible pause. Tune MIN_CLAUSE down for more pauses, up for fewer.
+MIN_CLAUSE = int(_pause_s("MIN_CLAUSE", 26.0))
+
+# A boundary is a run of sentence-terminal punctuation (+ trailing quote/bracket),
+# OR a clause mark, OR a comma, OR a dash, OR a run of newlines. The text BEFORE
+# each boundary (with the punctuation kept, so the engine still intones it) is a
+# candidate segment.
+_BOUNDARY = re.compile(r"([.!?…]+[)\]\"'”’»]*|[;:]|,|—|–|\n+)")
+_SOFT = {",", ";", ":", "—", "–"}
 
 
-def chunks_of(text: str):
-    """First sentence ships alone so playback starts ASAP; the rest glue
-    into >=60-char chunks so tiny fragments don't chop the prosody."""
-    parts = [p.strip() for p in SENTENCE_SPLIT.split(text) if p.strip()]
-    if not parts:
-        return [text]
-    out, cur = [parts[0]], ""
-    for p in parts[1:]:
-        cur = f"{cur} {p}".strip()
-        if len(cur) >= 60:
-            out.append(cur)
-            cur = ""
-    if cur:
-        out.append(cur)
-    return out
+def _gap_for(p: str) -> float:
+    """Trailing-silence length (s) for the boundary punctuation `p`."""
+    if "\n" in p:
+        return PAUSE_PARA
+    if "…" in p or p.count(".") >= 3:
+        return PAUSE_ELLIPSIS
+    if "!" in p or "?" in p:
+        return PAUSE_QUESTION
+    if "." in p:
+        return PAUSE_SENTENCE
+    if any(c in p for c in ";:—–"):
+        return PAUSE_CLAUSE
+    if "," in p:
+        return PAUSE_COMMA
+    return PAUSE_SENTENCE
+
+
+# --- spoken-form normalization --------------------------------------------
+# Expand abbreviations that TTS otherwise reads letter-by-letter. The big one is
+# clock times written "14h" / "14h30": Kokoro/Piper spell the bare "h" as the
+# letter name ("catorze agá") instead of saying "horas". Rewrite them to words in
+# the RESPONSE language before synthesis. Kept deliberately narrow (the digit+h
+# clock form) so ordinary text is never touched.
+_TIME_WORDS = {  # lang -> (singular, plural, connector between hours and minutes)
+    "pt": ("hora", "horas", "e"),
+    "es": ("hora", "horas", "y"),
+    "it": ("ora", "ore", "e"),
+    "fr": ("heure", "heures", ""),
+    "en": ("hour", "hours", "and"),
+}
+# \b(\d{1,2})[hH](\d{2})?\b — "14h" and "14h30", but NOT "14horas" (the trailing
+# \b fails when letters follow the h) nor "100h" (no word-boundary inside digits).
+_TIME_H = re.compile(r"\b(\d{1,2})[hH](\d{2})?\b")
+
+
+def normalize_speech(text: str, lang: str) -> str:
+    """Expand clock-time abbreviations ("14h30" → "14 horas e 30") in `lang`."""
+    hour_sg, hour_pl, andw = _TIME_WORDS.get(lang, _TIME_WORDS["pt"])
+
+    def _rep(m):
+        h = int(m.group(1))
+        out = f"{h} {hour_sg if h == 1 else hour_pl}"
+        if m.group(2) is not None:
+            mins = int(m.group(2))  # int() drops the leading zero: "05" → 5, "00" → 0
+            if mins:
+                out += f" {andw} {mins}" if andw else f" {mins}"
+        return out
+
+    return _TIME_H.sub(_rep, text)
+
+
+def segments_of(text: str):
+    """Split `text` into (synth_text, trailing_gap_seconds). Hard boundaries
+    (. ! ? … newline) always break; soft ones (comma/clause/dash) break only
+    once the pending clause is long enough (MIN_CLAUSE) so speech isn't choppy.
+    Punctuation stays attached to each segment so the engine's own intonation is
+    preserved — the inserted silence is added ON TOP of that natural cadence."""
+    out, buf, last = [], "", 0
+    for m in _BOUNDARY.finditer(text):
+        p = m.group(1)
+        buf += text[last:m.end()]
+        last = m.end()
+        if p in _SOFT and len(buf.strip()) < MIN_CLAUSE:
+            continue  # too short to stand alone — let the comma ride inline
+        seg = buf.strip()
+        if seg:
+            out.append((seg, _gap_for(p)))
+        elif out:
+            # boundary carrying no new text (e.g. a paragraph break right after a
+            # full stop): upgrade the previous segment's pause to the stronger of
+            # the two, so a topic change breathes as a topic change, not a full stop
+            g = _gap_for(p)
+            if g > out[-1][1]:
+                out[-1] = (out[-1][0], g)
+        buf = ""
+    tail = (buf + text[last:]).strip()
+    if tail:
+        out.append((tail, PAUSE_SENTENCE))
+    return out or [(text.strip(), 0.0)]
 
 
 @app.get("/health")
@@ -482,6 +576,11 @@ def health():
             **{k: f"piper:{k}" for k in piper_voices},  # piper overrides per language
         },
         "piper_languages": sorted(piper_voices.keys()),
+        "pauses": {  # seconds of silence inserted after each boundary (env-tunable)
+            "comma": PAUSE_COMMA, "clause": PAUSE_CLAUSE, "sentence": PAUSE_SENTENCE,
+            "question": PAUSE_QUESTION, "ellipsis": PAUSE_ELLIPSIS, "paragraph": PAUSE_PARA,
+            "min_clause": MIN_CLAUSE,
+        },
         "stt": {
             "ok": True,
             "engine": STT_ENGINE,
@@ -578,6 +677,9 @@ def speak(text: str = "", lang: Optional[str] = None):
     known = set(LANG_VOICES) | set(piper_voices)
     code = lang.lower() if (lang and lang.lower() in known) else detect_text_lang(text)
 
+    # Expand clock times ("14h" → "14 horas") so they aren't read letter-by-letter.
+    text = normalize_speech(text, code)
+
     # Piper wins for any language it has a voice for (native accent + faster);
     # otherwise fall back to Kokoro. The sample rate differs per engine, so it's
     # fixed for this whole response (one call = one language = one engine).
@@ -593,16 +695,18 @@ def speak(text: str = "", lang: Optional[str] = None):
 
     def gen():
         yield wav_header(out_sr)
-        for chunk in chunks_of(text):
+        for seg, gap in segments_of(text):
             if pvoice is not None:
-                for audio in pvoice.synthesize(chunk):
+                for audio in pvoice.synthesize(seg):
                     yield audio.audio_int16_bytes
             else:
-                samples, sr = kokoro.create(chunk, voice=voice, speed=SPEED, lang=klang)
+                samples, sr = kokoro.create(seg, voice=voice, speed=SPEED, lang=klang)
                 pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
                 yield pcm.tobytes()
-            # short breath between sentences
-            yield b"\x00" * int(out_sr * 0.12) * 2
+            # variable breath sized to the boundary strength (comma < sentence <
+            # paragraph) so topic changes and clauses read distinctly, not corrido
+            if gap > 0:
+                yield b"\x00" * (int(out_sr * gap) * 2)
 
     # Surface the chosen engine/voice/language for logging on the consumer side.
     return StreamingResponse(gen(), media_type="audio/wav",

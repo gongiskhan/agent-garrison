@@ -138,21 +138,34 @@ function toSpeakable(s: string): string {
   return t;
 }
 
+// Extra silence (ms) held AFTER a spoken sentence before the next one starts,
+// on TOP of the per-sentence pause the voice server already appends. A blank
+// line (paragraph / topic change) gets the longer beat; a single line break a
+// shorter one. Tune to taste.
+const PARA_GAP_MS = 320;
+const LINE_GAP_MS = 150;
+
 // Pull COMPLETE sentences from `text` starting at index `from` — a sentence ends
 // at . ! ? … (optionally a closing quote/bracket) plus whitespace, so a still-
 // growing final sentence stays buffered until its terminator streams in (or the
 // turn's `done` flush). Lets TTS speak sentence-by-sentence as the model streams,
-// instead of waiting for the whole reply. Returns the sentences + advanced cursor.
-function takeSentences(text: string, from: number): { sentences: string[]; cursor: number } {
-  const re = /[.!?…]+[)\]"'”’»]?\s+/g;
+// instead of waiting for the whole reply. Each sentence carries the extra pause
+// (gapMs) implied by the whitespace that ended it — a blank line after the
+// sentence means a topic change, so it breathes longer. Returns the sentences +
+// advanced cursor.
+function takeSentences(text: string, from: number): { sentences: { text: string; gapMs: number }[]; cursor: number } {
+  const re = /[.!?…]+[)\]"'”’»]?(\s+)/g;
   re.lastIndex = Math.max(0, from);
-  const sentences: string[] = [];
+  const sentences: { text: string; gapMs: number }[] = [];
   let cursor = from;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const end = m.index + m[0].length;
     const piece = text.slice(cursor, end).trim();
-    if (piece) sentences.push(piece);
+    const sep = m[1] || "";
+    const newlines = (sep.match(/\n/g) || []).length;
+    const gapMs = newlines >= 2 ? PARA_GAP_MS : newlines === 1 ? LINE_GAP_MS : 0;
+    if (piece) sentences.push({ text: piece, gapMs });
     cursor = end;
   }
   return { sentences, cursor };
@@ -234,7 +247,10 @@ function App() {
   // (don't wait for the whole reply), playing them back-to-back. This overlaps
   // synth with generation so the first words come out ~as soon as the model
   // finishes the first sentence.
-  const speakQueueRef = useRef<string[]>([]);
+  // Each item carries an optional extra silence (ms) to hold AFTER it before the
+  // next plays — a topic/paragraph change gets a longer beat than a plain
+  // sentence, so a multi-part answer doesn't run together.
+  const speakQueueRef = useRef<{ text: string; gapMs: number }[]>([]);
   const speakingRef = useRef(false);
   // Delegated Soul replies arrive asynchronously on the channel stream. The
   // stream is subscribed live (?live=1, no ring replay), so the only guard needed
@@ -345,17 +361,21 @@ function App() {
       void getCtx().resume();
     } catch {}
     setMode("speaking");
-    audio.src = "/api/voice/tts?text=" + encodeURIComponent(next);
-    audio.onended = () => playNextInQueue();
+    // Hold the item's extra silence AFTER playback before the next sentence, so a
+    // topic change lands as a real beat rather than butting up to the next line.
+    const afterEnd = () => { if (next.gapMs > 0) window.setTimeout(playNextInQueue, next.gapMs); else playNextInQueue(); };
+    audio.src = "/api/voice/tts?text=" + encodeURIComponent(next.text);
+    audio.onended = afterEnd;
     audio.onerror = () => playNextInQueue();
     audio.play().catch(() => playNextInQueue());
   }, [setMode, getCtx, ensureAnalyser, endTurnIfDone]);
 
-  // Enqueue a sentence and start playback if idle.
-  const enqueueSpeech = useCallback((text: string) => {
+  // Enqueue a sentence and start playback if idle. gapMs is extra silence held
+  // after this sentence (paragraph/topic change → longer beat).
+  const enqueueSpeech = useCallback((text: string, gapMs = 0) => {
     const clean = toSpeakable(text || "");
     if (!clean || !voiceAvailable) return;
-    speakQueueRef.current.push(clean);
+    speakQueueRef.current.push({ text: clean, gapMs });
     if (!speakingRef.current) playNextInQueue();
   }, [voiceAvailable, playNextInQueue]);
 
@@ -446,8 +466,8 @@ function App() {
               spokenCursor = cursor;
               for (const s of sentences) {
                 if (spokenChars >= SPEAK_CAP) break;
-                spokenChars += s.length;
-                enqueueSpeech(s);
+                spokenChars += s.text.length;
+                enqueueSpeech(s.text, s.gapMs);
               }
               if (spokenChars >= SPEAK_CAP && !capped) { capped = true; enqueueSpeech("O resto está no ecrã."); }
             }

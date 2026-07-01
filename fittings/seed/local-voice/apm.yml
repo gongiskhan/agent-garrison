@@ -30,6 +30,34 @@ x-garrison:
       type: number
       default: 1.0
       description: Kokoro TTS speech rate multiplier.
+    - key: pause_comma
+      type: number
+      default: 0.12
+      description: Seconds of silence inserted after a comma (only when the clause before it is at least min_clause chars — short clauses ride on the engine's own intonation). Part of the prosody-aware cadence; bigger boundary → longer pause.
+    - key: pause_clause
+      type: number
+      default: 0.22
+      description: Seconds of silence after a clause mark (; :) or a spaced dash (— –).
+    - key: pause_sentence
+      type: number
+      default: 0.32
+      description: Seconds of silence after a full stop (.). The baseline between-sentence beat.
+    - key: pause_question
+      type: number
+      default: 0.38
+      description: Seconds of silence after a question or exclamation (? !).
+    - key: pause_ellipsis
+      type: number
+      default: 0.48
+      description: Seconds of silence after an ellipsis (… or ...) — the longest intra-turn beat.
+    - key: pause_para
+      type: number
+      default: 0.6
+      description: Seconds of silence at a line break / paragraph / topic change. The longest pause, so a change of subject reads distinctly.
+    - key: min_clause
+      type: integer
+      default: 26
+      description: Minimum characters a clause must reach before a comma (or other soft boundary) becomes its own spoken pause. Shorter clauses stay glued to the next so speech never chops into staccato fragments. Lower = more pauses, higher = fewer.
     - key: whisper_model
       type: string
       default: small
