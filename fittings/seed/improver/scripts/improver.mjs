@@ -46,6 +46,10 @@ import { snapshotSkill, restoreSkill } from "../lib/snapshot.mjs";
 import { runGates, splitFrontmatter } from "../lib/gates.mjs";
 import { buildNewContent, applyWithRetry } from "../lib/apply-core.mjs";
 import { loadAutonomy, saveAutonomy, setRuleAutonomy, isAuto } from "../lib/review-queue.mjs";
+import { readEcosystemUpdateLog } from "../lib/ecosystem-update.mjs";
+import { readReapplySweepLog } from "../lib/reapply-sweep.mjs";
+import { runEcosystemPhases } from "../lib/ecosystem-phases.mjs";
+import { resolveCompositionDir } from "../lib/composition-dir.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -436,6 +440,11 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.includes("--probe")) {
     runImprover({}); // core runs on empty inputs without throwing
+    // Tolerant reads - both return [] when the file doesn't exist yet (a
+    // fresh install runs verify hours before the first nightly firing), and
+    // only a genuine thrown error (not "absent") should fail this probe.
+    await readEcosystemUpdateLog(DATA_DIR);
+    await readReapplySweepLog(DATA_DIR);
     console.log("ok");
     return 0;
   }
@@ -443,6 +452,17 @@ async function main() {
     console.error("usage: improver.mjs run-now [improver-nightly] | --probe");
     return 2;
   }
+
+  // Ecosystem-update + reapply-sweep: deterministic, non-LLM phases that run on
+  // every invocation regardless of mode, independent of the (unrelated,
+  // currently broken) dream-phase crash later in runSkills() - see
+  // docs/autothing/runs/20260701-092738-9b939e7a/FLOW_PLAN.md.
+  await runEcosystemPhases({
+    compositionDir: resolveCompositionDir(),
+    stateDir: DATA_DIR,
+    queuePath: QUEUE_FILE,
+    reconcileFn: recordingReconcile,
+  });
 
   if (process.env.IMPROVER_PROJECTS_DIR) {
     return await runSkills();

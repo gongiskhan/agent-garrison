@@ -28,3 +28,12 @@ One line per build-time friction with the autothing skill (signal for the nightl
 2026-06-24 browser-viewport-selector — whole-repo tsc flapped again (src/lib/runner.ts 'buildRuntimeEntries' undefined) from a CONCURRENT session's 'runtimes Faculty' edit, not my browser-pane.tsx change; cleared on re-run. Same whole-repo-typecheck-vs-other-sessions issue as the responsive-panes note.
 - 2026-06-24: `next build` against the live launchd dev server (shared :7777) corrupts the dev server's .next and 500s routes for ALL sessions. autothing-test/build gate should detect a shared live dev server and skip prod build (or build to a temp distDir), not run `next build` in-place. Recovery: rm -rf .next + launchctl kickstart.
 - 2026-06-26 web-channel-ui run — the cross-model DYNAMIC Codex Playwright pass is unrunnable: codex CLI sandbox forbids socket bind (`listen EPERM` on both 127.0.0.1 and 0.0.0.0), so no Playwright webServer/loopback server can start inside it; the only remediation (`codex -s danger-full-access`) is denied by the Claude Code auto-mode classifier. Net effect: the autothing cross-model TEST sub-gate cannot be satisfied dynamically under auto mode — only Codex REVIEW (reasoning) + Codex STATIC artifact inspection are achievable. autothing-adversarial-test should detect this EPERM pattern and record codexPwTest=blocked(environment) with the static fallback, rather than treating it as a feature failure.
+
+## 2026-07-01 - tests/z1-end-to-end.test.ts flaky under full-parallel-suite run
+Observed a single failed assertion (`record.status` expected "completed") when running
+the FULL `npx vitest run` (1409 tests) once, but the same file passed in isolation
+immediately after, and a second full-suite run passed 100% (179/179 files). Likely
+resource/timing contention (the test itself exercises self-healing with real SIGKILL
+escalation and multi-second waits). Not touched by run 20260701-092738-9b939e7a's changes
+(improver Fitting only) - noting for whoever next investigates full-suite flakiness, not
+fixed here (out of scope, didn't reproduce on rerun).

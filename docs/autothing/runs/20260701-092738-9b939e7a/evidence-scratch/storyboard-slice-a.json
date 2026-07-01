@@ -1,0 +1,55 @@
+{
+  "title": "Improver: periodic ecosystem-update + reapply-sweep",
+  "project": "agent-garrison",
+  "folder": "improver",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "segments": [
+    { "type": "title", "id": "intro", "text": "Improver: ecosystem-update + reapply-sweep", "subtitle": "agent-garrison · improver Fitting", "duration": 2.6, "reflectFlag": true },
+    { "type": "terminal", "id": "before", "mode": "scripted",
+      "caption": "The tracked note has been clobbered - no improver marker left",
+      "tag": "BEFORE",
+      "expectedScreen": "terminal showing knowledge-memory.md content with no improver marker comment",
+      "commands": [
+        "export IMPROVER_DATA=/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/garrison-improver-demo.15D58xpKMZ",
+        "cat $IMPROVER_DATA/knowledge-memory.md"
+      ],
+      "commandPause": "900ms", "hold": "4000ms" },
+    { "type": "terminal", "id": "run", "mode": "scripted",
+      "caption": "Run the real nightly CLI: ecosystem-update + reapply-sweep run on every invocation",
+      "tag": "CLI",
+      "expectedScreen": "terminal running node improver.mjs run-now to completion",
+      "commands": [
+        "export IMPROVER_DATA=/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/garrison-improver-demo.15D58xpKMZ",
+        "node /Users/ggomes/dev/garrison/fittings/seed/improver/scripts/improver.mjs run-now"
+      ],
+      "commandPause": "1200ms", "hold": "3500ms" },
+    { "type": "terminal", "id": "eco-log", "mode": "scripted",
+      "caption": "Ecosystem-update logged its run (safely skipped - no apm.yml here)",
+      "tag": "LOG",
+      "expectedScreen": "terminal showing ecosystem-update-log.json with a skipped entry mentioning apm.yml",
+      "commands": [
+        "export IMPROVER_DATA=/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/garrison-improver-demo.15D58xpKMZ",
+        "cat $IMPROVER_DATA/ecosystem-update-log.json"
+      ],
+      "commandPause": "900ms", "hold": "4000ms" },
+    { "type": "terminal", "id": "sweep-log", "mode": "scripted",
+      "caption": "Reapply sweep found the clobbered entry and restored it",
+      "tag": "LOG",
+      "expectedScreen": "terminal showing reapply-sweep-log.json with checked 1 restored 1 failed empty",
+      "commands": [
+        "export IMPROVER_DATA=/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/garrison-improver-demo.15D58xpKMZ",
+        "cat $IMPROVER_DATA/reapply-sweep-log.json"
+      ],
+      "commandPause": "900ms", "hold": "4000ms" },
+    { "type": "terminal", "id": "after", "mode": "scripted",
+      "caption": "The tracked note is back - marker restored on top of the clobbered content",
+      "tag": "AFTER",
+      "expectedScreen": "terminal showing knowledge-memory.md now containing the improver marker comment and the restored note text",
+      "commands": [
+        "export IMPROVER_DATA=/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/garrison-improver-demo.15D58xpKMZ",
+        "cat $IMPROVER_DATA/knowledge-memory.md"
+      ],
+      "commandPause": "900ms", "hold": "4500ms" },
+    { "type": "title", "id": "outro", "text": "Nightly cron: safe ecosystem update + automatic drift repair", "subtitle": "docs/autothing/runs/20260701-092738-9b939e7a", "duration": 2.2 }
+  ]
+}

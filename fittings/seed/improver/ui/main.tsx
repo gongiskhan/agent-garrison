@@ -14,11 +14,21 @@ type Proposal = {
   claim: string;
   diff?: string;
   decision?: string;
-  status: "pending" | "applied" | "rejected";
+  status: "pending" | "applied" | "rejected" | "reapply-failed";
   evidence?: { bytes: number; sha: string; targetFile: string };
+  reapplyFailureReason?: string;
 };
 type RuleState = { autonomy: "manual" | "auto"; streak: number; accepted: number; rejected: number; reverted: number };
 type Queue = { queue: Proposal[]; autonomy: Record<string, RuleState>; promotionThreshold: number };
+
+type EcosystemUpdateEntry = {
+  at: string;
+  skipped?: string;
+  outdatedLog?: string;
+  installResult?: { ok: boolean; code: number | null; depCountBefore: number | null; depCountAfter: number | null; stderr?: string };
+};
+type ReapplySweepEntry = { at: string; checked: number; restored: number; failed: Array<{ id: string; reason: string }> };
+type EcosystemStatus = { ecosystemUpdate: EcosystemUpdateEntry | null; reapplySweep: ReapplySweepEntry | null };
 
 async function getJSON(p: string) {
   const r = await fetch(p);
@@ -53,6 +63,12 @@ function DiffView({ diff }: { diff?: string }) {
 function ProposalCard({ p, onApply, onReject }: { p: Proposal; onApply: (id: string) => void; onReject: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const pending = p.status === "pending";
+  // A reapply-failed entry isn't pending (it already went through Approve
+  // once), but dismissing it is the same safe, generic transition as
+  // rejecting a pending one - no reapply logic involved - so let a reviewer
+  // clear it from the queue instead of leaving it permanently stuck with no
+  // available action.
+  const canReject = pending || p.status === "reapply-failed";
   return (
     <div className="card" data-testid={`proposal-${p.id}`}>
       <div className="row">
@@ -73,11 +89,16 @@ function ProposalCard({ p, onApply, onReject }: { p: Proposal; onApply: (id: str
           applied → {p.evidence.targetFile} · {p.evidence.bytes} bytes · {p.evidence.sha.slice(0, 19)}…
         </div>
       )}
+      {p.status === "reapply-failed" && p.reapplyFailureReason && (
+        <div className="evidence" data-testid={`reapply-failure-${p.id}`}>
+          reapply sweep could not restore this after an ecosystem update: {p.reapplyFailureReason}
+        </div>
+      )}
       <div className="actions" style={{ marginTop: 12 }}>
         <button className="primary" disabled={!pending} onClick={() => onApply(p.id)} data-testid={`approve-${p.id}`}>
           Approve
         </button>
-        <button className="danger" disabled={!pending} onClick={() => onReject(p.id)} data-testid={`reject-${p.id}`}>
+        <button className="danger" disabled={!canReject} onClick={() => onReject(p.id)} data-testid={`reject-${p.id}`}>
           Reject
         </button>
       </div>
@@ -162,10 +183,68 @@ function AutonomyPane({ data, refresh }: { data: Queue; refresh: () => void }) {
   );
 }
 
+function EcosystemPane({ status }: { status: EcosystemStatus | null }) {
+  if (!status) return <div className="empty">loading…</div>;
+  const { ecosystemUpdate: eco, reapplySweep: sweep } = status;
+  // Defensive: the log is a plain JSON file, not schema-validated - a future
+  // bug or manual edit producing a structurally incomplete entry must degrade
+  // gracefully here, not crash the whole panel.
+  const failedList = Array.isArray(sweep?.failed) ? sweep.failed : [];
+  return (
+    <div data-testid="ecosystem-pane">
+      <div className="card" data-testid="ecosystem-update-card">
+        <div className="row">
+          <div className="claim">Ecosystem update</div>
+          {eco && (
+            <span className={`badge ${eco.skipped ? "skipped" : eco.installResult?.ok ? "applied" : "rejected"}`}>
+              {eco.skipped ? "skipped" : eco.installResult?.ok ? "ok" : "failed"}
+            </span>
+          )}
+        </div>
+        {!eco && <div className="meta">No run recorded yet - runs automatically on the nightly cron, or click "Run Improver now".</div>}
+        {eco && (
+          <div className="meta">
+            last run {eco.at}
+            {eco.skipped ? (
+              <> · skipped: {eco.skipped}</>
+            ) : (
+              <>
+                {" "}
+                · apm install {eco.installResult?.ok ? "ok" : `failed (code ${eco.installResult?.code ?? "?"})`} · deps{" "}
+                {eco.installResult?.depCountBefore ?? "?"} → {eco.installResult?.depCountAfter ?? "?"}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="card" data-testid="reapply-sweep-card">
+        <div className="row">
+          <div className="claim">Reapply sweep</div>
+          {sweep && (
+            <span className={`badge ${failedList.length > 0 ? "reapply-failed" : "applied"}`}>
+              {failedList.length > 0 ? `${failedList.length} failed` : "clean"}
+            </span>
+          )}
+        </div>
+        {!sweep && <div className="meta">No run recorded yet.</div>}
+        {sweep && (
+          <div className="meta">
+            last run {sweep.at} · checked {sweep.checked ?? "?"} · restored {sweep.restored ?? "?"} · failed {failedList.length}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [data, setData] = useState<Queue | null>(null);
+  const [ecosystem, setEcosystem] = useState<EcosystemStatus | null>(null);
   const [tab, setTab] = useState("queue");
-  const refresh = useCallback(async () => setData(await getJSON("/api/queue")), []);
+  const refresh = useCallback(async () => {
+    setData(await getJSON("/api/queue"));
+    setEcosystem(await getJSON("/api/ecosystem-status"));
+  }, []);
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -187,7 +266,7 @@ function App() {
         </button>
       </header>
       <div className="tabs">
-        {["queue", "autonomy"].map((t) => (
+        {["queue", "autonomy", "ecosystem"].map((t) => (
           <div key={t} className={`tab ${tab === t ? "active" : ""}`} data-testid={`tab-${t}`} onClick={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </div>
@@ -196,6 +275,7 @@ function App() {
       <main>
         {tab === "queue" && <QueuePane data={data} refresh={refresh} />}
         {tab === "autonomy" && <AutonomyPane data={data} refresh={refresh} />}
+        {tab === "ecosystem" && <EcosystemPane status={ecosystem} />}
       </main>
     </div>
   );

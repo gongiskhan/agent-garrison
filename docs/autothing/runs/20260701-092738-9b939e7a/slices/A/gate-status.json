@@ -1,0 +1,44 @@
+{
+  "slice": "A",
+  "title": "Ecosystem-update + reapply-sweep phases (improver Fitting)",
+  "updatedAt": "2026-07-01T12:10:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "automation",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/improver-*.test.ts", "exit": 0, "at": "2026-07-01T11:17:00Z", "summary": "72 passed, 15 files" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-07-01T11:17:00Z", "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "at": "2026-07-01T11:17:00Z", "summary": "clean" },
+    "review": { "verdict": "findings-fixed", "by": "claude/code-review (10 finder angles)", "at": "2026-07-01T11:11:00Z", "summary": "Fixed: unguarded persistence writes violating 'never throws' contract, duplicated marker literal, 3x duplicated log/state-dir boilerplate, apm error-classification bug, reapply-sweep reason-mislabeling, missing UI Run Now wiring, em-dash CLAUDE.md violations. Logged 2 architectural findings to docs/decisions.md (composition-dir env-var gap, review-queue.json locking gap)." },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "low",
+      "at": "2026-07-01T11:17:00Z",
+      "lastReport": "docs/autothing/runs/20260701-092738-9b939e7a/slices/A/codex-review-r2.json",
+      "overrides": [
+        "review-queue.json has no locking between server.mjs and cron-fired improver.mjs - already logged docs/decisions.md 2026-07-01 'review-queue.json has no locking...'; pre-existing hazard broadened slightly by this slice, needs a lock/CAS fix across 3 files, out of scope for a single slice.",
+        "json-log.mjs silently drops prior history on corruption - consistent with every other tolerant-JSON-load helper already in this codebase (loadQueue, loadAutonomy, provenance.mjs readLock); lower severity than the queue fix since these are audit-trail logs, not operational state. Codex agreed this is reasonable to defer (round 2)."
+      ]
+    },
+    "codexPwTest": {
+      "result": "blocked(environment)",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-07-01T11:24:00Z",
+      "report": "docs/autothing/runs/20260701-092738-9b939e7a/slices/A/codex-pwtest.json",
+      "notes": "Codex's own isolated fixture verification (its throwaway Node script exercising runEcosystemUpdate and runReapplySweep directly, plus source-inspection confirming both phases are wired before the IMPROVER_PROJECTS_DIR branch in improver.mjs and before the dream logic in server.mjs) PASSED cleanly - matched all acceptance criteria including the malformed-queue no-clobber fix. Its only failing leg was a real `node improver.mjs run-now` invocation against the default ~/.garrison state dir, which hit EPERM - but Codex's own sandbox banner confirms it runs `workspace-write [workdir, /tmp, $TMPDIR]`, and ~/.garrison is outside that whitelist. Verified independently (outside Codex's sandbox): `IMPROVER_DATA=<temp dir> node fittings/seed/improver/scripts/improver.mjs run-now` exits 0, writes both ecosystem-update-log.json and reapply-sweep-log.json correctly, and the apm.yml-absence guard fires as designed. This is the same class of environment restriction the skill's socket-bind EPERM carve-out describes (sandbox blocks a path outside its whitelist), not a product defect - not sent back to autothing-implement."
+    },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-07-01T12:15:00Z",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/improver/2026-07-01_12-09-50/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/improver/2026-07-01_12-09-50"
+    }
+  },
+  "blockers": [],
+  "notes": "Round-1 Codex finding (high, 0.98 confidence): runReapplySweep unconditionally called saveQueue() even when loadQueue's tolerant catch-all returned [] for an unreadable/malformed file, which would have clobbered the real queue. Fixed via a local probeQueue() that distinguishes 'no file yet' from 'unreadable/malformed', plus a mutated-tracking guard so saveQueue only runs on a real change. Round 2: clean approve, no remaining findings."
+}

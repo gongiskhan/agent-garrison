@@ -489,3 +489,63 @@ this class of "starts standalone but not under the runner" bug cannot recur sile
 + /api/fittings/<id>/start + the Views surfacing), not just by running its server.mjs.
 
 **Status:** fixed + verified in the live app.
+
+## 2026-07-01 · improver-nightly cron has never once completed real work
+
+The `improver` Fitting's nightly scheduler job (`improver-nightly`, cron `30 3 * * *`) is
+genuinely registered with the real launchd-backed `scheduler` daemon and has fired every
+night since at least 2026-06-26. Every run crashes with `OperativePtySession: message
+never registered (claude did not accept input)` (a claude-pty PTY bug) inside
+`runSkills()`'s `computeDream()` call, before any proposal/queue writing -
+`review-queue.json` has stayed `[]` for 6+ real nightly executions. Discovered while
+building the ecosystem-update mechanism (run `20260701-092738-9b939e7a`); the new
+ecosystem-update + reapply-sweep phases are wired to run *before* this crash point in
+`main()` so they are unaffected, but the underlying claude-pty bug itself is untouched.
+**Source:** autothing run `docs/autothing/runs/20260701-092738-9b939e7a/`. **Status:**
+Deferred - needs its own investigation/fix pass into `packages/claude-pty/src/session.mjs`'s
+`OperativePtySession`/`runTurn`/`oneShotTurn`.
+
+## 2026-07-01 · duplicate `improver-nightly` scheduler job id across two Fittings
+
+`fittings/seed/improver/scripts/setup.sh` registers a scheduler job named
+`improver-nightly`. A second, wholly separate Fitting, `fittings/seed/improver-nightly/`
+(`faculty: sessions`, its own CLI + `tests/improver-nightly.test.ts`), also registers a
+scheduler job named `improver-nightly` in its own `setup.sh`. If both Fittings were ever
+installed into the same composition, the second `register`/`add` would silently overwrite
+the first's job entry (last-write-wins, confirmed via `scheduler.mjs`'s `add`/`register`
+semantics). Not observed to be currently co-installed in `compositions/default`, so not an
+active bug, but worth a cleanup pass to rename one or consolidate the two Fittings.
+**Source:** autothing run `docs/autothing/runs/20260701-092738-9b939e7a/`. **Status:** Open.
+
+## 2026-07-01 · GARRISON_COMPOSITION_DIR is dead code on every real Fitting-process spawn path
+
+`server.mjs`'s `targetFileFor()` and the new `resolveCompositionDir()` (both in the
+`improver` Fitting) prefer `process.env.GARRISON_COMPOSITION_DIR`, falling back to a
+fixed-depth walk up from the Fitting's own script location. Traced through the actual
+spawn paths: `src/lib/runner.ts`'s `spawnGateway()` sets this var for the ONE gateway
+subprocess, but `runShellCommand()` (setup/verify hooks), `startOwnPortFitting()`
+(own-port servers like improver's `server.mjs`), and the `scheduler` Fitting's
+`spawn('/bin/sh', ['-c', ...])` (the nightly cron's actual invocation path) never set
+it. So every Fitting that reads this var today is silently falling through to its own
+ad-hoc directory-depth guess. The fixed-depth walk also assumes the `_local/<fitting>`
+nesting depth, which `global-composition.ts`'s `depName()` shows does not hold for
+non-local (remote/git-pinned) dependencies - a shape Garrison doesn't have yet but is
+explicitly headed toward. **Source:** autothing run
+`docs/autothing/runs/20260701-092738-9b939e7a/` code review (angle: altitude). **Status:**
+Open - recommend `runner.ts` stamp `GARRISON_COMPOSITION_DIR` onto every Fitting-launched
+process (setup/verify hooks, own-port spawns, and whatever the scheduler daemon execs),
+so Fittings stop reinventing this derivation independently.
+
+## 2026-07-01 · review-queue.json has no locking between server.mjs and cron-fired improver.mjs
+
+`fittings/seed/improver/lib/review-queue.mjs`'s `loadQueue`/`saveQueue` do a plain
+full-file read then full-file rewrite, no locking or compare-and-swap. `review-queue.json`
+is shared across two independent OS processes: the always-on `server.mjs` (port 7088,
+handling UI apply/reject/run-now) and the cron-fired `improver.mjs run-now` (fired by the
+standalone `scheduler` daemon, unrelated process tree). Pre-existing before this session's
+work; the new reapply-sweep phase adds a third writer into the same unguarded file. A
+UI action landing mid-cron-run (or vice versa) can silently lose whichever write finishes
+second. **Source:** autothing run `docs/autothing/runs/20260701-092738-9b939e7a/` code
+review (angle: cross-file tracer). **Status:** Open - a proper fix needs a lock file or
+compare-and-swap around `review-queue.json`, affecting `review-queue.mjs`, `server.mjs`,
+and `improver.mjs` together; out of scope for a single-slice fix.

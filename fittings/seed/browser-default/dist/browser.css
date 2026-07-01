@@ -1,0 +1,429 @@
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ─── Tabs list (/) ─────────────────────────────────────────── */
+
+.tabs-list {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 16px;
+}
+
+.tabs-list h1 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 16px;
+  color: #fafafa;
+}
+
+.tabs-list .new-tab-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.tabs-list .new-tab-form input {
+  flex: 1;
+  padding: 8px 12px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #fafafa;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.tabs-list .new-tab-form button,
+.tabs-list .tab-row a,
+.tabs-list .tab-row button {
+  padding: 8px 12px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #fafafa;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.tabs-list .tab-row a:hover,
+.tabs-list .tab-row button:hover,
+.tabs-list .new-tab-form button:hover {
+  background: #353535;
+}
+
+.tabs-list .tab-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #232323;
+  border: 1px solid #2e2e2e;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.tabs-list .tab-row .meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.tabs-list .tab-row .title {
+  font-size: 13px;
+  color: #fafafa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabs-list .tab-row .url {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tabs-list .empty {
+  text-align: center;
+  color: #777;
+  padding: 32px;
+  font-size: 13px;
+}
+
+/* ─── Canvas page (/canvas/:tabId) ──────────────────────────── */
+
+.canvas-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0e0e0e;
+}
+
+.urlbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #232323;
+  border-bottom: 1px solid #1a1a1a;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.urlbar button {
+  padding: 6px 10px;
+  background: #2e2e2e;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  color: #fafafa;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.urlbar button:hover { background: #383838; }
+.urlbar button:active { background: #404040; }
+
+.urlbar form {
+  flex: 1;
+  display: flex;
+}
+
+.urlbar input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  color: #fafafa;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Anchor styled like a button — used by Open native. */
+.urlbar a.opt {
+  padding: 6px 10px;
+  background: #2e2e2e;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  color: #fafafa;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.urlbar a.opt:hover { background: #383838; }
+.urlbar a.opt:active { background: #404040; }
+.urlbar a.native-link { color: #9ec5ff; }
+
+/* Selection controls (point the agent at an element / region). */
+.urlbar .select-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+.urlbar .select-toggle button.opt.active {
+  background: #1f6e64;
+  border-color: #29b6a8;
+  color: #eafffb;
+}
+.urlbar .selection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 4px 6px 4px 8px;
+  background: #16302d;
+  border: 1px solid #29b6a8;
+  border-radius: 3px;
+  color: #cdeee9;
+  font-size: 11px;
+}
+.urlbar .selection-badge .sel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #29b6a8;
+  flex: 0 0 auto;
+}
+.urlbar .selection-badge .sel-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.urlbar .selection-badge .sel-clear {
+  border: 0;
+  background: transparent;
+  color: #8fd6cd;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.urlbar .selection-badge .sel-clear:hover { color: #eafffb; }
+
+/* Quality segmented control. */
+.urlbar .quality-toggle {
+  display: inline-flex;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.urlbar .quality-toggle button.quality-btn {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 0;
+  background: #2e2e2e;
+  color: #cfcfcf;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.urlbar .quality-toggle button.quality-btn + button.quality-btn {
+  border-left: 1px solid #1a1a1a;
+}
+.urlbar .quality-toggle button.quality-btn.active {
+  background: #4a6b3e;
+  color: #fafafa;
+}
+
+/* At narrow widths, hide non-essential buttons so the URL stays readable. */
+@media (max-width: 700px) {
+  .urlbar button.opt,
+  .urlbar a.opt,
+  .urlbar .quality-toggle { display: none; }
+  .urlbar button { padding: 6px 8px; font-size: 11px; }
+}
+
+.canvas-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  touch-action: none;
+}
+
+.canvas-wrapper canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+/* While a selection mode is active, the canvas reads as "aim here". */
+.canvas-wrapper.selecting canvas { cursor: crosshair; }
+
+/* Element-pick highlight — follows the hovered element (teal, devtools-like). */
+.canvas-wrapper .pick-overlay {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid #29b6a8;
+  background: rgba(41, 182, 168, 0.16);
+  border-radius: 2px;
+  z-index: 5;
+}
+.canvas-wrapper .pick-overlay .pick-label {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  max-width: 320px;
+  padding: 1px 6px;
+  background: #1f6e64;
+  color: #eafffb;
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 2px;
+}
+/* Keep the label on-screen when the element sits at the very top. */
+.canvas-wrapper .pick-overlay .pick-label { top: -20px; }
+
+/* Region draw rectangle. */
+.canvas-wrapper .region-overlay {
+  position: absolute;
+  pointer-events: none;
+  border: 2px dashed #29b6a8;
+  background: rgba(41, 182, 168, 0.12);
+  z-index: 5;
+}
+
+.hidden-input {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  font-size: 16px; /* prevent iOS zoom on focus */
+}
+
+.canvas-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.canvas-overlay.visible { opacity: 1; }
+
+.conn-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(14, 14, 14, 0.78);
+  color: #e0e0e0;
+  font-size: 13px;
+  pointer-events: none;
+  text-align: center;
+  padding: 24px;
+}
+
+.conn-overlay.error {
+  background: rgba(14, 14, 14, 0.92);
+}
+
+.conn-overlay .title {
+  font-size: 15px;
+  color: #fafafa;
+  margin-bottom: 6px;
+}
+
+.conn-overlay .subtitle {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.conn-overlay.reconnect {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* ─── DevTools shell (/devtools-shell/:tabId) ───────────────── */
+
+.devtools-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: #1a1a1a;
+}
+
+/* CanvasPage is position:fixed full-viewport on /canvas — contain it to the
+   shell's left pane instead. */
+.devtools-shell .canvas-page {
+  position: relative;
+  inset: auto;
+  height: 100%;
+}
+
+.devtools-shell .shell-left {
+  min-width: 0;
+  flex: none;
+}
+
+.devtools-shell .shell-divider {
+  width: 5px;
+  flex: none;
+  cursor: col-resize;
+  background: #2a2a2a;
+}
+
+.devtools-shell .shell-divider:hover {
+  background: #444;
+}
+
+.devtools-shell .shell-right {
+  flex: 1;
+  min-width: 0;
+  background: #fff;
+}
+
+.devtools-shell .devtools-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* While dragging the divider, the iframe/canvas must not swallow pointer
+   events or the drag sticks. */
+.devtools-shell.dragging {
+  cursor: col-resize;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.devtools-shell.dragging .shell-left,
+.devtools-shell.dragging .shell-right {
+  pointer-events: none;
+}

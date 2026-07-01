@@ -5,6 +5,7 @@
 //   POST /api/run-now                  → run the improver, enqueue proposals,
 //                                        auto-apply any whose rule is `auto`
 //   GET  /api/queue                    → {queue, autonomy, promotionThreshold}
+//   GET  /api/ecosystem-status         → {ecosystemUpdate, reapplySweep} last-run summaries
 //   POST /api/proposals/:id/apply      → applyWithRetry → reconcile → applied(+evidence)
 //   POST /api/proposals/:id/reject     → mark rejected; targets untouched
 //   GET  /api/autonomy                 → per-rule autonomy state
@@ -27,6 +28,10 @@ import { mkdir, readFile, writeFile, unlink, stat } from "node:fs/promises";
 import { runImprover } from "../lib/improver-core.mjs";
 import { parseMemory, computeDream } from "./improver.mjs";
 import { applyWithRetry } from "../lib/apply-core.mjs";
+import { readEcosystemUpdateLog } from "../lib/ecosystem-update.mjs";
+import { readReapplySweepLog } from "../lib/reapply-sweep.mjs";
+import { runEcosystemPhases } from "../lib/ecosystem-phases.mjs";
+import { resolveCompositionDir } from "../lib/composition-dir.mjs";
 import {
   loadQueue,
   saveQueue,
@@ -97,6 +102,11 @@ async function readBody(req) {
 }
 
 async function doRunNow() {
+  // Same deterministic, non-LLM phases the nightly cron runs via improver.mjs's
+  // main() - run them here too so the UI's "Run Now" button behaves the same
+  // as the scheduled job.
+  await runEcosystemPhases({ compositionDir: resolveCompositionDir(), stateDir: DATA_DIR, queuePath: QUEUE_FILE, reconcileFn });
+
   const memoryPath =
     process.env.IMPROVER_MEMORY ||
     path.join(process.env.GARRISON_HOME || path.join(HOME, ".claude", "projects"), "MEMORY.md");
@@ -134,6 +144,17 @@ async function doRunNow() {
   return { proposals: result.proposals.length, queue: queue.length, autoApplied, dream: dream.housekeeping };
 }
 
+// Read-only status for the last ecosystem-update + reapply-sweep runs (Slice 3
+// panel). Both reads are tolerant (return [] when the log doesn't exist yet).
+async function doEcosystemStatus() {
+  const ecosystemLog = await readEcosystemUpdateLog(DATA_DIR);
+  const sweepLog = await readReapplySweepLog(DATA_DIR);
+  return {
+    ecosystemUpdate: ecosystemLog[ecosystemLog.length - 1] || null,
+    reapplySweep: sweepLog[sweepLog.length - 1] || null,
+  };
+}
+
 async function doApply(id) {
   let queue = await loadQueue(QUEUE_FILE);
   let autonomy = await loadAutonomy(AUTONOMY_FILE);
@@ -158,12 +179,23 @@ async function doReject(id) {
   let autonomy = await loadAutonomy(AUTONOMY_FILE);
   const proposal = findProposal(queue, id);
   if (!proposal) return { code: 404, body: { error: "proposal not found", id } };
+  // A rule-level "reject" outcome is only a real signal when a human is
+  // turning down a fresh, pending proposal. Dismissing a reapply-failed entry
+  // (one that was already approved and applied once, then got stuck after an
+  // ecosystem update) is not that signal - recording it as a reject would
+  // silently demote an auto rule or reset its promotion streak for reasons
+  // unrelated to the rule's actual quality.
+  const wasPending = proposal.status === "pending";
   queue = markRejected(queue, id, new Date().toISOString());
-  const out = applyOutcome(autonomy, proposal.rule, "reject"); // reject of an auto rule demotes instantly
-  autonomy = out.autonomy;
+  let autonomyEvent = null;
+  if (wasPending) {
+    const out = applyOutcome(autonomy, proposal.rule, "reject"); // reject of an auto rule demotes instantly
+    autonomy = out.autonomy;
+    autonomyEvent = out.event;
+    await saveAutonomy(AUTONOMY_FILE, autonomy);
+  }
   await saveQueue(QUEUE_FILE, queue);
-  await saveAutonomy(AUTONOMY_FILE, autonomy);
-  return { code: 200, body: { ok: true, status: "rejected", autonomyEvent: out.event } };
+  return { code: 200, body: { ok: true, status: "rejected", autonomyEvent } };
 }
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".map": "application/json", ".svg": "image/svg+xml" };
@@ -215,6 +247,9 @@ export async function startServer(opts = {}) {
           autonomy: await loadAutonomy(AUTONOMY_FILE),
           promotionThreshold: PROMOTION_THRESHOLD,
         });
+      }
+      if (pathname === "/api/ecosystem-status" && req.method === "GET") {
+        return json(res, 200, await doEcosystemStatus());
       }
       const apply = pathname.match(/^\/api\/proposals\/([^/]+)\/apply$/);
       if (apply && req.method === "POST") {

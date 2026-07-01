@@ -56,6 +56,14 @@ export function markRejected(queue, id, at) {
   return queue.map((p) => (p.id === id ? { ...p, status: "rejected", rejectedAt: at } : p));
 }
 
+// An "applied" entry whose target content lost its marker (e.g. clobbered by an
+// ecosystem update) but couldn't be cleanly reapplied - a real content conflict,
+// not a crash. Stays visible in the queue for human review rather than silently
+// reverting to "applied".
+export function markReapplyFailed(queue, id, reason, at) {
+  return queue.map((p) => (p.id === id ? { ...p, status: "reapply-failed", reapplyFailureReason: reason, reapplyFailedAt: at } : p));
+}
+
 // ── per-rule autonomy persistence ────────────────────────────────────────────
 export async function loadAutonomy(file) {
   if (!existsSync(file)) return {};

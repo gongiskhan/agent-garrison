@@ -52,6 +52,17 @@ describe("Improver v1 skills CLI — hermetic acceptance (MR5c)", () => {
       // side effects landed in the sandbox data dir, not anything real
       expect(existsSync(join(dataDir, "maintenance.json"))).toBe(true);
       expect(existsSync(join(dataDir, "skill-telemetry.json"))).toBe(true);
+
+      // the ecosystem-update + reapply-sweep phases ran (before the
+      // IMPROVER_PROJECTS_DIR branch) on every invocation - no composition dir
+      // is set here, so ecosystem-update logs itself skipped rather than
+      // shelling out to a real `apm`, and the sweep finds an empty queue.
+      const ecosystemLog = JSON.parse(readFileSync(join(dataDir, "ecosystem-update-log.json"), "utf8"));
+      expect(ecosystemLog).toHaveLength(1);
+      expect(ecosystemLog[0].skipped).toMatch(/no apm\.yml/);
+      const sweepLog = JSON.parse(readFileSync(join(dataDir, "reapply-sweep-log.json"), "utf8"));
+      expect(sweepLog).toHaveLength(1);
+      expect(sweepLog[0].checked).toBe(0);
       const queue = JSON.parse(readFileSync(join(dataDir, "review-queue.json"), "utf8"));
       expect(queue.some((p: any) => p.rule === "skill-suggest")).toBe(true);
 

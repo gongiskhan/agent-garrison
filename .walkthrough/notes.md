@@ -25,6 +25,11 @@
 - The screencast caption HUD can render as an empty gray strip on beats whose page contains a cross-origin iframe (own-port fitting pane). Order beats so cross-origin panes appear in the final beat(s).
 - waitFor on elements below a card's internal scroll fold times out; target the first row (or assert instead — asserts auto-scroll).
 
+## 2026-07-01 — improver ecosystem-update + reapply-sweep walkthroughs (run 20260701-092738-9b939e7a)
+- Terminal segments do NOT share shell state across segments — each `terminal` segment is a fresh PTY. `export FOO=bar` in one segment is gone by the next; re-export it as the first command in every segment that needs it, or the command falls back to unset-env defaults (which, for a CLI that shells to the real user's home dir by default, means it can silently run against REAL production state instead of your fixture — happened once here, caught by checking file mtimes, no real data lost but worth being careful about).
+- A terminal segment's cwd is the recorder's own work dir, not the repo — use absolute paths for any command that isn't purely a shell builtin (`cat`, `export` are fine; `node relative/path.mjs` is not).
+- Badge/status assert text must match the RENDERED (post-CSS) text — `.badge` in this app's own-port Fittings applies `text-transform: uppercase`, so assert `"REAPPLY-FAILED"` / `"REJECTED"`, not the raw lowercase status string (same lesson as the 2026-06-10 entry, re-confirmed).
+
 ## 2026-06-15 — UI-wire wave learnings (model-router / improver / runtimes)
 - To film an own-port Fitting's view, point a browser SEGMENT straight at its port (e.g. baseURL http://127.0.0.1:7087 for model-router, :7088 for improver) — record.mjs supports multiple browser segments, each with its own baseURL/origin. Do NOT film via :7777/embed/<id>: that page wraps the Fitting in a cross-origin iframe, which triggers the gray-caption-strip bug.
 - Terminal segment commands run through VHS as `Type "<command>"`, so a command containing a double-quote (e.g. jq with string literals `"UP"`/`select(.id=="x")`) breaks the tape parser with "Invalid command". Keep terminal commands quote-free: single-quoted jq filters with no string literals (`jq -r '.views[].fittingId'`) work; prove liveness with `/health` curls instead of a jq if/then string.

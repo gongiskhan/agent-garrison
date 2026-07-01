@@ -1,0 +1,1 @@
+{"verdict":"approve","summary":"Staged fixes address both round-1 findings correctly. `main.tsx` no longer crashes on malformed `sweep.failed`, and `doReject()` now preserves autonomy state for dismissed `reapply-failed` entries while still preserving the normal pending-reject autonomy path.","findings":[]}

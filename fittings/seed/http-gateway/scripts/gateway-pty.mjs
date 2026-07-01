@@ -473,9 +473,14 @@ const server = http.createServer(async (request, response) => {
 
       try {
         await readyPromise;
-        const result = await enqueueTurn(message, (text) => {
+        const result = await enqueueTurn(message, (text, replace) => {
           try {
-            sseWrite(response, "chunk", { type: "chunk", text });
+            // `replace` (the onChunk 2nd arg) marks a FULL re-emit of the reply after
+            // a screen reflow/divergence — not a delta. Forward it so the client
+            // REPLACES its accumulator instead of appending (the duplication bug that
+            // turned a short reply into kilobytes of repeated text). Additive field:
+            // older clients that ignore it are unaffected.
+            sseWrite(response, "chunk", { type: "chunk", text, replace: replace === true });
           } catch {
             /* client gone */
           }
