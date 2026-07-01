@@ -8,6 +8,9 @@ uvicorn
 soundfile
 numpy
 onnxruntime
+# HTTP client used to proxy audio to the whisper.cpp whisper-server (Metal GPU
+# STT) when stt_engine=whisper-cpp.
+httpx
 # Local text language-ID — picks the TTS voice matching the response text's
 # language. Pure-Python n-gram models, no download, ~ms per call.
 lingua-language-detector

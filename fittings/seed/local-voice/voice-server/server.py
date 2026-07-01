@@ -19,12 +19,15 @@ Run: .venv\\Scripts\\python.exe server.py   (or start-voice-server.vbs)
 """
 
 import asyncio
+import atexit
 import glob
 import io
 import json
 import os
 import re
+import socket
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -38,7 +41,9 @@ if hasattr(os, "add_dll_directory"):
         os.add_dll_directory(_d)
         os.environ["PATH"] = _d + os.pathsep + os.environ["PATH"]
 
+import httpx
 import numpy as np
+import soundfile as sf
 import uvicorn
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -70,6 +75,38 @@ WHISPER_PROMPT = os.environ.get("WHISPER_PROMPT", "").strip()
 # as EN), which then makes the model reply in that language; pinning fixes both
 # the transcript and the reply language for a known single-language speaker.
 WHISPER_LANG = os.environ.get("WHISPER_LANG", "").strip()
+# Decoding beam width. 1 = greedy (fastest, lower accuracy). Greedy badly
+# mistranscribes European Portuguese even on clean audio ("que horas são em
+# Lisboa" -> "então é só uma luz boa"); beam search recovers it. 5 is the
+# accuracy/latency sweet spot on CPU. Tune down only if decode latency hurts.
+WHISPER_BEAM = int(os.environ.get("WHISPER_BEAM", "5"))
+# STT engine. "faster-whisper" (CTranslate2, CPU int8 on this Mac — slow) or
+# "whisper-cpp" (whisper.cpp via a supervised whisper-server on the Apple GPU
+# through Metal — ~3-5x faster, same large-v3 weights so same accuracy). When
+# whisper-cpp is selected we spawn whisper-server as a child, decode the inbound
+# audio to 16k PCM here, and POST it to that server's /inference; the
+# faster-whisper model is then not loaded at all. Defined here (before the model
+# load) because the load path branches on it.
+STT_ENGINE = os.environ.get("STT_ENGINE", "faster-whisper").strip().lower()
+USE_WHISPER_CPP = STT_ENGINE in ("whisper-cpp", "whispercpp", "cpp")
+WHISPER_CPP_BIN = os.environ.get("WHISPER_CPP_BIN", "whisper-server")
+# expanduser wraps the whole lookup so a `~` in the env value (e.g. from a
+# composition config `whisper_cpp_model: ~/.cache/...`) is expanded too — not
+# only the default. A literal `~` reaches here otherwise and the model isn't found.
+WHISPER_CPP_MODEL = os.path.expanduser(os.environ.get(
+    "WHISPER_CPP_MODEL",
+    "~/.cache/whisper-cpp/ggml-large-v3.bin",
+))
+# Silero VAD model for whisper.cpp. When present, whisper-server runs VAD to strip
+# non-speech before decoding — kills trailing-silence hallucinations (a stray
+# "Obrigado." at the end) at ~no latency cost (it skips silence). Empty/missing =
+# VAD off. speech-pad keeps word onsets from being clipped.
+WHISPER_CPP_VAD_MODEL = os.path.expanduser(os.environ.get(
+    "WHISPER_CPP_VAD_MODEL",
+    "~/.cache/whisper-cpp/ggml-silero-vad.bin",
+))
+_whisper_cpp_proc = None
+_whisper_cpp_port = None
 
 # --- multilingual TTS voice routing ---------------------------------------
 # The spoken voice is chosen from the language of the RESPONSE TEXT (detected
@@ -222,7 +259,79 @@ def load_whisper():
             print(f"whisper cuda failed ({e}); falling back to cpu int8")
     return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8"), "cpu"
 
-whisper, WHISPER_DEVICE = load_whisper()
+def start_whisper_cpp():
+    """Spawn whisper-server (whisper.cpp, Metal GPU) as a supervised child and
+    return (proc, port). The model stays warm in the child; /stt proxies to it.
+    Raises if the binary or model is missing so startup fails loudly rather than
+    silently degrading."""
+    global _whisper_cpp_proc, _whisper_cpp_port
+    if not os.path.exists(WHISPER_CPP_MODEL):
+        raise RuntimeError(f"whisper-cpp model not found: {WHISPER_CPP_MODEL}")
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    _whisper_cpp_port = s.getsockname()[1]
+    s.close()
+    args = [
+        WHISPER_CPP_BIN, "-m", WHISPER_CPP_MODEL,
+        "--host", "127.0.0.1", "--port", str(_whisper_cpp_port),
+        "-bs", str(WHISPER_BEAM), "-l", (WHISPER_LANG or "auto"),
+        "--suppress-nst",  # drop non-speech tokens ([music], blanks) — free
+    ]
+    if WHISPER_CPP_VAD_MODEL and os.path.exists(WHISPER_CPP_VAD_MODEL):
+        args += [
+            "--vad", "--vad-model", WHISPER_CPP_VAD_MODEL,
+            "--vad-speech-pad-ms", "200",  # protect word onsets from over-trim
+        ]
+        print(f"whisper.cpp VAD on ({os.path.basename(WHISPER_CPP_VAD_MODEL)})")
+    _whisper_cpp_proc = subprocess.Popen(
+        args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    atexit.register(lambda: _whisper_cpp_proc and _whisper_cpp_proc.terminate())
+    # Wait until the HTTP port answers (model load + Metal init).
+    base = f"http://127.0.0.1:{_whisper_cpp_port}"
+    for _ in range(120):
+        if _whisper_cpp_proc.poll() is not None:
+            raise RuntimeError("whisper-server exited during startup")
+        try:
+            httpx.get(base + "/", timeout=1.0)
+            print(f"whisper.cpp server warm on {base} (model={WHISPER_CPP_MODEL})")
+            return
+        except Exception:
+            time.sleep(0.5)
+    raise RuntimeError("whisper-server did not become ready in time")
+
+
+def transcribe_cpp(audio_f32):
+    """float32 mono 16k -> text via the warm whisper-server (Metal)."""
+    buf = io.BytesIO()
+    sf.write(buf, audio_f32, 16000, format="WAV")
+    buf.seek(0)
+    data = {"response_format": "json", "temperature": "0"}
+    if WHISPER_LANG:
+        data["language"] = WHISPER_LANG
+    # Vocabulary bias (proper nouns / domain terms the model otherwise mangles,
+    # e.g. "Agent Garrison"). Keep WHISPER_PROMPT a COMMA-SEPARATED TERM LIST, not
+    # example sentences — full sentences get regurgitated verbatim on unclear
+    # audio (learned the hard way with faster-whisper).
+    if WHISPER_PROMPT:
+        data["prompt"] = WHISPER_PROMPT
+    r = httpx.post(
+        f"http://127.0.0.1:{_whisper_cpp_port}/inference",
+        files={"file": ("audio.wav", buf, "audio/wav")},
+        data=data,
+        timeout=120,
+    )
+    r.raise_for_status()
+    return (r.json().get("text") or "").strip()
+
+
+# Load faster-whisper only when it is the active engine — whisper-cpp keeps its
+# weights in the whisper-server child, so loading CTranslate2 too would just
+# waste RAM and startup time.
+if USE_WHISPER_CPP:
+    whisper, WHISPER_DEVICE = None, "metal(whisper.cpp)"
+else:
+    whisper, WHISPER_DEVICE = load_whisper()
 load_piper()
 
 # one whisper model, two callers (/stt route + wake-word thread) — serialize
@@ -236,6 +345,12 @@ whisper_lock = threading.Lock()
 # low-SNR microphone. Enable + A/B with the actual speaker via STT_NORMALIZE_GAIN=on.
 STT_NORMALIZE_GAIN = os.environ.get("STT_NORMALIZE_GAIN", "off").lower() in ("on", "1", "true")
 STT_GAIN_CAP = float(os.environ.get("STT_GAIN_CAP", "8.0"))  # ~+18 dB ceiling
+# Run whisper's built-in Silero VAD to strip leading/trailing silence and room
+# noise from real push-to-talk clips (button-down..button-up always brackets the
+# speech with quiet). Real mics hallucinate words out of that non-speech; the VAD
+# filter removes it. ON by default now — turn off with STT_VAD_FILTER=off if it
+# clips very short utterances.
+STT_VAD_FILTER = os.environ.get("STT_VAD_FILTER", "on").lower() in ("on", "1", "true")
 
 
 def normalize_gain(audio):
@@ -254,9 +369,11 @@ def transcribe_pcm(audio_f32):
     """float32 mono 16k -> text. Shared by the wake-word capture path. Language
     is auto-detected (no `language=` hint) so non-English speech transcribes."""
     audio_f32 = normalize_gain(audio_f32)
+    if USE_WHISPER_CPP:
+        return transcribe_cpp(audio_f32)
     with whisper_lock:
         segments, _info = whisper.transcribe(
-            audio_f32, beam_size=1, vad_filter=False,
+            audio_f32, beam_size=WHISPER_BEAM, vad_filter=STT_VAD_FILTER,
             initial_prompt=WHISPER_PROMPT or None,
             language=WHISPER_LANG or None,
         )
@@ -314,6 +431,8 @@ async def events(ws: WebSocket):
 async def _startup():
     global main_loop
     main_loop = asyncio.get_running_loop()
+    if USE_WHISPER_CPP:
+        start_whisper_cpp()
     if wake is not None:
         wake.start()
 
@@ -365,10 +484,11 @@ def health():
         "piper_languages": sorted(piper_voices.keys()),
         "stt": {
             "ok": True,
-            "model": WHISPER_MODEL,
+            "engine": STT_ENGINE,
+            "model": os.path.basename(WHISPER_CPP_MODEL) if USE_WHISPER_CPP else WHISPER_MODEL,
             "device": WHISPER_DEVICE,
             # `small.en` (or any *.en) is English-only; everything else auto-detects.
-            "multilingual": not WHISPER_MODEL.endswith(".en"),
+            "multilingual": USE_WHISPER_CPP or not WHISPER_MODEL.endswith(".en"),
         },
         "wake": {
             "enabled": WAKE_ENABLED,
@@ -386,31 +506,64 @@ async def stt(req: Request):
     if len(audio) < 1000:
         return Response(status_code=400, content="clip too short")
     t0 = time.time()
-    # Default path hands raw bytes to whisper (PyAV decodes webm/opus/wav
-    # internally) — byte-identical to before. Only when gain normalization is
-    # enabled do we decode to a float32 array first so we can boost a quiet
-    # speaker; on any decode hiccup we fall back to the raw bytes.
-    if STT_NORMALIZE_GAIN:
+    # Debug capture for A/B tuning: dump the raw inbound audio so the SAME real
+    # utterance can be replayed through other engines. Gated on STT_DUMP_DIR.
+    _dump = os.environ.get("STT_DUMP_DIR", "").strip()
+    if _dump:
         try:
-            source = normalize_gain(decode_audio(io.BytesIO(audio), sampling_rate=16000))
+            os.makedirs(_dump, exist_ok=True)
+            with open(os.path.join(_dump, f"clip_{int(t0 * 1000)}.bin"), "wb") as _f:
+                _f.write(audio)
         except Exception:
-            source = io.BytesIO(audio)
+            pass
+    if USE_WHISPER_CPP:
+        # whisper.cpp needs PCM/WAV, so always decode here (PyAV handles
+        # webm/opus). Boost a quiet speaker, hand to the warm Metal server. Its
+        # /inference (json) doesn't report the language, so derive it from the
+        # text for the bilingual reply hint.
+        try:
+            pcm = normalize_gain(decode_audio(io.BytesIO(audio), sampling_rate=16000))
+        except Exception:
+            return Response(status_code=400, content="could not decode audio")
+        text = transcribe_cpp(pcm)
+        lang = detect_text_lang(text) if text else DEFAULT_TTS_LANG
+        prob = 1.0
     else:
-        source = io.BytesIO(audio)
-    # WHISPER_LANG pins the language; whisper still reports it on `info`, so the
-    # spoken language travels with the transcript.
-    with whisper_lock:
-        segments, info = whisper.transcribe(
-            source, beam_size=1, vad_filter=False,
-            initial_prompt=WHISPER_PROMPT or None,
-            language=WHISPER_LANG or None,
-        )
-        text = " ".join(s.text.strip() for s in segments).strip()
+        # Default path hands raw bytes to whisper (PyAV decodes webm/opus/wav
+        # internally). Only when gain normalization is enabled do we decode to a
+        # float32 array first so we can boost a quiet speaker; on any decode
+        # hiccup we fall back to the raw bytes. WHISPER_LANG pins the language;
+        # whisper still reports it on `info`, so the spoken language travels with
+        # the transcript.
+        if STT_NORMALIZE_GAIN:
+            try:
+                source = normalize_gain(decode_audio(io.BytesIO(audio), sampling_rate=16000))
+            except Exception:
+                source = io.BytesIO(audio)
+        else:
+            source = io.BytesIO(audio)
+        with whisper_lock:
+            segments, info = whisper.transcribe(
+                source, beam_size=WHISPER_BEAM, vad_filter=STT_VAD_FILTER,
+                initial_prompt=WHISPER_PROMPT or None,
+                language=WHISPER_LANG or None,
+            )
+            text = " ".join(s.text.strip() for s in segments).strip()
+        lang = info.language
+        prob = float(info.language_probability)
+    ms = int((time.time() - t0) * 1000)
+    # Observability for real-mic tuning: log every transcript with the detected
+    # language + confidence so a bad utterance can be diagnosed from the log.
+    print(
+        f"[stt] {ms}ms engine={STT_ENGINE} lang={lang}({prob:.2f}) "
+        f"bytes={len(audio)} vad={STT_VAD_FILTER} gain={STT_NORMALIZE_GAIN} -> {text!r}",
+        flush=True,
+    )
     return {
         "text": text,
-        "ms": int((time.time() - t0) * 1000),
-        "language": info.language,
-        "language_probability": round(float(info.language_probability), 3),
+        "ms": ms,
+        "language": lang,
+        "language_probability": round(prob, 3),
     }
 
 
@@ -466,7 +619,8 @@ if __name__ == "__main__":
     import soundfile as sf
     sf.write(warm, samples, SAMPLE_RATE, format="WAV")
     warm.seek(0)
-    list(whisper.transcribe(warm, beam_size=1)[0])  # warm the auto-detect path
+    if not USE_WHISPER_CPP:
+        list(whisper.transcribe(warm, beam_size=1)[0])  # warm the auto-detect path
     detect_text_lang("warmup")  # build the lingua detector before first /speak
     for _pv in piper_voices.values():  # warm each Piper voice's onnx graph
         try:

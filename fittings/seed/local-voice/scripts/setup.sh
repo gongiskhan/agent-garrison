@@ -64,4 +64,32 @@ PIPER_PT_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_PT
 fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx"      "$PIPER_DIR/pt_PT-tugao-medium.onnx"
 fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx.json" "$PIPER_DIR/pt_PT-tugao-medium.onnx.json"
 
+# 5. whisper.cpp (Metal GPU STT) — only when selected as the STT engine. Runs
+#    large-v3 on the Apple GPU via a supervised whisper-server, ~3x faster than
+#    faster-whisper's CPU path. Needs the `whisper-server` binary + the ggml
+#    model. Skipped entirely when STT_ENGINE is the default faster-whisper.
+STT_ENGINE_LC="$(printf '%s' "${STT_ENGINE:-faster-whisper}" | tr '[:upper:]' '[:lower:]')"
+if [ "$STT_ENGINE_LC" = "whisper-cpp" ] || [ "$STT_ENGINE_LC" = "whispercpp" ] || [ "$STT_ENGINE_LC" = "cpp" ]; then
+  echo "[local-voice:setup] STT engine = whisper-cpp — ensuring whisper-server + model"
+  if ! command -v whisper-server >/dev/null 2>&1; then
+    if command -v brew >/dev/null 2>&1; then
+      echo "[local-voice:setup] installing whisper-cpp via brew (Metal-enabled)"
+      brew install whisper-cpp
+    else
+      echo "[local-voice:setup] ERROR: whisper-server not found and no brew to install it." >&2
+      echo "[local-voice:setup]   Install whisper.cpp (with Metal) or set stt_engine back to faster-whisper." >&2
+      exit 1
+    fi
+  fi
+  WCPP_MODEL="${WHISPER_CPP_MODEL:-$HOME/.cache/whisper-cpp/ggml-large-v3.bin}"
+  mkdir -p "$(dirname "$WCPP_MODEL")"
+  fetch "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin" "$WCPP_MODEL"
+  # Silero VAD model (~885KB) — strips non-speech so whisper doesn't hallucinate
+  # a trailing word into end-of-clip silence. Note the repo: ggml-org/whisper-vad
+  # (the whisper.cpp repo path 404s for this file).
+  WCPP_VAD="${WHISPER_CPP_VAD_MODEL:-$HOME/.cache/whisper-cpp/ggml-silero-vad.bin}"
+  fetch "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin" "$WCPP_VAD"
+  echo "[local-voice:setup] whisper-cpp ready ($(whisper-server --help >/dev/null 2>&1 && echo binary-ok))"
+fi
+
 echo "[local-voice:setup] done — venv + deps + Kokoro + Piper(pt_PT) models ready"
