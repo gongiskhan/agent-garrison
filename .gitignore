@@ -3,10 +3,15 @@
 node_modules/
 coverage/
 dist/
-# Own-port Fitting UIs under fittings/seed/*/dist are HAND-AUTHORED static assets
-# (source), not build output — keep them tracked despite the global dist/ ignore.
-!fittings/seed/*/dist/
-!fittings/seed/*/dist/**
+# Most Fitting dist/ is esbuild/vad-web BUILD OUTPUT, regenerated on station by
+# `x-garrison.setup: node ui/build.mjs` (jarvis-os copies ~76MB of ort-wasm/onnx
+# from node_modules) — it MUST stay ignored so it never lands in git history.
+# Only these two Fittings ship a hand-authored dist/index.html with no build step;
+# re-include the dir first (git can't re-include a file under an excluded dir), then the file.
+!fittings/seed/automations/dist/
+!fittings/seed/automations/dist/index.html
+!fittings/seed/file-browser/dist/
+!fittings/seed/file-browser/dist/index.html
 *.log
 *.tsbuildinfo
 .env
