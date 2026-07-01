@@ -435,6 +435,7 @@ function serveStatic(req, res, distDir) {
       const data = readFileSync(indexFallback);
       res.statusCode = 200;
       res.setHeader("Content-Type", "text/html");
+      res.setHeader("Cache-Control", "no-cache");
       res.end(data);
       return;
     }
@@ -459,6 +460,15 @@ function serveStatic(req, res, distDir) {
   };
   res.statusCode = 200;
   res.setHeader("Content-Type", ctMap[ext] ?? "application/octet-stream");
+  // HTML/JS/CSS keep a static filename but change on every rebuild, so force
+  // revalidation — otherwise the browser serves a stale HUD from disk cache and
+  // updates stay invisible (there's no content hash / ETag to bust it). The big
+  // immutable VAD assets (.wasm/.onnx) stay long-cacheable.
+  if (ext === ".html" || ext === ".js" || ext === ".mjs" || ext === ".css") {
+    res.setHeader("Cache-Control", "no-cache");
+  } else if (ext === ".wasm" || ext === ".onnx") {
+    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+  }
   createReadStream(filePath).pipe(res);
 }
 
