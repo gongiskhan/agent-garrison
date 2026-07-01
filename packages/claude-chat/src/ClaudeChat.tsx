@@ -659,7 +659,19 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     if (!voiceClient || recBusyRef.current) return;
     recBusyRef.current = true;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Explicit constraints: clean the mic before it reaches whisper — echo
+      // cancellation, noise suppression, and auto gain lift accuracy on real
+      // rooms at zero latency cost; mono @16k matches whisper's input so there's
+      // no resample. (Browsers vary on defaults for bare `audio: true`.)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 16000
+        }
+      });
       if (!voiceMountedRef.current) {
         // Unmounted while the permission prompt was pending — release the mic
         // and bail before constructing/starting the recorder.

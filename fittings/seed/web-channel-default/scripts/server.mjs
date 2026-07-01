@@ -31,7 +31,13 @@ function garrisonDir() {
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "web-channel-default.json");
 const MONITOR_STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
-const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
+// Voice backend the channel proxies /api/voice/{stt,tts,health} to. Pointed at
+// the fully-local Fitting (faster-whisper STT + Piper/Kokoro TTS, bilingual
+// PT/EN) — deepgram-voice is no longer used. local-voice exposes the same
+// POST /stt and POST /tts contract, so the proxy is unchanged. (The streaming
+// /api/voice/stream path is deepgram-only and unused by this UI, which does
+// push-to-talk batch /voice/stt via claude-chat.)
+const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "local-voice.json");
 
 const CHANNEL_ID = "web";
 
@@ -253,6 +259,14 @@ function readRawBody(req, limit = 25 * 1024 * 1024) {
   });
 }
 
+// SSE error frame carrying BOTH keys: the rich claude-chat transport reads
+// `message`, the context/orchestrator transport reads `error`. Emitting both
+// keeps either consumer from rendering "error: undefined".
+function sseError(msg) {
+  const m = msg ?? "stream error";
+  return `event: error\ndata: ${JSON.stringify({ message: m, error: m })}\n\n`;
+}
+
 function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/event-stream");
@@ -262,7 +276,7 @@ function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
 
   const upstream = http.request(upstreamOpts, (up) => {
     if (up.statusCode && up.statusCode >= 400) {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: `upstream ${up.statusCode}` })}\n\n`);
+      res.write(sseError(`upstream ${up.statusCode}`));
       up.resume();
       res.end();
       return;
@@ -274,13 +288,13 @@ function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
       try { res.end(); } catch {}
     });
     up.on("error", (err) => {
-      try { res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`); } catch {}
+      try { res.write(sseError(err.message)); } catch {}
       try { res.end(); } catch {}
     });
   });
   upstream.on("error", (err) => {
     try {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.write(sseError(err.message));
       res.end();
     } catch {}
   });

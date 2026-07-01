@@ -155,13 +155,25 @@ function createOrchestratorTransport(base = "/api"): ChatTransport {
 const { context, mode, kickoff } = readUrlContext();
 const contextDriven = context !== undefined || mode !== undefined || kickoff !== undefined;
 
-// Rich PTY surface by default (unchanged); orchestrator path when context/mode/
-// kickoff are supplied. Both forward voice through the same same-origin /api/voice/*.
-const transport = contextDriven
-  ? createOrchestratorTransport("/api")
-  : createHttpTransport("/api");
+// Transport selection. When a fitting supplies context/mode/kickoff we always
+// take the orchestrator path. Otherwise we PREFER the rich PTY /claude/* surface,
+// but fall back to the orchestrator path (/api/chat → gateway /chat/stream) when
+// the gateway doesn't implement /claude/* — e.g. the personal-operative
+// http-gateway exposes only /chat + /channels, so the rich transport would 404
+// every turn. A cheap GET /api/claude/status probe decides which surface is live.
+// Both forward voice through the same same-origin /api/voice/*.
+async function pickTransport(): Promise<ChatTransport> {
+  if (contextDriven) return createOrchestratorTransport("/api");
+  try {
+    const res = await fetch("/api/claude/status", { method: "GET" });
+    if (res.ok) return createHttpTransport("/api");
+  } catch {
+    /* rich surface unreachable — fall through to the orchestrator path */
+  }
+  return createOrchestratorTransport("/api");
+}
 
-function App() {
+function App({ transport }: { transport: ChatTransport }) {
   return (
     <ClaudeChat
       transport={transport}
@@ -174,5 +186,7 @@ function App() {
   );
 }
 
-const root = createRoot(document.getElementById("root")!);
-root.render(<App />);
+pickTransport().then((transport) => {
+  const root = createRoot(document.getElementById("root")!);
+  root.render(<App transport={transport} />);
+});
