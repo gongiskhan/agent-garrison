@@ -198,6 +198,10 @@ function App() {
   const [mode, setModeRaw] = useState<CoreMode>("idle");
   const [voiceAvailable, setVoiceAvailable] = useState(false);
   const [sessionOn, setSessionOnRaw] = useState(false);
+  // Mic muted: the session stays armed but the VAD stops listening to the room,
+  // so side-conversations / other people don't trigger a turn. Space (push-to-
+  // talk) opens the mic for a single utterance and it re-mutes afterwards.
+  const [micMuted, setMicMutedRaw] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [callouts, setCallouts] = useState<Callout[]>([]);
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
@@ -221,6 +225,8 @@ function App() {
   // VAD callbacks and key handlers read the live value without stale closures).
   const sessionOnRef = useRef(false);
   const setSessionOn = useCallback((v: boolean) => { sessionOnRef.current = v; setSessionOnRaw(v); }, []);
+  const micMutedRef = useRef(false);
+  const setMicMuted = useCallback((v: boolean) => { micMutedRef.current = v; setMicMutedRaw(v); }, []);
 
   // Audio analysis uses TWO separate analysers. Critical: the mic analyser is
   // NEVER connected to ctx.destination — routing the mic to the speakers would
@@ -330,9 +336,12 @@ function App() {
   // end-of-speech detection. This single gated check is the fix for that.
   const endTurnIfDone = useCallback(() => {
     if (sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0) return;
-    if (sessionOnRef.current) { resumeVad(); setMode("listening"); }
-    else setMode("idle");
-  }, [resumeVad, setMode]);
+    if (!sessionOnRef.current) { setMode("idle"); return; }
+    // Muted: a push-to-talk utterance just finished — close the mic back up so
+    // the room isn't heard again, and show the muted state (don't re-arm listen).
+    if (micMutedRef.current) { pauseVad(); setMode("muted"); return; }
+    resumeVad(); setMode("listening");
+  }, [resumeVad, pauseVad, setMode]);
 
   // TTS: ask the voice Fitting (same-origin proxy) to speak, route it through
   // the analyser so the core pulses, and return to idle when playback ends.
@@ -631,6 +640,7 @@ function App() {
     if (!voiceAvailable) { flashError("voice", "No voice Fitting — station local-voice"); return; }
     if (!micCaptureAllowed()) { flashError("mic", "Mic needs https or localhost"); return; }
     setSessionOn(true);
+    setMicMuted(false); // fresh sessions start hands-free (unmuted)
     setMode("listening");
     let stream: MediaStream;
     try {
@@ -659,12 +669,13 @@ function App() {
       try { stream.getTracks().forEach((t) => t.stop()); } catch {}
       flashError("vad", `VAD load failed: ${e?.message || e}`);
     }
-  }, [voiceAvailable, ensureVad, getCtx, ensureAnalyser, setMode, setSessionOn, flashError]);
+  }, [voiceAvailable, ensureVad, getCtx, ensureAnalyser, setMode, setSessionOn, setMicMuted, flashError]);
 
   // Disarm the session: tear down the VAD and fully release the mic (so the
   // browser's recording indicator goes off). The next start rebuilds it.
   const stopSession = useCallback(async () => {
     setSessionOn(false);
+    setMicMuted(false);
     vadRunningRef.current = false;
     try { await vadRef.current?.destroy(); } catch {}
     vadRef.current = null;
@@ -674,33 +685,56 @@ function App() {
     micStreamRef.current = null;
     stopSpeech();
     setMode("idle");
-  }, [setSessionOn, setMode, stopSpeech]);
+  }, [setSessionOn, setMicMuted, setMode, stopSpeech]);
+
+  // Mute toggle (M key / the mute button): stop listening to the room without
+  // ending the session. Only meaningful with a live session. Muting pauses the
+  // VAD; unmuting resumes hands-free listening.
+  const toggleMute = useCallback(() => {
+    if (!sessionOnRef.current) return;
+    if (modeRef.current === "speaking") stopSpeech(); // muting mid-reply also cuts it
+    const next = !micMutedRef.current;
+    setMicMuted(next);
+    if (next) { pauseVad(); setMode("muted"); }
+    else { resumeVad(); setMode("listening"); }
+  }, [stopSpeech, pauseVad, resumeVad, setMicMuted, setMode]);
 
   // Single press = toggle the session. While Jarvis is speaking, a press is a
-  // barge-in: cut the reply off but keep the session armed.
+  // barge-in: cut the reply off but keep the session armed. While MUTED, a press
+  // is push-to-talk: open the mic for one utterance (endTurnIfDone re-mutes when
+  // the turn finishes), or cancel a push-to-talk window that is still open.
   const onToggle = useCallback(() => {
     if (modeRef.current === "speaking") {
       stopSpeech();
-      if (sessionOnRef.current) { resumeVad(); setMode("listening"); }
-      else setMode("idle");
+      if (!sessionOnRef.current) { setMode("idle"); return; }
+      if (micMutedRef.current) { setMode("muted"); }        // stay muted after interrupt
+      else { resumeVad(); setMode("listening"); }
       return;
     }
-    if (sessionOnRef.current) void stopSession();
-    else void startSession();
-  }, [stopSpeech, resumeVad, setMode, stopSession, startSession]);
+    if (sessionOnRef.current) {
+      if (micMutedRef.current) {
+        // push-to-talk while muted: open for one utterance, or cancel if already open
+        if (modeRef.current === "listening") { pauseVad(); setMode("muted"); }
+        else { resumeVad(); setMode("listening"); }
+        return;
+      }
+      void stopSession();
+      return;
+    }
+    void startSession();
+  }, [stopSpeech, resumeVad, pauseVad, setMode, stopSession, startSession]);
 
-  // Space toggles the session (ignore auto-repeat and typing fields). Esc closes
-  // the report overlay.
+  // Space toggles the session / push-to-talk; M mutes the mic (ignore auto-repeat
+  // and typing fields). Esc closes the report overlay.
   useEffect(() => {
     const isTypingTarget = (el: EventTarget | null) => {
       const t = el as HTMLElement | null;
       return Boolean(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
     };
     const onDown = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || e.repeat || isTypingTarget(e.target)) return;
-      if (report) return;
-      e.preventDefault();
-      onToggle();
+      if (e.repeat || isTypingTarget(e.target) || report) return;
+      if (e.code === "Space") { e.preventDefault(); onToggle(); }
+      else if (e.key === "m" || e.key === "M") { e.preventDefault(); toggleMute(); }
     };
     const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setReport(null); };
     window.addEventListener("keydown", onDown);
@@ -709,7 +743,7 @@ function App() {
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keydown", onEsc);
     };
-  }, [onToggle, report]);
+  }, [onToggle, toggleMute, report]);
 
   // Channel stream: speak a delegated Soul's reply when it lands asynchronously
   // (the orchestrator only acked the delegation, marked [delegated], unspoken).
@@ -749,9 +783,12 @@ function App() {
 
   const statusLabel = !voiceAvailable
     ? "No voice Fitting — station local-voice"
-    : mode === "listening" ? "Listening… (fala; a pausa envia · Space/tap para parar)"
+    : mode === "muted" ? "Muted — não ouço a sala (Space/tap: falar uma vez · M: sair do mute)"
+    : mode === "listening" ? (micMuted
+        ? "A ouvir a tua pergunta… (Space/tap: cancelar)"
+        : "Listening… (fala; a pausa envia · Space/tap: parar · M: mute)")
     : mode === "working" ? "Thinking…"
-    : mode === "speaking" ? "Speaking… (Space/tap to interrupt)"
+    : mode === "speaking" ? "Speaking… (Space/tap: interromper · M: mute)"
     : mode === "error" ? "Error"
     : micCaptureAllowed() ? "Press Space (or tap the core) to start talking" : "Mic needs https or localhost";
 
@@ -771,6 +808,21 @@ function App() {
         <span className={`jarvis-dot ${mode}`} />
         <span className="jarvis-status-text">{statusLabel}</span>
       </div>
+
+      {sessionOn && (
+        <button
+          className={`jarvis-mute${micMuted ? " is-muted" : ""}`}
+          onClick={toggleMute}
+          aria-pressed={micMuted}
+          aria-label={micMuted ? "Unmute microphone (M)" : "Mute microphone (M)"}
+          title={micMuted
+            ? "Muted — Jarvis não ouve a sala. Space/tap para falar uma vez. (M)"
+            : "Mute o mic para falar com outras pessoas sem ativar o Jarvis (M)"}
+        >
+          <span className="jarvis-mute-icon">{micMuted ? "🔇" : "🎙"}</span>
+          <span className="jarvis-mute-label">{micMuted ? "muted" : "mic on"}</span>
+        </button>
+      )}
 
       {activity.length > 0 && (
         <div className="jarvis-activity" data-state={mode}>

@@ -84,6 +84,36 @@ html, body, #root {
   color: var(--ink-dim);
   pointer-events: none;
 }
+
+.jarvis-mute {
+  position: fixed;
+  right: 20px;
+  bottom: 16vh;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.jarvis-mute:hover {
+  color: #e6e9ef;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.jarvis-mute.is-muted {
+  color: #e6e9ef;
+  background: rgba(107, 114, 128, 0.22);
+  border-color: #6b7280;
+}
+.jarvis-mute-icon { font-size: 13px; line-height: 1; }
 .jarvis-dot {
   width: 7px;
   height: 7px;

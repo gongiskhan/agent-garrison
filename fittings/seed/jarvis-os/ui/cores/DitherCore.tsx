@@ -18,7 +18,7 @@ import { DitheringShader } from "./dithering-shader";
 // Wrapper stays square: the shader has no aspect correction.
 // ---------------------------------------------------------------------------
 
-export type CoreMode = "idle" | "working" | "listening" | "speaking" | "error";
+export type CoreMode = "idle" | "working" | "listening" | "speaking" | "error" | "muted";
 
 const MODE_COLOR: Record<CoreMode, string> = {
   idle: "#d97757",
@@ -26,6 +26,7 @@ const MODE_COLOR: Record<CoreMode, string> = {
   listening: "#5577ff",
   speaking: "#ffc94a",
   error: "#ff4d3d",
+  muted: "#6b7280",   // desaturated grey — deaf to the room
 };
 
 const MODE_SPEED: Record<CoreMode, number> = {
@@ -34,6 +35,7 @@ const MODE_SPEED: Record<CoreMode, number> = {
   listening: 1.4,
   speaking: 1.8,
   error: 3.2,
+  muted: 0.5,         // slow, sleepy pulse
 };
 
 // synthetic speech envelope — syllable bursts with pauses, looks like talking
