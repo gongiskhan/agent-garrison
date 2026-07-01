@@ -542,19 +542,37 @@ function App() {
     try {
       const blob = float32ToWavBlob(audio, 16000);
       const res = await fetch("/api/voice/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: blob });
-      if (!res.ok) { endTurnIfDone(); return; }
+      if (!res.ok) {
+        // STT failed (503 = engines still warming, 502 = engine crashed, 400 =
+        // bad audio). A silent drop reads as Jarvis ignoring you — surface it,
+        // then re-arm so the next attempt Just Works. This is NOT the empty-
+        // transcript case below (normal noise/silence), which stays quiet.
+        const detail = res.status === 503
+          ? "voice engine still warming up — try again in a second"
+          : `speech-to-text failed (${res.status})`;
+        console.error(`[jarvis] stt: ${detail}`);
+        pushCallout("didn't catch that", detail);
+        endTurnIfDone();
+        return;
+      }
       const data = await res.json();
       const transcript = typeof data?.transcript === "string" ? data.transcript.trim() : "";
-      // loop-safety: drop empty / sub-word transcripts (a stray noise blip)
+      // loop-safety: drop empty / sub-word transcripts (a stray noise blip) —
+      // quietly, so ambient noise never spams a callout.
       if (transcript && transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
         void send(transcript);
       } else {
         endTurnIfDone(); // nothing usable → re-arm and keep listening
       }
-    } catch {
+    } catch (e) {
+      // Network/proxy error reaching the voice Fitting — also must not fail
+      // silent; the user needs to know speech isn't getting through.
+      const detail = `voice unreachable: ${(e as Error)?.message ?? e}`;
+      console.error(`[jarvis] stt: ${detail}`);
+      pushCallout("didn't catch that", detail);
       endTurnIfDone();
     }
-  }, [setMode, send, endTurnIfDone]);
+  }, [setMode, send, endTurnIfDone, pushCallout]);
 
   // Surface a problem the user can read (and report) instead of failing silent.
   const flashError = useCallback((label: string, msg: string) => {
