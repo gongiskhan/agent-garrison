@@ -68,19 +68,31 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
       title: "Add a Discuss brief",
       project: "garrison"
     });
-    expect(ctx.briefsPath).toBe("./briefs/");
+    // No cardsAbsDir provided → no absolute brief path (the Brief editor stays off).
+    expect(ctx.briefAbsPath).toBeUndefined();
     // CARD-UNIQUE stem: <cardId>-<slug> (so two same-titled cards never collide).
     expect(ctx.suggestedSlug).toBe("01HZX5K3QABCDEFGHJKMNPQRS0-add-a-discuss-brief");
   });
 
-  it("honors a custom webChannelBase + briefsPath", () => {
+  it("computes an absolute, card-owned briefAbsPath from cardsAbsDir", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "X", project: null };
-    const url = buildDiscussUrl(card, { webChannelBase: "/fitting/web-channel/", briefsPath: "docs/briefs/" });
+    const url = buildDiscussUrl(card, { webChannelBase: "/fitting/web-channel/", cardsAbsDir: "/Users/x/.garrison/kanban-loop/cards" });
     expect(url.startsWith("/fitting/web-channel?mode=james&context=")).toBe(true);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
     const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
-    expect(ctx.briefsPath).toBe("docs/briefs/");
+    expect(ctx.briefAbsPath).toBe("/Users/x/.garrison/kanban-loop/cards/01HZX5K3QABCDEFGHJKMNPQRS0/brief.md");
     expect(ctx.project).toBe(null);
+  });
+
+  it("carries a STABLE per-card thread key + title (so reopening returns to the same session)", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add a Discuss brief", project: "garrison" };
+    const q = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
+    // The channel decodes thread/title the same way it decodes context (base64 round-trip).
+    expect(channelDecodeContext(q.get("thread"))).toBe("kanban-01HZX5K3QABCDEFGHJKMNPQRS0");
+    expect(channelDecodeContext(q.get("title"))).toBe("Add a Discuss brief");
+    // The key is STABLE: the same card always yields the same thread key.
+    const q2 = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
+    expect(q2.get("thread")).toBe(q.get("thread"));
   });
 });
 
@@ -92,9 +104,24 @@ describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)
     expect(k).toContain("# Card: Add SSO");
     expect(k).toContain("Project: garrison");
     expect(k).toContain("Users hit a redirect loop on Safari.");
-    // It points James at the SAME path the board auto-links on Move-out-of-Discuss.
-    expect(k).toContain(`\`${briefRelPath(card)}\``);
+    // It points James at the card-owned brief path (a card-relative fallback when the
+    // board hasn't supplied an absolute one) — the same file the board + engine read.
+    expect(k).toContain(`cards/${card.id}/brief.md`);
     expect(k.toLowerCase()).toContain("clarifying question");
+  });
+  it("proportional effort + short replies, ALWAYS asks ≥1 question, and never writes the brief on the first turn", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Change a word", project: "ekoa", description: "Reword the hero copy." };
+    const k = buildDiscussKickoff(card).toLowerCase();
+    // Calibrate to the size of the work, keep the chat reply tight.
+    expect(k).toContain("match your effort");
+    expect(k).toContain("proportional");
+    expect(k).toContain("short and direct");
+    // Always give the user a chance to discuss: ask at least one question first, and do
+    // NOT write the brief on the opening message.
+    expect(k).toContain("at least one");
+    expect(k).toMatch(/do not write the brief|don't write the brief/);
+    // The old always-heavyweight phrasing is gone.
+    expect(k).not.toContain("think it through out loud");
   });
   it("falls back to an ask-Goncalo line when the card has no description", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Vague card", project: null };
@@ -151,14 +178,14 @@ describe("kanban discuss — the discussion result becomes downstream context", 
     expect(prompt).toContain("ship the widget behind a flag");
   });
 
-  it("processCard folds a card's linked brief into the dispatched prompt", async () => {
+  it("processCard folds the CARD-OWNED brief (root/cards/<id>/brief.md) into the dispatched prompt", async () => {
     const root = mkdtempSync(join(tmpdir(), "kanban-discuss-brief-"));
     const cwd = mkdtempSync(join(tmpdir(), "kanban-discuss-cwd-"));
-    mkdirSync(join(cwd, "briefs"), { recursive: true });
-    writeFileSync(join(cwd, "briefs", "x.md"), "AGREED: build the widget behind a flag.");
     const board = seedBoard();
     const card = await createCard(root, { title: "T", project: "p", list: "plan" });
-    await recordBrief(root, card.id, "briefs/x.md");
+    // The brief lives next to the card's card.json — the deterministic location James is
+    // told to write to; the engine reads it from there regardless of any project cwd.
+    writeFileSync(join(root, "cards", card.id, "brief.md"), "AGREED: build the widget behind a flag.");
     let captured = "";
     const runFn = async ({ prompt }: any) => { captured = prompt; return { reply: "implement" }; };
     await processCard({ root, board, card: await loadCard(root, card.id), runFn, cap: 10, cwd });

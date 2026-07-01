@@ -91,6 +91,19 @@ describe("web-channel generic context contract — server", () => {
     });
   });
 
+  it("forwards a routing classification hint when present (the Discuss no-thinking pin)", () => {
+    expect(
+      buildGatewayChatBody({ message: "hi", mode: "james", classification: { taskType: "other", tier: "T0-trivial" } })
+    ).toEqual({
+      message: "hi",
+      channel: "web",
+      mode: "james",
+      classification: { taskType: "other", tier: "T0-trivial" },
+    });
+    // Absent hint stays backward-compatible (no classification key).
+    expect(buildGatewayChatBody({ message: "hi" })).toEqual({ message: "hi", channel: "web" });
+  });
+
   it("channel is always pinned to 'web' (channel-generic, never caller-set)", () => {
     // Even if a caller smuggled a channel field, the helper ignores it.
     const body = buildGatewayChatBody({ message: "hi", context: { channel: "evil" } });

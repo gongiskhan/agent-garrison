@@ -413,7 +413,10 @@ function MoveSheet({
 }
 
 // ── detail sheet (Open) — the decision-10 links + decision log ──────────────
-function LinkRow({ label, refs }: { label: string; refs: ArtifactRef | ArtifactRef[] | null }) {
+// LinkRow opens each produced artifact in the in-board viewer/editor (ArtifactModal)
+// rather than a raw new tab, so brief/plan/logs are viewable AND editable in place. The
+// external walkthrough video (kind "href") still opens out.
+function LinkRow({ label, refs, onOpen }: { label: string; refs: ArtifactRef | ArtifactRef[] | null; onOpen: (ref: ArtifactRef) => void }) {
   const items = Array.isArray(refs) ? refs : refs ? [refs] : [];
   return (
     <div className="lrow">
@@ -436,12 +439,85 @@ function LinkRow({ label, refs }: { label: string; refs: ArtifactRef | ArtifactR
           return (
             <span key={i}>
               {i > 0 && " · "}
-              <a href={href} target="_blank" rel="noreferrer" style={dim ? { opacity: 0.55 } : undefined}>
-                {label2}{dim ? " (pending)" : ""}
-              </a>
+              {ref.kind === "href" ? (
+                <a href={href} target="_blank" rel="noreferrer">{label2}</a>
+              ) : (
+                <button type="button" className="artlink" style={dim ? { opacity: 0.55 } : undefined} onClick={() => onOpen(ref)}>
+                  {label2}{dim ? " (pending)" : ""}
+                </button>
+              )}
             </span>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// The in-board artifact viewer/editor. Fetches the served content, renders it (image /
+// read-only text / an editable .md·.txt), and saves edits back via PUT for the editable
+// refs (brief · plan · logs). Machine-generated JSON + transcripts + evidence are view-only.
+const ART_IMG_EXT = ["png", "jpg", "jpeg", "webp", "gif", "svg"];
+function artRefToken(ref: ArtifactRef): string | null {
+  if (ref.ref) return ref.ref;
+  try { return new URL(ref.url ?? "", "http://x").searchParams.get("ref"); } catch { return null; }
+}
+function ArtifactModal({ cardId, art, onClose }: { cardId: string; art: ArtifactRef; onClose: () => void }) {
+  const url = api.artifactUrl(art);
+  const token = artRefToken(art);
+  const base = (art.path ? art.path.split("/").pop() : "") || art.name || token || "artifact";
+  const ext = base.toLowerCase().split(".").pop() ?? "";
+  const isImage = ART_IMG_EXT.includes(ext) || Boolean(art.image);
+  const editable = Boolean(token && (token === "brief" || token === "plan" || /^log:\d+$/.test(token)) && (ext === "md" || ext === "txt"));
+  const [content, setContent] = useState("");
+  const [loaded, setLoaded] = useState(isImage);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (isImage || !url) { setLoaded(true); return; }
+    let alive = true;
+    fetch(url, { cache: "no-store" }).then((r) => r.text()).then((t) => { if (alive) { setContent(t); setLoaded(true); } })
+      .catch((e) => { if (alive) { setErr(String(e)); setLoaded(true); } });
+    return () => { alive = false; };
+  }, [url]);
+  const save = useCallback(async () => {
+    if (!token) return;
+    setSaving(true); setErr(null);
+    try {
+      const r = await fetch(`/cards/${encodeURIComponent(cardId)}/artifact?ref=${encodeURIComponent(token)}`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }),
+      });
+      const d = await r.json();
+      if (d?.error) setErr(String(d.error));
+      else { setSaved(true); setDirty(false); window.setTimeout(() => setSaved(false), 1500); }
+    } catch (e) { setErr(String(e)); }
+    setSaving(false);
+  }, [cardId, token, content]);
+  return (
+    <div className="art-scrim" onClick={onClose}>
+      <div className="art-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={base}>
+        <div className="art-head">
+          <span className="art-title">{base}</span>
+          {editable && <span className="art-tag">editable</span>}
+          <span className="art-spacer" />
+          {url && <a className="art-raw" href={url} target="_blank" rel="noreferrer">raw</a>}
+          <button type="button" className="art-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="art-body">
+          {!loaded ? <div className="art-loading">Loading…</div>
+            : isImage ? <img className="art-img" src={url ?? ""} alt={base} />
+            : editable ? <textarea className="art-editor" value={content} spellCheck={false} onChange={(e) => { setContent(e.target.value); setDirty(true); }} />
+            : <pre className="art-view">{content || "(empty)"}</pre>}
+        </div>
+        {editable ? (
+          <div className="art-foot">
+            {err ? <span className="art-err">{err}</span> : saved ? <span className="art-ok">Saved</span> : dirty ? <span className="art-dirty">Unsaved changes</span> : <span className="art-dim">Up to date</span>}
+            <span className="art-spacer" />
+            <button type="button" className="art-save" onClick={() => void save()} disabled={saving || !dirty}>{saving ? "Saving…" : "Save"}</button>
+          </div>
+        ) : err ? <div className="art-foot"><span className="art-err">{err}</span></div> : null}
       </div>
     </div>
   );
@@ -478,6 +554,7 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [openArt, setOpenArt] = useState<ArtifactRef | null>(null);
 
   // Poll the detail while open so the Activity feed updates live as a run progresses
   // (the engine appends events through the run). 3s is responsive without being chatty.
@@ -566,14 +643,14 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
                 const url = api.artifactUrl(e);
                 if (!url) return null;
                 return e.image ? (
-                  <a key={i} className="ev-shot" href={url} target="_blank" rel="noreferrer" title={e.name}>
+                  <button key={i} type="button" className="ev-shot" onClick={() => setOpenArt(e)} title={e.name}>
                     <img src={url} alt={e.name ?? "evidence"} loading="lazy" />
                     <span className="ev-name">{e.name}</span>
-                  </a>
+                  </button>
                 ) : (
-                  <a key={i} className="ev-file" href={url} target="_blank" rel="noreferrer" title={e.name}>
+                  <button key={i} type="button" className="ev-file" onClick={() => setOpenArt(e)} title={e.name}>
                     <LinkIcon /> {e.name}
-                  </a>
+                  </button>
                 );
               })}
             </div>
@@ -598,14 +675,15 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       {/* Pointer table for the rest of the artifacts (evidence itself renders in the
           Evidence section above; the evidence-index json stays here as a raw pointer). */}
       <div className="links">
-        <LinkRow label="plan" refs={links.plan} />
-        <LinkRow label="brief" refs={links.brief} />
-        <LinkRow label="sessions" refs={links.sessions} />
-        <LinkRow label="gate markers" refs={links.gateMarkers} />
-        <LinkRow label="evidence index" refs={links.evidenceIndex} />
-        <LinkRow label="video" refs={links.video} />
-        <LinkRow label="logs" refs={links.logs} />
+        <LinkRow label="plan" refs={links.plan} onOpen={setOpenArt} />
+        <LinkRow label="brief" refs={links.brief} onOpen={setOpenArt} />
+        <LinkRow label="sessions" refs={links.sessions} onOpen={setOpenArt} />
+        <LinkRow label="gate markers" refs={links.gateMarkers} onOpen={setOpenArt} />
+        <LinkRow label="evidence index" refs={links.evidenceIndex} onOpen={setOpenArt} />
+        <LinkRow label="video" refs={links.video} onOpen={setOpenArt} />
+        <LinkRow label="logs" refs={links.logs} onOpen={setOpenArt} />
       </div>
+      {openArt && <ArtifactModal cardId={card.id} art={openArt} onClose={() => setOpenArt(null)} />}
 
       <div className="declog">
         <div className="dl-title"><LinkIcon /> decision log</div>
@@ -1127,7 +1205,7 @@ function App() {
       setNotice("No web channel is installed/running — install/start a web channel fitting to use Discuss.");
       return;
     }
-    const chatHref = buildDiscussUrl(card, { webChannelBase: `/embed/${channelId}` });
+    const chatHref = buildDiscussUrl(card, { webChannelBase: `/embed/${channelId}`, cardsAbsDir: runtime?.cardsAbsDir ?? null });
     const u = new URL(chatHref, window.location.origin);
     const fittingId = u.pathname.split("/").filter(Boolean).pop() || channelId;
     const params: Record<string, string> = {};

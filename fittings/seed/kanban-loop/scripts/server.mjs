@@ -34,7 +34,9 @@ import {
   saveCardCAS,
   deleteCard,
   deriveMembership,
-  appendCardLog
+  appendCardLog,
+  cardBriefFile,
+  cardBriefRel
 } from "../lib/board.mjs";
 import {
   getList,
@@ -230,7 +232,10 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
       }
     }
   }
-  if (card.briefPath) links.brief = mk("brief");
+  // The card-owned brief (<root>/cards/<id>/brief.md) is deterministic — surface the
+  // link whenever the file exists, even while the card is still in Discuss (so it's
+  // viewable/editable during the discussion, not only after Move-out links it).
+  if (card.briefPath || isReadableFile(cardBriefFile(root, card.id))) links.brief = mk("brief");
   // The Claude Code transcript per run: ~/.claude/projects/<encoded-cwd>/<id>.jsonl.
   const sids = Array.isArray(card.sessionIds) ? card.sessionIds : [];
   sids.forEach((sessionId, i) => {
@@ -267,7 +272,15 @@ export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = proje
       ? path.resolve(cwd, card.runDir, "slices", card.sliceId, "gate-status.json")
       : null;
   }
-  if (ref === "brief") return card.briefPath ? path.resolve(cwd, card.briefPath) : null;
+  if (ref === "brief") {
+    // A legacy explicit briefPath (project-relative, e.g. briefs/<slug>.md) resolves
+    // against the project root; the card-owned marker (cards/<id>/brief.md — kanban-root
+    // relative) and the no-briefPath default both resolve to the deterministic
+    // card-owned file under the board root.
+    return card.briefPath && card.briefPath !== cardBriefRel(card.id)
+      ? path.resolve(cwd, card.briefPath)
+      : cardBriefFile(root, card.id);
+  }
   // evidence:<filename> → <runDir>/evidence/<filename>. The name is guarded
   // (isSafeEvidenceName: no separators, no `..`, no leading dot) so the read stays inside
   // THIS card's evidence dir; handleArtifact re-confines the resolved path as well.
@@ -861,12 +874,11 @@ async function handlePatchCard(req, res, opts, id) {
     // brief shows on the card without a manual POST /cards/:id/brief.
     const fromList = getList(board, card.list);
     if (body.list !== card.list && fromList && isInteractive(fromList) && !next.briefPath) {
-      const briefsPath = opts.briefsPath || process.env.KANBAN_BRIEFS_PATH || "./briefs/";
-      const rel = briefRelPath(card, { briefsPath });
-      // briefSlug sanitises the title to kebab, so `rel` is traversal-free by
-      // construction; confine + existence-check before linking.
-      const abs = confinePath(path.resolve(projectRoot(), rel), [projectRoot()]);
-      if (abs && isReadableFile(abs)) next.briefPath = rel;
+      // The brief is card-owned + deterministic (<root>/cards/<id>/brief.md). If James
+      // wrote it during Discuss, mark it on the card (a root-relative pointer) so the
+      // card shows a brief link and the engine folds it into the build.
+      const abs = cardBriefFile(kanbanRoot(), card.id);
+      if (isReadableFile(abs)) next.briefPath = cardBriefRel(card.id);
     }
   }
   if (typeof body.project === "string") next.project = body.project.trim() || null;
@@ -1204,6 +1216,45 @@ async function handleArtifact(req, res, opts, cardId, ref) {
   createReadStream(confined).pipe(res);
 }
 
+// Which artifact refs are EDITABLE (text the user authored/owns): the card-owned brief,
+// the plan, and the per-card iteration logs. Machine-generated JSON (gate markers,
+// evidence index), evidence files, session transcripts, and the video stay read-only.
+function isEditableArtifactRef(ref) {
+  return ref === "brief" || ref === "plan" || /^log:\d+$/.test(ref);
+}
+
+// PUT /cards/:id/artifact?ref=<ref> — write an editable text artifact. Confined to the
+// SAME allowed roots as the read side; only .md/.txt editable refs are accepted. Writing
+// the brief also marks it on the card (a pointer) so the link + build pick it up.
+async function handleArtifactWrite(req, res, opts, cardId, ref) {
+  if (typeof ref !== "string" || !isEditableArtifactRef(ref)) {
+    return jsonRes(res, 400, { error: "this artifact is not editable" });
+  }
+  let card;
+  try { card = await loadCard(opts.root, cardId); }
+  catch { return jsonRes(res, 404, { error: "no such card" }); }
+  card.id = cardId;
+  const absPath = resolveArtifactRef(card, ref, { root: opts.root, cwd: opts.cwd });
+  if (!absPath) return jsonRes(res, 400, { error: "unknown or out-of-range artifact ref" });
+  const confined = confinePath(absPath, allowedRoots(opts.cwd, opts.root));
+  if (!confined) return jsonRes(res, 403, { error: "path outside allowed roots" });
+  const ext = path.extname(confined).toLowerCase();
+  if (ext !== ".md" && ext !== ".txt") return jsonRes(res, 400, { error: "only .md/.txt artifacts are editable" });
+  const body = (await readBody(req)) || {};
+  const content = typeof body.content === "string" ? body.content : "";
+  if (content.length > 512 * 1024) return jsonRes(res, 413, { error: "artifact too large (512 KB cap)" });
+  try {
+    await mkdir(path.dirname(confined), { recursive: true });
+    await writeFile(confined, content, "utf8");
+    if (ref === "brief" && !card.briefPath) {
+      try { await saveCardCAS(opts.root, { ...card, briefPath: cardBriefRel(cardId) }, card.rev ?? 0); } catch { /* best-effort marker */ }
+    }
+    jsonRes(res, 200, { ok: true, ref });
+  } catch (err) {
+    jsonRes(res, 500, { error: err.message });
+  }
+}
+
 // GET /lists — the list defs (config) for the list-config UI. Same shape the
 // board view already exposes per list (skill / trigger / prompts / validNext /
 // mode / taskType / tier / kind / interactive), but without the cards, so the
@@ -1341,11 +1392,16 @@ export async function readWebChannelStatus(statusDir = STATUS_ROOT) {
 
 async function handleBoardRuntime(req, res, opts) {
   const channel = await readWebChannelStatus();
+  // Absolute kanban-store cards dir, so the board can hand the web channel an absolute,
+  // card-owned briefAbsPath (<cardsAbsDir>/<cardId>/brief.md) for the Brief editor — the
+  // same file James writes and the engine reads. Deterministic; no project-dir guessing.
+  const cardsAbsDir = path.join(kanbanRoot(), "cards");
   jsonRes(res, 200, {
     webChannelEmbedId: channel.id,
     webChannelUrl: channel.url,
     gatewayBaseUrl: opts.gatewayUrl || null,
-    noGateway: !opts.gatewayUrl
+    noGateway: !opts.gatewayUrl,
+    cardsAbsDir
   });
 }
 
@@ -1473,6 +1529,7 @@ export function makeRequestHandler(opts, distDir) {
         const sub = idMatch[2] || "";
         if (!isValidCardId(id)) return jsonRes(res, 400, { error: "invalid card id" });
         if (sub === "/artifact" && method === "GET") return await handleArtifact(req, res, opts, id, parsed.query.ref);
+        if (sub === "/artifact" && method === "PUT") return await handleArtifactWrite(req, res, opts, id, parsed.query.ref);
         if (sub === "/start" && method === "POST") return await handleStartCard(req, res, opts, id);
         if (sub === "/brief" && method === "POST") return await handleBriefCard(req, res, opts, id);
         if (sub === "/infer-project" && method === "POST") return await handleInferProject(req, res, opts, id);

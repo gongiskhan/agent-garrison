@@ -62,6 +62,9 @@ export interface BoardRuntime {
   webChannelUrl: string | null;
   gatewayBaseUrl: string | null;
   noGateway: boolean;
+  /** Absolute kanban-store cards dir, so Discuss can hand the web channel an absolute,
+   *  card-owned brief path (<cardsAbsDir>/<cardId>/brief.md). */
+  cardsAbsDir?: string | null;
 }
 
 export interface ListView {
@@ -89,6 +92,8 @@ export interface BoardView {
 
 export interface ArtifactRef {
   kind: "serve" | "href" | "missing";
+  /** The opaque ref token (e.g. "brief", "plan", "log:1") — used to PUT edits back. */
+  ref?: string;
   path?: string;
   url?: string;
   href?: string;

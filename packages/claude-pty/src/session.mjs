@@ -188,6 +188,11 @@ export class OperativePtySession {
   async #runInner(req, commandMode) {
     const startTs = Date.now();
     const timeout = req.timeoutMs ?? (commandMode ? COMMAND_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
+    // A real prompt (not a bare slash command) must be observed working before the
+    // turn can settle — see waitForTurnComplete's `requireWork`. This is what stops
+    // a Discuss turn from "completing" in ~3s off a stale idle screen with an empty
+    // reply.
+    const requireWork = !commandMode;
 
     const registered = await this.#submitAndConfirm(req.message, req.settleMs);
     if (!registered) {
@@ -198,12 +203,21 @@ export class OperativePtySession {
       startTs,
       timeoutMs: timeout,
       onUpdate: req.onScreen,
+      requireWork,
     });
     if (completion.signal === "timeout") {
       throw new Error(`OperativePtySession turn timed out after ${completion.elapsedMs}ms.`);
     }
 
-    const reply = extractReply(this.handle, req.message);
+    let reply = extractReply(this.handle, req.message);
+    // The reply can still be mid-render at the exact instant the turn idled. For a
+    // real prompt an empty scrape is almost always that race (not a genuinely empty
+    // turn), so give the screen one more short settle and re-scrape before giving
+    // up — cheap insurance against an empty Discuss reply.
+    if (!reply && requireWork) {
+      await sleep(900);
+      reply = extractReply(this.handle, req.message);
+    }
     return { reply, sessionId: this.claudeSessionId, completion, status: parseStatus(this.handle) };
   }
 

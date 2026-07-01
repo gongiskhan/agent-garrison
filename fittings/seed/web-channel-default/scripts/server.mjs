@@ -9,14 +9,15 @@
 // LAN bind: default 127.0.0.1 (mirrors CLAUDE.md "talks only to localhost").
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync, realpathSync } from "node:fs";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
+import { listThreads, getThread, ensureThread, appendMessages, deleteThread } from "./threads.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
@@ -369,6 +370,81 @@ async function readJsonBody(req, limit = 256 * 1024) {
   });
 }
 
+// ── Brief documents (view + edit the Discuss brief in the channel) ───────────
+// The web channel edits the markdown brief a Discuss session produces. The brief's
+// ABSOLUTE path is handed in by the host (Kanban / Automations) via the Discuss
+// context (briefAbsPath) — the channel never derives it. Direct file access is safe
+// here because it is CONFINED: a path is accepted only if, after normalising +
+// expanding "~", it is absolute, ends in ".md", contains no "..", lives inside a
+// directory literally named "briefs", AND its deepest existing ancestor realpaths
+// under the user's home dir (blocks symlink escape + any out-of-home write). This is
+// a local, single-user app (localhost only), so "*.md under ~/**/briefs/" is the
+// whole attack surface a tampered context could reach.
+export function resolveBriefPath(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  let p = raw.trim();
+  if (p === "~") p = os.homedir();
+  else if (p.startsWith("~/")) p = path.join(os.homedir(), p.slice(2));
+  if (!path.isAbsolute(p)) return null;
+  const norm = path.normalize(p);
+  if (!norm.toLowerCase().endsWith(".md")) return null;
+  const segs = norm.split(path.sep);
+  if (segs.includes("..")) return null;
+  // Accept either a file inside a "briefs/" dir (project / automation briefs) OR any
+  // file under the Garrison store ~/.garrison/ (the card-owned kanban brief at
+  // ~/.garrison/kanban-loop/cards/<id>/brief.md).
+  const garrisonStore = path.join(os.homedir(), ".garrison") + path.sep;
+  const inBriefsDir = path.dirname(norm).split(path.sep).includes("briefs");
+  const inGarrisonStore = norm.startsWith(garrisonStore);
+  if (!inBriefsDir && !inGarrisonStore) return null;
+  // Realpath the deepest EXISTING ancestor (the brief file itself may not exist yet)
+  // and require it under the real home dir.
+  let anc = path.dirname(norm);
+  while (!existsSync(anc) && path.dirname(anc) !== anc) anc = path.dirname(anc);
+  let realAnc;
+  let realHome;
+  try {
+    realAnc = realpathSync(anc);
+    realHome = realpathSync(os.homedir());
+  } catch {
+    return null;
+  }
+  if (realAnc !== realHome && !realAnc.startsWith(realHome + path.sep)) return null;
+  return norm;
+}
+
+async function handleBriefGet(res, rawPath) {
+  const p = resolveBriefPath(rawPath);
+  if (!p) return jsonRes(res, 400, { error: "invalid or out-of-bounds brief path" });
+  try {
+    const content = await readFile(p, "utf8");
+    jsonRes(res, 200, { exists: true, path: p, content });
+  } catch (err) {
+    if (err.code === "ENOENT") return jsonRes(res, 200, { exists: false, path: p, content: "" });
+    jsonRes(res, 500, { error: err.message });
+  }
+}
+
+async function handleBriefPut(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  const p = resolveBriefPath(body?.path);
+  if (!p) return jsonRes(res, 400, { error: "invalid or out-of-bounds brief path" });
+  const content = typeof body?.content === "string" ? body.content : "";
+  if (content.length > 512 * 1024) return jsonRes(res, 413, { error: "brief too large (512 KB cap)" });
+  try {
+    await mkdir(path.dirname(p), { recursive: true });
+    await writeFile(p, content, "utf8");
+    jsonRes(res, 200, { ok: true, path: p });
+  } catch (err) {
+    jsonRes(res, 500, { error: err.message });
+  }
+}
+
 // Build the gateway /chat/stream body from a channel request. GENERIC by
 // design: a fitting hands this channel an OPAQUE `context` blob and a `mode`
 // string and the channel forwards them verbatim — it never inspects or
@@ -381,10 +457,15 @@ async function readJsonBody(req, limit = 256 * 1024) {
 //   - context present          → adds `context` (forwarded untouched)
 //   - mode present (non-empty) → adds `mode`
 // `message` is required upstream; `channel` is always pinned to "web".
-export function buildGatewayChatBody({ message, context, mode } = {}) {
+export function buildGatewayChatBody({ message, context, mode, classification } = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
   if (typeof mode === "string" && mode.trim()) body.mode = mode.trim();
+  // Forward an explicit routing hint (the interactive Discuss path sends
+  // { taskType, tier: "T0-trivial" } to keep extended thinking OFF — thinking on a
+  // "design a process" prompt trips Anthropic's usage-policy classifier). The gateway
+  // validates it (routeHintsFromBody); a malformed hint is simply ignored there.
+  if (classification && typeof classification === "object") body.classification = classification;
   return body;
 }
 
@@ -401,9 +482,9 @@ async function handleChat(req, res, opts) {
     jsonRes(res, 400, { error: "message is required" });
     return;
   }
-  // Forward the opaque context + mode through to the gateway untouched.
+  // Forward the opaque context + mode + optional routing hint through to the gateway.
   const payload = JSON.stringify(
-    buildGatewayChatBody({ message, context: body?.context, mode: body?.mode })
+    buildGatewayChatBody({ message, context: body?.context, mode: body?.mode, classification: body?.classification })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
   pipeUpstreamSse(req, res, {
@@ -417,6 +498,65 @@ async function handleChat(req, res, opts) {
       Accept: "text/event-stream"
     }
   }, payload);
+}
+
+// ── Conversation threads (session list + history) ──────────────────────────
+// Generic, opaque-keyed transcript organizer over the one rolling operative. The
+// channel persists each completed exchange (client-driven) and lists/serves prior
+// threads so the UI can show a session list and move between conversations.
+async function handleThreadsList(res) {
+  jsonRes(res, 200, { threads: await listThreads() });
+}
+
+async function handleThreadCreate(req, res) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
+  const thread = await ensureThread({
+    id: typeof body?.id === "string" ? body.id : undefined,
+    title: typeof body?.title === "string" ? body.title : undefined,
+    source: typeof body?.source === "string" ? body.source : undefined,
+    mode: typeof body?.mode === "string" ? body.mode : undefined,
+    context: body?.context,
+  });
+  jsonRes(res, 200, { thread });
+}
+
+async function handleThreadGet(res, id) {
+  const thread = await getThread(id);
+  if (!thread) return jsonRes(res, 404, { error: "thread not found" });
+  jsonRes(res, 200, { thread });
+}
+
+async function handleThreadAppend(req, res, id) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
+  try {
+    jsonRes(res, 200, { thread: await appendMessages(id, body?.messages) });
+  } catch (err) {
+    jsonRes(res, 400, { error: err.message });
+  }
+}
+
+async function handleThreadDelete(res, id) {
+  const ok = await deleteThread(id);
+  jsonRes(res, ok ? 200 : 404, { ok });
+}
+
+// Route /api/threads, /api/threads/:id, /api/threads/:id/messages. Returns true
+// when it handled the request.
+function routeThreads(req, res, pathname, method) {
+  if (pathname === "/api/threads" && method === "GET") { void handleThreadsList(res); return true; }
+  if (pathname === "/api/threads" && method === "POST") { void handleThreadCreate(req, res); return true; }
+  if (pathname.startsWith("/api/threads/")) {
+    const parts = pathname.slice("/api/threads/".length).split("/").filter(Boolean).map((p) => {
+      try { return decodeURIComponent(p); } catch { return p; }
+    });
+    const id = parts[0];
+    if (id && parts.length === 1 && method === "GET") { void handleThreadGet(res, id); return true; }
+    if (id && parts.length === 1 && method === "DELETE") { void handleThreadDelete(res, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "messages" && method === "POST") { void handleThreadAppend(req, res, id); return true; }
+  }
+  return false;
 }
 
 function serveStatic(req, res, distDir) {
@@ -521,6 +661,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
+      if (pathname === "/api/brief" && method === "GET") return handleBriefGet(res, parsed.query.path);
+      if (pathname === "/api/brief" && method === "PUT") return handleBriefPut(req, res);
+      if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method)) return;
       if (pathname === "/api/claude/stream" && method === "GET") return handleClaudeStream(req, res, liveOpts);
       if (pathname === "/api/claude/status" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "status", "GET");
       if (pathname === "/api/claude/commands" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "commands", "GET");

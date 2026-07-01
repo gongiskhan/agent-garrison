@@ -10,12 +10,21 @@ import { interpolate, interpolateDeep } from "../fittings/seed/automations/lib/t
 // subprocess / backend / network is touched.
 
 let dir: string;
+let prevHome: string | undefined;
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "garrison-engine-"));
   process.env.GARRISON_AUTOMATIONS_DIR = dir;
+  // Isolate GARRISON_HOME too, so browser-step discovery (browserBaseUrl reads
+  // <home>/ui-fittings/browser-default.json) can't leak the LIVE install's state
+  // into the "browser fitting not running" case — which otherwise flakes when a
+  // browser fitting is running on the dev machine.
+  prevHome = process.env.GARRISON_HOME;
+  process.env.GARRISON_HOME = dir;
 });
 afterEach(() => {
   delete process.env.GARRISON_AUTOMATIONS_DIR;
+  if (prevHome === undefined) delete process.env.GARRISON_HOME;
+  else process.env.GARRISON_HOME = prevHome;
   rmSync(dir, { recursive: true, force: true });
 });
 

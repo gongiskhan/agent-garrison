@@ -62,6 +62,22 @@ export function readBriefContext(cwd, briefPath, max = 6000) {
   }
 }
 
+// Read the CARD-OWNED Discuss brief (<root>/cards/<id>/brief.md) — the deterministic
+// location James is told (an absolute path) to write to during Discuss. Best-effort +
+// size-capped: a miss returns null and the prompt simply omits the brief section.
+export function readCardBrief(root, cardId, max = 6000) {
+  if (!root || !cardId || typeof cardId !== "string") return null;
+  try {
+    const abs = path.join(root, "cards", cardId, "brief.md");
+    if (!existsSync(abs)) return null;
+    const text = readFileSync(abs, "utf8").trim();
+    if (!text) return null;
+    return text.length > max ? text.slice(0, max).trimEnd() + "\n\n…(brief truncated)" : text;
+  } catch {
+    return null;
+  }
+}
+
 const AGENT_KIND = "agent";
 
 // Project-relative run-directory root the autothing skills already write under.
@@ -326,7 +342,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
 
   // Fold the Discuss brief (if any) into the prompt so every downstream phase builds
   // from the agreed direction the discussion settled on.
-  const discussionContext = readBriefContext(cwd, runningCard.briefPath);
+  const discussionContext = readCardBrief(root, runningCard.id);
   const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext });
   // No classification hint: route through the orchestrator and let IT classify the
   // work (tier/model/effort). The per-list mode (led into the prompt above) biases it.

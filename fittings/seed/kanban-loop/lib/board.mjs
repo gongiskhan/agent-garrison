@@ -36,6 +36,14 @@ export async function saveBoard(board, root = kanbanRoot()) {
 
 const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 
+// The card-owned Discuss brief: a markdown file next to the card's card.json. This is
+// the DETERMINISTIC, card-scoped brief location — James writes it here (told the absolute
+// path in the Discuss kickoff), the web-channel Brief editor reads/writes it, and the
+// engine folds it into the build prompt. Decoupled from any project working dir, so the
+// three never disagree on where the brief lives.
+export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
+export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
+
 export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, at = new Date().toISOString() }) {
   const id = ulid();
   const card = {

@@ -41,7 +41,18 @@ const MODE_LINE = /(bypass permissions|accept edits|plan mode|normal mode|permis
 // match the stable "for <N>s" timing suffix (optionally with a leading spinner
 // glyph). Used as a hard stop when scraping the assistant reply.
 const SPINNER_DONE = /\bfor \d+(?:\.\d+)?s\b\s*$/i;
-const SPINNER_GLYPH = /^\s*[✻✶✷✵✳✲✴✦✧❋❉∗*·•]\s/;
+const SPINNER_GLYPH = /^\s*[✻✶✷✵✳✲✴✦✧❋❉∗*·•✽✢✜✛]\s/;
+// Extended thinking prints a one-line SUMMARY ("Thinking…", "Thinking for 6s…",
+// "Thought for 2s") ABOVE the reply, optionally with a spinner glyph. It ends in
+// "for <N>s" (→ SPINNER_DONE) and can lead with a glyph (→ SPINNER_GLYPH), so without
+// an explicit skip extractReply STOPS before the reply and returns empty on every
+// thinking turn. Anchored to the WHOLE line so reply prose like "Thinking about it
+// more, …" is never swallowed — only a bare summary line matches.
+const THINKING_SUMMARY = /^\s*(?:[✻✶✷✵✳✲✴✦✧❋❉∗*·•✽✢✜✛]\s*)?(?:thinking|thought)(?:\s+for\s+\d+(?:\.\d+)?s)?\s*(?:…|\.\.\.)?\s*$/i;
+// The thinking / tool-result TREE marker: "⎿  <text>". The TUI prints the expanded
+// thinking body and tool-call results under this glyph. Never assistant prose — the
+// reply scraper skips it (and its unmarked continuations fall through as non-prose).
+const TREE_MARKER = /^\s*[⎿└╰┗├]\s?/;
 // In-progress indicator lines: "✻ Embellishing (running stop hooks 3/4 · 2s ·
 // 8 tokens)" etc. Match the parenthetical progress content so these never leak
 // into the scraped reply even when the leading glyph varies.
@@ -50,6 +61,31 @@ const PROGRESS_LINE = /\(\s*(running |esc to interrupt|\d+\/\d+|\d+s\b|[\d,]+ to
 /** True while a turn is processing (spinner with interrupt hint visible). */
 export function isBusy(handle) {
   return captureLines(handle).some((l) => BUSY_MARKER.test(l));
+}
+
+// A single screen line that means "a turn is actively working". Broader than the
+// `(esc to interrupt)` marker: the EXTENDED-THINKING spinner has NO interrupt
+// hint (and fires no hooks) — it renders as a spinner glyph followed by a live
+// "(<N>s · <N> tokens)" / "(running …)" progress counter. We must treat that as
+// working too, or a long thinking phase reads as an idle/ready screen and the
+// turn settles early → an empty reply gets scraped. Anchored on the leading
+// spinner glyph so ordinary reply prose that merely contains a parenthetical
+// never matches, and the completion line ("✻ Baked for 3s" — no parens) does NOT
+// count as working (SPINNER_DONE handles that elsewhere).
+function isWorkingLine(l) {
+  if (BUSY_MARKER.test(l)) return true;
+  // A live spinner/thinking line carries an in-progress parenthetical (Ns /
+  // tokens / running / "thinking with …"). Anchor it to a spinner glyph OR the
+  // verb-ellipsis "…" suffix the TUI always renders ("Infusing… (2s · …)"), so we
+  // match regardless of which glyph it's cycling through, but never plain reply
+  // prose that merely contains a parenthetical.
+  return PROGRESS_LINE.test(l) && (SPINNER_GLYPH.test(l) || l.includes("…"));
+}
+
+/** True while a turn is actively working — covers normal generation AND the
+ *  extended-thinking spinner (which lacks the "esc to interrupt" hint). */
+export function isWorking(handle) {
+  return captureLines(handle).some((l) => isWorkingLine(l));
 }
 
 /** The bottom input box is ready for input: an "❯" prompt line that is empty
@@ -155,6 +191,15 @@ export function extractReply(handle, userMessage) {
       if (inAssistant) collected.push("");
       continue;
     }
+    // The extended-thinking summary ("Thinking for 6s…") sits between the user echo
+    // and the reply and ends in "for Ns" (→ SPINNER_DONE). Skip it so we don't stop
+    // short of the reply — this is the empty-reply bug on @high turns.
+    if (THINKING_SUMMARY.test(l)) { inAssistant = false; continue; }
+    // The expanded thinking body / tool-result block ("⎿  …") is not prose — skip the
+    // marked line; its unmarked continuation lines then fall through (inAssistant off)
+    // until the next "⏺" assistant marker (the real reply). Without this the thinking
+    // text leaks into — and smushes against — the scraped reply.
+    if (TREE_MARKER.test(l)) { inAssistant = false; continue; }
     if (RULE_LINE.test(l) || SPINNER_DONE.test(l) || BUSY_MARKER.test(l) || SPINNER_GLYPH.test(l) || PROGRESS_LINE.test(l)) break;
     if (STATUS_LINE.test(l) || MODE_LINE.test(l)) break;
     if (/^\s*❯/.test(l)) break; // reached the input box / next user echo
@@ -245,21 +290,32 @@ export function turnStarted(handle) {
  * ready + stable is enough.
  *
  * @param {object} handle
- * @param {{startTs:number, timeoutMs:number, onUpdate?:Function, settleMs?:number}} opts
- * @returns {Promise<{signal:'done'|'timeout', elapsedMs:number}>}
+ * @param {{startTs:number, timeoutMs:number, onUpdate?:Function, settleMs?:number, requireWork?:boolean, noWorkFallbackMs?:number}} opts
+ * @returns {Promise<{signal:'done'|'timeout', elapsedMs:number, sawWork:boolean}>}
  */
 export async function waitForTurnComplete(handle, opts) {
   const { startTs, timeoutMs } = opts;
   const settleNeeded = opts.settleMs ?? 1400;
+  // For a real model prompt (`requireWork`), the turn must be SEEN working at
+  // least once before "prompt ready + stable" is accepted as completion. This
+  // closes the premature-completion race: a fresh turn declared done off the
+  // PRIOR turn's still-on-screen idle state (or during an undetected thinking
+  // phase) → an empty reply. Command-only turns (slash commands that just print)
+  // never "work", so they skip the gate. If a `requireWork` turn somehow never
+  // registers as working, the `noWorkFallbackMs` escape accepts idle anyway so we
+  // never hang to the full turn timeout.
+  const requireWork = opts.requireWork === true;
+  const noWorkFallbackMs = opts.noWorkFallbackMs ?? 20_000;
   const pollMs = 350;
   let readySince = null;
   let lastSnapshot = "";
+  let sawWork = false;
   return new Promise((resolve) => {
     const timer = setInterval(() => {
       const elapsed = Date.now() - startTs;
       if (elapsed > timeoutMs) {
         clearInterval(timer);
-        resolve({ signal: "timeout", elapsedMs: elapsed });
+        resolve({ signal: "timeout", elapsedMs: elapsed, sawWork });
         return;
       }
       const lines = captureLines(handle);
@@ -270,7 +326,8 @@ export async function waitForTurnComplete(handle, opts) {
           /* streaming consumer error must not kill detection */
         }
       }
-      const busy = lines.some((l) => BUSY_MARKER.test(l));
+      const busy = lines.some((l) => isWorkingLine(l));
+      if (busy) sawWork = true;
       const promptReady = (() => {
         for (let i = lines.length - 1; i >= 0; i--) {
           const m = /^\s*❯\s?(.*)$/.exec(lines[i]);
@@ -282,11 +339,15 @@ export async function waitForTurnComplete(handle, opts) {
       const stable = snapshot === lastSnapshot;
       lastSnapshot = snapshot;
 
-      if (!busy && promptReady && stable) {
+      // A real prompt must have been observed working — unless the no-work
+      // fallback window has elapsed (then accept the idle screen to avoid a hang).
+      const workSatisfied = !requireWork || sawWork || elapsed >= noWorkFallbackMs;
+
+      if (!busy && promptReady && stable && workSatisfied) {
         if (readySince === null) readySince = Date.now();
         if (Date.now() - readySince >= settleNeeded) {
           clearInterval(timer);
-          resolve({ signal: "done", elapsedMs: elapsed });
+          resolve({ signal: "done", elapsedMs: elapsed, sawWork });
         }
       } else {
         readySince = null;

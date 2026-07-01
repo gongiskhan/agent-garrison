@@ -202,6 +202,16 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-speak:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
 
+/* Subtle routing chip — replaces the inline "[route: …]" badge the model emits.
+   Quiet by default, pushed to the right of the action row; the full route/rule/
+   profile is in the title tooltip. */
+.cc-routechip {
+  margin-left: auto; font-size: 10px; letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--cc-fg-dim); background: var(--cc-bg-sunk); border: 1px solid var(--cc-border);
+  border-radius: 999px; padding: 1px 8px; cursor: default; white-space: nowrap;
+}
+.cc-routechip:hover { color: var(--cc-fg); border-color: var(--cc-border-strong); }
+
 .cc-raw {
   background: var(--cc-bg-sunk); border: 1px solid var(--cc-border); border-radius: 8px; color: var(--cc-fg-dim);
   padding: 10px; overflow-x: auto; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;

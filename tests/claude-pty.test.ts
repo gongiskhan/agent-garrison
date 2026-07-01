@@ -131,6 +131,65 @@ describe("claude-pty: screen parsing", () => {
     expect(reply).not.toContain("14%");
   });
 
+  // Extended thinking (@high effort) prints "Thought for Ns" BETWEEN the user echo
+  // and the reply. It ends in "for Ns", colliding with the SPINNER_DONE stop — which
+  // made extractReply return empty for every thinking turn (the real Discuss bug).
+  const THINKING_SCREEN = [
+    "❯ Think hard about why the sky is blue, then answer in one sentence.",
+    "  Thought for 2s",
+    "⏺ Sunlight scatters off air molecules via Rayleigh scattering,",
+    "  which favors short wavelengths.",
+    "  So the sky looks blue.",
+    "✻ Sautéed for 13s",
+    "────────────────────────────────────────────────────────────────────",
+    "❯ ",
+    "  default | main | 18% | Sonnet 4.6@high | 14 files",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+  ];
+
+  it("extractReply returns the reply on an @high thinking turn (skips the 'Thought for Ns' summary)", async () => {
+    const { extractReply } = await import(PKG);
+    const reply = extractReply(fakeHandle(THINKING_SCREEN), "Think hard about why the sky is blue, then answer in one sentence.");
+    expect(reply).toContain("Rayleigh scattering");
+    expect(reply).toContain("So the sky looks blue.");
+    expect(reply).not.toBe("");
+    expect(reply).not.toContain("Thought for");
+    expect(reply).not.toContain("Sautéed");
+  });
+
+  // EXPANDED thinking: the TUI prints the thinking body under a "⎿" tree marker
+  // (between the summary and the reply). This is the real Discuss bug — the thinking
+  // text leaked into and smushed against the scraped reply ("…concise brief.Brief
+  // written to…"). extractReply must skip the "Thinking…" summary AND the ⎿ block.
+  const EXPANDED_THINKING_SCREEN = [
+    "❯ 1. sounds better 2. all three 3 ignore 4. use ekoa-deploy",
+    "✻ Thinking…",
+    "⎿  The user answered my clarifying questions tersely. Now I need to write the brief.",
+    "   Let me write a concise brief.",
+    "⏺ Brief written to briefs/01KW-on-the-ekoa-website.md. Ready for build.",
+    "✻ Baked for 6s",
+    "────────────────────────────────────────────────────────────────────",
+    "❯ ",
+    "  ekoa | 4% | Haiku 4.5",
+  ];
+
+  it("extractReply skips an EXPANDED thinking block (⎿ …) and returns only the reply", async () => {
+    const { extractReply } = await import(PKG);
+    const reply = extractReply(fakeHandle(EXPANDED_THINKING_SCREEN), "1. sounds better 2. all three 3 ignore 4. use ekoa-deploy");
+    expect(reply).toBe("Brief written to briefs/01KW-on-the-ekoa-website.md. Ready for build.");
+    expect(reply).not.toContain("The user answered");
+    expect(reply).not.toContain("Let me write a concise brief");
+    expect(reply).not.toContain("Thinking");
+  });
+
+  it("isWorking matches the real high-effort spinner regardless of glyph (✽ / ✢) via the ellipsis", async () => {
+    const { isWorking } = await import(PKG);
+    expect(isWorking(fakeHandle(["✽ Infusing… (2s · thinking with high effort)", "❯ "]))).toBe(true);
+    expect(isWorking(fakeHandle(["✢ Infusing… (3s · ↓ 121 tokens · thinking with high effort)", "❯ "]))).toBe(true);
+    // The "Thought for Ns" summary and the done line are NOT working.
+    expect(isWorking(fakeHandle(THINKING_SCREEN))).toBe(false);
+  });
+
   it("parseStatus extracts mode, context %, model and raw rows", async () => {
     const { parseStatus } = await import(PKG);
     const s = parseStatus(fakeHandle(SCREEN));
@@ -154,6 +213,24 @@ describe("claude-pty: screen parsing", () => {
     const busyScreen = ["⏺ working...", "✻ Cooking… (esc to interrupt)", "❯ "];
     expect(isBusy(fakeHandle(busyScreen))).toBe(true);
     expect(isBusy(fakeHandle(SCREEN))).toBe(false);
+  });
+
+  it("isWorking covers the extended-thinking spinner (no 'esc to interrupt') and excludes the done line", async () => {
+    const { isWorking, isBusy } = await import(PKG);
+    // Normal generation: the interrupt hint is present.
+    const generating = ["⏺ ...", "✻ Cooking… (esc to interrupt · 4s)", "❯ "];
+    expect(isWorking(fakeHandle(generating))).toBe(true);
+    // Extended thinking: a spinner glyph + live progress counter, but NO interrupt
+    // hint — isBusy misses it, isWorking must catch it (this is the empty-reply bug).
+    const thinking = ["✻ Thinking… (12s · ↑ 2.1k tokens)", "❯ "];
+    expect(isBusy(fakeHandle(thinking))).toBe(false);
+    expect(isWorking(fakeHandle(thinking))).toBe(true);
+    // A completed turn (assistant block + "Baked for 3s" done line, idle prompt) is
+    // NOT working — otherwise a finished turn would never settle.
+    expect(isWorking(fakeHandle(SCREEN))).toBe(false);
+    // Reply prose that merely contains a parenthetical must not read as working.
+    const prose = ["⏺ It finished in (3s) total.", "✻ Baked for 3s", "❯ "];
+    expect(isWorking(fakeHandle(prose))).toBe(false);
   });
 
   it("turnStarted true when an assistant marker / spinner / done indicator is present", async () => {

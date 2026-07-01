@@ -20,16 +20,28 @@ export function slugify(name) {
 export function buildAutomationKickoff({ name, slug } = {}) {
   const s = slug || slugify(name);
   const briefPath = `~/.garrison/automations/briefs/${s}.md`;
+  // Kept high-level: the planner maps a brief into concrete steps, so the Discuss only
+  // needs to settle WHAT + trigger + failure handling (no need to enumerate the engine's
+  // step vocabulary or name third-party services here).
+  //
+  // NOTE on the AUP refusal this Discuss used to hit: the real trigger was EXTENDED
+  // THINKING, not the prompt content. This kickoff auto-classified as code/T1-standard
+  // → native-sonnet-medium (which injects `/effort medium`), and extended thinking on a
+  // "design a process that runs on a trigger" prompt trips Anthropic's usage-policy
+  // classifier. The fix is on the routing side: interactive Discuss turns carry a
+  // no-thinking classification hint (see web-channel createOrchestratorTransport).
   return [
-    "James, let's design an automation together — don't jump to code.",
+    "James, let's design an automation together. Match your effort to the work — a simple one needs a light touch, not an interrogation.",
     "",
     name ? `# Automation: ${name}` : "# New automation",
     "",
-    "What would you like to automate? Describe the task in your own words — what should happen, on what trigger, and what to do if a step fails.",
+    "What would you like to automate? Describe it in your own words — what should happen, when it should run, and what to do if a step doesn't work out.",
     "",
-    "Think it through out loud and ask me the clarifying questions you need: which connector(s) it uses (Google / Slack / Trello / …), the rough steps (browser, verify, navigate, wait, local_command, api_call, connector, sub_automation), the inputs it takes, and how it should handle a failure.",
+    "Give me your read of it, then ask me at least one real, clarifying question before we call it settled — even for a simple automation there's usually something worth confirming (the trigger timing, the inputs, where the output goes, or what 'done' looks like). Ask only what genuinely matters, not a checklist. For an ambiguous one with real branching, dig into the specifics — the inputs, the outline of steps, and how it should behave when something fails.",
     "",
-    `When the design has settled, write the brief to \`${briefPath}\` using the brief template — **what this automates, trigger, connectors, steps outline, inputs, failure handling, acceptance** — that brief is the handoff the planner reads. Begin with your first questions.`
+    "IMPORTANT: do not write the brief on your first message — always give me a chance to answer first. Keep your replies short and direct — a few sentences, not an essay; don't narrate.",
+    "",
+    `Once we've talked it through and it's settled, write the brief to \`${briefPath}\` using the brief template — **what this automates, its trigger, the steps outline, inputs, failure handling, and acceptance** — kept proportional to the work. That brief is the handoff the planner reads. Begin with your read and your question(s).`
   ].join("\n");
 }
 
@@ -43,12 +55,23 @@ export function buildDiscussParams({ name, slug } = {}) {
     source: "automations",
     name: name ?? null,
     briefsPath: "~/.garrison/automations/briefs/",
-    suggestedSlug: s
+    suggestedSlug: s,
+    // Absolute path (with ~) to this automation's brief, so the web channel's Brief
+    // editor can read/write it directly (confined to ~/**/briefs/*.md server-side).
+    briefAbsPath: `~/.garrison/automations/briefs/${s}.md`
   };
   return {
     mode: "james",
     context: b64(JSON.stringify(context)),
-    kickoff: b64(buildAutomationKickoff({ name, slug: s }))
+    kickoff: b64(buildAutomationKickoff({ name, slug: s })),
+    // Stable thread key per automation so reopening Discuss returns to the same
+    // session + history; the channel decodes these like context/kickoff.
+    thread: b64(`automation-${s}`),
+    // Prominent "Back to Automations" target (the Garrison embed route). The web
+    // channel shows a Back button that navigates the top window here.
+    returnUrl: b64("/embed/automations"),
+    returnLabel: b64("Automations"),
+    ...(name ? { title: b64(String(name)) } : {})
   };
 }
 
@@ -59,8 +82,20 @@ export function buildAutomationDiscussUrl({ name, slug, webChannelBase = "/embed
     source: "automations",
     name: name ?? null,
     briefsPath: "~/.garrison/automations/briefs/",
-    suggestedSlug: s
+    suggestedSlug: s,
+    // Absolute path (with ~) to this automation's brief, so the web channel's Brief
+    // editor can read/write it directly (confined to ~/**/briefs/*.md server-side).
+    briefAbsPath: `~/.garrison/automations/briefs/${s}.md`
   };
   const base = webChannelBase.replace(/\/+$/, "");
-  return `${base}?mode=james&context=${encodeURIComponent(b64(JSON.stringify(context)))}&kickoff=${encodeURIComponent(b64(buildAutomationKickoff({ name, slug: s })))}`;
+  const parts = [
+    `mode=james`,
+    `context=${encodeURIComponent(b64(JSON.stringify(context)))}`,
+    `kickoff=${encodeURIComponent(b64(buildAutomationKickoff({ name, slug: s })))}`,
+    `thread=${encodeURIComponent(b64(`automation-${s}`))}`,
+    `returnUrl=${encodeURIComponent(b64("/embed/automations"))}`,
+    `returnLabel=${encodeURIComponent(b64("Automations"))}`
+  ];
+  if (name) parts.push(`title=${encodeURIComponent(b64(String(name)))}`);
+  return `${base}?${parts.join("&")}`;
 }

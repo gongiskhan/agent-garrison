@@ -16,6 +16,16 @@ describe("discuss-automation handoff (H1)", () => {
     expect(k).toContain("What would you like to automate?");
   });
 
+  it("proportional effort + short replies, ALWAYS asks ≥1 question, never writes the brief on the first turn", () => {
+    const k = buildAutomationKickoff({ name: "Weekly Report" }).toLowerCase();
+    expect(k).toContain("match your effort");
+    expect(k).toContain("short and direct");
+    expect(k).toContain("proportional");
+    expect(k).toContain("at least one");
+    expect(k).toMatch(/do not write the brief|don't write the brief/);
+    expect(k).not.toContain("think it through out loud");
+  });
+
   it("buildDiscussParams yields james mode + base64 context/kickoff for the postMessage navigate path", () => {
     const p = buildDiscussParams({ name: "Weekly Report" });
     expect(p.mode).toBe("james");
@@ -23,6 +33,10 @@ describe("discuss-automation handoff (H1)", () => {
     expect(ctx.source).toBe("automations");
     expect(ctx.suggestedSlug).toBe("weekly-report");
     expect(Buffer.from(p.kickoff, "base64").toString("utf8").startsWith("James,")).toBe(true);
+    // A STABLE per-automation thread key + title so reopening Discuss returns to
+    // the same session; both base64 like context/kickoff.
+    expect(Buffer.from(p.thread, "base64").toString("utf8")).toBe("automation-weekly-report");
+    expect(Buffer.from(p.title!, "base64").toString("utf8")).toBe("Weekly Report");
   });
 
   it("discuss URL targets the web-channel embed in james mode with base64 context+kickoff", () => {

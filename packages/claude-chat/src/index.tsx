@@ -3,6 +3,8 @@ export type { ClaudeChatProps, ChatFeatures, ChatSendMeta } from "./ClaudeChat";
 export { createHttpTransport } from "./transport";
 export { createVoiceClient } from "./voice";
 export type { VoiceClient, VoiceHealth } from "./voice";
+export { sanitizeAssistantText, routeChipLabel } from "./sanitize";
+export type { SanitizedReply, AssistantRouteMeta } from "./sanitize";
 export {
   getChatMode,
   setChatMode,

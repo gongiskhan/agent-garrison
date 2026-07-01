@@ -24,6 +24,7 @@ import {
   type ChatThemeMode,
 } from "./chat-theme";
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
+import { sanitizeAssistantText, routeChipLabel } from "./sanitize";
 
 // A PRIVATE marked instance for the chat. We deliberately do NOT mutate the
 // process-wide `marked` singleton: the chat-specific link/code renderers
@@ -166,6 +167,9 @@ interface Turn {
   user: string;
   assistant: string;
   streaming: boolean;
+  /** Hide the user bubble for this turn (e.g. a host kickoff that primes the operative
+   *  but shouldn't be shown as a chat message — the reply still renders normally). */
+  hideUser?: boolean;
 }
 
 // ── Toolbar feature flags (all default OFF so web-channel is unaffected) ──
@@ -325,11 +329,40 @@ export interface ClaudeChatProps {
    * (the chat waits for the user). Sent exactly once per mount.
    */
   initialMessage?: string;
+  /**
+   * When set with `initialMessage`, the auto-sent opening message primes the operative
+   * but its user bubble is NOT shown — the transcript starts with the operative's reply.
+   * Used by Discuss so the user sees James's question, not the instruction prompt.
+   */
+  initialMessageHidden?: boolean;
+  /**
+   * Prior transcript to seed the view on mount (a persisted conversation thread).
+   * Each entry is one completed exchange; `hideUser` hides that exchange's user bubble
+   * (a reopened Discuss hides its first turn — the kickoff). Absent → the chat starts
+   * empty (exactly the previous behavior). A host that supports multiple threads
+   * re-mounts the component with a fresh `key` + the selected thread's history to switch.
+   */
+  initialHistory?: { user: string; assistant: string; hideUser?: boolean }[];
+  /**
+   * Fires once per turn when its assistant reply has fully settled (non-empty),
+   * so a host can PERSIST the exchange into a thread store. Absent → nothing is
+   * persisted (previous behavior). Never fires for an empty/aborted turn.
+   */
+  onTurnComplete?: (exchange: { user: string; assistant: string }) => void;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete }: ClaudeChatProps) {
   const feat = features ?? {};
-  const [turns, setTurns] = useState<Turn[]>([]);
+  // Seed from a persisted thread's transcript when the host provides one. Computed
+  // once per mount (switching threads re-mounts with a fresh key). Kept in a memo
+  // so persistedRef below can mark the LAST seeded turn as already-persisted — else
+  // the persist effect would re-append the restored history on every open.
+  const seededTurns = useMemo<Turn[]>(
+    () => (initialHistory ?? []).map((h) => ({ id: nextId(), user: h.user, assistant: h.assistant, streaming: false, hideUser: h.hideUser })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const [turns, setTurns] = useState<Turn[]>(seededTurns);
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
   const [busy, setBusy] = useState(false);
   const [conn, setConn] = useState<"open" | "closed" | "reconnecting">("reconnecting");
@@ -543,14 +576,14 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   modeRef.current = mode;
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, opts?: { hideUser?: boolean }) => {
       const t = text.trim();
       if (!t) return;
       // Effort directive (Think / Think hard / Ultrathink) is prepended to the
       // wire text only — the transcript shows what the user actually typed.
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
       const wire = dir ? `${dir}\n\n${t}` : t;
-      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true }]);
+      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
       setBusy(true);
       pinnedRef.current = true;
       // Pass opaque context/mode as an optional second arg ONLY when present, so
@@ -575,7 +608,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     const msg = (initialMessage ?? "").trim();
     if (!msg) return;
     kickedRef.current = true;
-    send(msg);
+    send(msg, { hideUser: initialMessageHidden });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMessage]);
 
@@ -601,11 +634,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
 
   // Copy the most recent assistant response to the clipboard.
   const copyLast = useCallback(async () => {
-    const last = [...turns].reverse().find((t) => t.assistant.trim());
+    const last = [...turns].reverse().find((t) => sanitizeAssistantText(t.assistant).text.trim());
     if (!last) return;
+    const cleanText = sanitizeAssistantText(last.assistant).text;
     // Only flash "Copied" when the write actually succeeded (writeClipboard
     // resolves false on a missing API or a rejected write).
-    if (await writeClipboard(last.assistant)) {
+    if (await writeClipboard(cleanText)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     }
@@ -637,12 +671,31 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     setSpeaking(false);
   }, []);
 
+  // Persist each COMPLETED exchange into the host's thread store (when wired).
+  // Mirrors the read-aloud settle gate: fire once per turn, only after the
+  // assistant reply has fully landed and is non-empty (never for an empty/aborted
+  // turn). The id guard makes it idempotent across the streaming re-renders.
+  // Seeded from the LAST restored turn's id so the persist effect never re-appends
+  // history that was loaded from the store (which would duplicate on every open).
+  const persistedRef = useRef<string>(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
+  const onTurnCompleteRef = useRef(onTurnComplete);
+  onTurnCompleteRef.current = onTurnComplete;
+
   // Auto-read each new COMPLETED assistant turn when read-aloud is on.
   const latestAssistant = turns.length ? turns[turns.length - 1] : null;
   useEffect(() => {
+    const cb = onTurnCompleteRef.current;
+    if (!cb || !latestAssistant || latestAssistant.streaming) return;
+    const assistant = latestAssistant.assistant.trim();
+    if (!assistant) return;
+    if (persistedRef.current === latestAssistant.id) return;
+    persistedRef.current = latestAssistant.id;
+    cb({ user: latestAssistant.user, assistant: latestAssistant.assistant });
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
+  useEffect(() => {
     if (!readAloud || !voiceUsable || !latestAssistant) return;
     if (latestAssistant.streaming) return;
-    const text = latestAssistant.assistant.trim();
+    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
     void speak(text);
@@ -812,17 +865,27 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         {turns.length === 0 && (
           <div className="cc-empty">Send a message to begin · type / for commands and skills</div>
         )}
-        {turns.map((t) => (
+        {turns.map((t) => {
+          // Clean the scraped reply for display: drop TUI noise (tool-activity
+          // counters, thinking blocks) and lift the router status badge out of the
+          // prose into a compact chip. Cheap + pure, so per-render is fine.
+          const clean = sanitizeAssistantText(t.assistant);
+          const routeLabel = routeChipLabel(clean.meta);
+          const routeTitle = clean.meta.route
+            ? `routed via ${clean.meta.route}${clean.meta.rule ? ` · rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` · ${clean.meta.profile} profile` : ""}`
+            : undefined;
+          return (
           <div className="cc-turn" key={t.id}>
-            <div className="cc-user">{t.user}</div>
-            {(t.assistant || t.streaming) && (
+            {!t.hideUser && <div className="cc-user">{t.user}</div>}
+            {(clean.text || t.streaming) && (
               <div className="cc-assistant">
-                <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(t.assistant || "") as string }} />
-                {/* Streaming cursor once tokens are arriving. */}
-                {t.streaming && t.assistant && <span className="cc-cursor" aria-hidden="true" />}
-                {/* Rich "working" indicator before the first token: animated dots
-                    + label + live elapsed + (PTY) activity hint. */}
-                {t.streaming && !t.assistant && (
+                <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(clean.text || "") as string }} />
+                {/* Streaming cursor once prose is arriving. */}
+                {t.streaming && clean.text && <span className="cc-cursor" aria-hidden="true" />}
+                {/* Rich "working" indicator before any prose lands (while James is
+                    only doing tool activity, clean.text is empty → show this, not the
+                    raw scrape): animated dots + label + live elapsed + activity hint. */}
+                {t.streaming && !clean.text && (
                   <div className="cc-working" role="status" aria-live="polite">
                     <span className="cc-working-dots"><i /><i /><i /></span>
                     <span className="cc-working-label">Working</span>
@@ -830,14 +893,15 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                     {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
                   </div>
                 )}
-                {/* Per-message actions: copy (always) + read-aloud (voice). */}
-                {t.assistant.trim() && !t.streaming && (
+                {/* Per-message actions: copy (always) + read-aloud (voice) + a subtle
+                    routing chip (replaces the inline "[route: …]" badge). */}
+                {clean.text.trim() && !t.streaming && (
                   <div className="cc-msgactions">
                     <button
                       type="button"
                       className="cc-msgcopy"
                       title="Copy this response"
-                      onClick={() => copyMsg(t.id, t.assistant)}
+                      onClick={() => copyMsg(t.id, clean.text)}
                     >
                       {copiedId === t.id ? "Copied" : "Copy"}
                     </button>
@@ -847,7 +911,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                         className="cc-speak"
                         title="Read this response aloud"
                         aria-label="Read this response aloud"
-                        onClick={() => void speak(t.assistant)}
+                        onClick={() => void speak(clean.text)}
                       >
                         <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
                           <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
@@ -855,12 +919,16 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                         </svg>
                       </button>
                     )}
+                    {routeLabel && (
+                      <span className="cc-routechip" title={routeTitle}>{routeLabel}</span>
+                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
         {showRaw && (
           <pre className="cc-raw">{screen.join("\n")}</pre>
         )}

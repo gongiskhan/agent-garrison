@@ -33,6 +33,7 @@ export {
   parseStatus,
   parsePermissionMode,
   isBusy,
+  isWorking,
   isPromptReady,
   turnStarted,
   waitForTurnComplete,
