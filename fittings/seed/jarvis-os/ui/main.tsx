@@ -160,6 +160,24 @@ function takeSentences(text: string, from: number): { sentences: string[]; curso
 
 type Turn = { id: string; role: "user" | "assistant" | "error"; content: string };
 type Callout = { id: string; label: string; content: string };
+type Activity = { id: string; tool: string; detail: string };
+
+// Friendly verb for a tool name in the "now" feed; falls back to a normalised
+// form of the raw name (MCP tools arrive as `mcp__<server>__<tool>`).
+const TOOL_VERB: Record<string, string> = {
+  WebSearch: "search web", WebFetch: "fetch page", Bash: "shell",
+  Read: "read", Write: "write", Edit: "edit", NotebookEdit: "edit notebook",
+  Grep: "search code", Glob: "find files", Task: "delegate", ToolSearch: "find tool",
+  talk_to: "delegate", list_active_sessions: "check sessions",
+};
+function toolVerb(name: string): string {
+  const bare = name.replace(/^mcp__[^_]+__/, "").replace(/^mcp__/, "");
+  return (
+    TOOL_VERB[name] ||
+    TOOL_VERB[bare] ||
+    bare.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_+/g, " ").toLowerCase().trim()
+  );
+}
 
 // ── component ────────────────────────────────────────────────────────────────
 
@@ -170,6 +188,8 @@ function App() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [callouts, setCallouts] = useState<Callout[]>([]);
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
+  // Live "what Jarvis is doing" — tool calls of the current turn, newest last.
+  const [activity, setActivity] = useState<Activity[]>([]);
 
   // Scrollable transcript: keep the newest turn in view, but only auto-scroll
   // when the user is already near the bottom — so scrolling up to read history
@@ -355,6 +375,7 @@ function App() {
     sendingRef.current = true;
     hasInteractedRef.current = true; // from now on, async Soul replies are live
     stopSpeech(); // a new turn interrupts any in-flight speech
+    setActivity([]); // clear last turn's tool feed
     setTurns((prev) => [...prev.slice(-6), { id: genId("u"), role: "user", content: msg }]);
     setMode("working");
     const bubbleId = genId("a");
@@ -429,6 +450,15 @@ function App() {
                 enqueueSpeech(s);
               }
               if (spokenChars >= SPEAK_CAP && !capped) { capped = true; enqueueSpeech("O resto está no ecrã."); }
+            }
+          } else if (ev.event === "activity" && typeof ev.data?.tool === "string") {
+            // a tool call from the Operative — show it live in the "now" feed.
+            // ToolSearch is harness plumbing (loading tool schemas), not a
+            // content action, so it's filtered out as noise.
+            const tool = ev.data.tool as string;
+            if (tool !== "ToolSearch") {
+              const detail = typeof ev.data.detail === "string" ? ev.data.detail : "";
+              setActivity((prev) => [...prev.slice(-4), { id: genId("act"), tool, detail }]);
             }
           } else if (ev.event === "error") {
             setTurns((prev) => prev.map((t) => t.id === bubbleId
@@ -703,6 +733,19 @@ function App() {
         <span className={`jarvis-dot ${mode}`} />
         <span className="jarvis-status-text">{statusLabel}</span>
       </div>
+
+      {activity.length > 0 && (
+        <div className="jarvis-activity" data-state={mode}>
+          <span className="jarvis-activity-head">NOW</span>
+          {activity.map((a) => (
+            <div key={a.id} className="jarvis-activity-row">
+              <span className="jarvis-activity-dot" />
+              <span className="jarvis-activity-tool">{toolVerb(a.tool)}</span>
+              {a.detail ? <span className="jarvis-activity-detail">{a.detail}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="jarvis-callouts">
         {callouts.map((c) => (

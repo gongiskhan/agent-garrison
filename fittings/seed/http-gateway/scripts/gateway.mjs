@@ -121,6 +121,33 @@ function sseWrite(response, event, payload) {
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+// One-line human summary of a tool call's input, for the "what it's doing now"
+// activity feed a channel surface (e.g. the Jarvis HUD) shows during a turn.
+// Picks the most salient arg per tool (query / command / path / …) and trims it;
+// file paths collapse to their basename. Never returns raw JSON.
+function summarizeToolInput(input) {
+  if (!input || typeof input !== "object") return "";
+  const raw =
+    input.query ??
+    input.command ??
+    input.file_path ??
+    input.path ??
+    input.pattern ??
+    input.url ??
+    input.prompt ??
+    input.message ??
+    input.text ??
+    input.soul ??
+    input.target ??
+    input.name ??
+    input.description ??
+    "";
+  let s = typeof raw === "string" ? raw : "";
+  if ((input.file_path || input.path) && s.includes("/")) s = s.split("/").filter(Boolean).pop() || s;
+  s = s.replace(/\s+/g, " ").trim();
+  return s.length > 60 ? `${s.slice(0, 57)}…` : s;
+}
+
 // ───────────────────────────────────────────────────────── Orchestrator mode
 
 async function loadSoulsConfig() {
@@ -652,12 +679,29 @@ const server = http.createServer(async (request, response) => {
       // sentence as it streams. replay:false so we stream only THIS turn's deltas,
       // not the channel ring's prior turns.
       const orchChannel = channels.channelFor(orchestratorSessionId) ?? channel;
+      // Tool calls surfaced once each (dedup by tool_use id) as `activity` events,
+      // so a channel surface can show "what it's doing now". The full `assistant`
+      // message carries the populated input; we emit the first time we see a given
+      // id WITH input, so the label has real detail (query / command / file).
+      // thinking blocks are never forwarded. Unknown events are ignored by existing
+      // consumers (web-channel), so this is backward-compatible.
+      const seenTools = new Set();
       const unsubscribe = channels.subscribe(orchChannel, (wrapped) => {
         if (wrapped.session_id !== orchestratorSessionId) return;
         const ev = wrapped.event;
         if (ev?.type === "stream_event" && ev.event?.delta?.type === "text_delta") {
           const t = ev.event.delta.text;
           if (t) sseWrite(response, "chunk", { text: t });
+          return;
+        }
+        if (ev?.type === "assistant" && Array.isArray(ev.message?.content)) {
+          for (const block of ev.message.content) {
+            if (block?.type !== "tool_use" || !block.id || seenTools.has(block.id)) continue;
+            // Assistant messages carry the fully-assembled tool_use (populated input),
+            // so first-sight-per-id is safe and also covers argless tools.
+            seenTools.add(block.id);
+            sseWrite(response, "activity", { tool: String(block.name || "tool"), detail: summarizeToolInput(block.input) });
+          }
         }
       }, { replay: false });
 
