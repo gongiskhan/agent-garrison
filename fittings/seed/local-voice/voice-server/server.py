@@ -107,6 +107,7 @@ WHISPER_CPP_VAD_MODEL = os.path.expanduser(os.environ.get(
 ))
 _whisper_cpp_proc = None
 _whisper_cpp_port = None
+_whisper_cpp_log = None  # open file handle for the whisper-server child's log
 
 # --- multilingual TTS voice routing ---------------------------------------
 # The spoken voice is chosen from the language of the RESPONSE TEXT (detected
@@ -264,7 +265,7 @@ def start_whisper_cpp():
     return (proc, port). The model stays warm in the child; /stt proxies to it.
     Raises if the binary or model is missing so startup fails loudly rather than
     silently degrading."""
-    global _whisper_cpp_proc, _whisper_cpp_port
+    global _whisper_cpp_proc, _whisper_cpp_port, _whisper_cpp_log
     if not os.path.exists(WHISPER_CPP_MODEL):
         raise RuntimeError(f"whisper-cpp model not found: {WHISPER_CPP_MODEL}")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -283,22 +284,32 @@ def start_whisper_cpp():
             "--vad-speech-pad-ms", "200",  # protect word onsets from over-trim
         ]
         print(f"whisper.cpp VAD on ({os.path.basename(WHISPER_CPP_VAD_MODEL)})")
+    # Capture the child's output to a DEDICATED log file (GARRISON_HOME-aware,
+    # the ~/.garrison/logs convention) rather than DEVNULL — otherwise a child
+    # that dies during startup or fails to warm gives zero diagnostics. It goes
+    # to its own file, not the parent's stdout, because whisper.cpp logs on every
+    # inference and would flood the fitting log. Truncated per start so it always
+    # reflects the latest attempt; the child keeps writing through its own fd dup.
+    _garrison_home = os.environ.get("GARRISON_HOME", "").strip() or os.path.expanduser("~/.garrison")
+    log_path = os.path.join(_garrison_home, "logs", "whisper-server.log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    _whisper_cpp_log = open(log_path, "w")
     _whisper_cpp_proc = subprocess.Popen(
-        args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        args, stdout=_whisper_cpp_log, stderr=subprocess.STDOUT
     )
     atexit.register(lambda: _whisper_cpp_proc and _whisper_cpp_proc.terminate())
     # Wait until the HTTP port answers (model load + Metal init).
     base = f"http://127.0.0.1:{_whisper_cpp_port}"
     for _ in range(120):
         if _whisper_cpp_proc.poll() is not None:
-            raise RuntimeError("whisper-server exited during startup")
+            raise RuntimeError(f"whisper-server exited during startup (see {log_path})")
         try:
             httpx.get(base + "/", timeout=1.0)
-            print(f"whisper.cpp server warm on {base} (model={WHISPER_CPP_MODEL})")
+            print(f"whisper.cpp server warm on {base} (model={WHISPER_CPP_MODEL}, log={log_path})")
             return
         except Exception:
             time.sleep(0.5)
-    raise RuntimeError("whisper-server did not become ready in time")
+    raise RuntimeError(f"whisper-server did not become ready in time (see {log_path})")
 
 
 def transcribe_cpp(audio_f32):
