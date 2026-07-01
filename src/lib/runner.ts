@@ -13,7 +13,7 @@ import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
 import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
 import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
-import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
+import { isOperativeBound, ownPortConfigEnv, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import {
   resolvePrimaryRuntime,
@@ -530,31 +530,10 @@ export function setupConfigEnv(
   return env;
 }
 
-// Config keys NEVER projected as a bare runtime env var: PORT/HOST collide with
-// names half the ecosystem reads, and gateway_url is delivered canonically as
-// GARRISON_GATEWAY_URL — projecting an (often empty) apm.yml value would clobber it.
-const OWN_PORT_CONFIG_ENV_SKIP = new Set(["port", "bind_host", "host", "gateway_url"]);
-
-// Project an own-port Fitting's SELECTED config into the runtime spawn env under
-// bare UPPER_SNAKE names (whisper_lang → WHISPER_LANG, kokoro_voice → KOKORO_VOICE),
-// which is what the Fitting servers actually read. Without this the apm.yml config
-// is decorative at runtime — the process runs on its server.mjs defaults, which is
-// why pinning the STT language (whisper_lang) never took effect. Empty strings are
-// skipped so an unset apm.yml value can't override a sensible default; objects and
-// the collision-prone keys above are skipped too.
-export function ownPortConfigEnv(config: Record<string, unknown>): Record<string, string> {
-  const norm = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(config ?? {})) {
-    if (value === undefined || value === null) continue;
-    if (typeof value === "object") continue;
-    if (OWN_PORT_CONFIG_ENV_SKIP.has(key)) continue;
-    const str = String(value);
-    if (str === "") continue;
-    env[norm(key)] = str;
-  }
-  return env;
-}
+// ownPortConfigEnv now lives in own-port-lifecycle.ts (next to vaultEnvForEntry
+// and the spawn logic); re-exported here so existing importers (and tests) that
+// reach for it via @/lib/runner keep resolving.
+export { ownPortConfigEnv } from "./own-port-lifecycle";
 
 export async function runFittingSetup(
   entry: { id: string; metadata: GarrisonMetadata },

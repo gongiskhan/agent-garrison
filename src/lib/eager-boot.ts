@@ -1,8 +1,9 @@
 import path from "node:path";
 import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
+import { listCompositions } from "./compositions";
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
-import { startOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
+import { ownPortConfigEnv, startOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import type { LibraryEntry } from "./types";
 import { isValidInstanceId } from "./view-instances";
 import { listInstanceIds, viewStateDir } from "./view-state";
@@ -101,6 +102,36 @@ export interface EagerBootSummary {
 export interface EagerBootOptions {
   // Tests inject a fixture library; production resolves the real one.
   library?: LibraryEntry[];
+  // Per-fitting selected config, keyed by fitting id, projected into the spawn
+  // env so an eager-booted own-port fitting reads its apm.yml config (e.g.
+  // local-voice's whisper_model/stt_engine) instead of falling back to server
+  // defaults. Tests inject a map; production scans all compositions.
+  configById?: Map<string, Record<string, unknown>>;
+}
+
+// Build a fitting-id → selected-config map by scanning every composition, so
+// eager boot (which is composition-agnostic) can still project each fitting's
+// config. When more than one composition selects the same fitting, later keys
+// win per-field; in practice the voice/own-port config agrees across
+// compositions, so the merge is deterministic and correct. Best-effort: a read
+// failure yields an empty map (eager boot then spawns on server defaults, the
+// prior behavior) rather than aborting the boot.
+async function resolveConfigById(): Promise<Map<string, Record<string, unknown>>> {
+  const configById = new Map<string, Record<string, unknown>>();
+  try {
+    const compositions = await listCompositions();
+    for (const composition of compositions) {
+      for (const items of Object.values(composition.selections)) {
+        for (const item of items ?? []) {
+          const prev = configById.get(item.id) ?? {};
+          configById.set(item.id, { ...prev, ...((item.config ?? {}) as Record<string, unknown>) });
+        }
+      }
+    }
+  } catch {
+    // ignore — fall back to an empty map (server defaults)
+  }
+  return configById;
 }
 
 // The server-boot sequence (called from src/instrumentation.ts).
@@ -124,6 +155,11 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
   }
   const library = options.library ?? (await readLibrary());
   const byId = new Map(library.map((entry) => [entry.id, entry]));
+  // Config projected into own-port spawns so eager boot honors apm.yml config
+  // (see resolveConfigById). Config keys are NOT in TRACKED_ENV_KEYS, so adding
+  // this env never perturbs the env-drift heal decision — it only changes what a
+  // fresh spawn receives.
+  const configById = options.configById ?? (await resolveConfigById());
   for (const fittingId of eagerIds) {
     const entry = byId.get(fittingId);
     if (!entry) {
@@ -132,7 +168,13 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
       continue;
     }
     if (isOwnPortFitting(entry)) {
-      const result = await startOwnPortFitting(entry, await vaultEnvForEntry(entry));
+      // Config first so vault/GARRISON_* keys always win on collision (mirrors
+      // the runner's startOperativeBoundFittings ordering).
+      const extraEnv = {
+        ...ownPortConfigEnv(configById.get(fittingId) ?? {}),
+        ...(await vaultEnvForEntry(entry))
+      };
+      const result = await startOwnPortFitting(entry, extraEnv);
       if (!result.ok) {
         const error = result.error ?? "start failed";
         summary.failed.push({ id: fittingId, error });

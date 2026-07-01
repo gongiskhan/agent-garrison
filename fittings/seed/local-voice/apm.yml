@@ -61,11 +61,37 @@ x-garrison:
     - key: whisper_model
       type: string
       default: small
-      description: faster-whisper model used by /stt. Multilingual checkpoints (tiny, base, small, medium, large-v3) auto-detect the spoken language; the *.en variants (small.en…) are English-only and faster. Default small auto-detects PT/FR/EN/… in ~1.7s on CPU.
+      description: Whisper checkpoint used by /stt (both engines load the same weights). Multilingual checkpoints (tiny, base, small, medium, large-v3) auto-detect the spoken language; the *.en variants (small.en…) are English-only and faster. Default small auto-detects PT/FR/EN/… in ~1.7s on CPU but mangles European Portuguese — for PT use large-v3 (with stt_engine whisper-cpp for GPU speed).
+    - key: stt_engine
+      type: select
+      default: faster-whisper
+      description: STT backend. faster-whisper runs on CPU (int8) and needs no extra install. whisper-cpp runs the same weights on the Apple GPU (Metal) via a supervised whisper-server — ~3x faster (~4s vs ~12s on a 33s clip), same accuracy; needs `brew install whisper-cpp` + the ggml model (scripts/setup.sh fetches both).
+      options:
+        - faster-whisper
+        - whisper-cpp
+    - key: whisper_cpp_model
+      type: string
+      default: ~/.cache/whisper-cpp/ggml-large-v3.bin
+      description: Path to the ggml whisper model used when stt_engine is whisper-cpp (~ is expanded). Ignored by the faster-whisper engine, which loads whisper_model by name instead.
+    - key: whisper_lang
+      type: string
+      default: ""
+      description: 'Pin STT to one ISO-639-1 language (e.g. pt) instead of auto-detecting. Empty = auto-detect. Pin it for a single-language user: auto-detect flips wildly on short mic clips (PT heard as es/fr/en → garbage) and drags the TTS voice with it. Pinning trades first-class handling of other languages for stability.'
+    - key: stt_normalize_gain
+      type: select
+      default: "off"
+      description: Normalize (boost) quiet mic input before STT, up to ~+18 dB. Helps a far or soft microphone; leave off for a close, well-levelled mic.
+      options:
+        - "off"
+        - "on"
     - key: lang_voices
       type: string
       default: ""
       description: 'Optional JSON map ISO-639-1 → { voice, klang } overriding the per-language Kokoro voice used by /tts. Empty uses the built-in defaults (en=bm_george/en-gb, fr=ff_siwis/fr-fr, es=em_alex/es, it=im_nicola/it). Note: pt is served by Piper (see piper_voices), not Kokoro.'
+    - key: tts_force_lang
+      type: string
+      default: ""
+      description: Force every TTS reply into one ISO-639-1 language's voice instead of detecting it from the reply text. Empty = detect per reply. Set it (usually to match whisper_lang) so the voice never switches mid-reply for a single-language user.
     - key: piper_voices
       type: string
       default: ""
