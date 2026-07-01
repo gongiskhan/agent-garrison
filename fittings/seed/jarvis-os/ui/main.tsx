@@ -611,10 +611,12 @@ function App() {
       // Keep Silero's proven default thresholds (positive 0.3 / negative 0.25).
       // Raising them — which I tried — breaks END detection: with room noise the
       // speech probability hovers above a high negativeSpeechThreshold, so the
-      // redemption counter never fills and the turn never ends. ~1.1s of trailing
+      // redemption counter never fills and the turn never ends. ~0.85s of trailing
       // silence ends a turn — long enough to ride over natural pauses in PT,
       // short enough to stay snappy. minSpeechMs low so short commands register.
-      redemptionMs: 1100,
+      // (Tuned down from 1100ms for faster response; raise back toward 1100 if it
+      // clips mid-utterance on longer thinking pauses.)
+      redemptionMs: 850,
       minSpeechMs: 250,
       positiveSpeechThreshold: 0.3,
       negativeSpeechThreshold: 0.25,
