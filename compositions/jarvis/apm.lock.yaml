@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-19T10:35:48.699711+00:00'
+generated_at: '2026-07-01T13:11:41.529202+00:00'
 apm_version: 0.20.0
 dependencies:
 - repo_url: _local/garrison-orchestrator
@@ -7,7 +7,7 @@ dependencies:
   deployed_files:
   - .claude/commands/garrison-orchestrator.md
   deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:bac9d92ed5f8103cff7678c89fa6f4a151a9efb9c4c32d53472113bb0147e3c0
+    .claude/commands/garrison-orchestrator.md: sha256:8fa88e3463ba6744f48726fd4ecf7255b2694abb76d6617bb6f6b452b4525f02
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway
@@ -30,7 +30,3 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/local-voice
-- repo_url: _local/mcp-gateway
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/mcp-gateway

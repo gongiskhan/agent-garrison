@@ -8,10 +8,6 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/knowledge
-    # Installed-only (not the active voice selection): kept available so the
-    # voice e2e harness can start it on 7085 to benchmark/compare against the
-    # local-voice STT. local-voice is the production voice (no key, better PT).
-    - path: ../../fittings/seed/deepgram-voice
 x-garrison:
   composition:
     id: jarvis
@@ -42,19 +38,34 @@ x-garrison:
             port: 7090
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
-            whisper_model: small
-            # Pin STT to Portuguese. With `small` (multilingual) and NO pin,
-            # whisper's per-utterance auto-detect flips to EN on short/imperfect
-            # audio and transcribes PT as English garbage ("liga as luzes" →
-            # "Liga's loses to Sella"), so the Orchestrator never understands the
-            # phrase. Pinning forces Portuguese decoding. See voice-server/server.py.
+            # large-v3 is the only checkpoint that transcribes European Portuguese
+            # reliably. Round-trip test on clean audio ("Que horas são em Lisboa?"):
+            # small → "Então é só uma luz boa"; medium → "Então horas são é Lisboa";
+            # large-v3-turbo → "Então, olha só em Lisboa"; large-v3 → exact. Costs
+            # ~5-6s decode on CPU (no CUDA on this Mac) + a one-time ~30s warm load.
+            # Accuracy over latency: a fast wrong transcript is useless downstream.
+            whisper_model: large-v3
+            # Pinned to Portuguese. Bilingual auto-detect was tried but on real
+            # short mic clips whisper.cpp flips wildly (PT heard as es/fr/en →
+            # garbage transcripts) AND makes the TTS voice switch mid-reply. This
+            # user is PT-primary, so pin STT to pt and force the TTS voice to pt
+            # (tts_force_lang) — stable, no flipping, no voice-mixing. Cost:
+            # English is decoded as PT (large-v3 still handles clear EN acceptably,
+            # but it's no longer first-class). Flip back to bilingual by clearing
+            # whisper_lang + tts_force_lang.
             whisper_lang: pt
-            # Bias whisper toward the assistant's domain vocabulary. whisper-small
-            # mishears real-mic Portuguese WITHOUT context ("liga as luzes da sala"
-            # → "a liga é luz da ação"); a natural-language prime with example
-            # commands fixes it (verified on real captured mic clips). Safe now that
-            # the language is pinned — an initial_prompt no longer skews detection.
-            whisper_prompt: "Estou a falar em português com o meu assistente Jarvis. Por exemplo: liga as luzes da sala, marca uma reunião amanhã, que horas são, abre o email."
+            tts_force_lang: pt
+            # NO whisper_prompt: a content-rich initial_prompt makes large-v3
+            # REGURGITATE the prompt text on unclear real-mic audio — verified in
+            # the field, a user utterance came back as "Liga as luzes da sala,
+            # marca um email" (verbatim from the old prompt). small needed the
+            # prime; large-v3 is strong without it, so leave it empty.
+            # STT on the Apple GPU (Metal) via whisper.cpp — ~3x faster than
+            # faster-whisper's CPU int8, same large-v3 weights. setup.sh installs
+            # whisper-cpp + the ggml model.
+            stt_engine: whisper-cpp
+            whisper_cpp_model: ~/.cache/whisper-cpp/ggml-large-v3.bin
+            stt_normalize_gain: "on"
             wake_word: "off"
       gateway:
         - id: http-gateway

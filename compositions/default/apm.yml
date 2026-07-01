@@ -7,13 +7,13 @@ dependencies:
     - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/codex-runtime
-    - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/model-router
     - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
@@ -55,12 +55,32 @@ x-garrison:
             port: 7083
             bind_host: 127.0.0.1
             gateway_url: ''
-        - id: deepgram-voice
+        - id: local-voice
           config:
-            port: 7085
+            port: 7090
             bind_host: 127.0.0.1
-            stt_model: nova-2
-            tts_model: aura-asteria-en
+            kokoro_voice: bm_george
+            kokoro_speed: 1
+            # large-v3 transcribes European PT reliably (small mangles it).
+            # Pinned to pt: bilingual auto-detect flips wildly on real short mic
+            # clips (PT heard as es/fr/en) and switches the TTS voice mid-reply,
+            # so pin STT to pt + force TTS voice to pt for a PT-primary user.
+            # Clear whisper_lang + tts_force_lang to go back to bilingual.
+            whisper_model: large-v3
+            whisper_lang: pt
+            tts_force_lang: pt
+            # STT engine: whisper-cpp runs large-v3 on the Apple GPU (Metal) via a
+            # supervised whisper-server, ~3x faster than faster-whisper's CPU int8
+            # (~4s vs ~12s on a 33s clip), same weights so same accuracy. Falls
+            # back to faster-whisper if set to that. Needs `brew install
+            # whisper-cpp` + the ggml model (scripts/setup.sh fetches both).
+            stt_engine: whisper-cpp
+            whisper_cpp_model: ~/.cache/whisper-cpp/ggml-large-v3.bin
+            stt_normalize_gain: 'on'
+            lang_voices: ''
+            piper_voices: ''
+            wake_word: 'off'
+            python_bin: ''
       gateway:
         - id: http-gateway
           config:
