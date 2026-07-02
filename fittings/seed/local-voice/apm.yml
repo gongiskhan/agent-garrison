@@ -131,10 +131,13 @@ x-garrison:
                        503 until ready.
       POST /stt      - speech-to-text. Body: raw audio bytes (Content-Type =
                        the recording's mime, e.g. audio/webm or audio/wav).
-                       Returns: { transcript, confidence, detected_language }.
-                       confidence is null (faster-whisper gives none);
-                       detected_language is the auto-detected spoken language
-                       as an ISO-639-1 code (pt, fr, en, …).
+                       Returns: { transcript, confidence, detected_language,
+                       eot_prob }. confidence is null (faster-whisper gives
+                       none); detected_language is the auto-detected spoken
+                       language as an ISO-639-1 code (pt, fr, en, …); eot_prob
+                       (0..1) is how likely the transcript is a finished
+                       utterance — voice UIs size their end-of-turn grace
+                       window from it.
       POST /tts      - text-to-speech. Body: { "text": "...", "format": "wav" }.
                        Returns: audio bytes (audio/wav), streamed
                        sentence-by-sentence so playback can start early. The

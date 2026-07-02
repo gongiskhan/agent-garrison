@@ -51,6 +51,7 @@ from faster_whisper import WhisperModel
 from faster_whisper.audio import decode_audio
 from kokoro_onnx import Kokoro
 
+from eot import score_eot
 from wakeword import WakeListener, WAKE_MODEL
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -674,7 +675,19 @@ async def stt(req: Request):
         "ms": ms,
         "language": lang,
         "language_probability": round(prob, 3),
+        # End-of-turn probability of the transcript (see eot.py) — the HUD's
+        # smart endpointing sizes its grace window from this.
+        "eot_prob": round(score_eot(text), 2),
     }
+
+
+@app.get("/turn")
+def turn(text: str = ""):
+    """End-of-turn probability for a (partial) transcript — the semantic half
+    of smart endpointing, exposed standalone for tuning/tests. The live STT
+    path gets the same score inline on /stt (eot_prob), so consumers normally
+    never call this."""
+    return {"text": text, "eot_prob": round(score_eot(text), 2)}
 
 
 @app.get("/speak")

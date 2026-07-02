@@ -3,10 +3,13 @@
 // Visual layer (DitherCore + ReportOverlay) is reused from the Fable jarvis-hud
 // reference. The voice + transport logic is the Garrison-native path:
 // hands-free voice session → Silero VAD (local, in-browser, @ricky0123/vad-web)
-// detects end-of-speech → /api/voice/stt → /api/chat (gateway → Orchestrator) →
-// reply read aloud via /api/voice/tts. Press once (Space or tap the core) to
-// arm the session; then just talk — each pause auto-sends and Jarvis replies,
-// and the session re-arms itself between turns until you press again to stop.
+// segments speech → SMART ENDPOINTING (eager /api/voice/stt + adaptive grace
+// window sized by the transcript's eot_prob; resumed speech merges into the
+// same turn) decides the real end of turn → /api/chat (gateway → Orchestrator)
+// → reply read aloud via /api/voice/tts. Press once (Space or tap the core) to
+// arm the session; then just talk — a genuine end of turn sends (mid-thought
+// pauses don't), and the session re-arms itself between turns until you press
+// again to stop.
 // The central core pulses to the live audio through a real AnalyserNode RMS.
 
 import { createRoot } from "react-dom/client";
@@ -56,6 +59,36 @@ function float32ToWavBlob(samples: Float32Array, sampleRate = 16000): Blob {
   }
   return new Blob([buffer], { type: "audio/wav" });
 }
+
+// ── smart endpointing ────────────────────────────────────────────────────────
+// Silero's speechEnd is only a TENTATIVE end of turn. The real decision:
+// tentative end → transcribe EAGERLY (overlaps the wait, so a confirmed end
+// adds ~no latency) → size a grace window from how finished the words sound
+// (eot_prob from the voice server: high = short wait, low = long mid-thought
+// tolerance) → only when the window expires with no resumed speech does the
+// turn send. Resuming within the window MERGES into the same turn.
+// Knobs come from the composition via /api/endpointing; defaults must match
+// scripts/server.mjs handleEndpointing.
+type EpCfg = { redemptionMs: number; minMs: number; maxMs: number };
+const EP_DEFAULTS: EpCfg = { redemptionMs: 550, minMs: 350, maxMs: 2600 };
+// Silence (s) stitched between merged segments so whisper hears the pause the
+// speaker actually made (helps punctuation; keeps words from running together).
+const MERGE_GAP_S = 0.24;
+
+function concatSegments(segs: Float32Array[], sampleRate = 16000): Float32Array {
+  if (segs.length === 1) return segs[0];
+  const gap = Math.floor(sampleRate * MERGE_GAP_S);
+  const total = segs.reduce((n, s) => n + s.length, 0) + gap * (segs.length - 1);
+  const out = new Float32Array(total);
+  let off = 0;
+  for (const seg of segs) {
+    out.set(seg, off);
+    off += seg.length + gap; // the gap stays zero-filled
+  }
+  return out;
+}
+
+type SttResult = { ok: boolean; transcript: string; eot: number | null; detail?: string };
 
 // getUserMedia/MediaRecorder need a secure context. localhost counts; a LAN IP
 // over plain http does not (use the Fitting's tls_cert/tls_key there).
@@ -249,6 +282,14 @@ function App() {
   const micStreamRef = useRef<MediaStream | null>(null);
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const sendingRef = useRef(false);
+  // Smart-endpointing state: segments of the still-open turn accumulate here
+  // while the adaptive grace window runs (see onTentativeEnd below).
+  const pendingSegsRef = useRef<Float32Array[]>([]);
+  const tentativeAtRef = useRef(0);             // when the tentative end fired
+  const graceTimerRef = useRef<number | null>(null);
+  const eagerSeqRef = useRef(0);                // invalidates stale eager STT
+  const eagerSttRef = useRef<Promise<SttResult> | null>(null);
+  const epCfgRef = useRef<EpCfg>({ ...EP_DEFAULTS });
   // Sentence-level TTS queue: speak each sentence as soon as it is generated
   // (don't wait for the whole reply), playing them back-to-back. This overlaps
   // synth with generation so the first words come out ~as soon as the model
@@ -541,47 +582,101 @@ function App() {
     }
   }, [setMode, enqueueSpeech, stopSpeech, pushCallout, endTurnIfDone]);
 
-  // ── hands-free voice session (Silero VAD) ────────────────────────────────
+  // ── hands-free voice session (Silero VAD + smart endpointing) ─────────────
 
-  // A speech segment ended: transcribe it and send it as a turn. VAD is already
-  // paused by the caller so it won't capture the upcoming reply.
-  const handleSpeech = useCallback(async (audio: Float32Array) => {
-    if (sendingRef.current) return; // a turn is already in flight
-    setMode("working");
+  // Transcribe one (possibly merged) speech segment. Never rejects — failures
+  // come back as { ok: false, detail } so every caller surfaces them the same
+  // way (503 = engines warming, 502 = engine crashed, network = unreachable).
+  const sttRequest = useCallback(async (audio: Float32Array): Promise<SttResult> => {
     try {
       const blob = float32ToWavBlob(audio, 16000);
       const res = await fetch("/api/voice/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: blob });
       if (!res.ok) {
-        // STT failed (503 = engines still warming, 502 = engine crashed, 400 =
-        // bad audio). A silent drop reads as Jarvis ignoring you — surface it,
-        // then re-arm so the next attempt Just Works. This is NOT the empty-
-        // transcript case below (normal noise/silence), which stays quiet.
         const detail = res.status === 503
           ? "voice engine still warming up — try again in a second"
           : `speech-to-text failed (${res.status})`;
-        console.error(`[jarvis] stt: ${detail}`);
-        pushCallout("didn't catch that", detail);
-        endTurnIfDone();
-        return;
+        return { ok: false, transcript: "", eot: null, detail };
       }
       const data = await res.json();
-      const transcript = typeof data?.transcript === "string" ? data.transcript.trim() : "";
-      // loop-safety: drop empty / sub-word transcripts (a stray noise blip) —
-      // quietly, so ambient noise never spams a callout.
-      if (transcript && transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
-        void send(transcript);
-      } else {
-        endTurnIfDone(); // nothing usable → re-arm and keep listening
-      }
+      return {
+        ok: true,
+        transcript: typeof data?.transcript === "string" ? data.transcript.trim() : "",
+        eot: typeof data?.eot_prob === "number" ? data.eot_prob : null
+      };
     } catch (e) {
-      // Network/proxy error reaching the voice Fitting — also must not fail
-      // silent; the user needs to know speech isn't getting through.
-      const detail = `voice unreachable: ${(e as Error)?.message ?? e}`;
-      console.error(`[jarvis] stt: ${detail}`);
-      pushCallout("didn't catch that", detail);
-      endTurnIfDone();
+      return { ok: false, transcript: "", eot: null, detail: `voice unreachable: ${(e as Error)?.message ?? e}` };
     }
-  }, [setMode, send, endTurnIfDone, pushCallout]);
+  }, []);
+
+  // Drop any half-decided turn (session stop, mute, push-to-talk cancel).
+  const resetEndpointer = useCallback(() => {
+    if (graceTimerRef.current !== null) { window.clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
+    pendingSegsRef.current = [];
+    eagerSeqRef.current++;
+    eagerSttRef.current = null;
+  }, []);
+
+  // The grace window expired with no resumed speech: the turn is real. Commit —
+  // pause the VAD, take the eager transcript (usually already resolved; a fresh
+  // STT only when the eager one was invalidated) and send.
+  const finalizeTurn = useCallback(async () => {
+    if (graceTimerRef.current !== null) { window.clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
+    if (sendingRef.current || pendingSegsRef.current.length === 0) return;
+    const segs = pendingSegsRef.current;
+    pendingSegsRef.current = [];
+    const eager = eagerSttRef.current;
+    eagerSttRef.current = null;
+    eagerSeqRef.current++; // a late eager .then must not re-arm the timer
+    pauseVad();
+    setMode("working");
+    const r = eager ? await eager : await sttRequest(concatSegments(segs));
+    if (!r.ok) {
+      // A silent drop reads as Jarvis ignoring you — surface it, then re-arm
+      // so the next attempt Just Works. This is NOT the empty-transcript case
+      // below (normal noise/silence), which stays quiet.
+      console.error(`[jarvis] stt: ${r.detail}`);
+      pushCallout("didn't catch that", r.detail ?? "speech-to-text failed");
+      endTurnIfDone();
+      return;
+    }
+    // loop-safety: drop empty / sub-word transcripts (a stray noise blip) —
+    // quietly, so ambient noise never spams a callout.
+    if (r.transcript && r.transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
+      void send(r.transcript);
+    } else {
+      endTurnIfDone(); // nothing usable → re-arm and keep listening
+    }
+  }, [pauseVad, setMode, sttRequest, send, endTurnIfDone, pushCallout]);
+
+  // (Re)arm the end-of-turn decision timer.
+  const armGraceTimer = useCallback((delayMs: number) => {
+    if (graceTimerRef.current !== null) window.clearTimeout(graceTimerRef.current);
+    graceTimerRef.current = window.setTimeout(() => { graceTimerRef.current = null; void finalizeTurn(); }, Math.max(0, delayMs));
+  }, [finalizeTurn]);
+
+  // Silero closed a segment — a TENTATIVE end of turn. The VAD keeps running
+  // (so resumed speech is heard); STT starts immediately; the decision timer
+  // starts at the maximum tolerance and is tightened once the transcript's
+  // end-of-turn probability arrives. Complete-sounding speech sends after
+  // ~endpoint_min_ms; a trailing "e…"/"quero que…" waits up to endpoint_max_ms.
+  const onTentativeEnd = useCallback((audio: Float32Array) => {
+    if (sendingRef.current) return; // a turn is already in flight
+    pendingSegsRef.current.push(audio);
+    tentativeAtRef.current = performance.now();
+    const seq = ++eagerSeqRef.current;
+    const { minMs, maxMs } = epCfgRef.current;
+    armGraceTimer(maxMs); // fallback decision even if STT is slow or fails
+    const stt = sttRequest(concatSegments(pendingSegsRef.current));
+    eagerSttRef.current = stt;
+    void stt.then((r) => {
+      if (seq !== eagerSeqRef.current) return; // user resumed / turn reset — stale
+      const eot = r.ok && r.eot !== null ? r.eot : 0.5;
+      const windowMs = minMs + (maxMs - minMs) * (1 - eot);
+      const elapsed = performance.now() - tentativeAtRef.current;
+      console.debug(`[endpoint] eot=${eot} window=${Math.round(windowMs)}ms elapsed=${Math.round(elapsed)}ms text="${r.transcript.slice(0, 60)}"`);
+      armGraceTimer(windowMs - elapsed);
+    });
+  }, [sttRequest, armGraceTimer]);
 
   // Surface a problem the user can read (and report) instead of failing silent.
   const flashError = useCallback((label: string, msg: string) => {
@@ -599,6 +694,20 @@ function App() {
   // happens AFTER the mic is live, so it can't consume the user-activation window.
   const ensureVad = useCallback(async (stream: MediaStream) => {
     if (vadRef.current) return vadRef.current;
+    // Endpointing knobs from the composition (vad_redemption_ms /
+    // endpoint_min_ms / endpoint_max_ms), fetched before the VAD is built
+    // because redemptionMs is fixed at construction. Failure = defaults.
+    try {
+      const r = await fetch("/api/endpointing");
+      if (r.ok) {
+        const j = await r.json();
+        epCfgRef.current = {
+          redemptionMs: Number(j?.redemptionMs) > 0 ? Number(j.redemptionMs) : EP_DEFAULTS.redemptionMs,
+          minMs: Number(j?.minMs) > 0 ? Number(j.minMs) : EP_DEFAULTS.minMs,
+          maxMs: Number(j?.maxMs) > 0 ? Number(j.maxMs) : EP_DEFAULTS.maxMs
+        };
+      }
+    } catch {}
     const vad = await MicVAD.new({
       model: "v5",
       baseAssetPath: "/",
@@ -611,12 +720,13 @@ function App() {
       // Keep Silero's proven default thresholds (positive 0.3 / negative 0.25).
       // Raising them — which I tried — breaks END detection: with room noise the
       // speech probability hovers above a high negativeSpeechThreshold, so the
-      // redemption counter never fills and the turn never ends. ~0.85s of trailing
-      // silence ends a turn — long enough to ride over natural pauses in PT,
-      // short enough to stay snappy. minSpeechMs low so short commands register.
-      // (Tuned down from 1100ms for faster response; raise back toward 1100 if it
-      // clips mid-utterance on longer thinking pauses.)
-      redemptionMs: 850,
+      // redemption counter never fills and the turn never ends.
+      // redemption is SEGMENTATION only now — the real end-of-turn decision is
+      // the adaptive grace window on top (onTentativeEnd): eager STT + semantic
+      // eot_prob size the wait, and resumed speech merges into the same turn.
+      // So this can be short (hand segments over quickly) without causing the
+      // old "850ms of silence = cut off mid-thought" behavior.
+      redemptionMs: epCfgRef.current.redemptionMs,
       minSpeechMs: 250,
       positiveSpeechThreshold: 0.3,
       negativeSpeechThreshold: 0.25,
@@ -626,13 +736,24 @@ function App() {
       getStream: async () => stream,
       pauseStream: async () => {},
       resumeStream: async (s: MediaStream) => s,
-      onSpeechStart: () => { console.debug("[vad] speechStart (mode=" + modeRef.current + ")"); if (!sendingRef.current && modeRef.current !== "speaking") setMode("listening"); },
-      onSpeechEnd: (audio: Float32Array) => { console.debug("[vad] speechEnd len=" + audio.length); pauseVad(); void handleSpeech(audio); },
+      onSpeechStart: () => {
+        console.debug("[vad] speechStart (mode=" + modeRef.current + ")");
+        if (pendingSegsRef.current.length > 0) {
+          // Resumed within the grace window → same turn (merge): kill the
+          // pending decision; the next speechEnd re-transcribes the merged audio.
+          if (graceTimerRef.current !== null) { window.clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
+          eagerSeqRef.current++;
+          eagerSttRef.current = null;
+          console.debug("[endpoint] resumed — merging into open turn");
+        }
+        if (!sendingRef.current && modeRef.current !== "speaking") setMode("listening");
+      },
+      onSpeechEnd: (audio: Float32Array) => { console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
       onVADMisfire: () => { console.debug("[vad] misfire"); }
     });
     vadRef.current = vad;
     return vad;
-  }, [getCtx, setMode, handleSpeech, pauseVad]);
+  }, [getCtx, setMode, onTentativeEnd]);
 
   // Arm the hands-free session. The gesture-gated work (resume AudioContext, open
   // the mic) runs first, synchronously off the click, so it keeps user activation;
@@ -678,6 +799,7 @@ function App() {
   const stopSession = useCallback(async () => {
     setSessionOn(false);
     setMicMuted(false);
+    resetEndpointer(); // drop any turn still inside its grace window
     vadRunningRef.current = false;
     try { await vadRef.current?.destroy(); } catch {}
     vadRef.current = null;
@@ -687,7 +809,7 @@ function App() {
     micStreamRef.current = null;
     stopSpeech();
     setMode("idle");
-  }, [setSessionOn, setMicMuted, setMode, stopSpeech]);
+  }, [setSessionOn, setMicMuted, setMode, stopSpeech, resetEndpointer]);
 
   // Mute toggle (M key / the mute button): stop listening to the room without
   // ending the session. Only meaningful with a live session. Muting pauses the
@@ -697,9 +819,9 @@ function App() {
     if (modeRef.current === "speaking") stopSpeech(); // muting mid-reply also cuts it
     const next = !micMutedRef.current;
     setMicMuted(next);
-    if (next) { pauseVad(); setMode("muted"); }
+    if (next) { resetEndpointer(); pauseVad(); setMode("muted"); }
     else { resumeVad(); setMode("listening"); }
-  }, [stopSpeech, pauseVad, resumeVad, setMicMuted, setMode]);
+  }, [stopSpeech, pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer]);
 
   // Single press = toggle the session. While Jarvis is speaking, a press is a
   // barge-in: cut the reply off but keep the session armed. While MUTED, a press
@@ -716,7 +838,7 @@ function App() {
     if (sessionOnRef.current) {
       if (micMutedRef.current) {
         // push-to-talk while muted: open for one utterance, or cancel if already open
-        if (modeRef.current === "listening") { pauseVad(); setMode("muted"); }
+        if (modeRef.current === "listening") { resetEndpointer(); pauseVad(); setMode("muted"); }
         else { resumeVad(); setMode("listening"); }
         return;
       }
@@ -724,7 +846,7 @@ function App() {
       return;
     }
     void startSession();
-  }, [stopSpeech, resumeVad, pauseVad, setMode, stopSession, startSession]);
+  }, [stopSpeech, resumeVad, pauseVad, setMode, stopSession, startSession, resetEndpointer]);
 
   // Space toggles the session / push-to-talk; M mutes the mic (ignore auto-repeat
   // and typing fields). Esc closes the report overlay.

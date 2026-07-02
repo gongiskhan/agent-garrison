@@ -139,6 +139,22 @@ function readVoiceInfo() {
   return null;
 }
 
+// Smart-endpointing config for the HUD, projected from the composition
+// (config_schema keys → UPPER_SNAKE env by the runner/eager-boot). The HUD
+// fetches this once per session; the defaults here must match EP_DEFAULTS in
+// ui/main.tsx so an unconfigured composition behaves identically either way.
+function handleEndpointing(res) {
+  const num = (v, d) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : d;
+  };
+  jsonRes(res, 200, {
+    redemptionMs: num(process.env.VAD_REDEMPTION_MS, 550),
+    minMs: num(process.env.ENDPOINT_MIN_MS, 350),
+    maxMs: num(process.env.ENDPOINT_MAX_MS, 2600)
+  });
+}
+
 // Voice availability — mirrors handleMonitor. The web UI hides its mic / speaker
 // controls when this reports unavailable.
 async function handleVoiceInfo(res) {
@@ -532,6 +548,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
+      if (pathname === "/api/endpointing" && method === "GET") return handleEndpointing(res);
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/voice/tts" && method === "GET") return handleVoiceTtsGet(req, res);

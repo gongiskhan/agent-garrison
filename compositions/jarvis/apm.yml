@@ -33,6 +33,16 @@ x-garrison:
             port: 7092
             bind_host: 127.0.0.1
             gateway_url: ''
+            # Smart endpointing (2026-07-02): Silero closes a segment after
+            # vad_redemption_ms of silence, then an ADAPTIVE grace window decides
+            # the real end of turn — short (endpoint_min_ms) when the transcript
+            # sounds finished, long (endpoint_max_ms) when it sounds mid-thought
+            # ("quero que…", trailing "e", comma, ellipsis). Speaking again inside
+            # the window merges into the same turn. Effective pause before send:
+            # finished ≈ 0.9s (550+350), mid-thought up to ≈ 3.2s (550+2600).
+            vad_redemption_ms: 550
+            endpoint_min_ms: 350
+            endpoint_max_ms: 2600
         - id: local-voice
           config:
             port: 7090

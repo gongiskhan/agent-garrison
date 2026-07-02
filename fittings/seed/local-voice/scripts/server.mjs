@@ -202,10 +202,14 @@ async function handleStt(req, res, ctx) {
         // → the Garrison voice contract { transcript, confidence, detected_language }.
         // confidence stays null (whisper gives no transcript-level confidence);
         // detected_language is the auto-detected spoken language (ISO-639-1).
+        // eot_prob (0..1, may be null on older voice-servers) = how likely the
+        // transcript is a FINISHED utterance — smart-endpointing consumers size
+        // their grace window from it.
         jsonRes(res, 200, {
           transcript: typeof data.text === "string" ? data.text : "",
           confidence: null,
-          detected_language: typeof data.language === "string" ? data.language : null
+          detected_language: typeof data.language === "string" ? data.language : null,
+          eot_prob: typeof data.eot_prob === "number" ? data.eot_prob : null
         });
       });
     }

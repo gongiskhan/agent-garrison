@@ -34,6 +34,18 @@ x-garrison:
       type: path
       default: ""
       description: Optional TLS private key path; pairs with tls_cert.
+    - key: vad_redemption_ms
+      type: integer
+      default: 550
+      description: Trailing silence (ms) before Silero VAD closes a speech segment. Segmentation only — the real end-of-turn decision adds the adaptive grace window (endpoint_min_ms/endpoint_max_ms) on top, so this can stay short. Too low clips word endings.
+    - key: endpoint_min_ms
+      type: integer
+      default: 350
+      description: Grace window (ms) after a segment that SOUNDS complete (terminal punctuation, high eot_prob from the voice Fitting). Total silence before send ≈ vad_redemption_ms + this. Raise if complete-sounding sentences still get cut off; lower for snappier sends.
+    - key: endpoint_max_ms
+      type: integer
+      default: 2600
+      description: Grace window (ms) after a segment that sounds UNFINISHED (trailing "e…", "quero que…", comma, filler). Speaking again within the window MERGES into the same turn instead of firing two fragmented ones. This is the mid-thought pause tolerance — raise it to think longer between words.
   provides:
     - kind: channel
       name: jarvis
