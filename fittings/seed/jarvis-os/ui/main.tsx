@@ -72,10 +72,14 @@ function float32ToWavBlob(samples: Float32Array, sampleRate = 16000): Blob {
 // Barge-in (full-duplex): the VAD keeps running while Jarvis thinks AND speaks.
 // The browser's echo cancellation (getUserMedia echoCancellation:true, with the
 // TTS playing in the same page = reference signal available) is the first
-// defense against self-interruption; the second is the confirmation gate below:
-// only bargein_confirm_ms of SUSTAINED frames ≥ bargein_prob count as the user
-// talking over Jarvis — brief AEC residue spikes decay and never trigger.
-// bargein_confirm_ms: 0 disables barge-in entirely.
+// defense against self-interruption; the second is the confirmation gate:
+// Silero's onSpeechStart while busy only OPENS a barge-in candidate — it is
+// confirmed after bargein_confirm_ms IF the speech is still going; a short
+// AEC-residue burst ends first (onVADMisfire / early speechEnd) and cancels it.
+// NB: gate lives on onSpeechStart/onVADMisfire because vad-web 0.0.30 declares
+// onFrameProcessed in its types but its runtime NEVER calls it (verified:
+// dist/index.js has zero references), so a per-frame counter silently does
+// nothing. bargein_confirm_ms: 0 disables barge-in entirely.
 type EpCfg = {
   redemptionMs: number; minMs: number; maxMs: number;
   bargeinProb: number; bargeinConfirmMs: number; idleTimeoutMs: number;
@@ -84,7 +88,6 @@ const EP_DEFAULTS: EpCfg = {
   redemptionMs: 550, minMs: 350, maxMs: 2600,
   bargeinProb: 0.55, bargeinConfirmMs: 350, idleTimeoutMs: 90_000
 };
-const VAD_FRAME_MS = 32; // Silero v5 frame = 512 samples @ 16 kHz
 
 // Stop phrases — a whole short utterance that drops the session into standby
 // ("hey jarvis" wakes it again). PT + EN.
@@ -334,7 +337,7 @@ function App() {
   const chatAbortRef = useRef<AbortController | null>(null);
   const bargedRef = useRef(false);
   const bargeActiveRef = useRef(false);
-  const bargeFramesRef = useRef(0);
+  const bargeTimerRef = useRef<number | null>(null); // pending barge-in confirmation
   const spokenTextRef = useRef("");
   const speakingNowRef = useRef("");
   const interruptedRef = useRef<{ spoken: string; cut: boolean } | null>(null);
@@ -731,7 +734,7 @@ function App() {
     eagerSeqRef.current++;
     eagerSttRef.current = null;
     bargeActiveRef.current = false;
-    bargeFramesRef.current = 0;
+    if (bargeTimerRef.current !== null) { window.clearTimeout(bargeTimerRef.current); bargeTimerRef.current = null; }
   }, []);
 
   // Standby transitions. enterStandby keeps the session (mic + VAD) alive but
@@ -821,6 +824,14 @@ function App() {
   // end-of-turn probability arrives. Complete-sounding speech sends after
   // ~endpoint_min_ms; a trailing "e…"/"quero que…" waits up to endpoint_max_ms.
   const onTentativeEnd = useCallback((audio: Float32Array) => {
+    // Speech ended before the barge-in confirmation fired → too short to count
+    // as talking over Jarvis; drop the candidate (the busy guard below then
+    // discards the segment as echo/noise).
+    if (bargeTimerRef.current !== null) {
+      window.clearTimeout(bargeTimerRef.current);
+      bargeTimerRef.current = null;
+      console.debug("[barge] candidate dropped (speech ended before confirm)");
+    }
     // While a turn is in flight or Jarvis is speaking, Silero still segments
     // whatever the (echo-cancelled) mic hears. Those segments are echo residue
     // or room noise UNLESS a barge-in was confirmed — the confirmed barge-in's
@@ -919,27 +930,24 @@ function App() {
       getStream: async () => stream,
       pauseStream: async () => {},
       resumeStream: async (s: MediaStream) => s,
-      // Barge-in monitor: while Jarvis thinks or speaks, count consecutive-ish
-      // frames the (echo-cancelled) mic scores as speech. Only SUSTAINED speech
-      // (bargein_confirm_ms at ≥ bargein_prob) counts as the user talking over —
-      // brief AEC-residue spikes decay away. Runs every 32ms frame; cheap.
-      onFrameProcessed: (probs: { isSpeech: number }) => {
-        const { bargeinProb, bargeinConfirmMs } = epCfgRef.current;
-        if (bargeinConfirmMs <= 0 || micMutedRef.current || !vadRunningRef.current) { bargeFramesRef.current = 0; return; }
-        const busy = sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0;
-        if (!busy || bargeActiveRef.current) { bargeFramesRef.current = 0; return; }
-        if (probs.isSpeech >= bargeinProb) {
-          bargeFramesRef.current += 1;
-          if (bargeFramesRef.current * VAD_FRAME_MS >= bargeinConfirmMs) {
-            bargeFramesRef.current = 0;
-            triggerBargeIn();
-          }
-        } else if (bargeFramesRef.current > 0) {
-          bargeFramesRef.current = Math.max(0, bargeFramesRef.current - 2); // spikes die out fast
-        }
-      },
       onSpeechStart: () => {
         console.debug("[vad] speechStart (mode=" + modeRef.current + ")");
+        // Barge-in candidate: speech detected while Jarvis is thinking/speaking.
+        // Don't act yet — a brief AEC-residue burst also trips speechStart. Arm
+        // a confirmation timer instead: if the speech is STILL open after
+        // bargein_confirm_ms (no misfire, no early end), it's the user talking
+        // over Jarvis → cut everything. (onFrameProcessed would be cleaner but
+        // vad-web 0.0.30 never calls it — see the EpCfg comment.)
+        const { bargeinConfirmMs } = epCfgRef.current;
+        const busy = sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0;
+        if (busy && !bargeActiveRef.current && bargeinConfirmMs > 0 && !micMutedRef.current) {
+          if (bargeTimerRef.current !== null) window.clearTimeout(bargeTimerRef.current);
+          bargeTimerRef.current = window.setTimeout(() => {
+            bargeTimerRef.current = null;
+            triggerBargeIn();
+          }, bargeinConfirmMs);
+          console.debug(`[barge] candidate — confirming in ${bargeinConfirmMs}ms`);
+        }
         if (pendingSegsRef.current.length > 0) {
           // Resumed within the grace window → same turn (merge): kill the
           // pending decision; the next speechEnd re-transcribes the merged audio.
@@ -951,7 +959,15 @@ function App() {
         if (!sendingRef.current && modeRef.current !== "speaking") setMode("listening");
       },
       onSpeechEnd: (audio: Float32Array) => { console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
-      onVADMisfire: () => { console.debug("[vad] misfire"); }
+      onVADMisfire: () => {
+        console.debug("[vad] misfire");
+        // The speech burst was too short to be real — cancel any pending barge-in.
+        if (bargeTimerRef.current !== null) {
+          window.clearTimeout(bargeTimerRef.current);
+          bargeTimerRef.current = null;
+          console.debug("[barge] candidate dropped (misfire)");
+        }
+      }
     });
     vadRef.current = vad;
     return vad;

@@ -53,7 +53,7 @@ x-garrison:
     - key: bargein_prob
       type: number
       default: 0.55
-      description: Per-frame Silero speech probability a frame must reach to count toward bargein_confirm_ms. Higher = stricter (fewer false barge-ins from echo residue), lower = easier to interrupt. Range 0–1.
+      description: 'RESERVED — currently no effect: vad-web 0.0.30 never invokes its per-frame callback, so barge-in confirmation is time-based (speech still open after bargein_confirm_ms) gated by Silero''s own speech threshold. Tune bargein_confirm_ms instead; this key activates if the VAD lib gains working frame callbacks.'
     - key: wake_idle_timeout_s
       type: integer
       default: 90
