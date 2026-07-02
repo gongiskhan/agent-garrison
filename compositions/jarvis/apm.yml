@@ -43,6 +43,14 @@ x-garrison:
             vad_redemption_ms: 550
             endpoint_min_ms: 350
             endpoint_max_ms: 2600
+            # Barge-in (2026-07-02): o mic fica aberto enquanto o Jarvis pensa E
+            # fala (full-duplex). Fala sustentada (bargein_confirm_ms de frames
+            # ≥ bargein_prob, sobre o sinal já com echo-cancellation do browser)
+            # corta o TTS, cancela a geração em curso no orchestrator e abre um
+            # novo turno. Falsos disparos com colunas altas → subir confirm_ms /
+            # prob; 0 desliga o barge-in.
+            bargein_confirm_ms: 350
+            bargein_prob: 0.55
         - id: local-voice
           config:
             port: 7090

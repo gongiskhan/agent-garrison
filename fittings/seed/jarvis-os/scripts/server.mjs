@@ -148,10 +148,21 @@ function handleEndpointing(res) {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : d;
   };
+  // bargein_confirm_ms accepts 0 (= barge-in disabled), so it gets its own parser.
+  const num0 = (v, d) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : d;
+  };
+  const prob = (v, d) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : d;
+  };
   jsonRes(res, 200, {
     redemptionMs: num(process.env.VAD_REDEMPTION_MS, 550),
     minMs: num(process.env.ENDPOINT_MIN_MS, 350),
-    maxMs: num(process.env.ENDPOINT_MAX_MS, 2600)
+    maxMs: num(process.env.ENDPOINT_MAX_MS, 2600),
+    bargeinProb: prob(process.env.BARGEIN_PROB, 0.55),
+    bargeinConfirmMs: num0(process.env.BARGEIN_CONFIRM_MS, 350)
   });
 }
 

@@ -41,6 +41,7 @@ import {
   spawnInteractiveTab,
   respawnInteractiveTab,
   writeUserTurn,
+  writeInterrupt,
   writePromptTempFile
 } from "./lib/spawn-soul.mjs";
 import { WorktreesProxy } from "./lib/worktrees-passthrough.mjs";
@@ -718,6 +719,19 @@ const server = http.createServer(async (request, response) => {
         unsubscribe();
         response.end();
       }
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/claude/interrupt") {
+      // Barge-in support: cancel the orchestrator's in-flight turn NOW (voice
+      // UIs call this when the user talks over Jarvis). Same route the PTY
+      // gateway exposes, so channel surfaces work against either engine.
+      if (!orchestratorChild) {
+        return sendJson(response, 503, { error: "orchestrator not running" });
+      }
+      const ok = writeInterrupt(orchestratorChild);
+      logEvent("stdout", { kind: "orchestrator-interrupt", ok });
+      sendJson(response, ok ? 200 : 503, { ok });
       return;
     }
 

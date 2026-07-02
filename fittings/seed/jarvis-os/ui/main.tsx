@@ -69,8 +69,19 @@ function float32ToWavBlob(samples: Float32Array, sampleRate = 16000): Blob {
 // turn send. Resuming within the window MERGES into the same turn.
 // Knobs come from the composition via /api/endpointing; defaults must match
 // scripts/server.mjs handleEndpointing.
-type EpCfg = { redemptionMs: number; minMs: number; maxMs: number };
-const EP_DEFAULTS: EpCfg = { redemptionMs: 550, minMs: 350, maxMs: 2600 };
+// Barge-in (full-duplex): the VAD keeps running while Jarvis thinks AND speaks.
+// The browser's echo cancellation (getUserMedia echoCancellation:true, with the
+// TTS playing in the same page = reference signal available) is the first
+// defense against self-interruption; the second is the confirmation gate below:
+// only bargein_confirm_ms of SUSTAINED frames ≥ bargein_prob count as the user
+// talking over Jarvis — brief AEC residue spikes decay and never trigger.
+// bargein_confirm_ms: 0 disables barge-in entirely.
+type EpCfg = {
+  redemptionMs: number; minMs: number; maxMs: number;
+  bargeinProb: number; bargeinConfirmMs: number;
+};
+const EP_DEFAULTS: EpCfg = { redemptionMs: 550, minMs: 350, maxMs: 2600, bargeinProb: 0.55, bargeinConfirmMs: 350 };
+const VAD_FRAME_MS = 32; // Silero v5 frame = 512 samples @ 16 kHz
 // Silence (s) stitched between merged segments so whisper hears the pause the
 // speaker actually made (helps punctuation; keeps words from running together).
 const MERGE_GAP_S = 0.24;
@@ -290,6 +301,18 @@ function App() {
   const eagerSeqRef = useRef(0);                // invalidates stale eager STT
   const eagerSttRef = useRef<Promise<SttResult> | null>(null);
   const epCfgRef = useRef<EpCfg>({ ...EP_DEFAULTS });
+  // Barge-in state: the abort handle of the in-flight /api/chat turn, whether
+  // that abort was a barge-in (vs the 60s safety timeout), whether a confirmed
+  // barge-in capture is in progress (lets its segment through the busy guard),
+  // the sustained-speech frame counter, and what was actually SPOKEN aloud this
+  // turn (finished sentences + the one playing) for the [interrupted] note.
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const bargedRef = useRef(false);
+  const bargeActiveRef = useRef(false);
+  const bargeFramesRef = useRef(0);
+  const spokenTextRef = useRef("");
+  const speakingNowRef = useRef("");
+  const interruptedRef = useRef<{ spoken: string; cut: boolean } | null>(null);
   // Sentence-level TTS queue: speak each sentence as soon as it is generated
   // (don't wait for the whole reply), playing them back-to-back. This overlaps
   // synth with generation so the first words come out ~as soon as the model
@@ -393,10 +416,12 @@ function App() {
     const next = speakQueueRef.current.shift();
     if (next === undefined) {
       speakingRef.current = false;
+      speakingNowRef.current = "";
       endTurnIfDone(); // re-arm only if the whole turn is done (not between sentences)
       return;
     }
     speakingRef.current = true;
+    speakingNowRef.current = next.text; // for the [interrupted] note on barge-in
     if (!audioElRef.current) audioElRef.current = new Audio();
     const audio = audioElRef.current;
     // createMediaElementSource can only run once per element; reuse it.
@@ -413,7 +438,12 @@ function App() {
     setMode("speaking");
     // Hold the item's extra silence AFTER playback before the next sentence, so a
     // topic change lands as a real beat rather than butting up to the next line.
-    const afterEnd = () => { if (next.gapMs > 0) window.setTimeout(playNextInQueue, next.gapMs); else playNextInQueue(); };
+    const afterEnd = () => {
+      // this sentence finished playing in full — it counts as "heard"
+      spokenTextRef.current += (spokenTextRef.current ? " " : "") + next.text;
+      speakingNowRef.current = "";
+      if (next.gapMs > 0) window.setTimeout(playNextInQueue, next.gapMs); else playNextInQueue();
+    };
     audio.src = "/api/voice/tts?text=" + encodeURIComponent(next.text);
     audio.onended = afterEnd;
     audio.onerror = () => playNextInQueue();
@@ -433,9 +463,38 @@ function App() {
   const stopSpeech = useCallback(() => {
     speakQueueRef.current = [];
     speakingRef.current = false;
+    speakingNowRef.current = "";
     const audio = audioElRef.current;
     if (audio) { try { audio.pause(); audio.removeAttribute("src"); audio.load(); } catch {} }
   }, []);
+
+  // Cut the assistant NOW (barge-in, Space-press, mute-mid-reply): kill TTS,
+  // cancel any in-flight generation (abort our SSE + tell the gateway to
+  // interrupt the orchestrator turn — closing the SSE alone would NOT stop it
+  // generating server-side), and remember what was actually heard so the next
+  // user turn carries an [interrupted] note. The orchestrator's own history
+  // keeps its full answer; the note tells it where the user stopped listening —
+  // correction vs continuation is left entirely to the model. Returns whether
+  // there was anything to cut.
+  const cutAssistant = useCallback(() => {
+    const busy = sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0;
+    if (!busy) return false;
+    interruptedRef.current = { spoken: spokenTextRef.current.trim(), cut: Boolean(speakingNowRef.current) };
+    stopSpeech();
+    if (sendingRef.current) {
+      bargedRef.current = true; // tells send()'s AbortError path this was a barge-in, not the timeout
+      try { chatAbortRef.current?.abort(); } catch {}
+      void fetch("/api/claude/interrupt", { method: "POST" }).catch(() => {});
+    }
+    // Mark the visible reply as interrupted (display only).
+    setTurns((prev) => {
+      const last = [...prev].reverse().find((t) => t.role === "assistant");
+      if (!last || /\[interrompido\]/.test(last.content)) return prev;
+      return prev.map((t) => t.id === last.id
+        ? { ...t, content: (t.content ? t.content + "\n\n" : "") + "*[interrompido]*" } : t);
+    });
+    return true;
+  }, [stopSpeech]);
 
   // Send a turn to the Operative through the gateway, stream the reply, then
   // read it aloud. Mirrors web-channel's /api/chat SSE handling.
@@ -445,6 +504,22 @@ function App() {
     sendingRef.current = true;
     hasInteractedRef.current = true; // from now on, async Soul replies are live
     stopSpeech(); // a new turn interrupts any in-flight speech
+    // If this turn follows a barge-in, tell the model what the user actually
+    // heard — its own history holds the FULL previous answer, so the note is
+    // how it knows where the user stopped listening. Correction vs continuation
+    // is the model's call, not the pipeline's. Shown turn stays the clean msg.
+    let payload = msg;
+    if (interruptedRef.current) {
+      const { spoken, cut } = interruptedRef.current;
+      interruptedRef.current = null;
+      const tail = spoken.length > 180 ? "…" + spoken.slice(-180) : spoken;
+      const heard = spoken
+        ? `o utilizador ouviu apenas até: «${tail}»${cut ? " (cortada a meio de uma frase)" : ""}`
+        : "o utilizador não chegou a ouvir nada da resposta";
+      payload = `[interrupção de voz: a tua resposta anterior foi interrompida — ${heard}. A mensagem seguinte pode ser uma correção, um esclarecimento ou uma continuação; interpreta-a nesse contexto e não repitas o que já foi ouvido.]\n\n${msg}`;
+    }
+    spokenTextRef.current = "";
+    speakingNowRef.current = "";
     setActivity([]); // clear last turn's tool feed
     setTurns((prev) => [...prev.slice(-6), { id: genId("u"), role: "user", content: msg }]);
     setMode("working");
@@ -468,12 +543,13 @@ function App() {
     // 60s and recover. A delegated soul's reply still arrives on the channel
     // stream and is spoken independently.
     const ac = new AbortController();
+    chatAbortRef.current = ac; // cutAssistant aborts this on barge-in
     const killer = window.setTimeout(() => ac.abort(), 60_000);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: payload }),
         signal: ac.signal
       });
       if (!res.ok || !res.body) {
@@ -560,7 +636,14 @@ function App() {
     } catch (err: any) {
       errored = true;
       sendingRef.current = false;
-      if (err?.name === "AbortError") {
+      if (err?.name === "AbortError" && bargedRef.current) {
+        // Voice barge-in: cutAssistant already killed TTS, told the gateway to
+        // interrupt the orchestrator, and marked the bubble. The mic is already
+        // capturing the correction — just tidy the partial text and get out.
+        bargedRef.current = false;
+        setTurns((prev) => prev.map((t) => t.id === bubbleId
+          ? { ...t, content: stripMarkers(t.content) } : t));
+      } else if (err?.name === "AbortError") {
         // Soft timeout: the orchestrator turn is slow/stuck. Recover the UI now;
         // a delegated soul's answer may still arrive on the channel stream.
         setTurns((prev) => prev.map((t) => t.id === bubbleId
@@ -575,6 +658,7 @@ function App() {
       }
     } finally {
       clearTimeout(killer);
+      chatAbortRef.current = null;
       sendingRef.current = false;
       // Re-arm for the no-TTS success path; TTS replies re-arm via playNextInQueue,
       // error/abort paths re-arm themselves, so skip those here.
@@ -614,6 +698,8 @@ function App() {
     pendingSegsRef.current = [];
     eagerSeqRef.current++;
     eagerSttRef.current = null;
+    bargeActiveRef.current = false;
+    bargeFramesRef.current = 0;
   }, []);
 
   // The grace window expired with no resumed speech: the turn is real. Commit —
@@ -627,7 +713,9 @@ function App() {
     const eager = eagerSttRef.current;
     eagerSttRef.current = null;
     eagerSeqRef.current++; // a late eager .then must not re-arm the timer
-    pauseVad();
+    // Full duplex: the VAD is NOT paused here — it keeps listening through
+    // thinking and speaking so the user can barge in. Segments captured while
+    // busy are dropped by onTentativeEnd unless a barge-in was confirmed.
     setMode("working");
     const r = eager ? await eager : await sttRequest(concatSegments(segs));
     if (!r.ok) {
@@ -660,7 +748,14 @@ function App() {
   // end-of-turn probability arrives. Complete-sounding speech sends after
   // ~endpoint_min_ms; a trailing "e…"/"quero que…" waits up to endpoint_max_ms.
   const onTentativeEnd = useCallback((audio: Float32Array) => {
-    if (sendingRef.current) return; // a turn is already in flight
+    // While a turn is in flight or Jarvis is speaking, Silero still segments
+    // whatever the (echo-cancelled) mic hears. Those segments are echo residue
+    // or room noise UNLESS a barge-in was confirmed — the confirmed barge-in's
+    // own segment is the user's correction and flows through.
+    const busy = sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0;
+    if (busy && !bargeActiveRef.current) return;
+    if (sendingRef.current) return; // barge-in teardown still settling — drop
+    bargeActiveRef.current = false; // the barge-in segment is in; back to normal
     pendingSegsRef.current.push(audio);
     tentativeAtRef.current = performance.now();
     const seq = ++eagerSeqRef.current;
@@ -677,6 +772,16 @@ function App() {
       armGraceTimer(windowMs - elapsed);
     });
   }, [sttRequest, armGraceTimer]);
+
+  // Sustained speech confirmed while Jarvis was thinking/speaking: the user is
+  // talking over it. Cut everything and let the in-progress VAD segment flow
+  // into a normal turn (bargeActive whitelists it through the busy guard).
+  const triggerBargeIn = useCallback(() => {
+    if (!cutAssistant()) return;
+    bargeActiveRef.current = true;
+    setMode("listening");
+    console.debug("[barge] confirmed — assistant cut, listening");
+  }, [cutAssistant, setMode]);
 
   // Surface a problem the user can read (and report) instead of failing silent.
   const flashError = useCallback((label: string, msg: string) => {
@@ -704,7 +809,10 @@ function App() {
         epCfgRef.current = {
           redemptionMs: Number(j?.redemptionMs) > 0 ? Number(j.redemptionMs) : EP_DEFAULTS.redemptionMs,
           minMs: Number(j?.minMs) > 0 ? Number(j.minMs) : EP_DEFAULTS.minMs,
-          maxMs: Number(j?.maxMs) > 0 ? Number(j.maxMs) : EP_DEFAULTS.maxMs
+          maxMs: Number(j?.maxMs) > 0 ? Number(j.maxMs) : EP_DEFAULTS.maxMs,
+          bargeinProb: Number(j?.bargeinProb) > 0 && Number(j.bargeinProb) <= 1 ? Number(j.bargeinProb) : EP_DEFAULTS.bargeinProb,
+          bargeinConfirmMs: Number.isFinite(Number(j?.bargeinConfirmMs)) && Number(j.bargeinConfirmMs) >= 0
+            ? Number(j.bargeinConfirmMs) : EP_DEFAULTS.bargeinConfirmMs
         };
       }
     } catch {}
@@ -736,6 +844,25 @@ function App() {
       getStream: async () => stream,
       pauseStream: async () => {},
       resumeStream: async (s: MediaStream) => s,
+      // Barge-in monitor: while Jarvis thinks or speaks, count consecutive-ish
+      // frames the (echo-cancelled) mic scores as speech. Only SUSTAINED speech
+      // (bargein_confirm_ms at ≥ bargein_prob) counts as the user talking over —
+      // brief AEC-residue spikes decay away. Runs every 32ms frame; cheap.
+      onFrameProcessed: (probs: { isSpeech: number }) => {
+        const { bargeinProb, bargeinConfirmMs } = epCfgRef.current;
+        if (bargeinConfirmMs <= 0 || micMutedRef.current || !vadRunningRef.current) { bargeFramesRef.current = 0; return; }
+        const busy = sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0;
+        if (!busy || bargeActiveRef.current) { bargeFramesRef.current = 0; return; }
+        if (probs.isSpeech >= bargeinProb) {
+          bargeFramesRef.current += 1;
+          if (bargeFramesRef.current * VAD_FRAME_MS >= bargeinConfirmMs) {
+            bargeFramesRef.current = 0;
+            triggerBargeIn();
+          }
+        } else if (bargeFramesRef.current > 0) {
+          bargeFramesRef.current = Math.max(0, bargeFramesRef.current - 2); // spikes die out fast
+        }
+      },
       onSpeechStart: () => {
         console.debug("[vad] speechStart (mode=" + modeRef.current + ")");
         if (pendingSegsRef.current.length > 0) {
@@ -753,7 +880,7 @@ function App() {
     });
     vadRef.current = vad;
     return vad;
-  }, [getCtx, setMode, onTentativeEnd]);
+  }, [getCtx, setMode, onTentativeEnd, triggerBargeIn]);
 
   // Arm the hands-free session. The gesture-gated work (resume AudioContext, open
   // the mic) runs first, synchronously off the click, so it keeps user activation;
@@ -816,20 +943,22 @@ function App() {
   // VAD; unmuting resumes hands-free listening.
   const toggleMute = useCallback(() => {
     if (!sessionOnRef.current) return;
-    if (modeRef.current === "speaking") stopSpeech(); // muting mid-reply also cuts it
+    cutAssistant(); // muting mid-reply cuts speech AND generation (no-op when idle)
     const next = !micMutedRef.current;
     setMicMuted(next);
     if (next) { resetEndpointer(); pauseVad(); setMode("muted"); }
     else { resumeVad(); setMode("listening"); }
-  }, [stopSpeech, pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer]);
+  }, [cutAssistant, pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer]);
 
   // Single press = toggle the session. While Jarvis is speaking, a press is a
   // barge-in: cut the reply off but keep the session armed. While MUTED, a press
   // is push-to-talk: open the mic for one utterance (endTurnIfDone re-mutes when
   // the turn finishes), or cancel a push-to-talk window that is still open.
   const onToggle = useCallback(() => {
-    if (modeRef.current === "speaking") {
-      stopSpeech();
+    if (modeRef.current === "speaking" || modeRef.current === "working") {
+      // Manual barge-in: cut TTS AND any in-flight generation (same path as
+      // talking over Jarvis), then return to listening / muted / idle.
+      if (!cutAssistant()) { if (modeRef.current === "working") return; }
       if (!sessionOnRef.current) { setMode("idle"); return; }
       if (micMutedRef.current) { setMode("muted"); }        // stay muted after interrupt
       else { resumeVad(); setMode("listening"); }
@@ -846,7 +975,7 @@ function App() {
       return;
     }
     void startSession();
-  }, [stopSpeech, resumeVad, pauseVad, setMode, stopSession, startSession, resetEndpointer]);
+  }, [cutAssistant, resumeVad, pauseVad, setMode, stopSession, startSession, resetEndpointer]);
 
   // Space toggles the session / push-to-talk; M mutes the mic (ignore auto-repeat
   // and typing fields). Esc closes the report overlay.
@@ -890,12 +1019,16 @@ function App() {
       if (!hasInteractedRef.current) return; // safety: nothing before the user engages
       setTurns((prev) => [...prev.slice(-6), { id: genId("a"), role: "assistant", content: clean }]);
       pushCallout(soul, clean);
-      pauseVad();           // don't let the live (re-armed) VAD capture the Soul's TTS
-      enqueueSpeech(clean); // drains → endTurnIfDone re-arms the VAD
+      // Full duplex: the VAD stays live during the Soul's TTS too — echo is
+      // handled by the browser AEC + the barge-in confirmation gate, and
+      // stray segments are dropped by onTentativeEnd's busy guard.
+      spokenTextRef.current = "";
+      speakingNowRef.current = "";
+      enqueueSpeech(clean); // drains → endTurnIfDone re-arms
     };
     es.addEventListener("event", onEvent as EventListener);
     return () => { try { es?.close(); } catch {} };
-  }, [voiceAvailable, enqueueSpeech, pushCallout, pauseVad]);
+  }, [voiceAvailable, enqueueSpeech, pushCallout]);
 
   useEffect(() => () => {
     try { void vadRef.current?.destroy(); } catch {}

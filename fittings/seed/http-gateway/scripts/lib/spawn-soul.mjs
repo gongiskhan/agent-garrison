@@ -188,6 +188,26 @@ export function writeUserTurn(child, content) {
   return child.stdin.write(line);
 }
 
+let interruptSeq = 0;
+
+/**
+ * Cancel the child's in-flight turn via the stream-json control protocol —
+ * the same message the Agent SDK's query.interrupt() sends. Verified live:
+ * the CLI answers control_response/success in ~40ms and the interrupted turn
+ * still emits a `result` (subtype error_during_execution), so onResult fires
+ * and pending waiters resolve — the turn queue never wedges. No-op if the
+ * child is idle.
+ */
+export function writeInterrupt(child) {
+  if (!child?.stdin || child.stdin.destroyed) return false;
+  const line = JSON.stringify({
+    type: "control_request",
+    request_id: `gw-interrupt-${++interruptSeq}`,
+    request: { subtype: "interrupt" }
+  }) + "\n";
+  return child.stdin.write(line);
+}
+
 /**
  * Interactive-mode spawn: POST to Garrison Next.js's /api/interactive/spawn-soul-tab.
  * The endpoint opens a terminal tab on the Terminal Fitting (port 7078), constructs the
