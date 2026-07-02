@@ -68,8 +68,13 @@ validators land in the runtime SDK milestone.
 - **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
 
 Legacy aliases the parser still accepts (with deprecation warnings):
-`primitive:` → `faculty:`; `faculty: testing-framework` →
-`faculty: skills`. The React directory `src/components/` keeps the
+`primitive:` → `faculty:`; the aliased legacy faculty names in
+`metadata.ts` `FACULTY_ALIASES` (e.g. `faculty: testing-framework` →
+`faculty: sessions`, `faculty: monitor` → `faculty: observability`).
+Parked pre-pivot faculty ids (`skills`, `classifier`, `soul`,
+`knowledge-base`, …) are NOT aliased; their Fittings are de-listed from
+the library and the parser rejects those ids.
+The React directory `src/components/` keeps the
 word "component" because there it means React component, not
 Garrison Fitting.
 
@@ -191,9 +196,11 @@ hardcoding** — no Garrison code change is needed when a new Fitting
 is added.
 
 Current kinds (per `capabilityKinds` in `src/lib/types.ts`): `orchestrator`,
-`memory-store`, `data-source`, `channel`, `vault`, `artifact-store`,
-`dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view` (derived by
-the resolver from `ui.views[]` / `own_port`, never declared in `provides`).
+`modes`, `memory-store`, `automation-runner`, `connector`, `runtime`,
+`channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`,
+`view` (derived by the resolver from `ui.views[]` / `own_port`, never declared
+in `provides`). Dropped: `data-source` (2026-06-26, superseded by `connector`)
+and `artifact-store` (the file-browser Fitting is the artifact surface).
 
 ### The runner (`src/lib/runner.ts`)
 

@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Garrison: the structured base for your AI development setup</title>
+<meta name="description" content="Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code setup." />
+<link rel="icon" href="brand/icon-512.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,500&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<style>
+  /* Tokens sampled from the Garrison app (src/app/globals.css) + icon-512.png */
+  :root {
+    --paper: #fbf8f1;
+    --paper-2: #f4ede0;
+    --paper-3: #ece2cc;
+    --ink: #18211c;
+    --ink-2: #2a342e;
+    --forest: #1f3026;      /* the app's themeColor */
+    --forest-deep: #141f18; /* icon edge fade */
+    --sage: #2f4a3a;
+    --sage-2: #3d6249;
+    --sage-soft: #eaf1e7;
+    --brass: #b4862a;
+    --brass-2: #d8a82e;
+    --wheat: #e9dcb0;       /* picket body, sampled from icon-512 */
+    --wheat-2: #dbc892;
+    --rule: #d6cdba;
+    --mute: #66695f;
+    --alarm: #9b362d;
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-wrap: pretty;
+  }
+  ::selection { background: rgba(216, 168, 46, 0.3); }
+  :focus-visible { outline: 2px solid var(--brass-2); outline-offset: 2px; }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- top bar ---------- */
+  .top {
+    position: absolute;
+    inset: 0 0 auto 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 22px 24px;
+    color: var(--wheat);
+  }
+  .top .mark {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: var(--wheat-2);
+    text-decoration: none;
+  }
+  .lang {
+    display: inline-flex;
+    border: 1px solid rgba(233, 220, 176, 0.4);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+  .lang button {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--wheat-2);
+    font: inherit;
+    padding: 5px 12px;
+    cursor: pointer;
+    opacity: 0.6;
+  }
+  .lang button.on { background: var(--brass-2); color: var(--forest-deep); opacity: 1; font-weight: 600; }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    background:
+      radial-gradient(120% 90% at 50% 0%, var(--forest) 0%, var(--forest-deep) 78%);
+    color: var(--paper);
+    padding: 130px 0 0;
+    overflow: hidden;
+  }
+  .hero .wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 200px;
+    gap: 48px;
+    align-items: center;
+    padding-bottom: 84px;
+  }
+  @media (max-width: 780px) {
+    .hero .wrap { grid-template-columns: 1fr; }
+    .hero .logo { order: -1; }
+  }
+  .hero .logo img {
+    width: 168px;
+    height: 168px;
+    border: 1px solid rgba(233, 220, 176, 0.25);
+  }
+  .entry { font-family: var(--serif); }
+  .entry .headword {
+    font-size: clamp(44px, 7vw, 76px);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.02;
+    margin: 0 0 10px;
+    color: var(--paper);
+  }
+  .entry .gram {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--wheat-2);
+    letter-spacing: 0.02em;
+    margin: 0 0 26px;
+  }
+  .entry .gram i { font-family: var(--serif); font-size: 15px; }
+  .entry .classic {
+    font-style: italic;
+    font-size: 19px;
+    color: rgba(251, 248, 241, 0.78);
+    max-width: 560px;
+    margin: 0 0 22px;
+    border-left: 2px solid var(--brass);
+    padding-left: 18px;
+  }
+  .entry .gloss {
+    font-size: 18.5px;
+    line-height: 1.65;
+    max-width: 640px;
+    margin: 0;
+    color: rgba(251, 248, 241, 0.92);
+  }
+  .entry .gloss b { color: var(--wheat); font-weight: 600; }
+
+  /* ---------- palisade rule ---------- */
+  .picket-rule { display: block; width: 100%; height: 26px; }
+
+  /* ---------- sections ---------- */
+  section { padding: 88px 0; }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin: 0 0 18px;
+  }
+  h2.big {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(26px, 4vw, 40px);
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    max-width: 900px;
+    margin: 0 0 22px;
+  }
+  .differentiator {
+    font-family: var(--serif);
+    font-size: 19px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    max-width: 760px;
+    margin: 0;
+  }
+
+  /* personas */
+  .personas {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 40px;
+  }
+  .persona { background: white; padding: 30px 28px 34px; }
+  .persona h3 {
+    font-family: var(--serif);
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--brass);
+    margin: 0 0 12px;
+  }
+  .persona p { margin: 0; font-size: 15px; color: var(--ink-2); }
+
+  /* ---------- standing orders ---------- */
+  .orders {
+    background: radial-gradient(140% 100% at 50% 0%, var(--forest) 0%, var(--forest-deep) 85%);
+    color: var(--paper);
+  }
+  .orders .kicker { color: var(--brass-2); }
+  .orders h2.big { color: var(--paper); }
+  .orders .lede { color: rgba(251, 248, 241, 0.7); font-family: var(--serif); font-size: 17px; max-width: 620px; }
+  .order-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+    gap: 28px;
+    margin-top: 54px;
+  }
+  .order {
+    border: 1px solid rgba(233, 220, 176, 0.16);
+    background: rgba(20, 31, 24, 0.55);
+    padding: 26px 26px 30px;
+  }
+  .order .num {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.26em;
+    color: var(--brass-2);
+    margin: 0 0 16px;
+  }
+  .order svg { width: 100%; height: auto; margin-bottom: 20px; }
+  .order h3 {
+    font-family: var(--serif);
+    font-size: 21.5px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--wheat);
+  }
+  .order p { margin: 0; font-size: 14.5px; line-height: 1.6; color: rgba(251, 248, 241, 0.75); }
+  .order p .aside { display: block; margin-top: 8px; font-size: 13px; color: rgba(233, 220, 176, 0.6); }
+
+  /* SVG idiom */
+  .o-line { stroke: var(--brass-2); stroke-width: 1.6; fill: none; }
+  .o-line.soft { stroke: rgba(233, 220, 176, 0.45); }
+  .o-line.wheat { stroke: var(--wheat-2); }
+  .o-fill { fill: rgba(233, 220, 176, 0.1); }
+  .o-label { font-family: var(--mono); font-size: 11px; fill: var(--wheat-2); }
+  .o-label.dim { fill: rgba(233, 220, 176, 0.55); font-size: 10px; }
+  .o-label.dark { fill: var(--forest-deep); font-weight: 600; }
+  .o-bad { stroke: var(--alarm); stroke-width: 1.8; fill: none; }
+
+  /* ---------- running today ---------- */
+  .features .lede { font-family: var(--serif); font-size: 17px; color: var(--mute); max-width: 620px; }
+  .shots {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+    gap: 28px;
+    margin-top: 48px;
+  }
+  .shot { border: 1px solid var(--rule); background: white; }
+  .shot img { width: 100%; border-bottom: 1px solid var(--rule); aspect-ratio: 16/10; object-fit: cover; object-position: top left; }
+  .shot .cap { padding: 16px 20px 20px; }
+  .shot h3 { font-family: var(--serif); font-size: 19px; font-weight: 600; margin: 0 0 6px; }
+  .shot p { margin: 0; font-size: 13.5px; color: var(--mute); line-height: 1.55; }
+  .plains {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 28px;
+  }
+  .plain { background: var(--sage-soft); padding: 22px 22px 24px; }
+  .plain h3 { font-family: var(--serif); font-size: 17px; font-weight: 600; margin: 0 0 6px; }
+  .plain p { margin: 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+  .plain .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--brass);
+    border: 1px solid var(--brass);
+    padding: 2px 7px;
+    margin-bottom: 10px;
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    background: var(--forest-deep);
+    color: rgba(251, 248, 241, 0.75);
+    padding: 54px 0 60px;
+  }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 28px; align-items: center; justify-content: space-between; }
+  footer .fm { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; }
+  footer a { color: var(--wheat-2); text-decoration: none; border-bottom: 1px solid rgba(233, 220, 176, 0.35); }
+  footer a:hover { border-bottom-color: var(--brass-2); }
+  footer .lang button { color: var(--wheat-2); }
+</style>
+</head>
+<body>
+
+<!-- ============ HERO: the definition ============ -->
+<header class="hero">
+  <div class="top">
+    <a class="mark" href="#">Garrison</a>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" class="on">EN</button>
+      <button type="button" data-lang="pt">PT</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="entry">
+      <h1 class="headword" data-i18n="hero.headword">gar·ri·son</h1>
+      <p class="gram" data-i18n-html="hero.gram">/&#712;&#609;ar&#618;s&#601;n/ &nbsp;&middot;&nbsp; <i>noun</i> &nbsp;&middot;&nbsp; [O.Fr. <i>garison</i>, "defence, provision"; cf. L. <i>praesidium</i>]</p>
+      <p class="classic" data-i18n="hero.classic">A fortified post where a body of troops is stationed to hold and defend it.</p>
+      <p class="gloss" data-i18n-html="hero.gloss">In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed. Each is built from <b>faculties</b> (capability slots) filled by <b>fittings</b> (swappable parts you install from the <b>Fittings Registry</b>), directed by an <b>orchestrator</b>, and quartered over your own Claude Code setup in the <b>Quarters</b>.</p>
+    </div>
+    <div class="logo"><img src="brand/icon-512.png" alt="Garrison: a wheat palisade fence on deep forest green" data-i18n-alt="alt.logo" width="168" height="168" /></div>
+  </div>
+</header>
+<svg class="picket-rule" viewBox="0 0 1200 26" preserveAspectRatio="none" aria-hidden="true"><g fill="#dbc892"><path d="M0 26 V10 L4 4 L8 10 V26 Z" id="pk"/><use href="#pk" x="16"/><use href="#pk" x="32"/><use href="#pk" x="48"/><use href="#pk" x="64"/><use href="#pk" x="80"/><use href="#pk" x="96"/><use href="#pk" x="112"/><use href="#pk" x="128"/><use href="#pk" x="144"/><use href="#pk" x="160"/><use href="#pk" x="176"/><use href="#pk" x="192"/><use href="#pk" x="208"/><use href="#pk" x="224"/><use href="#pk" x="240"/><use href="#pk" x="256"/><use href="#pk" x="272"/><use href="#pk" x="288"/><use href="#pk" x="304"/><use href="#pk" x="320"/><use href="#pk" x="336"/><use href="#pk" x="352"/><use href="#pk" x="368"/><use href="#pk" x="384"/><use href="#pk" x="400"/><use href="#pk" x="416"/><use href="#pk" x="432"/><use href="#pk" x="448"/><use href="#pk" x="464"/><use href="#pk" x="480"/><use href="#pk" x="496"/><use href="#pk" x="512"/><use href="#pk" x="528"/><use href="#pk" x="544"/><use href="#pk" x="560"/><use href="#pk" x="576"/><use href="#pk" x="592"/><use href="#pk" x="608"/><use href="#pk" x="624"/><use href="#pk" x="640"/><use href="#pk" x="656"/><use href="#pk" x="672"/><use href="#pk" x="688"/><use href="#pk" x="704"/><use href="#pk" x="720"/><use href="#pk" x="736"/><use href="#pk" x="752"/><use href="#pk" x="768"/><use href="#pk" x="784"/><use href="#pk" x="800"/><use href="#pk" x="816"/><use href="#pk" x="832"/><use href="#pk" x="848"/><use href="#pk" x="864"/><use href="#pk" x="880"/><use href="#pk" x="896"/><use href="#pk" x="912"/><use href="#pk" x="928"/><use href="#pk" x="944"/><use href="#pk" x="960"/><use href="#pk" x="976"/><use href="#pk" x="992"/><use href="#pk" x="1008"/><use href="#pk" x="1024"/><use href="#pk" x="1040"/><use href="#pk" x="1056"/><use href="#pk" x="1072"/><use href="#pk" x="1088"/><use href="#pk" x="1104"/><use href="#pk" x="1120"/><use href="#pk" x="1136"/><use href="#pk" x="1152"/><use href="#pk" x="1168"/><use href="#pk" x="1184"/></g></svg>
+
+<!-- ============ WHAT GARRISON IS ============ -->
+<section class="what">
+  <div class="wrap">
+    <p class="kicker" data-i18n="what.kicker">01 &middot; The base</p>
+    <h2 class="big" data-i18n="what.line">Garrison is the structured base for your whole AI development setup. Every tool, model, runtime, skill, and setting in one place, swappable in a click, so you can try anything new in the AI ecosystem without rebuilding your workflow. Platform, CLI, and model agnostic.</h2>
+    <p class="differentiator" data-i18n="what.diff">Assemble agent systems like Hermes or OpenClaw, but reined in. Garrison operatives are safer, fully transparent, more configurable and easier to configure, more flexible, and aligned to what you actually want, instead of trying to do everything on their own.</p>
+  </div>
+</section>
+
+<!-- ============ PERSONAS ============ -->
+<section class="who" style="padding-top: 0;">
+  <div class="wrap">
+    <p class="kicker" data-i18n="who.kicker">02 &middot; The ranks</p>
+    <h2 class="big" data-i18n="who.header">Who Garrison is for.</h2>
+    <div class="personas">
+      <div class="persona">
+        <h3 data-i18n="who.dev.h">developers</h3>
+        <p data-i18n="who.dev.p">Structure around your day-to-day AI work. Switch models, runtimes, effort, and skills per task. Build whole new profiles and flows. Every tool and setting in one base, platform and CLI agnostic. Experiment fast, keep the workflow you already have.</p>
+      </div>
+      <div class="persona">
+        <h3 data-i18n="who.builder.h">builders</h3>
+        <p data-i18n="who.builder.p">Assemble proven, reliable agents from parts developers already vetted, with no deep technical work. Read a plain description, pick a fitting, let the assistant wire it up. Ship full agents like Hermes or OpenClaw, shaped to the approaches you trust.</p>
+      </div>
+      <div class="persona">
+        <h3 data-i18n="who.user.h">end-users</h3>
+        <p data-i18n="who.user.p">Run your own personal operative on your own machine. Memory, scheduling, tasks, and actions, powered by the latest AI tools that builders and developers packaged for you. An assistant that is yours, not a black box.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<svg class="picket-rule" viewBox="0 0 1200 26" preserveAspectRatio="none" aria-hidden="true" style="transform: scaleY(-1); display:block; background: var(--paper);"><g fill="#d6cdba"><use href="#pk" x="0"/><use href="#pk" x="24"/><use href="#pk" x="48"/><use href="#pk" x="72"/><use href="#pk" x="96"/><use href="#pk" x="120"/><use href="#pk" x="144"/><use href="#pk" x="168"/><use href="#pk" x="192"/><use href="#pk" x="216"/><use href="#pk" x="240"/><use href="#pk" x="264"/><use href="#pk" x="288"/><use href="#pk" x="312"/><use href="#pk" x="336"/><use href="#pk" x="360"/><use href="#pk" x="384"/><use href="#pk" x="408"/><use href="#pk" x="432"/><use href="#pk" x="456"/><use href="#pk" x="480"/><use href="#pk" x="504"/><use href="#pk" x="528"/><use href="#pk" x="552"/><use href="#pk" x="576"/><use href="#pk" x="600"/><use href="#pk" x="624"/><use href="#pk" x="648"/><use href="#pk" x="672"/><use href="#pk" x="696"/><use href="#pk" x="720"/><use href="#pk" x="744"/><use href="#pk" x="768"/><use href="#pk" x="792"/><use href="#pk" x="816"/><use href="#pk" x="840"/><use href="#pk" x="864"/><use href="#pk" x="888"/><use href="#pk" x="912"/><use href="#pk" x="936"/><use href="#pk" x="960"/><use href="#pk" x="984"/><use href="#pk" x="1008"/><use href="#pk" x="1032"/><use href="#pk" x="1056"/><use href="#pk" x="1080"/><use href="#pk" x="1104"/><use href="#pk" x="1128"/><use href="#pk" x="1152"/><use href="#pk" x="1176"/></g></svg>
+
+<!-- ============ STANDING ORDERS ============ -->
+<section class="orders">
+  <div class="wrap">
+    <p class="kicker" data-i18n="orders.kicker">03 &middot; The charter</p>
+    <h2 class="big" data-i18n="orders.header">Standing Orders</h2>
+    <p class="lede" data-i18n="orders.lede">Ten articles the garrison follows without question.</p>
+
+    <div class="order-grid">
+
+      <!-- I. model-agnostic -->
+      <article class="order">
+        <p class="num">I</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A task routed by the orchestrator to one of several runtimes and models">
+          <rect x="18" y="128" width="64" height="34" class="o-line soft o-fill"/>
+          <text x="50" y="149" text-anchor="middle" class="o-label dim">task</text>
+          <path d="M84 145 H150" class="o-line wheat" marker-end="none"/>
+          <rect x="152" y="112" width="132" height="66" class="o-line" fill="rgba(216,168,46,0.08)"/>
+          <text x="218" y="140" text-anchor="middle" class="o-label" style="letter-spacing:2px">ORCHESTRATOR</text>
+          <text x="218" y="160" text-anchor="middle" class="o-label dim">single entry point</text>
+          <path d="M284 128 C340 90 380 56 416 46" class="o-line soft"/>
+          <path d="M284 138 C340 122 380 102 416 96" class="o-line" stroke-width="2.4"/>
+          <path d="M284 150 C340 152 380 148 416 146" class="o-line soft"/>
+          <path d="M284 160 C340 182 380 192 416 196" class="o-line soft"/>
+          <path d="M284 170 C340 214 380 236 416 246" class="o-line soft"/>
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+            <rect x="418" y="30" width="124" height="30" class="o-line soft"/><text x="428" y="49" class="o-label dim">Claude Code &middot; Opus</text>
+            <rect x="418" y="80" width="124" height="30" class="o-line wheat" fill="rgba(233,220,176,0.12)"/><text x="428" y="99" class="o-label">Codex &middot; GPT</text>
+            <rect x="418" y="130" width="124" height="30" class="o-line soft"/><text x="428" y="149" class="o-label dim">Gemini CLI &middot; Gemini</text>
+            <rect x="418" y="180" width="124" height="30" class="o-line soft"/><text x="428" y="199" class="o-label dim">opencode &middot; GLM</text>
+            <rect x="418" y="230" width="124" height="30" class="o-line soft"/><text x="428" y="249" class="o-label dim">Agent SDK &middot; DeepSeek</text>
+          </g>
+          <rect x="330" y="96" width="54" height="18" fill="#d8a82e"/>
+          <text x="357" y="109" text-anchor="middle" class="o-label dark" font-size="10">skill</text>
+          <g transform="translate(60,232)">
+            <path d="M0 30 A38 38 0 0 1 76 30" class="o-line soft"/>
+            <line x1="38" y1="30" x2="62" y2="8" class="o-line" stroke-width="2.2"/>
+            <text x="-6" y="48" class="o-label dim">fast</text>
+            <text x="24" y="-6" class="o-label dim">standard</text>
+            <text x="72" y="48" class="o-label">expert</text>
+          </g>
+        </svg>
+        <h3 data-i18n="o1.h">Operatives are model-agnostic.</h3>
+        <p data-i18n="o1.p">Pick the runtime, model, effort, and skills per task. The orchestrator, the single entry point for everything an operative does, routes each job to the right one.</p>
+      </article>
+
+      <!-- II. secure -->
+      <article class="order">
+        <p class="num">II</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A fitting package scanned under a review lens inside a shield, with a Vault-sealed secret below">
+          <path d="M280 12 L488 52 V168 C488 232 396 272 280 290 C164 272 72 232 72 168 V52 Z" class="o-line soft"/>
+          <rect x="106" y="86" width="74" height="52" class="o-line wheat o-fill"/>
+          <text x="143" y="112" text-anchor="middle" class="o-label">apm.yml</text>
+          <text x="143" y="128" text-anchor="middle" class="o-label dim">fitting</text>
+          <path d="M182 112 H252 M300 112 H364" class="o-line soft"/>
+          <circle cx="276" cy="108" r="26" class="o-line"/>
+          <line x1="294" y1="126" x2="312" y2="144" class="o-line"/>
+          <path d="M266 108 l7 8 l14 -16" class="o-line wheat" stroke-width="2.2"/>
+          <text x="276" y="152" text-anchor="middle" class="o-label dim">scanned</text>
+          <rect x="366" y="86" width="88" height="52" class="o-line" fill="rgba(216,168,46,0.1)"/>
+          <text x="410" y="108" text-anchor="middle" class="o-label">stationed</text>
+          <circle cx="410" cy="122" r="4" fill="#d8a82e"/>
+          <g transform="translate(170,196)">
+            <rect x="0" y="16" width="46" height="34" class="o-line wheat o-fill"/>
+            <path d="M8 16 V8 a15 15 0 0 1 30 0 V16" class="o-line wheat"/>
+            <rect x="62" y="20" width="190" height="26" class="o-line soft"/>
+            <text x="72" y="37" class="o-label" font-size="10">Vault-sealed &middot; AES-256-GCM</text>
+            <rect x="264" y="20" width="96" height="26" class="o-line soft" stroke-dasharray="4 3"/>
+            <text x="276" y="37" class="o-label dim">never logged</text>
+          </g>
+        </svg>
+        <h3 data-i18n="o2.h">Operatives are secure.</h3>
+        <p data-i18n-html="o2.p">Every fitting is an APM package, scanned and vetted before it enters Garrison. Secrets are Vault-sealed with AES-256-GCM, scoped to one connector, and never written to a log.<span class="aside">APM is Microsoft's package manager for agent parts. Think npm for Node, but for an agent's skills, access, and memory.</span></p>
+      </article>
+
+      <!-- III. opinionated but flexible -->
+      <article class="order">
+        <p class="num">III</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A faculty slot holding two fitting chips, one selected, a cursor toggling the other">
+          <rect x="80" y="70" width="400" height="160" class="o-line soft" stroke-dasharray="6 5"/>
+          <text x="100" y="56" class="o-label dim">faculty slot</text>
+          <rect x="116" y="108" width="150" height="84" class="o-line wheat" fill="rgba(233,220,176,0.14)"/>
+          <text x="191" y="146" text-anchor="middle" class="o-label">fitting A</text>
+          <circle cx="191" cy="168" r="7" class="o-line wheat"/><circle cx="191" cy="168" r="3.4" fill="#d8a82e"/>
+          <path d="M116 108 l40 0 l-40 28 Z" fill="#d8a82e"/>
+          <text x="128" y="124" class="o-label dark" font-size="8.5" transform="rotate(-35 128 124)">defaults</text>
+          <rect x="296" y="108" width="150" height="84" class="o-line soft"/>
+          <text x="371" y="146" text-anchor="middle" class="o-label dim">fitting B</text>
+          <circle cx="371" cy="168" r="7" class="o-line soft"/>
+          <path d="M400 210 l-14 -26 l10 2 l6 -10 z" fill="#e9dcb0"/>
+          <path d="M398 186 l22 34" class="o-line wheat"/>
+        </svg>
+        <h3 data-i18n="o3.h">Opinionated, but completely flexible.</h3>
+        <p data-i18n="o3.p">Garrison ships the defaults developers reach for when they build with AI every day. Disagree with one? Swapping a fitting is unselecting one and selecting another in the UI.</p>
+      </article>
+
+      <!-- IV. transparent -->
+      <article class="order">
+        <p class="num">IV</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A timestamped action log beside a config card with a plain description, under an open eye">
+          <g transform="translate(60,70)">
+            <rect x="0" y="0" width="220" height="160" class="o-line soft"/>
+            <g class="o-label dim" font-size="10">
+              <text x="14" y="28">09:14:02  read  apm.yml</text>
+              <text x="14" y="52">09:14:03  verify  20/20 pass</text>
+              <text x="14" y="76">09:14:09  route  codex &middot; fast</text>
+              <text x="14" y="100">09:14:31  write  report.md</text>
+              <text x="14" y="124">09:15:00  notify  slack</text>
+            </g>
+            <line x1="8" y1="36" x2="212" y2="36" class="o-line soft" opacity="0.3"/>
+            <line x1="8" y1="60" x2="212" y2="60" class="o-line soft" opacity="0.3"/>
+            <line x1="8" y1="84" x2="212" y2="84" class="o-line soft" opacity="0.3"/>
+            <line x1="8" y1="108" x2="212" y2="108" class="o-line soft" opacity="0.3"/>
+          </g>
+          <g transform="translate(300,40)">
+            <path d="M0 26 C34 -8 106 -8 140 26 C106 60 34 60 0 26 Z" class="o-line wheat"/>
+            <circle cx="70" cy="26" r="14" class="o-line wheat"/>
+            <circle cx="70" cy="26" r="5" fill="#d8a82e"/>
+          </g>
+          <g transform="translate(310,120)">
+            <rect x="0" y="0" width="190" height="110" class="o-line" fill="rgba(216,168,46,0.06)"/>
+            <text x="14" y="26" class="o-label">memory &middot; basic-memory</text>
+            <line x1="14" y1="44" x2="176" y2="44" class="o-line soft" opacity="0.5"/>
+            <g class="o-label dim" font-size="10">
+              <text x="14" y="64">what it does, in plain</text>
+              <text x="14" y="80">words, and how to</text>
+              <text x="14" y="96">configure it.</text>
+            </g>
+          </g>
+        </svg>
+        <h3 data-i18n="o4.h">Everything is transparent and observable.</h3>
+        <p data-i18n="o4.p">Every action an operative takes is logged and visible. Every faculty, fitting, and setting shows in the UI with a plain description of what it does and how to configure it.</p>
+      </article>
+
+      <!-- V. faculty contract -->
+      <article class="order">
+        <p class="num">V</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A Python part and a Node part plugging into the same faculty-contract socket">
+          <rect x="60" y="100" width="130" height="90" class="o-line soft o-fill"/>
+          <text x="125" y="140" text-anchor="middle" class="o-label">python</text>
+          <text x="125" y="158" text-anchor="middle" class="o-label dim">any shape</text>
+          <path d="M190 130 h30 v10 h-30 M190 160 h30 v-10 h-30" class="o-line wheat"/>
+          <rect x="370" y="100" width="130" height="90" class="o-line soft o-fill"/>
+          <text x="435" y="140" text-anchor="middle" class="o-label">node</text>
+          <text x="435" y="158" text-anchor="middle" class="o-label dim">any runtime</text>
+          <path d="M370 130 h-30 v10 h30 M370 160 h-30 v-10 h30" class="o-line wheat"/>
+          <rect x="238" y="92" width="84" height="106" class="o-line" fill="rgba(216,168,46,0.1)"/>
+          <path d="M238 130 h-18 M238 160 h-18 M322 130 h18 M322 160 h18" class="o-line"/>
+          <text x="280" y="128" text-anchor="middle" class="o-label" font-size="10">faculty</text>
+          <text x="280" y="144" text-anchor="middle" class="o-label" font-size="10">contract</text>
+          <path d="M262 168 l10 8 l26 -14" class="o-line wheat" stroke-width="2.2"/>
+          <text x="280" y="230" text-anchor="middle" class="o-label dim">one socket, any part that honours it</text>
+        </svg>
+        <h3 data-i18n="o5.h">Every fitting fulfils a faculty contract.</h3>
+        <p data-i18n="o5.p">That single contract is how parts written in different languages and runtimes talk to each other. Fill a slot with anything that honours the contract, and the rest of the operative does not care how it was built.</p>
+      </article>
+
+      <!-- VI. compose, don't own -->
+      <article class="order">
+        <p class="num">VI</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A thin Garrison layer arranging blocks over an intact ~/.claude base; a crossed-out layer that swallows the base">
+          <g transform="translate(60,40)">
+            <rect x="0" y="0" width="300" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="150" y="20" text-anchor="middle" class="o-label">Garrison &middot; arranges</text>
+            <rect x="18" y="48" width="60" height="34" class="o-line wheat o-fill"/>
+            <rect x="94" y="48" width="60" height="34" class="o-line wheat o-fill"/>
+            <rect x="170" y="48" width="60" height="34" class="o-line wheat o-fill"/>
+            <rect x="246" y="48" width="36" height="34" class="o-line soft"/>
+            <rect x="0" y="98" width="300" height="60" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
+            <text x="150" y="134" text-anchor="middle" class="o-label">~/.claude &middot; whole and visible</text>
+          </g>
+          <g transform="translate(410,80)">
+            <rect x="0" y="0" width="100" height="86" class="o-line soft"/>
+            <text x="50" y="30" text-anchor="middle" class="o-label dim" font-size="9">layer swallows</text>
+            <text x="50" y="44" text-anchor="middle" class="o-label dim" font-size="9">the base</text>
+            <rect x="20" y="54" width="60" height="20" class="o-line soft" stroke-dasharray="3 3"/>
+            <line x1="-8" y1="-8" x2="108" y2="94" class="o-bad"/>
+            <line x1="108" y1="-8" x2="-8" y2="94" class="o-bad"/>
+          </g>
+        </svg>
+        <h3 data-i18n="o6.h">Compose, don't own.</h3>
+        <p data-i18n="o6.p">Garrison sits over your real ~/.claude and arranges it. It does not replace your tools, hide them, or trap you in a runtime of its own.</p>
+      </article>
+
+      <!-- VII. local-first -->
+      <article class="order">
+        <p class="num">VII</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="The palisade drawn as a perimeter around a machine holding data, keys and memory; a cloud outside with no arrow crossing in">
+          <g fill="#dbc892">
+            <path d="M70 240 V150 l8 -14 l8 14 v90 Z"/><path d="M100 240 V150 l8 -14 l8 14 v90 Z"/>
+            <path d="M130 240 V150 l8 -14 l8 14 v90 Z"/><path d="M160 240 V150 l8 -14 l8 14 v90 Z"/>
+            <path d="M310 240 V150 l8 -14 l8 14 v90 Z"/><path d="M340 240 V150 l8 -14 l8 14 v90 Z"/>
+            <path d="M370 240 V150 l8 -14 l8 14 v90 Z"/><path d="M400 240 V150 l8 -14 l8 14 v90 Z"/>
+          </g>
+          <rect x="66" y="178" width="352" height="10" fill="#b4862a"/>
+          <g transform="translate(206,120)">
+            <rect x="0" y="20" width="72" height="52" class="o-line wheat o-fill"/>
+            <rect x="10" y="30" width="52" height="24" class="o-line soft"/>
+            <text x="36" y="102" text-anchor="middle" class="o-label dim" font-size="9">data &middot; keys &middot; memory</text>
+          </g>
+          <g transform="translate(430,44)">
+            <path d="M22 34 a16 16 0 0 1 30 -8 a13 13 0 0 1 18 12 a11 11 0 0 1 -4 22 H14 a14 14 0 0 1 8 -26 Z" class="o-line soft"/>
+            <path d="M20 74 L-22 108" class="o-line soft" stroke-dasharray="5 4"/>
+            <line x1="-14" y1="88" x2="8" y2="112" class="o-bad"/>
+            <line x1="8" y1="88" x2="-14" y2="112" class="o-bad"/>
+          </g>
+        </svg>
+        <h3 data-i18n="o7.h">Local-first. Your machine, your data, your keys.</h3>
+        <p data-i18n="o7.p">Operatives run on your hardware, secrets live in your keychain, and memory and logs stay with you.</p>
+      </article>
+
+      <!-- VIII. self-improving -->
+      <article class="order">
+        <p class="num">VIII</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="Sessions feeding a loop of skills, routing and memory, each ticking up a level">
+          <g class="o-label dim" font-size="10">
+            <text x="40" y="120">session</text><text x="40" y="150">session</text><text x="40" y="180">session</text>
+          </g>
+          <path d="M100 116 C150 116 160 146 196 148 M100 146 H196 M100 176 C150 176 160 152 196 150" class="o-line soft"/>
+          <circle cx="330" cy="150" r="92" class="o-line soft" stroke-dasharray="4 5"/>
+          <path d="M330 58 A92 92 0 0 1 412 178" class="o-line wheat" />
+          <path d="M412 178 l-4 -14 M412 178 l-14 -4" class="o-line wheat"/>
+          <g>
+            <rect x="292" y="30" width="76" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="330" y="50" text-anchor="middle" class="o-label">skills</text>
+            <text x="380" y="40" class="o-label" fill="#d8a82e" font-size="10">+1</text>
+            <rect x="392" y="180" width="86" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="435" y="200" text-anchor="middle" class="o-label">routing</text>
+            <text x="486" y="190" class="o-label" fill="#d8a82e" font-size="10">+1</text>
+            <rect x="212" y="200" width="86" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="255" y="220" text-anchor="middle" class="o-label">memory</text>
+            <text x="204" y="196" class="o-label" fill="#d8a82e" font-size="10">+1</text>
+          </g>
+          <path d="M240 226 A92 92 0 0 1 244 82" class="o-line wheat"/>
+          <path d="M244 82 l-2 14 M244 82 l13 5" class="o-line wheat"/>
+        </svg>
+        <h3 data-i18n="o8.h">The system improves itself.</h3>
+        <p data-i18n="o8.p">The Improver reads every session and sharpens your skills, your routing, and your memory. The more you use Garrison, the better it fits you.</p>
+      </article>
+
+      <!-- IX. plan before build -->
+      <article class="order">
+        <p class="num">IX</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="Board lanes flowing discuss, plan, implement, with a plan document acting as a gate">
+          <rect x="50" y="70" width="130" height="160" class="o-line soft"/>
+          <text x="115" y="94" text-anchor="middle" class="o-label">discuss</text>
+          <rect x="66" y="110" width="98" height="26" class="o-line soft o-fill"/>
+          <rect x="66" y="146" width="98" height="26" class="o-line soft o-fill"/>
+          <path d="M180 150 H210" class="o-line wheat"/>
+          <rect x="212" y="70" width="130" height="160" class="o-line soft"/>
+          <text x="277" y="94" text-anchor="middle" class="o-label">plan</text>
+          <g transform="translate(247,116)">
+            <path d="M0 0 h44 l16 16 v52 h-60 Z" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
+            <path d="M44 0 v16 h16" class="o-line wheat"/>
+            <line x1="10" y1="30" x2="50" y2="30" class="o-line soft"/>
+            <line x1="10" y1="44" x2="50" y2="44" class="o-line soft"/>
+            <line x1="10" y1="58" x2="38" y2="58" class="o-line soft"/>
+          </g>
+          <path d="M342 150 H370" class="o-line wheat"/>
+          <rect x="368" y="64" width="10" height="172" fill="#b4862a"/>
+          <text x="373" y="52" text-anchor="middle" class="o-label" font-size="10">gate</text>
+          <rect x="392" y="70" width="130" height="160" class="o-line soft"/>
+          <text x="457" y="94" text-anchor="middle" class="o-label">implement</text>
+          <rect x="408" y="110" width="98" height="26" class="o-line soft o-fill"/>
+        </svg>
+        <h3 data-i18n="o9.h">Plan before you build.</h3>
+        <p data-i18n="o9.p">Work moves through discuss, then plan, then implement, on the Kanban Loop. The plan gates the build, so nothing runs off on its own.</p>
+      </article>
+
+      <!-- X. open -->
+      <article class="order">
+        <p class="num">X</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="An open padlock, visible source lines, and a broken chain">
+          <g transform="translate(96,86)">
+            <rect x="0" y="34" width="76" height="60" class="o-line wheat o-fill"/>
+            <path d="M14 34 V20 a24 24 0 0 1 48 0" class="o-line wheat"/>
+            <circle cx="38" cy="60" r="7" class="o-line wheat"/>
+            <line x1="38" y1="66" x2="38" y2="80" class="o-line wheat"/>
+            <text x="38" y="118" text-anchor="middle" class="o-label dim">open</text>
+          </g>
+          <g transform="translate(240,80)">
+            <rect x="0" y="0" width="180" height="130" class="o-line soft"/>
+            <g class="o-label dim" font-size="10">
+              <text x="14" y="28">export function up() {</text>
+              <text x="26" y="50">install(); verify();</text>
+              <text x="26" y="72">assemble(); spawn();</text>
+              <text x="14" y="94">}</text>
+            </g>
+            <text x="14" y="118" class="o-label" font-size="10">auditable end to end</text>
+          </g>
+          <g transform="translate(452,110)" class="o-line soft">
+            <ellipse cx="0" cy="0" rx="14" ry="20" transform="rotate(40)"/>
+            <ellipse cx="26" cy="30" rx="14" ry="20" transform="rotate(40 26 30)"/>
+            <line x1="8" y1="10" x2="12" y2="14" class="o-bad"/>
+          </g>
+          <text x="470" y="180" text-anchor="middle" class="o-label dim">no lock-in</text>
+        </svg>
+        <h3 data-i18n="o10.h">Open by default.</h3>
+        <p data-i18n="o10.p">MIT-licensed, auditable end to end, no lock-in.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ RUNNING TODAY ============ -->
+<section class="features">
+  <div class="wrap">
+    <p class="kicker" data-i18n="run.kicker">04 &middot; The state of the art</p>
+    <h2 class="big" data-i18n="run.header">Running today.</h2>
+    <p class="lede" data-i18n="run.lede">This is what Garrison already does, not a roadmap. Real screenshots from a live base.</p>
+
+    <div class="shots">
+      <figure class="shot" style="margin:0">
+        <img src="brand/composition.png" alt="The Garrison composition grid" data-i18n-alt="alt.comp" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.comp.h">Composition</h3><p data-i18n="run.comp.p">One grid for the whole operative: every faculty and fitting, searchable, with verify hooks green before it runs.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <img src="brand/home.png" alt="The Garrison dashboard" data-i18n-alt="alt.home" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.home.h">The dashboard</h3><p data-i18n="run.home.p">Status, readiness, verify hooks, and the run console in one glance.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <img src="brand/quarters.png" alt="The Quarters view over ~/.claude" data-i18n-alt="alt.quarters" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.quarters.h">Quarters</h3><p data-i18n="run.quarters.p">Every Claude Code artifact by name over your real ~/.claude, each owned by Garrison or loose on disk, always visible.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <img src="brand/dev-env.png" alt="The Dev Env with terminals and a live browser" data-i18n-alt="alt.dev" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.dev.h">Dev Env</h3><p data-i18n="run.dev.p">Terminal sessions and a live browser the operative sees through CDP. It detects Claude running elsewhere for a directory and lets you take over with --continue.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <img src="brand/kanban.png" alt="The Kanban Loop board" data-i18n-alt="alt.kanban" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.kanban.h">Kanban Loop</h3><p data-i18n="run.kanban.p">One board for personal and dev work. Cards flow Backlog, To Do, Discuss, Plan, Implement. Some lanes are hands-on, some run themselves.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <img src="brand/connectors.png" alt="The Connectors view" data-i18n-alt="alt.conn" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.conn.h">Connectors</h3><p data-i18n="run.conn.p">Google Workspace, Slack, Trello, Deepgram: each a Vault-sealed catalogue of callable actions. Secrets never appear in the UI or a log.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <img src="brand/operative-chat.png" alt="The operative chat" data-i18n-alt="alt.chat" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.chat.h">Operative chat</h3><p data-i18n="run.chat.p">Talk to the operative in text or voice, watch context use, switch permission modes, have replies read aloud.</p></figcaption>
+      </figure>
+    </div>
+
+    <div class="plains">
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.router.h">Orchestrator / Model Router</h3><p data-i18n="run.router.p">Classifies each task, then picks runtime, model, effort, and skill by role: expert, standard, fast.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.improver.h">Improver</h3><p data-i18n="run.improver.p">Watches every session and consolidates memory overnight, the way sleep consolidates a day. Skills, routing, and memory all sharpen the more Garrison is used.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.memory.h">Memory (Obsidian)</h3><p data-i18n="run.memory.p">Memory compiled into an Obsidian vault, graph-linked so operatives read and write it easily, synced across machines, runtimes, and agents.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.auto.h">Automations engine</h3><p data-i18n="run.auto.p">Scheduled and triggered jobs, cron-simple.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.voice.h">Voice</h3><p data-i18n="run.voice.p">Local voice or Deepgram: push-to-talk in, read-aloud out.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.vault.h">Vault</h3><p data-i18n="run.vault.p">Secrets AES-256-GCM sealed under your keychain, scoped and never logged.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <p class="fm" data-i18n-html="foot.left">Garrison &middot; open source &middot; <a href="https://github.com/gongiskhan/agent-garrison">GitHub</a> &middot; MIT licence</p>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" class="on">EN</button>
+      <button type="button" data-lang="pt">PT</button>
+    </div>
+  </div>
+</footer>
+
+<script>
+// One dictionary, two languages. EN is the default; the choice lives in a JS
+// variable only (this file must stay a portable single page).
+var LANG = "en";
+var STRINGS = {
+  en: {
+    "hero.headword": "gar·ri·son",
+    "hero.gram": "/ˈɡarɪsən/  ·  <i>noun</i>  ·  [O.Fr. <i>garison</i>, “defence, provision”; cf. L. <i>praesidium</i>]",
+    "hero.classic": "A fortified post where a body of troops is stationed to hold and defend it.",
+    "hero.gloss": "In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed. Each is built from <b>faculties</b> (capability slots) filled by <b>fittings</b> (swappable parts you install from the <b>Fittings Registry</b>), directed by an <b>orchestrator</b>, and quartered over your own Claude Code setup in the <b>Quarters</b>.",
+    "what.kicker": "01 · The base",
+    "what.line": "Garrison is the structured base for your whole AI development setup. Every tool, model, runtime, skill, and setting in one place, swappable in a click, so you can try anything new in the AI ecosystem without rebuilding your workflow. Platform, CLI, and model agnostic.",
+    "what.diff": "Assemble agent systems like Hermes or OpenClaw, but reined in. Garrison operatives are safer, fully transparent, more configurable and easier to configure, more flexible, and aligned to what you actually want, instead of trying to do everything on their own.",
+    "who.kicker": "02 · The ranks",
+    "who.header": "Who Garrison is for.",
+    "who.dev.h": "developers",
+    "who.dev.p": "Structure around your day-to-day AI work. Switch models, runtimes, effort, and skills per task. Build whole new profiles and flows. Every tool and setting in one base, platform and CLI agnostic. Experiment fast, keep the workflow you already have.",
+    "who.builder.h": "builders",
+    "who.builder.p": "Assemble proven, reliable agents from parts developers already vetted, with no deep technical work. Read a plain description, pick a fitting, let the assistant wire it up. Ship full agents like Hermes or OpenClaw, shaped to the approaches you trust.",
+    "who.user.h": "end-users",
+    "who.user.p": "Run your own personal operative on your own machine. Memory, scheduling, tasks, and actions, powered by the latest AI tools that builders and developers packaged for you. An assistant that is yours, not a black box.",
+    "orders.kicker": "03 · The charter",
+    "orders.header": "Standing Orders",
+    "orders.lede": "Ten articles the garrison follows without question.",
+    "o1.h": "Operatives are model-agnostic.",
+    "o1.p": "Pick the runtime, model, effort, and skills per task. The orchestrator, the single entry point for everything an operative does, routes each job to the right one.",
+    "o2.h": "Operatives are secure.",
+    "o2.p": "Every fitting is an APM package, scanned and vetted before it enters Garrison. Secrets are Vault-sealed with AES-256-GCM, scoped to one connector, and never written to a log.<span class=\"aside\">APM is Microsoft's package manager for agent parts. Think npm for Node, but for an agent's skills, access, and memory.</span>",
+    "o3.h": "Opinionated, but completely flexible.",
+    "o3.p": "Garrison ships the defaults developers reach for when they build with AI every day. Disagree with one? Swapping a fitting is unselecting one and selecting another in the UI.",
+    "o4.h": "Everything is transparent and observable.",
+    "o4.p": "Every action an operative takes is logged and visible. Every faculty, fitting, and setting shows in the UI with a plain description of what it does and how to configure it.",
+    "o5.h": "Every fitting fulfils a faculty contract.",
+    "o5.p": "That single contract is how parts written in different languages and runtimes talk to each other. Fill a slot with anything that honours the contract, and the rest of the operative does not care how it was built.",
+    "o6.h": "Compose, don't own.",
+    "o6.p": "Garrison sits over your real ~/.claude and arranges it. It does not replace your tools, hide them, or trap you in a runtime of its own.",
+    "o7.h": "Local-first. Your machine, your data, your keys.",
+    "o7.p": "Operatives run on your hardware, secrets live in your keychain, and memory and logs stay with you.",
+    "o8.h": "The system improves itself.",
+    "o8.p": "The Improver reads every session and sharpens your skills, your routing, and your memory. The more you use Garrison, the better it fits you.",
+    "o9.h": "Plan before you build.",
+    "o9.p": "Work moves through discuss, then plan, then implement, on the Kanban Loop. The plan gates the build, so nothing runs off on its own.",
+    "o10.h": "Open by default.",
+    "o10.p": "MIT-licensed, auditable end to end, no lock-in.",
+    "run.kicker": "04 · The state of the art",
+    "run.header": "Running today.",
+    "run.lede": "This is what Garrison already does, not a roadmap. Real screenshots from a live base.",
+    "run.comp.h": "Composition",
+    "run.comp.p": "One grid for the whole operative: every faculty and fitting, searchable, with verify hooks green before it runs.",
+    "run.home.h": "The dashboard",
+    "run.home.p": "Status, readiness, verify hooks, and the run console in one glance.",
+    "run.quarters.h": "Quarters",
+    "run.quarters.p": "Every Claude Code artifact by name over your real ~/.claude, each owned by Garrison or loose on disk, always visible.",
+    "run.dev.h": "Dev Env",
+    "run.dev.p": "Terminal sessions and a live browser the operative sees through CDP. It detects Claude running elsewhere for a directory and lets you take over with --continue.",
+    "run.kanban.h": "Kanban Loop",
+    "run.kanban.p": "One board for personal and dev work. Cards flow Backlog, To Do, Discuss, Plan, Implement. Some lanes are hands-on, some run themselves.",
+    "run.conn.h": "Connectors",
+    "run.conn.p": "Google Workspace, Slack, Trello, Deepgram: each a Vault-sealed catalogue of callable actions. Secrets never appear in the UI or a log.",
+    "run.chat.h": "Operative chat",
+    "run.chat.p": "Talk to the operative in text or voice, watch context use, switch permission modes, have replies read aloud.",
+    "run.router.h": "Orchestrator / Model Router",
+    "run.router.p": "Classifies each task, then picks runtime, model, effort, and skill by role: expert, standard, fast.",
+    "run.improver.h": "Improver",
+    "run.improver.p": "Watches every session and consolidates memory overnight, the way sleep consolidates a day. Skills, routing, and memory all sharpen the more Garrison is used.",
+    "run.memory.h": "Memory (Obsidian)",
+    "run.memory.p": "Memory compiled into an Obsidian vault, graph-linked so operatives read and write it easily, synced across machines, runtimes, and agents.",
+    "run.auto.h": "Automations engine",
+    "run.auto.p": "Scheduled and triggered jobs, cron-simple.",
+    "run.voice.h": "Voice",
+    "run.voice.p": "Local voice or Deepgram: push-to-talk in, read-aloud out.",
+    "run.vault.h": "Vault",
+    "run.vault.p": "Secrets AES-256-GCM sealed under your keychain, scoped and never logged.",
+    "meta.title": "Garrison: the structured base for your AI development setup",
+    "meta.desc": "Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code setup.",
+    "aria.lang": "Language",
+    "alt.logo": "Garrison: a wheat palisade fence on deep forest green",
+    "alt.comp": "The Garrison composition grid",
+    "alt.home": "The Garrison dashboard",
+    "alt.quarters": "The Quarters view over ~/.claude",
+    "alt.dev": "The Dev Env with terminals and a live browser",
+    "alt.kanban": "The Kanban Loop board",
+    "alt.conn": "The Connectors view",
+    "alt.chat": "The operative chat",
+    "foot.left": "Garrison · open source · <a href=\"https://github.com/gongiskhan/agent-garrison\">GitHub</a> · MIT licence"
+  },
+  pt: {
+    "hero.headword": "guar·ni·ção",
+    "hero.gram": "/ɡwɐɾniˈsɐ̃w̃/  ·  <i>substantivo</i>  ·  [do fr. ant. <i>garison</i>, “defesa, provisão”; cf. lat. <i>praesidium</i>]",
+    "hero.classic": "Posto fortificado onde uma força se encontra estacionada para o defender.",
+    "hero.gloss": "No Garrison: a base local onde os teus <b>operativos</b> (agentes de IA que configuras) ficam estacionados. Cada um é composto por <b>faculdades</b> (ranhuras de capacidade) preenchidas por <b>fittings</b> (peças substituíveis que instalas a partir do <b>Fittings Registry</b>), dirigidos por um <b>orquestrador</b>, e aquartelados sobre a tua própria configuração do Claude Code, nos <b>Quartéis</b>.",
+    "what.kicker": "01 · A base",
+    "what.line": "O Garrison é a base estruturada para toda a tua configuração de desenvolvimento com IA. Cada ferramenta, modelo, runtime, skill e definição num só lugar, substituíveis com um clique, para experimentares tudo o que surge no ecossistema de IA sem reconstruíres o teu fluxo de trabalho. Agnóstico à plataforma, à CLI e ao modelo.",
+    "what.diff": "Monta sistemas de agentes como o Hermes ou o OpenClaw, mas com rédeas. Os operativos do Garrison são mais seguros, totalmente transparentes, mais configuráveis e mais fáceis de configurar, mais flexíveis, e alinhados com o que realmente queres, em vez de tentarem fazer tudo por conta própria.",
+    "who.kicker": "02 · As fileiras",
+    "who.header": "Para quem é o Garrison.",
+    "who.dev.h": "programadores",
+    "who.dev.p": "Estrutura para o teu trabalho diário com IA. Troca modelos, runtimes, esforço e skills por tarefa. Constrói perfis e fluxos novos. Cada ferramenta e definição numa só base, agnóstica à plataforma e à CLI. Experimenta depressa, mantém o fluxo de trabalho que já tens.",
+    "who.builder.h": "builders",
+    "who.builder.p": "Monta agentes comprovados e fiáveis a partir de peças que os programadores já validaram, sem trabalho técnico profundo. Lê uma descrição simples, escolhe um fitting, deixa o assistente ligar tudo. Entrega agentes completos como o Hermes ou o OpenClaw, moldados às abordagens em que confias.",
+    "who.user.h": "utilizadores finais",
+    "who.user.p": "Corre o teu operativo pessoal na tua própria máquina. Memória, agendamento, tarefas e ações, com as ferramentas de IA mais recentes que builders e programadores empacotaram para ti. Um assistente que é teu, não uma caixa negra.",
+    "orders.kicker": "03 · A carta",
+    "orders.header": "Ordens Permanentes",
+    "orders.lede": "Dez artigos que a guarnição segue sem questionar.",
+    "o1.h": "Os operativos são agnósticos ao modelo.",
+    "o1.p": "Escolhe o runtime, o modelo, o esforço e as skills por tarefa. O orquestrador, o ponto de entrada único para tudo o que um operativo faz, encaminha cada tarefa para o certo.",
+    "o2.h": "Os operativos são seguros.",
+    "o2.p": "Cada fitting é um pacote APM, analisado e validado antes de entrar no Garrison. Os segredos são selados no Vault com AES-256-GCM, limitados a um único connector, e nunca escritos num registo.<span class=\"aside\">O APM é o gestor de pacotes da Microsoft para peças de agentes. Pensa no npm para Node, mas para as skills, os acessos e a memória de um agente.</span>",
+    "o3.h": "Opinativo, mas totalmente flexível.",
+    "o3.p": "O Garrison traz as escolhas por defeito que os programadores usam quando trabalham com IA todos os dias. Não concordas com alguma? Trocar um fitting é desmarcar um e marcar outro na interface.",
+    "o4.h": "Tudo é transparente e observável.",
+    "o4.p": "Cada ação de um operativo é registada e visível. Cada faculdade, fitting e definição aparece na interface com uma descrição simples do que faz e de como se configura.",
+    "o5.h": "Cada fitting cumpre o contrato de uma faculdade.",
+    "o5.p": "É esse contrato único que permite a peças escritas em linguagens e runtimes diferentes falarem umas com as outras. Preenche uma ranhura com o que quiseres, desde que respeite o contrato, e o resto do operativo não precisa de saber como foi construído.",
+    "o6.h": "Compor, não possuir.",
+    "o6.p": "O Garrison assenta sobre o teu ~/.claude real e organiza-o. Não substitui as tuas ferramentas, não as esconde, nem te prende a um runtime próprio.",
+    "o7.h": "Local em primeiro lugar. A tua máquina, os teus dados, as tuas chaves.",
+    "o7.p": "Os operativos correm no teu hardware, os segredos ficam no teu keychain, e a memória e os registos ficam contigo.",
+    "o8.h": "O sistema melhora-se a si próprio.",
+    "o8.p": "O Improver lê cada sessão e afina as tuas skills, o teu encaminhamento e a tua memória. Quanto mais usares o Garrison, melhor ele se adapta a ti.",
+    "o9.h": "Planear antes de construir.",
+    "o9.p": "O trabalho passa por discutir, depois planear, depois implementar, no Kanban Loop. O plano controla a construção, para que nada avance sozinho.",
+    "o10.h": "Aberto por definição.",
+    "o10.p": "Licença MIT, auditável de ponta a ponta, sem aprisionamento.",
+    "run.kicker": "04 · O estado da arte",
+    "run.header": "A funcionar hoje.",
+    "run.lede": "Isto é o que o Garrison já faz, não um roadmap. Capturas reais de uma base em funcionamento.",
+    "run.comp.h": "Composição",
+    "run.comp.p": "Uma grelha para todo o operativo: cada faculdade e fitting, pesquisável, com verify hooks verdes antes de arrancar.",
+    "run.home.h": "O painel",
+    "run.home.p": "Estado, prontidão, verify hooks e a consola de execução num só olhar.",
+    "run.quarters.h": "Quartéis",
+    "run.quarters.p": "Cada artefacto do Claude Code, pelo nome, sobre o teu ~/.claude real: gerido pelo Garrison ou solto no disco, sempre visível.",
+    "run.dev.h": "Dev Env",
+    "run.dev.p": "Sessões de terminal e um browser em direto que o operativo vê por CDP. Deteta um Claude a correr noutro sítio para a mesma pasta e deixa-te assumir com --continue.",
+    "run.kanban.h": "Kanban Loop",
+    "run.kanban.p": "Um quadro para trabalho pessoal e de dev. Os cartões fluem por Backlog, To Do, Discuss, Plan, Implement. Há colunas manuais e colunas que correm sozinhas.",
+    "run.conn.h": "Connectors",
+    "run.conn.p": "Google Workspace, Slack, Trello, Deepgram: cada um é um catálogo de ações selado no Vault. Os segredos nunca aparecem na interface nem num registo.",
+    "run.chat.h": "Chat do operativo",
+    "run.chat.p": "Fala com o operativo por texto ou voz, acompanha o contexto usado, muda os modos de permissão, ouve as respostas em voz alta.",
+    "run.router.h": "Orquestrador / Model Router",
+    "run.router.p": "Classifica cada tarefa e escolhe runtime, modelo, esforço e skill por papel: expert, standard, fast.",
+    "run.improver.h": "Improver",
+    "run.improver.p": "Observa cada sessão e consolida a memória durante a noite, como o sono consolida um dia. Skills, encaminhamento e memória afinam quanto mais o Garrison é usado.",
+    "run.memory.h": "Memória (Obsidian)",
+    "run.memory.p": "Memória compilada num vault Obsidian, ligada em grafo para os operativos lerem e escreverem com facilidade, sincronizada entre máquinas, runtimes e agentes.",
+    "run.auto.h": "Motor de automações",
+    "run.auto.p": "Tarefas agendadas e por gatilho, simples como cron.",
+    "run.voice.h": "Voz",
+    "run.voice.p": "Voz local ou Deepgram: push-to-talk para falar, leitura em voz alta na resposta.",
+    "run.vault.h": "Vault",
+    "run.vault.p": "Segredos selados com AES-256-GCM sob o teu keychain, com âmbito limitado e nunca registados.",
+    "meta.title": "Garrison: a base estruturada para o teu desenvolvimento com IA",
+    "meta.desc": "O Garrison é a base local onde os teus operativos de IA ficam estacionados: faculdades preenchidas por fittings substituíveis, dirigidos por um orquestrador, aquartelados sobre a tua própria configuração do Claude Code.",
+    "aria.lang": "Idioma",
+    "alt.logo": "Garrison: uma paliçada de madeira clara sobre verde-floresta escuro",
+    "alt.comp": "A grelha de composição do Garrison",
+    "alt.home": "O painel do Garrison",
+    "alt.quarters": "A vista Quartéis sobre o ~/.claude",
+    "alt.dev": "O Dev Env com terminais e um browser em direto",
+    "alt.kanban": "O quadro Kanban Loop",
+    "alt.conn": "A vista Connectors",
+    "alt.chat": "O chat do operativo",
+    "foot.left": "Garrison · código aberto · <a href=\"https://github.com/gongiskhan/agent-garrison\">GitHub</a> · licença MIT"
+  }
+};
+
+function applyLang(lang) {
+  LANG = lang;
+  document.documentElement.lang = lang === "pt" ? "pt-PT" : "en";
+  var dict = STRINGS[lang];
+  document.querySelectorAll("[data-i18n]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n");
+    if (dict[key] != null) el.textContent = dict[key];
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-html");
+    if (dict[key] != null) el.innerHTML = dict[key];
+  });
+  document.querySelectorAll("[data-i18n-alt]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-alt");
+    if (dict[key] != null) el.setAttribute("alt", dict[key]);
+  });
+  document.title = dict["meta.title"];
+  var metaDesc = document.querySelector("meta[name='description']");
+  if (metaDesc) metaDesc.setAttribute("content", dict["meta.desc"]);
+  document.querySelectorAll(".lang").forEach(function (el) {
+    el.setAttribute("aria-label", dict["aria.lang"]);
+  });
+  document.querySelectorAll(".lang button").forEach(function (b) {
+    b.classList.toggle("on", b.getAttribute("data-lang") === lang);
+  });
+}
+document.querySelectorAll(".lang button").forEach(function (b) {
+  b.addEventListener("click", function () { applyLang(b.getAttribute("data-lang")); });
+});
+</script>
+</body>
+</html>

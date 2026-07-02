@@ -36,11 +36,13 @@ x-garrison:
 ```
 
 > **Note (post-Quarters-pivot):** this example uses the legacy `faculty:
-> classifier` and `provides: agent-skill`, both retired in the 2026-06-07 pivot
-> but still accepted as deprecation aliases (with a `console.warn`). A skill like
-> a tier classifier is now a Quarters **platform primitive** (a `type: skill`
-> package compiled by APM), not a capability provider. See the live faculty/kind
-> lists below.
+> classifier` and `provides: agent-skill`, both retired in the 2026-06-07 pivot.
+> Neither is aliased: `classifier` is not in `metadata.ts` `FACULTY_ALIASES` and
+> `agent-skill` is not a live capability kind, so this manifest no longer parses
+> (it is kept as a historical illustration of the block's shape only). A skill
+> like a tier classifier is now a Quarters **platform primitive** (a
+> `type: skill` package compiled by APM), not a capability provider. See the
+> live faculty/kind lists below.
 
 ## Schema
 
@@ -48,7 +50,7 @@ Top-level `x-garrison` fields:
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `faculty` | enum | yes | One of the 14 explicit Faculty ids. Tasks is derived and must not be declared by a Fitting. |
+| `faculty` | enum | yes | One of the 17 explicit Faculty ids (see the list below). Tasks is derived and must not be declared by a Fitting. |
 | `cardinality_hint` | enum | yes | `single` or `multi`. Validated against the Faculty definition. |
 | `component_shape` | enum | yes | One of Garrison's closed Fitting shapes. (Field name retained from earlier naming for back-compat.) |
 | `platforms` | string array | yes | `all`, `claude-code`, `codex`, or future platform ids. v1 accepts only `all` and `claude-code` at compose time. |
@@ -61,6 +63,11 @@ Top-level `x-garrison` fields:
 | `verify` | object | yes | Runtime verification command and expected output. |
 | `ui` | object | no | Optional trusted React extension metadata. |
 | `tasks` | object | no | Optional declaration that this Fitting backs the derived Tasks surface. |
+| `own_port` | boolean | no | The Fitting serves its own UI/backend on its own HTTP port and registers at runtime via `~/.garrison/ui-fittings/<id>.json`. |
+| `default_port` | integer | no | Informational default port for an own-port Fitting; the runtime status file is authoritative. |
+| `lifecycle` | enum | no | Own-port Fittings only: `operative-bound` (default; started/stopped with the operative) or `detached` (user-managed). |
+| `connector` | object | no | Connector Fittings only (`kind: connector`): auth method, action catalog, optional triggers. See the connector schema below. |
+| `secret_scope` | string array | no | The named Vault secrets this Fitting may read; the Vault delivers only these to the Fitting's process. |
 
 ### Back-compat aliases
 
@@ -68,17 +75,28 @@ The parser accepts these deprecated forms for one minor version. Both
 emit a `console.warn`:
 
 - `primitive:` (rewritten to `faculty:`).
-- `faculty: testing-framework` (rewritten to `faculty: skills`).
+- The aliased legacy faculty names below (each rewritten to its role).
 
-Faculty ids (the 6 roles, post-2026-06-07 Quarters pivot):
+Faculty ids (9 core roles + 7 optional capability faculties + `connectors`,
+enforced by `facultyIds` in `src/lib/types.ts`):
 
-`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`.
+`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
+`sessions`, `surfaces`, `modes`, `knowledge`, `research`, `building`,
+`code-intelligence`, `design`, `browser-qa`, `coordination`, `connectors`.
 
-The legacy flat-Faculty ids (`heartbeat`, `scheduler`, `data-sources`,
-`knowledge-base`, `automations`, `skills`, `classifier`, `soul`, …) are accepted
-as deprecation aliases by `metadata.ts normalizeDeprecations` and fold into the
-roles above; Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans are now
-Quarters platform primitives, not Faculties.
+Aliased legacy faculty ids (folded into roles by
+`metadata.ts normalizeDeprecations`, with a `console.warn`): `terminal`,
+`worktree-management`, `session-view`, `testing-framework` (all four fold into
+`sessions`); `screen-share`, `outposts`, `browser` (fold into `surfaces`);
+`web-channel`, `voice` (fold into `channels`); `monitor` (folds into
+`observability`).
+
+NOT aliased: the parked pre-pivot faculty ids (`heartbeat`, `scheduler`,
+`data-sources`, `knowledge-base`, `automations`, `skills`, `classifier`,
+`soul`, …). Their Fittings are de-listed from `data/library.json` and never
+parsed; the parser rejects these ids outright.
+Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans are Quarters platform
+primitives, not Faculties.
 
 Fitting shapes:
 
@@ -100,7 +118,7 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `connector`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `mcp-gateway`; `data-source` dropped 2026-06-26 — superseded by `connector`; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer); `connector` added 2026-06-26 for the Connectors faculty — a connected service with a callable action catalog + Vault-sealed auth, more general than `data-source`. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
+| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`, `runtime`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `mcp-gateway`; `data-source` dropped 2026-06-26, superseded by `connector`; `artifact-store` dropped, the file-browser Fitting is the artifact surface; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer); `connector` added 2026-06-26 for the Connectors faculty, a connected service with a callable action catalog + Vault-sealed auth, more general than `data-source`. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view`, all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port`, never declared under `provides`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):

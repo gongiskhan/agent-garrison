@@ -40,6 +40,7 @@ public/phase-1-demo/.playwright-artifacts/
 .walkthrough/*.log
 .walkthrough/auth.json
 .next-build/
+.next-e2e/
 
 # CodeGraph / Serena local indexes (regenerated on demand)
 .codegraph/

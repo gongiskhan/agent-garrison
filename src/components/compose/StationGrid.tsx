@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { PageSkeleton } from "@/components/chrome/PageSkeleton";
 import { faculties } from "@/lib/faculties";
 import type {
   PromotedFacultyGroup,
@@ -134,15 +135,7 @@ export function StationGrid() {
   }
 
   if (!composition) {
-    return (
-      <main>
-        <div className="page">
-          <div className="head">
-            <h1>Loading composition…</h1>
-          </div>
-        </div>
-      </main>
-    );
+    return <PageSkeleton label="Loading composition" />;
   }
 
   const orchestratorMissing = (composition.selections.orchestrator ?? []).length === 0;
@@ -677,9 +670,29 @@ function subFor(id: FacultyId, selections: SelectedFitting[], library: LibraryEn
       return `<b>${sel.config?.persistence_cadence ?? "hourly"}</b> persistence · ${sel.config?.recency_window ?? 20}-line recency`;
     case "gateway":
       return `${sel.config?.bind_host ?? "127.0.0.1"}<b>:${sel.config?.port ?? 4777}</b>`;
-    default:
-      return library.find((e) => e.id === sel.id)?.name ?? sel.id;
+    default: {
+      // The tile title already shows the Fitting's name; the sub-line earns its
+      // space by saying what the Fitting DOES (transparency principle), not by
+      // repeating the name.
+      const entry = library.find((e) => e.id === sel.id);
+      if (!entry?.summary) return entry?.name ?? sel.id;
+      const firstSentence = entry.summary.split(/(?<=[.!?])\s/)[0] ?? entry.summary;
+      let clipped = firstSentence;
+      if (clipped.length > 110) {
+        const cut = clipped.slice(0, 107);
+        clipped = `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 80)).trimEnd()}…`;
+      }
+      return escapeHtml(clipped);
+    }
   }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function statusToneClass(status: string | undefined): string {

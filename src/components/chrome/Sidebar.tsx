@@ -405,7 +405,7 @@ function FittingViewsLinks({
                   {icon}
                   {row.entry.name}
                 </span>
-                <span className="ct">live</span>
+                <span className="ct tone-live">live</span>
               </a>
             );
           }
@@ -422,7 +422,7 @@ function FittingViewsLinks({
                 {icon}
                 {row.entry.name}
               </span>
-              <span className="ct">live</span>
+              <span className="ct tone-live">live</span>
             </Link>
           );
         }
@@ -439,7 +439,7 @@ function FittingViewsLinks({
               {icon}
               {row.entry.name}
             </span>
-            <span className="ct">{status?.healthy === false ? "down" : "off"}</span>
+            <span className={clsx("ct", status?.healthy === false ? "tone-down" : "tone-off")}>{status?.healthy === false ? "down" : "off"}</span>
           </Link>
         );
       })}

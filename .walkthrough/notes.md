@@ -34,3 +34,10 @@
 - To film an own-port Fitting's view, point a browser SEGMENT straight at its port (e.g. baseURL http://127.0.0.1:7087 for model-router, :7088 for improver) — record.mjs supports multiple browser segments, each with its own baseURL/origin. Do NOT film via :7777/embed/<id>: that page wraps the Fitting in a cross-origin iframe, which triggers the gray-caption-strip bug.
 - Terminal segment commands run through VHS as `Type "<command>"`, so a command containing a double-quote (e.g. jq with string literals `"UP"`/`select(.id=="x")`) breaks the tape parser with "Invalid command". Keep terminal commands quote-free: single-quoted jq filters with no string literals (`jq -r '.views[].fittingId'`) work; prove liveness with `/health` curls instead of a jq if/then string.
 - Own-port Fittings (model-router, improver) appear in BOTH the sidebar Views group AND the Armory grid, so `text:<Name>`.first() highlights the sidebar link, not the Armory card. To land an Armory-card highlight, assert on a Fitting with NO sidebar view (knowledge / codex-runtime / gemini-runtime) — the recorder auto-scrolls the card into view.
+
+## 2026-07-02 — shell/fitting-ui/landing walkthroughs (run 20260701-225923)
+- An `assert` WITHOUT `highlight: true` does not scroll the page — a beat whose caption
+  references a below-the-fold section MUST set highlight (or use an action that scrolls),
+  or the midpoint frame shows the previous viewport and fails the vision gate.
+- playwright-cli blocks file:// URLs; serve a static page (python3 -m http.server) to film it.
+- Storyboard JSON with non-ASCII (guar·ni·ção) round-trips fine through record.mjs.

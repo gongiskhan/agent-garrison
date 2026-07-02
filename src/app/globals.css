@@ -27,6 +27,53 @@
 
 * { box-sizing: border-box; }
 
+/* Interaction polish (2026-07 refit): consistent keyboard focus, calm text
+   selection, and gentle motion on every interactive surface. */
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+::selection { background: rgba(216, 168, 46, 0.28); }
+.btn,
+nav.tabs .item,
+.station-tile,
+.pill,
+input.text, select.text, textarea.text {
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skeleton loading (PageSkeleton) — the page taking shape, not an empty app. */
+.skeleton-line, .skeleton-card {
+  background: linear-gradient(100deg, var(--paper-2) 40%, var(--paper-3) 50%, var(--paper-2) 60%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-card { height: 120px; border: 1px solid var(--rule); }
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 18px;
+  margin-top: 10px;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -80% 0; }
+}
+
 html, body {
   margin: 0;
   min-height: 100vh;
@@ -129,6 +176,20 @@ nav.tabs .item .ct {
   color: var(--mute);
 }
 nav.tabs .item.active .ct { color: var(--brass-2); }
+/* Views status at a glance: a small tone dot ahead of the live/down/off word. */
+nav.tabs .item .ct.tone-live::before,
+nav.tabs .item .ct.tone-down::before,
+nav.tabs .item .ct.tone-off::before {
+  content: "";
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+nav.tabs .item .ct.tone-live::before { background: var(--sage-2); }
+nav.tabs .item .ct.tone-down::before { background: var(--alarm); }
+nav.tabs .item .ct.tone-off::before { background: var(--rule-2); }
 
 .side-foot {
   margin-top: auto;

@@ -1,0 +1,45 @@
+{
+  "slice": "landing",
+  "title": "Public landing page site/index.html per v1 brief",
+  "updatedAt": "2026-07-02T02:30:00+01:00",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run", "exit": 0, "at": "2026-07-02T02:27:00+01:00", "summary": "1416 passed / 12 skipped" },
+    "e2e": { "cmd": "npx playwright test tests/e2e/landing.spec.ts --project=desktop-chromium", "exit": 0, "at": "2026-07-02T02:28:00+01:00", "summary": "6 passed (committed spec with its own static server: EN default + bolded concept terms, 10 SVG orders, PT-PT toggle incl. title/alt, no em dashes both languages, LICENSE parity, screenshots load)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-07-02T02:27:00+01:00", "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "at": "2026-07-02T02:27:00+01:00", "summary": "clean" },
+    "build": { "cmd": "static single file, no build step (brief requirement); NEXT_DIST_DIR=.next-build next build re-run clean", "exit": 0, "at": "2026-07-02T02:29:00+01:00", "summary": "BUILD OK" },
+    "review": { "verdict": "clean", "by": "claude inline", "at": "2026-07-02T02:10:00+01:00", "summary": "i18n dict parity, escaped innerHTML strings authored not user-supplied, single-file portability (Google Fonts only external), picket-rule fill fix, order II label spacing fix" },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "low",
+      "at": "2026-07-02T02:12:00+01:00",
+      "lastReport": "docs/autothing/runs/20260701-225923-9ece946d/slices/landing-codex-review-r2.json",
+      "overrides": [],
+      "notes": "Round 1: 2 findings. (1) title/meta/aria/alt not switching with the toggle - REAL, applied (dictionary keys + applyLang extension + spec assertions). (2) builders/Connectors/Vault untranslated - REBUTTED via the brief's explicit vocabulary decision (coined brand terms stay English in PT); Codex accepted the rebuttal in round 2. Round 2: clean approve."
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-07-02T02:14:00+01:00",
+      "report": "docs/autothing/runs/20260701-225923-9ece946d/slices/landing-codex-pwtest.json",
+      "notes": "HTTP-level independent pass (codex sandbox cannot launch a browser): parsed the served HTML, verified en/pt dictionary key parity + PT headword, counted 10 order SVGs, scanned for em dashes (none), fetched all 8 brand PNGs, verified footer MIT/GitHub + repo LICENSE."
+    },
+    "designAudit": { "verdict": "clean", "by": "claude vision over desktop + 390px mobile + PT captures", "at": "2026-07-02T02:07:00+01:00", "issues": [] },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-07-02T02:25:00+01:00",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/landing/2026-07-02_02-16-28/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/landing/2026-07-02_02-16-28"
+    }
+  },
+  "blockers": [],
+  "notes": "FINDING lines printed before markup (tokens from globals.css, fonts Inter/Source Serif 4/JetBrains Mono, licence MIT from LICENSE added in slice 1, assets self-captured from the live app into site/brand/). Single self-contained index.html; i18n via one JS dictionary, EN default; ten hand-drawn SVG Standing Orders; palisade motif hero + dividers."
+}

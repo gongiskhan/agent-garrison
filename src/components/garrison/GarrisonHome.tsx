@@ -4,6 +4,7 @@ import Link from "next/link";
 import clsx from "clsx";
 import { Play, Square } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { PageSkeleton } from "@/components/chrome/PageSkeleton";
 import { RunConsole } from "@/components/run/RunPanel";
 import { faculties } from "@/lib/faculties";
 import type { RunnerState } from "@/lib/types";
@@ -12,16 +13,7 @@ export function GarrisonHome() {
   const { composition, runnerState, vaultNeedsPassword, runAction, busy } = useAppShell();
 
   if (!composition) {
-    return (
-      <main>
-        <div className="page">
-          <div className="head">
-            <h1>Loading Agent Garrison…</h1>
-            <p className="ld">Reading the composition manifest.</p>
-          </div>
-        </div>
-      </main>
-    );
+    return <PageSkeleton label="Loading Agent Garrison: reading the composition manifest" />;
   }
 
   const status = runnerState?.status ?? "idle";

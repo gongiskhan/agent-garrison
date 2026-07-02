@@ -11,60 +11,27 @@ The set grew across phases, then **shrank with the 2026-06-07 Quarters pivot**
 Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
-via the `capabilityKinds` array in `src/lib/types.ts`: `orchestrator`, `modes`,
-`memory-store`, `connector`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`,
-`dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`.
+via the `capabilityKinds` array in `src/lib/types.ts` (14 kinds):
+`orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`,
+`runtime`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`,
+`voice`, `view`.
 
-> **`data-source` dropped 2026-06-26** — superseded by `connector`, which is
-> strictly more general (a connector both reads AND acts, with a callable action
-> catalog + Vault-sealed auth). Trello moved to the `trello` connector. The
-> `## data-source` section below is retained for historical context only; the
-> resolver rejects the kind.
+Dropped kinds, kept below under *Dropped kinds (historical)* for readers
+tracing old manifests (the resolver rejects them today):
 
-`runtime` (added 2026-06-14, BRIEF v4 Runtime faculty) is a Fitting that hosts the
-agent loop and exposes a uniform `delegate(task_spec) -> {summary, artifacts}`
-bridge. Multiple runtimes (Claude Code, Codex, Gemini-CLI) may coexist under the
-`sessions` role; the composition names one **primary** (drives user sessions) and
-others **secondary** (invocable via their bridge). Same "add a kind only when a
-real Fitting needs one" precedent as `data-source`/`automation-runner`
-(codex-runtime / gemini-runtime need it).
+- Dropped in the Quarters pivot (2026-06-07): `soul`, `agent-skill`, `mcp-gateway`.
+- Dropped in the Dev Env consolidation (2026-06-11): `terminal-session`, `worktree`, `session-view`; their three Fittings collapsed into the single `dev-env` Fitting/kind (Workspaces was deleted outright).
+- `data-source` (dropped in the pivot, revived 2026-06-10 for
+  trello-data-source, dropped again 2026-06-26): superseded by `connector`,
+  which is strictly more general; Trello moved to the `trello` connector.
+- `artifact-store`: retired with the artifact-store Faculty; the file-browser
+  Fitting is the artifact surface today.
 
-`modes` (added 2026-06-22) is the operative's identity/persona layer: the souls
-(Gary/Joe/James), the shared voice, the per-mode routing bias, and name-based
-mode switching, composed into the orchestrator's system prompt. It is a
-singleton kind provided by the `modes` Fitting (the `modes` faculty) and
-consumed by the orchestrator at `optional-one`. Same "add a kind only when a
-real Fitting needs one" precedent.
-
-`connector` (added 2026-06-26) is a connected external service exposing a
-discoverable catalog of callable actions, Vault-sealed credentials, and optional
-inbound triggers (a webhook routed through the Gateway, or a polling listener run
-by the Scheduler daemon). It lives under the `connectors` faculty and is **multi**
-(many services coexist). It is strictly more general than the read-only
-`data-source` kind it replaces — a connector both reads and acts — and absorbs
-that case (a database such as Supabase is just another connector). A connector
-Fitting declares its catalog in the `x-garrison.connector` block (`auth`,
-`actions[]` with `mutates`/`args`, `triggers[]`) and the named secrets it may
-read in `x-garrison.secret_scope` (the per-connector scoping the Vault enforces).
-
-`view` is **derived, never declared**: fittings do not list it in `provides` —
-the resolver synthesises one `view` provision per produced view (each
-`ui.views[]` entry, plus an own-port fitting's `main` surface), named
-`<fittingId>:<viewId>` (see `src/lib/view-instances.ts`). Only `consumes` names
-it explicitly — a consumer declares `view` with `cardinality: any` to
-discover every view in the composition without hardcoding. Derived provisions live only in the capability graph; they never
-appear in the assembled prompt's capabilities block.
-
-Dropped in the Quarters pivot (no longer valid kinds): `soul`, `agent-skill`, `mcp-gateway`.
-Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — their three Fittings collapsed into the single `dev-env` Fitting/kind (Workspaces was deleted outright).
-Sections for these are kept below under *Dropped kinds (historical)* for readers
-tracing old manifests; the resolver rejects them. `data-source` was dropped with
-them but re-added 2026-06-10: trello-data-source is a real Fitting that cannot
-be expressed without it (the Honesty-Test working convention), and it rejoined
-the `memory` role with the kind. `automation-runner` was likewise re-added
-2026-06-13 (MR wave): the scheduler Fitting and the nightly Improver both need
-it; its runners re-home to a role faculty (script-shaped under `observability`,
-cli-skill under `sessions`).
+`automation-runner` was likewise dropped in the pivot and re-added 2026-06-13
+(MR wave): the scheduler Fitting and the nightly Improver both need it, and its
+runners re-home to a role faculty (script-shaped under `observability`,
+cli-skill under `sessions`). Same "add a kind only when a real Fitting needs
+one" precedent throughout.
 
 ## Cardinality literals
 
@@ -129,80 +96,20 @@ exactly one orchestrator per composition.
   `--append-system-prompt` as the higher-authority launch fallback), not a
   separately-spawned agent.
 
-## Own-port runtime kinds
+## modes
 
-`dev-env`, `screen-share`, `outpost`, and `voice` are the runtime-residue
-capability kinds that survived the pivot. Their Fittings serve their own React
-UI (or a headless backend, for `voice`) on their own HTTP port (the Monitor
-pattern) and are surfaced under the `sessions` / `channels` / `observability`
-roles via the metadata `own_port` flag — see
-[UI-FITTINGS.md](./UI-FITTINGS.md). `dev-env`, `screen-share`, and `voice` are
-singletons; `outpost` is multi. Consumers link by URL after a `GET /health`
-check rather than sharing state.
+The operative's identity/persona layer (added 2026-06-22): the souls
+(Gary/Joe/James), the shared voice, the per-mode routing bias, and name-based
+mode switching, composed into the orchestrator's system prompt. One operative,
+three faces, one shared memory.
 
-## dev-env
-
-The consolidated dev surface (port 7086): every Claude Code session —
-hook-detected or Dev-Env-created — is a tab pairing a Claude PTY and a shell
-PTY with the app's live browser pane; git worktree create/delete, quick
-prompts, and PTY-driven PR/commit flows are built in. Singleton. Replaces the
-dropped `terminal-session`, `worktree`, and `session-view` kinds (2026-06-11
-consolidation). The http-gateway's worktree passthrough proxies this
-Fitting's `/worktrees` endpoints.
-
-## data-source
-
-A read or read/write surface against an external system the
-operative needs to inspect — Trello boards, Calendar events, GitHub
-issues, etc. Dropped in the Quarters pivot, re-added 2026-06-10 when
-trello-data-source was revived (a real Fitting that cannot be
-expressed without it).
-
-- **Cardinality:** any number; a composition can pull from many
-  sources.
-- **Typically provides:** Fittings in the `memory` role (external
-  data the Operative recalls and manipulates — e.g.
-  trello-data-source, whose derived Tasks truth file is
-  cross-session recall material).
-- **Typically consumes:** `vault` for the relevant API credentials.
-- **Interface (TBD — runtime SDK milestone):** must expose a
-  read API the orchestrator can call directly or via a CLI/skill;
-  optionally a write API for sources that support mutation.
-
-## Dropped kinds (historical)
-
-The following kinds were retired in the 2026-06-07 Quarters pivot. They are kept
-here only to help read old manifests; `src/lib/metadata.ts` rejects them today.
-
-## soul
-
-The persona prompt that gives the Operative its identity, voice,
-tone, and boundaries. The Orchestrator concatenates the Soul prompt
-with its own at assembly time so the Operative reads as one coherent
-character.
-
-- **Cardinality:** singleton (the resolver enforces only one Soul
-  per composition).
-- **Typically provides:** a Fitting in the `soul` Faculty.
-- **Typically consumes:** nothing.
-- **Interface (TBD — runtime SDK milestone):** the runner reads the
-  provider's `.apm/prompts/*.prompt.md` file at assembly time and
-  prepends it to the Orchestrator prompt.
-
-## agent-skill
-
-A reusable procedure or sub-agent the orchestrator can invoke during a
-session. Examples: a tier classifier, a summarizer, a test author.
-
-- **Cardinality:** any number can provide; consumers may want exactly
-  one named skill, any of a kind, or all available.
-- **Typically provides:** Fittings in the `skills` or `classifier`
-  Faculty.
-- **Typically consumes:** the orchestrator (transitively, via being
-  invoked).
-- **Interface (TBD — runtime SDK milestone):** must accept a
-  structured input from the orchestrator and return a structured
-  output without spawning a long-lived process.
+- **Cardinality:** singleton (listed in `singletonCapabilityKinds`).
+- **Typically provides:** the `modes` Fitting (the `modes` faculty).
+- **Typically consumes:** nothing; the orchestrator consumes it at
+  `optional-one`.
+- **Interface (TBD — runtime SDK milestone):** the runner folds the active
+  mode's soul prompt into the assembled system prompt; mode switching is
+  name-based in the message text.
 
 ## memory-store
 
@@ -220,7 +127,7 @@ Within-session and cross-session recall for the operative.
 ## automation-runner
 
 A scheduled or event-driven driver that wakes the operative without a
-direct user prompt. The heartbeat is the canonical example.
+direct user prompt. The scheduler daemon is the canonical example.
 
 > Re-added 2026-06-13 (MR wave): dropped in the 2026-06-07 pivot, restored
 > for the scheduler Fitting + the nightly Improver (the data-source precedent).
@@ -230,19 +137,54 @@ direct user prompt. The heartbeat is the canonical example.
 - **Cardinality:** any number; a composition can have multiple drivers
   on different cadences.
 - **Typically provides:** Fittings re-homed to a role faculty —
-  script-shaped runners (scheduler, loop-heartbeat) under `observability`;
-  cli-skill runners (morning-briefing, google-calendar, vault-sync) under
-  `sessions`.
+  script-shaped runners (scheduler, improver, kanban-loop, automations)
+  under `observability`.
 - **Typically consumes:** the orchestrator (a runner needs something
   to dispatch to).
 - **Interface (TBD — runtime SDK milestone):** must dispatch a
   job-like payload to the orchestrator's input boundary and surface
   outcomes the observability layer can record.
 
+## connector
+
+A connected external service exposing a discoverable catalog of callable
+actions, Vault-sealed credentials, and optional inbound triggers (a webhook
+routed through the Gateway, or a polling listener run by the Scheduler daemon).
+Added 2026-06-26; strictly more general than the read-only `data-source` kind
+it replaces: a connector both reads and acts, and a database such as Supabase
+is just another connector.
+
+- **Cardinality:** multi; many connected services coexist under the
+  `connectors` faculty.
+- **Typically provides:** one connector Fitting per service (trello, google,
+  slack, deepgram, ...), declaring its catalog in the `x-garrison.connector`
+  block (`auth`, `actions[]` with `mutates`/`args`, `triggers[]`).
+- **Typically consumes:** `vault`; the named secrets it may read are listed in
+  `x-garrison.secret_scope` (the per-connector scoping the Vault enforces).
+- **Interface (TBD — runtime SDK milestone):** must expose the action catalog
+  for discovery and execute a named action with templated args, with the
+  credential injected at call time and never logged.
+
+## runtime
+
+A Fitting that hosts the agent loop and exposes a uniform
+`delegate(task_spec) -> {summary, artifacts}` bridge. Added 2026-06-14
+(BRIEF v4 Runtime faculty).
+
+- **Cardinality:** multi; Claude Code, Codex, and Gemini-CLI runtimes may
+  coexist under the `runtimes` role. The composition names one **primary**
+  (drives user sessions; `primary_runtime` in the global config); others are
+  **secondary** `delegate()` targets the Orchestrator routes work to.
+- **Typically provides:** claude-code-runtime, codex-runtime, gemini-runtime,
+  agent-sdk-runtime.
+- **Typically consumes:** `vault` for engine credentials where needed.
+- **Interface (TBD — runtime SDK milestone):** must implement the
+  RuntimeAdapter contract (see `src/lib/runtime-selection.ts`).
+
 ## channel
 
 An inbound/outbound message surface the operative uses to talk to
-the principal — Slack, iMessage, email, etc. The channel pushes
+the principal — Slack, the web channel, etc. The channel pushes
 messages into the gateway and surfaces operative replies back.
 
 - **Cardinality:** any number; a composition may host the operative
@@ -254,48 +196,6 @@ messages into the gateway and surfaces operative replies back.
   messages from the external channel, post them to the gateway, and
   relay the reply back. FIFO ordering is preserved by the gateway
   when used.
-
-## artifact-store
-
-Host-provided filesystem storage for files the Operative or its
-Fittings produce — markdown documents, recordings, audio, images.
-Producer Fittings (Documents, Automations, Voice) layer their own
-schemas on top.
-
-- **Cardinality:** singleton per composition; the resolver expects
-  exactly one provider when a Fitting consumes it.
-- **Typically provides:** the Fitting in the `artifact-store`
-  Faculty.
-- **Typically consumes:** nothing in v1. Future versions may
-  consume `vault` if encrypted artifacts ship.
-- **Interface (TBD — runtime SDK milestone):** must support write,
-  read, list (filtered by namespace, producer, time), and delete,
-  plus a stable URL form (`garrison://artifacts/<id>`) the host app
-  can route on. Filesystem is the v1 backend; later versions can
-  swap in cloud or content-addressable storage without changing
-  the consumer surface.
-
-## monitor
-
-Read-only observability into every entity Garrison spawns — PIDs,
-status, ports, network connections, working directory, redacted
-env, captured stdout/stderr. Discovery is parent-PID walk plus
-`ps` + `lsof`; log capture is via a shared spawn helper (see
-[DECISIONS.md](./DECISIONS.md)).
-
-- **Cardinality:** singleton per composition; the resolver expects
-  exactly one provider when a Fitting consumes it.
-- **Typically provides:** the `monitor-default` Fitting under the
-  `monitor` Faculty.
-- **Typically consumes:** nothing in v1 (read-only over local PID
-  observables).
-- **Interface (TBD — runtime SDK milestone):** must support `list
-  entities`, `get entity by PID`, `subscribe to live updates`
-  (SSE), and `fetch logs` (paged + tailed). The default Fitting
-  also serves its own React UI on its own port; consumers link by
-  URL after a `GET /health` availability check rather than sharing
-  components or state. See [UI-FITTINGS.md](./UI-FITTINGS.md) for
-  the per-Fitting-own-port pattern.
 
 ## vault
 
@@ -310,4 +210,146 @@ embedding them in the manifest.
 - **Interface (TBD — runtime SDK milestone):** must support keyed
   read of secrets the user has stored under the Vault tab. AES-256-GCM
   on disk; passphrase-derived key in memory only while the Vault is
-  unlocked.
+  unlocked. Per-Fitting delivery is scoped by `secret_scope`.
+
+## Own-port runtime kinds
+
+`dev-env`, `screen-share`, `outpost`, and `voice` are the runtime-residue
+capability kinds that survived the pivot. Their Fittings serve their own React
+UI (or a headless backend, for `voice`) on their own HTTP port (the Monitor
+pattern) and are surfaced under the `sessions` / `surfaces` / `channels` /
+`observability` roles via the metadata `own_port` flag — see
+[UI-FITTINGS.md](./UI-FITTINGS.md). `dev-env`, `screen-share`, and `voice` are
+singletons; `outpost` is multi. Consumers link by URL after a `GET /health`
+check rather than sharing state.
+
+## dev-env
+
+The consolidated dev surface (port 7086): every Claude Code session —
+hook-detected or Dev-Env-created — is a tab pairing a Claude PTY and a shell
+PTY with the app's live browser pane; git worktree create/delete, quick
+prompts, and PTY-driven PR/commit flows are built in. Singleton. Replaces the
+dropped `terminal-session`, `worktree`, and `session-view` kinds (2026-06-11
+consolidation). The http-gateway's worktree passthrough proxies this
+Fitting's `/worktrees` endpoints.
+
+## screen-share
+
+A stand-alone UI server (default port 7079) that captures the host screen in a
+polling loop and exposes the latest frame. Singleton; lives under the
+`surfaces` role.
+
+## outpost
+
+A bridge to a remote machine (Tailscale-connected Macs today): lists registered
+outposts, surfaces connection status, and forwards RPC calls to the
+outpost-host daemon. Multi; lives under the `surfaces` role.
+
+## monitor
+
+Read-only observability into every entity Garrison spawns — PIDs,
+status, ports, network connections, working directory, redacted
+env, captured stdout/stderr. Discovery is parent-PID walk plus
+`ps` + `lsof`; log capture is via a shared spawn helper (see
+[DECISIONS.md](./DECISIONS.md)).
+
+- **Cardinality:** singleton per composition; the resolver expects
+  exactly one provider when a Fitting consumes it.
+- **Typically provides:** the `monitor-default` Fitting under the
+  `observability` role.
+- **Typically consumes:** nothing in v1 (read-only over local PID
+  observables).
+- **Interface (TBD — runtime SDK milestone):** must support `list
+  entities`, `get entity by PID`, `subscribe to live updates`
+  (SSE), and `fetch logs` (paged + tailed). The default Fitting
+  also serves its own React UI on its own port; consumers link by
+  URL after a `GET /health` availability check rather than sharing
+  components or state. See [UI-FITTINGS.md](./UI-FITTINGS.md) for
+  the per-Fitting-own-port pattern.
+
+## voice
+
+Speech in and out for the operative: transcribe audio to text and synthesize
+replies to audio. Singleton; the deepgram-voice Fitting provides it today
+(POST /stt, POST /tts) with its key Vault-sealed via `secret_scope`.
+
+## view
+
+Derived, never declared: Fittings do not list `view` in `provides` —
+the resolver synthesises one `view` provision per produced view (each
+`ui.views[]` entry, plus an own-port fitting's `main` surface), named
+`<fittingId>:<viewId>` (see `src/lib/view-instances.ts`). Only `consumes`
+names it explicitly — a consumer declares `view` with `cardinality: any` to
+discover every view in the composition without hardcoding. Derived provisions
+live only in the capability graph; they never appear in the assembled prompt's
+capabilities block.
+
+---
+
+## Dropped kinds (historical)
+
+The following kinds were retired (dates above). They are kept here only to help
+read old manifests; `src/lib/metadata.ts` rejects them today.
+
+## soul
+
+The persona prompt that gives the Operative its identity, voice,
+tone, and boundaries. The Orchestrator concatenates the Soul prompt
+with its own at assembly time so the Operative reads as one coherent
+character. Superseded by the `modes` kind (the souls live inside the
+modes Fitting today).
+
+- **Cardinality:** singleton (the resolver enforces only one Soul
+  per composition).
+- **Typically provides:** a Fitting in the `soul` Faculty.
+- **Typically consumes:** nothing.
+- **Interface (TBD — runtime SDK milestone):** the runner reads the
+  provider's `.apm/prompts/*.prompt.md` file at assembly time and
+  prepends it to the Orchestrator prompt.
+
+## agent-skill
+
+A reusable procedure or sub-agent the orchestrator can invoke during a
+session. Examples: a tier classifier, a summarizer, a test author.
+Superseded by Quarters platform primitives (Skills) and the optional
+capability faculties.
+
+- **Cardinality:** any number can provide; consumers may want exactly
+  one named skill, any of a kind, or all available.
+- **Typically provides:** Fittings in the `skills` or `classifier`
+  Faculty.
+- **Typically consumes:** the orchestrator (transitively, via being
+  invoked).
+- **Interface (TBD — runtime SDK milestone):** must accept a
+  structured input from the orchestrator and return a structured
+  output without spawning a long-lived process.
+
+## data-source
+
+A read or read/write surface against an external system the
+operative needs to inspect — Trello boards, Calendar events, GitHub
+issues, etc. Dropped in the Quarters pivot, re-added 2026-06-10 when
+trello-data-source was revived, dropped again 2026-06-26: superseded by
+`connector`, which both reads and acts. Trello is the `trello` connector
+today.
+
+- **Cardinality:** any number; a composition can pull from many
+  sources.
+- **Typically provided by:** Fittings in the `memory` role (external
+  data the Operative recalls and manipulates).
+- **Typically consumes:** `vault` for the relevant API credentials.
+
+## artifact-store
+
+Host-provided filesystem storage for files the Operative or its
+Fittings produce — markdown documents, recordings, audio, images.
+Retired with the artifact-store Faculty; the file-browser Fitting is the
+artifact surface today (scoped workspace root, Monaco viewing/editing,
+rendered markdown, inline images).
+
+- **Cardinality:** singleton per composition.
+- **Typically provided by:** the Fitting in the former `artifact-store`
+  Faculty.
+- **Interface (historical):** write, read, list (filtered by namespace,
+  producer, time), delete, plus a stable URL form
+  (`garrison://artifacts/<id>`) the host app can route on.

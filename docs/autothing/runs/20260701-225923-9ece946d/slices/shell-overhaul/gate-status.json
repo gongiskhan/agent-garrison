@@ -1,0 +1,45 @@
+{
+  "slice": "shell-overhaul",
+  "title": "Garrison shell UX overhaul (refine-within-identity)",
+  "updatedAt": "2026-07-02T01:06:00+01:00",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run", "exit": 0, "at": "2026-07-02T00:43:00+01:00", "summary": "1412 passed / 12 skipped" },
+    "e2e": { "cmd": "npx playwright test tests/e2e/shell-overhaul.spec.ts --project=desktop-chromium", "exit": 0, "at": "2026-07-02T00:52:00+01:00", "summary": "4 passed on a fresh sandbox server (committed spec: routes clean, tile summaries, search filter, status tone dots)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-07-02T00:48:00+01:00", "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "at": "2026-07-02T00:40:00+01:00", "summary": "clean" },
+    "build": { "cmd": "NEXT_DIST_DIR=.next-build npx next build", "exit": 0, "at": "2026-07-02T00:43:00+01:00", "summary": "isolated dist; BUILD_ID present" },
+    "review": { "verdict": "clean", "by": "claude inline (agent fan-out declined)", "at": "2026-07-02T00:45:00+01:00", "summary": "escapeHtml scope adequate for innerHTML sub-line; skeleton classes defined; reduced-motion + focus-visible accessibility-positive" },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "low",
+      "at": "2026-07-02T00:52:00+01:00",
+      "lastReport": "docs/autothing/runs/20260701-225923-9ece946d/slices/shell-overhaul-codex-review-r2.json",
+      "overrides": [],
+      "notes": "Round 1: 3 real findings, all applied (reuseExistingServer:false to guarantee .next-e2e isolation; global-setup warm-up now hard-fails; PageSkeleton widths responsive). Round 2: clean approve."
+    },
+    "codexPwTest": {
+      "result": "blocked(environment)",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-07-02T00:55:00+01:00",
+      "report": "docs/autothing/runs/20260701-225923-9ece946d/slices/shell-overhaul-codex-pwtest.json",
+      "notes": "Codex sandbox cannot launch Chromium (bootstrap_check_in MachPortRendezvousServer permission denied) - the documented environment-block class, not a product defect. Static fallback: its r2 review inspected the committed spec + diff; Claude's own committed 4-test Playwright spec independently drives the same acceptance and passes."
+    },
+    "designAudit": { "verdict": "clean", "by": "claude vision over live screenshots (desktop + 390px mobile)", "at": "2026-07-02T00:56:00+01:00", "issues": [] },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-07-02T01:05:00+01:00",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/shell/2026-07-02_00-58-25/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/shell/2026-07-02_00-58-25"
+    }
+  },
+  "blockers": [],
+  "notes": "Refine-within-identity per plan: skeleton loading states (PageSkeleton), Compose tile sub-lines now show the Fitting's summary (escaped, word-boundary clipped), sidebar Views tone dots, focus-visible/selection/reduced-motion polish, plus e2e infra hardening (.next-e2e isolation, warm-up, committed shell-overhaul.spec.ts)."
+}

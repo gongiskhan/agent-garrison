@@ -279,13 +279,12 @@ async function daemon(opts = {}) {
     (process.env.GARRISON_SCHEDULER_HEALTH_PORT ? Number(process.env.GARRISON_SCHEDULER_HEALTH_PORT) : DEFAULT_HEALTH_PORT);
   const startedAt = new Date().toISOString();
   let ticks = 0;
-  const healthServer = startHealthServer(healthPort, () => ({
-    startedAt,
-    ticks,
-    pid: process.pid,
-    listeners: [...listenerWorkers.keys()]
-  }));
-  await appendLog(`[${startedAt}] scheduler daemon start (interval ${TICK_INTERVAL_MS}ms, health :${healthPort})`);
+  // Declared before shutdown() so the handler can close it; assigned only after
+  // the signal handlers are installed. A supervisor (or test) that sees /health
+  // up may SIGTERM immediately - if the handlers were registered after the
+  // server started listening, the default disposition would kill the process
+  // mid-startup with a non-zero exit.
+  let healthServer = null;
 
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -314,6 +313,14 @@ async function daemon(opts = {}) {
   };
   process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
   process.on("SIGINT", () => { void shutdown("SIGINT"); });
+
+  healthServer = startHealthServer(healthPort, () => ({
+    startedAt,
+    ticks,
+    pid: process.pid,
+    listeners: [...listenerWorkers.keys()]
+  }));
+  await appendLog(`[${startedAt}] scheduler daemon start (interval ${TICK_INTERVAL_MS}ms, health :${healthPort})`);
 
   await superviseListeners();
   while (!shuttingDown) {

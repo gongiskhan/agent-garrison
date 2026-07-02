@@ -1,19 +1,10 @@
 import { Suspense } from "react";
 import { StationGrid } from "@/components/compose/StationGrid";
+import { PageSkeleton } from "@/components/chrome/PageSkeleton";
 
 export default function ComposePage() {
   return (
-    <Suspense
-      fallback={
-        <main>
-          <div className="page">
-            <div className="head">
-              <h1>Loading composition…</h1>
-            </div>
-          </div>
-        </main>
-      }
-    >
+    <Suspense fallback={<PageSkeleton label="Loading composition" />}>
       <StationGrid />
     </Suspense>
   );

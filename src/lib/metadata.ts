@@ -179,7 +179,7 @@ export const garrisonMetadataSchema = z.object({
 // are not aliased; their Fittings are de-listed from the library and never parsed.
 // (The `data-sources` alias + `data-source` kind were dropped 2026-06-26 —
 // Trello moved to the `trello` connector under the `connectors` faculty.)
-const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
+export const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
   terminal: "sessions",
   // screen-share / browser / outposts split out of sessions into the new
   // `surfaces` role (2026-06-18) — auxiliary own-port live viewers.
