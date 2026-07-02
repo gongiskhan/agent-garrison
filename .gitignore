@@ -57,3 +57,9 @@ scripts/spike/chat-harness/out/
 
 # Stray Playwright run output (screenshots + npm/browser caches — large, regenerated)
 output/
+
+# Playwright ephemeral run output (report HTML, traces, last-run pointer),
+# regenerated on every test run. phase9-screenshots/ stays tracked (evidence).
+test-results/playwright-report/
+test-results/playwright-artifacts/
+test-results/.last-run.json
