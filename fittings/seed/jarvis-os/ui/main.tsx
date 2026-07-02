@@ -78,10 +78,27 @@ function float32ToWavBlob(samples: Float32Array, sampleRate = 16000): Blob {
 // bargein_confirm_ms: 0 disables barge-in entirely.
 type EpCfg = {
   redemptionMs: number; minMs: number; maxMs: number;
-  bargeinProb: number; bargeinConfirmMs: number;
+  bargeinProb: number; bargeinConfirmMs: number; idleTimeoutMs: number;
 };
-const EP_DEFAULTS: EpCfg = { redemptionMs: 550, minMs: 350, maxMs: 2600, bargeinProb: 0.55, bargeinConfirmMs: 350 };
+const EP_DEFAULTS: EpCfg = {
+  redemptionMs: 550, minMs: 350, maxMs: 2600,
+  bargeinProb: 0.55, bargeinConfirmMs: 350, idleTimeoutMs: 90_000
+};
 const VAD_FRAME_MS = 32; // Silero v5 frame = 512 samples @ 16 kHz
+
+// Stop phrases — a whole short utterance that drops the session into standby
+// ("hey jarvis" wakes it again). PT + EN.
+const STOP_RE = /^\s*(ok\s+)?(jarvis[,.!?\s]+)?(desliga(-te)?|para de ouvir|podes? parar( de ouvir)?|fica em standby|vai dormir|adeus|até (já|logo)|stop listening|go to sleep|stand ?by)\s*[,.!?]*\s*(jarvis)?\s*[.!?]*\s*$/i;
+
+// Wake phrase for the BROWSER-side standby: in standby every VAD segment is
+// still transcribed locally, and only an utterance addressing Jarvis wakes the
+// session — anything else is dropped without reaching the orchestrator. This
+// path works wherever the browser (and its mic) is, including a LAN/remote
+// machine, where the voice server's own openWakeWord mic can't hear the user.
+// Whatever follows the wake phrase ("hey jarvis, que horas são?") becomes the
+// first turn. Whisper mangles "hey/jarvis" in PT sometimes, so common
+// mis-hearings are included.
+const WAKE_RE = /^\W{0,3}(hey|ei|ok|olá|ola|oi|alô|alo)?[\s,]*(jarvis|jervis|djarvis|járvis)\b[\s,.!?…:;-]*/i;
 // Silence (s) stitched between merged segments so whisper hears the pause the
 // speaker actually made (helps punctuation; keeps words from running together).
 const MERGE_GAP_S = 0.24;
@@ -241,6 +258,12 @@ function toolVerb(name: string): string {
 function App() {
   const [mode, setModeRaw] = useState<CoreMode>("idle");
   const [voiceAvailable, setVoiceAvailable] = useState(false);
+  // Wake word armed server-side (from the /api/voice/events hello) — extra
+  // signal only; the browser-side standby wake (WAKE_RE) works regardless.
+  const [wakeArmed, setWakeArmed] = useState(false);
+  // Standby: session armed but dormant — the mic + VAD stay live, every
+  // utterance is transcribed locally, and only "hey jarvis…" wakes it.
+  const [standby, setStandbyRaw] = useState(false);
   const [sessionOn, setSessionOnRaw] = useState(false);
   // Mic muted: the session stays armed but the VAD stops listening to the room,
   // so side-conversations / other people don't trigger a turn. Space (push-to-
@@ -271,6 +294,8 @@ function App() {
   const setSessionOn = useCallback((v: boolean) => { sessionOnRef.current = v; setSessionOnRaw(v); }, []);
   const micMutedRef = useRef(false);
   const setMicMuted = useCallback((v: boolean) => { micMutedRef.current = v; setMicMutedRaw(v); }, []);
+  const standbyRef = useRef(false);
+  const setStandby = useCallback((v: boolean) => { standbyRef.current = v; setStandbyRaw(v); }, []);
 
   // Audio analysis uses TWO separate analysers. Critical: the mic analyser is
   // NEVER connected to ctx.destination — routing the mic to the speakers would
@@ -313,6 +338,11 @@ function App() {
   const spokenTextRef = useRef("");
   const speakingNowRef = useRef("");
   const interruptedRef = useRef<{ spoken: string; cut: boolean } | null>(null);
+  // Wake word / standby: idle countdown back to standby, and late-defined
+  // callbacks reachable from early-defined ones (stop phrase → stopSession).
+  const wakeArmedRef = useRef(false);
+  const idleTimerRef = useRef<number | null>(null);
+  const stopSessionRef = useRef<(() => Promise<void>) | null>(null);
   // Sentence-level TTS queue: speak each sentence as soon as it is generated
   // (don't wait for the whole reply), playing them back-to-back. This overlaps
   // synth with generation so the first words come out ~as soon as the model
@@ -404,6 +434,8 @@ function App() {
     // Muted: a push-to-talk utterance just finished — close the mic back up so
     // the room isn't heard again, and show the muted state (don't re-arm listen).
     if (micMutedRef.current) { pauseVad(); setMode("muted"); return; }
+    // Standby: VAD keeps running (it feeds the wake check) but the core rests.
+    if (standbyRef.current) { resumeVad(); setMode("idle"); return; }
     resumeVad(); setMode("listening");
   }, [resumeVad, pauseVad, setMode]);
 
@@ -702,6 +734,22 @@ function App() {
     bargeFramesRef.current = 0;
   }, []);
 
+  // Standby transitions. enterStandby keeps the session (mic + VAD) alive but
+  // dormant; exitStandby wakes it. Both are cheap — no mic/VAD teardown, so a
+  // wake is instant instead of re-paying the getUserMedia + model spin-up.
+  const enterStandby = useCallback(() => {
+    if (!sessionOnRef.current || standbyRef.current) return;
+    stopSpeech();
+    resetEndpointer();
+    setStandby(true);
+    setMode("idle");
+  }, [stopSpeech, resetEndpointer, setStandby, setMode]);
+  const exitStandby = useCallback((ack: boolean) => {
+    setStandby(false);
+    setMode("listening");
+    if (ack) enqueueSpeech("Sim?"); // audible "I heard you" for a bare "hey jarvis"
+  }, [setStandby, setMode, enqueueSpeech]);
+
   // The grace window expired with no resumed speech: the turn is real. Commit —
   // pause the VAD, take the eager transcript (usually already resolved; a fresh
   // STT only when the eager one was invalidated) and send.
@@ -727,6 +775,31 @@ function App() {
       endTurnIfDone();
       return;
     }
+    // Standby gate: dormant session → only an utterance addressing Jarvis wakes
+    // it; everything else was room talk and is dropped here, never sent. The
+    // rest of the wake utterance ("hey jarvis, que horas são?") is the first turn.
+    if (standbyRef.current) {
+      const t = r.transcript.trim();
+      const m = t.match(WAKE_RE);
+      if (!m) { console.debug(`[wake] standby drop: "${t.slice(0, 50)}"`); endTurnIfDone(); return; }
+      const remainder = t.slice(m[0].length).trim();
+      // "jarvis, para de ouvir" while already dormant = stay dormant.
+      if (remainder && STOP_RE.test(remainder)) { endTurnIfDone(); return; }
+      const hasQuery = remainder.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2;
+      console.debug(`[wake] woke by voice — query="${remainder.slice(0, 50)}"`);
+      exitStandby(!hasQuery);
+      if (hasQuery) void send(remainder);
+      else endTurnIfDone();
+      return;
+    }
+    // Stop phrase ("desliga", "para de ouvir", …) drops into standby; "hey
+    // jarvis" wakes it again. Checked before send so the orchestrator never
+    // sees the phrase as a turn.
+    if (r.transcript && STOP_RE.test(r.transcript.trim())) {
+      pushCallout("standby", "Em standby — diz “hey jarvis” para voltar.");
+      enterStandby();
+      return;
+    }
     // loop-safety: drop empty / sub-word transcripts (a stray noise blip) —
     // quietly, so ambient noise never spams a callout.
     if (r.transcript && r.transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
@@ -734,7 +807,7 @@ function App() {
     } else {
       endTurnIfDone(); // nothing usable → re-arm and keep listening
     }
-  }, [pauseVad, setMode, sttRequest, send, endTurnIfDone, pushCallout]);
+  }, [setMode, sttRequest, send, endTurnIfDone, pushCallout, enterStandby, exitStandby]);
 
   // (Re)arm the end-of-turn decision timer.
   const armGraceTimer = useCallback((delayMs: number) => {
@@ -812,7 +885,9 @@ function App() {
           maxMs: Number(j?.maxMs) > 0 ? Number(j.maxMs) : EP_DEFAULTS.maxMs,
           bargeinProb: Number(j?.bargeinProb) > 0 && Number(j.bargeinProb) <= 1 ? Number(j.bargeinProb) : EP_DEFAULTS.bargeinProb,
           bargeinConfirmMs: Number.isFinite(Number(j?.bargeinConfirmMs)) && Number(j.bargeinConfirmMs) >= 0
-            ? Number(j.bargeinConfirmMs) : EP_DEFAULTS.bargeinConfirmMs
+            ? Number(j.bargeinConfirmMs) : EP_DEFAULTS.bargeinConfirmMs,
+          idleTimeoutMs: Number.isFinite(Number(j?.idleTimeoutMs)) && Number(j.idleTimeoutMs) >= 0
+            ? Number(j.idleTimeoutMs) : EP_DEFAULTS.idleTimeoutMs
         };
       }
     } catch {}
@@ -891,6 +966,7 @@ function App() {
     if (!micCaptureAllowed()) { flashError("mic", "Mic needs https or localhost"); return; }
     setSessionOn(true);
     setMicMuted(false); // fresh sessions start hands-free (unmuted)
+    setStandby(false);
     setMode("listening");
     let stream: MediaStream;
     try {
@@ -919,13 +995,14 @@ function App() {
       try { stream.getTracks().forEach((t) => t.stop()); } catch {}
       flashError("vad", `VAD load failed: ${e?.message || e}`);
     }
-  }, [voiceAvailable, ensureVad, getCtx, ensureAnalyser, setMode, setSessionOn, setMicMuted, flashError]);
+  }, [voiceAvailable, ensureVad, getCtx, ensureAnalyser, setMode, setSessionOn, setMicMuted, setStandby, flashError]);
 
   // Disarm the session: tear down the VAD and fully release the mic (so the
   // browser's recording indicator goes off). The next start rebuilds it.
   const stopSession = useCallback(async () => {
     setSessionOn(false);
     setMicMuted(false);
+    setStandby(false);
     resetEndpointer(); // drop any turn still inside its grace window
     vadRunningRef.current = false;
     try { await vadRef.current?.destroy(); } catch {}
@@ -935,8 +1012,10 @@ function App() {
     try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     micStreamRef.current = null;
     stopSpeech();
+    if (idleTimerRef.current !== null) { window.clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
     setMode("idle");
-  }, [setSessionOn, setMicMuted, setMode, stopSpeech, resetEndpointer]);
+  }, [setSessionOn, setMicMuted, setStandby, setMode, stopSpeech, resetEndpointer]);
+  useEffect(() => { stopSessionRef.current = stopSession; }, [stopSession]);
 
   // Mute toggle (M key / the mute button): stop listening to the room without
   // ending the session. Only meaningful with a live session. Muting pauses the
@@ -946,9 +1025,9 @@ function App() {
     cutAssistant(); // muting mid-reply cuts speech AND generation (no-op when idle)
     const next = !micMutedRef.current;
     setMicMuted(next);
-    if (next) { resetEndpointer(); pauseVad(); setMode("muted"); }
+    if (next) { setStandby(false); resetEndpointer(); pauseVad(); setMode("muted"); } // mute wins over standby
     else { resumeVad(); setMode("listening"); }
-  }, [cutAssistant, pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer]);
+  }, [cutAssistant, pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer, setStandby]);
 
   // Single press = toggle the session. While Jarvis is speaking, a press is a
   // barge-in: cut the reply off but keep the session armed. While MUTED, a press
@@ -971,11 +1050,14 @@ function App() {
         else { resumeVad(); setMode("listening"); }
         return;
       }
+      // standby: a press is "wake up and talk", mirroring muted push-to-talk —
+      // stopping entirely is a press while ACTIVE (or just stay in standby).
+      if (standbyRef.current) { exitStandby(false); return; }
       void stopSession();
       return;
     }
     void startSession();
-  }, [cutAssistant, resumeVad, pauseVad, setMode, stopSession, startSession, resetEndpointer]);
+  }, [cutAssistant, resumeVad, pauseVad, setMode, stopSession, startSession, resetEndpointer, exitStandby]);
 
   // Space toggles the session / push-to-talk; M mutes the mic (ignore auto-repeat
   // and typing fields). Esc closes the report overlay.
@@ -997,6 +1079,82 @@ function App() {
       window.removeEventListener("keydown", onEsc);
     };
   }, [onToggle, toggleMute, report]);
+
+  // ── wake word "hey jarvis" + hands-free standby ──────────────────────────
+
+  // Inactivity standby: an ACTIVE session sitting in "listening" with nothing
+  // happening counts down and drops to standby — mic stays live, but only
+  // "hey jarvis" (checked on-device against the local transcript) wakes it.
+  // The countdown resets on every mode change (each turn passes through
+  // working/speaking, each of which clears it).
+  useEffect(() => {
+    if (idleTimerRef.current !== null) { window.clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
+    if (mode !== "listening" || !sessionOn || standby) return;
+    const ms = epCfgRef.current.idleTimeoutMs;
+    if (ms <= 0) return;
+    idleTimerRef.current = window.setTimeout(() => {
+      idleTimerRef.current = null;
+      // re-check liveness — anything in flight means "not idle"
+      if (!sessionOnRef.current || sendingRef.current || speakingRef.current ||
+          speakQueueRef.current.length > 0 || pendingSegsRef.current.length > 0) return;
+      pushCallout("standby", "Em standby por inatividade — diz “hey jarvis” para voltar.");
+      enterStandby();
+    }, ms);
+    return () => {
+      if (idleTimerRef.current !== null) { window.clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
+    };
+  }, [mode, sessionOn, standby, pushCallout, enterStandby]);
+
+  // Wake events: subscribe to the voice Fitting's /events (relayed same-origin).
+  // "hello" reports whether the wake word is armed server-side; "wake" while the
+  // session is OFF arms hands-free listening — while it's on, it's ignored (and
+  // standby never plays TTS, so Jarvis can't wake itself). Reconnects while the
+  // page is open so a voice-Fitting restart re-arms transparently.
+  useEffect(() => {
+    if (!voiceAvailable) return;
+    let closed = false;
+    let ws: WebSocket | null = null;
+    let retry: number | null = null;
+    const connect = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/voice/events`);
+      } catch { retry = window.setTimeout(connect, 5000); return; }
+      ws.onmessage = (e) => {
+        let w: any;
+        try { w = JSON.parse(e.data); } catch { return; }
+        if (w?.type === "hello") { wakeArmedRef.current = Boolean(w.wake); setWakeArmed(Boolean(w.wake)); return; }
+        if (w?.type !== "wake") return;
+        // Server-side detection (host mic). Session in standby → wake it; no
+        // session → start one; active session → the mic is live anyway.
+        if (sessionOnRef.current) {
+          if (standbyRef.current) { pushCallout("hey jarvis", "A ouvir…"); exitStandby(true); }
+          return;
+        }
+        // The browser blocks audio until the page has been interacted with at
+        // least once; getUserMedia itself is fine (permission is persisted).
+        const ctx = getCtx();
+        void ctx.resume().catch(() => {}).then(() => {
+          if (ctx.state !== "running") {
+            pushCallout("hey jarvis", "Toca no ecrã uma vez para ativar o áudio desta página.");
+            return;
+          }
+          pushCallout("hey jarvis", "A ouvir…");
+          void startSession();
+        });
+      };
+      ws.onclose = () => { if (!closed) retry = window.setTimeout(connect, 5000); };
+      ws.onerror = () => { try { ws?.close(); } catch {} };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (retry !== null) window.clearTimeout(retry);
+      try { ws?.close(); } catch {}
+      wakeArmedRef.current = false;
+      setWakeArmed(false);
+    };
+  }, [voiceAvailable, getCtx, startSession, pushCallout, exitStandby]);
 
   // Channel stream: speak a delegated Soul's reply when it lands asynchronously
   // (the orchestrator only acked the delegation, marked [delegated], unspoken).
@@ -1040,6 +1198,7 @@ function App() {
 
   const statusLabel = !voiceAvailable
     ? "No voice Fitting — station local-voice"
+    : sessionOn && standby ? "Standby — diz “hey jarvis” para acordar (Space/tap: falar já)"
     : mode === "muted" ? "Muted — não ouço a sala (Space/tap: falar uma vez · M: sair do mute)"
     : mode === "listening" ? (micMuted
         ? "A ouvir a tua pergunta… (Space/tap: cancelar)"
@@ -1047,7 +1206,9 @@ function App() {
     : mode === "working" ? "Thinking…"
     : mode === "speaking" ? "Speaking… (Space/tap: interromper · M: mute)"
     : mode === "error" ? "Error"
-    : micCaptureAllowed() ? "Press Space (or tap the core) to start talking" : "Mic needs https or localhost";
+    : micCaptureAllowed()
+      ? (wakeArmed ? "Diz “hey jarvis” (ou Space / tap) para começar" : "Press Space (or tap the core) to start talking")
+      : "Mic needs https or localhost";
 
   return (
     <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}`}>

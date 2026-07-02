@@ -54,6 +54,10 @@ x-garrison:
       type: number
       default: 0.55
       description: Per-frame Silero speech probability a frame must reach to count toward bargein_confirm_ms. Higher = stricter (fewer false barge-ins from echo residue), lower = easier to interrupt. Range 0–1.
+    - key: wake_idle_timeout_s
+      type: integer
+      default: 90
+      description: Seconds of inactivity (session armed, nothing said either way) before a hands-free session returns to wake-word standby. Only applies when the voice Fitting reports the wake word armed — "hey jarvis" re-arms by voice. 0 keeps sessions armed forever.
   provides:
     - kind: channel
       name: jarvis

@@ -92,4 +92,28 @@ if [ "$STT_ENGINE_LC" = "whisper-cpp" ] || [ "$STT_ENGINE_LC" = "whispercpp" ] |
   echo "[local-voice:setup] whisper-cpp ready ($(whisper-server --help >/dev/null 2>&1 && echo binary-ok))"
 fi
 
+# 6. Wake word "hey jarvis" (openWakeWord, fully local) — only when enabled.
+#    --no-deps: openwakeword's pinned deps drag in tflite; we run the ONNX path
+#    on the onnxruntime already in the venv, and add just what it imports.
+#    Models (~7MB: melspec + embedding + hey_jarvis, ONNX) land in
+#    site-packages/openwakeword/resources/models; skipped once present.
+WAKE_LC="$(printf '%s' "${WAKE_WORD:-off}" | tr '[:upper:]' '[:lower:]')"
+if [ "$WAKE_LC" = "on" ] || [ "$WAKE_LC" = "1" ] || [ "$WAKE_LC" = "true" ]; then
+  echo "[local-voice:setup] wake word on — ensuring openWakeWord + hey_jarvis model"
+  "$VPY" -m pip install --quiet --no-deps openwakeword
+  "$VPY" -m pip install --quiet sounddevice scipy scikit-learn tqdm requests
+  "$VPY" - <<'PYEOF'
+import os
+import openwakeword
+from openwakeword import utils
+
+base = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
+if os.path.exists(os.path.join(base, "hey_jarvis_v0.1.onnx")):
+    print("[local-voice:setup] wake model present")
+else:
+    utils.download_models(["hey_jarvis_v0.1"])
+    print("[local-voice:setup] wake model downloaded")
+PYEOF
+fi
+
 echo "[local-voice:setup] done — venv + deps + Kokoro + Piper(pt_PT) models ready"

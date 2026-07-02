@@ -51,6 +51,9 @@ x-garrison:
             # prob; 0 desliga o barge-in.
             bargein_confirm_ms: 350
             bargein_prob: 0.55
+            # Wake word (2026-07-02): sessão hands-free adormece após 90s de
+            # inatividade e volta ao standby do "hey jarvis". 0 = nunca adormece.
+            wake_idle_timeout_s: 90
         - id: local-voice
           config:
             port: 7090
@@ -101,7 +104,12 @@ x-garrison:
             stt_engine: whisper-cpp
             whisper_cpp_model: ~/.cache/whisper-cpp/ggml-large-v3.bin
             stt_normalize_gain: "on"
-            wake_word: "off"
+            # Wake word ON (2026-07-02): openWakeWord "hey jarvis" no mic do host,
+            # emit-only — a deteção arma a sessão hands-free do HUD via /events.
+            # O standby não toca TTS, por isso o receio antigo de auto-ativação
+            # pelo próprio altifalante deixou de se aplicar.
+            wake_word: "on"
+            wake_threshold: 0.5
       gateway:
         - id: http-gateway
           config:

@@ -25,6 +25,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
+import { WebSocketServer, WebSocket } from "ws";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts.
 function garrisonDir() {
@@ -378,6 +379,38 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       console.error("[local-voice] handler error:", err);
       jsonRes(res, 500, { error: err.message });
     }
+  });
+
+  // WS /events — pure passthrough relay to the Python voice-server's /events
+  // (wake-word "hey jarvis" + hello). Consumers (jarvis-os) reach the internal
+  // Python port only through here, mirroring how /stt and /tts are proxied.
+  const wss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    const parsed = url.parse(request.url || "/", true);
+    if (parsed.pathname !== "/events") {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (client) => {
+      const upstream = new WebSocket(`ws://127.0.0.1:${ctx.pyPort}/events`);
+      const pending = [];
+      upstream.on("open", () => {
+        for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
+        pending.length = 0;
+      });
+      upstream.on("message", (data, isBinary) => {
+        if (client.readyState === WebSocket.OPEN) client.send(data, { binary: isBinary });
+      });
+      upstream.on("close", () => { try { client.close(); } catch {} });
+      upstream.on("error", () => { try { client.close(); } catch {} });
+      client.on("message", (data, isBinary) => {
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
+        else pending.push({ data, isBinary });
+      });
+      client.on("close", () => { try { upstream.close(); } catch {} });
+      client.on("error", () => { try { upstream.close(); } catch {} });
+    });
   });
 
   server.listen(port, opts.host, async () => {

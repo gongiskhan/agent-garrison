@@ -11,6 +11,9 @@ onnxruntime
 # HTTP client used to proxy audio to the whisper.cpp whisper-server (Metal GPU
 # STT) when stt_engine=whisper-cpp.
 httpx
+# WebSocket support for uvicorn — without it the /events feed (wake-word +
+# hello) rejects every WS upgrade with a plain 404.
+websockets
 # Local text language-ID — picks the TTS voice matching the response text's
 # language. Pure-Python n-gram models, no download, ~ms per call.
 lingua-language-detector
@@ -18,7 +21,8 @@ lingua-language-detector
 # faster than Kokoro (RTF ~0.12). Bundles its own espeak-ng-data, so no system
 # espeak is required. The voice .onnx files are fetched by scripts/setup.sh.
 piper-tts
-# Wake word (optional; off by default in v1 — speaker bleed). Install separately
-# per the Fable README if you want hands-free:
+# Wake word "hey jarvis" (optional; enable with wake_word=on). Installed by
+# scripts/setup.sh when enabled — NOT from this file, because openwakeword is
+# pinned against tflite deps we don't want (we run its ONNX path):
 #   pip install --no-deps openwakeword
-#   pip install sounddevice requests tqdm scikit-learn websockets
+#   pip install sounddevice scipy scikit-learn tqdm requests

@@ -99,10 +99,14 @@ x-garrison:
     - key: wake_word
       type: select
       default: "off"
-      description: Hands-free "hey jarvis" wake word. Off by default in v1 (without headphones the mic hears the host's own TTS).
+      description: 'Always-on local "hey jarvis" wake word (openWakeWord, host mic). Emit-only: detection is broadcast on the WS /events feed; the consuming channel (jarvis-os HUD) arms its own hands-free session from it. Standby plays no TTS, so self-waking is a non-issue. Setup installs the extra deps + ~7MB of models when enabled. Off by default (single-purpose hosts may not want an always-open mic).'
       options:
         - "off"
         - "on"
+    - key: wake_threshold
+      type: number
+      default: 0.5
+      description: openWakeWord score (0–1) required to fire the wake event. Raise toward 0.6–0.7 if random speech false-triggers; lower toward 0.4 if "hey jarvis" is hard to trigger.
     - key: python_bin
       type: string
       default: ""
@@ -149,3 +153,7 @@ x-garrison:
     (Kokoro + faster-whisper); no key, no network.
     The WS /stream incremental-STT endpoint is not implemented in v1 — use the
     batch /stt with push-to-talk.
+    WS /events broadcasts wake-word events when wake_word=on: on connect a
+    {"type":"hello","wake":bool} reports whether "hey jarvis" is armed; each
+    detection emits {"type":"wake","score":0..1}. Channels use it to arm their
+    hands-free session by voice.

@@ -420,7 +420,7 @@ def emit_event(payload: dict):
     asyncio.run_coroutine_threadsafe(_send(), main_loop)
 
 
-wake = WakeListener(transcribe_pcm, emit_event, threshold=WAKE_THRESHOLD) if WAKE_ENABLED else None
+wake = WakeListener(emit_event, threshold=WAKE_THRESHOLD) if WAKE_ENABLED else None
 
 
 @app.websocket("/events")

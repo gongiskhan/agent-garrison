@@ -162,7 +162,9 @@ function handleEndpointing(res) {
     minMs: num(process.env.ENDPOINT_MIN_MS, 350),
     maxMs: num(process.env.ENDPOINT_MAX_MS, 2600),
     bargeinProb: prob(process.env.BARGEIN_PROB, 0.55),
-    bargeinConfirmMs: num0(process.env.BARGEIN_CONFIRM_MS, 350)
+    bargeinConfirmMs: num0(process.env.BARGEIN_CONFIRM_MS, 350),
+    // 0 disables the hands-free inactivity standby (session stays armed forever)
+    idleTimeoutMs: num0(process.env.WAKE_IDLE_TIMEOUT_S, 90) * 1000
   });
 }
 
@@ -257,11 +259,12 @@ async function handleVoiceTtsGet(req, res) {
   upstream.end(body);
 }
 
-// Pure passthrough relay: browser WS ⇄ voice Fitting /stream WS. Binary (PCM)
-// and text (control + transcript events) are forwarded verbatim in both
-// directions; frames sent before the upstream opens are buffered briefly.
-function relayVoiceStream(client, voiceHttpUrl, search) {
-  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/stream" + (search || "");
+// Pure passthrough relay: browser WS ⇄ voice Fitting WS (`/stream` for live
+// PCM STT, `/events` for wake-word + hello events). Binary and text frames are
+// forwarded verbatim in both directions; frames sent before the upstream opens
+// are buffered briefly.
+function relayVoiceStream(client, voiceHttpUrl, search, upstreamPath = "/stream") {
+  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + upstreamPath + (search || "");
   const upstream = new WebSocket(upstreamUrl);
   const pending = [];
 
@@ -592,9 +595,11 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   // reaches the browser. The page connects to /api/voice/stream (wss when this
   // server is TLS), and we forward the query (sample_rate) verbatim.
   const wss = new WebSocketServer({ noServer: true });
+  const WS_PATHS = { "/api/voice/stream": "/stream", "/api/voice/events": "/events" };
   server.on("upgrade", (request, socket, head) => {
     const parsed = url.parse(request.url || "/", true);
-    if (parsed.pathname !== "/api/voice/stream") {
+    const upstreamPath = WS_PATHS[parsed.pathname || ""];
+    if (!upstreamPath) {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
@@ -605,7 +610,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || ""));
+    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || "", upstreamPath));
   });
 
   server.listen(liveOpts.port, liveOpts.host, async () => {
