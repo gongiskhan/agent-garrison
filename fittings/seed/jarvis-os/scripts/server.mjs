@@ -9,9 +9,11 @@
 // LAN bind: default 127.0.0.1 (mirrors CLAUDE.md "talks only to localhost").
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
+import { execFile } from "node:child_process";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
+import { promisify } from "node:util";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
@@ -166,6 +168,200 @@ function handleEndpointing(res) {
     // 0 disables the hands-free inactivity standby (session stays armed forever)
     idleTimeoutMs: num0(process.env.WAKE_IDLE_TIMEOUT_S, 90) * 1000
   });
+}
+
+// ── workspace panel data ─────────────────────────────────────────────────────
+// Read-only project state (git branch/commits + GitHub PRs via `gh`) for the
+// HUD's Workspace panel. Everything here only READS the repo — no fetch, no
+// checkout, and never a branch creation. A short in-memory cache keeps several
+// polling HUD tabs from spawning git once each per tick.
+
+const execFileP = promisify(execFile);
+const PROJECT_TTL_MS = 15_000;
+let projectCache = { at: 0, data: null };
+
+async function runRead(cmd, args, cwd, timeout = 4000) {
+  const { stdout } = await execFileP(cmd, args, { cwd, timeout, maxBuffer: 1024 * 1024 });
+  return stdout.trim();
+}
+
+// PROJECT_ROOT env (config_schema project_root) wins; otherwise whatever repo
+// the server itself runs inside (the Fitting installs under the composition,
+// which lives in the project checkout, so this resolves without config).
+async function resolveProjectRoot() {
+  const fromEnv = process.env.PROJECT_ROOT?.trim();
+  if (fromEnv) return existsSync(fromEnv) ? fromEnv : null;
+  try { return await runRead("git", ["rev-parse", "--show-toplevel"], process.cwd()); }
+  catch { return null; }
+}
+
+// git@github.com:o/r.git / https://github.com/o/r.git → https://github.com/o/r
+// (for commit/branch links in the HUD). Non-GitHub remotes pass through best-effort.
+function webRemoteUrl(remote) {
+  if (!remote) return null;
+  return remote
+    .replace(/^git@([^:]+):/, "https://$1/")
+    .replace(/^ssh:\/\/git@/, "https://")
+    .replace(/\.git$/, "") || null;
+}
+
+async function handleProject(res) {
+  const now = Date.now();
+  if (projectCache.data && now - projectCache.at < PROJECT_TTL_MS) {
+    jsonRes(res, 200, projectCache.data);
+    return;
+  }
+  const root = await resolveProjectRoot();
+  if (!root) {
+    jsonRes(res, 200, { available: false });
+    return;
+  }
+  // Each probe is independent and best-effort: a missing upstream or a flaky
+  // `gh` (network, rate-limit) must not blank the whole panel.
+  const [branch, counts, log, remote, branches, prsRaw] = await Promise.allSettled([
+    runRead("git", ["rev-parse", "--abbrev-ref", "HEAD"], root),
+    runRead("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], root),
+    runRead("git", ["log", "-n", "4", "--format=%h%x1f%s%x1f%cr%x1f%an"], root),
+    runRead("git", ["remote", "get-url", "origin"], root),
+    runRead("git", ["for-each-ref", "--sort=-committerdate", "--count=6", "--format=%(refname:short)", "refs/heads"], root),
+    // gh talks to the network — longer timeout, and failure just means prs: [].
+    runRead("gh", ["pr", "list", "--limit", "8", "--json", "number,title,state,url,headRefName"], root, 6000)
+  ]);
+  const val = (r) => (r.status === "fulfilled" ? r.value : "");
+  const [behindStr, aheadStr] = val(counts).split(/\s+/); // left=upstream-only (behind), right=HEAD-only (ahead)
+  const commits = val(log)
+    ? val(log).split("\n").map((line) => {
+        const [hash, subject, when, author] = line.split("\x1f");
+        return { hash, subject, when, author };
+      })
+    : [];
+  let prs = [];
+  try {
+    const parsed = JSON.parse(val(prsRaw) || "[]");
+    if (Array.isArray(parsed)) {
+      prs = parsed.map((p) => ({
+        number: p.number, title: p.title, state: p.state, url: p.url, branch: p.headRefName
+      }));
+    }
+  } catch { /* gh output unusable → no PRs */ }
+  const data = {
+    available: true,
+    root,
+    branch: val(branch) || null,
+    ahead: aheadStr !== undefined ? Number(aheadStr) : null,
+    behind: behindStr !== undefined && aheadStr !== undefined ? Number(behindStr) : null,
+    remoteUrl: webRemoteUrl(val(remote)),
+    commits,
+    prs,
+    branches: val(branches) ? val(branches).split("\n") : []
+  };
+  projectCache = { at: now, data };
+  jsonRes(res, 200, data);
+}
+
+// Operative panel: runtime health + the agent surface (souls on disk, skills,
+// commands) for the HUD's left flank. Souls/skills are FILES — the composition's
+// souls/*.md and the repo's .claude/skills — so this only reads the disk; the
+// live/standby distinction comes from the gateway's /sessions list client-side
+// (a soul with a running session is live, the rest are standby).
+const OPERATIVE_TTL_MS = 10_000;
+let operativeCache = { at: 0, data: null };
+
+function fetchJson(baseUrl, subpath, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (v) => { if (!settled) { settled = true; resolve(v); } };
+    try {
+      const target = new URL(subpath, baseUrl);
+      const req = http.request(
+        { method: "GET", hostname: target.hostname, port: target.port, path: target.pathname, timeout: timeoutMs },
+        (up) => {
+          let raw = "";
+          up.on("data", (c) => { raw += c; });
+          up.on("end", () => { try { settle(JSON.parse(raw)); } catch { settle(null); } });
+          up.on("error", () => settle(null));
+        }
+      );
+      req.on("error", () => settle(null));
+      req.on("timeout", () => { req.destroy(); settle(null); });
+      req.end();
+    } catch { settle(null); }
+  });
+}
+
+async function handleOperative(res, opts) {
+  const now = Date.now();
+  if (operativeCache.data && now - operativeCache.at < OPERATIVE_TTL_MS) {
+    jsonRes(res, 200, operativeCache.data);
+    return;
+  }
+  const voiceInfo = readVoiceInfo();
+  const [gateway, voice, root] = await Promise.all([
+    fetchJson(opts.gatewayUrl, "/health"),
+    voiceInfo?.url ? fetchJson(voiceInfo.url, "/health") : Promise.resolve(null),
+    resolveProjectRoot()
+  ]);
+  // Souls live in the composition (compositions/<id>/souls/*.md); skills and
+  // commands in the repo's / composition's .claude. All best-effort reads.
+  const compositionId = process.env.GARRISON_COMPOSITION_ID?.trim() || "jarvis";
+  const listNames = async (dir, stripExt) => {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      return entries
+        .filter((e) => (stripExt ? e.isFile() && e.name.endsWith(stripExt) : e.isDirectory()))
+        .map((e) => (stripExt ? e.name.slice(0, -stripExt.length) : e.name))
+        .filter((n) => !n.startsWith("."));
+    } catch { return []; }
+  };
+  const compDir = root ? path.join(root, "compositions", compositionId) : null;
+  const [souls, skills, commands] = await Promise.all([
+    compDir ? listNames(path.join(compDir, "souls"), ".md") : Promise.resolve([]),
+    root ? listNames(path.join(root, ".claude", "skills"), null) : Promise.resolve([]),
+    compDir ? listNames(path.join(compDir, ".claude", "commands"), ".md") : Promise.resolve([])
+  ]);
+  const data = {
+    gateway: gateway?.ok
+      ? {
+          ok: true, mode: gateway.mode ?? null, uptimeMs: gateway.uptime_ms ?? null,
+          sessions: gateway.sessions_count ?? null, channels: gateway.channels_count ?? null
+        }
+      : { ok: false },
+    voice: voice?.ok ? { ok: true, ready: Boolean(voice.enginesReady) } : { ok: false },
+    souls, skills, commands
+  };
+  operativeCache = { at: now, data };
+  jsonRes(res, 200, data);
+}
+
+// Thin GET proxy to the gateway for the Workspace panel's live lists
+// (/sessions, /worktrees). Upstream errors — including the gateway's 502 when
+// the dev-env worktrees proxy isn't stationed — degrade to the fallback body so
+// the panel section simply omits itself instead of erroring.
+function handleGatewayGet(req, res, opts, subpath, fallbackBody) {
+  const target = new URL(subpath, opts.gatewayUrl);
+  const upstream = http.request(
+    {
+      method: "GET",
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname,
+      headers: { Accept: "application/json" },
+      timeout: 4000
+    },
+    (up) => {
+      if ((up.statusCode || 500) >= 400) {
+        up.resume();
+        jsonRes(res, 200, fallbackBody);
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
+      up.pipe(res);
+    }
+  );
+  upstream.on("timeout", () => { try { upstream.destroy(new Error("gateway timeout")); } catch {} });
+  upstream.on("error", () => { try { jsonRes(res, 200, fallbackBody); } catch {} });
+  upstream.end();
 }
 
 // Voice availability — mirrors handleMonitor. The web UI hides its mic / speaker
@@ -563,6 +759,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/endpointing" && method === "GET") return handleEndpointing(res);
+      if (pathname === "/api/project" && method === "GET") return handleProject(res);
+      if (pathname === "/api/operative" && method === "GET") return handleOperative(res, liveOpts);
+      if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
+      if (pathname === "/api/worktrees" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/worktrees", { worktrees: [] });
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/voice/tts" && method === "GET") return handleVoiceTtsGet(req, res);

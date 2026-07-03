@@ -239,6 +239,60 @@ type Turn = { id: string; role: "user" | "assistant" | "error"; content: string 
 type Callout = { id: string; label: string; content: string };
 type Activity = { id: string; tool: string; detail: string };
 
+// Workspace panel data (right flank) — read-only repo/session state polled from
+// /api/project, /api/sessions and /api/worktrees every WORKSPACE_POLL_MS.
+type Commit = { hash: string; subject: string; when: string; author: string };
+type Pr = { number: number; title: string; state: string; url: string; branch: string };
+type ProjectState = {
+  available: boolean; root?: string; branch?: string | null;
+  ahead?: number | null; behind?: number | null; remoteUrl?: string | null;
+  commits?: Commit[]; prs?: Pr[]; branches?: string[];
+};
+type SessionRow = { session_id: string; soul: string; status: string; mode?: string };
+type WorktreeRow = { id?: string; branch?: string; title?: string; path?: string };
+type OperativeState = {
+  gateway: { ok: boolean; mode?: string | null; uptimeMs?: number | null; sessions?: number | null; channels?: number | null };
+  voice: { ok: boolean; ready?: boolean };
+  souls: string[]; skills: string[]; commands: string[];
+};
+const WORKSPACE_POLL_MS = 25_000;
+
+// Dev action dock — canned prompts fired at the Operative through the normal
+// /api/chat path (spoken + written like any turn). The label is what shows in
+// the transcript; the prompt is what the orchestrator actually receives.
+const DOCK_ACTIONS: { label: string; prompt: string }[] = [
+  { label: "estado", prompt: "Faz um ponto de situação rápido: em que estás a trabalhar agora, que sessões estão ativas, e qual é o próximo passo." },
+  { label: "typecheck", prompt: "Corre `npm run typecheck` no agent-garrison e diz-me se está limpo. Se houver erros, resume-os por ficheiro." },
+  { label: "testes", prompt: "Corre `npm test` no agent-garrison e resume o resultado: quantos passaram, quantos falharam, e as falhas mais relevantes." },
+  { label: "git", prompt: "Resume o estado do git no agent-garrison: branch atual, ficheiros alterados por commitar, e o que sugeres fazer a seguir." },
+  { label: "review", prompt: "Faz uma code review rápida do diff atual (working tree) do agent-garrison: aponta bugs prováveis e melhorias, por ordem de severidade." },
+  { label: "continua", prompt: "Continua o trabalho onde ficaste. Se não houver nada pendente, diz o que recomendas fazer a seguir." }
+];
+
+// "2h 39m" from ms — for the gateway uptime row.
+function fmtUptime(ms: number | null | undefined): string {
+  if (!ms || ms <= 0) return "";
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+// A soul with a running gateway session is live (sessions register as
+// "engineer" or "soul-engineer" depending on the spawn path).
+function soulIsLive(name: string, sessions: SessionRow[]): boolean {
+  return sessions.some((s) => s.soul === name || s.soul === `soul-${name}`);
+}
+
+// The gateway proxies worktrees to the dev-env Fitting; shapes vary by source
+// (bare array vs {worktrees}/{items}). Normalise defensively — an unknown shape
+// just means the section stays hidden.
+function normalizeWorktrees(data: any): WorktreeRow[] {
+  const arr = Array.isArray(data) ? data : Array.isArray(data?.worktrees) ? data.worktrees : Array.isArray(data?.items) ? data.items : [];
+  return arr.filter((w: any) => w && typeof w === "object");
+}
+
 // Friendly verb for a tool name in the "now" feed; falls back to a normalised
 // form of the raw name (MCP tools arrive as `mcp__<server>__<tool>`).
 const TOOL_VERB: Record<string, string> = {
@@ -277,6 +331,15 @@ function App() {
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
   // Live "what Jarvis is doing" — tool calls of the current turn, newest last.
   const [activity, setActivity] = useState<Activity[]>([]);
+  // Workspace panel (right flank): repo state + live gateway lists. Errors keep
+  // the last good state (a flaky poll must not blank the panel).
+  const [project, setProject] = useState<ProjectState | null>(null);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [worktrees, setWorktrees] = useState<WorktreeRow[]>([]);
+  const [wsOpen, setWsOpen] = useState(true);
+  // Operative panel (left flank): runtime health + agents/skills surface.
+  const [operative, setOperative] = useState<OperativeState | null>(null);
+  const [opOpen, setOpOpen] = useState(true);
 
   // Scrollable transcript: keep the newest turn in view, but only auto-scroll
   // when the user is already near the bottom — so scrolling up to read history
@@ -398,6 +461,33 @@ function App() {
       .then((r) => r.json())
       .then((info) => setVoiceAvailable(Boolean(info?.available)))
       .catch(() => setVoiceAvailable(false));
+  }, []);
+
+  // Workspace panel poll: repo state + gateway lists, on mount then every
+  // WORKSPACE_POLL_MS. Each fetch is independent and silent on failure.
+  useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      fetch("/api/project")
+        .then((r) => r.json())
+        .then((d) => { if (alive && d && typeof d.available === "boolean") setProject(d); })
+        .catch(() => {});
+      fetch("/api/sessions")
+        .then((r) => r.json())
+        .then((d) => { if (alive && Array.isArray(d?.sessions)) setSessions(d.sessions); })
+        .catch(() => {});
+      fetch("/api/worktrees")
+        .then((r) => r.json())
+        .then((d) => { if (alive) setWorktrees(normalizeWorktrees(d)); })
+        .catch(() => {});
+      fetch("/api/operative")
+        .then((r) => r.json())
+        .then((d) => { if (alive && d && typeof d === "object" && d.gateway) setOperative(d); })
+        .catch(() => {});
+    };
+    tick();
+    const timer = window.setInterval(tick, WORKSPACE_POLL_MS);
+    return () => { alive = false; window.clearInterval(timer); };
   }, []);
 
   const pushCallout = useCallback((label: string, content: string) => {
@@ -533,7 +623,9 @@ function App() {
 
   // Send a turn to the Operative through the gateway, stream the reply, then
   // read it aloud. Mirrors web-channel's /api/chat SSE handling.
-  const send = useCallback(async (message: string) => {
+  // shownAs (dock actions): what the transcript displays for the user turn —
+  // the short button label instead of the full canned prompt.
+  const send = useCallback(async (message: string, shownAs?: string) => {
     const msg = (message || "").trim();
     if (!msg || sendingRef.current) return;
     sendingRef.current = true;
@@ -556,7 +648,7 @@ function App() {
     spokenTextRef.current = "";
     speakingNowRef.current = "";
     setActivity([]); // clear last turn's tool feed
-    setTurns((prev) => [...prev.slice(-6), { id: genId("u"), role: "user", content: msg }]);
+    setTurns((prev) => [...prev.slice(-6), { id: genId("u"), role: "user", content: shownAs || msg }]);
     setMode("working");
     const bubbleId = genId("a");
     setTurns((prev) => [...prev, { id: bubbleId, role: "assistant", content: "" }]);
@@ -1277,6 +1369,174 @@ function App() {
             <span className="jarvis-callout-dot" />
             <span className="jarvis-callout-label">{c.label}</span>
             <span className="jarvis-callout-text">{c.content.slice(0, 120)}</span>
+          </button>
+        ))}
+      </div>
+
+      {project?.available && (
+        <aside className={`jarvis-workspace${wsOpen ? "" : " is-collapsed"}`}>
+          <button
+            className="jarvis-ws-head"
+            onClick={() => setWsOpen((v) => !v)}
+            aria-expanded={wsOpen}
+            title={wsOpen ? "Collapse workspace panel" : "Expand workspace panel"}
+          >
+            <span className="jarvis-ws-title">workspace</span>
+            <span className="jarvis-ws-branch">{project.branch || "—"}</span>
+            {(project.ahead ?? 0) > 0 || (project.behind ?? 0) > 0 ? (
+              <span className="jarvis-ws-sync">
+                {(project.ahead ?? 0) > 0 ? `↑${project.ahead}` : ""}
+                {(project.behind ?? 0) > 0 ? `↓${project.behind}` : ""}
+              </span>
+            ) : null}
+            <span className="jarvis-ws-toggle">{wsOpen ? "−" : "+"}</span>
+          </button>
+          {wsOpen && (
+            <div className="jarvis-ws-body">
+              {(project.prs?.length ?? 0) > 0 && (
+                <div className="jarvis-ws-section">
+                  <span className="jarvis-ws-label">pull requests</span>
+                  {project.prs!.map((pr) => (
+                    <a key={pr.number} className="jarvis-ws-row" href={pr.url} target="_blank" rel="noreferrer">
+                      <span className="jarvis-ws-key">#{pr.number}</span>
+                      <span className="jarvis-ws-text">{pr.title}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+              {(project.commits?.length ?? 0) > 0 && (
+                <div className="jarvis-ws-section">
+                  <span className="jarvis-ws-label">commits</span>
+                  {project.commits!.map((c) =>
+                    project.remoteUrl ? (
+                      <a key={c.hash} className="jarvis-ws-row" href={`${project.remoteUrl}/commit/${c.hash}`} target="_blank" rel="noreferrer" title={`${c.subject} — ${c.author}, ${c.when}`}>
+                        <span className="jarvis-ws-key">{c.hash}</span>
+                        <span className="jarvis-ws-text">{c.subject}</span>
+                        <span className="jarvis-ws-when">{c.when}</span>
+                      </a>
+                    ) : (
+                      <span key={c.hash} className="jarvis-ws-row" title={`${c.subject} — ${c.author}, ${c.when}`}>
+                        <span className="jarvis-ws-key">{c.hash}</span>
+                        <span className="jarvis-ws-text">{c.subject}</span>
+                        <span className="jarvis-ws-when">{c.when}</span>
+                      </span>
+                    )
+                  )}
+                </div>
+              )}
+              {worktrees.length > 0 && (
+                <div className="jarvis-ws-section">
+                  <span className="jarvis-ws-label">worktrees</span>
+                  {worktrees.slice(0, 5).map((w, i) => (
+                    <span key={w.id ?? i} className="jarvis-ws-row">
+                      <span className="jarvis-ws-key">{w.branch || w.id || "?"}</span>
+                      <span className="jarvis-ws-text">{w.title || w.path || ""}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </aside>
+      )}
+
+      {operative && (
+        <aside className={`jarvis-workspace jarvis-operative${opOpen ? "" : " is-collapsed"}`}>
+          <button
+            className="jarvis-ws-head"
+            onClick={() => setOpOpen((v) => !v)}
+            aria-expanded={opOpen}
+            title={opOpen ? "Collapse operative panel" : "Expand operative panel"}
+          >
+            <span className="jarvis-ws-title">operative</span>
+            <span className={`jarvis-op-health${operative.gateway.ok ? " is-ok" : ""}`}>
+              {operative.gateway.ok ? "online" : "offline"}
+            </span>
+            <span className="jarvis-ws-toggle">{opOpen ? "−" : "+"}</span>
+          </button>
+          {opOpen && (
+            <div className="jarvis-ws-body">
+              <div className="jarvis-ws-section">
+                <span className="jarvis-ws-label">runtime</span>
+                <span className="jarvis-ws-row">
+                  <span className={`jarvis-op-dot${operative.gateway.ok ? " is-ok" : ""}`} />
+                  <span className="jarvis-ws-key">gateway</span>
+                  <span className="jarvis-ws-text">
+                    {operative.gateway.ok
+                      ? `${operative.gateway.mode ?? "?"} · ${operative.gateway.sessions ?? 0} sess · ${operative.gateway.channels ?? 0} ch`
+                      : "down"}
+                  </span>
+                  {operative.gateway.ok && operative.gateway.uptimeMs
+                    ? <span className="jarvis-ws-when">{fmtUptime(operative.gateway.uptimeMs)}</span>
+                    : null}
+                </span>
+                <span className="jarvis-ws-row">
+                  <span className={`jarvis-op-dot${operative.voice.ok ? " is-ok" : ""}`} />
+                  <span className="jarvis-ws-key">voice</span>
+                  <span className="jarvis-ws-text">
+                    {operative.voice.ok
+                      ? `${operative.voice.ready ? "ready" : "warming"}${wakeArmed ? " · wake armado" : ""}`
+                      : "down"}
+                  </span>
+                </span>
+              </div>
+              {(operative.souls.length > 0 || sessions.length > 0) && (
+                <div className="jarvis-ws-section">
+                  <span className="jarvis-ws-label">agents</span>
+                  {sessions
+                    .filter((s) => !operative.souls.some((n) => s.soul === n || s.soul === `soul-${n}`))
+                    .slice(0, 4)
+                    .map((s) => (
+                      <span key={s.session_id} className="jarvis-ws-row">
+                        <span className="jarvis-op-dot is-ok" />
+                        <span className="jarvis-ws-key">{s.status}</span>
+                        <span className="jarvis-ws-text">{s.soul}</span>
+                      </span>
+                    ))}
+                  {operative.souls.map((name) => {
+                    const live = soulIsLive(name, sessions);
+                    return (
+                      <span key={name} className={`jarvis-ws-row${live ? "" : " is-standby"}`}>
+                        <span className={`jarvis-op-dot${live ? " is-ok" : ""}`} />
+                        <span className="jarvis-ws-key">{live ? "live" : "standby"}</span>
+                        <span className="jarvis-ws-text">{name}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              {(operative.skills.length > 0 || operative.commands.length > 0) && (
+                <div className="jarvis-ws-section">
+                  <span className="jarvis-ws-label">skills</span>
+                  {operative.skills.map((name) => (
+                    <span key={`sk-${name}`} className="jarvis-ws-row">
+                      <span className="jarvis-ws-key">skill</span>
+                      <span className="jarvis-ws-text">{name}</span>
+                    </span>
+                  ))}
+                  {operative.commands.map((name) => (
+                    <span key={`cmd-${name}`} className="jarvis-ws-row">
+                      <span className="jarvis-ws-key">cmd</span>
+                      <span className="jarvis-ws-text">/{name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </aside>
+      )}
+
+      <div className="jarvis-dock">
+        {DOCK_ACTIONS.map((a) => (
+          <button
+            key={a.label}
+            className="jarvis-dock-btn"
+            onClick={() => void send(a.prompt, a.label)}
+            disabled={mode === "working"}
+            title={a.prompt}
+          >
+            {a.label}
           </button>
         ))}
       </div>

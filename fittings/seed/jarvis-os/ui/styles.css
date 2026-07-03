@@ -235,6 +235,173 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* ── workspace panel (right flank, below the callouts) ─────────────────── */
+/* Minimal by design: one quiet panel — the orb stays the protagonist. Styles
+   are decalqued from .jarvis-activity / .jarvis-callout so it reads as the
+   same HUD family. Collapsed = just the header pill. */
+.jarvis-workspace {
+  position: fixed;
+  top: 24vh;
+  right: 4vw;
+  display: flex;
+  flex-direction: column;
+  width: min(320px, 34vw);
+  max-height: 52vh;
+  background: oklch(0.13 0.012 270 / 0.9);
+  border-left: 2px solid hsl(var(--accent-h) 60% 62% / 0.4);
+  z-index: 5; /* under the transient callouts (6) */
+  animation: callout-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.jarvis-workspace.is-collapsed {
+  width: auto;
+  max-width: min(320px, 34vw);
+}
+.jarvis-ws-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  color: var(--ink-dim);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.jarvis-ws-head:hover .jarvis-ws-title { color: var(--ink); }
+.jarvis-ws-title {
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.jarvis-ws-branch {
+  flex: 1;
+  font-size: 10.5px;
+  color: var(--ember);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jarvis-ws-sync {
+  flex: none;
+  font-size: 9.5px;
+  color: var(--cobalt);
+  letter-spacing: 0.06em;
+}
+.jarvis-ws-toggle {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.jarvis-ws-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 12px 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-faint) transparent;
+}
+.jarvis-ws-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.jarvis-ws-label {
+  font-size: 8.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 1px;
+}
+.jarvis-ws-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+  text-decoration: none;
+}
+a.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
+.jarvis-ws-key {
+  flex: none;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--ember);
+}
+.jarvis-ws-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jarvis-ws-when {
+  flex: none;
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* ── operative panel (left flank, mirrors the workspace panel) ──────────── */
+.jarvis-operative {
+  left: 4vw;
+  right: auto;
+  top: 26vh; /* clears the NOW activity feed (top 5vh, ~5 rows max) */
+}
+.jarvis-op-health {
+  flex: 1;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--err);
+}
+.jarvis-op-health.is-ok { color: var(--cobalt); }
+.jarvis-op-dot {
+  flex: none;
+  align-self: center;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--err);
+}
+.jarvis-op-dot.is-ok { background: var(--cobalt); }
+.jarvis-ws-row.is-standby { opacity: 0.55; }
+.jarvis-ws-row.is-standby .jarvis-op-dot { background: var(--ink-faint); }
+
+/* ── dev action dock (bottom centre, under the status line) ─────────────── */
+.jarvis-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 9vh;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 6;
+}
+.jarvis-dock-btn {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.jarvis-dock-btn:hover {
+  color: #e6e9ef;
+  border-color: hsl(var(--accent-h) 60% 62% / 0.6);
+}
+.jarvis-dock-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ── transcript ring (bottom) ──────────────────────────────────────────── */
 .jarvis-transcript {
   position: fixed;

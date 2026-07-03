@@ -58,6 +58,10 @@ x-garrison:
       type: integer
       default: 90
       description: Seconds of inactivity (session armed, nothing said either way) before a hands-free session returns to wake-word standby. Only applies when the voice Fitting reports the wake word armed — "hey jarvis" re-arms by voice. 0 keeps sessions armed forever.
+    - key: project_root
+      type: path
+      default: ""
+      description: Absolute path of the repository whose state (branch, recent commits, GitHub PRs) the HUD's Workspace panel shows. Empty = auto-detect via `git rev-parse --show-toplevel` from the server's cwd. Read-only — the panel only runs read git/gh commands, never writes.
   provides:
     - kind: channel
       name: jarvis
@@ -92,6 +96,15 @@ x-garrison:
       GET  /api/voice         → { available, url? } — voice Fitting discovery
       POST /api/voice/stt     → binary proxy to the voice Fitting's /stt
       POST /api/voice/tts     → binary proxy to the voice Fitting's /tts
+      GET  /api/project       → read-only repo state for the Workspace panel
+                                (branch, ahead/behind, recent commits, `gh` PRs;
+                                15s cache; { available:false } when no repo)
+      GET  /api/operative     → runtime health + agent surface for the Operative
+                                panel (gateway /health, voice /health, souls /
+                                skills / commands read from disk; 10s cache)
+      GET  /api/sessions      → JSON proxy of gateway /sessions ({sessions:[]} on error)
+      GET  /api/worktrees     → JSON proxy of gateway /worktrees ({worktrees:[]} when
+                                the dev-env worktrees proxy isn't stationed)
       GET  /                  → React Jarvis HUD (dist/index.html)
 
     Voice (push-to-talk) needs a kind:voice Fitting stationed — local-voice

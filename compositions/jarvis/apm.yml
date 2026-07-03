@@ -121,6 +121,26 @@ x-garrison:
         - id: knowledge
           config:
             vault_dir: vault
+    # Specialist Souls the Orchestrator delegates to via talk_to (2026-07-03).
+    # The runner folds these into GARRISON_SOULS_CONFIG at gateway spawn; prompts
+    # live in souls/*.md. Souls are PTY-backed sessions (per the gateway's
+    # orchestrator-mode boot note), so the haiku default stands — the PTY
+    # screen-scrape races Sonnet/Opus TUIs. Bump a soul's `model` only with
+    # evidence the scrape keeps up.
+    # engineer/architect work in the real projects folder (= projects_root).
+    souls:
+      - id: engineer
+        prompt: souls/engineer.md
+        base_path: ~/dev
+      - id: architect
+        prompt: souls/architect.md
+        base_path: ~/dev
+      - id: researcher
+        prompt: souls/researcher.md
+      - id: assistant
+        prompt: souls/assistant.md
+      - id: companion
+        prompt: souls/companion.md
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md
