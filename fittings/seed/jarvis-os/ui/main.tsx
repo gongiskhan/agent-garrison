@@ -1350,31 +1350,135 @@ function App() {
         </button>
       )}
 
-      {activity.length > 0 && (
-        <div className="jarvis-activity" data-state={mode}>
-          <span className="jarvis-activity-head">NOW</span>
-          {activity.map((a) => (
-            <div key={a.id} className="jarvis-activity-row">
-              <span className="jarvis-activity-dot" />
-              <span className="jarvis-activity-tool">{toolVerb(a.tool)}</span>
-              {a.detail ? <span className="jarvis-activity-detail">{a.detail}</span> : null}
+      {/* Left rail — a single flex column so NOW / Operative / transcript
+          stack deterministically and can never overlap, however tall each grows. */}
+      <div className="jarvis-rail jarvis-rail-left">
+        {activity.length > 0 && (
+          <div className="jarvis-activity" data-state={mode}>
+            <span className="jarvis-activity-head">NOW</span>
+            {activity.map((a) => (
+              <div key={a.id} className="jarvis-activity-row">
+                <span className="jarvis-activity-dot" />
+                <span className="jarvis-activity-tool">{toolVerb(a.tool)}</span>
+                {a.detail ? <span className="jarvis-activity-detail">{a.detail}</span> : null}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {operative && (
+          <aside className={`jarvis-workspace jarvis-operative${opOpen ? "" : " is-collapsed"}`}>
+            <button
+              className="jarvis-ws-head"
+              onClick={() => setOpOpen((v) => !v)}
+              aria-expanded={opOpen}
+              title={opOpen ? "Collapse operative panel" : "Expand operative panel"}
+            >
+              <span className="jarvis-ws-title">operative</span>
+              <span className={`jarvis-op-health${operative.gateway.ok ? " is-ok" : ""}`}>
+                {operative.gateway.ok ? "online" : "offline"}
+              </span>
+              <span className="jarvis-ws-toggle">{opOpen ? "−" : "+"}</span>
+            </button>
+            {opOpen && (
+              <div className="jarvis-ws-body">
+                <div className="jarvis-ws-section">
+                  <span className="jarvis-ws-label">runtime</span>
+                  <span className="jarvis-ws-row">
+                    <span className={`jarvis-op-dot${operative.gateway.ok ? " is-ok" : ""}`} />
+                    <span className="jarvis-ws-key">gateway</span>
+                    <span className="jarvis-ws-text">
+                      {operative.gateway.ok
+                        ? `${operative.gateway.mode ?? "?"} · ${operative.gateway.sessions ?? 0} sess · ${operative.gateway.channels ?? 0} ch`
+                        : "down"}
+                    </span>
+                    {operative.gateway.ok && operative.gateway.uptimeMs
+                      ? <span className="jarvis-ws-when">{fmtUptime(operative.gateway.uptimeMs)}</span>
+                      : null}
+                  </span>
+                  <span className="jarvis-ws-row">
+                    <span className={`jarvis-op-dot${operative.voice.ok ? " is-ok" : ""}`} />
+                    <span className="jarvis-ws-key">voice</span>
+                    <span className="jarvis-ws-text">
+                      {operative.voice.ok
+                        ? `${operative.voice.ready ? "ready" : "warming"}${wakeArmed ? " · wake armado" : ""}`
+                        : "down"}
+                    </span>
+                  </span>
+                </div>
+                {(operative.souls.length > 0 || sessions.length > 0) && (
+                  <div className="jarvis-ws-section">
+                    <span className="jarvis-ws-label">agents</span>
+                    {sessions
+                      .filter((s) => !operative.souls.some((n) => s.soul === n || s.soul === `soul-${n}`))
+                      .slice(0, 4)
+                      .map((s) => (
+                        <span key={s.session_id} className="jarvis-ws-row">
+                          <span className="jarvis-op-dot is-ok" />
+                          <span className="jarvis-ws-key">{s.status}</span>
+                          <span className="jarvis-ws-text">{s.soul}</span>
+                        </span>
+                      ))}
+                    {operative.souls.map((name) => {
+                      const live = soulIsLive(name, sessions);
+                      return (
+                        <span key={name} className={`jarvis-ws-row${live ? "" : " is-standby"}`}>
+                          <span className={`jarvis-op-dot${live ? " is-ok" : ""}`} />
+                          <span className="jarvis-ws-key">{live ? "live" : "standby"}</span>
+                          <span className="jarvis-ws-text">{name}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {(operative.skills.length > 0 || operative.commands.length > 0) && (
+                  <div className="jarvis-ws-section">
+                    <span className="jarvis-ws-label">skills</span>
+                    {operative.skills.map((name) => (
+                      <span key={`sk-${name}`} className="jarvis-ws-row">
+                        <span className="jarvis-ws-key">skill</span>
+                        <span className="jarvis-ws-text">{name}</span>
+                      </span>
+                    ))}
+                    {operative.commands.map((name) => (
+                      <span key={`cmd-${name}`} className="jarvis-ws-row">
+                        <span className="jarvis-ws-key">cmd</span>
+                        <span className="jarvis-ws-text">/{name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </aside>
+        )}
+
+        <div className="jarvis-transcript" ref={transcriptRef}>
+          {turns.map((t) => (
+            <div key={t.id} className={`jarvis-turn ${t.role}`}>
+              <span className="jarvis-turn-role">{t.role === "user" ? "you" : t.role === "error" ? "!" : "jarvis"}</span>
+              {t.role === "assistant" && t.content
+                ? <div className="jarvis-turn-text md" dangerouslySetInnerHTML={{ __html: renderMarkdown(t.content) }} />
+                : <span className="jarvis-turn-text">{t.content || (t.role === "assistant" ? "…" : "")}</span>}
             </div>
           ))}
         </div>
-      )}
-
-      <div className="jarvis-callouts">
-        {callouts.map((c) => (
-          <button key={c.id} className="jarvis-callout" onClick={() => setReport({ path: c.label, content: c.content })}>
-            <span className="jarvis-callout-dot" />
-            <span className="jarvis-callout-label">{c.label}</span>
-            <span className="jarvis-callout-text">{c.content.slice(0, 120)}</span>
-          </button>
-        ))}
       </div>
 
-      {project?.available && (
-        <aside className={`jarvis-workspace${wsOpen ? "" : " is-collapsed"}`}>
+      {/* Right rail — callouts + Workspace, same non-overlapping flex column. */}
+      <div className="jarvis-rail jarvis-rail-right">
+        <div className="jarvis-callouts">
+          {callouts.map((c) => (
+            <button key={c.id} className="jarvis-callout" onClick={() => setReport({ path: c.label, content: c.content })}>
+              <span className="jarvis-callout-dot" />
+              <span className="jarvis-callout-label">{c.label}</span>
+              <span className="jarvis-callout-text">{c.content.slice(0, 120)}</span>
+            </button>
+          ))}
+        </div>
+
+        {project?.available && (
+          <aside className={`jarvis-workspace${wsOpen ? "" : " is-collapsed"}`}>
           <button
             className="jarvis-ws-head"
             onClick={() => setWsOpen((v) => !v)}
@@ -1439,93 +1543,7 @@ function App() {
           )}
         </aside>
       )}
-
-      {operative && (
-        <aside className={`jarvis-workspace jarvis-operative${opOpen ? "" : " is-collapsed"}`}>
-          <button
-            className="jarvis-ws-head"
-            onClick={() => setOpOpen((v) => !v)}
-            aria-expanded={opOpen}
-            title={opOpen ? "Collapse operative panel" : "Expand operative panel"}
-          >
-            <span className="jarvis-ws-title">operative</span>
-            <span className={`jarvis-op-health${operative.gateway.ok ? " is-ok" : ""}`}>
-              {operative.gateway.ok ? "online" : "offline"}
-            </span>
-            <span className="jarvis-ws-toggle">{opOpen ? "−" : "+"}</span>
-          </button>
-          {opOpen && (
-            <div className="jarvis-ws-body">
-              <div className="jarvis-ws-section">
-                <span className="jarvis-ws-label">runtime</span>
-                <span className="jarvis-ws-row">
-                  <span className={`jarvis-op-dot${operative.gateway.ok ? " is-ok" : ""}`} />
-                  <span className="jarvis-ws-key">gateway</span>
-                  <span className="jarvis-ws-text">
-                    {operative.gateway.ok
-                      ? `${operative.gateway.mode ?? "?"} · ${operative.gateway.sessions ?? 0} sess · ${operative.gateway.channels ?? 0} ch`
-                      : "down"}
-                  </span>
-                  {operative.gateway.ok && operative.gateway.uptimeMs
-                    ? <span className="jarvis-ws-when">{fmtUptime(operative.gateway.uptimeMs)}</span>
-                    : null}
-                </span>
-                <span className="jarvis-ws-row">
-                  <span className={`jarvis-op-dot${operative.voice.ok ? " is-ok" : ""}`} />
-                  <span className="jarvis-ws-key">voice</span>
-                  <span className="jarvis-ws-text">
-                    {operative.voice.ok
-                      ? `${operative.voice.ready ? "ready" : "warming"}${wakeArmed ? " · wake armado" : ""}`
-                      : "down"}
-                  </span>
-                </span>
-              </div>
-              {(operative.souls.length > 0 || sessions.length > 0) && (
-                <div className="jarvis-ws-section">
-                  <span className="jarvis-ws-label">agents</span>
-                  {sessions
-                    .filter((s) => !operative.souls.some((n) => s.soul === n || s.soul === `soul-${n}`))
-                    .slice(0, 4)
-                    .map((s) => (
-                      <span key={s.session_id} className="jarvis-ws-row">
-                        <span className="jarvis-op-dot is-ok" />
-                        <span className="jarvis-ws-key">{s.status}</span>
-                        <span className="jarvis-ws-text">{s.soul}</span>
-                      </span>
-                    ))}
-                  {operative.souls.map((name) => {
-                    const live = soulIsLive(name, sessions);
-                    return (
-                      <span key={name} className={`jarvis-ws-row${live ? "" : " is-standby"}`}>
-                        <span className={`jarvis-op-dot${live ? " is-ok" : ""}`} />
-                        <span className="jarvis-ws-key">{live ? "live" : "standby"}</span>
-                        <span className="jarvis-ws-text">{name}</span>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-              {(operative.skills.length > 0 || operative.commands.length > 0) && (
-                <div className="jarvis-ws-section">
-                  <span className="jarvis-ws-label">skills</span>
-                  {operative.skills.map((name) => (
-                    <span key={`sk-${name}`} className="jarvis-ws-row">
-                      <span className="jarvis-ws-key">skill</span>
-                      <span className="jarvis-ws-text">{name}</span>
-                    </span>
-                  ))}
-                  {operative.commands.map((name) => (
-                    <span key={`cmd-${name}`} className="jarvis-ws-row">
-                      <span className="jarvis-ws-key">cmd</span>
-                      <span className="jarvis-ws-text">/{name}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </aside>
-      )}
+      </div>
 
       <div className="jarvis-dock">
         {DOCK_ACTIONS.map((a) => (
@@ -1538,17 +1556,6 @@ function App() {
           >
             {a.label}
           </button>
-        ))}
-      </div>
-
-      <div className="jarvis-transcript" ref={transcriptRef}>
-        {turns.map((t) => (
-          <div key={t.id} className={`jarvis-turn ${t.role}`}>
-            <span className="jarvis-turn-role">{t.role === "user" ? "you" : t.role === "error" ? "!" : "jarvis"}</span>
-            {t.role === "assistant" && t.content
-              ? <div className="jarvis-turn-text md" dangerouslySetInnerHTML={{ __html: renderMarkdown(t.content) }} />
-              : <span className="jarvis-turn-text">{t.content || (t.role === "assistant" ? "…" : "")}</span>}
-          </div>
         ))}
       </div>
 

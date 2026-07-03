@@ -54,6 +54,28 @@ html, body, #root {
     #07090c;
 }
 
+/* ── flank rails ───────────────────────────────────────────────────────────
+   Each flank is ONE fixed flex column. Its children (NOW / operative /
+   transcript on the left; callouts / workspace on the right) stack top-to-
+   bottom and, by construction, can NEVER overlap however tall each grows —
+   the grower (transcript / workspace) takes the remaining space and scrolls
+   internally. The rail itself is click-through (pointer-events: none); only
+   its panels re-enable pointer events, so the empty gaps never eat clicks. */
+.jarvis-rail {
+  position: fixed;
+  top: 4vh;
+  bottom: 11vh; /* clears the status line + dock at the bottom centre */
+  width: min(340px, 34vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+.jarvis-rail-left { left: 4vw; }
+.jarvis-rail-right { right: 4vw; }
+.jarvis-rail > * { pointer-events: auto; width: 100%; }
+
 /* the audio-reactive core fills a centered square; the shader sizes to it */
 .jarvis-core {
   position: relative;
@@ -87,8 +109,9 @@ html, body, #root {
 
 .jarvis-mute {
   position: fixed;
-  right: 20px;
-  bottom: 16vh;
+  right: 24px;
+  bottom: 3vh; /* below the flank rails' 11vh floor so it can never overlap them */
+  z-index: 6;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -127,17 +150,13 @@ html, body, #root {
 
 /* ── activity feed ("what it's doing now", top-left) ───────────────────── */
 .jarvis-activity {
-  position: fixed;
-  top: 5vh;
-  left: 4vw;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 5px;
-  max-width: min(340px, 42vw);
   padding: 11px 13px 12px;
   background: oklch(0.13 0.012 270 / 0.9);
   border-left: 2px solid hsl(var(--accent-h) 60% 62% / 0.55);
-  z-index: 6;
   animation: callout-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .jarvis-activity-head {
@@ -187,14 +206,10 @@ html, body, #root {
 
 /* ── callouts (corner notifications) ───────────────────────────────────── */
 .jarvis-callouts {
-  position: fixed;
-  top: 5vh;
-  right: 4vw;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: min(360px, 80vw);
-  z-index: 6;
 }
 .jarvis-callout {
   display: grid;
@@ -240,23 +255,18 @@ html, body, #root {
    are decalqued from .jarvis-activity / .jarvis-callout so it reads as the
    same HUD family. Collapsed = just the header pill. */
 .jarvis-workspace {
-  position: fixed;
-  top: 24vh;
-  right: 4vw;
+  /* Flex child of a flank rail: sizes to content but shrinks (and its body
+     scrolls) when the rail runs out of room, so it can't push a sibling out. */
+  flex: 0 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  width: min(320px, 34vw);
-  max-height: 52vh;
   background: oklch(0.13 0.012 270 / 0.9);
   border-left: 2px solid hsl(var(--accent-h) 60% 62% / 0.4);
-  z-index: 5; /* under the transient callouts (6) */
   animation: callout-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.jarvis-workspace.is-collapsed {
-  width: auto;
-  max-width: min(320px, 34vw);
-}
 .jarvis-ws-head {
+  flex: 0 0 auto;
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -295,6 +305,8 @@ html, body, #root {
   color: var(--ink-faint);
 }
 .jarvis-ws-body {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -345,11 +357,8 @@ a.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
 }
 
 /* ── operative panel (left flank, mirrors the workspace panel) ──────────── */
-.jarvis-operative {
-  left: 4vw;
-  right: auto;
-  top: 26vh; /* clears the NOW activity feed (top 5vh, ~5 rows max) */
-}
+/* No positioning of its own — the left rail lays it out. It sizes to content
+   and yields the remaining column height to the transcript below it. */
 .jarvis-op-health {
   flex: 1;
   font-size: 9.5px;
@@ -404,20 +413,18 @@ a.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
 
 /* ── transcript ring (bottom) ──────────────────────────────────────────── */
 .jarvis-transcript {
-  position: fixed;
-  left: 4vw;
-  bottom: 4vh;
+  /* The left rail's grower: takes the height left under NOW + operative and
+     scrolls internally, so it never rises into the panels above it. */
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-width: min(520px, 70vw);
-  max-height: 56vh;
   overflow-y: auto;
   /* room for the scrollbar without clipping text */
   padding-right: 8px;
   scrollbar-width: thin;
   scrollbar-color: var(--ink-faint) transparent;
-  z-index: 5;
 }
 .jarvis-transcript::-webkit-scrollbar {
   width: 6px;
