@@ -379,6 +379,17 @@ html, body, #root {
   text-decoration: none;
 }
 a.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
+/* the "view diff" row is a button — strip the native chrome, keep the row look */
+button.jarvis-ws-row {
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+button.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
+.jarvis-ws-diff .jarvis-ws-key { color: var(--cobalt); }
 .jarvis-ws-key {
   flex: none;
   font-size: 9.5px;

@@ -246,7 +246,7 @@ type Pr = { number: number; title: string; state: string; url: string; branch: s
 type ProjectState = {
   available: boolean; root?: string; branch?: string | null;
   ahead?: number | null; behind?: number | null; remoteUrl?: string | null;
-  commits?: Commit[]; prs?: Pr[]; branches?: string[];
+  commits?: Commit[]; prs?: Pr[]; branches?: string[]; changed?: number;
 };
 type SessionRow = { session_id: string; soul: string; status: string; mode?: string };
 type WorktreeRow = { id?: string; branch?: string; title?: string; path?: string };
@@ -1497,6 +1497,30 @@ function App() {
           </button>
           {wsOpen && (
             <div className="jarvis-ws-body">
+              {(project.changed ?? 0) > 0 && (
+                <div className="jarvis-ws-section">
+                  <span className="jarvis-ws-label">uncommitted</span>
+                  <button
+                    className="jarvis-ws-row jarvis-ws-diff"
+                    onClick={async () => {
+                      try {
+                        const d = await fetch("/api/diff").then((r) => r.json());
+                        const patch = (d?.patch || "").trim();
+                        setReport({
+                          path: `git diff HEAD · ${project.changed} changed`,
+                          content: patch
+                            ? "```diff\n" + patch + "\n```" + (d?.truncated ? "\n\n*(diff truncado)*" : "")
+                            : "*Sem alterações em ficheiros versionados (só ficheiros novos por adicionar).*"
+                        });
+                      } catch { /* leave the panel as-is on a failed fetch */ }
+                    }}
+                    title="Ver o diff da working tree (git diff HEAD)"
+                  >
+                    <span className="jarvis-ws-key">diff</span>
+                    <span className="jarvis-ws-text">{project.changed} ficheiro{project.changed === 1 ? "" : "s"} — ver</span>
+                  </button>
+                </div>
+              )}
               {(project.prs?.length ?? 0) > 0 && (
                 <div className="jarvis-ws-section">
                   <span className="jarvis-ws-label">pull requests</span>

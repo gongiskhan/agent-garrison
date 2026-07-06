@@ -218,12 +218,14 @@ async function handleProject(res) {
   }
   // Each probe is independent and best-effort: a missing upstream or a flaky
   // `gh` (network, rate-limit) must not blank the whole panel.
-  const [branch, counts, log, remote, branches, prsRaw] = await Promise.allSettled([
+  const [branch, counts, log, remote, branches, status, prsRaw] = await Promise.allSettled([
     runRead("git", ["rev-parse", "--abbrev-ref", "HEAD"], root),
     runRead("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], root),
     runRead("git", ["log", "-n", "4", "--format=%h%x1f%s%x1f%cr%x1f%an"], root),
     runRead("git", ["remote", "get-url", "origin"], root),
     runRead("git", ["for-each-ref", "--sort=-committerdate", "--count=6", "--format=%(refname:short)", "refs/heads"], root),
+    // one porcelain line per changed/untracked file → uncommitted-change count
+    runRead("git", ["status", "--porcelain"], root),
     // gh talks to the network — longer timeout, and failure just means prs: [].
     runRead("gh", ["pr", "list", "--limit", "8", "--json", "number,title,state,url,headRefName"], root, 6000)
   ]);
@@ -253,10 +255,29 @@ async function handleProject(res) {
     remoteUrl: webRemoteUrl(val(remote)),
     commits,
     prs,
-    branches: val(branches) ? val(branches).split("\n") : []
+    branches: val(branches) ? val(branches).split("\n") : [],
+    changed: val(status) ? val(status).split("\n").filter(Boolean).length : 0
   };
   projectCache = { at: now, data };
   jsonRes(res, 200, data);
+}
+
+// The working-tree diff (staged + unstaged vs HEAD) for the HUD's "view diff"
+// action. Fetched on demand (not polled — a diff can be large), read-only,
+// capped so a huge diff can't blow the response. Untracked files aren't in
+// `git diff HEAD`; the panel's change count (from `git status`) still reflects
+// them so the two never silently disagree about "something changed".
+const DIFF_MAX = 120_000;
+async function handleDiff(res) {
+  const root = await resolveProjectRoot();
+  if (!root) { jsonRes(res, 200, { available: false }); return; }
+  try {
+    const patch = await runRead("git", ["diff", "HEAD"], root, 6000);
+    const truncated = patch.length > DIFF_MAX;
+    jsonRes(res, 200, { available: true, patch: truncated ? patch.slice(0, DIFF_MAX) : patch, truncated });
+  } catch (e) {
+    jsonRes(res, 200, { available: true, patch: "", error: String(e?.message || e) });
+  }
 }
 
 // Operative panel: runtime health + the agent surface (souls on disk, skills,
@@ -760,6 +781,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/endpointing" && method === "GET") return handleEndpointing(res);
       if (pathname === "/api/project" && method === "GET") return handleProject(res);
+      if (pathname === "/api/diff" && method === "GET") return handleDiff(res);
       if (pathname === "/api/operative" && method === "GET") return handleOperative(res, liveOpts);
       if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
       if (pathname === "/api/worktrees" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/worktrees", { worktrees: [] });
