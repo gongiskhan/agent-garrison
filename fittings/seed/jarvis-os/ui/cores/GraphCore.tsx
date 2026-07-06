@@ -139,13 +139,18 @@ export default function GraphCore({
     const mount = mountRef.current;
     if (!mount) return;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    // Transparent canvas: the orb floats on the HUD's own dark background
+    // instead of painting an opaque square. clearColor alpha 0 + a null scene
+    // background keep the empty pixels see-through all the way through the
+    // EffectComposer (bloom) pipeline.
+    const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+    renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#0a0909");
+    scene.background = null;
 
     const camera = new THREE.PerspectiveCamera(
       45,

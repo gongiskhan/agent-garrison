@@ -1327,7 +1327,7 @@ function App() {
         aria-pressed={sessionOn}
         aria-label={sessionOn ? "Stop voice session" : "Start voice session"}
       >
-        <GraphCore mode={mode} getLevel={getLevel} bgMode="depth" />
+        <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" />
       </div>
 
       <div className="jarvis-status" data-state={mode}>
