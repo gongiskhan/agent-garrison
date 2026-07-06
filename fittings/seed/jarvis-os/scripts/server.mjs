@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { deriveStatusLine } from "./kanban-status.mjs";
+import { deriveStatusLine, rankAndCapCards } from "./kanban-status.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
@@ -470,9 +470,7 @@ async function handleKanban(res) {
     attention: cards.filter((c) => c.status === "needs-attention").length
   };
   // Surface running + needs-attention first, then most-recently-updated; cap 8.
-  const rank = (s) => (s === "running" ? 0 : s === "needs-attention" ? 1 : 2);
-  cards.sort((a, b) => rank(a.status) - rank(b.status) || String(b.updated).localeCompare(String(a.updated)));
-  cards = cards.slice(0, 8);
+  cards = rankAndCapCards(cards, 8);
   let tailnetUrl = null;
   try {
     const map = await tailnetServeMap();

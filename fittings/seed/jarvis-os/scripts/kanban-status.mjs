@@ -14,6 +14,15 @@ export function timeAgo(iso, now = Date.now()) {
   return `${Math.round(mins / 60)}h`;
 }
 
+// Order the Tasks-panel cards: running first, then needs-attention, then the rest,
+// each group most-recently-updated first; cap to `limit`. Pure so it's testable.
+export function rankAndCapCards(cards, limit = 8) {
+  const rank = (s) => (s === "running" ? 0 : s === "needs-attention" ? 1 : 2);
+  return [...cards]
+    .sort((a, b) => rank(a.status) - rank(b.status) || String(b.updated).localeCompare(String(a.updated)))
+    .slice(0, limit);
+}
+
 export function deriveStatusLine(card, listTitle, now = Date.now()) {
   const lastMsg = card.lastEvent?.message || "";
   if (card.status === "running") {
