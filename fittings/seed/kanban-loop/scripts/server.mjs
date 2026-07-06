@@ -45,7 +45,8 @@ import {
   triggerFor,
   isInteractive,
   withEvent,
-  replySnippet
+  replySnippet,
+  reapOrphanedRuns
 } from "../lib/engine.mjs";
 import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
@@ -636,9 +637,15 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req) {
+async function readBody(req, limit = 1024 * 1024) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    // Bound the body: card JSON is tiny, so a >1MB body is junk/abuse — drop it.
+    if (size > limit) { try { req.destroy(); } catch {} return null; }
+    chunks.push(c);
+  }
   if (!chunks.length) return null;
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return null; }
 }
@@ -1521,6 +1528,11 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       await writeStatusFile(liveOpts);
       console.log(`[kanban-loop] board UI on http://${liveOpts.host}:${liveOpts.port}`);
       if (!liveOpts.gatewayUrl) console.warn("[kanban-loop] no GARRISON_GATEWAY_URL — Start on agent lists is disabled");
+      // Recover any card stranded in "running" by a prior crash (best-effort).
+      try {
+        const reaped = await reapOrphanedRuns(kanbanRoot());
+        if (reaped.length) console.log(`[kanban-loop] reaped ${reaped.length} orphaned running card(s): ${reaped.join(", ")}`);
+      } catch (e) { console.warn("[kanban-loop] orphan reaper failed:", e?.message || e); }
       resolve();
     });
   });

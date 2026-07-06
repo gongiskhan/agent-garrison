@@ -22,7 +22,7 @@
 // list's own scheduler beat.
 import path from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { saveCardCAS, appendCardLog, writeCardLog } from "./board.mjs";
+import { saveCardCAS, appendCardLog, writeCardLog, loadAllCards } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 
 // Does this card's run dir actually contain tangible evidence? A list flagged
@@ -171,17 +171,58 @@ export function parseNextList(routerOutput, validNext) {
   // bottom, then (2) the LAST bare token of the cleaned reply (the "end with the token"
   // convention), trailing punctuation trimmed. (2) is what rescues a verdict flowed onto a
   // prose/badge line — the exact case where a CORRECT verdict was being parked.
+  const hadBadge = /\[[^\]\n]*\]/.test(String(text));
   const cleaned = String(text).replace(/\[[^\]\n]*\]/g, " ");
   const lines = cleaned.split("\n").map((l) => l.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (validNext.includes(lines[i])) return lines[i];
   }
+  // The bare last-token fallback exists ONLY to rescue a correct verdict that the
+  // gateway's status BADGES reflowed onto a prose line. So gate it on a badge
+  // actually having been present — a pure-prose reply with no badges that merely
+  // ENDS with a list word ("so we should implement") must NOT advance the card.
+  if (!hadBadge) return null;
   const tokens = cleaned
     .split(/\s+/)
     .map((t) => t.replace(/^[^A-Za-z0-9-]+|[^A-Za-z0-9-]+$/g, ""))
     .filter(Boolean);
   const last = tokens.length ? tokens[tokens.length - 1] : "";
   return validNext.includes(last) ? last : null;
+}
+
+// A card left in status "running" whose runningSince is older than this is almost
+// certainly orphaned — the run's process (gateway/operative) went away without
+// flipping it back. The longest legitimate turn is bounded by the gateway's turn
+// timeout (~25 min), so a comfortably larger threshold never reaps a live run.
+export const ORPHAN_RUNNING_MS = 40 * 60 * 1000;
+
+// Startup recovery: park any card stranded in "running" past ORPHAN_RUNNING_MS
+// (or with a missing/invalid runningSince) into needs-attention, so a crash
+// mid-run doesn't leave it spinning forever. Best-effort + CAS-guarded so it
+// can't clobber a card a live run is concurrently updating. Returns reaped ids.
+export async function reapOrphanedRuns(root, { now = Date.now(), maxAgeMs = ORPHAN_RUNNING_MS } = {}) {
+  const cards = await loadAllCards(root);
+  const reaped = [];
+  for (const card of cards) {
+    if (card.status !== "running") continue;
+    const since = card.runningSince ? Date.parse(card.runningSince) : NaN;
+    if (Number.isFinite(since) && (now - since) < maxAgeMs) continue; // still within a plausible run
+    const parked = {
+      ...card,
+      status: "needs-attention",
+      list: ATTENTION_LIST,
+      parkedFrom: card.list,
+      runningSince: null,
+      attentionReason: "run orphaned — the operative/gateway went away mid-run; move it back to retry",
+      events: [
+        ...(card.events ?? []),
+        { at: new Date(now).toISOString(), kind: "recovered", message: "Recovered an orphaned run (server restart)" }
+      ]
+    };
+    const res = await saveCardCAS(root, parked, card.rev ?? 0);
+    if (res.ok) reaped.push(card.id);
+  }
+  return reaped;
 }
 
 // Combined execute + router prompt. goal-mode prepends /goal + acceptance; the card's

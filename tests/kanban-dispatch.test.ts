@@ -161,6 +161,16 @@ describe("v1d parseNextList — tolerates trailing gateway status badges", () =>
     // ends on prose, not the bare token → park (the operative didn't follow the convention)
     expect(parseNextList("I might implement this later", ["implement"])).toBe(null);
   });
+
+  it("does NOT advance on a badge-less prose reply that ENDS with the list word", async () => {
+    // @ts-ignore — pure .mjs
+    const { parseNextList } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
+    // The last-token fallback is gated on a gateway badge being present; pure prose
+    // ending exactly with "implement" (no badges) must park, not advance.
+    expect(parseNextList("so we should probably implement", ["implement", "review"])).toBe(null);
+    // …but WITH a badge (the flowed-verdict case) it still rescues the verdict:
+    expect(parseNextList("Gate green. [route: cc-sonnet-med] implement", ["implement", "review"])).toBe("implement");
+  });
 });
 
 // V1d CRITICAL regression (the user hit this): the BATCH verdict "<cardId> adversarial-test"
