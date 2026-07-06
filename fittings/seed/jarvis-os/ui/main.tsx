@@ -1,7 +1,7 @@
 // Jarvis Agentic OS — voice-first HUD.
 //
-// Visual layer (DitherCore + ReportOverlay) is reused from the Fable jarvis-hud
-// reference. The voice + transport logic is the Garrison-native path:
+// Visual layer (GraphCore particle orb + ReportOverlay) is reused from the
+// Fable jarvis-hud reference. The voice + transport logic is the Garrison-native path:
 // hands-free voice session → Silero VAD (local, in-browser, @ricky0123/vad-web)
 // segments speech → SMART ENDPOINTING (eager /api/voice/stt + adaptive grace
 // window sized by the transcript's eot_prob; resumed speech merges into the
@@ -16,7 +16,7 @@ import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MicVAD } from "@ricky0123/vad-web";
 import { marked } from "marked";
-import DitherCore, { type CoreMode } from "./cores/DitherCore";
+import GraphCore, { type CoreMode } from "./cores/GraphCore";
 import ReportOverlay from "./ReportOverlay";
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -1327,7 +1327,7 @@ function App() {
         aria-pressed={sessionOn}
         aria-label={sessionOn ? "Stop voice session" : "Start voice session"}
       >
-        <DitherCore mode={mode} getLevel={getLevel} />
+        <GraphCore mode={mode} getLevel={getLevel} bgMode="depth" />
       </div>
 
       <div className="jarvis-status" data-state={mode}>

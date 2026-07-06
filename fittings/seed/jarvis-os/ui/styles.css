@@ -91,6 +91,43 @@ html, body, #root {
   display: block;
 }
 
+/* graph core — 3D node cloud (ported from the V.A.U.L.T. HUD) */
+.graph-core {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  /* the core blooms out of black — overshoot brightness then settle, like ignition */
+  opacity: 0;
+  animation: core-ignite 1.4s cubic-bezier(0.22, 1, 0.36, 1) 0.65s forwards;
+}
+
+@keyframes core-ignite {
+  0% { opacity: 0; transform: scale(0.88); filter: blur(16px) brightness(2.2); }
+  55% { opacity: 1; filter: blur(3px) brightness(1.35); }
+  100% { opacity: 1; transform: none; filter: blur(0) brightness(1); }
+}
+
+.graph-canvas {
+  position: absolute;
+  inset: 0;
+}
+.graph-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.bg-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 75% 70% at 50% 44%,
+    transparent 55%,
+    oklch(0.06 0.003 270 / 0.7) 100%
+  );
+}
+
 /* ── status line ───────────────────────────────────────────────────────── */
 .jarvis-status {
   position: fixed;

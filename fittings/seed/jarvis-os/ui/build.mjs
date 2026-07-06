@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Bundle the Jarvis HUD UI into ../dist/. Resolves react / react-dom from the
-// Garrison root node_modules (same pattern as web-channel). No three.js — the
-// DitherCore is WebGL2-only, so the bundle stays light.
+// Bundle the Jarvis HUD UI into ../dist/. Resolves react / react-dom / three
+// from the Garrison root node_modules (same pattern as web-channel). The
+// GraphCore orb bundles three.js + UnrealBloom postprocessing, so the bundle
+// is ~1MB+ — expected.
 
 import { build } from "esbuild";
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";

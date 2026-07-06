@@ -44,6 +44,7 @@
     "onnxruntime-web": "^1.26.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "three": "^0.176.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
@@ -53,6 +54,7 @@
     "@types/node": "^20.17.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.185.0",
     "@types/ws": "^8.5.13",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.2.1",
