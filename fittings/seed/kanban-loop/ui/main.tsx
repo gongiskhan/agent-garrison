@@ -477,13 +477,18 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const loadedRef = useRef(false);
 
   // Poll the detail while open so the Activity feed updates live as a run progresses
   // (the engine appends events through the run). 3s is responsive without being chatty.
   useEffect(() => {
     let alive = true;
-    const pull = () => api.card(cardId).then((d) => { if (alive) { setDetail(d); setErr(null); } }).catch((e) => {
-      if (alive && !detail) setErr(e instanceof Error ? e.message : String(e));
+    loadedRef.current = false;
+    const pull = () => api.card(cardId).then((d) => { if (alive) { setDetail(d); setErr(null); loadedRef.current = true; } }).catch((e) => {
+      // Only surface an error while nothing has loaded yet. A transient failure of
+      // the 3s poll must not blank an already-open card (the `detail` state read
+      // here would be a stale closure, so gate on a ref instead).
+      if (alive && !loadedRef.current) setErr(e instanceof Error ? e.message : String(e));
     });
     void pull();
     const t = setInterval(pull, 3000);
@@ -1231,7 +1236,12 @@ function App() {
                       // it's an immediate agent list); only ASK when there's a choice.
                       const tgts = list.validNext;
                       if (tgts.length === 1) {
-                        void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch(() => load());
+                        // Surface a failed move (e.g. a CAS rev conflict) instead of
+                        // silently swallowing it — the card would otherwise appear stuck.
+                        void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch((e) => {
+                          setNotice(e instanceof Error ? e.message : String(e));
+                          void load();
+                        });
                       } else {
                         setOverlay({ kind: "move", card: c });
                       }

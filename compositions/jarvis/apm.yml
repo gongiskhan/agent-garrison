@@ -8,6 +8,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/knowledge
+    - path: ../../fittings/seed/kanban-loop
 x-garrison:
   composition:
     id: jarvis
@@ -121,6 +122,18 @@ x-garrison:
         - id: knowledge
           config:
             vault_dir: vault
+      # Kanban Loop is the Operative's task system AND the source for the Jarvis
+      # HUD's TAREFAS panel + voice create-card. Stationing it here means a clean
+      # `up` starts it (previously it only ran because it was eager-toggled, so a
+      # fresh clone had a dead Tasks panel). It provides automation-runner and
+      # consumes the orchestrator (satisfied above). The test-beat needs a
+      # scheduler to register; absent one it degrades to skipped, which is fine.
+      observability:
+        - id: kanban-loop
+          config:
+            board_dir: ~/.garrison/kanban-loop
+            iteration_cap: 10
+            test_beat_cron: 0 */5 * * *
     # Specialist Souls the Orchestrator delegates to via talk_to (2026-07-03).
     # The runner folds these into GARRISON_SOULS_CONFIG at gateway spawn; prompts
     # live in souls/*.md. Souls are PTY-backed sessions (per the gateway's

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-01T13:11:41.529202+00:00'
+generated_at: '2026-07-06T15:27:41.200709+00:00'
 apm_version: 0.20.0
 dependencies:
 - repo_url: _local/garrison-orchestrator
@@ -22,6 +22,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/jarvis-os
+- repo_url: _local/kanban-loop
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/kanban-loop
 - repo_url: _local/knowledge
   package_type: invalid
   source: local

@@ -618,6 +618,23 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
 
 // ────────────────────────────────────────────────────────────── HTTP server
 
+// DNS-rebinding / CSRF defense for the endpoints that DRIVE the orchestrator
+// (which runs Claude Code with bypassPermissions — a full shell). The legit
+// callers are server-to-server (the jarvis-os proxy, the kanban dispatch) and
+// send NO Origin header, so they pass; a page in the user's browser hitting this
+// port via a rebound DNS name always sends its Origin and is rejected unless it
+// is loopback or a Tailscale tailnet host.
+function originAllowed(request) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  try {
+    const o = new URL(origin);
+    if (o.hostname === "127.0.0.1" || o.hostname === "localhost" || o.hostname === "[::1]") return true;
+    if (/\.ts\.net$/i.test(o.hostname)) return true;
+    return o.host === (request.headers.host || "");
+  } catch { return false; }
+}
+
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
   const method = request.method ?? "GET";
@@ -636,6 +653,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === "POST" && url.pathname === "/chat") {
+      if (!originAllowed(request)) return sendJson(response, 403, { error: "cross-origin request rejected" });
       const body = await readJsonBody(request);
       const message = String(body.message ?? "").trim();
       if (!message) return sendJson(response, 400, { error: "message is required" });
@@ -652,6 +670,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === "POST" && url.pathname === "/chat/stream") {
+      if (!originAllowed(request)) return sendJson(response, 403, { error: "cross-origin request rejected" });
       const body = await readJsonBody(request);
       const message = String(body.message ?? "").trim();
       if (!message) return sendJson(response, 400, { error: "message is required" });

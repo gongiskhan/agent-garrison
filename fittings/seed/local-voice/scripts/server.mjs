@@ -82,6 +82,19 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// Cross-site WebSocket hijacking defense: allow no-Origin (native client),
+// loopback/tailnet Origin, or same-host Origin; reject a page on another site.
+function wsOriginAllowed(request) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  try {
+    const o = new URL(origin);
+    if (o.hostname === "127.0.0.1" || o.hostname === "localhost" || o.hostname === "[::1]") return true;
+    if (/\.ts\.net$/i.test(o.hostname)) return true;
+    return o.host === (request.headers.host || "");
+  } catch { return false; }
+}
+
 async function findFreePort(startPort, host) {
   const net = await import("node:net");
   for (let port = startPort; port < startPort + 50; port++) {
@@ -389,6 +402,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   // Python port only through here, mirroring how /stt and /tts are proxied.
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
+    // Cross-site WebSocket hijacking defense (WS bypasses same-origin policy):
+    // reject a browser Origin that isn't same-host / loopback / tailnet. Native
+    // clients (jarvis-os relay) send no Origin and pass.
+    if (!wsOriginAllowed(request)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     const parsed = url.parse(request.url || "/", true);
     if (parsed.pathname !== "/events") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");

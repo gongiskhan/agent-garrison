@@ -79,6 +79,21 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// Cross-site WebSocket hijacking defense: allow a request with no Origin (native
+// client), a loopback/tailnet Origin, or a same-host Origin; reject anything else
+// (a page on evil.com). Tailnet (*.ts.net) is allowed so access via `tailscale
+// serve` keeps working even though the proxy may rewrite the Host header.
+function wsOriginAllowed(request) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  try {
+    const o = new URL(origin);
+    if (o.hostname === "127.0.0.1" || o.hostname === "localhost" || o.hostname === "[::1]") return true;
+    if (/\.ts\.net$/i.test(o.hostname)) return true;
+    return o.host === (request.headers.host || "");
+  } catch { return false; }
+}
+
 function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host });
 }
@@ -1010,6 +1025,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const wss = new WebSocketServer({ noServer: true });
   const WS_PATHS = { "/api/voice/stream": "/stream", "/api/voice/events": "/events" };
   server.on("upgrade", (request, socket, head) => {
+    // WebSocket is NOT covered by the same-origin policy, so a malicious page in
+    // the user's browser could open this voice relay (cross-site WS hijacking).
+    // Reject a browser Origin that isn't same-host / loopback / tailnet. Native
+    // clients send no Origin and pass.
+    if (!wsOriginAllowed(request)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     const parsed = url.parse(request.url || "/", true);
     const upstreamPath = WS_PATHS[parsed.pathname || ""];
     if (!upstreamPath) {
