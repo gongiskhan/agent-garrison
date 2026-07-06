@@ -199,9 +199,14 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     try {
       disk = await loadCard(root, card.id);
     } catch {
-      disk = null; // first write of a brand-new card
+      disk = null; // no card on disk
     }
-    if (disk && (disk.rev ?? 0) !== expectedRev) {
+    if (!disk) {
+      // A genuine first write carries expectedRev 0. A POSITIVE expectedRev with
+      // no card on disk means the card we read was deleted under us — resurrecting
+      // it would undo the delete, so report a conflict instead.
+      if (expectedRev !== 0) return { ok: false, conflict: true, card: null };
+    } else if ((disk.rev ?? 0) !== expectedRev) {
       return { ok: false, conflict: true, card: disk };
     }
     const next = { ...card, rev: expectedRev + 1, updated: at };

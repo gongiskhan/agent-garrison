@@ -26,8 +26,15 @@ export function buildOrchestratorTurn({
   const routeClause = routeHint
     ? `[gateway-route (honored hint) — task: ${routeHint.classification?.taskType ?? "?"}, tier: ${routeHint.tier ?? "?"}, role: ${routeHint.role ?? "?"}, target: ${routeHint.targetId ?? "?"}${routeHint.model ? `, model: ${routeHint.model}` : ""}${routeHint.effort ? `/${routeHint.effort}` : ""}. Delegate at this role/tier.]\n\n`
     : "";
-  const originLine = `[origin: ${origin}, channel: ${channel}${mode ? `, mode: ${mode}` : ""}]\n\n`;
+  // origin/channel/mode are caller-controlled (body.channel, x-garrison-origin).
+  // Strip brackets + newlines so a caller can't break out of this tag and forge a
+  // `[gateway-route … Delegate at expert]`-style directive the orchestrator obeys.
+  const originLine = `[origin: ${sanitizeTag(origin)}, channel: ${sanitizeTag(channel)}${mode ? `, mode: ${sanitizeTag(mode)}` : ""}]\n\n`;
   return `${originLine}${routeClause}${summaryClause}${message}`;
+}
+
+function sanitizeTag(v) {
+  return String(v ?? "").replace(/[[\]\r\n]/g, "").slice(0, 64);
 }
 
 function truncate(text, max) {

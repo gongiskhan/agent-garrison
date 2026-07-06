@@ -725,6 +725,19 @@ const server = http.createServer(async (request, response) => {
         }
       }, { replay: false });
 
+      // If the SSE client disconnects mid-turn, `await waiter` stays pending until
+      // the orchestrator turn finishes — without this the heartbeat keeps firing
+      // and the channel subscription leaks for the whole turn. Tear both down on
+      // close; the finally is made idempotent via `closed`.
+      let closed = false;
+      const teardown = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(heartbeat);
+        try { unsubscribe(); } catch { /* already removed */ }
+      };
+      request.on("close", teardown);
+
       try {
         const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
         if (waiter) {
@@ -734,8 +747,7 @@ const server = http.createServer(async (request, response) => {
       } catch (err) {
         sseWrite(response, "error", { error: err.message });
       } finally {
-        clearInterval(heartbeat);
-        unsubscribe();
+        teardown();
         response.end();
       }
       return;
@@ -755,6 +767,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === "POST" && url.pathname === "/jobs") {
+      if (!originAllowed(request)) return sendJson(response, 403, { error: "cross-origin request rejected" });
       const body = await readJsonBody(request);
       const description = typeof body.kind === "string" ? `Heartbeat job: ${body.kind}` : "Heartbeat tick";
       const payloadJson = JSON.stringify(body);
@@ -768,6 +781,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === "POST" && url.pathname === "/sessions/spawn") {
+      if (!originAllowed(request)) return sendJson(response, 403, { error: "cross-origin request rejected" });
       const body = await readJsonBody(request);
       const result = await spawnSoulSession({
         soul: String(body.soul ?? ""),

@@ -885,7 +885,10 @@ async function handlePatchCard(req, res, opts, id) {
   // list, dispatch its run now (fire-and-forget — the run goes through the gateway in
   // the background, the card flips to `running` and is watchable; the PATCH returns at
   // once). A manual / interactive (Discuss) / scheduler-beat (Test) target just moves.
-  const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list);
+  // Only auto-dispatch when the card actually CHANGES list — a PATCH that carries
+  // the current list (a field edit, or a no-op move) must not re-run an agent list
+  // and clobber a card that's already running there.
+  const autoDispatch = typeof body.list === "string" && body.list !== card.list && shouldAutoDispatch(board, body.list);
   if (autoDispatch && opts.gatewayUrl) {
     if (await gatewayReachable(opts.gatewayUrl)) {
       // processChain runs the AUTOMATED FLOW: this list, then the next immediate

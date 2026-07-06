@@ -199,7 +199,10 @@ async function handleStt(req, res, ctx) {
       hostname: "127.0.0.1",
       port: ctx.pyPort,
       path: "/stt",
-      headers: { "Content-Type": contentType, "Content-Length": audio.length }
+      headers: { "Content-Type": contentType, "Content-Length": audio.length },
+      // large-v3 decodes in ~5-6s on CPU; cap generously so a wedged Python worker
+      // (or GPU/Metal contention) can't hang the request — and its socket — forever.
+      timeout: 30_000
     },
     (up) => {
       const chunks = [];
@@ -229,8 +232,12 @@ async function handleStt(req, res, ctx) {
     }
   );
   upstream.on("error", (err) => {
+    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
     try { jsonRes(res, 502, { error: `voice-server stt failed: ${err.message}` }); } catch {}
   });
+  upstream.on("timeout", () => { try { upstream.destroy(new Error("stt upstream timeout")); } catch {} });
+  // Client gave up (barge-in / navigation) — stop the upstream STT work.
+  req.on("close", () => { try { upstream.destroy(); } catch {} });
   upstream.end(audio);
 }
 

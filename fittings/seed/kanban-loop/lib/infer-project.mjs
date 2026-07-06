@@ -42,7 +42,9 @@ export function parseInferredProject(reply) {
     .replace(/\[[^\]\n]*\]/g, " ")
     .split("\n")
     .map((l) => l.trim())
-    .filter(Boolean);
+    // Drop code-fence markers so a model that wraps the slug in a ```fence```
+    // doesn't leave "```" as the last line (which parses to null).
+    .filter((l) => l && !/^`{3,}/.test(l));
   if (!lines.length) return null;
   let token = lines[lines.length - 1].toLowerCase();
   // Strip surrounding quotes/backticks and trailing punctuation a model might add

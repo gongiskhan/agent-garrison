@@ -16,7 +16,7 @@ export type KanbanIntent =
 // "cria um card …", "nova tarefa: …", "adiciona uma task …", "new todo …".
 // Verb (+ optional article) + a task noun; whatever follows is the card text.
 const CREATE_RE =
-  /^\W*(cria(?:r)?|adiciona(?:r)?|regista(?:r)?|abre|nov[ao]|add|create|new)\b\s*(?:um |uma |o |a |an )?\b(card|cart[aã]o|tarefa|task|to-?do|ticket)\b[\s:,\-–—]*/i;
+  /^\W*(?:(?:por favor|faz favor|olha|então|ó?\s*jarvis)[,\s]+)?(cria(?:r)?|adiciona(?:r)?|regista(?:r)?|abre|nov[ao]|add|create|new)(?:-(?:me|nos|lhe))?\b\s*(?:um |uma |o |a |an )?\b(card|cart[aã]o|tarefa|task|to-?do|ticket)\b[\s:,\-–—]*/i;
 
 // Leading connectors to drop from the extracted card text ("cria um card PARA …").
 const CREATE_LEAD_RE = /^(para|pra|sobre|to|about|chamad[oa]|called|que diga|a dizer)\s+/i;

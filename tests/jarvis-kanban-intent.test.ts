@@ -43,6 +43,17 @@ describe("parseKanbanIntent — create", () => {
     });
   });
 
+  it("handles clitic pronouns and leading filler", () => {
+    expect(parseKanbanIntent("cria-me um card para testar o login")).toEqual({
+      kind: "create",
+      text: "testar o login"
+    });
+    expect(parseKanbanIntent("por favor cria uma tarefa arranjar o build")).toEqual({
+      kind: "create",
+      text: "arranjar o build"
+    });
+  });
+
   it("falls through (null) when a create verb has no card body", () => {
     expect(parseKanbanIntent("cria uma tarefa")).toBeNull();
     expect(parseKanbanIntent("novo card")).toBeNull();
