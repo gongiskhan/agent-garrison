@@ -447,11 +447,18 @@ export default function GraphCore({
       lastT = t;
       const feel = FEELS[modeRef.current];
 
-      // voice envelope — fast attack, soft release; real RMS when audio is live
+      // voice envelope — fast attack, soft release; real RMS when audio is live.
+      // The orb reacts to BOTH voices: the user's mic while listening and the
+      // TTS while speaking (the host's getLevel returns whichever matches the
+      // mode). Listening uses the real mic level only — no synthetic fallback,
+      // so silence reads as calm; speaking falls back to a synthetic envelope
+      // when no <audio> RMS is available yet.
       let targetLevel = 0;
-      if (modeRef.current === "speaking") {
-        const real = getLevelRef.current?.();
-        targetLevel = real ?? fakeSpeechLevel();
+      const m = modeRef.current;
+      if (m === "speaking") {
+        targetLevel = getLevelRef.current?.() ?? fakeSpeechLevel();
+      } else if (m === "listening") {
+        targetLevel = getLevelRef.current?.() ?? 0;
       }
       level += (targetLevel - level) * (targetLevel > level ? 0.5 : 0.12);
       speed += (feel.speed - speed) * 0.03;
