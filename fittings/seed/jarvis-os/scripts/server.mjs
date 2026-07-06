@@ -656,6 +656,10 @@ function relayVoiceStream(client, voiceHttpUrl, search, upstreamPath = "/stream"
   const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + upstreamPath + (search || "");
   const upstream = new WebSocket(upstreamUrl);
   const pending = [];
+  // Cap the pre-open buffer: the client streams ~50 mic frames/s, so if the
+  // upstream is slow to connect (or never does) this would grow without bound.
+  // ~256 frames ≈ a few seconds; past that, drop the oldest.
+  const MAX_PENDING = 256;
 
   upstream.on("open", () => {
     for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
@@ -664,12 +668,12 @@ function relayVoiceStream(client, voiceHttpUrl, search, upstreamPath = "/stream"
   upstream.on("message", (data, isBinary) => {
     if (client.readyState === WebSocket.OPEN) client.send(data, { binary: isBinary });
   });
-  upstream.on("close", () => { try { client.close(); } catch {} });
-  upstream.on("error", () => { try { client.close(); } catch {} });
+  upstream.on("close", () => { pending.length = 0; try { client.close(); } catch {} });
+  upstream.on("error", () => { pending.length = 0; try { client.close(); } catch {} });
 
   client.on("message", (data, isBinary) => {
     if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-    else pending.push({ data, isBinary });
+    else { pending.push({ data, isBinary }); if (pending.length > MAX_PENDING) pending.shift(); }
   });
   client.on("close", () => { try { upstream.close(); } catch {} });
   client.on("error", () => { try { upstream.close(); } catch {} });

@@ -22,6 +22,7 @@ import ReportOverlay from "./ReportOverlay";
 import DiffOverlay from "./DiffOverlay";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 import { resolveKanbanCardUrl } from "./deep-link";
+import { classifyStandbyUtterance, isStopPhrase } from "./voice-phrases";
 
 marked.setOptions({ gfm: true, breaks: true });
 // Render an assistant reply's markdown to HTML for the transcript. Content is the
@@ -97,19 +98,10 @@ const EP_DEFAULTS: EpCfg = {
   bargeinProb: 0.55, bargeinConfirmMs: 350, idleTimeoutMs: 90_000
 };
 
-// Stop phrases — a whole short utterance that drops the session into standby
-// ("hey jarvis" wakes it again). PT + EN.
-const STOP_RE = /^\s*(ok\s+)?(jarvis[,.!?\s]+)?(desliga(-te)?|para de ouvir|podes? parar( de ouvir)?|fica em standby|vai dormir|adeus|até (já|logo)|stop listening|go to sleep|stand ?by)\s*[,.!?]*\s*(jarvis)?\s*[.!?]*\s*$/i;
-
-// Wake phrase for the BROWSER-side standby: in standby every VAD segment is
-// still transcribed locally, and only an utterance addressing Jarvis wakes the
-// session — anything else is dropped without reaching the orchestrator. This
-// path works wherever the browser (and its mic) is, including a LAN/remote
-// machine, where the voice server's own openWakeWord mic can't hear the user.
-// Whatever follows the wake phrase ("hey jarvis, que horas são?") becomes the
-// first turn. Whisper mangles "hey/jarvis" in PT sometimes, so common
-// mis-hearings are included.
-const WAKE_RE = /^\W{0,3}(hey|ei|ok|olá|ola|oi|alô|alo)?[\s,]*(jarvis|jervis|djarvis|járvis)\b[\s,.!?…:;-]*/i;
+// Standby wake/stop phrase logic lives in ./voice-phrases (pure + unit-tested):
+// in standby every VAD segment is still transcribed locally and only an utterance
+// addressing Jarvis wakes the session; anything else is dropped without reaching
+// the orchestrator. Works wherever the browser+mic are (incl. a LAN/remote box).
 // Silence (s) stitched between merged segments so whisper hears the pause the
 // speaker actually made (helps punctuation; keeps words from running together).
 const MERGE_GAP_S = 0.24;
@@ -974,23 +966,20 @@ function App() {
     // it; everything else was room talk and is dropped here, never sent. The
     // rest of the wake utterance ("hey jarvis, que horas são?") is the first turn.
     if (standbyRef.current) {
-      const t = r.transcript.trim();
-      const m = t.match(WAKE_RE);
-      if (!m) { console.debug(`[wake] standby drop: "${t.slice(0, 50)}"`); endTurnIfDone(); return; }
-      const remainder = t.slice(m[0].length).trim();
+      const res = classifyStandbyUtterance(r.transcript);
+      if (res.kind === "ignore") { console.debug(`[wake] standby drop: "${r.transcript.trim().slice(0, 50)}"`); endTurnIfDone(); return; }
       // "jarvis, para de ouvir" while already dormant = stay dormant.
-      if (remainder && STOP_RE.test(remainder)) { endTurnIfDone(); return; }
-      const hasQuery = remainder.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2;
-      console.debug(`[wake] woke by voice — query="${remainder.slice(0, 50)}"`);
-      exitStandby(!hasQuery);
-      if (hasQuery) void send(remainder);
+      if (res.kind === "stay-dormant") { endTurnIfDone(); return; }
+      console.debug(`[wake] woke by voice — query="${res.query.slice(0, 50)}"`);
+      exitStandby(!res.query);
+      if (res.query) void send(res.query);
       else endTurnIfDone();
       return;
     }
     // Stop phrase ("desliga", "para de ouvir", …) drops into standby; "hey
     // jarvis" wakes it again. Checked before send so the orchestrator never
     // sees the phrase as a turn.
-    if (r.transcript && STOP_RE.test(r.transcript.trim())) {
+    if (r.transcript && isStopPhrase(r.transcript)) {
       pushCallout("standby", "Em standby — diz “hey jarvis” para voltar.");
       enterStandby();
       return;
