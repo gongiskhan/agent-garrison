@@ -58,7 +58,9 @@ export async function syncListBeat(list, { log = console.log } = {}) {
     log(`kanban-loop: list '${list.id}' is scheduler-beat but has no beatCron — not registered.`);
     return { action: "no-cron" };
   }
-  const cmd = `node ${kanbanCli()} --tick-list ${list.id}`;
+  // Quote the CLI path — an install dir containing a space would otherwise split
+  // the command and the beat would silently fail to run.
+  const cmd = `node '${kanbanCli()}' --tick-list ${list.id}`;
   const add = spawnSync("node", [cli, "add", beatId, cron, cmd], { encoding: "utf8" });
   if (add.status === 0) {
     log(`kanban-loop: registered ${beatId} @ '${cron}' -> ${cmd}`);

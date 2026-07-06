@@ -66,4 +66,11 @@ describe("parseKanbanIntent — fall-through", () => {
     expect(parseKanbanIntent("olá jarvis, que horas são?")).toBeNull();
     expect(parseKanbanIntent("")).toBeNull();
   });
+
+  it("does not hijack ordinary chat that merely mentions a task", () => {
+    // Bare "que tarefa…" without a status keyword must fall through, not be read
+    // as a board-summary command.
+    expect(parseKanbanIntent("não sei que tarefa me deram no trabalho")).toBeNull();
+    expect(parseKanbanIntent("explica-me que tarefa faz esta função")).toBeNull();
+  });
 });

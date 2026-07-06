@@ -8,10 +8,17 @@
 // ---------------------------------------------------------------------------
 
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 marked.setOptions({ gfm: true, breaks: true });
+// report.content is an orchestrator-produced deliverable (vault note / transcript
+// / connector data) that can carry content from untrusted external sources (web
+// pages, email). marked v14 does NOT sanitize, so we MUST run its HTML through
+// DOMPurify before injecting it — otherwise `<img onerror=…>` runs in the HUD's
+// privileged origin. The catch branch escapes the raw text the same way.
 function mdToHtml(md: string): string {
-  try { return marked.parse(md || "", { async: false }) as string; } catch { return md; }
+  try { return DOMPurify.sanitize(marked.parse(md || "", { async: false }) as string); }
+  catch { return DOMPurify.sanitize(md || ""); }
 }
 
 // Obsidian vault name (folder basename) — the obsidian:// URI needs the exact

@@ -1125,7 +1125,21 @@ async function handleWatchCard(req, res, opts, id) {
   // tailing would break on an overwrite that re-flows or shrinks.)
   send("mode", { live: true, status: "running", n });
   let lastSent = null;
+  let timer = null;
+  let ended = false;
+  // Declared BEFORE pump so pump's early-finish path can call them without hitting
+  // a temporal-dead-zone ReferenceError (the first pump runs before the timer is
+  // even set). finish() is idempotent and stops the timer.
+  const cleanup = () => { if (timer) { clearInterval(timer); timer = null; } };
+  const finish = (payload) => {
+    if (ended) return;
+    ended = true;
+    send("end", payload);
+    cleanup();
+    res.end();
+  };
   const pump = async () => {
+    if (ended) return;
     if (isReadableFile(logFile)) {
       try {
         const text = await readFile(logFile, "utf8");
@@ -1139,16 +1153,14 @@ async function handleWatchCard(req, res, opts, id) {
     try {
       const fresh = await loadCard(root, id);
       if (fresh.status !== "running") {
-        send("end", { reason: "run-finished", status: fresh.status, list: fresh.list });
-        cleanup();
-        return res.end();
+        finish({ reason: "run-finished", status: fresh.status, list: fresh.list });
       }
     } catch {}
   };
-  await pump();
-  const timer = setInterval(pump, 1000);
-  const cleanup = () => clearInterval(timer);
   req.on("close", cleanup);
+  await pump();
+  // Only start polling if the first pump didn't already finish the stream.
+  if (!ended) timer = setInterval(pump, 1000);
 }
 
 // GET /cards/:id/artifact?ref=<refToken> — read-only serve of a card's linked
@@ -1355,7 +1367,7 @@ function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
   const filePath = path.join(distDir, pathname.replace(/^\/+/, ""));
-  if (!filePath.startsWith(distDir)) { res.statusCode = 403; return res.end("forbidden"); }
+  if (filePath !== distDir && !filePath.startsWith(distDir + path.sep)) { res.statusCode = 403; return res.end("forbidden"); }
   if (!existsSync(filePath)) {
     const idx = path.join(distDir, "index.html");
     if (existsSync(idx)) {

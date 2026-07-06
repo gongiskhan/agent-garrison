@@ -22,7 +22,7 @@
 // list's own scheduler beat.
 import path from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog } from "./board.mjs";
+import { saveCardCAS, appendCardLog, writeCardLog } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 
 // Does this card's run dir actually contain tangible evidence? A list flagged

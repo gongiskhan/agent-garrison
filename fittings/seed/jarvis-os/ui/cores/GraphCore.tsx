@@ -562,8 +562,13 @@ export default function GraphCore({
       gridMat.dispose();
       nebula.geometry.dispose();
       nebMat.dispose();
+      // UnrealBloomPass allocates its own chain of render targets that composer.dispose()
+      // does NOT free — dispose it explicitly, then force-release the GL context so a
+      // remount doesn't exhaust the browser's WebGL context budget.
+      bloom.dispose();
       composer.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       mount.removeChild(renderer.domElement);
     };
   }, []);

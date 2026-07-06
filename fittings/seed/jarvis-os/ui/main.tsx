@@ -16,6 +16,7 @@ import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MicVAD } from "@ricky0123/vad-web";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import GraphCore, { type CoreMode } from "./cores/GraphCore";
 import ReportOverlay from "./ReportOverlay";
 import DiffOverlay from "./DiffOverlay";
@@ -25,7 +26,11 @@ marked.setOptions({ gfm: true, breaks: true });
 // Render an assistant reply's markdown to HTML for the transcript. Content is the
 // local operative's own output (single-user, localhost), so we render directly.
 function renderMarkdown(s: string): string {
-  try { return marked.parse(s || "", { async: false }) as string; } catch { return s; }
+  // Assistant replies can relay untrusted external content (fetched pages, email
+  // via connectors); marked v14 doesn't sanitize, so DOMPurify the HTML before it
+  // reaches dangerouslySetInnerHTML.
+  try { return DOMPurify.sanitize(marked.parse(s || "", { async: false }) as string); }
+  catch { return DOMPurify.sanitize(s || ""); }
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -429,7 +434,7 @@ function App() {
   const analyserDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const ttsSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  // (audioUrlRef removed — TTS plays via /api/voice/tts URLs, never an object URL.)
   // Silero VAD instance + whether it is currently feeding frames to the model.
   // We pause it during a turn (think + speak) so it never captures Jarvis's own
   // TTS, and resume it when we return to idle.
@@ -1421,7 +1426,6 @@ function App() {
     try { void vadRef.current?.destroy(); } catch {}
     try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     try { audioElRef.current?.pause(); } catch {}
-    if (audioUrlRef.current) { try { URL.revokeObjectURL(audioUrlRef.current); } catch {} }
     try { audioCtxRef.current?.close(); } catch {}
   }, []);
 

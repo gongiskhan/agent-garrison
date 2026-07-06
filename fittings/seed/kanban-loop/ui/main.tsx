@@ -590,7 +590,7 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
         {events.length === 0 ? (
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>No activity yet.</p>
         ) : (
-          events.map((ev, i) => <TimelineEvent key={i} ev={ev} />)
+          events.map((ev, i) => <TimelineEvent key={`${ev.at}:${ev.kind}:${i}`} ev={ev} />)
         )}
       </div>
 

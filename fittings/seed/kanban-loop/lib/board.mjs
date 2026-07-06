@@ -270,7 +270,11 @@ export async function appendCardLog(root, id, n, text) {
 export async function writeCardLog(root, id, n, text) {
   const file = path.join(root, "cards", id, `log-${n}.md`);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
+  // Unique temp per CALL (not per process): the engine fires writeCardLog on every
+  // streamed chunk without awaiting, so many writes race on the same log-<n>.md.
+  // A shared temp name lets two concurrent writes interleave into a torn file (the
+  // very thing the temp+rename was meant to prevent). Mirror atomicWriteJSON.
+  const tmp = `${file}.${process.pid}.${ulid()}.tmp`;
   await fs.writeFile(tmp, text.endsWith("\n") ? text : text + "\n", "utf8");
   await fs.rename(tmp, file);
   return file;

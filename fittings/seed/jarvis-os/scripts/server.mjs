@@ -365,7 +365,10 @@ async function handleOperative(res, opts) {
 // and POST /cards are allowed (kanban's originAllowed() passes when Origin is
 // absent). A browser cross-origin call would be rejected — hence this proxy.
 const KANBAN_TTL_MS = 8_000;
-let kanbanCache = { at: 0, data: null };
+// A negative result (kanban momentarily unreachable) is cached only briefly, so a
+// transient hiccup doesn't blank the Tasks panel for a full 8s after it recovers.
+const KANBAN_NEG_TTL_MS = 1_500;
+let kanbanCache = { expires: 0, data: null };
 
 function readFittingInfo(file) {
   if (!existsSync(file)) return null;
@@ -454,16 +457,16 @@ function deriveStatusLine(card, listTitle) {
 
 async function handleKanban(res) {
   const now = Date.now();
-  if (kanbanCache.data && now - kanbanCache.at < KANBAN_TTL_MS) {
+  if (kanbanCache.data && now < kanbanCache.expires) {
     jsonRes(res, 200, kanbanCache.data);
     return;
   }
-  const cacheAndSend = (data) => { kanbanCache = { at: now, data }; jsonRes(res, 200, data); };
+  const cacheAndSend = (data, ttl = KANBAN_TTL_MS) => { kanbanCache = { expires: now + ttl, data }; jsonRes(res, 200, data); };
   const info = readFittingInfo(KANBAN_STATUS_FILE);
-  if (!info?.url) { cacheAndSend({ available: false }); return; }
-  if (!(await pingHealth(info.url, 600))) { cacheAndSend({ available: false }); return; }
+  if (!info?.url) { cacheAndSend({ available: false }, KANBAN_NEG_TTL_MS); return; }
+  if (!(await pingHealth(info.url, 600))) { cacheAndSend({ available: false }, KANBAN_NEG_TTL_MS); return; }
   const board = await fetchJson(info.url, "/board", 3000);
-  if (!board || !Array.isArray(board.cards)) { cacheAndSend({ available: false }); return; }
+  if (!board || !Array.isArray(board.cards)) { cacheAndSend({ available: false }, KANBAN_NEG_TTL_MS); return; }
   const listTitle = {};
   for (const l of board.lists || []) listTitle[l.id] = l.title;
   let cards = board.cards.map((c) => ({
@@ -512,7 +515,7 @@ function postJson(baseUrl, subpath, payload, res) {
       res.statusCode = up.statusCode || 502;
       res.setHeader("Content-Type", "application/json");
       res.end(raw || "{}");
-      kanbanCache = { at: 0, data: null };
+      kanbanCache = { expires: 0, data: null };
     });
   });
   upstream.on("error", () => { try { jsonRes(res, 502, { error: "kanban unreachable" }); } catch {} });
@@ -619,6 +622,9 @@ async function handleVoiceProxy(req, res, subpath) {
   upstream.on("error", (err) => {
     try { jsonRes(res, 502, { error: `voice upstream: ${err.message}` }); } catch {}
   });
+  // If the client aborts (navigates away / cancels), tear down the upstream so a
+  // slow voice request doesn't leak the socket (mirrors handleVoiceTtsGet).
+  req.on("close", () => { try { upstream.destroy(); } catch {} });
   upstream.end(body);
 }
 
@@ -852,7 +858,9 @@ function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
   const filePath = path.join(distDir, pathname.replace(/^\/+/, ""));
-  if (!filePath.startsWith(distDir)) {
+  // Confine to distDir with a separator boundary — a bare startsWith(distDir)
+  // would also admit a sibling `dist-secrets/…` directory.
+  if (filePath !== distDir && !filePath.startsWith(distDir + path.sep)) {
     res.statusCode = 403;
     res.end("forbidden");
     return;

@@ -264,6 +264,9 @@ async function handleTts(req, res, ctx) {
     }
   );
   upstream.on("error", (err) => {
+    // Once we've started piping audio the headers are already sent — a jsonRes here
+    // would throw and leave the response hanging open; destroy it instead.
+    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
     try { jsonRes(res, 502, { error: `voice-server tts failed: ${err.message}` }); } catch {}
   });
   req.on("close", () => { try { upstream.destroy(); } catch {} });

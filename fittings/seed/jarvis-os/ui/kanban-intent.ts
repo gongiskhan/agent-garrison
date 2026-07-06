@@ -28,7 +28,10 @@ const SUMMARY_RE = new RegExp(
   [
     "estado d[oae]s?\\s+(?:tarefas?|cards?|sistema|kanban|board)",
     "resumo d[oae]s?\\s+(?:tarefas?|sistema|kanban)",
-    "(?:o que|que)\\b[^?]*\\b(?:tarefas?|kanban|a correr|em curso|em andamento)\\b",
+    // Note: bare "que tarefa…" is intentionally NOT here — it hijacked ordinary
+    // chat ("não sei que tarefa me deram"). Real status queries about tasks go
+    // through the dedicated "que tarefas … correr/curso/abertas" branch below.
+    "(?:o que|que)\\b[^?]*\\b(?:kanban|a correr|em curso|em andamento)\\b",
     "o que.*\\bsistema\\b.*\\b(?:faz|fazer|a fazer|acontece|acontecer)\\b",
     "what(?:'s| is)\\s+(?:running|going on|the status)",
     "status of (?:the )?(?:tasks?|board|system|kanban)",
