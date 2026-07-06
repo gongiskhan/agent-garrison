@@ -50,6 +50,13 @@ import { resolveMode, buildSwitchEntry, appendSwitchLog } from "./lib/mode-resol
 import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
 import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
 import { resolveSoulsHint } from "./lib/souls-route.mjs";
+import { createSerializer, withTimeout } from "./lib/serializer.mjs";
+
+// One orchestrator turn at a time (single PTY stdin) — see lib/serializer.mjs. The
+// safety timeout is well above any real turn so a live turn is never cut short; it
+// only rescues the queue (and the awaiting HTTP request) from a wedged turn.
+const ORCH_TURN_MAX_MS = 30 * 60 * 1000;
+const enqueueOrchestratorTurn = createSerializer({ maxHoldMs: ORCH_TURN_MAX_MS });
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -551,6 +558,11 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
   if (!orchestratorChild || !orchestratorSessionId) {
     throw new Error("orchestrator not booted");
   }
+  // Serialize: only one turn writes to the orchestrator's stdin (and holds
+  // currentOrchestratorChannel / the waiter) at a time — concurrent turns
+  // otherwise interleave and cross-resolve. The queue releases when this turn's
+  // result lands (or the safety timeout fires).
+  return enqueueOrchestratorTurn(async (release) => {
   // Remember this turn's channel so souls delegated during it inherit it.
   currentOrchestratorChannel = channel;
   // Honor an EXPLICIT {taskType,tier} classification hint (the Kanban Loop §10
@@ -612,8 +624,13 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
   const orchState = registry.get(orchestratorSessionId);
   if (orchState) orchState.lastSummary = null;
   writeUserTurn(orchestratorChild, turn);
-  // Caller may wait for result; otherwise fire-and-forget.
-  return orchState ? registry.addWaiter(orchestratorSessionId) : null;
+  // Caller may wait for result; otherwise fire-and-forget. Either way, hold the
+  // serializer until this turn's result lands (or release now if there's no
+  // waiter) so the next turn doesn't write into an in-flight turn.
+  const waiter = orchState ? registry.addWaiter(orchestratorSessionId) : null;
+  if (waiter) waiter.then(release, release); else release();
+  return waiter;
+  });
 }
 
 // ────────────────────────────────────────────────────────────── HTTP server
@@ -661,7 +678,7 @@ const server = http.createServer(async (request, response) => {
       const channel = String(body.channel ?? "main");
       const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
       if (waiter) {
-        const result = await waiter;
+        const result = await withTimeout(waiter, ORCH_TURN_MAX_MS, () => ({ summary: "(o turno do orquestrador excedeu o tempo limite)" }));
         sendJson(response, 200, { reply: result.summary, session_id: orchestratorSessionId });
       } else {
         sendJson(response, 200, { ack: true, session_id: orchestratorSessionId });
@@ -741,7 +758,7 @@ const server = http.createServer(async (request, response) => {
       try {
         const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
         if (waiter) {
-          const result = await waiter;
+          const result = await withTimeout(waiter, ORCH_TURN_MAX_MS, () => ({ summary: "(o turno do orquestrador excedeu o tempo limite)" }));
           sseWrite(response, "done", { reply: result.summary });
         }
       } catch (err) {

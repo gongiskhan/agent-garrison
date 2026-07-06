@@ -595,7 +595,8 @@ async function handleVoiceProxy(req, res, subpath) {
       headers: {
         "Content-Type": req.headers["content-type"] || "application/octet-stream",
         "Content-Length": body.length
-      }
+      },
+      timeout: 30_000
     },
     (up) => {
       res.statusCode = up.statusCode || 502;
@@ -605,8 +606,10 @@ async function handleVoiceProxy(req, res, subpath) {
     }
   );
   upstream.on("error", (err) => {
+    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
     try { jsonRes(res, 502, { error: `voice upstream: ${err.message}` }); } catch {}
   });
+  upstream.on("timeout", () => { try { upstream.destroy(new Error("voice upstream timeout")); } catch {} });
   // If the client aborts (navigates away / cancels), tear down the upstream so a
   // slow voice request doesn't leak the socket (mirrors handleVoiceTtsGet).
   req.on("close", () => { try { upstream.destroy(); } catch {} });
@@ -779,7 +782,7 @@ async function handleClaudeProxy(req, res, opts, subpath, method) {
     headers["Content-Length"] = Buffer.byteLength(payload);
   }
   const upstream = http.request(
-    { method, hostname: target.hostname, port: target.port, path: target.pathname + (target.search || ""), headers },
+    { method, hostname: target.hostname, port: target.port, path: target.pathname + (target.search || ""), headers, timeout: 15_000 },
     (up) => {
       res.statusCode = up.statusCode || 502;
       res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
@@ -787,8 +790,11 @@ async function handleClaudeProxy(req, res, opts, subpath, method) {
     }
   );
   upstream.on("error", (err) => {
+    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
     try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
   });
+  upstream.on("timeout", () => { try { upstream.destroy(new Error("gateway timeout")); } catch {} });
+  req.on("close", () => { try { upstream.destroy(); } catch {} });
   if (payload !== undefined) upstream.write(payload);
   upstream.end();
 }
