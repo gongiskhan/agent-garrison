@@ -21,6 +21,7 @@ import GraphCore, { type CoreMode } from "./cores/GraphCore";
 import ReportOverlay from "./ReportOverlay";
 import DiffOverlay from "./DiffOverlay";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
+import { resolveKanbanCardUrl } from "./deep-link";
 
 marked.setOptions({ gfm: true, breaks: true });
 // Render an assistant reply's markdown to HTML for the transcript. Content is the
@@ -280,33 +281,10 @@ type KanbanState = {
 };
 const KANBAN_POLL_MS = 10_000;
 
-// Rebind a loopback URL's host to the current page host (LAN/http fallback),
-// preserving scheme + port. Returns the origin only (no path).
-function rebindLoopback(rawUrl: string, host: string): string {
-  try {
-    const u = new URL(rawUrl);
-    if (u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "0.0.0.0") u.hostname = host;
-    return u.origin;
-  } catch { return rawUrl; }
-}
-
-// The browser-reachable deep-link to a specific card, picking the right host for
-// where the page actually is (mirrors src/components/fitting-views/browser-view-url
-// resolveViewUrl): loopback on localhost, the HTTPS tailnet URL over Tailscale
-// (avoids mixed content + unreachable loopback), else a best-effort host rebind.
-function resolveKanbanCardUrl(k: KanbanState | null, cardId: string): string | null {
-  if (!k?.available || !k.boardUrl || !cardId) return null;
-  const here = typeof window !== "undefined" ? window.location.hostname : "";
-  let base = k.boardUrl;
-  if (here && here !== "127.0.0.1" && here !== "localhost") {
-    let matched = false;
-    if (k.tailnetUrl) {
-      try { if (new URL(k.tailnetUrl).hostname === here) { base = k.tailnetUrl; matched = true; } } catch { /* rebind below */ }
-    }
-    if (!matched) base = rebindLoopback(k.boardUrl, here);
-  }
-  return `${base.replace(/\/+$/, "")}/?card=${encodeURIComponent(cardId)}`;
-}
+// Deep-link host resolution lives in ./deep-link (pure + unit-tested). `here` is
+// the page host; wrap it so call sites stay terse.
+const cardHref = (k: KanbanState | null, cardId: string) =>
+  resolveKanbanCardUrl(k, cardId, typeof window !== "undefined" ? window.location.hostname : "");
 
 // Dev action dock — canned prompts fired at the Operative through the normal
 // /api/chat path (spoken + written like any turn). The label is what shows in
@@ -954,7 +932,7 @@ function App() {
       if (res.ok && data?.card) {
         const title = data.card.title || intent.text;
         enqueueSpeech(`Criei o card "${title}" no backlog.`);
-        const url = resolveKanbanCardUrl(kanbanRef.current, data.card.id);
+        const url = cardHref(kanbanRef.current, data.card.id);
         pushCallout("card criado", url ? `${title}\n\n${url}` : title);
         refreshKanban();
       } else {
@@ -1620,7 +1598,7 @@ function App() {
               <div className="jarvis-ws-body">
                 <div className="jarvis-ws-section">
                   {kanban.cards!.map((c) => {
-                    const url = resolveKanbanCardUrl(kanban, c.id);
+                    const url = cardHref(kanban, c.id);
                     const statusClass = c.status === "needs-attention" ? "attention" : c.status === "running" ? "running" : "ok";
                     const inner = (
                       <>
