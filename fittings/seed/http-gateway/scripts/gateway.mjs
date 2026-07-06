@@ -624,12 +624,18 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
   const orchState = registry.get(orchestratorSessionId);
   if (orchState) orchState.lastSummary = null;
   writeUserTurn(orchestratorChild, turn);
-  // Caller may wait for result; otherwise fire-and-forget. Either way, hold the
-  // serializer until this turn's result lands (or release now if there's no
-  // waiter) so the next turn doesn't write into an in-flight turn.
+  // Await THIS turn's result INSIDE the serialized section (with a safety timeout
+  // so a wedged turn can't hang the queue forever), then release so the next turn
+  // can write. Returns the result object, or null for fire-and-forget (no waiter).
+  // NB: don't return the raw waiter promise here — enqueue's `await fn()` would
+  // unwrap it, so the caller would get the result, not a thenable.
   const waiter = orchState ? registry.addWaiter(orchestratorSessionId) : null;
-  if (waiter) waiter.then(release, release); else release();
-  return waiter;
+  try {
+    if (!waiter) return null;
+    return await withTimeout(waiter, ORCH_TURN_MAX_MS, () => ({ summary: "(o turno do orquestrador excedeu o tempo limite)" }));
+  } finally {
+    release();
+  }
   });
 }
 
@@ -676,9 +682,8 @@ const server = http.createServer(async (request, response) => {
       if (!message) return sendJson(response, 400, { error: "message is required" });
       const origin = (request.headers["x-garrison-origin"] ?? "channel").toString();
       const channel = String(body.channel ?? "main");
-      const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
-      if (waiter) {
-        const result = await withTimeout(waiter, ORCH_TURN_MAX_MS, () => ({ summary: "(o turno do orquestrador excedeu o tempo limite)" }));
+      const result = await forwardChatToOrchestrator({ origin, channel, message, body });
+      if (result) {
         sendJson(response, 200, { reply: result.summary, session_id: orchestratorSessionId });
       } else {
         sendJson(response, 200, { ack: true, session_id: orchestratorSessionId });
@@ -756,9 +761,8 @@ const server = http.createServer(async (request, response) => {
       request.on("close", teardown);
 
       try {
-        const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
-        if (waiter) {
-          const result = await withTimeout(waiter, ORCH_TURN_MAX_MS, () => ({ summary: "(o turno do orquestrador excedeu o tempo limite)" }));
+        const result = await forwardChatToOrchestrator({ origin, channel, message, body });
+        if (result) {
           sseWrite(response, "done", { reply: result.summary });
         }
       } catch (err) {
