@@ -54,7 +54,11 @@ function parseArgs(argv) {
     // JSON map ISO-lang → { voice, klang } for per-language TTS voice. Empty =
     // the voice-server's built-in defaults (en/pt/fr/es/it).
     langVoices: process.env.LANG_VOICES || "",
-    wakeWord: process.env.WAKE_WORD || "off"
+    wakeWord: process.env.WAKE_WORD || "off",
+    // Optional shared secret required for OFF-BOX access to the STT/TTS/events
+    // endpoints. Loopback (the jarvis-os proxy) never needs it. Unset + a
+    // non-loopback bind = off-box access is denied outright (secure default).
+    authToken: process.env.LOCAL_VOICE_AUTH_TOKEN || ""
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -80,6 +84,26 @@ function jsonRes(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(body));
+}
+
+function isLoopbackAddr(addr) {
+  if (!addr) return false;
+  return addr === "::1" || addr === "::ffff:127.0.0.1" || addr.startsWith("127.");
+}
+
+// The STT/TTS/events endpoints are CPU-heavy and unauthenticated by default —
+// fine on loopback (the jarvis-os proxy is always loopback), but if the user binds
+// a LAN IP, an off-box client must present the configured LOCAL_VOICE_AUTH_TOKEN
+// (Bearer header or ?token=). No token configured → off-box access is denied.
+function requestAuthorized(req, ctx) {
+  if (isLoopbackAddr(req.socket?.remoteAddress)) return true;
+  const token = ctx?.authToken;
+  if (!token) return false;
+  const auth = String(req.headers?.["authorization"] || "");
+  const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  let q = "";
+  try { q = String(url.parse(req.url || "", true).query.token || ""); } catch {}
+  return bearer === token || q === token;
 }
 
 // Cross-site WebSocket hijacking defense: allow no-Origin (native client),
@@ -394,6 +418,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(res, ctx);
+      // /stt + /tts are unauthenticated + CPU-heavy — gate off-box access.
+      if ((pathname === "/stt" || pathname === "/tts") && !requestAuthorized(req, ctx)) {
+        return jsonRes(res, 403, { error: "forbidden (off-box access needs LOCAL_VOICE_AUTH_TOKEN)" });
+      }
       if (pathname === "/stt" && method === "POST") return handleStt(req, res, ctx);
       if (pathname === "/tts" && method === "POST") return handleTts(req, res, ctx);
       if (pathname === "/" && method === "GET") return handleStatusPage(res, ctx);
@@ -412,7 +440,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     // Cross-site WebSocket hijacking defense (WS bypasses same-origin policy):
     // reject a browser Origin that isn't same-host / loopback / tailnet. Native
     // clients (jarvis-os relay) send no Origin and pass.
-    if (!wsOriginAllowed(request)) {
+    if (!wsOriginAllowed(request) || !requestAuthorized(request, ctx)) {
       socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;
