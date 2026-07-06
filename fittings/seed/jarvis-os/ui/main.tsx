@@ -23,6 +23,7 @@ import DiffOverlay from "./DiffOverlay";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 import { resolveKanbanCardUrl } from "./deep-link";
 import { classifyStandbyUtterance, isStopPhrase } from "./voice-phrases";
+import { EP_DEFAULTS, graceWindowMs, coerceEpCfg, type EpCfg } from "./endpointing";
 
 marked.setOptions({ gfm: true, breaks: true });
 // Render an assistant reply's markdown to HTML for the transcript. Content is the
@@ -89,14 +90,8 @@ function float32ToWavBlob(samples: Float32Array, sampleRate = 16000): Blob {
 // onFrameProcessed in its types but its runtime NEVER calls it (verified:
 // dist/index.js has zero references), so a per-frame counter silently does
 // nothing. bargein_confirm_ms: 0 disables barge-in entirely.
-type EpCfg = {
-  redemptionMs: number; minMs: number; maxMs: number;
-  bargeinProb: number; bargeinConfirmMs: number; idleTimeoutMs: number;
-};
-const EP_DEFAULTS: EpCfg = {
-  redemptionMs: 550, minMs: 350, maxMs: 2600,
-  bargeinProb: 0.55, bargeinConfirmMs: 350, idleTimeoutMs: 90_000
-};
+// EpCfg type, EP_DEFAULTS, graceWindowMs and coerceEpCfg live in ./endpointing
+// (pure + unit-tested).
 
 // Standby wake/stop phrase logic lives in ./voice-phrases (pure + unit-tested):
 // in standby every VAD segment is still transcribed locally and only an utterance
@@ -606,18 +601,25 @@ function App() {
       void getCtx().resume();
     } catch {}
     setMode("speaking");
-    // Hold the item's extra silence AFTER playback before the next sentence, so a
-    // topic change lands as a real beat rather than butting up to the next line.
-    const afterEnd = () => {
-      // this sentence finished playing in full — it counts as "heard"
-      spokenTextRef.current += (spokenTextRef.current ? " " : "") + next.text;
+    // Advance to the next sentence EXACTLY ONCE per item: `onended`, `onerror`, and
+    // a rejected play() can otherwise all fire for one sentence and double-advance,
+    // silently skipping the next line. `heard` distinguishes a full playback (counts
+    // toward the [interrupted] note + honours the trailing gap) from a failure.
+    let advanced = false;
+    const proceed = (heard: boolean) => {
+      if (advanced) return;
+      advanced = true;
       speakingNowRef.current = "";
-      if (next.gapMs > 0) window.setTimeout(playNextInQueue, next.gapMs); else playNextInQueue();
+      if (heard) {
+        spokenTextRef.current += (spokenTextRef.current ? " " : "") + next.text;
+        if (next.gapMs > 0) { window.setTimeout(playNextInQueue, next.gapMs); return; }
+      }
+      playNextInQueue();
     };
     audio.src = "/api/voice/tts?text=" + encodeURIComponent(next.text);
-    audio.onended = afterEnd;
-    audio.onerror = () => playNextInQueue();
-    audio.play().catch(() => playNextInQueue());
+    audio.onended = () => proceed(true);
+    audio.onerror = () => proceed(false);
+    audio.play().catch(() => proceed(false));
   }, [setMode, getCtx, ensureAnalyser, endTurnIfDone]);
 
   // Enqueue a sentence and start playback if idle. gapMs is extra silence held
@@ -881,6 +883,9 @@ function App() {
     if (!sessionOnRef.current || standbyRef.current) return;
     stopSpeech();
     resetEndpointer();
+    // Drop any pending barge-in note: standby is a context boundary, so it must not
+    // be prepended to whatever the user says after they later wake the session.
+    interruptedRef.current = null;
     setStandby(true);
     setMode("idle");
   }, [stopSpeech, resetEndpointer, setStandby, setMode]);
@@ -1034,10 +1039,9 @@ function App() {
     eagerSttRef.current = stt;
     void stt.then((r) => {
       if (seq !== eagerSeqRef.current) return; // user resumed / turn reset — stale
-      const eot = r.ok && r.eot !== null ? r.eot : 0.5;
-      const windowMs = minMs + (maxMs - minMs) * (1 - eot);
+      const windowMs = graceWindowMs(r.ok ? r.eot : null, { minMs, maxMs });
       const elapsed = performance.now() - tentativeAtRef.current;
-      console.debug(`[endpoint] eot=${eot} window=${Math.round(windowMs)}ms elapsed=${Math.round(elapsed)}ms text="${r.transcript.slice(0, 60)}"`);
+      console.debug(`[endpoint] eot=${r.eot} window=${Math.round(windowMs)}ms elapsed=${Math.round(elapsed)}ms text="${r.transcript.slice(0, 60)}"`);
       armGraceTimer(windowMs - elapsed);
     });
   }, [sttRequest, armGraceTimer]);
@@ -1073,19 +1077,7 @@ function App() {
     // because redemptionMs is fixed at construction. Failure = defaults.
     try {
       const r = await fetch("/api/endpointing");
-      if (r.ok) {
-        const j = await r.json();
-        epCfgRef.current = {
-          redemptionMs: Number(j?.redemptionMs) > 0 ? Number(j.redemptionMs) : EP_DEFAULTS.redemptionMs,
-          minMs: Number(j?.minMs) > 0 ? Number(j.minMs) : EP_DEFAULTS.minMs,
-          maxMs: Number(j?.maxMs) > 0 ? Number(j.maxMs) : EP_DEFAULTS.maxMs,
-          bargeinProb: Number(j?.bargeinProb) > 0 && Number(j.bargeinProb) <= 1 ? Number(j.bargeinProb) : EP_DEFAULTS.bargeinProb,
-          bargeinConfirmMs: Number.isFinite(Number(j?.bargeinConfirmMs)) && Number(j.bargeinConfirmMs) >= 0
-            ? Number(j.bargeinConfirmMs) : EP_DEFAULTS.bargeinConfirmMs,
-          idleTimeoutMs: Number.isFinite(Number(j?.idleTimeoutMs)) && Number(j.idleTimeoutMs) >= 0
-            ? Number(j.idleTimeoutMs) : EP_DEFAULTS.idleTimeoutMs
-        };
-      }
+      if (r.ok) epCfgRef.current = coerceEpCfg(await r.json());
     } catch {}
     const vad = await MicVAD.new({
       model: "v5",
