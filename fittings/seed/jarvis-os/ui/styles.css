@@ -379,11 +379,16 @@ html, body, #root {
   text-decoration: none;
 }
 a.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
-/* the "view diff" row is a button — strip the native chrome, keep the row look */
+/* the "view diff" row is a button — strip the native chrome, keep the row look.
+   font-family (not the `font` shorthand): the shorthand resets font-size to the
+   inherited body size, blowing the row up; this keeps .jarvis-ws-row's 10.5px. */
 button.jarvis-ws-row {
   background: none;
   border: none;
-  font: inherit;
+  /* font-family only — buttons don't inherit it by default. Crucially NO
+     font-size here: leaving it unset lets .jarvis-ws-row's 10.5px win, whereas
+     `font-size: inherit` would pull in the body's 16px and blow the row up. */
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
   padding: 0;
@@ -540,8 +545,8 @@ button.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: oklch(0.08 0.01 270 / 0.38);
-  backdrop-filter: blur(1.5px);
+  background: oklch(0.05 0.01 270 / 0.62);
+  backdrop-filter: blur(2px);
   animation: tline-in 0.2s ease both;
 }
 .report-panel {
@@ -625,3 +630,76 @@ button.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
 .report-body blockquote { margin: 0.6em 0; padding-left: 10px; border-left: 2px solid var(--line); color: var(--ink-dim); }
 .report-body table { border-collapse: collapse; margin: 0.6em 0; }
 .report-body th, .report-body td { border: 1px solid var(--line); padding: 4px 8px; }
+
+/* ── diff overlay ──────────────────────────────────────────────────────────
+   Reuses the report-overlay shell; the body is a colour-coded, per-file diff. */
+/* a wider, more solid panel so code reads and the diff stands off the page */
+.diff-panel {
+  width: min(880px, 92vw);
+  background: oklch(0.155 0.012 270 / 0.99);
+}
+.diff-total { flex: none; font-size: 10px; letter-spacing: 0.06em; }
+.diff-total-add { color: #56d364; }   /* green — additions */
+.diff-total-del { color: #f85149; }   /* red — deletions */
+.diff-body {
+  padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.diff-file { border-bottom: 1px solid var(--line); }
+.diff-file:last-child { border-bottom: none; }
+/* file header — sticky so the path stays visible while scrolling a long hunk */
+.diff-file-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 16px;
+  background: oklch(0.16 0.012 270 / 0.98);
+  border-left: 2px solid var(--cobalt);
+}
+.diff-file-path {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--ink);
+  word-break: break-all;
+}
+.diff-file-stat { flex: none; font-size: 10px; letter-spacing: 0.06em; }
+.diff-lines { padding: 4px 0; }
+.diff-line {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 0 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-left: 2px solid transparent;
+}
+.diff-gutter {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  color: var(--ink-faint);
+  user-select: none;
+}
+.diff-code { flex: 1; min-width: 0; }
+/* line colours + a tinted stripe so add/del scan at a glance */
+.diff-add { background: rgba(46, 160, 67, 0.22); border-left-color: #3fb950; }
+.diff-add .diff-code, .diff-add .diff-gutter { color: #7ee787; }
+.diff-del { background: rgba(248, 81, 73, 0.2); border-left-color: #f85149; }
+.diff-del .diff-code, .diff-del .diff-gutter { color: #ffa198; }
+.diff-ctx .diff-code { color: var(--ink-dim); }
+.diff-hunk {
+  margin: 4px 0;
+  background: oklch(0.18 0.02 250 / 0.6);
+  border-left-color: var(--cobalt);
+}
+.diff-hunk .diff-code, .diff-hunk .diff-gutter { color: var(--cobalt); }
+.diff-empty, .diff-trunc {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.diff-trunc { border-top: 1px solid var(--line); color: var(--ink-faint); }

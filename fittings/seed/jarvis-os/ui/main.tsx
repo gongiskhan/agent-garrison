@@ -18,6 +18,7 @@ import { MicVAD } from "@ricky0123/vad-web";
 import { marked } from "marked";
 import GraphCore, { type CoreMode } from "./cores/GraphCore";
 import ReportOverlay from "./ReportOverlay";
+import DiffOverlay from "./DiffOverlay";
 
 marked.setOptions({ gfm: true, breaks: true });
 // Render an assistant reply's markdown to HTML for the transcript. Content is the
@@ -329,6 +330,7 @@ function App() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [callouts, setCallouts] = useState<Callout[]>([]);
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
+  const [diff, setDiff] = useState<{ title: string; patch: string; truncated?: boolean } | null>(null);
   // Live "what Jarvis is doing" — tool calls of the current turn, newest last.
   const [activity, setActivity] = useState<Activity[]>([]);
   // Workspace panel (right flank): repo state + live gateway lists. Errors keep
@@ -1179,7 +1181,7 @@ function App() {
       if (e.code === "Space") { e.preventDefault(); onToggle(); }
       else if (e.key === "m" || e.key === "M") { e.preventDefault(); toggleMute(); }
     };
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setReport(null); };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { setReport(null); setDiff(null); } };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keydown", onEsc);
     return () => {
@@ -1505,12 +1507,10 @@ function App() {
                     onClick={async () => {
                       try {
                         const d = await fetch("/api/diff").then((r) => r.json());
-                        const patch = (d?.patch || "").trim();
-                        setReport({
-                          path: `git diff HEAD · ${project.changed} changed`,
-                          content: patch
-                            ? "```diff\n" + patch + "\n```" + (d?.truncated ? "\n\n*(diff truncado)*" : "")
-                            : "*Sem alterações em ficheiros versionados (só ficheiros novos por adicionar).*"
+                        setDiff({
+                          title: `git diff HEAD · ${project.changed} changed`,
+                          patch: (d?.patch || "").trim(),
+                          truncated: Boolean(d?.truncated)
                         });
                       } catch { /* leave the panel as-is on a failed fetch */ }
                     }}
@@ -1584,6 +1584,7 @@ function App() {
       </div>
 
       {report ? <ReportOverlay report={report} onClose={() => setReport(null)} /> : null}
+      {diff ? <DiffOverlay title={diff.title} patch={diff.patch} truncated={diff.truncated} onClose={() => setDiff(null)} /> : null}
     </div>
   );
 }
