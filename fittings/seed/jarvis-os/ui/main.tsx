@@ -19,6 +19,7 @@ import { marked } from "marked";
 import GraphCore, { type CoreMode } from "./cores/GraphCore";
 import ReportOverlay from "./ReportOverlay";
 import DiffOverlay from "./DiffOverlay";
+import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 
 marked.setOptions({ gfm: true, breaks: true });
 // Render an assistant reply's markdown to HTML for the transcript. Content is the
@@ -258,6 +259,50 @@ type OperativeState = {
 };
 const WORKSPACE_POLL_MS = 25_000;
 
+// Tasks panel data (right flank) — the kanban board mirrored via /api/kanban.
+// Polled faster than the workspace: running cards advance quickly, so a stale
+// status line reads as Jarvis being out of the loop.
+type KanbanCard = {
+  id: string; title: string; list: string; listTitle: string;
+  status: string; statusLine: string; runningSince: string | null; updated: string | null;
+};
+type KanbanState = {
+  available: boolean;
+  boardUrl?: string;
+  tailnetUrl?: string | null;
+  counts?: { total: number; running: number; attention: number };
+  cards?: KanbanCard[];
+};
+const KANBAN_POLL_MS = 10_000;
+
+// Rebind a loopback URL's host to the current page host (LAN/http fallback),
+// preserving scheme + port. Returns the origin only (no path).
+function rebindLoopback(rawUrl: string, host: string): string {
+  try {
+    const u = new URL(rawUrl);
+    if (u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "0.0.0.0") u.hostname = host;
+    return u.origin;
+  } catch { return rawUrl; }
+}
+
+// The browser-reachable deep-link to a specific card, picking the right host for
+// where the page actually is (mirrors src/components/fitting-views/browser-view-url
+// resolveViewUrl): loopback on localhost, the HTTPS tailnet URL over Tailscale
+// (avoids mixed content + unreachable loopback), else a best-effort host rebind.
+function resolveKanbanCardUrl(k: KanbanState | null, cardId: string): string | null {
+  if (!k?.available || !k.boardUrl || !cardId) return null;
+  const here = typeof window !== "undefined" ? window.location.hostname : "";
+  let base = k.boardUrl;
+  if (here && here !== "127.0.0.1" && here !== "localhost") {
+    let matched = false;
+    if (k.tailnetUrl) {
+      try { if (new URL(k.tailnetUrl).hostname === here) { base = k.tailnetUrl; matched = true; } } catch { /* rebind below */ }
+    }
+    if (!matched) base = rebindLoopback(k.boardUrl, here);
+  }
+  return `${base.replace(/\/+$/, "")}/?card=${encodeURIComponent(cardId)}`;
+}
+
 // Dev action dock — canned prompts fired at the Operative through the normal
 // /api/chat path (spoken + written like any turn). The label is what shows in
 // the transcript; the prompt is what the orchestrator actually receives.
@@ -342,6 +387,13 @@ function App() {
   // Operative panel (left flank): runtime health + agents/skills surface.
   const [operative, setOperative] = useState<OperativeState | null>(null);
   const [opOpen, setOpOpen] = useState(true);
+  // Tasks panel (right flank): the kanban board, mirrored via /api/kanban. A ref
+  // shadows it so the voice handler can read the latest board without being
+  // re-created (and re-wiring finalizeTurn) on every poll.
+  const [kanban, setKanban] = useState<KanbanState | null>(null);
+  const [tasksOpen, setTasksOpen] = useState(true);
+  const kanbanRef = useRef<KanbanState | null>(null);
+  useEffect(() => { kanbanRef.current = kanban; }, [kanban]);
 
   // Scrollable transcript: keep the newest turn in view, but only auto-scroll
   // when the user is already near the bottom — so scrolling up to read history
@@ -491,6 +543,22 @@ function App() {
     const timer = window.setInterval(tick, WORKSPACE_POLL_MS);
     return () => { alive = false; window.clearInterval(timer); };
   }, []);
+
+  // One-shot kanban refresh — shared by the poll below and the create-card flow
+  // (so a freshly-created card appears without waiting a full poll interval).
+  const refreshKanban = useCallback(() => {
+    fetch("/api/kanban")
+      .then((r) => r.json())
+      .then((d) => { if (d && typeof d.available === "boolean") setKanban(d); })
+      .catch(() => {});
+  }, []);
+
+  // Tasks panel poll: the kanban board, on mount then every KANBAN_POLL_MS.
+  useEffect(() => {
+    refreshKanban();
+    const timer = window.setInterval(refreshKanban, KANBAN_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [refreshKanban]);
 
   const pushCallout = useCallback((label: string, content: string) => {
     const id = genId("c");
@@ -847,6 +915,53 @@ function App() {
     if (ack) enqueueSpeech("Sim?"); // audible "I heard you" for a bare "hey jarvis"
   }, [setStandby, setMode, enqueueSpeech]);
 
+  // Hybrid voice fast-path: a recognised kanban command (create a card / summarise
+  // the board) is handled locally instead of going to the orchestrator — faster,
+  // reliable, and works even when the operative isn't running. Speaks a short
+  // confirmation and re-arms the session like any turn.
+  const handleKanbanIntent = useCallback(async (intent: KanbanIntent) => {
+    setMode("working");
+    if (intent.kind === "summary") {
+      const k = kanbanRef.current;
+      const cards = k?.available ? (k.cards ?? []) : [];
+      if (!cards.length) {
+        enqueueSpeech("Não há tarefas no kanban de momento.");
+      } else {
+        const running = cards.filter((c) => c.status === "running");
+        const attention = cards.filter((c) => c.status === "needs-attention");
+        const parts = [`${k!.counts!.total} tarefa${k!.counts!.total === 1 ? "" : "s"} no total`];
+        if (running.length) parts.push(`${running.length} a correr: ${running.slice(0, 3).map((c) => c.title).join(", ")}`);
+        if (attention.length) parts.push(`${attention.length} a precisar de atenção`);
+        enqueueSpeech(parts.join("; ") + ".");
+        pushCallout("kanban", cards.map((c) => `• ${c.title} — ${c.statusLine}`).join("\n"));
+      }
+      endTurnIfDone();
+      return;
+    }
+    // create
+    try {
+      const res = await fetch("/api/kanban/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: intent.text })
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.card) {
+        const title = data.card.title || intent.text;
+        enqueueSpeech(`Criei o card "${title}" no backlog.`);
+        const url = resolveKanbanCardUrl(kanbanRef.current, data.card.id);
+        pushCallout("card criado", url ? `${title}\n\n${url}` : title);
+        refreshKanban();
+      } else {
+        enqueueSpeech("Não consegui criar o card.");
+        pushCallout("kanban", data?.error || "falha ao criar o card");
+      }
+    } catch {
+      enqueueSpeech("Não consegui criar o card.");
+    }
+    endTurnIfDone();
+  }, [setMode, enqueueSpeech, pushCallout, endTurnIfDone, refreshKanban]);
+
   // The grace window expired with no resumed speech: the turn is real. Commit —
   // pause the VAD, take the eager transcript (usually already resolved; a fresh
   // STT only when the eager one was invalidated) and send.
@@ -900,11 +1015,15 @@ function App() {
     // loop-safety: drop empty / sub-word transcripts (a stray noise blip) —
     // quietly, so ambient noise never spams a callout.
     if (r.transcript && r.transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
+      // Hybrid fast-path: a recognised kanban command is handled locally; anything
+      // else falls through to the orchestrator as a normal turn.
+      const intent = parseKanbanIntent(r.transcript.trim());
+      if (intent) { void handleKanbanIntent(intent); return; }
       void send(r.transcript);
     } else {
       endTurnIfDone(); // nothing usable → re-arm and keep listening
     }
-  }, [setMode, sttRequest, send, endTurnIfDone, pushCallout, enterStandby, exitStandby]);
+  }, [setMode, sttRequest, send, endTurnIfDone, pushCallout, enterStandby, exitStandby, handleKanbanIntent]);
 
   // (Re)arm the end-of-turn decision timer.
   const armGraceTimer = useCallback((delayMs: number) => {
@@ -1478,6 +1597,51 @@ function App() {
             </button>
           ))}
         </div>
+
+        {kanban?.available && (kanban.cards?.length ?? 0) > 0 && (
+          <aside className={`jarvis-workspace jarvis-tasks${tasksOpen ? "" : " is-collapsed"}`}>
+            <button
+              className="jarvis-ws-head"
+              onClick={() => setTasksOpen((v) => !v)}
+              aria-expanded={tasksOpen}
+              title={tasksOpen ? "Collapse tasks panel" : "Expand tasks panel"}
+            >
+              <span className="jarvis-ws-title">tarefas</span>
+              <span className="jarvis-ws-branch">
+                {kanban.counts!.total}{kanban.counts!.running > 0 ? ` · ${kanban.counts!.running} a correr` : ""}
+              </span>
+              <span className="jarvis-ws-toggle">{tasksOpen ? "−" : "+"}</span>
+            </button>
+            {tasksOpen && (
+              <div className="jarvis-ws-body">
+                <div className="jarvis-ws-section">
+                  {kanban.cards!.map((c) => {
+                    const url = resolveKanbanCardUrl(kanban, c.id);
+                    const statusClass = c.status === "needs-attention" ? "attention" : c.status === "running" ? "running" : "ok";
+                    const inner = (
+                      <>
+                        <span className={`jarvis-task-pill jarvis-task-pill--${statusClass}`} />
+                        <span className="jarvis-task-main">
+                          <span className="jarvis-task-title">{c.title}</span>
+                          <span className="jarvis-task-status">{c.statusLine}</span>
+                        </span>
+                      </>
+                    );
+                    return url ? (
+                      <a key={c.id} className="jarvis-ws-row jarvis-task-row" href={url} target="_blank" rel="noreferrer" title={`${c.title} — ${c.statusLine}`}>
+                        {inner}
+                      </a>
+                    ) : (
+                      <span key={c.id} className="jarvis-ws-row jarvis-task-row" title={`${c.title} — ${c.statusLine}`}>
+                        {inner}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
 
         {project?.available && (
           <aside className={`jarvis-workspace${wsOpen ? "" : " is-collapsed"}`}>

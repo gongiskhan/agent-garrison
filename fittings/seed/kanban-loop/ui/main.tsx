@@ -1100,6 +1100,22 @@ function App() {
     return () => clearInterval(t);
   }, [load, loadRuntime]);
 
+  // Deep-link support: `?card=<id>` opens that card's detail overlay on load —
+  // used by the Jarvis Tasks panel ("jump straight to a card") and by the embed
+  // route, which forwards its query string (incl. garrison:navigate-fitting
+  // params) onto the board iframe. `popstate` handles following another card link
+  // in-tab without a full reload. The id must look like a ULID or it's ignored
+  // (a bad id would only 404 in DetailSheet).
+  useEffect(() => {
+    const openFromUrl = () => {
+      const id = new URLSearchParams(window.location.search).get("card");
+      if (id && /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)) setOverlay({ kind: "detail", cardId: id });
+    };
+    openFromUrl();
+    window.addEventListener("popstate", openFromUrl);
+    return () => window.removeEventListener("popstate", openFromUrl);
+  }, []);
+
   async function onStart(card: CardSummary) {
     setBusyCard(card.id);
     setNotice(null);

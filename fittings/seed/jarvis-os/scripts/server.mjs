@@ -40,6 +40,10 @@ const VOICE_STATUS_FILES = [
   path.join(STATUS_ROOT, "local-voice.json"),
   path.join(STATUS_ROOT, "deepgram-voice.json")
 ];
+// Kanban Loop discovery: the HUD's Tasks panel mirrors the board and creates
+// cards by reaching the kanban-loop Fitting server-to-server (its own port,
+// discovered here — not hardcoded, since findFreePort may bump 7089).
+const KANBAN_STATUS_FILE = path.join(STATUS_ROOT, "kanban-loop.json");
 
 // Reuse the proven "web" channel ring buffer on the gateway — the Jarvis HUD
 // is an alternative front-end to the web channel, not a second concurrent one.
@@ -352,6 +356,183 @@ async function handleOperative(res, opts) {
   };
   operativeCache = { at: now, data };
   jsonRes(res, 200, data);
+}
+
+// ── kanban panel data ────────────────────────────────────────────────────────
+// Read-only board mirror + a create-card proxy for the HUD's Tasks panel. Jarvis
+// reaches the kanban-loop Fitting server-to-server: that server binds loopback
+// and closes CORS, but a Node request carries no Origin header, so both GET /board
+// and POST /cards are allowed (kanban's originAllowed() passes when Origin is
+// absent). A browser cross-origin call would be rejected — hence this proxy.
+const KANBAN_TTL_MS = 8_000;
+let kanbanCache = { at: 0, data: null };
+
+function readFittingInfo(file) {
+  if (!existsSync(file)) return null;
+  try {
+    const info = JSON.parse(readFileSync(file, "utf8"));
+    return info?.url ? info : null;
+  } catch { return null; }
+}
+
+// Maps each `tailscale serve`-proxied loopback port to its HTTPS tailnet URL, so
+// the HUD can hand the browser a reachable card link when reached over Tailscale
+// (a loopback link is unreachable + mixed-content-blocked off-box). Mirrors
+// src/lib/tailnet-serve.ts. Empty object when Tailscale isn't serving.
+const TAILSCALE_CANDIDATES = [
+  "tailscale",
+  "/opt/homebrew/bin/tailscale",
+  "/usr/local/bin/tailscale",
+  "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+];
+const TAILNET_TTL_MS = 10_000;
+let tailnetCache = { at: 0, map: null };
+
+async function tailnetServeMap() {
+  const now = Date.now();
+  if (tailnetCache.map && now - tailnetCache.at < TAILNET_TTL_MS) return tailnetCache.map;
+  const map = {};
+  for (const bin of TAILSCALE_CANDIDATES) {
+    try {
+      let stdout;
+      try {
+        ({ stdout } = await execFileP(bin, ["serve", "status", "--json"], { timeout: 4000, maxBuffer: 1024 * 1024 }));
+      } catch (err) {
+        // The CLI prints a version-skew warning to stderr and can exit non-zero
+        // while still emitting valid JSON on stdout — prefer that over throwing.
+        if (typeof err?.stdout === "string" && err.stdout.includes("{")) stdout = err.stdout;
+        else throw err;
+      }
+      const raw = stdout.slice(stdout.indexOf("{"));
+      const status = JSON.parse(raw);
+      for (const [hostPort, web] of Object.entries(status.Web ?? {})) {
+        const proxy = web?.Handlers?.["/"]?.Proxy;
+        const m = proxy && /^https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/.exec(proxy);
+        if (!m) continue;
+        const localPort = Number(m[1]);
+        if (Number.isFinite(localPort) && !(localPort in map)) map[localPort] = `https://${hostPort}`;
+      }
+      break; // first candidate that produced JSON wins
+    } catch { /* try the next candidate path */ }
+  }
+  tailnetCache = { at: now, map };
+  return map;
+}
+
+function timeAgo(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return null;
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  return `${Math.round(mins / 60)}h`;
+}
+
+// A single human sentence for a card's current state — kanban has no such field,
+// so derive it from status + list + lastEvent (+ runningSince/liveTail/attention).
+function deriveStatusLine(card, listTitle) {
+  const lastMsg = card.lastEvent?.message || "";
+  if (card.status === "running") {
+    let line = "A correr";
+    if (Number.isFinite(card.iterations)) line += ` — iteração ${card.iterations}`;
+    const ago = timeAgo(card.runningSince);
+    if (ago) line += ` (há ${ago})`;
+    const tail = Array.isArray(card.liveTail) && card.liveTail.length ? card.liveTail[card.liveTail.length - 1] : null;
+    if (tail) line += ` — ${tail}`;
+    return line;
+  }
+  if (card.status === "needs-attention") {
+    return `Precisa de atenção: ${card.attentionReason || lastMsg || "—"}`;
+  }
+  if (card.lastDispatchError?.message) {
+    return `Falhou o dispatch: ${card.lastDispatchError.message}`;
+  }
+  return lastMsg ? `${listTitle} · ${lastMsg}` : listTitle;
+}
+
+async function handleKanban(res) {
+  const now = Date.now();
+  if (kanbanCache.data && now - kanbanCache.at < KANBAN_TTL_MS) {
+    jsonRes(res, 200, kanbanCache.data);
+    return;
+  }
+  const cacheAndSend = (data) => { kanbanCache = { at: now, data }; jsonRes(res, 200, data); };
+  const info = readFittingInfo(KANBAN_STATUS_FILE);
+  if (!info?.url) { cacheAndSend({ available: false }); return; }
+  if (!(await pingHealth(info.url, 600))) { cacheAndSend({ available: false }); return; }
+  const board = await fetchJson(info.url, "/board", 3000);
+  if (!board || !Array.isArray(board.cards)) { cacheAndSend({ available: false }); return; }
+  const listTitle = {};
+  for (const l of board.lists || []) listTitle[l.id] = l.title;
+  let cards = board.cards.map((c) => ({
+    id: c.id,
+    title: c.title,
+    list: c.list,
+    listTitle: listTitle[c.list] || c.list,
+    status: c.status,
+    statusLine: deriveStatusLine(c, listTitle[c.list] || c.list),
+    runningSince: c.runningSince ?? null,
+    updated: c.updated ?? null
+  }));
+  const counts = {
+    total: cards.length,
+    running: cards.filter((c) => c.status === "running").length,
+    attention: cards.filter((c) => c.status === "needs-attention").length
+  };
+  // Surface running + needs-attention first, then most-recently-updated; cap 8.
+  const rank = (s) => (s === "running" ? 0 : s === "needs-attention" ? 1 : 2);
+  cards.sort((a, b) => rank(a.status) - rank(b.status) || String(b.updated).localeCompare(String(a.updated)));
+  cards = cards.slice(0, 8);
+  let tailnetUrl = null;
+  try {
+    const map = await tailnetServeMap();
+    tailnetUrl = map[Number(new URL(info.url).port)] || null;
+  } catch { /* no tailnet mapping — loopback link only */ }
+  cacheAndSend({ available: true, boardUrl: info.url, tailnetUrl, counts, cards });
+}
+
+// POST proxy → kanban `POST /cards`. Server-to-server (no Origin) so the mutation
+// guard passes. Busts the board cache so the new card shows on the next poll.
+function postJson(baseUrl, subpath, payload, res) {
+  let target;
+  try { target = new URL(subpath, baseUrl); } catch { jsonRes(res, 502, { error: "bad kanban target" }); return; }
+  const upstream = http.request({
+    method: "POST",
+    hostname: target.hostname,
+    port: target.port,
+    path: target.pathname,
+    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
+    timeout: 5000
+  }, (up) => {
+    let raw = "";
+    up.on("data", (c) => { raw += c; });
+    up.on("end", () => {
+      res.statusCode = up.statusCode || 502;
+      res.setHeader("Content-Type", "application/json");
+      res.end(raw || "{}");
+      kanbanCache = { at: 0, data: null };
+    });
+  });
+  upstream.on("error", () => { try { jsonRes(res, 502, { error: "kanban unreachable" }); } catch {} });
+  upstream.on("timeout", () => { try { upstream.destroy(); jsonRes(res, 504, { error: "kanban timeout" }); } catch {} });
+  upstream.end(payload);
+}
+
+async function handleKanbanCreate(req, res) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { jsonRes(res, 400, { error: `invalid json: ${err.message}` }); return; }
+  const title = typeof body?.title === "string" ? body.title.trim() : "";
+  const description = typeof body?.description === "string" ? body.description.trim() : "";
+  if (!title && !description) { jsonRes(res, 400, { error: "title or description required" }); return; }
+  const info = readFittingInfo(KANBAN_STATUS_FILE);
+  if (!info?.url) { jsonRes(res, 503, { error: "kanban-loop fitting not available" }); return; }
+  const payload = JSON.stringify({
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {})
+  });
+  postJson(info.url, "/cards", payload, res);
 }
 
 // Thin GET proxy to the gateway for the Workspace panel's live lists
@@ -782,6 +963,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/endpointing" && method === "GET") return handleEndpointing(res);
       if (pathname === "/api/project" && method === "GET") return handleProject(res);
       if (pathname === "/api/diff" && method === "GET") return handleDiff(res);
+      if (pathname === "/api/kanban" && method === "GET") return handleKanban(res);
+      if (pathname === "/api/kanban/cards" && method === "POST") return handleKanbanCreate(req, res);
       if (pathname === "/api/operative" && method === "GET") return handleOperative(res, liveOpts);
       if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
       if (pathname === "/api/worktrees" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/worktrees", { worktrees: [] });

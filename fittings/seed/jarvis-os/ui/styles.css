@@ -437,6 +437,47 @@ button.jarvis-ws-row:hover .jarvis-ws-text { color: var(--white-hot); }
 .jarvis-ws-row.is-standby { opacity: 0.55; }
 .jarvis-ws-row.is-standby .jarvis-op-dot { background: var(--ink-faint); }
 
+/* ── tasks panel (right flank, mirrors the workspace panel) ─────────────── */
+/* Each row is a two-line deep-link: title over a derived one-sentence status.
+   The status pill colour-codes the card: running (active, pulsing), attention
+   (red), or idle (faint). */
+.jarvis-task-row { align-items: flex-start; }
+.jarvis-task-pill {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 4px;
+  background: var(--ink-faint);
+}
+.jarvis-task-pill--ok { background: var(--ink-faint); }
+.jarvis-task-pill--attention { background: var(--err); }
+.jarvis-task-pill--running {
+  background: hsl(var(--accent-h) 80% 60%);
+  animation: jarvis-task-pulse 1.6s ease-in-out infinite;
+}
+@keyframes jarvis-task-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.jarvis-task-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.jarvis-task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+a.jarvis-task-row:hover .jarvis-task-title { color: var(--white-hot); }
+.jarvis-task-status {
+  font-size: 9px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── dev action dock (bottom centre, under the status line) ─────────────── */
 .jarvis-dock {
   position: fixed;
