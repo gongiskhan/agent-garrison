@@ -20,6 +20,7 @@ import DOMPurify from "dompurify";
 import GraphCore, { type CoreMode } from "./cores/GraphCore";
 import ReportOverlay from "./ReportOverlay";
 import DiffOverlay from "./DiffOverlay";
+import KanbanOverlay from "./KanbanOverlay";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 import { resolveKanbanCardUrl } from "./deep-link";
 import { classifyStandbyUtterance, isStopPhrase } from "./voice-phrases";
@@ -346,6 +347,8 @@ function App() {
   const [callouts, setCallouts] = useState<Callout[]>([]);
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
   const [diff, setDiff] = useState<{ title: string; patch: string; truncated?: boolean } | null>(null);
+  // Card deep-link opened INSIDE the HUD (board iframe overlay) instead of a new tab.
+  const [boardUrl, setBoardUrl] = useState<string | null>(null);
   // Live "what Jarvis is doing" — tool calls of the current turn, newest last.
   const [activity, setActivity] = useState<Activity[]>([]);
   // Workspace panel (right flank): repo state + live gateway lists. Errors keep
@@ -1264,7 +1267,7 @@ function App() {
       if (e.code === "Space") { e.preventDefault(); onToggle(); }
       else if (e.key === "m" || e.key === "M") { e.preventDefault(); toggleMute(); }
     };
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { setReport(null); setDiff(null); } };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { setReport(null); setDiff(null); setBoardUrl(null); } };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keydown", onEsc);
     return () => {
@@ -1591,7 +1594,8 @@ function App() {
                       </>
                     );
                     return url ? (
-                      <a key={c.id} className="jarvis-ws-row jarvis-task-row" href={url} target="_blank" rel="noreferrer" title={`${c.title} — ${c.statusLine}`}>
+                      <a key={c.id} className="jarvis-ws-row jarvis-task-row" href={url} target="_blank" rel="noreferrer" title={`${c.title} — ${c.statusLine}`}
+                        onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); setBoardUrl(url); } }}>
                         {inner}
                       </a>
                     ) : (
@@ -1712,6 +1716,7 @@ function App() {
 
       {report ? <ReportOverlay report={report} onClose={() => setReport(null)} /> : null}
       {diff ? <DiffOverlay title={diff.title} patch={diff.patch} truncated={diff.truncated} onClose={() => setDiff(null)} /> : null}
+      {boardUrl ? <KanbanOverlay url={boardUrl} onClose={() => setBoardUrl(null)} /> : null}
     </div>
   );
 }

@@ -600,6 +600,11 @@ a.jarvis-task-row:hover .jarvis-task-title { color: var(--white-hot); }
   box-shadow: 0 0 60px hsl(var(--accent-h) 60% 50% / 0.18);
   animation: chip-out 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+/* Wide variant for the embedded kanban board overlay. */
+.report-panel.report-panel-wide {
+  width: min(1200px, 94vw);
+  max-height: 90vh;
+}
 .report-head {
   display: flex;
   align-items: baseline;
