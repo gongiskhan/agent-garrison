@@ -115,6 +115,27 @@ function concatSegments(segs: Float32Array[], sampleRate = 16000): Float32Array 
   return out;
 }
 
+// The TTS endpoint streams a "growing WAV" whose header carries PLACEHOLDER chunk
+// sizes (RIFF + data = 0x7FFFFFFF, i.e. ~2 GB) because the length isn't known when
+// the header is written. Chrome tolerates that in decodeAudioData; iOS Safari does
+// NOT — it fails/returns silence. Rewrite the RIFF + data sizes to the real byte
+// length so the decode is valid everywhere. Mutates + returns the same buffer.
+function fixWavChunkSizes(buf: ArrayBuffer): ArrayBuffer {
+  if (buf.byteLength < 44) return buf;
+  const dv = new DataView(buf);
+  if (dv.getUint32(0, false) !== 0x52494646 /* "RIFF" */ || dv.getUint32(8, false) !== 0x57415645 /* "WAVE" */) return buf;
+  dv.setUint32(4, buf.byteLength - 8, true); // RIFF chunk size = filesize - 8
+  let off = 12;
+  while (off + 8 <= buf.byteLength) {
+    const id = dv.getUint32(off, false);
+    const sz = dv.getUint32(off + 4, true);
+    if (id === 0x64617461 /* "data" */) { dv.setUint32(off + 4, buf.byteLength - (off + 8), true); break; }
+    if (sz > buf.byteLength) break; // bogus/placeholder size on a non-data chunk — stop
+    off += 8 + sz + (sz & 1);
+  }
+  return buf;
+}
+
 type SttResult = { ok: boolean; transcript: string; eot: number | null; detail?: string };
 
 // getUserMedia/MediaRecorder need a secure context. localhost counts; a LAN IP
@@ -365,6 +386,10 @@ function App() {
   // re-created (and re-wiring finalizeTurn) on every poll.
   const [kanban, setKanban] = useState<KanbanState | null>(null);
   const [tasksOpen, setTasksOpen] = useState(true);
+  // On a phone the flank rails cover the orb, so they start hidden behind a
+  // toggle (the .jarvis-panels-toggle button, mobile-only via CSS). Desktop
+  // ignores this — the rails there are always shown by the media query.
+  const [panelsOpen, setPanelsOpen] = useState(false);
   const kanbanRef = useRef<KanbanState | null>(null);
   useEffect(() => { kanbanRef.current = kanban; }, [kanban]);
 
@@ -387,6 +412,24 @@ function App() {
   const setSessionOn = useCallback((v: boolean) => { sessionOnRef.current = v; setSessionOnRaw(v); }, []);
   const micMutedRef = useRef(false);
   const setMicMuted = useCallback((v: boolean) => { micMutedRef.current = v; setMicMutedRaw(v); }, []);
+  // True only inside a push-to-talk window: muted, but the user deliberately
+  // opened the mic for ONE utterance (Space/tap while muted). It's the ONLY
+  // thing that distinguishes a wanted capture from the room being overheard, so
+  // the capture choke-point (onTentativeEnd) can drop the latter. Muting is a
+  // hard gate: while muted-and-not-PTT, no room audio ever becomes a turn —
+  // independent of any VAD pause/resume race (full-duplex keeps the VAD live).
+  const pttOpenRef = useRef(false);
+  // Lightweight VAD telemetry for the on-screen ?debug readout — lets us see, on
+  // a phone with no dev console, whether Silero fires speechStart/speechEnd at
+  // all (endpointing) and what STT/eot came back. Refs only (no re-render churn).
+  const vadDbgRef = useRef({ starts: 0, ends: 0, misfires: 0, sends: 0, lastStt: "", eot: -1, ttsOk: 0, ttsErr: 0 });
+  const debugOn = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug");
+  const [dbgTick, setDbgTick] = useState(0);
+  useEffect(() => {
+    if (!debugOn) return;
+    const t = window.setInterval(() => setDbgTick((n) => n + 1), 400);
+    return () => window.clearInterval(t);
+  }, [debugOn]);
   const standbyRef = useRef(false);
   const setStandby = useCallback((v: boolean) => { standbyRef.current = v; setStandbyRaw(v); }, []);
 
@@ -402,6 +445,14 @@ function App() {
   const analyserDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const ttsSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  // iOS-reliable TTS playback: decode each sentence and play it through an
+  // AudioBufferSourceNode (a MediaElementSource plays silent on mobile Safari).
+  // ttsBufSrcRef holds the node currently sounding (so barge-in can stop it);
+  // ttsGenRef is bumped on every stop to invalidate an in-flight fetch/decode;
+  // ttsWiredRef guards the one-time analyser→destination connection.
+  const ttsBufSrcRef = useRef<AudioBufferSourceNode | null>(null);
+  const ttsGenRef = useRef(0);
+  const ttsWiredRef = useRef(false);
   // (audioUrlRef removed — TTS plays via /api/voice/tts URLs, never an object URL.)
   // Silero VAD instance + whether it is currently feeding frames to the model.
   // We pause it during a turn (think + speak) so it never captures Jarvis's own
@@ -569,7 +620,7 @@ function App() {
     if (!sessionOnRef.current) { setMode("idle"); return; }
     // Muted: a push-to-talk utterance just finished — close the mic back up so
     // the room isn't heard again, and show the muted state (don't re-arm listen).
-    if (micMutedRef.current) { pauseVad(); setMode("muted"); return; }
+    if (micMutedRef.current) { pttOpenRef.current = false; pauseVad(); setMode("muted"); return; }
     // Standby: VAD keeps running (it feeds the wake check) but the core rests.
     if (standbyRef.current) { resumeVad(); setMode("idle"); return; }
     resumeVad(); setMode("listening");
@@ -590,24 +641,10 @@ function App() {
     }
     speakingRef.current = true;
     speakingNowRef.current = next.text; // for the [interrupted] note on barge-in
-    if (!audioElRef.current) audioElRef.current = new Audio();
-    const audio = audioElRef.current;
-    // createMediaElementSource can only run once per element; reuse it.
-    try {
-      if (!ttsSourceRef.current) {
-        const src = getCtx().createMediaElementSource(audio);
-        const an = ensureAnalyser(ttsAnalyserRef);
-        src.connect(an);
-        an.connect(getCtx().destination); // only the TTS path reaches the speakers
-        ttsSourceRef.current = src;
-      }
-      void getCtx().resume();
-    } catch {}
     setMode("speaking");
-    // Advance to the next sentence EXACTLY ONCE per item: `onended`, `onerror`, and
-    // a rejected play() can otherwise all fire for one sentence and double-advance,
-    // silently skipping the next line. `heard` distinguishes a full playback (counts
-    // toward the [interrupted] note + honours the trailing gap) from a failure.
+    // Advance to the next sentence EXACTLY ONCE per item. `heard` distinguishes a
+    // full playback (counts toward the [interrupted] note + honours the trailing
+    // gap) from a failure.
     let advanced = false;
     const proceed = (heard: boolean) => {
       if (advanced) return;
@@ -619,10 +656,39 @@ function App() {
       }
       playNextInQueue();
     };
-    audio.src = "/api/voice/tts?text=" + encodeURIComponent(next.text);
-    audio.onended = () => proceed(true);
-    audio.onerror = () => proceed(false);
-    audio.play().catch(() => proceed(false));
+    // Decode the whole sentence WAV and play it through an AudioBufferSourceNode.
+    // This is the iOS-reliable path: on mobile Safari an <audio> routed through
+    // createMediaElementSource plays SILENT and the context re-suspends; a
+    // decoded BufferSource on a gesture-resumed context actually reaches the
+    // speaker. Sentences are short, so buffering the whole clip is fine. A
+    // generation counter (bumped by stopSpeech) drops a fetch/decode that a
+    // barge-in cancelled mid-flight.
+    const myGen = ++ttsGenRef.current;
+    (async () => {
+      try {
+        const ctx = getCtx();
+        await ctx.resume(); // iOS re-suspends aggressively — ensure running each time
+        const resp = await fetch("/api/voice/tts?text=" + encodeURIComponent(next.text));
+        if (!resp.ok) throw new Error("tts http " + resp.status);
+        const bytes = await resp.arrayBuffer();
+        if (myGen !== ttsGenRef.current) return; // stopped/barged while fetching
+        const audioBuf = await ctx.decodeAudioData(fixWavChunkSizes(bytes.slice(0)));
+        if (myGen !== ttsGenRef.current) return; // stopped/barged while decoding
+        const an = ensureAnalyser(ttsAnalyserRef);
+        if (!ttsWiredRef.current) { an.connect(ctx.destination); ttsWiredRef.current = true; }
+        const src = ctx.createBufferSource();
+        src.buffer = audioBuf;
+        src.connect(an); // → analyser → destination (orb pulses off the analyser)
+        ttsBufSrcRef.current = src;
+        vadDbgRef.current.ttsOk++;
+        src.onended = () => { if (ttsBufSrcRef.current === src) ttsBufSrcRef.current = null; proceed(true); };
+        src.start();
+      } catch (e) {
+        vadDbgRef.current.ttsErr++;
+        console.error("[tts] play failed", e);
+        proceed(false);
+      }
+    })();
   }, [setMode, getCtx, ensureAnalyser, endTurnIfDone]);
 
   // Enqueue a sentence and start playback if idle. gapMs is extra silence held
@@ -639,8 +705,12 @@ function App() {
     speakQueueRef.current = [];
     speakingRef.current = false;
     speakingNowRef.current = "";
+    ttsGenRef.current++; // invalidate any in-flight fetch/decode so it won't start
+    const src = ttsBufSrcRef.current;
+    if (src) { try { src.onended = null; src.stop(); } catch {} ttsBufSrcRef.current = null; }
+    // legacy gesture-unlock element, if any — pause it too
     const audio = audioElRef.current;
-    if (audio) { try { audio.pause(); audio.removeAttribute("src"); audio.load(); } catch {} }
+    if (audio) { try { audio.pause(); } catch {} }
   }, []);
 
   // Cut the assistant NOW (barge-in, Space-press, mute-mid-reply): kill TTS,
@@ -1038,6 +1108,15 @@ function App() {
   // end-of-turn probability arrives. Complete-sounding speech sends after
   // ~endpoint_min_ms; a trailing "e…"/"quero que…" waits up to endpoint_max_ms.
   const onTentativeEnd = useCallback((audio: Float32Array) => {
+    // Muted and NOT in a push-to-talk window → this is the room being overheard
+    // (colleagues, background). Never let it become a request. This is the hard
+    // guarantee behind M ("stop listening"): even though full-duplex keeps the
+    // VAD live, a muted mic produces no turns. Drop the segment and bail before
+    // any STT / grace-timer work.
+    if (micMutedRef.current && !pttOpenRef.current) {
+      console.debug("[mute] dropped overheard segment (muted, no push-to-talk)");
+      return;
+    }
     // Speech ended before the barge-in confirmation fired → too short to count
     // as talking over Jarvis; drop the candidate (the busy guard below then
     // discards the segment as echo/noise).
@@ -1063,6 +1142,9 @@ function App() {
     eagerSttRef.current = stt;
     void stt.then((r) => {
       if (seq !== eagerSeqRef.current) return; // user resumed / turn reset — stale
+      vadDbgRef.current.sends++;
+      vadDbgRef.current.lastStt = (r.ok ? r.transcript : (r.detail ?? "stt-fail")).slice(0, 40);
+      vadDbgRef.current.eot = r.ok ? r.eot : -1;
       const windowMs = graceWindowMs(r.ok ? r.eot : null, { minMs, maxMs });
       const elapsed = performance.now() - tentativeAtRef.current;
       console.debug(`[endpoint] eot=${r.eot} window=${Math.round(windowMs)}ms elapsed=${Math.round(elapsed)}ms text="${r.transcript.slice(0, 60)}"`);
@@ -1132,6 +1214,7 @@ function App() {
       pauseStream: async () => {},
       resumeStream: async (s: MediaStream) => s,
       onSpeechStart: () => {
+        vadDbgRef.current.starts++;
         console.debug("[vad] speechStart (mode=" + modeRef.current + ")");
         // Barge-in candidate: speech detected while Jarvis is thinking/speaking.
         // Don't act yet — a brief AEC-residue burst also trips speechStart. Arm
@@ -1157,10 +1240,13 @@ function App() {
           eagerSttRef.current = null;
           console.debug("[endpoint] resumed — merging into open turn");
         }
-        if (!sendingRef.current && modeRef.current !== "speaking") setMode("listening");
+        // Don't flash "listening" for room audio overheard while muted (only a
+        // real push-to-talk window should light the core up).
+        if (!sendingRef.current && modeRef.current !== "speaking" && (!micMutedRef.current || pttOpenRef.current)) setMode("listening");
       },
-      onSpeechEnd: (audio: Float32Array) => { console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
+      onSpeechEnd: (audio: Float32Array) => { vadDbgRef.current.ends++; console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
       onVADMisfire: () => {
+        vadDbgRef.current.misfires++;
         console.debug("[vad] misfire");
         // The speech burst was too short to be real — cancel any pending barge-in.
         if (bargeTimerRef.current !== null) {
@@ -1185,11 +1271,29 @@ function App() {
     setMicMuted(false); // fresh sessions start hands-free (unmuted)
     setStandby(false);
     setMode("listening");
+    // iOS audio unlock — MUST run synchronously inside this session-start tap,
+    // before any await. Mobile Safari keeps the AudioContext suspended and blocks
+    // audio started outside a user gesture. Resume the context and play a 1-frame
+    // silent BufferSource now, under the tap, so the async reply's BufferSource
+    // (see playNextInQueue) actually reaches the speaker.
+    try {
+      const ctx = getCtx();
+      void ctx.resume();
+      const blip = ctx.createBufferSource();
+      blip.buffer = ctx.createBuffer(1, 1, ctx.sampleRate || 22050);
+      blip.connect(ctx.destination);
+      blip.start(0);
+    } catch {}
     let stream: MediaStream;
     try {
       await getCtx().resume(); // must happen under user activation
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        // autoGainControl OFF: on mobile the AGC ramps gain up during pauses,
+        // lifting the room-noise floor back over Silero's negativeSpeechThreshold
+        // so the redemption counter never fills and onSpeechEnd never fires — the
+        // turn is stuck "listening" forever. Echo-cancellation + noise-suppression
+        // stay on (they HELP end-detection and stop Jarvis hearing its own TTS).
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: false }
       });
       micStreamRef.current = stream;
       try {
@@ -1239,12 +1343,25 @@ function App() {
   // VAD; unmuting resumes hands-free listening.
   const toggleMute = useCallback(() => {
     if (!sessionOnRef.current) return;
-    cutAssistant(); // muting mid-reply cuts speech AND generation (no-op when idle)
+    // Mute ONLY stops listening — it never cuts an in-flight reply. If Jarvis is
+    // mid-turn (working/speaking) when you mute, let it finish thinking and speak
+    // its answer; endTurnIfDone lands it in "muted" when the reply is done, so the
+    // mic stays off for whatever you say next. To actually cut a reply, use
+    // Space / tap (barge-in) — that's a separate action from muting the room.
+    const busy = modeRef.current === "working" || modeRef.current === "speaking";
     const next = !micMutedRef.current;
     setMicMuted(next);
-    if (next) { setStandby(false); resetEndpointer(); pauseVad(); setMode("muted"); } // mute wins over standby
-    else { resumeVad(); setMode("listening"); }
-  }, [cutAssistant, pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer, setStandby]);
+    pttOpenRef.current = false;      // an explicit M press ends any push-to-talk window
+    if (next) {
+      setStandby(false);            // mute wins over standby
+      resetEndpointer();
+      pauseVad();                    // stop hearing the room (also disables barge-in)
+      if (!busy) setMode("muted");   // don't clobber an in-flight turn's visual state
+    } else {
+      resumeVad();                   // start hearing the room again
+      if (!busy) setMode("listening");
+    }
+  }, [pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer, setStandby]);
 
   // Single press = toggle the session. While Jarvis is speaking, a press is a
   // barge-in: cut the reply off but keep the session armed. While MUTED, a press
@@ -1263,8 +1380,8 @@ function App() {
     if (sessionOnRef.current) {
       if (micMutedRef.current) {
         // push-to-talk while muted: open for one utterance, or cancel if already open
-        if (modeRef.current === "listening") { resetEndpointer(); pauseVad(); setMode("muted"); }
-        else { resumeVad(); setMode("listening"); }
+        if (modeRef.current === "listening") { pttOpenRef.current = false; resetEndpointer(); pauseVad(); setMode("muted"); }
+        else { pttOpenRef.current = true; resumeVad(); setMode("listening"); }
         return;
       }
       // standby: a press is "wake up and talk", mirroring muted push-to-talk —
@@ -1427,7 +1544,7 @@ function App() {
       : "Mic needs https or localhost";
 
   return (
-    <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}`}>
+    <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}${panelsOpen ? " panels-open" : ""}`}>
       <div
         className="jarvis-core"
         onClick={onToggle}
@@ -1442,6 +1559,25 @@ function App() {
         <span className={`jarvis-dot ${mode}`} />
         <span className="jarvis-status-text">{statusLabel}</span>
       </div>
+
+      {debugOn && (
+        <pre className="jarvis-debug" data-tick={dbgTick}>
+{`mode:${mode}  sr:${audioCtxRef.current?.sampleRate ?? "?"}  ctx:${audioCtxRef.current?.state ?? "?"}  vad:${vadRunningRef.current ? "RUN" : "off"}  mut:${micMutedRef.current ? "Y" : "n"}  ptt:${pttOpenRef.current ? "Y" : "n"}
+start:${vadDbgRef.current.starts}  end:${vadDbgRef.current.ends}  mis:${vadDbgRef.current.misfires}  snd:${vadDbgRef.current.sends}  eot:${vadDbgRef.current.eot}
+tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgRef.current.lastStt}"`}
+        </pre>
+      )}
+
+      {/* Phone-only: reveal / hide the flank panels so the orb owns the screen
+          by default. Hidden on desktop (the media query un-hides it). */}
+      <button
+        className={`jarvis-panels-toggle${panelsOpen ? " is-open" : ""}`}
+        onClick={() => setPanelsOpen((v) => !v)}
+        aria-pressed={panelsOpen}
+        aria-label={panelsOpen ? "Esconder painéis" : "Mostrar painéis"}
+      >
+        {panelsOpen ? "✕" : "☰"}
+      </button>
 
       {sessionOn && (
         <button
