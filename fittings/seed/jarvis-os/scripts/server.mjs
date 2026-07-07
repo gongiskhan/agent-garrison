@@ -506,6 +506,13 @@ function postJson(baseUrl, subpath, payload, res) {
   upstream.end(payload);
 }
 
+// Advance/start a card (voice "avança o card X"). Proxies kanban POST /cards/:id/start.
+function handleKanbanStart(res, id) {
+  const info = readFittingInfo(KANBAN_STATUS_FILE);
+  if (!info?.url) { jsonRes(res, 503, { error: "kanban-loop fitting not available" }); return; }
+  postJson(info.url, `/cards/${id}/start`, "{}", res);
+}
+
 async function handleKanbanCreate(req, res) {
   let body;
   try { body = await readJsonBody(req); } catch (err) { jsonRes(res, 400, { error: `invalid json: ${err.message}` }); return; }
@@ -966,6 +973,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/diff" && method === "GET") return handleDiff(res);
       if (pathname === "/api/kanban" && method === "GET") return handleKanban(res);
       if (pathname === "/api/kanban/cards" && method === "POST") return handleKanbanCreate(req, res);
+      const kbStart = pathname.match(/^\/api\/kanban\/cards\/([0-9A-HJKMNP-TV-Z]{26})\/start$/i);
+      if (kbStart && method === "POST") return handleKanbanStart(res, kbStart[1]);
       if (pathname === "/api/operative" && method === "GET") return handleOperative(res, liveOpts);
       if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
       if (pathname === "/api/worktrees" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/worktrees", { worktrees: [] });

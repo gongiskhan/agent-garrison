@@ -11,7 +11,8 @@
 
 export type KanbanIntent =
   | { kind: "create"; text: string }
-  | { kind: "summary" };
+  | { kind: "summary" }
+  | { kind: "advance"; query: string };
 
 // "cria um card …", "nova tarefa: …", "adiciona uma task …", "new todo …".
 // Verb (+ optional article) + a task noun; whatever follows is the card text.
@@ -20,6 +21,12 @@ const CREATE_RE =
 
 // Leading connectors to drop from the extracted card text ("cria um card PARA …").
 const CREATE_LEAD_RE = /^(para|pra|sobre|to|about|chamad[oa]|called|que diga|a dizer)\s+/i;
+
+// "avança o card <title>", "começa a tarefa <title>", "start the card <title>".
+// The remainder is a title fragment matched against the board.
+const ADVANCE_RE =
+  /^\W*(?:(?:por favor|olha|então)[,\s]+)?(?:avança(?:r)?|começa(?:r)?|inicia(?:r)?|arranca(?:r)?|start|advance)\b\s*(?:o |a |the )?(?:card|cart[aã]o|tarefa|task)\b[\s:,\-–—]*/i;
+const ADVANCE_LEAD_RE = /^(o |a |do |da |the )+/i;
 
 // "estado das tarefas", "o que está o sistema a fazer", "que tarefas estão a
 // correr", "what's running". Anchored on task/kanban/running keywords so ordinary
@@ -57,6 +64,12 @@ export function parseKanbanIntent(text: string): KanbanIntent | null {
     // "cria uma tarefa" with no content → let the orchestrator handle it (it can
     // ask what the card should say) rather than creating an empty card.
     return meaningful(rest) ? { kind: "create", text: rest } : null;
+  }
+
+  const am = t.match(ADVANCE_RE);
+  if (am) {
+    let rest = t.slice(am[0].length).trim().replace(ADVANCE_LEAD_RE, "").replace(/[.!?…]+$/u, "").trim();
+    return meaningful(rest) ? { kind: "advance", query: rest } : null;
   }
 
   if (SUMMARY_RE.test(t)) return { kind: "summary" };

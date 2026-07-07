@@ -921,6 +921,27 @@ function App() {
       endTurnIfDone();
       return;
     }
+    if (intent.kind === "advance") {
+      // Match a card by title fragment; only act on an unambiguous single hit.
+      const cards = kanbanRef.current?.cards ?? [];
+      const q = intent.query.toLowerCase();
+      const hits = cards.filter((c) => c.title.toLowerCase().includes(q));
+      if (hits.length === 0) {
+        enqueueSpeech(`Não encontrei nenhum card com "${intent.query}".`);
+      } else if (hits.length > 1) {
+        enqueueSpeech(`Encontrei ${hits.length} cards com "${intent.query}". Sê mais específico.`);
+      } else {
+        const card = hits[0];
+        try {
+          const res = await fetch(`/api/kanban/cards/${card.id}/start`, { method: "POST" });
+          const data = await res.json().catch(() => null);
+          if (res.ok) { enqueueSpeech(`Avancei o card "${card.title}".`); refreshKanban(); }
+          else enqueueSpeech(`Não consegui avançar o card: ${data?.error || "erro"}.`);
+        } catch { enqueueSpeech("Não consegui avançar o card."); }
+      }
+      endTurnIfDone();
+      return;
+    }
     // create
     try {
       const res = await fetch("/api/kanban/cards", {

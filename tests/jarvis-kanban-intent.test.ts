@@ -60,6 +60,20 @@ describe("parseKanbanIntent — create", () => {
   });
 });
 
+describe("parseKanbanIntent — advance", () => {
+  it("recognises advance/start phrasings and extracts the title fragment", () => {
+    expect(parseKanbanIntent("avança o card do login")).toEqual({ kind: "advance", query: "login" });
+    expect(parseKanbanIntent("começa a tarefa arranjar o build")).toEqual({ kind: "advance", query: "arranjar o build" });
+    expect(parseKanbanIntent("start the card deep-link")).toEqual({ kind: "advance", query: "deep-link" });
+  });
+  it("falls through when no title is given", () => {
+    expect(parseKanbanIntent("avança o card")).toBeNull();
+  });
+  it("does not collide with create", () => {
+    expect(parseKanbanIntent("cria um card para o login")?.kind).toBe("create");
+  });
+});
+
 describe("parseKanbanIntent — summary", () => {
   it("recognises board-status queries (PT + EN)", () => {
     expect(parseKanbanIntent("qual é o estado das tarefas?")).toEqual({ kind: "summary" });
