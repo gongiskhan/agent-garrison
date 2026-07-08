@@ -1144,7 +1144,7 @@ function App() {
       if (seq !== eagerSeqRef.current) return; // user resumed / turn reset — stale
       vadDbgRef.current.sends++;
       vadDbgRef.current.lastStt = (r.ok ? r.transcript : (r.detail ?? "stt-fail")).slice(0, 40);
-      vadDbgRef.current.eot = r.ok ? r.eot : -1;
+      vadDbgRef.current.eot = r.ok ? (r.eot ?? -1) : -1;
       const windowMs = graceWindowMs(r.ok ? r.eot : null, { minMs, maxMs });
       const elapsed = performance.now() - tentativeAtRef.current;
       console.debug(`[endpoint] eot=${r.eot} window=${Math.round(windowMs)}ms elapsed=${Math.round(elapsed)}ms text="${r.transcript.slice(0, 60)}"`);
