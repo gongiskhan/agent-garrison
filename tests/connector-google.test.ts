@@ -47,8 +47,27 @@ describe("google connector (C2)", () => {
     const raw = JSON.parse(cap.opts!.body).raw as string;
     const mime = decodeRaw(raw);
     expect(mime).toContain("To: a@b.com");
-    expect(mime).toContain("Subject: Report");
-    expect(mime).toContain("see attached");
+    expect(mime).toContain("Subject: Report"); // pure ASCII → passed through unencoded
+    // body is base64 (Content-Transfer-Encoding: base64) so accents survive transit
+    expect(mime).toContain("Content-Transfer-Encoding: base64");
+    expect(mime).toContain(Buffer.from("see attached", "utf8").toString("base64"));
+  });
+
+  it("gmail.send encodes a non-ASCII subject (RFC2047) and body (base64) — no mojibake", async () => {
+    const cap: { url?: string; opts?: any } = {};
+    await runAction({
+      action: "gmail.send",
+      args: { to: "a@b.com", subject: "Olá reunião", body: "Ação à noite: café" },
+      env: ENV,
+      fetchImpl: mockFetch(cap, { id: "msg2" })
+    });
+    const mime = decodeRaw(JSON.parse(cap.opts!.body).raw as string);
+    // subject → RFC2047 encoded-word that decodes back to the original
+    const ew = mime.match(/Subject: =\?UTF-8\?B\?([^?]+)\?=/);
+    expect(ew).toBeTruthy();
+    expect(Buffer.from(ew![1], "base64").toString("utf8")).toBe("Olá reunião");
+    // body → base64 that decodes back to the original
+    expect(mime).toContain(Buffer.from("Ação à noite: café", "utf8").toString("base64"));
   });
 
   it("gmail.send with an attachment builds a multipart/mixed message", async () => {

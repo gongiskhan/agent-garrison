@@ -95,6 +95,23 @@ function header(value) {
   return String(value ?? "").replace(/[\r\n]+/g, " ").trim();
 }
 
+// RFC 2047 encoded-word for header values with non-ASCII (accents, emoji). A raw
+// UTF-8 Subject is invalid in a mail header and renders as mojibake ("OlÃ¡");
+// pure-ASCII values pass through untouched.
+function encodeHeaderWord(value) {
+  const s = String(value ?? "");
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(s)) return s;
+  return `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
+}
+
+// Base64 the UTF-8 body, wrapped at 76 cols (RFC 2045). Paired with
+// Content-Transfer-Encoding: base64 so the exact UTF-8 bytes reach the recipient
+// — no 8-bit-in-transit corruption, accents survive intact.
+function base64Body(body) {
+  return Buffer.from(body ?? "", "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
+}
+
 // Build an RFC822 message (multipart/mixed when there are attachments). An
 // attachment is { filename, mime_type?, content_base64 } or { filename, path }.
 function buildMime({ to, subject, body, cc, attachments }) {
@@ -102,21 +119,22 @@ function buildMime({ to, subject, body, cc, attachments }) {
   const cleanCc = cc ? header(cc) : "";
   const cleanSubject = header(subject);
   if (!attachments || attachments.length === 0) {
-    const lines = [`To: ${cleanTo}`, cleanCc ? `Cc: ${cleanCc}` : null, `Subject: ${cleanSubject}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "", body ?? ""].filter((l) => l !== null);
+    const lines = [`To: ${cleanTo}`, cleanCc ? `Cc: ${cleanCc}` : null, `Subject: ${encodeHeaderWord(cleanSubject)}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", base64Body(body)].filter((l) => l !== null);
     return lines.join("\r\n");
   }
   const boundary = "garrison_boundary_0xCAFE";
   const parts = [];
   parts.push(`To: ${cleanTo}`);
   if (cleanCc) parts.push(`Cc: ${cleanCc}`);
-  parts.push(`Subject: ${cleanSubject}`);
+  parts.push(`Subject: ${encodeHeaderWord(cleanSubject)}`);
   parts.push("MIME-Version: 1.0");
   parts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
   parts.push("");
   parts.push(`--${boundary}`);
   parts.push("Content-Type: text/plain; charset=UTF-8");
+  parts.push("Content-Transfer-Encoding: base64");
   parts.push("");
-  parts.push(body ?? "");
+  parts.push(base64Body(body));
   for (const att of attachments) {
     const data = att.content_base64 ?? Buffer.from(readFileSync(att.path)).toString("base64");
     const filename = header(att.filename).replace(/"/g, "");
