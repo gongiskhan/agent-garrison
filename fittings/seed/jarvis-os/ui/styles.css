@@ -834,9 +834,12 @@ a.jarvis-task-row:hover .jarvis-task-title { color: var(--white-hot); }
     border-color: hsl(var(--accent-h) 60% 62% / 0.6);
   }
 
-  /* give the orb a touch of headroom so it reads as a centred sphere, not a
-     full-bleed crop, and floats above the (bottom) status line */
-  .jarvis-core { transform: translateY(-4vh) scale(0.9); }
+  /* The canvas STAYS full-viewport on phones (no CSS scale — that would shrink
+     the opaque WebGL canvas into a visible black box over the page). The orb is
+     made smaller and lifted into the upper third from inside the 3D scene
+     (GraphCore: camera pulled back + cloud raised on narrow viewports), so the
+     halo still fades into the page and the lower half is freed for the HUD. */
+  .jarvis-core { transform: none; }
 
   /* status prompt + mic pill sit at the very bottom, clear of the home bar */
   .jarvis-status {

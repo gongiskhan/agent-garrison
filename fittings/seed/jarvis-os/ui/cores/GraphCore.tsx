@@ -158,11 +158,20 @@ export default function GraphCore({
       0.1,
       100
     );
-    camera.position.set(0, 0, 5.7);
-
     const cloud = new THREE.Group();
-    cloud.position.y = 0.32; // sit slightly above screen center, clear of the MRR block
     scene.add(cloud);
+
+    // Responsive framing. On phones the orb is made smaller and lifted into the
+    // upper third *inside the scene* — pulling the camera back shrinks the whole
+    // cloud on-screen while the canvas stays full-viewport (so the halo still
+    // fades into the page instead of clipping into a box), and raising the cloud
+    // parks the sphere up top, freeing the lower half for the HUD bands.
+    const frameForViewport = () => {
+      const phone = mount.clientWidth <= 640;
+      camera.position.set(0, 0, phone ? 8.6 : 5.7);
+      cloud.position.y = phone ? 1.25 : 0.32; // above center, clear of the MRR block
+    };
+    frameForViewport();
 
     // --- nodes: center-dense volumetric cloud --------------------------------
     const base = new Float32Array(N_NODES * 3);
@@ -421,6 +430,7 @@ export default function GraphCore({
     window.addEventListener("mousemove", onMouse);
 
     const onResize = () => {
+      frameForViewport();
       camera.aspect = mount.clientWidth / mount.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(mount.clientWidth, mount.clientHeight);
