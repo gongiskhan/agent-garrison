@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { CATALOG, runAction } from "../fittings/seed/google/scripts/connector.mjs";
 
 // C2 — the Google Workspace connector. OAuth2: the token is injected via env
@@ -92,8 +95,58 @@ describe("google connector (C2)", () => {
   });
 
   it("throws awaiting_connector when no access token is present", async () => {
-    await expect(
-      runAction({ action: "gmail.send", args: { to: "x" }, env: {}, fetchImpl: mockFetch({}, {}) })
-    ).rejects.toMatchObject({ awaiting_connector: true });
+    // No env token AND no internal token to self-resolve one -> not connected.
+    const prev = process.env.GARRISON_INTERNAL_TOKEN_PATH;
+    process.env.GARRISON_INTERNAL_TOKEN_PATH = path.join(os.tmpdir(), "garrison-no-such-internal-token");
+    try {
+      await expect(
+        runAction({ action: "gmail.send", args: { to: "x" }, env: {}, fetchImpl: mockFetch({}, {}) })
+      ).rejects.toMatchObject({ awaiting_connector: true });
+    } finally {
+      if (prev === undefined) delete process.env.GARRISON_INTERNAL_TOKEN_PATH;
+      else process.env.GARRISON_INTERNAL_TOKEN_PATH = prev;
+    }
+  });
+
+  // When nothing injected GOOGLE_ACCESS_TOKEN (a direct call, not via the
+  // Automations engine), the connector self-resolves a FRESH token from
+  // Garrison's auth-env route using the 0600 internal token — the OAuth gap that
+  // made direct calls always report awaiting_connector.
+  describe("self-resolves a fresh token when none is injected", () => {
+    let dir: string;
+    const prevPath = process.env.GARRISON_INTERNAL_TOKEN_PATH;
+    const prevBase = process.env.GARRISON_BASE_URL;
+
+    afterEach(() => {
+      if (prevPath === undefined) delete process.env.GARRISON_INTERNAL_TOKEN_PATH;
+      else process.env.GARRISON_INTERNAL_TOKEN_PATH = prevPath;
+      if (prevBase === undefined) delete process.env.GARRISON_BASE_URL;
+      else process.env.GARRISON_BASE_URL = prevBase;
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("POSTs auth-env with the internal token and uses the returned token", async () => {
+      dir = mkdtempSync(path.join(os.tmpdir(), "gtok-"));
+      const tokenFile = path.join(dir, "internal-token");
+      writeFileSync(tokenFile, "internal-secret", { mode: 0o600 });
+      process.env.GARRISON_INTERNAL_TOKEN_PATH = tokenFile;
+      process.env.GARRISON_BASE_URL = "http://127.0.0.1:9999";
+
+      const seen: { authEnvUrl?: string; internalHeader?: string; bearer?: string } = {};
+      const fetchImpl = async (url: string, opts?: any) => {
+        if (url.includes("/auth-env")) {
+          seen.authEnvUrl = url;
+          seen.internalHeader = opts.headers["x-garrison-internal"];
+          return { ok: true, status: 200, json: async () => ({ env: { GOOGLE_ACCESS_TOKEN: "ya29.fresh" } }), text: async () => "" };
+        }
+        seen.bearer = opts.headers.Authorization;
+        return { ok: true, status: 200, json: async () => ({ files: [] }), text: async () => "" };
+      };
+
+      await runAction({ action: "drive.list", args: {}, env: {}, fetchImpl });
+      expect(seen.authEnvUrl).toBe("http://127.0.0.1:9999/api/connectors/google/auth-env");
+      expect(seen.internalHeader).toBe("internal-secret");
+      expect(seen.bearer).toBe("Bearer ya29.fresh");
+    });
   });
 });

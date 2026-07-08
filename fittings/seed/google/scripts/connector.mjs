@@ -4,13 +4,19 @@
 //   node connector.mjs catalog                   -> JSON { service, auth, actions[] }
 //   node connector.mjs call <action> [argsJson]  -> JSON { ok, result } | { ok:false, error, awaiting_connector }
 //
-// Auth is OAuth2: the Automations engine resolves a FRESH access token from the
-// keychain Vault (vault.getAccessToken("google"), auto-refreshing) and injects it
-// as GOOGLE_ACCESS_TOKEN into this call's env. The token never touches the
-// manifest or the logs (it is redacted). This is the Vault-sealed credential
-// story end to end — no plaintext token.json on disk.
+// Auth is OAuth2: a FRESH access token is resolved from the keychain Vault
+// (vault.getAccessToken("google"), auto-refreshing) and reaches this call's env
+// as GOOGLE_ACCESS_TOKEN by one of two paths:
+//   - via the Automations engine, which injects it before spawning us, OR
+//   - self-resolved here when the token is absent (a direct call, e.g. the
+//     Operative over bash) by POSTing Garrison's own /api/connectors/google/
+//     auth-env route — the same route, internal-token guard, and refresher the
+//     engine uses. Either way the Vault stays the single owner of the grant and
+//     the token never touches the manifest, disk, or the logs (it is redacted).
 
 import { readFileSync, realpathSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CATALOG = {
@@ -24,7 +30,7 @@ export const CATALOG = {
       description: "Send an email (optionally with attachments) via Gmail."
     },
     { name: "drive.list", args: ["query", "page_size"], mutates: false, description: "List Drive files (most-recently-modified first)." },
-    { name: "calendar.create_event", args: ["summary", "start", "end", "calendar_id"], mutates: true, description: "Create a calendar event." },
+    { name: "calendar.create_event", args: ["summary", "start", "end", "calendar_id", "location", "description", "all_day", "time_zone"], mutates: true, description: "Create a calendar event. Timed: start/end as RFC3339 dateTime (e.g. 2026-07-08T20:30:00+01:00). All-day: pass date-only start/end (YYYY-MM-DD, end exclusive) or all_day:true. Optional location, description, time_zone." },
     { name: "calendar.list_events", args: ["calendar_id", "time_min", "max"], mutates: false, description: "List upcoming calendar events." }
   ]
 };
@@ -36,8 +42,44 @@ class NotConnectedError extends Error {
   }
 }
 
-function token(env) {
-  const t = env.GOOGLE_ACCESS_TOKEN;
+// The 0600 per-machine capability token that gates Garrison's auth-env route.
+// Same file the Automations engine reads; absent (or unreadable) => "" and we
+// simply can't self-resolve, which surfaces as awaiting_connector below.
+function internalToken() {
+  try {
+    const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+    const file = process.env.GARRISON_INTERNAL_TOKEN_PATH || path.join(home, "internal-token");
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+// Self-resolve this connector's freshly-materialized auth env from Garrison when
+// nothing pre-injected it. Mirrors the engine's auth-env fetch: POST with the
+// internal token; a non-2xx (incl. 409 not-connected) yields {} so the caller
+// falls through to awaiting_connector. Never throws — auth failures are the
+// caller's to signal.
+async function fetchInjectedEnv(fetchImpl) {
+  const tok = internalToken();
+  if (!tok) return {};
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  try {
+    const res = await fetchImpl(`${base}/api/connectors/google/auth-env`, {
+      method: "POST",
+      headers: { "x-garrison-internal": tok }
+    });
+    if (!res.ok) return {};
+    const json = await res.json();
+    return json.env ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function resolveToken(env, fetchImpl) {
+  let t = env.GOOGLE_ACCESS_TOKEN;
+  if (!t) t = (await fetchInjectedEnv(fetchImpl)).GOOGLE_ACCESS_TOKEN;
   if (!t) throw new NotConnectedError("Google not connected (connect via OAuth so the Vault holds a grant)");
   return t;
 }
@@ -92,7 +134,7 @@ function buildMime({ to, subject, body, cc, attachments }) {
 }
 
 export async function runAction({ action, args = {}, env = process.env, fetchImpl = fetch }) {
-  const access = token(env);
+  const access = await resolveToken(env, fetchImpl);
   const authHeader = { Authorization: `Bearer ${access}` };
   const call = async (url, opts = {}) => {
     const res = await fetchImpl(url, { ...opts, headers: { ...authHeader, ...(opts.headers ?? {}) } });
@@ -118,14 +160,20 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
     }
     case "calendar.create_event": {
       const calId = encodeURIComponent(args.calendar_id ?? "primary");
+      // All-day when start/end are date-only ("YYYY-MM-DD") or all_day is set —
+      // Google needs { date } for all-day and { dateTime } for timed events.
+      const dateOnly = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+      const allDay = args.all_day === true || dateOnly(args.start);
+      const when = (v) => allDay
+        ? { date: v }
+        : { dateTime: v, ...(args.time_zone ? { timeZone: args.time_zone } : {}) };
+      const event = { summary: args.summary, start: when(args.start), end: when(args.end) };
+      if (args.location) event.location = args.location;
+      if (args.description) event.description = args.description;
       return call(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          summary: args.summary,
-          start: { dateTime: args.start },
-          end: { dateTime: args.end }
-        })
+        body: JSON.stringify(event)
       });
     }
     case "calendar.list_events": {

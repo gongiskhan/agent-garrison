@@ -15,7 +15,14 @@ x-garrison:
   provides:
     - kind: orchestrator
       name: garrison-orchestrator
-  consumes: []
+  # `any` is the discovery mechanism: every connector Fitting stationed in the
+  # composition is matched here without hardcoding an id, so the runner folds
+  # each connector's action catalog + `for_consumers` bash recipe into the
+  # Orchestrator prompt's {{capabilities}} block. No Garrison code change is
+  # needed when a new connector is added.
+  consumes:
+    - kind: connector
+      cardinality: any
   verify:
     command: test -f apm_modules/_local/garrison-orchestrator/.apm/prompts/garrison-orchestrator.prompt.md && echo ok
     expect: ok

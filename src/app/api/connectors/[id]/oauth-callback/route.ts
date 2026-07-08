@@ -16,7 +16,12 @@ function back(origin: string, q: string) {
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   const id = params.id;
   const url = new URL(request.url);
-  const origin = url.origin;
+  // Origin from the Host the browser used, NOT url.origin: under `next -H 0.0.0.0`
+  // url.origin is http://0.0.0.0:7777, and the browser can't follow a redirect to
+  // 0.0.0.0 ("restricted network port"). The Host header carries the real address.
+  const proto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(/:$/, "");
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
+  const origin = `${proto}://${host}`;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state") ?? "";
   const providerError = url.searchParams.get("error");

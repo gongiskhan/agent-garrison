@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-06T15:27:41.200709+00:00'
+generated_at: '2026-07-08T11:56:20.617403+00:00'
 apm_version: 0.20.0
 dependencies:
 - repo_url: _local/garrison-orchestrator
@@ -10,6 +10,15 @@ dependencies:
     .claude/commands/garrison-orchestrator.md: sha256:8fa88e3463ba6744f48726fd4ecf7255b2694abb76d6617bb6f6b452b4525f02
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
+- repo_url: _local/google
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/google-calendar
+  - .claude/skills/google-calendar/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/google-calendar/SKILL.md: sha256:8818d0a97c2b3ace35aba433114df755746a1b3983f5f27e07f4a8348c83e9c8
+  source: local
+  local_path: ../../fittings/seed/google
 - repo_url: _local/http-gateway
   package_type: apm_package
   deployed_files:
@@ -34,3 +43,14 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/local-voice
+- repo_url: _local/trello
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/trello-data-source.md
+  - .claude/skills/trello
+  - .claude/skills/trello/SKILL.md
+  deployed_file_hashes:
+    .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
+    .claude/skills/trello/SKILL.md: sha256:98db910b886112716671873c3c2faea81a12cbb1ed880bebb6091fb36e4d06ee
+  source: local
+  local_path: ../../fittings/seed/trello

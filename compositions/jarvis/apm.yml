@@ -9,6 +9,8 @@ dependencies:
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/trello
+    - path: ../../fittings/seed/google
 x-garrison:
   composition:
     id: jarvis
@@ -134,6 +136,21 @@ x-garrison:
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *
+      # External services the Operative can act on. The Orchestrator discovers
+      # them via `consumes: connector any`, so each connector's action catalog +
+      # bash recipe folds into its prompt automatically. Credentials are NOT set
+      # here — they are sealed in the Vault and connected per service:
+      #   - trello (api_key): seal TRELLO_KEY / TRELLO_TOKEN / TRELLO_BOARD_ID in
+      #     the Vault (Trello dev API key + a token, https://trello.com/power-ups/admin).
+      #   - google (oauth2): create an OAuth client in Google Cloud, seal its
+      #     GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET, then run the
+      #     OAuth connect flow from /connectors (access_type=offline for a
+      #     refresh token). Until connected, calls return awaiting_connector.
+      connectors:
+        - id: trello
+          config: {}
+        - id: google
+          config: {}
     # Specialist Souls the Orchestrator delegates to via talk_to (2026-07-03).
     # The runner folds these into GARRISON_SOULS_CONFIG at gateway spawn; prompts
     # live in souls/*.md. Souls are PTY-backed sessions (per the gateway's

@@ -9,10 +9,15 @@
 //                                                    | { ok:false, error, awaiting_connector }
 //
 // Secrets are delivered SCOPED via env (the Vault materializes only this
-// connector's secret_scope): TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID. The
-// values never appear in the manifest and are redacted from logs.
+// connector's secret_scope): TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID. They
+// reach this call's env one of two ways — injected by the Automations engine, or
+// self-resolved here (a direct call, e.g. the Operative over bash) from
+// Garrison's /api/connectors/trello/auth-env route. The values never appear in
+// the manifest and are redacted from logs.
 
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CATALOG = {
@@ -35,17 +40,59 @@ class NotConnectedError extends Error {
   }
 }
 
-function creds(env) {
-  const key = env.TRELLO_KEY;
-  const token = env.TRELLO_TOKEN;
+// The 0600 per-machine capability token that gates Garrison's auth-env route.
+// Same file the Automations engine reads; absent (or unreadable) => "" and we
+// simply can't self-resolve, which surfaces as awaiting_connector below.
+function internalToken() {
+  try {
+    const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+    const file = process.env.GARRISON_INTERNAL_TOKEN_PATH || path.join(home, "internal-token");
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+// Self-resolve this connector's scoped secrets from Garrison when nothing
+// pre-injected them. Mirrors the engine's auth-env fetch: POST with the internal
+// token; a non-2xx (incl. 409 not-connected) yields {} so the caller falls
+// through to awaiting_connector. Never throws — auth failures are the caller's
+// to signal.
+async function fetchInjectedEnv(fetchImpl) {
+  const tok = internalToken();
+  if (!tok) return {};
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  try {
+    const res = await fetchImpl(`${base}/api/connectors/trello/auth-env`, {
+      method: "POST",
+      headers: { "x-garrison-internal": tok }
+    });
+    if (!res.ok) return {};
+    const json = await res.json();
+    return json.env ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function resolveCreds(env, fetchImpl) {
+  let key = env.TRELLO_KEY;
+  let token = env.TRELLO_TOKEN;
+  let board = env.TRELLO_BOARD_ID;
+  if (!key || !token) {
+    const injected = await fetchInjectedEnv(fetchImpl);
+    key = key || injected.TRELLO_KEY;
+    token = token || injected.TRELLO_TOKEN;
+    board = board || injected.TRELLO_BOARD_ID;
+  }
   if (!key || !token) {
     throw new NotConnectedError("Trello not connected (seal TRELLO_KEY/TRELLO_TOKEN in the Vault)");
   }
-  return { key, token, board: env.TRELLO_BOARD_ID };
+  return { key, token, board };
 }
 
 export async function runAction({ action, args = {}, env = process.env, fetchImpl = fetch }) {
-  const { key, token, board } = creds(env);
+  const { key, token, board } = await resolveCreds(env, fetchImpl);
   const auth = `key=${encodeURIComponent(key)}&token=${encodeURIComponent(token)}`;
   const api = "https://api.trello.com/1";
   const jsonHeaders = { "content-type": "application/json" };

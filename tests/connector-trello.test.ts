@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { CATALOG, runAction } from "../fittings/seed/trello/scripts/connector.mjs";
 
 // C1 — the Trello connector implements the uniform connector executor contract:
@@ -53,8 +56,58 @@ describe("trello connector (C1)", () => {
   });
 
   it("throws awaiting_connector when creds are missing", async () => {
-    await expect(runAction({ action: "lists", env: {}, fetchImpl: mockFetch({}, []) })).rejects.toMatchObject({
-      awaiting_connector: true
+    // No env creds AND no internal token to self-resolve them -> not connected.
+    const prev = process.env.GARRISON_INTERNAL_TOKEN_PATH;
+    process.env.GARRISON_INTERNAL_TOKEN_PATH = path.join(os.tmpdir(), "garrison-no-such-internal-token");
+    try {
+      await expect(runAction({ action: "lists", env: {}, fetchImpl: mockFetch({}, []) })).rejects.toMatchObject({
+        awaiting_connector: true
+      });
+    } finally {
+      if (prev === undefined) delete process.env.GARRISON_INTERNAL_TOKEN_PATH;
+      else process.env.GARRISON_INTERNAL_TOKEN_PATH = prev;
+    }
+  });
+
+  // A direct call (not via the Automations engine) has no scoped creds in env;
+  // the connector self-resolves them from Garrison's auth-env route.
+  describe("self-resolves scoped creds when none are injected", () => {
+    let dir: string;
+    const prevPath = process.env.GARRISON_INTERNAL_TOKEN_PATH;
+    const prevBase = process.env.GARRISON_BASE_URL;
+
+    afterEach(() => {
+      if (prevPath === undefined) delete process.env.GARRISON_INTERNAL_TOKEN_PATH;
+      else process.env.GARRISON_INTERNAL_TOKEN_PATH = prevPath;
+      if (prevBase === undefined) delete process.env.GARRISON_BASE_URL;
+      else process.env.GARRISON_BASE_URL = prevBase;
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("POSTs auth-env with the internal token and uses the returned creds", async () => {
+      dir = mkdtempSync(path.join(os.tmpdir(), "ttok-"));
+      const tokenFile = path.join(dir, "internal-token");
+      writeFileSync(tokenFile, "internal-secret", { mode: 0o600 });
+      process.env.GARRISON_INTERNAL_TOKEN_PATH = tokenFile;
+      process.env.GARRISON_BASE_URL = "http://127.0.0.1:9999";
+
+      const seen: { authEnvUrl?: string; internalHeader?: string; listsUrl?: string } = {};
+      const fetchImpl = async (url: string, opts?: any) => {
+        if (url.includes("/auth-env")) {
+          seen.authEnvUrl = url;
+          seen.internalHeader = opts.headers["x-garrison-internal"];
+          return { ok: true, status: 200, json: async () => ({ env: { TRELLO_KEY: "k2", TRELLO_TOKEN: "t2", TRELLO_BOARD_ID: "b2" } }), text: async () => "" };
+        }
+        seen.listsUrl = url;
+        return { ok: true, status: 200, json: async () => [], text: async () => "[]" };
+      };
+
+      await runAction({ action: "lists", env: {}, fetchImpl });
+      expect(seen.authEnvUrl).toBe("http://127.0.0.1:9999/api/connectors/trello/auth-env");
+      expect(seen.internalHeader).toBe("internal-secret");
+      expect(seen.listsUrl).toContain("/boards/b2/lists");
+      expect(seen.listsUrl).toContain("key=k2");
+      expect(seen.listsUrl).toContain("token=t2");
     });
   });
 

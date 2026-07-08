@@ -27,7 +27,16 @@ export async function GET(request: Request, { params }: { params: { id: string }
       return NextResponse.json({ error: "client-credentials-missing", needs: [oauth.clientIdSecret, oauth.clientSecretSecret] }, { status: 409 });
     }
 
-    const origin = new URL(request.url).origin;
+    // Derive the origin from the Host the browser actually used, NOT
+    // new URL(request.url): under `next -H 0.0.0.0` (npm run start:mobile)
+    // request.url reports the 0.0.0.0 bind address even when the user opened
+    // 127.0.0.1, producing redirect_uri=http://0.0.0.0:... which Google rejects
+    // with "invalid_request" (http on a non-loopback host). The Host header
+    // carries the real address navigated to (127.0.0.1, a tailnet name, …).
+    const reqUrl = new URL(request.url);
+    const proto = request.headers.get("x-forwarded-proto") ?? reqUrl.protocol.replace(/:$/, "");
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? reqUrl.host;
+    const origin = `${proto}://${host}`;
     const redirectUri = `${origin}/api/connectors/${encodeURIComponent(id)}/oauth-callback`;
     const state = createOAuthState(id, redirectUri);
 

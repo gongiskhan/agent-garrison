@@ -122,7 +122,9 @@ describe("seed Fittings", () => {
     expect(metadata.faculty).toBe("orchestrator");
     expect(metadata.component_shape).toBe("system-prompt");
     expect(metadata.provides).toContainEqual({ kind: "orchestrator", name: "garrison-orchestrator" });
-    expect(metadata.consumes).toEqual([]); // souls dispatch + mcp-gateway consume removed
+    // Discovers every stationed connector without hardcoding an id, so their
+    // catalogs fold into the prompt (souls dispatch + mcp-gateway consume removed).
+    expect(metadata.consumes).toEqual([{ kind: "connector", cardinality: "any" }]);
     expect(metadata.spawn).toBeUndefined();
   });
 
