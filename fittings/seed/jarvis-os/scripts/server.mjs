@@ -215,6 +215,91 @@ async function resolveProjectRoot() {
   catch { return null; }
 }
 
+// ── active-project ("workspace target") resolution ───────────────────────────
+// The WORKSPACE panel must reflect the repo where DEV WORK is actually
+// happening — the dev souls run under ~/dev, not this checkout — instead of the
+// agent-garrison repo the HUD server itself lives in. Precedence:
+//   1. a running dev session's cwd (auto-follow), EXCLUDING sessions whose repo
+//      is this server's own repo (assistant/companion souls have no base_path so
+//      their cwd is the composition dir = agent-garrison — following those would
+//      re-point the panel at Jarvis itself, the exact thing we're fixing).
+//   2. the last project we followed (persisted), so the panel doesn't blank the
+//      moment a session ends.
+//   3. PROJECT_ROOT env (the static config override), if set.
+//   4. nothing — a calm empty state. We NEVER fall back to the server's own repo.
+// Souls/skills/commands keep using resolveProjectRoot() (they ARE Jarvis's own
+// config, correctly tied to the composition) — only the workspace follows this.
+const WORKSPACE_STATE_FILE = path.join(STATUS_ROOT, "jarvis-os-workspace.json");
+const WORKSPACE_TTL_MS = 8_000;
+let workspaceCache = { at: 0, data: null };
+let selfRootCache; // undefined = unresolved; string|null once computed
+
+async function resolveSelfRoot() {
+  if (selfRootCache !== undefined) return selfRootCache;
+  try { selfRootCache = await runRead("git", ["rev-parse", "--show-toplevel"], process.cwd()); }
+  catch { selfRootCache = null; }
+  return selfRootCache;
+}
+
+async function persistWorkspace(root) {
+  try {
+    await mkdir(STATUS_ROOT, { recursive: true });
+    await writeFile(WORKSPACE_STATE_FILE, JSON.stringify(
+      { root, name: path.basename(root), updatedAt: new Date().toISOString() }, null, 2
+    ));
+  } catch { /* best-effort — a failed persist just means no "last project" fallback */ }
+}
+
+function readPersistedWorkspace() {
+  try { return JSON.parse(readFileSync(WORKSPACE_STATE_FILE, "utf8"))?.root || null; }
+  catch { return null; }
+}
+
+// last_summary_at may be a number (ms) or an ISO string; missing → 0.
+function sessionRecency(s) {
+  const v = s?.last_summary_at;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const n = Date.parse(v); return Number.isNaN(n) ? 0 : n; }
+  return 0;
+}
+
+async function computeWorkspaceRoot(opts) {
+  const selfRoot = await resolveSelfRoot();
+  const same = (a, b) => a && b && path.resolve(a) === path.resolve(b);
+  // 1. auto-follow the most-recently-active running dev session
+  try {
+    const sess = await fetchJson(opts.gatewayUrl, "/sessions");
+    const running = (Array.isArray(sess?.sessions) ? sess.sessions : [])
+      .filter((s) => s && s.status === "running" && typeof s.cwd === "string" && s.cwd)
+      .sort((a, b) => sessionRecency(b) - sessionRecency(a));
+    for (const s of running) {
+      if (!existsSync(s.cwd)) continue;
+      let top;
+      try { top = await runRead("git", ["rev-parse", "--show-toplevel"], s.cwd); }
+      catch { continue; } // cwd isn't a git repo → not a workspace we can show
+      if (!top || same(top, selfRoot)) continue; // skip Jarvis's own repo
+      await persistWorkspace(top);
+      return { root: top, source: "session" };
+    }
+  } catch { /* gateway unreachable → fall through to the persisted / env target */ }
+  // 2. last followed project
+  const last = readPersistedWorkspace();
+  if (last && existsSync(last)) return { root: last, source: "last" };
+  // 3. explicit static override
+  const fromEnv = process.env.PROJECT_ROOT?.trim();
+  if (fromEnv && existsSync(fromEnv)) return { root: fromEnv, source: "env" };
+  // 4. no active project — do NOT fall back to this server's own repo
+  return { root: null, source: "none" };
+}
+
+async function resolveWorkspaceRoot(opts) {
+  const now = Date.now();
+  if (workspaceCache.data && now - workspaceCache.at < WORKSPACE_TTL_MS) return workspaceCache.data;
+  const data = await computeWorkspaceRoot(opts);
+  workspaceCache = { at: now, data };
+  return data;
+}
+
 // git@github.com:o/r.git / https://github.com/o/r.git → https://github.com/o/r
 // (for commit/branch links in the HUD). Non-GitHub remotes pass through best-effort.
 function webRemoteUrl(remote) {
@@ -225,15 +310,18 @@ function webRemoteUrl(remote) {
     .replace(/\.git$/, "") || null;
 }
 
-async function handleProject(res) {
+async function handleProject(res, opts) {
   const now = Date.now();
   if (projectCache.data && now - projectCache.at < PROJECT_TTL_MS) {
     jsonRes(res, 200, projectCache.data);
     return;
   }
-  const root = await resolveProjectRoot();
+  const ws = await resolveWorkspaceRoot(opts);
+  const root = ws.root;
   if (!root) {
-    jsonRes(res, 200, { available: false });
+    // No cache: while idle we cheaply re-check each poll (workspace lookup is
+    // itself cached ~8s) so the panel lights up promptly when a session starts.
+    jsonRes(res, 200, { available: false, activeSource: ws.source });
     return;
   }
   // Each probe is independent and best-effort: a missing upstream or a flaky
@@ -269,6 +357,8 @@ async function handleProject(res) {
   const data = {
     available: true,
     root,
+    name: path.basename(root),
+    activeSource: ws.source,
     branch: val(branch) || null,
     ahead: aheadStr !== undefined ? Number(aheadStr) : null,
     behind: behindStr !== undefined && aheadStr !== undefined ? Number(behindStr) : null,
@@ -288,8 +378,8 @@ async function handleProject(res) {
 // `git diff HEAD`; the panel's change count (from `git status`) still reflects
 // them so the two never silently disagree about "something changed".
 const DIFF_MAX = 120_000;
-async function handleDiff(res) {
-  const root = await resolveProjectRoot();
+async function handleDiff(res, opts) {
+  const root = (await resolveWorkspaceRoot(opts)).root;
   if (!root) { jsonRes(res, 200, { available: false }); return; }
   try {
     const patch = await runRead("git", ["diff", "HEAD"], root, 6000);
@@ -539,7 +629,7 @@ function handleGatewayGet(req, res, opts, subpath, fallbackBody) {
       method: "GET",
       hostname: target.hostname,
       port: target.port,
-      path: target.pathname,
+      path: target.pathname + target.search,
       headers: { Accept: "application/json" },
       timeout: 4000
     },
@@ -969,15 +1059,22 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/endpointing" && method === "GET") return handleEndpointing(res);
-      if (pathname === "/api/project" && method === "GET") return handleProject(res);
-      if (pathname === "/api/diff" && method === "GET") return handleDiff(res);
+      if (pathname === "/api/project" && method === "GET") return handleProject(res, liveOpts);
+      if (pathname === "/api/diff" && method === "GET") return handleDiff(res, liveOpts);
       if (pathname === "/api/kanban" && method === "GET") return handleKanban(res);
       if (pathname === "/api/kanban/cards" && method === "POST") return handleKanbanCreate(req, res);
       const kbStart = pathname.match(/^\/api\/kanban\/cards\/([0-9A-HJKMNP-TV-Z]{26})\/start$/i);
       if (kbStart && method === "POST") return handleKanbanStart(res, kbStart[1]);
       if (pathname === "/api/operative" && method === "GET") return handleOperative(res, liveOpts);
       if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
-      if (pathname === "/api/worktrees" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/worktrees", { worktrees: [] });
+      if (pathname === "/api/worktrees" && method === "GET") {
+        // Scope the worktrees list to the active project so it actually
+        // populates (the gateway needs a ?project= repo path; without it the
+        // dev-env proxy 400s and we degrade to the empty fallback).
+        const wsRoot = (await resolveWorkspaceRoot(liveOpts)).root;
+        const sub = wsRoot ? `/worktrees?project=${encodeURIComponent(wsRoot)}` : "/worktrees";
+        return handleGatewayGet(req, res, liveOpts, sub, { worktrees: [] });
+      }
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/voice/tts" && method === "GET") return handleVoiceTtsGet(req, res);

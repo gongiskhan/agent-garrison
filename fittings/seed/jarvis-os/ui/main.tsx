@@ -261,7 +261,9 @@ type Activity = { id: string; tool: string; detail: string };
 type Commit = { hash: string; subject: string; when: string; author: string };
 type Pr = { number: number; title: string; state: string; url: string; branch: string };
 type ProjectState = {
-  available: boolean; root?: string; branch?: string | null;
+  available: boolean; root?: string; name?: string | null;
+  activeSource?: "session" | "last" | "env" | "none";
+  branch?: string | null;
   ahead?: number | null; behind?: number | null; remoteUrl?: string | null;
   commits?: Commit[]; prs?: Pr[]; branches?: string[]; changed?: number;
 };
@@ -1767,7 +1769,7 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
           </aside>
         )}
 
-        {project?.available && (
+        {project?.available ? (
           <aside className={`jarvis-workspace${wsOpen ? "" : " is-collapsed"}`}>
           <button
             className="jarvis-ws-head"
@@ -1775,8 +1777,13 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
             aria-expanded={wsOpen}
             title={wsOpen ? "Collapse workspace panel" : "Expand workspace panel"}
           >
-            <span className="jarvis-ws-title">workspace</span>
+            <span className="jarvis-ws-title">{project.name || "workspace"}</span>
             <span className="jarvis-ws-branch">{project.branch || "—"}</span>
+            {project.activeSource === "session" ? (
+              <span className="jarvis-ws-when">a seguir sessão</span>
+            ) : project.activeSource === "last" ? (
+              <span className="jarvis-ws-when">último projeto</span>
+            ) : null}
             {(project.ahead ?? 0) > 0 || (project.behind ?? 0) > 0 ? (
               <span className="jarvis-ws-sync">
                 {(project.ahead ?? 0) > 0 ? `↑${project.ahead}` : ""}
@@ -1854,7 +1861,16 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
             </div>
           )}
         </aside>
-      )}
+      ) : project && project.activeSource === "none" ? (
+        // No dev session running and no prior project — a calm placeholder
+        // instead of falling back to Jarvis's own repo.
+        <aside className="jarvis-workspace">
+          <div className="jarvis-ws-head jarvis-ws-empty">
+            <span className="jarvis-ws-title">workspace</span>
+            <span className="jarvis-ws-when">sem projeto ativo</span>
+          </div>
+        </aside>
+      ) : null}
       </div>
 
       <div className="jarvis-dock">
