@@ -1,0 +1,7 @@
+[Unit]
+Description=Agent Garrison restic backup
+
+[Service]
+Type=oneshot
+# __BACKUP_SCRIPT__ is substituted with the installed backup.sh path by setup.sh.
+ExecStart=/usr/bin/env bash __BACKUP_SCRIPT__

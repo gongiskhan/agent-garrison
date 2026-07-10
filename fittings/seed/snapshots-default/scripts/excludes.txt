@@ -1,0 +1,4 @@
+node_modules
+apm_modules
+.cache
+**/.garrison/files/.trash
