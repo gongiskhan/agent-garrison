@@ -1,0 +1,52 @@
+[
+  {
+    "beat": "ac1",
+    "criterionId": "AC-1",
+    "criterion": "The new-session UI defaults to an ORCHESTRATED mode (joe) - the default is the orchestrated path, no flag needed.",
+    "timestamp": 3.619,
+    "frame": "frames/beat-00-ac1.png",
+    "assert": "getByLabel(\"Orchestrator\") innerText contains \"dev (default)\" (the Orchestrator select highlighted)",
+    "observed": "The Dev Env 'New session' modal is open; the highlighted 'Orchestrator' dropdown's selected value reads 'Joe — dev (default)'. Joe (an orchestrated face) is the pre-selected default with no action taken, so a new session takes the orchestrated path by default. Filmed against a sandboxed dev-env server (HOME=<temp>, port 7100); no real Claude session started.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac2",
+    "criterionId": "AC-2",
+    "criterion": "Mode options offer gary / joe / james by name.",
+    "timestamp": 10.767,
+    "frame": "frames/beat-01-ac2.png",
+    "assert": "session-request.ts contains the line value: \"gary\" (highlighted); MODE_OPTIONS array shown in full",
+    "observed": "SOURCE panel of dev-env/ui/session-request.ts (lines 16-25) shows the MODE_OPTIONS array the New-session dropdown renders verbatim: value 'joe' label 'Joe — dev (default)', value 'gary' label 'Gary — assistant' (highlighted), value 'james' label 'James — product / architect', plus 'plain'; DEFAULT_MODE = 'joe'. gary / joe / james are each offered by name. A native <select> renders only its selected option in a frame, so the offered set is shown from the array the UI maps to <option>s (the live control is exercised in AC-1 and AC-3).",
+    "result": "pass"
+  },
+  {
+    "beat": "ac3",
+    "criterionId": "AC-3",
+    "criterion": "The PLAIN escape hatch exists and is explicitly labeled (\"plain claude\" + \"for debugging Garrison itself\" wording) - show the label.",
+    "timestamp": 15.165,
+    "frame": "frames/beat-02-ac3.png",
+    "assert": "getByLabel(\"Orchestrator\") innerText contains \"for debugging Garrison itself\"; plain option selected in the live modal (highlighted)",
+    "observed": "In the same live modal (session continued from AC-1), the Orchestrator dropdown now shows the full plain option label: 'Plain claude, for debugging Garrison itself (unorchestrated, logged)', fully legible and highlighted. The escape hatch exists in the UI and carries both required phrases ('plain claude' and 'for debugging Garrison itself').",
+    "result": "pass"
+  },
+  {
+    "beat": "ac4",
+    "criterionId": "AC-4",
+    "criterion": "Selecting plain produces a request with plain:true.",
+    "timestamp": 23.233,
+    "frame": "frames/beat-03-ac4.png",
+    "assert": "off-camera `npx tsx` run of buildSessionRequest() output contains the line \"plain\": true (highlighted)",
+    "observed": "API RESPONSE panel showing the real off-camera output of buildSessionRequest() from dev-env/ui/session-request.ts: buildSessionRequest({path:'/x', mode:'plain'}) = { \"path\": \"/x\", \"plain\": true } (the '\"plain\": true' line highlighted). The default case (mode null) = { \"path\": \"/x\" } and joe = { \"path\": \"/x\", \"mode\": \"joe\" } carry no plain flag, so only the plain selection sets plain:true; the others stay on the orchestrated path.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac5",
+    "criterionId": "AC-5",
+    "criterion": "The server logs plain-session use.",
+    "timestamp": 26.233,
+    "frame": "frames/beat-04-ac5.png",
+    "assert": "server.mjs contains the line 'PLAIN session requested' (highlighted) on the wantPlain branch",
+    "observed": "SOURCE panel of dev-env/scripts/server.mjs handleCreateSession (lines 601-616): const wantPlain = body.plain === true; if (wantPlain) { console.log(`[dev-env] PLAIN session requested for ${session.worktreePath} (unorchestrated escape hatch, D22) — logged`); } — the log line highlighted. Every plain (unorchestrated) session is logged server-side; the else branch is the orchestrated placeViaOrchestrator path.",
+    "result": "pass"
+  }
+]

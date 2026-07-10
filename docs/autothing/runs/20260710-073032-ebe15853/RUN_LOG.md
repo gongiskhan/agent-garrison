@@ -60,3 +60,4 @@
   ready. Remaining after agents: apply findings, design audits, mutation ->
   security-review -> codex checkpoint (degraded) -> report -> GLOBAL GATE.
 - 12:27 `GATE` item 8 serve clause verified live: serve.mjs tailnet-bound, /runs serves the evidence home, traversal contained (404/400).
+- 12:33 `GATE` item 4 foundation: three-doorway card payloads (gateway D8 / doorway Step-2 / board UI) normalize to an IDENTICAL run-governing shape via board.mjs createCard (only id+origin differ) - ITEM4-CARD-SHAPE-OK.

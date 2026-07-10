@@ -1,0 +1,86 @@
+{
+  "title": "Dev Env - orchestrated new-session default (S7)",
+  "project": "agent-garrison",
+  "folder": "surfaces",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "browser",
+      "id": "ac1",
+      "baseURL": "http://127.0.0.1:7100",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac1",
+          "caption": "AC-1 - new session defaults to orchestrated (Joe)",
+          "expectedScreen": "the Dev Env 'New session' modal open, with an 'Orchestrator' dropdown whose selected value reads 'Joe - dev (default)'",
+          "actions": [
+            { "type": "waitFor", "selector": "button:Menu" },
+            { "type": "click", "selector": "button:Menu" },
+            { "type": "waitFor", "selector": "button:New session" },
+            { "type": "click", "selector": "button:New session" },
+            { "type": "waitFor", "selector": "label:Orchestrator" }
+          ],
+          "assert": { "selector": "label:Orchestrator", "text": "dev (default)", "highlight": true },
+          "hold": 2200
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac2",
+      "file": "fittings/seed/dev-env/ui/session-request.ts",
+      "cwd": "/home/ggomes/dev/garrison",
+      "lineRange": [16, 25],
+      "kind": "code",
+      "source": "dev-env/ui/session-request.ts",
+      "caption": "AC-2 - modes gary / joe / james offered by name",
+      "expectedScreen": "session-request.ts MODE_OPTIONS listing value 'joe' (Joe - dev), 'gary' (Gary - assistant), 'james' (James - product / architect), plus 'plain'; DEFAULT_MODE = 'joe'",
+      "highlight": { "match": "value: \"gary\"", "note": "gary / joe / james: the orchestrated faces the New-session dropdown offers by name (DEFAULT_MODE = joe)" },
+      "hold": 3000
+    },
+    {
+      "type": "browser",
+      "id": "ac3",
+      "continue": true,
+      "beats": [
+        {
+          "id": "ac3",
+          "caption": "AC-3 - plain escape hatch, labeled for debugging Garrison itself",
+          "expectedScreen": "the Orchestrator dropdown now showing the plain option label 'Plain claude, for debugging Garrison itself (unorchestrated, logged)'",
+          "actions": [
+            { "type": "select", "selector": "label:Orchestrator", "value": "plain" }
+          ],
+          "assert": { "selector": "label:Orchestrator", "text": "for debugging Garrison itself", "highlight": true },
+          "hold": 2800
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac4",
+      "command": "npx tsx -e 'import {buildSessionRequest} from \"./fittings/seed/dev-env/ui/session-request.ts\"; console.log(JSON.stringify({ \"default (no flag)\": buildSessionRequest({path:\"/x\", mode:null}), joe: buildSessionRequest({path:\"/x\", mode:\"joe\"}), plain: buildSessionRequest({path:\"/x\", mode:\"plain\"}) }, null, 2))'",
+      "cwd": "/home/ggomes/dev/garrison",
+      "json": true,
+      "source": "buildSessionRequest() - dev-env/ui/session-request.ts",
+      "caption": "AC-4 - selecting plain yields request { plain: true }",
+      "expectedScreen": "JSON output of buildSessionRequest: the plain case is { \"path\": \"/x\", \"plain\": true }; the default and joe cases carry no plain flag",
+      "highlight": { "match": "\"plain\": true", "note": "the plain escape hatch sets plain:true; default (null) and joe stay orchestrated (no plain flag)" },
+      "hold": 3000
+    },
+    {
+      "type": "evidence",
+      "id": "ac5",
+      "file": "fittings/seed/dev-env/scripts/server.mjs",
+      "cwd": "/home/ggomes/dev/garrison",
+      "lineRange": [601, 616],
+      "kind": "code",
+      "source": "dev-env/scripts/server.mjs - handleCreateSession",
+      "caption": "AC-5 - server logs plain-session use",
+      "expectedScreen": "server.mjs handleCreateSession: when body.plain is true it logs '[dev-env] PLAIN session requested ... (unorchestrated escape hatch, D22)'",
+      "highlight": { "match": "PLAIN session requested", "note": "every plain (unorchestrated) session is logged server-side - the escape hatch is auditable" },
+      "hold": 3000
+    }
+  ]
+}
