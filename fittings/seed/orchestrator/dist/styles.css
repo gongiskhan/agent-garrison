@@ -115,6 +115,14 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
   padding: 10px; min-width: 170px;
 }
+/* Phone: a fixed 170px min-width with no grow leaves target cards at ~51% fill
+   (one ~184px card per 390px row, half the viewport empty) on the surface the
+   brief requires to be iPhone-usable. Let each card grow to fill its row here;
+   desktop keeps the natural 170px wrap. Basis 240px so a wide phone/small
+   tablet still fits two per row rather than one giant card. */
+@media (max-width: 820px) {
+  .tcard { flex: 1 1 240px; min-width: 0; }
+}
 .tcard.dragging { opacity: .4; }
 .tcard-grab { display: flex; align-items: center; gap: 9px; cursor: grab; touch-action: none; }
 .tcard-grab:active { cursor: grabbing; }
