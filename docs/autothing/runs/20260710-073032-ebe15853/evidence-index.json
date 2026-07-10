@@ -351,6 +351,7 @@
    "at": "2026-07-10T13:55:56Z"
   },
   "suiteAfterFixes": "1645 passed / 12 skipped",
-  "finalSuite": "1645 passed / 12 skipped; typecheck clean; lint clean"
+  "finalSuite": "1646 passed / 12 skipped; typecheck clean; lint clean",
+  "residualMinors": "concrete minors fixed (codex-concurrency test, simulate-422, index-escaping); only subjective UI nits remain (FOLLOWUP)"
  }
 }
