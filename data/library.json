@@ -34,7 +34,7 @@
     "name": "Trello connector",
     "repo": "local:fittings/seed/trello",
     "localPath": "fittings/seed/trello",
-    "summary": "Trello connector — board lists and cards as a Vault-sealed callable action catalog.",
+    "summary": "Trello connector \u2014 board lists and cards as a Vault-sealed callable action catalog.",
     "platforms": [
       "all"
     ],
@@ -49,7 +49,7 @@
     "name": "Google Workspace connector",
     "repo": "local:fittings/seed/google",
     "localPath": "fittings/seed/google",
-    "summary": "Google Workspace connector — Gmail/Drive/Calendar as a Vault-sealed OAuth2 action catalog.",
+    "summary": "Google Workspace connector \u2014 Gmail/Drive/Calendar as a Vault-sealed OAuth2 action catalog.",
     "platforms": [
       "all"
     ],
@@ -124,7 +124,7 @@
     "name": "Dev Env",
     "repo": "local:fittings/seed/dev-env",
     "localPath": "fittings/seed/dev-env",
-    "summary": "Consolidated dev surface on port 7086 — every Claude Code session is a tab with a Claude PTY + shell PTY and a live browser pane; worktree lifecycle and session status built in.",
+    "summary": "Consolidated dev surface on port 7086 \u2014 every Claude Code session is a tab with a Claude PTY + shell PTY and a live browser pane; worktree lifecycle and session status built in.",
     "platforms": [
       "claude-code"
     ],
@@ -138,7 +138,7 @@
     "name": "Screen share",
     "repo": "local:fittings/seed/screen-share-default",
     "localPath": "fittings/seed/screen-share-default",
-    "summary": "macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.",
+    "summary": "macOS screenshot capture \u2014 ~2fps JPEG polling viewer for phone/remote access.",
     "platforms": [
       "claude-code"
     ],
@@ -166,7 +166,7 @@
     "name": "Garrison Orchestrator",
     "repo": "local:fittings/seed/garrison-orchestrator",
     "localPath": "fittings/seed/garrison-orchestrator",
-    "summary": "Delegating Orchestrator — routes requests to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.",
+    "summary": "Delegating Orchestrator \u2014 routes requests to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.",
     "platforms": [
       "claude-code"
     ],
@@ -181,7 +181,7 @@
     "name": "Monitor (default)",
     "repo": "local:fittings/seed/monitor-default",
     "localPath": "fittings/seed/monitor-default",
-    "summary": "Read-only visibility into every entity Garrison spawns — PIDs, status, ports, logs. Serves its own React UI on its own port (default 7077).",
+    "summary": "Read-only visibility into every entity Garrison spawns \u2014 PIDs, status, ports, logs. Serves its own React UI on its own port (default 7077).",
     "platforms": [
       "claude-code"
     ],
@@ -196,7 +196,7 @@
     "name": "Model Router",
     "repo": "local:fittings/seed/model-router",
     "localPath": "fittings/seed/model-router",
-    "summary": "Orchestrator Faculty — a visible routing policy (Exceptions / Matrix / Continuations) that resolves each prompt to a role + discipline + continuation, then maps the role to a concrete runtime-target via the active Profile. Serves a Policy / Simulator view on its own port (default 7087).",
+    "summary": "Orchestrator Faculty \u2014 a visible routing policy (Exceptions / Matrix / Continuations) that resolves each prompt to a role + discipline + continuation, then maps the role to a concrete runtime-target via the active Profile. Serves a Policy / Simulator view on its own port (default 7087).",
     "platforms": [
       "claude-code"
     ],
@@ -211,7 +211,7 @@
     "name": "Modes (Gary/Joe/James)",
     "repo": "local:fittings/seed/modes",
     "localPath": "fittings/seed/modes",
-    "summary": "Modes faculty — one operative, three faces (Gary the PA, Joe the dev who dispatches code to a native session, James the product/architect who writes briefs), one shared voice and one shared memory. Name-based sticky switching with channel defaults; per-mode routing bias.",
+    "summary": "Modes faculty \u2014 one operative, three faces (Gary the PA, Joe the dev who dispatches code to a native session, James the product/architect who writes briefs), one shared voice and one shared memory. Name-based sticky switching with channel defaults; per-mode routing bias.",
     "platforms": [
       "claude-code"
     ],
@@ -226,7 +226,7 @@
     "name": "Improver",
     "repo": "local:fittings/seed/improver",
     "localPath": "fittings/seed/improver",
-    "summary": "Nightly self-improvement runner — reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 7088). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
+    "summary": "Nightly self-improvement runner \u2014 reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 7088). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
     "platforms": [
       "claude-code"
     ],
@@ -241,7 +241,7 @@
     "name": "Codex runtime",
     "repo": "local:fittings/seed/codex-runtime",
     "localPath": "fittings/seed/codex-runtime",
-    "summary": "Runtime Faculty (secondary) — drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
+    "summary": "Runtime Faculty (secondary) \u2014 drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
     "platforms": [
       "claude-code"
     ],
@@ -256,7 +256,7 @@
     "name": "Gemini runtime",
     "repo": "local:fittings/seed/gemini-runtime",
     "localPath": "fittings/seed/gemini-runtime",
-    "summary": "Runtime Faculty (secondary) — drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
+    "summary": "Runtime Faculty (secondary) \u2014 drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
     "platforms": [
       "claude-code"
     ],
@@ -326,10 +326,10 @@
   },
   {
     "id": "coord-agentmail",
-    "name": "Coordination — Agent Mail",
+    "name": "Coordination \u2014 Agent Mail",
     "repo": "local:fittings/seed/coord-agentmail",
     "localPath": "fittings/seed/coord-agentmail",
-    "summary": "Shared local agent-coordination server (mcp_agent_mail): identities, messaging, advisory file leases. Own-port :8765, license-isolated arm’s-length process.",
+    "summary": "Shared local agent-coordination server (mcp_agent_mail): identities, messaging, advisory file leases. Own-port :8765, license-isolated arm\u2019s-length process.",
     "platforms": [
       "claude-code"
     ],
@@ -341,7 +341,7 @@
   },
   {
     "id": "coord-mcp",
-    "name": "Coordination — Planning Gate",
+    "name": "Coordination \u2014 Planning Gate",
     "repo": "local:fittings/seed/coord-mcp",
     "localPath": "fittings/seed/coord-mcp",
     "summary": "Garrison-owned MIT planning-gate MCP: begin_planning/end_planning serialize planning per repo (TTL+heartbeat mutex + read-bundle) + digest/nudge hook + the coord observability CLI.",
@@ -358,7 +358,7 @@
     "name": "Kanban Loop",
     "repo": "local:fittings/seed/kanban-loop",
     "localPath": "fittings/seed/kanban-loop",
-    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :7089, embedded at /embed/kanban-loop). Full autothing-* pipeline: Backlog → To Do → Discuss → Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate → Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their autothing-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
+    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :7089, embedded at /embed/kanban-loop). Full autothing-* pipeline: Backlog \u2192 To Do \u2192 Discuss \u2192 Plan \u2192 Implement \u2192 Review \u2192 Adv Review \u2192 Test \u2192 Adv Test \u2192 Walkthrough \u2192 Validate \u2192 Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their autothing-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
     "platforms": [
       "claude-code"
     ],
@@ -373,7 +373,7 @@
     "name": "Claude Code runtime",
     "repo": "local:fittings/seed/claude-code-runtime",
     "localPath": "fittings/seed/claude-code-runtime",
-    "summary": "Runtime Faculty (default PRIMARY) — the node-pty engine that drives the real interactive Claude Code TUI (packages/claude-pty). Hosts the Operative's orchestrator loop via the HTTP gateway or the direct PTY operative, and registers as a model-router `runtime: claude-code` target. Provider overrides (anthropic-plan default / ollama-local / deepseek / zai-glm) swap ANTHROPIC_BASE_URL so the same Claude Code engine runs against other providers.",
+    "summary": "Runtime Faculty (default PRIMARY) \u2014 the node-pty engine that drives the real interactive Claude Code TUI (packages/claude-pty). Hosts the Operative's orchestrator loop via the HTTP gateway or the direct PTY operative, and registers as a model-router `runtime: claude-code` target. Provider overrides (anthropic-plan default / ollama-local / deepseek / zai-glm) swap ANTHROPIC_BASE_URL so the same Claude Code engine runs against other providers.",
     "platforms": [
       "claude-code"
     ],
@@ -388,7 +388,7 @@
     "name": "Agent SDK runtime",
     "repo": "local:fittings/seed/agent-sdk-runtime",
     "localPath": "fittings/seed/agent-sdk-runtime",
-    "summary": "Runtime Faculty — implements the uniform RuntimeAdapter over the Claude Agent SDK (structured request/response, native tool-calls — no PTY, no terminal scraping). THE FENCE default-denies Anthropic billing (launches only behind a non-Anthropic base URL: Ollama / DeepSeek / Z.ai / MiniMax / LLM proxy); THE HARNESS wires the full claude_code preset for coding roles or a lean system string for chat roles. The home for everything reached by base URL.",
+    "summary": "Runtime Faculty \u2014 implements the uniform RuntimeAdapter over the Claude Agent SDK (structured request/response, native tool-calls \u2014 no PTY, no terminal scraping). THE FENCE default-denies Anthropic billing (launches only behind a non-Anthropic base URL: Ollama / DeepSeek / Z.ai / MiniMax / LLM proxy); THE HARNESS wires the full claude_code preset for coding roles or a lean system string for chat roles. The home for everything reached by base URL.",
     "platforms": [
       "claude-code"
     ],
@@ -396,6 +396,34 @@
       "github_stars_url": "https://github.com/gongiskhan/garrison-agent-sdk-runtime",
       "global": 4.4,
       "claude_code": 4.4
+    }
+  },
+  {
+    "id": "autothing-skills",
+    "name": "Autothing Skills",
+    "repo": "local:fittings/seed/autothing-skills",
+    "localPath": "fittings/seed/autothing-skills",
+    "summary": "The autothing family \u2014 the gated-build orchestrator doorway plus every phase verb skill \u2014 as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "claude-config",
+    "name": "Claude Config",
+    "repo": "local:fittings/seed/claude-config",
+    "localPath": "fittings/seed/claude-config",
+    "summary": "Garrison-managed ~/.claude config surfaces (commands, agents, hooks, templates, mcp.json, settings fragments), imported from the decommissioned claude-share repo. Synced via `garrison config`.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
     }
   }
 ]

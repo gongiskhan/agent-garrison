@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["result", "summary", "steps", "failures"],
+  "properties": {
+    "result": {
+      "type": "string",
+      "enum": ["pass", "fail"],
+      "description": "pass = Codex independently drove the live app through the slice acceptance with no defect or console error. fail = a real defect/console error was observed."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Terse account of what was exercised and the outcome."
+    },
+    "steps": {
+      "type": "array",
+      "description": "The concrete playwright-cli interactions performed (open/snapshot/click/fill/assert), in order.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "failures": {
+      "type": "array",
+      "description": "Observed defects. Empty when result is pass.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["where", "expected", "actual"],
+        "properties": {
+          "where": { "type": "string", "minLength": 1 },
+          "expected": { "type": "string", "minLength": 1 },
+          "actual": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

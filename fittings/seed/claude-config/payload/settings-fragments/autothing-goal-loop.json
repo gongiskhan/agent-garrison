@@ -1,0 +1,12 @@
+{
+  "_note": "Goal-loop hook fragment (D13). Merged into ~/.claude/settings.json by the autothing installer. The hook paths resolve against the installed autothing skill dir.",
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "bash \"$HOME/.claude/skills/autothing/hooks/goal-sessionstart.sh\"", "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "bash \"$HOME/.claude/skills/autothing/hooks/goal-stop.sh\"", "timeout": 10 } ] }
+    ]
+  },
+  "env": { "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "5000" }
+}

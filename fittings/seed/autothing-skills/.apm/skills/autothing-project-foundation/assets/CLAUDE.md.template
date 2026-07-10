@@ -1,0 +1,43 @@
+# {{PROJECT_NAME}}
+
+{{ONE_LINE_SUMMARY}}
+
+**Stack:** {{stack one-liner}}
+
+## Critical rules
+<!-- Only the 2-3 that matter most. Everything else lives in the area skills / docs. -->
+- IMPORTANT: {{rule 1 — the one that breaks things if ignored}}
+- IMPORTANT: {{rule 2}}
+- IMPORTANT: Tests are written AFTER vision-first exploration, never before. The written Playwright assertions + clean build/typecheck/lint are the gates.
+
+## Design source of truth
+{{path or link to prototype / design tokens}}. The running app is audited against this — do not drift.
+
+## Definition of done
+See @docs/governance.md. A slice is done only when its tests pass, build/typecheck/lint are clean, the design audit is clean, and a self-verified walkthrough video exists (or an honest failure is flagged).
+
+## Canonical docs (loaded every session)
+@docs/conventions.md
+@docs/governance.md
+
+## Reference docs (read on demand, by path — NOT imported)
+- Product & flows: `docs/product-overview.md`
+- Architecture & paths: `docs/architecture.md`
+- Decisions & blockers (append-only): `docs/decisions.md`
+- Build plan & slice status: `docs/FLOW_PLAN.md`
+- Evidence gallery index: `docs/autothing/evidence-index.json`
+
+## Routing index — which skill owns which work
+<!-- Verbs in skills. When doing X, use skill Y. Pasted into worker prompts explicitly (workers do not auto-load skills). -->
+| When the work is… | Use skill | Backing doc |
+|-------------------|-----------|-------------|
+| Breaking a goal into slices / updating the plan | `{{proj}}-planning` | `docs/FLOW_PLAN.md` |
+| System structure, module boundaries, data/API shape | `{{proj}}-architecture` | `docs/architecture.md` |
+| Exploring + writing/running tests for a slice | `{{proj}}-testing` | `docs/governance.md` |
+| Auditing UI against design tokens | `{{proj}}-design-audit` | design source of truth |
+| Enforcing the definition of done / gates | `{{proj}}-governance` | `docs/governance.md` |
+| {{mobile work, if applicable}} | `{{proj}}-mobile` | `docs/architecture.md#mobile` |
+| {{data/API changes, if applicable}} | `{{proj}}-data-api` | `docs/architecture.md` |
+
+## Path-scoped guidance
+<!-- For guidance that should load ONLY when an agent touches matching files, autothing drops a nested CLAUDE.md in that directory referencing the area doc/skill (e.g. a CLAUDE.md under the mobile path). Keep this root file lean; let nested files carry area detail. -->

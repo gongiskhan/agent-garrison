@@ -19,6 +19,7 @@
     "refresh:prompts": "tsx scripts/refresh-default-prompts.ts",
     "refresh:settings-schema": "tsx scripts/refresh-settings-schema.ts",
     "import:claude": "tsx scripts/import-claude-install.ts",
+    "config": "tsx scripts/garrison-config.ts",
     "test:integration": "GARRISON_INTEGRATION=1 vitest run tests/orchestrator-integration.test.ts",
     "test:pty": "GARRISON_INTEGRATION=1 vitest run tests/gateway-pty.integration.test.ts",
     "kanban:v1d:walkthrough": "node scripts/kanban-v1d-walkthrough.mjs",
