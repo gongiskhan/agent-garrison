@@ -13,7 +13,7 @@ x-garrison:
   summary: >-
     Imports the autothing family (the gated-build orchestrator doorway plus every
     phase verb skill: plan, implement, test, adversarial-review, adversarial-test,
-    security-review (opt-in), design-audit, walkthrough, validate, codex-checkpoint,
+    security-review (opt-in), ux-qa, walkthrough, validate, codex-checkpoint,
     report) into
     ~/.claude/skills under APM lockfile ownership (GARRISON-UNIFY-V1 S8, config
     home). The goal-loop hooks (goal-stop / goal-sessionstart / install / probe)

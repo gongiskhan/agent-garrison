@@ -147,6 +147,8 @@ const GATE_KEYS = {
   "adversarial-review": "adversarialReview",
   "adversarial-test": "adversarialTest",
   "design-audit": "designAudit",
+  "ux-qa": "uxQa",
+  "security-review": "securityReview",
   "codex-checkpoint": "codexCheckpoint"
 };
 

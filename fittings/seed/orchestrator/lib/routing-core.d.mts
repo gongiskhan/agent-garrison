@@ -146,11 +146,15 @@ export type Phase =
   | "adversarial-review"
   | "test"
   | "adversarial-test"
-  | "design-audit"
+  | "ux-qa"
   | "walkthrough"
   | "validate"
   | "codex-checkpoint"
   | "report";
+export type Severity = "blocker" | "major" | "minor" | "note";
+export interface UxQaPolicy {
+  severityThreshold?: Severity;
+}
 export type EvidenceKind = "video" | "logs" | "text" | "none";
 export type Execution = "interactive" | "autonomous";
 
@@ -208,6 +212,7 @@ export interface PolicyConfigV2 {
   defaultWorkKind?: string | null;
   phaseSkills?: PhaseSkills;
   projects?: Record<string, Project>;
+  uxQa?: UxQaPolicy;
 }
 
 export interface CompiledPolicyCell {
@@ -238,6 +243,7 @@ export interface CompiledPolicy {
   defaultWorkKind: string | null;
   phaseSkills: PhaseSkills;
   projects: Record<string, Project>;
+  uxQa: UxQaPolicy;
 }
 
 export interface RailPhase {

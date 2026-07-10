@@ -1,6 +1,6 @@
 ---
 name: autothing-validate
-description: Validate a slice's Definition of Done from its durable gate markers and decide Done vs Implement — read the gate-status.json under a passed-in runDir + sliceId, check every DoD gate (tests/typecheck/lint/build/e2e exit 0, design audit clean for UI, fresh-context review approve, independent test pass, and a VERIFIED walkthrough video), write the durable `validated` gate record, and end with a parseable Done|Implement last line. Use for "validate the Definition of Done", "check the gate markers and decide Done or Implement", "write the durable gate record for this slice", or as the engine of the Kanban Validate list. NOT a test runner (that is autothing-test) and NOT a code review (that is autothing-review).
+description: Validate a slice's Definition of Done from its durable gate markers and decide Done vs Implement — read the gate-status.json under a passed-in runDir + sliceId, check every DoD gate (tests/typecheck/lint/build/e2e exit 0, ux-qa gate clean-or-below-threshold for UI, fresh-context review approve, independent test pass, and a VERIFIED walkthrough video), write the durable `validated` gate record, and end with a parseable Done|Implement last line. Use for "validate the Definition of Done", "check the gate markers and decide Done or Implement", "write the durable gate record for this slice", or as the engine of the Kanban Validate list. NOT a test runner (that is autothing-test) and NOT a code review (that is autothing-review).
 ---
 
 # autothing-validate
@@ -42,7 +42,11 @@ steps already wrote and renders a deterministic verdict.
 ## The DoD it checks (from `gate-status.gates`)
 - `tests.exit === 0`, `typecheck.exit === 0`, `lint.exit === 0`, `build.exit === 0`,
   `e2e.exit === 0` — all required.
-- `designAudit.verdict === "clean"` — required ONLY when `kind === "ui"`.
+- `uxQa` — required ONLY when `kind === "ui"`. Passes when NO finding is at or
+  above the loop-back threshold (`policy.uxQa.severityThreshold`, default
+  `major`; order blocker > major > minor > note): verdict `clean` (no findings),
+  or verdict `issues` with every finding below threshold (clean-with-notes). A
+  missing or `skipped` gate on a UI slice FAILS. Mirrors `garrison-ux-qa`.
 - `adversarialReview.verdict === "approve"` — the fresh-context Anthropic review
   (`autothing-adversarial-review`; renamed from `codexReview` — this gate is no
   longer a Codex call, see decisions.md). This is a per-slice DoD check only; the

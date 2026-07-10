@@ -22,7 +22,7 @@ export const PHASES = [
   "adversarial-review",
   "test",
   "adversarial-test",
-  "design-audit",
+  "ux-qa",
   "walkthrough",
   "validate",
   "codex-checkpoint",
@@ -408,7 +408,8 @@ export function compilePolicy(config, profile) {
     workKinds: cfg.workKinds || {},
     defaultWorkKind: cfg.defaultWorkKind || null,
     phaseSkills: cfg.phaseSkills || { bindings: {}, overrides: {} },
-    projects: cfg.projects || {}
+    projects: cfg.projects || {},
+    uxQa: cfg.uxQa || { severityThreshold: "major" }
   };
 }
 
@@ -437,7 +438,7 @@ const AUTONOMOUS_CHANNELS = new Set(["kanban", "scheduler", "board", "autothing"
 const AUTOMATION_SHAPE = /\b(then|after that|every day|each morning|on a schedule|and then|for each|across (all|both)|multi-step|automate|workflow)\b/i;
 const BUILD_VERBS = new Set([
   "plan", "implement", "test", "review", "adversarial-review", "adversarial-test",
-  "design-audit", "walkthrough", "validate", "codex-checkpoint"
+  "ux-qa", "walkthrough", "validate", "codex-checkpoint"
 ]);
 
 export function classifyExecution({ channel, explicitAutonomous, mode, message, classification } = {}) {
@@ -553,9 +554,9 @@ export function compileRoutingV2(config, profile) {
     if (!value || value === "none") return value;
     if (field === "testing") return `${value} → ${bindings.test || "test"}`;
     if (field === "review") {
-      // design-audit is UI-only — CONDITIONAL, not a blanket second gate.
+      // ux-qa is UI-only — CONDITIONAL, not a blanket second gate.
       return String(value).startsWith("review-by")
-        ? `${value} → ${bindings.review || "review"} (+ ${bindings["design-audit"] || "design-audit"} for UI changes)`
+        ? `${value} → ${bindings.review || "review"} (+ ${bindings["ux-qa"] || "ux-qa"} for UI changes)`
         : `${value} → ${bindings.review || "review"}`;
     }
     if (field === "evidence") return value === "video" ? `${value} → ${bindings.walkthrough || "walkthrough"}` : value;

@@ -41,7 +41,7 @@ those skills as your pipeline:
 - **testing** `tests`/`full-gates` → `autothing-test` (a committed, re-runnable
   correctness gate plus typecheck/lint/build).
 - **review** `self-review` / `review-by:*` → the bound review skill (+
-  `autothing-design-audit` for any UI).
+  `garrison-ux-qa` for any UI).
 - **evidence** `video` → `autothing-walkthrough`; `text` is a written summary.
 - **distribution** `link` and the durable gate record → `autothing-validate`.
 
@@ -96,7 +96,7 @@ other prompt repeats it):
 - **The phase pipeline**, cheapest gates first: plan → implement → the
   deterministic wall (typecheck / lint / structural greps / secrets scan) + the
   correctness test → the fresh-context review (+ a cross-model Codex pass where
-  the policy calls for it) → the independent test pass → design audit (UI) →
+  the policy calls for it) → the independent test pass → ux-qa (UI) →
   evidence (walkthrough video / asciinema) → validate → (run-level) security
   review + Codex checkpoint → report. Each phase runs under its bound skill and
   the model/effort the policy's matrix cell resolves.

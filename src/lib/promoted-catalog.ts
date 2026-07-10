@@ -233,7 +233,7 @@ export const PROMOTED_CATALOG: PromotedFitting[] = [
     descriptionPlain:
       "Lets the operative build a real piece of software from start to finish on its own — plan the work, write the code, test it, get a second opinion, and record a video proving it works — then keep going until it's genuinely done.",
     descriptionTechnical:
-      "The autothing orchestrator + its 12-step pipeline (plan/implement/test/review/adversarial-review/adversarial-test/design-audit/walkthrough/report/validate/parallel-work/project-foundation) and the goal-loop hooks.",
+      "The autothing orchestrator + its 12-step pipeline (plan/implement/test/review/adversarial-review/adversarial-test/ux-qa/walkthrough/report/validate/parallel-work/project-foundation) and the goal-loop hooks.",
     faculty: "building",
     componentShape: ["skill", "hook"],
     provides: [{ kind: "capability", name: "autonomous-build" }],
@@ -250,7 +250,7 @@ export const PROMOTED_CATALOG: PromotedFitting[] = [
       { surface: "skill", name: "autothing-review" },
       { surface: "skill", name: "autothing-adversarial-review" },
       { surface: "skill", name: "autothing-adversarial-test" },
-      { surface: "skill", name: "autothing-design-audit" },
+      { surface: "skill", name: "garrison-ux-qa" },
       { surface: "skill", name: "autothing-walkthrough" },
       { surface: "skill", name: "autothing-report" },
       { surface: "skill", name: "autothing-validate" },

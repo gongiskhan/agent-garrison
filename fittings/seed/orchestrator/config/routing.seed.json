@@ -9,7 +9,7 @@
     "test",
     "adversarial-test",
     "security-review",
-    "design-audit",
+    "ux-qa",
     "walkthrough",
     "validate",
     "codex-checkpoint",
@@ -60,7 +60,7 @@
           "test": { "default": "cc-sonnet-med", "cells": {} },
           "adversarial-test": { "default": "cc-sonnet-high", "cells": {} },
           "security-review": { "default": "cc-fable-xhigh", "cells": {} },
-          "design-audit": { "default": "cc-fable-xhigh", "cells": {} },
+          "ux-qa": { "default": "cc-fable-xhigh", "cells": {} },
           "walkthrough": { "default": "cc-sonnet-med", "cells": {} },
           "validate": { "default": "cc-sonnet-high", "cells": {} },
           "codex-checkpoint": { "default": "codex-gpt55-high", "cells": {} },
@@ -90,7 +90,7 @@
           "test": { "default": "cc-sonnet-med", "cells": {} },
           "adversarial-test": { "default": "cc-sonnet-high", "cells": {} },
           "security-review": { "default": "cc-fable-xhigh", "cells": {} },
-          "design-audit": { "default": "cc-fable-xhigh", "cells": {} },
+          "ux-qa": { "default": "cc-fable-xhigh", "cells": {} },
           "walkthrough": { "default": "cc-sonnet-med", "cells": {} },
           "validate": { "default": "cc-sonnet-high", "cells": {} },
           "codex-checkpoint": { "default": "codex-gpt55-high", "cells": {} },
@@ -123,7 +123,7 @@
           "test": { "default": "cc-sonnet-med", "cells": {} },
           "adversarial-test": { "default": "cc-sonnet-high", "cells": {} },
           "security-review": { "default": "cc-fable-xhigh", "cells": {} },
-          "design-audit": { "default": "cc-fable-xhigh", "cells": {} },
+          "ux-qa": { "default": "cc-fable-xhigh", "cells": {} },
           "walkthrough": { "default": "cc-sonnet-med", "cells": {} },
           "validate": { "default": "cc-sonnet-high", "cells": {} },
           "codex-checkpoint": { "default": "codex-gpt55-high", "cells": {} },
@@ -173,7 +173,7 @@
     "test",
     "adversarial-test",
     "security-review",
-    "design-audit",
+    "ux-qa",
     "walkthrough",
     "validate",
     "codex-checkpoint",
@@ -183,6 +183,7 @@
     "implement-only-text": { "phases": ["implement"], "evidence": "text" },
     "implement-only-logs": { "phases": ["implement"], "evidence": "logs" },
     "implement-test": { "phases": ["implement", "test"], "evidence": "logs" },
+    "ui-change": { "phases": ["implement", "review", "ux-qa", "walkthrough"], "evidence": "video" },
     "full": {
       "phases": [
         "plan",
@@ -191,7 +192,7 @@
         "adversarial-review",
         "test",
         "adversarial-test",
-        "design-audit",
+        "ux-qa",
         "walkthrough",
         "validate",
         "codex-checkpoint",
@@ -204,6 +205,7 @@
     "docs-change": { "phasePlan": "implement-only-text", "description": "Documentation or prose-only change" },
     "api-change": { "phasePlan": "implement-test", "description": "API/backend change with tests, no walkthrough" },
     "video-edit": { "phasePlan": "implement-only-logs", "description": "Video production/edit work" },
+    "ui-change": { "phasePlan": "ui-change", "description": "UI change through review + UX QA + a walkthrough" },
     "full-feature": { "phasePlan": "full", "description": "Feature work through the full gated pipeline" }
   },
   "defaultWorkKind": "full-feature",
@@ -216,7 +218,7 @@
       "security-review": "autothing-security-review",
       "test": "autothing-test",
       "adversarial-test": "autothing-adversarial-test",
-      "design-audit": "autothing-design-audit",
+      "ux-qa": "garrison-ux-qa",
       "walkthrough": "autothing-walkthrough",
       "validate": "autothing-validate",
       "codex-checkpoint": "autothing-codex-checkpoint",
@@ -231,5 +233,8 @@
         "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:7777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
       }
     }
+  },
+  "uxQa": {
+    "severityThreshold": "major"
   }
 }

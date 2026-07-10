@@ -142,16 +142,41 @@ function run() {
     if (!r.ok) failed.push(`${name} ${r.detail}`);
   }
 
-  // Design audit — only required for UI slices; must be 'clean'.
+  // UX QA — only required for UI slices. The gate passes when there is no
+  // BLOCKING finding: verdict 'clean' (no findings at all), or verdict 'issues'
+  // with every finding BELOW the loop-back threshold (clean-with-notes). It fails
+  // when any finding is AT OR ABOVE the threshold, or when the gate is missing /
+  // skipped on a UI slice (a UI slice always has a UI to walk). Severity order:
+  // blocker > major > minor > note; threshold defaults to 'major'. This mirrors
+  // garrison-ux-qa's own loop-back rule exactly.
   {
-    const v = gates.designAudit && gates.designAudit.verdict;
+    const SEVERITY_RANK = { note: 0, minor: 1, major: 2, blocker: 3 };
+    const uq = gates.uxQa;
+    const threshold = (uq && typeof uq.severityThreshold === "string" && uq.severityThreshold) || "major";
+    const thr = SEVERITY_RANK[threshold] ?? SEVERITY_RANK.major;
     if (!isUi) {
-      console.log(`VALIDATE check designAudit: ok — n/a (kind=${kind})`);
-    } else if (v === "clean") {
-      console.log("VALIDATE check designAudit: ok — clean");
+      console.log(`VALIDATE check uxQa: ok — n/a (kind=${kind})`);
+    } else if (!uq || typeof uq !== "object") {
+      console.log("VALIDATE check uxQa: FAIL — missing (kind=ui requires a ux-qa gate)");
+      failed.push("uxQa missing");
+    } else if (uq.verdict === "skipped") {
+      console.log("VALIDATE check uxQa: FAIL — skipped (kind=ui always has a UI to walk)");
+      failed.push("uxQa skipped");
     } else {
-      console.log(`VALIDATE check designAudit: FAIL — verdict=${JSON.stringify(v ?? null)} (kind=ui requires clean)`);
-      failed.push(`designAudit verdict=${JSON.stringify(v ?? null)}`);
+      const findings = Array.isArray(uq.findings) ? uq.findings : [];
+      const blocking = findings.filter((f) => (SEVERITY_RANK[f && f.severity] ?? 0) >= thr);
+      if (uq.verdict === "clean" || blocking.length === 0) {
+        const note =
+          uq.verdict === "clean"
+            ? "clean"
+            : `clean-with-notes (${findings.length} finding(s), all below ${threshold})`;
+        console.log(`VALIDATE check uxQa: ok — ${note}`);
+      } else {
+        console.log(
+          `VALIDATE check uxQa: FAIL — ${blocking.length} finding(s) >= ${threshold} (verdict=${JSON.stringify(uq.verdict ?? null)})`
+        );
+        failed.push(`uxQa ${blocking.length} finding(s) >= ${threshold}`);
+      }
     }
   }
 
