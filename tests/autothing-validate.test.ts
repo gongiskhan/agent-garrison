@@ -56,8 +56,10 @@ const PASSING_GATES = (sliceId: string) => ({
     build: { exit: 0 },
     e2e: { exit: 0 },
     designAudit: { verdict: "clean" },
-    codexReview: { verdict: "approve" },
-    codexPwTest: { result: "pass" },
+    // 2026-07-07 decorrelation rename: the per-slice review is the fresh-context
+    // adversarialReview; the independent test pass is adversarialTest.
+    adversarialReview: { verdict: "approve" },
+    adversarialTest: { result: "pass" },
     video: { status: "verified" }
   }
 });
@@ -110,7 +112,7 @@ describe("autothing-validate validate.mjs", () => {
     expect(stdout).toContain("no gate-status.json");
   });
 
-  it("pure-CLI slice (kind=automation) tolerates n/a codexPwTest and no designAudit → Done", () => {
+  it("pure-CLI slice (kind=automation) tolerates n/a adversarialTest and no designAudit → Done", () => {
     const [runDir, sliceId] = makeRun("cli-slice", {
       slice: "cli-slice",
       kind: "automation",
@@ -120,8 +122,8 @@ describe("autothing-validate validate.mjs", () => {
         lint: { exit: 0 },
         build: { exit: 0 },
         e2e: { exit: 0 },
-        codexReview: { verdict: "skipped" },
-        codexPwTest: { result: "n/a" },
+        adversarialReview: { verdict: "approve" },
+        adversarialTest: { result: "n/a" },
         video: { status: "verified" }
       }
     });
@@ -130,13 +132,13 @@ describe("autothing-validate validate.mjs", () => {
     expect(readMarker(runDir, sliceId).validated.status).toBe("Done");
   });
 
-  it("UI slice with codexPwTest n/a → Implement (a UI slice always has an app; n/a is not acceptable)", () => {
+  it("UI slice with adversarialTest n/a → Implement (a UI slice always has an app; n/a is not acceptable)", () => {
     const gs = PASSING_GATES("ui-na-pw");
-    gs.gates.codexPwTest = { result: "n/a" } as any; // kind stays "ui"
+    gs.gates.adversarialTest = { result: "n/a" } as any; // kind stays "ui"
     const [runDir, sliceId] = makeRun("ui-na-pw", gs);
     const [last] = runValidate(runDir, sliceId);
     expect(last).toBe("Implement");
-    expect(readMarker(runDir, sliceId).validated.failed.some((r: string) => r.startsWith("codexPwTest"))).toBe(true);
+    expect(readMarker(runDir, sliceId).validated.failed.some((r: string) => r.startsWith("adversarialTest"))).toBe(true);
   });
 
   it("missing kind → Implement (fail closed; never infer the lenient kind)", () => {

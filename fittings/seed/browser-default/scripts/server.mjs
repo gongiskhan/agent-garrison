@@ -420,7 +420,13 @@ async function launchChromium(opts) {
   // Opt-in STEALTH: reduce headless/automation fingerprints (GARRISON_BROWSER_STEALTH=1).
   const stealth = process.env.GARRISON_BROWSER_STEALTH === "1";
 
-  chromiumChild = spawn(exe, [
+  // Headless-gap fix (GARRISON-UNIFY-V1 S16/E11-adjacent): Ubuntu 23.10+ (and
+  // this GCP box) restricts unprivileged user namespaces via AppArmor, so
+  // Chromium's sandbox is UNUSABLE and the launch dies with a FATAL "No usable
+  // sandbox!". Detect the sandbox-death and retry ONCE with --no-sandbox —
+  // an accepted tradeoff for a single-user dev box driving local/dev content
+  // (Playwright uses the same flag in containers). Logged loudly.
+  const baseArgs = [
     "--headless=new",
     `--remote-debugging-port=${cdpPort}`,
     "--remote-debugging-address=127.0.0.1",
@@ -434,23 +440,52 @@ async function launchChromium(opts) {
     "--disable-background-networking",
     "--no-startup-window",
     ...(stealth ? ["--disable-blink-features=AutomationControlled"] : [])
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  ];
 
-  chromiumChild.stdout.on("data", () => {});
-  chromiumChild.stderr.on("data", (d) => {
-    const line = d.toString();
-    // Quiet routine Chromium chatter; surface anything that looks like an error.
-    if (/error|fatal|fail/i.test(line)) console.error(`[chromium] ${line.trimEnd()}`);
-  });
-  chromiumChild.on("exit", (code, signal) => {
-    console.error(`[chromium] exited code=${code} signal=${signal}`);
-    chromiumChild = null;
-    // The browser/context handles are now dead. Drop them so the next openTab
-    // relaunches instead of throwing "Target ... has been closed".
-    discardChromium();
-  });
+  const launchOnce = (extraArgs) => {
+    let sandboxDeath = false;
+    const child = spawn(exe, [...baseArgs, ...extraArgs], { stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.on("data", () => {});
+    child.stderr.on("data", (d) => {
+      const line = d.toString();
+      if (/No usable sandbox/i.test(line)) sandboxDeath = true;
+      // Quiet routine Chromium chatter; surface anything that looks like an error.
+      if (/error|fatal|fail/i.test(line)) console.error(`[chromium] ${line.trimEnd()}`);
+    });
+    child.on("exit", (code, signal) => {
+      console.error(`[chromium] exited code=${code} signal=${signal}`);
+      if (chromiumChild === child) {
+        chromiumChild = null;
+        // The browser/context handles are now dead. Drop them so the next openTab
+        // relaunches instead of throwing "Target ... has been closed".
+        discardChromium();
+      }
+    });
+    return { child, sandboxDied: () => sandboxDeath };
+  };
 
-  await waitForCdpReady(cdpPort);
+  // Race CDP readiness against child death, so a sandbox FATAL (immediate)
+  // fails fast instead of burning the full CDP timeout before the retry.
+  const readyOrDead = (child) =>
+    Promise.race([
+      waitForCdpReady(cdpPort),
+      new Promise((_, reject) => child.once("exit", () => reject(new Error("chromium exited before CDP became ready"))))
+    ]);
+
+  let attempt = launchOnce(process.env.GARRISON_BROWSER_NO_SANDBOX === "1" ? ["--no-sandbox"] : []);
+  chromiumChild = attempt.child;
+  try {
+    await readyOrDead(attempt.child);
+  } catch (err) {
+    if (attempt.sandboxDied()) {
+      console.error("[chromium] sandbox unusable on this host (AppArmor userns restriction) — relaunching with --no-sandbox (single-user dev box tradeoff)");
+      attempt = launchOnce(["--no-sandbox"]);
+      chromiumChild = attempt.child;
+      await readyOrDead(attempt.child);
+    } else {
+      throw err;
+    }
+  }
 
   browser = await chromium.connectOverCDP(cdpHttpEndpoint);
   browser.on("disconnected", () => {
