@@ -10,7 +10,7 @@ import { mkdir, writeFile, unlink, readFile, readdir } from "node:fs/promises";
 import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, automationsDir } from "../lib/store.mjs";
 import { runAutomation } from "../lib/engine.mjs";
 import { planFromBrief } from "../lib/planner.mjs";
-import { buildAutomationDiscussUrl, buildDiscussParams } from "../lib/discuss.mjs";
+import { buildDiscussParams, freshAutomationSlug } from "../lib/discuss.mjs";
 import { ulid } from "../lib/ulid.mjs";
 import { readFile as readFileAsync } from "node:fs/promises";
 
@@ -221,7 +221,13 @@ async function handle(req, res) {
       if (!channel.id) {
         return send(res, 409, { error: "no web channel installed/running — add a web-channel fitting" });
       }
-      const params = buildDiscussParams({ name });
+      // A new automation has no name yet — mint a FRESH unique slug so this click
+      // opens a brand-new Discuss conversation. Without it every click reuses the
+      // one thread key `automation-automation` and lands back on the previous
+      // (possibly failed) design instead of a fresh chat. A named automation keeps
+      // its stable slug so its Discuss reopens in place.
+      const slug = name ? undefined : freshAutomationSlug();
+      const params = buildDiscussParams({ name, slug });
       const qs = new URLSearchParams(params).toString();
       const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777").replace(/\/+$/, "");
       return send(res, 200, { fittingId: channel.id, params, url: `${base}/embed/${channel.id}?${qs}` });

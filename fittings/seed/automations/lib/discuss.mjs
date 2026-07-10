@@ -17,6 +17,20 @@ export function slugify(name) {
     .slice(0, 48) || "automation";
 }
 
+// A fresh, UNIQUE slug for a NEW (still unnamed) automation design. The Discuss
+// thread key AND the brief path both derive from the slug, so a new automation
+// must get a distinct slug — otherwise every "+ Discuss an automation" click
+// (which carries no name) resolves to the one shared thread `automation-automation`
+// + brief `automation.md`. Reopening that existing thread shows its previous
+// transcript instead of a fresh conversation and suppresses the kickoff, so a
+// single stale/failed design traps every later one. A NAMED automation keeps its
+// stable slug so reopening its Discuss returns to the same session on purpose.
+export function freshAutomationSlug() {
+  const t = Date.now().toString(36);
+  const r = Math.random().toString(36).slice(2, 7);
+  return `draft-${t}-${r}`;
+}
+
 export function buildAutomationKickoff({ name, slug } = {}) {
   const s = slug || slugify(name);
   const briefPath = `~/.garrison/automations/briefs/${s}.md`;
