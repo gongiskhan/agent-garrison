@@ -41,11 +41,16 @@ x-garrison:
     Consumers discover this UI at runtime by reading:
       ~/.garrison/ui-fittings/outpost-tailscale-host.json
     Carries: { fittingId, port, url, pid, startedAt }.
-    Endpoints (proxied to outpost-host daemon at config.outpost_host_url):
+    Endpoints (proxied to outpost-host daemon at config.outpost_host_url unless noted):
       GET    /health                        - {ok: true, port, pid}
       GET    /outposts                      - list registered outposts + status
-      POST   /outposts {name, token}        - register a new outpost
+      POST   /outposts {name, token}        - register a new outpost (manual token)
+      POST   /registry/pair {name}          - mint a token; returns {token, host, installer}
       DELETE /outposts/:name                - unregister
       POST   /outposts/:name/rpc            - issue blocking RPC call
+      GET    /outposts/:name/log?limit=20   - last N invocation-log entries
+      GET    /checkouts                     - FILES-FIT-V2 checkout registry (feature-detected; {} when absent)
+      POST   /provision {host, user}        - LOCAL: SSH-provision a Mac; returns {jobId}
+      GET    /provision/:jobId/stream       - LOCAL: SSE stream of the provision job output
     The outpost-host daemon must be installed and running on the Garrison machine.
     Each remote Mac runs the garrison-outpost-bridge daemon over Tailscale.

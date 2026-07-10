@@ -8,9 +8,22 @@ LOG_DIR="$CONFIG_DIR/logs"
 PLIST_LABEL="io.garrison.outpost"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 
-: "${GARRISON_HOST:?GARRISON_HOST is required (e.g. ws://100.x.x.x:3702/bridge)}"
+: "${GARRISON_HOST:?GARRISON_HOST is required (e.g. ws://100.x.x.x:3702/bridge or http://100.x.x.x:3702)}"
 : "${GARRISON_TOKEN:?GARRISON_TOKEN is required}"
 MACHINE_NAME="${GARRISON_MACHINE:-$(hostname -s)}"
+
+# The pairing installer passes GARRISON_HOST as the http(s) base it curls the installer
+# from (http://<tailnet-ip>:3702). The bridge, however, dials the ws /bridge endpoint, so
+# normalise: an http(s) base becomes ws(s)://host:port/bridge; a ws(s) URL without the
+# /bridge path gets it appended; an explicit ws(s)://…/bridge is left untouched.
+case "$GARRISON_HOST" in
+  http://*)  GARRISON_HOST="ws://${GARRISON_HOST#http://}" ;;
+  https://*) GARRISON_HOST="wss://${GARRISON_HOST#https://}" ;;
+esac
+case "$GARRISON_HOST" in
+  *"/bridge") : ;;                                  # already a bridge URL
+  ws://*|wss://*) GARRISON_HOST="${GARRISON_HOST%/}/bridge" ;;
+esac
 
 echo "==> Garrison Outpost Bootstrap"
 echo "    host:    $GARRISON_HOST"

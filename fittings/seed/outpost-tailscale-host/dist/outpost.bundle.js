@@ -5,7 +5,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -24,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1091,7 +1095,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useReducer(reducer, initialArg, init);
         }
-        function useRef(initialValue) {
+        function useRef2(initialValue) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
@@ -1111,7 +1115,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useCallback(callback, deps);
         }
-        function useMemo(create, deps) {
+        function useMemo2(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useMemo(create, deps);
         }
@@ -1883,9 +1887,9 @@ var require_react_development = __commonJS({
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect;
-        exports.useMemo = useMemo;
+        exports.useMemo = useMemo2;
         exports.useReducer = useReducer;
-        exports.useRef = useRef;
+        exports.useRef = useRef2;
         exports.useState = useState2;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
@@ -1898,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1910,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2360,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2372,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23536,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23549,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23580,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24473,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24485,28 +24489,339 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/outpost-tailscale-host/ui/main.tsx
 var import_react = __toESM(require_react());
 var import_client = __toESM(require_client());
 var import_jsx_runtime = __toESM(require_jsx_runtime());
+var HEARTBEAT_FRESH_MS = 3e4;
+var POLL_MS = 15e3;
+function isOnline(o) {
+  if (!o.connected || !o.lastHeartbeat) return false;
+  const t = Date.parse(o.lastHeartbeat);
+  return Number.isFinite(t) && Date.now() - t < HEARTBEAT_FRESH_MS;
+}
+function fmtAgo(iso) {
+  if (!iso) return "never";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return String(iso);
+  const s = Math.max(0, Math.round((Date.now() - t) / 1e3));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+function tailnetHost(o) {
+  return o.tailscaleIp || o.hostname || "";
+}
+function OutpostCard({ o, onRemove }) {
+  const online = isOnline(o);
+  const [pingMs, setPingMs] = (0, import_react.useState)(null);
+  const [pinging, setPinging] = (0, import_react.useState)(false);
+  const [pingErr, setPingErr] = (0, import_react.useState)(null);
+  const [cmd, setCmd] = (0, import_react.useState)("");
+  const [running, setRunning] = (0, import_react.useState)(false);
+  const [runOut, setRunOut] = (0, import_react.useState)(null);
+  const [logOpen, setLogOpen] = (0, import_react.useState)(false);
+  const [log, setLog] = (0, import_react.useState)([]);
+  const [logLoading, setLogLoading] = (0, import_react.useState)(false);
+  const host = tailnetHost(o);
+  async function ping() {
+    setPinging(true);
+    setPingErr(null);
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`/outposts/${encodeURIComponent(o.name)}/rpc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "exec.run", payload: { command: "true", timeout_ms: 5e3 } })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        setPingErr(data?.error ?? `HTTP ${res.status}`);
+        setPingMs(null);
+      } else {
+        setPingMs(Math.round(performance.now() - t0));
+      }
+    } catch (err) {
+      setPingErr(err instanceof Error ? err.message : String(err));
+      setPingMs(null);
+    } finally {
+      setPinging(false);
+    }
+  }
+  async function run() {
+    if (!cmd.trim()) return;
+    setRunning(true);
+    setRunOut(null);
+    try {
+      const res = await fetch(`/outposts/${encodeURIComponent(o.name)}/rpc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "exec.run", payload: { command: cmd.trim(), timeout_ms: 3e4 } })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        setRunOut(`error: ${data?.error ?? `HTTP ${res.status}`}`);
+      } else {
+        const p = data?.result?.payload ?? {};
+        const out = [p.stdout, p.stderr].filter(Boolean).join("\n") || p.output || "(no output)";
+        const exit = typeof p.exit_code === "number" ? `
+[exit ${p.exit_code}]` : "";
+        setRunOut(String(out) + exit);
+        void loadLog();
+      }
+    } catch (err) {
+      setRunOut(`error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRunning(false);
+    }
+  }
+  const loadLog = (0, import_react.useCallback)(async () => {
+    setLogLoading(true);
+    try {
+      const res = await fetch(`/outposts/${encodeURIComponent(o.name)}/log?limit=20`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      setLog(Array.isArray(data?.entries) ? data.entries : []);
+    } catch {
+      setLog([]);
+    } finally {
+      setLogLoading(false);
+    }
+  }, [o.name]);
+  function toggleLog() {
+    const next = !logOpen;
+    setLogOpen(next);
+    if (next) void loadLog();
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card" + (online ? "" : " card-offline"), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot " + (online ? "sage" : o.pending ? "brass" : "alarm") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "card-name", children: o.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "state-label", children: online ? "online" : o.pending ? "pending" : "offline" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "grow" }),
+      host && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "host", children: host })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "meta-grid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Agent" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: o.agentVersion ?? "unknown" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Last seen" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: fmtAgo(o.lastHeartbeat) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Latency" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: pinging ? "pinging\u2026" : pingMs != null ? `${pingMs} ms` : pingErr ? `error` : "\u2014" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Registered" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: fmtAgo(o.registeredAt) })
+      ] })
+    ] }),
+    o.pending && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "note", children: "Pending \u2014 waiting for this Mac's bridge to connect for the first time." }),
+    pingErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert small", children: pingErr }),
+    o.verbs && o.verbs.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "verbs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Verbs" }),
+      o.verbs.map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "verb", children: v }, v))
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "run-row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "input",
+        {
+          value: cmd,
+          onChange: (e) => setCmd(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Enter") void run();
+          },
+          placeholder: "command to run (exec.run)",
+          disabled: !online || running
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", disabled: !online || running || !cmd.trim(), onClick: () => void run(), children: running ? "Running\u2026" : "Run" })
+    ] }),
+    runOut != null && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "run-out", children: runOut }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "actions", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", disabled: !online || pinging, onClick: () => void ping(), children: "Ping now" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", onClick: toggleLog, children: logOpen ? "Hide log" : "Show log" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "grow" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn danger", onClick: () => onRemove(o.name), children: "Remove" })
+    ] }),
+    logOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "log", children: logLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "muted", children: "Loading\u2026" }) : log.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "muted", children: "No invocations recorded yet." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "log-table", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "When" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Verb" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Caller" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "ms" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Result" })
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: log.slice().reverse().map((e, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: e.ok ? "" : "log-fail", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "mono", children: fmtAgo(e.at) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "mono", children: e.verb }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "mono", children: e.caller }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "mono", children: e.ms }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: e.ok ? "ok" : e.error || "error" })
+      ] }, i)) })
+    ] }) })
+  ] });
+}
+function AddOutpost({ onChanged }) {
+  const [tab, setTab] = (0, import_react.useState)("pair");
+  const [pairName, setPairName] = (0, import_react.useState)("");
+  const [pairBusy, setPairBusy] = (0, import_react.useState)(false);
+  const [pairErr, setPairErr] = (0, import_react.useState)(null);
+  const [installer, setInstaller] = (0, import_react.useState)(null);
+  const [copied, setCopied] = (0, import_react.useState)(false);
+  async function pair() {
+    if (!pairName.trim()) return;
+    setPairBusy(true);
+    setPairErr(null);
+    setInstaller(null);
+    setCopied(false);
+    try {
+      const res = await fetch("/registry/pair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: pairName.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.installer) {
+        setPairErr(data?.error ?? `HTTP ${res.status}`);
+      } else {
+        setInstaller(data.installer);
+        onChanged();
+      }
+    } catch (err) {
+      setPairErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPairBusy(false);
+    }
+  }
+  async function copyInstaller() {
+    if (!installer) return;
+    try {
+      await navigator.clipboard.writeText(installer);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }
+  const [sshHost, setSshHost] = (0, import_react.useState)("");
+  const [sshUser, setSshUser] = (0, import_react.useState)("");
+  const [provBusy, setProvBusy] = (0, import_react.useState)(false);
+  const [provErr, setProvErr] = (0, import_react.useState)(null);
+  const [provLines, setProvLines] = (0, import_react.useState)([]);
+  const [provDone, setProvDone] = (0, import_react.useState)(null);
+  const esRef = (0, import_react.useRef)(null);
+  const outRef = (0, import_react.useRef)(null);
+  (0, import_react.useEffect)(() => {
+    return () => {
+      esRef.current?.close();
+    };
+  }, []);
+  (0, import_react.useEffect)(() => {
+    if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
+  }, [provLines]);
+  async function provision() {
+    if (!sshHost.trim() || !sshUser.trim()) return;
+    setProvBusy(true);
+    setProvErr(null);
+    setProvLines([]);
+    setProvDone(null);
+    esRef.current?.close();
+    try {
+      const res = await fetch("/provision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host: sshHost.trim(), user: sshUser.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.jobId) {
+        setProvErr(data?.error ?? `HTTP ${res.status}`);
+        setProvBusy(false);
+        return;
+      }
+      const es = new EventSource(`/provision/${encodeURIComponent(data.jobId)}/stream`);
+      esRef.current = es;
+      es.onmessage = (ev) => {
+        try {
+          const parsed = JSON.parse(ev.data);
+          if (typeof parsed.line === "string") setProvLines((prev) => prev.concat(parsed.line));
+        } catch {
+        }
+      };
+      es.addEventListener("done", (ev) => {
+        try {
+          const parsed = JSON.parse(ev.data);
+          setProvDone(typeof parsed.exitCode === "number" ? parsed.exitCode : 0);
+        } catch {
+          setProvDone(0);
+        }
+        es.close();
+        setProvBusy(false);
+        onChanged();
+      });
+      es.onerror = () => {
+        es.close();
+        setProvBusy(false);
+      };
+    } catch (err) {
+      setProvErr(err instanceof Error ? err.message : String(err));
+      setProvBusy(false);
+    }
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "add", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tabs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "tab" + (tab === "pair" ? " tab-active" : ""), onClick: () => setTab("pair"), children: "Pair a new Mac" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "tab" + (tab === "ssh" ? " tab-active" : ""), onClick: () => setTab("ssh"), children: "SSH provisioning" })
+    ] }),
+    tab === "pair" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tab-body", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "hint", children: "Mint a token and get the one-line installer to run on the Mac." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "form-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: pairName, onChange: (e) => setPairName(e.target.value), placeholder: "machine name (e.g. studio-mac)" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn primary", disabled: pairBusy || !pairName.trim(), onClick: () => void pair(), children: pairBusy ? "Minting\u2026" : "Generate installer" })
+      ] }),
+      pairErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert small", children: pairErr }),
+      installer && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "installer", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "installer-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Run this on the Mac" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", onClick: () => void copyInstaller(), children: copied ? "Copied" : "Copy" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "installer-cmd", children: installer })
+      ] })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tab-body", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "hint", children: "Provision a reachable Mac over SSH (key auth; BatchMode). Output streams live below." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "form-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: sshHost, onChange: (e) => setSshHost(e.target.value), placeholder: "tailnet host or IP" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: sshUser, onChange: (e) => setSshUser(e.target.value), placeholder: "ssh user" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn primary", disabled: provBusy || !sshHost.trim() || !sshUser.trim(), onClick: () => void provision(), children: provBusy ? "Provisioning\u2026" : "Provision" })
+      ] }),
+      provErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert small", children: provErr }),
+      (provLines.length > 0 || provDone != null) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("pre", { className: "prov-out", ref: outRef, children: [
+        provLines.join("\n"),
+        provDone != null ? `
+
+[done, exit ${provDone}]` : ""
+      ] })
+    ] })
+  ] });
+}
 function App() {
   const [outposts, setOutposts] = (0, import_react.useState)([]);
   const [error, setError] = (0, import_react.useState)(null);
   const [loading, setLoading] = (0, import_react.useState)(false);
-  const [name, setName] = (0, import_react.useState)("");
-  const [token, setToken] = (0, import_react.useState)("");
-  const [busy, setBusy] = (0, import_react.useState)(false);
   const refresh = (0, import_react.useCallback)(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/outposts");
+      const res = await fetch("/outposts", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
         setError(data?.error ?? `HTTP ${res.status}`);
         setOutposts([]);
       } else {
-        const list = Array.isArray(data) ? data : data.outposts ?? data ?? [];
+        const list = Array.isArray(data) ? data : data.outposts ?? [];
         setOutposts(Array.isArray(list) ? list : []);
       }
     } catch (err) {
@@ -24517,75 +24832,31 @@ function App() {
   }, []);
   (0, import_react.useEffect)(() => {
     void refresh();
-    const id = setInterval(refresh, 5e3);
+    const id = setInterval(refresh, POLL_MS);
     return () => clearInterval(id);
   }, [refresh]);
-  async function register() {
-    if (!name.trim() || !token.trim()) return;
-    setBusy(true);
-    setError(null);
+  const remove = (0, import_react.useCallback)(async (name) => {
+    if (!window.confirm(`Remove outpost "${name}"? This unregisters it and drops the connection.`)) return;
     try {
-      const res = await fetch("/outposts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), token: token.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) setError(data?.error ?? `HTTP ${res.status}`);
-      else {
-        setName("");
-        setToken("");
-        await refresh();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function unregister(n) {
-    if (!confirm(`Unregister outpost "${n}"?`)) return;
-    try {
-      await fetch(`/outposts/${encodeURIComponent(n)}`, { method: "DELETE" });
+      await fetch(`/outposts/${encodeURIComponent(name)}`, { method: "DELETE" });
       await refresh();
     } catch {
     }
-  }
+  }, [refresh]);
+  const onlineCount = (0, import_react.useMemo)(() => outposts.filter(isOnline).length, [outposts]);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "app", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Garrison Outposts" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "subtitle", children: "Tailscale-connected remote Macs. Proxies to outpost-host on 127.0.0.1:3702." })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "subtitle", children: "Tailscale-connected remote Macs. Proxies to the outpost-host daemon on 127.0.0.1:3702." })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "strip", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--mute)", fontSize: 12 }, children: loading ? "Loading\u2026" : `${outposts.length} outpost${outposts.length === 1 ? "" : "s"}` }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "muted", children: loading ? "Loading\u2026" : `${outposts.length} registered \xB7 ${onlineCount} online` }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "grow" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", onClick: () => void refresh(), disabled: loading, children: "Refresh" })
     ] }),
     error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert", children: error }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "form-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "outpost name" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: token, onChange: (e) => setToken(e.target.value), placeholder: "token" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn primary", disabled: busy || !name.trim() || !token.trim(), onClick: register, children: busy ? "Registering\u2026" : "Register" })
-    ] }),
-    outposts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "No outposts registered. Use the form above with the token printed by the outpost-bridge bootstrap." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "simple", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Name" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Status" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Tailscale IP" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Last seen" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {})
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: outposts.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { style: { opacity: o.connected ? 1 : 0.5 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: o.name }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "pill", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `dot ${o.connected ? "sage" : "alarm"}` }),
-          o.connected ? "connected" : "offline"
-        ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { color: "var(--mute)" }, children: o.tailscaleIp ?? "\u2014" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { color: "var(--mute)" }, children: o.lastSeenAt ?? "\u2014" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", onClick: () => void unregister(o.name), children: "Unregister" }) })
-      ] }, o.name)) })
-    ] })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AddOutpost, { onChanged: refresh }),
+    outposts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "No outposts registered. Pair a Mac or provision one over SSH above." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "cards", children: outposts.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OutpostCard, { o, onRemove: remove }, o.name)) })
   ] });
 }
 var rootEl = document.getElementById("root");
