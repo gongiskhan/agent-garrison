@@ -120,17 +120,25 @@ async function handlePutRouting(req, res, query) {
   const next = body.config ?? body;
   const errors = validateRoutingConfig(next);
   if (errors.length) return json(res, 422, { error: "invalid-config", errors });
+  // Compile the policy FIRST (D4/D12): a config that validates but cannot
+  // compile must not be persisted — otherwise routing.json and policy.json
+  // diverge silently. Only persist once both succeed.
+  let policyBytes;
+  try {
+    policyBytes = stableStringify(compilePolicy(next));
+  } catch (err) {
+    return json(res, 422, { error: "policy-compile-failed", message: String(err?.message || err) });
+  }
   const serialized = JSON.stringify(next, null, 2) + "\n";
   await mkdir(path.dirname(configPath()), { recursive: true });
   await writeFile(configPath(), serialized, "utf8");
-  // Every accepted edit recompiles the machine-readable policy (D4/D12).
-  let policy = null;
-  try {
-    policy = await writeCompiledPolicy(next);
-  } catch (err) {
-    return json(res, 200, { ok: true, baselineSha: sha(serialized), policyError: String(err?.message || err) });
-  }
-  json(res, 200, { ok: true, baselineSha: sha(serialized), policyPath: policy });
+  const policyTarget = policyPath();
+  await mkdir(path.dirname(policyTarget), { recursive: true });
+  const tmp = `${policyTarget}.tmp-${process.pid}`;
+  await writeFile(tmp, policyBytes, "utf8");
+  const { rename } = await import("node:fs/promises");
+  await rename(tmp, policyTarget);
+  json(res, 200, { ok: true, baselineSha: sha(serialized), policyPath: policyTarget });
 }
 
 async function handleSimulate(req, res) {

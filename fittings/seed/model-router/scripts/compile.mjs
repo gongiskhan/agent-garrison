@@ -84,6 +84,8 @@ function main() {
     console.log(
       `routing-compile-ok profile=${profile} bytes=${Buffer.byteLength(compiled)} policyBytes=${Buffer.byteLength(policyBytes)}`
     );
+    // S1 acceptance sentinel (FLOW_PLAN): a v2 policy compiled + byte-stable.
+    if (isV2(config)) console.log("ORCHESTRATOR_POLICY_OK");
     return;
   }
 
