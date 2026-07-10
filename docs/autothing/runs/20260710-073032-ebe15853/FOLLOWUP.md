@@ -56,3 +56,12 @@ deliberately-deferred actions.
    outpost provisioning RCE; 3 hardenings: ports kill TOCTOU, orchestrator
    atomic write, monitor hang guard) - each with committed regression tests.
    Re-run the deep panel on a future pass for a second independent perspective.
+
+## Residual review minors (non-blocking, deferred)
+The delivered deep-review verdicts left a handful of minors below the fix bar this run:
+- **power singleton guard (rev-s1314 S13#3, MAJOR but precondition-gated)** - no PID-file singleton; a Garrison restart leaving an orphaned detached watcher could suspend during active use. Add a pidfile guard like scripts/outpost-host.mjs has. Precondition-dependent (double-spawn) + touches lifecycle - deferred for careful verification.
+- rev-s3 minor 4: PUT /routing with an absent ?baseline= skips the conflict guard (composer always sends one; only bites other writers).
+- rev-s3 minors 6-7 (UI): pendingRef leaks one redundant PUT across a 409/422; toggling an out-of-plan phase ON appends it out of pipeline order.
+- rev-s912 minor: static-dir prefix check without a trailing separator (no exploitable sibling today).
+- snapshots minor: POST /api/snapshots/run has no concurrency guard (restic's own lock serializes; a double-click can fail-on-lock).
+- Assorted UI nits: em-dashes across ~68/70 UI files (pre-existing house pattern), S12 restore-command copy button + overflow-wrap, monitor phone units-table clipping, ports loopback action-column ragged edge, S4 empty-column lock cue.

@@ -348,10 +348,11 @@
     "rev-floor: engine D16/path-traversal/snapshots/orchestrator-atomic all verified clean or fixed"
    ],
    "residual_minors": "rev-s3 (5), rev-s1314 (4), rev2-s567 (dir-listing HTML now path-confined), rev2-s1011 (process-name XSS defused by React) - non-blocking polish, listed in FOLLOWUP",
-   "at": "2026-07-10T13:55:56Z"
+   "at": "2026-07-10T13:55:56Z",
+   "deliveredVerdicts": "mailbox flushed post-close; cross-checked - 2 more severe items fixed (outpost-host RCE BLOCKER 327dbb1, doorway double-drive MAJOR c293af6) + rev-s3 minors; residual minors in FOLLOWUP"
   },
   "suiteAfterFixes": "1645 passed / 12 skipped",
-  "finalSuite": "1646 passed / 12 skipped; typecheck clean; lint clean",
+  "finalSuite": "1648 passed / 12 skipped; typecheck clean; lint clean",
   "residualMinors": "concrete minors fixed (codex-concurrency test, simulate-422, index-escaping); only subjective UI nits remain (FOLLOWUP)"
  }
 }
