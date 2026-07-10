@@ -151,14 +151,24 @@ async function handlePutRouting(req, res, query) {
     return json(res, 422, { error: "policy-compile-failed", message: String(err?.message || err) });
   }
   const serialized = JSON.stringify(next, null, 2) + "\n";
-  await mkdir(path.dirname(configPath()), { recursive: true });
-  await writeFile(configPath(), serialized, "utf8");
+  const configTarget = configPath();
   const policyTarget = policyPath();
+  await mkdir(path.dirname(configTarget), { recursive: true });
   await mkdir(path.dirname(policyTarget), { recursive: true });
-  const tmp = `${policyTarget}.tmp-${process.pid}`;
-  await writeFile(tmp, policyBytes, "utf8");
   const { rename } = await import("node:fs/promises");
-  await rename(tmp, policyTarget);
+  // BOTH files are written atomically (tmp + rename): a plain writeFile on
+  // routing.json could leave it truncated/corrupt on a crash mid-write — and
+  // routing.json is the config SOURCE OF TRUTH, not a cache. Write both temp
+  // files fully first (either can fail harmlessly, nothing committed), then
+  // commit routing.json FIRST and policy.json (the derived cache) second: a
+  // crash between the two renames leaves new-config + old-policy, which the
+  // server's startup recompile (D4) heals to new-policy, preserving the edit.
+  const cfgTmp = `${configTarget}.tmp-${process.pid}`;
+  const polTmp = `${policyTarget}.tmp-${process.pid}`;
+  await writeFile(cfgTmp, serialized, "utf8");
+  await writeFile(polTmp, policyBytes, "utf8");
+  await rename(cfgTmp, configTarget);
+  await rename(polTmp, policyTarget);
   json(res, 200, { ok: true, baselineSha: sha(serialized), policyPath: policyTarget });
 }
 
