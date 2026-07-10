@@ -7,6 +7,13 @@
 // (id/order/kind never change). Hermetic — no socket, no filesystem.
 
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,17 +51,15 @@ function fakeBoard() {
 }
 
 describe("applyListConfig — happy path (agent list)", () => {
-  it("edits an agent list's skill, prompts, validNext and trigger and returns the mutated board", () => {
+  it("edits an agent list's prompts, validNext and trigger and returns the mutated board", () => {
     const board = fakeBoard();
     const { board: next, list, error } = applyListConfig(board, "plan", {
-      skill: "autothing-plan:v2",
       executePrompt: "new execute prompt",
       routerPrompt: "new router prompt",
       validNext: ["implement", "plan"],
       trigger: "manual"
     });
     expect(error).toBeUndefined();
-    expect(list.skill).toBe("autothing-plan:v2");
     expect(list.executePrompt).toBe("new execute prompt");
     expect(list.routerPrompt).toBe("new router prompt");
     expect(list.validNext).toEqual(["implement", "plan"]);
@@ -68,7 +73,7 @@ describe("applyListConfig — happy path (agent list)", () => {
   it("does not mutate the input board (returns a new object)", () => {
     const board = fakeBoard();
     const before = JSON.stringify(board);
-    applyListConfig(board, "plan", { skill: "changed", executePrompt: "x" });
+    applyListConfig(board, "plan", { executePrompt: "x" });
     expect(JSON.stringify(board)).toBe(before);
   });
 
@@ -77,18 +82,16 @@ describe("applyListConfig — happy path (agent list)", () => {
     const { list } = applyListConfig(board, "plan", { title: "Planning" });
     expect(list.title).toBe("Planning");
     // Untouched fields keep their seed values.
-    expect(list.skill).toBe("autothing-plan");
     expect(list.executePrompt).toBe("old execute");
     expect(list.validNext).toEqual(["implement"]);
   });
 
-  it("clears skill/mode/taskType/tier to null when set to empty", () => {
+  it("REJECTS the dead per-list keys (D15: skill/mode/taskType/tier live in the policy)", () => {
     const board = fakeBoard();
-    const { list, error } = applyListConfig(board, "plan", { skill: "", mode: "  ", taskType: "" });
-    expect(error).toBeUndefined();
-    expect(list.skill).toBeNull();
-    expect(list.mode).toBeNull();
-    expect(list.taskType).toBeNull();
+    for (const dead of ["skill", "mode", "taskType", "tier"]) {
+      const { error } = applyListConfig(board, "plan", { [dead]: "anything" });
+      expect(error).toContain("no longer a per-list setting");
+    }
   });
 
   it("de-dupes validNext while preserving order", () => {
@@ -99,13 +102,14 @@ describe("applyListConfig — happy path (agent list)", () => {
 });
 
 describe("applyListConfig — interactive list", () => {
-  it("keeps interactive:true and lets mode be edited", () => {
+  it("keeps interactive:true; the dead mode key is rejected (D15)", () => {
     const board = fakeBoard();
-    const { list, error } = applyListConfig(board, "discuss", { mode: "james-v2", title: "Discuss it" });
-    expect(error).toBeUndefined();
-    expect(list.interactive).toBe(true);
-    expect(list.mode).toBe("james-v2");
-    expect(list.title).toBe("Discuss it");
+    const ok = applyListConfig(board, "discuss", { title: "Discuss it" });
+    expect(ok.error).toBeUndefined();
+    expect(ok.list.interactive).toBe(true);
+    expect(ok.list.title).toBe("Discuss it");
+    const bad = applyListConfig(board, "discuss", { mode: "james-v2" });
+    expect(bad.error).toContain("no longer a per-list setting");
   });
 });
 
@@ -148,11 +152,10 @@ describe("applyListConfig — validation rejects", () => {
     expect(applyListConfig(board, "plan", { skill: "a/b" }).error).toMatch(/skill/);
   });
 
-  it("accepts a clean skill token (kebab + colon)", () => {
+  it("rejects the skill key entirely (D15 — bindings live in the policy)", () => {
     const board = fakeBoard();
-    const { error, list } = applyListConfig(board, "plan", { skill: "autothing-plan:v2" });
-    expect(error).toBeUndefined();
-    expect(list.skill).toBe("autothing-plan:v2");
+    const { error } = applyListConfig(board, "plan", { skill: "autothing-plan:v2" });
+    expect(error).toContain("no longer a per-list setting");
   });
 
   it("rejects a non-array validNext", () => {

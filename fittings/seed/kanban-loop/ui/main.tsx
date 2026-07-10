@@ -20,7 +20,8 @@ import {
   type ListView,
   type ListConfig,
   type ListConfigPatch,
-  type ArtifactRef
+  type ArtifactRef,
+  type PolicyView
 } from "./api";
 import {
   PlayIcon,
@@ -47,7 +48,7 @@ const ITERATION_CAP = 10;
 function listClass(list: ListView): string {
   if (list.id === "needs-attention") return "list attn";
   if (list.interactive) return "list interactive";
-  if (list.skill && list.skill.includes("adversarial")) return "list codex";
+  if (list.phase && list.phase.includes("adversarial")) return "list codex";
   if (list.kind === "agent") return "list agent";
   return "list manual";
 }
@@ -125,6 +126,11 @@ function Card({
   onDiscuss: (c: CardSummary) => void;
   busy: boolean;
 }) {
+  // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
+  // manual Move/edit on it (the API rejects them too). needs-attention is the one
+  // human touchpoint on the autonomous side; interactive + manual lists stay
+  // fully editable.
+  const engineOwned = list.kind === "agent" && !list.interactive;
   // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a card
   // ENTERS the automated flow (To Do → Plan) or is re-sent after parking. Discuss
   // (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
@@ -164,10 +170,26 @@ function Card({
           <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
+        {card.workKind && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.workKind}</span>}
+        {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
         {dispatchErr && (
           <span className="chip attn" title={dispatchErr.message}>{dispatchErr.reason}</span>
         )}
       </div>
+
+      {/* D17 honesty: phases the card's rail turned OFF render as dimmed chips —
+          visible, never hidden. Sourced from the card's phases toggle map. */}
+      {card.phases && Object.values(card.phases).some((v) => v === false) && (
+        <div className="cmeta">
+          {Object.entries(card.phases)
+            .filter(([, on]) => on === false)
+            .map(([ph]) => (
+              <span key={ph} className="chip off" title={`the ${ph} phase is OFF for this run — recorded off, never a silent pass`}>
+                {ph}: off
+              </span>
+            ))}
+        </div>
+      )}
 
       {/* LIVE run state: a running pill with a ticking elapsed timer + the live log
           tail, so the card shows the operative WORKING (not just a pulsing dot). */}
@@ -222,14 +244,16 @@ function Card({
             <PlayIcon /> {dispatchErr ? "Retry" : "Run"}
           </button>
         )}
-        {canInfer && (
+        {canInfer && !engineOwned && (
           <button className="btn small" disabled={busy} title="infer the project from the description" onClick={() => onInfer(card)}>
             <SparkIcon /> Infer
           </button>
         )}
-        <button className="btn small" disabled={busy} onClick={() => onMove(card)}>
-          <MoveIcon /> Move
-        </button>
+        {!engineOwned && (
+          <button className="btn small" disabled={busy} onClick={() => onMove(card)}>
+            <MoveIcon /> Move
+          </button>
+        )}
         {/* Discuss list (interactive) gets a dedicated Discuss button that opens a
             James-mode session seeded with this card; everything else gets Watch (logs). */}
         {list.interactive ? (
@@ -263,6 +287,11 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
+  // D17: the work kind (policy phase plan) + per-card phase toggles. Loaded
+  // from the board's GET /policy passthrough; absent policy → plain creation.
+  const [policy, setPolicy] = useState<PolicyView | null>(null);
+  const [workKind, setWorkKind] = useState<string>("");
+  const [phasesOff, setPhasesOff] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -271,8 +300,19 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   useEffect(() => {
     let alive = true;
     api.projects().then((v) => { if (alive) setProjects(v.projects); }).catch(() => { /* leave empty */ });
+    api.policy().then((v) => { if (alive) { setPolicy(v); setWorkKind(v.defaultWorkKind ?? ""); } }).catch(() => { /* no policy — plain create */ });
     return () => { alive = false; };
   }, []);
+
+  // The phases of the selected work kind's plan, in pipeline order — the
+  // toggleable rail preview. Unknown kind → empty (no toggles offered).
+  const railPhases: string[] = (() => {
+    if (!policy || !workKind) return [];
+    const kind = policy.workKinds[workKind];
+    const plan = kind ? policy.phasePlans[kind.phasePlan] : null;
+    if (!plan) return [];
+    return plan.phases.map((ph) => (typeof ph === "string" ? ph : ph.id));
+  })();
 
   async function submit() {
     // Title is optional — it's inferred from the description when blank. Only block when
@@ -284,8 +324,16 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setSaving(true);
     setErr(null);
     const proj = projectMode === "auto" ? undefined : (project.trim() || undefined);
+    const offMap = Object.fromEntries(Object.entries(phasesOff).filter(([, off]) => off).map(([ph]) => [ph, false]));
     try {
-      await api.create({ title: title.trim() || undefined, project: proj, description, goalMode });
+      await api.create({
+        title: title.trim() || undefined,
+        project: proj,
+        description,
+        goalMode,
+        workKind: workKind || undefined,
+        phases: Object.keys(offMap).length ? offMap : undefined
+      });
       onCreated();
       onClose();
     } catch (e) {
@@ -350,6 +398,30 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
           goalMode (prepend /goal + acceptance)
         </label>
       </div>
+      {policy && (
+        <div className="field">
+          <label htmlFor="nc-kind">Work kind <span className="muted" style={{ fontWeight: 400 }}>(the policy phase plan this run follows)</span></label>
+          <select id="nc-kind" value={workKind} onChange={(e) => { setWorkKind(e.target.value); setPhasesOff({}); }}>
+            {Object.entries(policy.workKinds).map(([k, v]) => (
+              <option key={k} value={k}>{k}{k === policy.defaultWorkKind ? " (default)" : ""}{v.description ? ` — ${v.description}` : ""}</option>
+            ))}
+          </select>
+          {railPhases.length > 0 && (
+            <div className="rail-toggles">
+              {railPhases.map((ph) => (
+                <label key={ph} className={`chip toggle${phasesOff[ph] ? " off" : ""}`} title={phasesOff[ph] ? `${ph} will be recorded OFF for this run (never a silent pass)` : `${ph} runs; tap to turn it off for this run`}>
+                  <input
+                    type="checkbox"
+                    checked={!phasesOff[ph]}
+                    onChange={(e) => setPhasesOff((m) => ({ ...m, [ph]: !e.target.checked }))}
+                  />
+                  {ph}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {err && <div className="banner">{err}</div>}
       <button className="btn primary" disabled={saving} onClick={() => void submit()}>
         {saving ? "Creating…" : "Create card"}
@@ -802,10 +874,6 @@ function WatchSheet({
 // them too); an AGENT/interactive list shows the full set. validNext is a
 // multi-select of the REAL list ids (you can only route to lists that exist).
 const TRIGGERS = ["immediate", "manual", "scheduler-beat"];
-// The three operative faces. Mode is a dropdown (not free text): a card is routed to
-// one of these. "(none)" leaves it to the orchestrator's default.
-const MODES = ["gary", "joe", "james"];
-
 // ── schedule builder (scheduler-beat trigger) ────────────────────────────────
 // The backend honors a 5-field POSIX cron. Rather than make the user hand-write cron,
 // offer the common cadences (every N hours / daily at a time / weekly on a day) plus a
@@ -920,14 +988,6 @@ function ListConfigSheet({
   const [rev, setRev] = useState<number | null>(null); // board-level CAS token from GET /lists
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
-
-  // The installed skills, for the Skill field's searchable list. Best-effort.
-  useEffect(() => {
-    let alive = true;
-    api.skills().then((v) => { if (alive) setSkills(v.skills); }).catch(() => { /* leave empty */ });
-    return () => { alive = false; };
-  }, []);
 
   // Load the full list config (prompt bodies included). The board only carries
   // the lists' metadata, not the execute/router prompt text. Capture the board
@@ -955,9 +1015,6 @@ function ListConfigSheet({
   // itself in principle, but the seed never does; we still list it so the user is
   // not blocked.
   const allListIds = board.lists.map((l) => ({ id: l.id, title: l.title }));
-  // The mode dropdown offers the three faces; if a list carries a legacy/custom mode
-  // not in that set, keep it as an extra option so a save doesn't silently drop it.
-  const modeOptions = cfg.mode && !MODES.includes(cfg.mode) ? [...MODES, cfg.mode] : MODES;
   // The lists not yet in validNext — the "+ add a next list" dropdown's options.
   const addableNext = allListIds.filter((l) => !cfg.validNext.includes(l.id));
 
@@ -979,20 +1036,18 @@ function ListConfigSheet({
     setSaving(true);
     setErr(null);
     // Send only the editable fields. A manual list sends just title + validNext
-    // (the server rejects agent-only fields on a manual list).
-    // taskType/tier are intentionally NOT sent — the orchestrator classifies the tier.
-    // beatCron is only meaningful for a scheduler-beat list (cleared otherwise).
+    // (the server rejects agent-only fields on a manual list). D15: skill/
+    // taskType/tier/mode are GONE — resolution lives in the compiled
+    // Orchestrator policy (the composer view), and the server rejects them.
     const base: ListConfigPatch = isManual
       ? { title: cfg.title.trim(), validNext: cfg.validNext }
       : {
           title: cfg.title.trim(),
-          skill: cfg.skill && cfg.skill.trim() ? cfg.skill.trim() : null,
           executePrompt: cfg.executePrompt,
           routerPrompt: cfg.routerPrompt,
           validNext: cfg.validNext,
           trigger: cfg.trigger,
-          beatCron: cfg.trigger === "scheduler-beat" ? (cfg.beatCron && cfg.beatCron.trim() ? cfg.beatCron.trim() : null) : null,
-          mode: cfg.mode && cfg.mode.trim() ? cfg.mode.trim() : null
+          beatCron: cfg.trigger === "scheduler-beat" ? (cfg.beatCron && cfg.beatCron.trim() ? cfg.beatCron.trim() : null) : null
         };
     // Carry the rev we loaded so the server can reject a stale write (409).
     const patch: ListConfigPatch = rev != null ? { ...base, rev } : base;
@@ -1033,22 +1088,11 @@ function ListConfigSheet({
 
       {!isManual && (
         <>
-          <div className="field">
-            <label htmlFor="lc-skill">Skill</label>
-            <input id="lc-skill" type="text" list="lc-skill-options" value={cfg.skill ?? ""}
-              placeholder="search installed skills (blank = none)"
-              onChange={(e) => set("skill", e.target.value)} />
-            <datalist id="lc-skill-options">
-              {skills.map((s) => <option key={s.name} value={s.name}>{s.description}</option>)}
-            </datalist>
-          </div>
-          <div className="field">
-            <label htmlFor="lc-mode">Mode</label>
-            <select id="lc-mode" value={cfg.mode ?? ""} onChange={(e) => set("mode", e.target.value || null)}>
-              <option value="">(none — orchestrator default)</option>
-              {modeOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
+          <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+            This list runs the <strong>{cfg.phase ?? cfg.id}</strong> phase. Its skill, model,
+            effort and runtime come from the compiled Orchestrator policy — configure them in
+            the Orchestrator composer view, not here (D15).
+          </p>
           <div className="field">
             <label htmlFor="lc-trigger">Trigger</label>
             <select id="lc-trigger" value={cfg.trigger} onChange={(e) => set("trigger", e.target.value)}>
@@ -1061,9 +1105,6 @@ function ListConfigSheet({
               <ScheduleField value={cfg.beatCron} onChange={(cron) => set("beatCron", cron)} />
             </div>
           )}
-          <p className="muted" style={{ marginTop: -2, marginBottom: 12, fontSize: 12 }}>
-            Tier is chosen by the orchestrator per task — there's no per-list tier to set.
-          </p>
           <div className="field">
             <label htmlFor="lc-exec">Execute prompt</label>
             <textarea id="lc-exec" value={cfg.executePrompt} placeholder="What the operative is told to do on this list"
@@ -1269,8 +1310,10 @@ function App() {
                   </button>
                 </div>
                 <div className="lkind">
-                  {list.skill ? (
-                    <span className={list.skill.includes("adversarial") ? "cdx" : "sk"}>{list.skill}</span>
+                  {list.kind === "agent" && !list.interactive ? (
+                    <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
+                      phase: {list.phase ?? list.id}
+                    </span>
                   ) : list.interactive ? (
                     "interactive · web chat"
                   ) : (

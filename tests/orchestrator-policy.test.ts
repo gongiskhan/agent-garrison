@@ -73,15 +73,19 @@ describe("orchestrator policy core (S1)", () => {
   it("work kinds resolve to rails with bound skills (D2/D3)", async () => {
     const mod = await core();
     const cfg = seedConfig();
+    // A phase plan is an ordered SUBSET: phases outside the plan stay in the
+    // rail rendered OFF (honesty, never hidden).
     const docs = mod.railFor(cfg, "docs-change");
-    expect(docs.phases.map((p: { id: string }) => p.id)).toEqual(["implement"]);
+    expect(docs.phases.length).toBe(11);
+    expect(docs.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["implement"]);
+    expect(docs.phases.find((p: { id: string }) => p.id === "walkthrough").off_reason).toBe("phase-plan");
     expect(docs.evidence).toBe("text");
     const api = mod.railFor(cfg, "api-change");
-    expect(api.phases.map((p: { id: string }) => p.id)).toEqual(["implement", "test"]);
+    expect(api.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["implement", "test"]);
     expect(api.evidence).toBe("logs");
-    expect(api.phases.every((p: { on: boolean }) => p.on)).toBe(true);
     const full = mod.railFor(cfg, "full-feature");
     expect(full.phases.length).toBe(11);
+    expect(full.phases.every((p: { on: boolean }) => p.on)).toBe(true);
     expect(full.evidence).toBe("video");
     expect(full.phases.find((p: { id: string }) => p.id === "review").skill).toBe("autothing-review");
     // default kind
@@ -116,7 +120,13 @@ describe("orchestrator policy core (S1)", () => {
     expect(mod.validateRoutingConfig(cfg)).toEqual([]);
     const policy = mod.compilePolicy(cfg);
     expect(policy.matrix["data-migration"]["T1-standard"].targetId).toBe("cc-opus-high");
-    expect(mod.railFor(cfg, "schema-migration").phases.length).toBe(3);
+    const rail = mod.railFor(cfg, "schema-migration");
+    expect(rail.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual([
+      "plan",
+      "implement",
+      "test"
+    ]);
+    expect(rail.phases.length).toBe(11); // off phases stay visible
   });
 
   it("validation catches unknown targets, phases and plans", async () => {

@@ -1,29 +1,39 @@
-// Kanban Loop engine (V1b) — the transition function.
+// THE run engine (GARRISON-UNIFY-V1 S4, D9/D13/D15) — the transition function,
+// packaged as a LIBRARY callable both by the board's tick dispatcher and
+// in-process by a session (the autothing doorway). A run is a card.
 //
-// A manual list is a plain column. An AGENT list has a named skill + execute-prompt
-// + router-prompt: on entry the engine sends the combined prompt through the
-// orchestrator front door (a runFn injected by the caller = preRoute / gateway
-// /chat), then the router output must EXACTLY name one of the card's valid next
-// lists (brief §3: no fuzzy matching, no guessing) or the card parks in
-// needs-attention. §9 decisions applied: effort/model are the router's job (NOT set
-// per list); the router's continuations are suppressed (the list boundary is the
-// gate); there is no Infer column (low-confidence inference → needs-attention). §10:
-// each agent-list carries an explicit {taskType, tier} fed to preRoute. Goal-mode
-// prepends /goal + the card's acceptance (the engine adds the prefix; execute-prompts
-// stay clean) — but the convergence GUARD is the per-card iteration cap, not the goal
-// hook (FINDING 5 / Decision 7: the goal-stop sentinel never fires on the shared
-// board operative). A per-card iteration-cap breach parks the card in needs-attention.
+// A manual list is a plain column. An AGENT list maps to a PHASE NAME and
+// nothing else (D15): its skill, model, effort, and runtime all resolve from
+// the compiled Orchestrator policy (~/.garrison/orchestrator/policy.json). On
+// entry the engine sends the combined prompt through the orchestrator front
+// door (a runFn injected by the caller = preRoute / gateway /chat) with an
+// EXPLICIT {taskType: <phase>, tier: <card tier>} classification (the phase IS
+// the task type, D1), then the router output must EXACTLY name one of the
+// card's valid next lists (no fuzzy matching) or the card parks in
+// needs-attention. Phase progression is a list transition AND requires the
+// phase's durable gate evidence in the runDir (D9) — a transition without its
+// gate-status entry parks. The card's work kind + per-card phase toggles form
+// its RAIL (D17): an OFF phase is skipped with an explicit "off" event
+// (recorded and rendered off, never a silent pass). Goal-mode prepends /goal +
+// the card's acceptance; the convergence GUARD is the per-card iteration cap.
 //
-// V1b adds: per-card runId minted on the FIRST agent-list entry (FINDING 4) and the
-// run directory threaded into EVERY execute-prompt as literal text (FINDING 4/10 — the
-// gateway `skill` field is inert, so the run dir must be IN the prompt); the three
-// triggers (immediate | manual | scheduler-beat) so tick() only processes immediate
-// agent lists; and Test batching (FINDING 7) — one session per project on the test
-// list's own scheduler beat.
+// Per-card runId minted on the FIRST agent-list entry; runDir threaded into
+// every execute-prompt as literal text; triggers (immediate | manual |
+// scheduler-beat) so tick() only processes immediate agent lists; Test
+// batching preserved as list mechanics (batched + its own beat).
 import path from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { saveCard, saveCardCAS, appendCardLog, writeCardLog } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
+import {
+  loadPolicy,
+  phaseForList,
+  skillForPhase,
+  classificationForPhase,
+  railForCard,
+  phaseOnForCard,
+  hasPhaseGateEvidence
+} from "./policy.mjs";
 
 // Does this card's run dir actually contain tangible evidence? A list flagged
 // `requiresEvidence` (Walkthrough) must not advance on the operative's word alone — the
@@ -116,14 +126,38 @@ export function mintRunFields(card, now = Date.now) {
   return { runId, runDir: `${RUN_DIR_BASE}/${runId}` };
 }
 
-// Tier/taskType are NO LONGER pinned per list (the user's call): a kanban card routes
-// through the orchestrator, which CLASSIFIES the work itself (picks tier/model/effort)
-// from the prompt — the per-list `mode` still biases that routing. So the engine sends
-// NO classification hint (see the `classification = null` at the dispatch sites + the
-// note in lib/gateway-client.mjs). Retained, unused by dispatch, only so an external
-// caller/test that still wants the old {taskType,tier} projection can derive it.
+// D15: per-list taskType/tier/skill/mode config is DEAD. Resolution comes from
+// the compiled policy: the list's PHASE is the task type (D1) and the tier
+// rides on the card — see classificationForPhase in ./policy.mjs. This shim
+// remains only for external callers/tests that want the old projection; it now
+// derives from the phase, never from per-list pins.
 export function classificationFor(list) {
-  return { taskType: list?.taskType || "other", tier: list?.tier || "T1-standard" };
+  return { taskType: phaseForList(list) || "other", tier: "T1-standard" };
+}
+
+// Rail fast-forward (D17): starting AT `listId`, return the first list whose
+// phase is ON for this card, walking the pipeline via each list's first
+// forward validNext edge. OFF phases collect into `skipped` so the caller can
+// record them (rendered off, never silent). Terminal safety: stops at any
+// non-agent list, an unknown list, or after 20 hops.
+export function effectiveListForCard(board, rail, listId, card) {
+  const skipped = [];
+  let current = listId;
+  for (let hops = 0; hops < 20; hops++) {
+    const list = getList(board, current);
+    if (!list) return { listId: current, skipped };
+    if (list.kind !== AGENT_KIND || isInteractive(list)) return { listId: current, skipped };
+    const phase = phaseForList(list);
+    if (phaseOnForCard(rail, phase)) return { listId: current, skipped };
+    skipped.push(phase);
+    // The forward edge is the FIRST validNext that is not the implement
+    // loop-back (every gate list's fail edge) and not needs-attention.
+    const forward = (list.validNext || []).find((n) => n !== "implement" && n !== ATTENTION_LIST) ||
+      (list.validNext || [])[0];
+    if (!forward) return { listId: current, skipped };
+    current = forward;
+  }
+  return { listId: current, skipped };
 }
 
 export const ATTENTION_LIST = "needs-attention";
@@ -202,20 +236,12 @@ export function parseNextList(routerOutput, validNext) {
 
 // Combined execute + router prompt. goal-mode prepends /goal + acceptance; the card's
 // runDir is threaded in as literal text (the gateway `skill` field is inert, so the
-// run dir must be IN the prompt for the autothing skill to write per-run — FINDING
-// 4/10); the valid next-list ids are injected so the router output can exact-match.
-export function buildCardPrompt({ list, card, validNext, discussionContext = null }) {
+// run dir must be IN the prompt for the autothing skill to write per-run); the valid
+// next-list ids are injected so the router output can exact-match. D15: the per-list
+// mode line is GONE (mode is the gateway's job); the executing skill is resolved from
+// the compiled policy and named explicitly (the phase-skill binding, D3).
+export function buildCardPrompt({ list, card, validNext, discussionContext = null, skill = null, phase = null }) {
   const parts = [];
-  // Lead with the list's MODE so the gateway's mode resolver switches the operative's
-  // face (Gary/Joe/James) for this turn. The per-list mode is otherwise inert — the
-  // kanban channel has no mode default, so it falls back to the global default. The
-  // gateway's parseLeadingMode matches a mode name at the VERY START of the message,
-  // so this clause must come before /goal and the work item. Harmless if the gateway
-  // ignores it (it just reads as an addressing line to the operative).
-  const mode = (list?.mode || "").trim();
-  if (mode && list.kind === AGENT_KIND) {
-    parts.push(`${mode}, take on the following work item.`, "");
-  }
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
     parts.push(`/goal ${acceptance}`, "");
@@ -246,13 +272,26 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
     );
   }
   parts.push("");
-  // Thread the per-run pointers so the autothing skill writes its plan/gate files
+  // Thread the per-run pointers so the phase skill writes its plan/gate files
   // under this card's run dir and references this card's slice — the skill cannot get
   // these from the inert gateway fields, so they go in the prompt body.
   if (card.runDir) {
     parts.push(`Run directory (write all per-run artifacts here): ${card.runDir}`);
     if (card.sliceId) parts.push(`Slice id: ${card.sliceId}`);
     parts.push("");
+  }
+  // D3/D15: name the policy-bound skill for this phase so the operative executes
+  // the phase through it (the binding is configuration — swapping it in the
+  // composer changes this line with zero code changes). The skill itself
+  // re-reads the compiled policy for its model/effort (the bindable contract).
+  if (phase && skill) {
+    parts.push(
+      `Execute the ${phase} phase of this run using the \`${skill}\` skill (the compiled ` +
+        `Orchestrator policy binds it for this phase). The skill reads ` +
+        `~/.garrison/orchestrator/policy.json for its execution parameters and MUST write ` +
+        `this phase's gate-status entry under the run directory before you choose the next list.`,
+      ""
+    );
   }
   if (list.executePrompt) parts.push(list.executePrompt, "");
   parts.push(
@@ -308,6 +347,33 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
 
   const validNext = validNextFor(board, card.list);
   const iteration = (card.iterations || 0) + 1;
+  // D15: resolve everything from the compiled policy up front — the list's
+  // phase is the task type, the executing skill is the phase's binding.
+  const policy = loadPolicy();
+  const phase = phaseForList(list);
+  const skill = skillForPhase(policy, phase, card.workKind || policy?.defaultWorkKind);
+  // D17 rail fast-forward ON ENTRY: a card sitting on a list whose phase its
+  // rail turns OFF advances without dispatching, each skipped phase recorded
+  // as an explicit "off" event (rendered off, never a silent pass).
+  const rail = railForCard(policy, card);
+  if (rail && !phaseOnForCard(rail, phase)) {
+    const { listId: fwd, skipped } = effectiveListForCard(board, rail, card.list, card);
+    const offEvents = skipped.map((ph) => ({
+      at: now(),
+      kind: "phase-off",
+      message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+    }));
+    let events = card.events ? card.events.slice() : [];
+    for (const ev of offEvents) events = withEvent({ events }, ev);
+    const res = await saveCardCAS(
+      root,
+      { ...card, list: fwd, events },
+      baseRev,
+      now()
+    );
+    if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "moved", from: card.list, to: fwd, phasesOff: skipped } };
+  }
   // Mint runId + runDir on the card's FIRST agent-list entry, and fold the mint into
   // the SAME acquire write so it is persisted CAS-safely (no extra write, no race).
   const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
@@ -318,7 +384,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const dispatchEvent = {
     at: dispatchAt,
     kind: "dispatch",
-    message: `Dispatched to the operative on ${listTitle}${list.skill ? ` (${list.skill})` : ""} — run ${iteration}`,
+    message: `Dispatched to the operative on ${listTitle}${skill ? ` (${skill})` : ""} — run ${iteration}`,
     detail: card.project ? null : "No project assigned — the operative is asked to infer it from the description."
   };
   const acq = await saveCardCAS(
@@ -343,10 +409,11 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // Fold the Discuss brief (if any) into the prompt so every downstream phase builds
   // from the agreed direction the discussion settled on.
   const discussionContext = readCardBrief(root, runningCard.id);
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext });
-  // No classification hint: route through the orchestrator and let IT classify the
-  // work (tier/model/effort). The per-list mode (led into the prompt above) biases it.
-  const classification = null;
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, skill, phase });
+  // Explicit policy-derived classification (phase = taskType, card tier). A
+  // missing/unreadable policy degrades to classifier routing (null) — never
+  // blocks a card.
+  const classification = classificationForPhase(policy, phase, runningCard);
   // Live log: write the iteration header immediately (Watch shows the run STARTED,
   // not a blank pane), then overwrite the log with the operative's growing reply as
   // chunks stream in — so Watch shows progress instead of nothing-until-the-result.
@@ -356,7 +423,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   };
   let out;
   try {
-    out = await runFn({ prompt, card: runningCard, list, classification, suppressContinuations: true, onChunk });
+    out = await runFn({ prompt, card: runningCard, list, classification, skill, suppressContinuations: true, onChunk });
   } catch (err) {
     // A TRANSPORT failure (gateway unreachable / restarting — err.transport from the
     // gateway client) is NOT the card's fault: REVERT the acquire (back to the prior
@@ -435,7 +502,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       const nudgePrompt =
         `Your previous reply did not end with the required next-step token, so the workflow can't advance. ` +
         `Based ONLY on the work you just completed, reply with NOTHING but EXACTLY one of these list ids — a single bare word, no punctuation, no explanation: ${validNext.join(", ")}.`;
-      const nout = await runFn({ prompt: nudgePrompt, card: runningCard, list, classification, suppressContinuations: true });
+      const nout = await runFn({ prompt: nudgePrompt, card: runningCard, list, classification, skill, suppressContinuations: true });
       const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
       const nnext = parseNextList(nudgeReply, validNext);
       if (nnext) {
@@ -448,15 +515,25 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       // Nudge failed (gateway hiccup) — fall through and park with the ORIGINAL reply.
     }
   }
-  // EVIDENCE GATE. A list flagged `requiresEvidence` (Walkthrough) must leave tangible
-  // proof on disk before it can advance — the operative's "I wrote the evidence" verdict
-  // is self-attested, so we VERIFY <runDir>/evidence/ actually has a file. If the run
-  // routed forward but produced nothing, we REFUSE the advance and park with a clear
-  // reason — converting the prompt's "ALWAYS write evidence" into a real, enforced gate.
+  // EVIDENCE GATE (walkthrough artifacts). A list flagged `requiresEvidence` must leave
+  // tangible proof on disk before it can advance — the operative's "I wrote the
+  // evidence" verdict is self-attested, so we VERIFY <runDir>/evidence/ actually has a
+  // file. If the run routed forward but produced nothing, we REFUSE the advance.
   let evidenceMissing = false;
   if (next && list.requiresEvidence && !hasEvidence(cwd, runningCard.runDir)) {
     next = null;
     evidenceMissing = true;
+  }
+  // DURABLE GATE EVIDENCE (D9). Phase progression requires the phase's
+  // gate-status entry in the runDir IN ADDITION to the router verdict — a
+  // transition without it parks in needs-attention. A FAILED entry is evidence
+  // too (the implement loop-back still transitions with proof the gate ran).
+  // Only enforced when the phase is a policy pipeline phase and a runDir exists.
+  let gateEvidenceMissing = false;
+  const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
+  if (next && pipelinePhase && runningCard.runDir && !hasPhaseGateEvidence(cwd, runningCard.runDir, phase)) {
+    next = null;
+    gateEvidenceMissing = true;
   }
   // Distinguish the outcomes a finished run can have, so the card carries a diagnostic
   // the user can act on instead of one opaque "no valid next list" line:
@@ -468,21 +545,55 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   let target;
   let outcome;
   if (next) {
+    // D17 rail fast-forward AFTER the verdict: if the named next list's phase
+    // is OFF for this card's rail, skip forward to the first ON phase,
+    // recording each skipped phase as an explicit off event.
+    let effectiveNext = next;
+    let offEvents = [];
+    if (rail) {
+      const fwd = effectiveListForCard(board, rail, next, runningCard);
+      if (fwd.listId !== next) {
+        effectiveNext = fwd.listId;
+        offEvents = fwd.skipped.map((ph) => ({
+          at: now(),
+          kind: "phase-off",
+          message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+        }));
+      }
+    }
+    let events = withEvent(runningCard, {
+      at: now(),
+      kind: "routed",
+      message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}${nudged ? " (verdict via follow-up)" : ""}`,
+      detail: snippet || null
+    });
+    for (const ev of offEvents) events = withEvent({ events }, ev);
     target = {
       ...runningCard,
-      list: next,
+      list: effectiveNext,
       status: "ok",
+      runningSince: null,
+      lastReply: snippet,
+      lastDispatchError: null,
+      events
+    };
+    outcome = { status: "moved", from: card.list, to: effectiveNext, nudged };
+  } else if (gateEvidenceMissing) {
+    const geReason = `${listTitle} chose a next step but left NO durable gate evidence for the ${phase} phase under ${runningCard.runDir} (no gates entry in a gate-status.json). Phase progression requires the durable gate record in addition to the verdict (D9) — parked rather than advancing on the operative's word alone. Re-run so the phase skill writes its gate-status entry.`;
+    target = {
+      ...runningCard,
+      ...parkFields(runningCard, card.list, geReason),
       runningSince: null,
       lastReply: snippet,
       lastDispatchError: null,
       events: withEvent(runningCard, {
         at: now(),
-        kind: "routed",
-        message: `${listTitle} → ${getList(board, next)?.title || next}${nudged ? " (verdict via follow-up)" : ""}`,
-        detail: snippet || null
+        kind: "parked",
+        message: `Parked from ${listTitle}: no durable gate evidence for ${phase}`,
+        detail: geReason
       })
     };
-    outcome = { status: "moved", from: card.list, to: next, nudged };
+    outcome = { status: "needs-attention", reason: "no-gate-evidence", validNext };
   } else if (evidenceMissing) {
     const evReason = `${listTitle} reported success but left NO evidence under ${runningCard.runDir}/evidence/ — no screenshot or evidence.md was actually produced, so there is no proof the change works. Parked rather than advancing on the operative's word alone. Move it back to re-run and produce the evidence.`;
     target = {
@@ -559,6 +670,70 @@ export async function processChain({ root, board, card, runFn, cap = 10, now = (
     // else: another immediate agent list → keep running the flow.
   }
   return { card: current, outcome: lastOutcome };
+}
+
+// ── In-process run driving (D13 — the autothing doorway) ────────────────────
+//
+// The engine is a LIBRARY: a session that is itself doing the work (the thin
+// autothing doorway) advances its card through phases WITHOUT the board's tick
+// dispatching a gateway turn. The session does a phase's work, writes the
+// phase's gate-status entry under the card's runDir, then calls
+// advanceCardPhase — which enforces the SAME contract as the dispatched path:
+// the verdict must be a valid next list, the phase's durable gate evidence
+// must exist (D9), and the card's rail fast-forwards over OFF phases (D17).
+// The board stays the window on the run whether it started from chat, the
+// board, or the skill.
+export async function advanceCardPhase({ root, board, card, verdict, now = () => new Date().toISOString(), cwd = process.cwd() }) {
+  const list = getList(board, card.list);
+  if (!list || list.kind !== AGENT_KIND) {
+    return { card, outcome: { status: "skipped", reason: "not-an-agent-list" } };
+  }
+  const listTitle = list.title || card.list;
+  const validNext = validNextFor(board, card.list);
+  if (!validNext.includes(verdict)) {
+    return { card, outcome: { status: "rejected", reason: "invalid-verdict", validNext } };
+  }
+  const policy = loadPolicy();
+  const phase = phaseForList(list);
+  const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
+  if (pipelinePhase && card.runDir && !hasPhaseGateEvidence(cwd, card.runDir, phase)) {
+    const geReason = `In-session advance from ${listTitle} refused: no durable gate evidence for the ${phase} phase under ${card.runDir}. Write the phase's gate-status entry first (the bindable-skill contract).`;
+    const res = await saveCardCAS(root, {
+      ...card,
+      ...parkFields(card, card.list, geReason),
+      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no durable gate evidence for ${phase}`, detail: geReason })
+    }, card.rev ?? 0, now());
+    return { card: res.card ?? card, outcome: { status: "needs-attention", reason: "no-gate-evidence" } };
+  }
+  const rail = railForCard(policy, card);
+  let effectiveNext = verdict;
+  let offEvents = [];
+  if (rail) {
+    const fwd = effectiveListForCard(board, rail, verdict, card);
+    if (fwd.listId !== verdict) {
+      effectiveNext = fwd.listId;
+      offEvents = fwd.skipped.map((ph) => ({
+        at: now(),
+        kind: "phase-off",
+        message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+      }));
+    }
+  }
+  let events = withEvent(card, {
+    at: now(),
+    kind: "routed",
+    message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext} (in-session)`,
+  });
+  for (const ev of offEvents) events = withEvent({ events }, ev);
+  const res = await saveCardCAS(root, {
+    ...card,
+    list: effectiveNext,
+    status: "ok",
+    runningSince: null,
+    events
+  }, card.rev ?? 0, now());
+  if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+  return { card: res.card, outcome: { status: "moved", from: card.list, to: effectiveNext } };
 }
 
 // ── Backlog on-entry inference (FINDING 3) ───────────────────────────────────
@@ -697,11 +872,17 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     if (acquired.length === 0) continue;
 
     const runningCards = acquired.map((a) => a.running);
-    // No classification hint (route through the orchestrator) — same as processCard.
-    const classification = null;
+    // D15: same policy-derived classification as processCard — the batched
+    // Test beat resolves its skill/model/effort from the compiled policy like
+    // every other phase. Tier: the group's first card's tier (a batch shares
+    // one session; per-card tier divergence is not worth a session each).
+    const policy = loadPolicy();
+    const phase = phaseForList(list);
+    const classification = classificationForPhase(policy, phase, runningCards[0]);
+    const skill = skillForPhase(policy, phase, runningCards[0]?.workKind || policy?.defaultWorkKind);
     let out;
     try {
-      out = await batchRunFn({ project, cards: runningCards, list, classification, suppressContinuations: true });
+      out = await batchRunFn({ project, cards: runningCards, list, classification, skill, suppressContinuations: true });
     } catch (err) {
       // The whole batch session failed — park every acquired card with the reason.
       for (const a of acquired) {

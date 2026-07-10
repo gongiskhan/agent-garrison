@@ -67,7 +67,7 @@ export function inferenceRunFn(gatewayUrl) {
 // the mode the prompt leads with. A non-null classification is still forwarded verbatim
 // for callers that want to force one.
 export function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt, classification, list, suppressContinuations, onChunk }) => {
+  return async ({ prompt, classification, list, skill, suppressContinuations, onChunk }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real autothing-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
     // abort a blocking /chat request before the reply ever arrives. /chat/stream sends an
@@ -87,7 +87,9 @@ export function gatewayRunFn(gatewayUrl) {
           channel: "kanban",
           message: prompt,
           classification: classification ?? null,
-          skill: list?.skill ?? null,
+          // D15: the skill is the POLICY-resolved phase binding the engine hands us,
+          // never a per-list pin (list.skill is dead).
+          skill: skill ?? null,
           suppressContinuations: suppressContinuations ?? true,
           timeoutMs: KANBAN_TURN_TIMEOUT_MS
         })

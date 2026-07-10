@@ -4,6 +4,13 @@
 // served directory — the security-sensitive part — and (b) that resolveCardLinks
 // enumerates + classifies the bundle from disk.
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -21,18 +21,22 @@ x-garrison:
     A Garrison automation-runner. File-per-card board under ~/.garrison/kanban-loop
     (ULID ids, atomic writes; membership derived by scanning cards, never stored; the
     card stores POINTERS — runId/runDir/sliceId/sessionIds/briefPath/videoUrl — never
-    inlined document bodies). A manual list is a plain column; an agent-list has a named
-    autothing-* skill + execute-prompt + router-prompt and one of three triggers
-    (immediate | manual | scheduler-beat). On the card's first agent-list entry the
-    engine mints a runId + runDir and threads the run dir into every execute-prompt so
-    the autothing skills write per-run. On entry an immediate agent list sends the
-    combined prompt through the orchestrator front door (preRoute, which decides
-    effort/model from the explicit {taskType,tier} hint), then the router output must
-    EXACTLY name one of the card's valid next lists or the card parks in needs-attention.
-    The Test list runs batched per project on its own scheduler beat (default every 5h).
-    Goal-mode prepends /goal + acceptance; the convergence guard is the per-card
-    iteration cap. The two adversarial lists are cross-model Codex passes, not a higher
-    tier. The board UI is owned by other V1b slices.
+    inlined document bodies). THE run engine (GARRISON-UNIFY-V1 S4): a run is a card.
+    A manual list is a plain column; an agent list maps to a PHASE NAME and nothing
+    else (D15) — its skill, model, effort and runtime resolve from the compiled
+    Orchestrator policy (~/.garrison/orchestrator/policy.json) at dispatch time, and
+    one of three triggers (immediate | manual | scheduler-beat) decides who fires it.
+    On the card's first agent-list entry the engine mints a runId + runDir and
+    threads the run dir into every execute-prompt so the phase skills write per-run.
+    Dispatch goes through the orchestrator front door with an explicit
+    {taskType: <phase>, tier: <card tier>} classification; the router output must
+    EXACTLY name one of the card's valid next lists AND the phase's durable
+    gate-status entry must exist in the runDir (D9), or the card parks in
+    needs-attention. Cards on autonomous lists are engine-owned (D16). The card's
+    work kind + per-card phase toggles form its rail (D17): OFF phases are skipped
+    with explicit off events, never silent. The Test list runs batched per project
+    on its own scheduler beat (default every 5h). Goal-mode prepends /goal +
+    acceptance; the convergence guard is the per-card iteration cap.
   config_schema:
     - key: board_dir
       type: path
@@ -61,13 +65,16 @@ x-garrison:
     expect: KANBAN-OK
     timeout_ms: 10000
   for_consumers: |
-    The Kanban Loop sequences work items (cards) through pipeline states (lists) on a
-    single autothing-* skill family. A manual list is a plain column; an agent-list runs
-    its named autothing-* verb, sends the execute+router prompt (with the card's run
-    directory threaded in as literal text) through the orchestrator (preRoute decides
-    effort/model from the {taskType,tier} hint), and the router output's last line must
-    EXACTLY name one of the card's valid next lists, else the card parks in
-    needs-attention. Each agent list carries one of three triggers: immediate (fires on
+    The Kanban Loop is THE run engine's window: every autonomous run is a card. A
+    manual list is a plain column; an agent list maps to a phase name and nothing
+    else — the executing skill, model, effort and runtime resolve from the compiled
+    Orchestrator policy at dispatch time (never per-list config), the dispatch
+    carries an explicit {taskType: <phase>, tier: <card tier>} classification, and
+    the router output's last line must EXACTLY name one of the card's valid next
+    lists AND the phase's durable gate-status entry must exist under the card's
+    runDir, else the card parks in needs-attention. Cards on autonomous lists are
+    engine-owned: the API and UI reject manual moves/edits (needs-attention is the
+    human touchpoint). Each agent list carries one of three triggers: immediate (fires on
     entry via --tick), scheduler-beat (the Test list, batched per project on its own
     beat), or manual (advanced by hand; interactive lists like Discuss open the web
     chat). On a card's first agent-list entry the engine mints a runId + runDir

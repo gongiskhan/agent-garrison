@@ -34,6 +34,13 @@ export interface CardSummary {
   sessionIds: string[];
   briefPath: string | null;
   videoUrl: string | null;
+  // S4 (D2/D17): run-policy fields — the work kind naming the card's rail, the
+  // per-card phase toggle map (false = OFF, rendered dimmed, never hidden), the
+  // tier, and who registered the run.
+  workKind?: string | null;
+  phases?: Record<string, boolean> | null;
+  tier?: string | null;
+  origin?: string | null;
   // The last dispatch failure: set on a transport defer or a gateway-unreachable
   // auto-dispatch; null after a successful run. The UI shows a badge + Retry.
   lastDispatchError: DispatchError | null;
@@ -74,10 +81,9 @@ export interface ListView {
   kind: string;
   trigger: string;
   interactive: boolean;
-  skill: string | null;
-  taskType: string | null;
-  tier: string | null;
-  mode: string | null;
+  // D15: a list maps to a PHASE NAME and nothing else — skill/taskType/tier/mode
+  // resolve from the compiled Orchestrator policy, never per list.
+  phase?: string | null;
   terminal: boolean;
   notifyOnEntry: boolean;
   validNext: string[];
@@ -132,16 +138,22 @@ export interface ListConfig {
   beatCron: string | null;
   interactive: boolean;
   terminal: boolean;
-  skill: string | null;
+  // D15: skill/taskType/tier/mode are GONE — a list maps to a phase name and
+  // nothing else; resolution lives in the compiled Orchestrator policy.
+  phase?: string | null;
   executePrompt: string;
   routerPrompt: string;
-  mode: string | null;
-  // taskType/tier are no longer edited in the UI — a card routes through the
-  // orchestrator, which classifies the tier itself. Kept on the type for back-compat
-  // with the server payload (the fields persist but are inert).
-  taskType: string | null;
-  tier: string | null;
   validNext: string[];
+}
+
+// The board's GET /policy passthrough (D17): enough of the compiled policy to
+// offer work kinds + per-card phase toggles at card creation.
+export interface PolicyView {
+  workKinds: Record<string, { phasePlan: string; description?: string }>;
+  phasePlans: Record<string, { phases: Array<string | { id: string; on?: boolean }>; evidence?: string }>;
+  defaultWorkKind: string | null;
+  phases: string[];
+  phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
 }
 
 export interface ListsView {
@@ -155,15 +167,11 @@ export interface ListsView {
 // the rest with a 400).
 export interface ListConfigPatch {
   title?: string;
-  skill?: string | null;
   executePrompt?: string;
   routerPrompt?: string;
   validNext?: string[];
   trigger?: string;
   beatCron?: string | null;
-  mode?: string | null;
-  taskType?: string | null;
-  tier?: string | null;
   rev?: number; // board-level optimistic-concurrency token from GET /lists
 }
 
@@ -224,8 +232,13 @@ export const api = {
   projects: () => jfetch<ProjectsView>("/projects"),
   skills: () => jfetch<SkillsView>("/skills"),
   // Title is optional — the server infers it from the description when blank.
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean }) =>
+  // workKind + phases (D17): the policy phase plan this run follows and the
+  // per-card toggle map (false = OFF, recorded off, never silent).
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean> }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
+  // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
+  // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
+  policy: () => jfetch<PolicyView>("/policy"),
   patch: (id: string, body: Record<string, unknown>) =>
     jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}`, {
       method: "PATCH",

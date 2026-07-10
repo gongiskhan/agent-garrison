@@ -5,6 +5,13 @@
 //   - the dispatch routes through the orchestrator (no per-list {taskType,tier} hint)
 //     and leads the prompt with the list's mode — buildCardPrompt + processCard
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -118,17 +125,20 @@ describe("discover — listProjects / listSkills (dev-env parity)", () => {
   });
 });
 
-describe("buildCardPrompt — leads with the list's mode", () => {
-  it("starts the prompt with the mode so the gateway switches the operative's face", () => {
+describe("buildCardPrompt — no per-list mode lead (D15: mode is the gateway's job)", () => {
+  it("never leads with a mode name; the policy-bound skill line is injected instead", () => {
     const board = seedBoard();
-    const list = board.lists.find((l: any) => l.id === "implement"); // mode: joe
-    const prompt = buildCardPrompt({ list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"] });
-    expect(prompt.startsWith("joe,")).toBe(true);
+    const list = board.lists.find((l: any) => l.id === "implement");
+    const prompt = buildCardPrompt({ list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"], skill: "autothing-implement", phase: "implement" });
+    expect(prompt.startsWith("# Work item:")).toBe(true);
+    expect(prompt).toContain("`autothing-implement`");
+    expect(prompt).toContain("gate-status entry");
   });
-  it("omits the mode lead when the list has no mode", () => {
-    const list = { id: "x", kind: "agent", mode: null, executePrompt: "", routerPrompt: "" };
+  it("omits the skill line when no policy binding resolves", () => {
+    const list = { id: "x", kind: "agent", executePrompt: "", routerPrompt: "" };
     const prompt = buildCardPrompt({ list, card: { title: "T" }, validNext: ["y"] });
     expect(prompt.startsWith("# Work item:")).toBe(true);
+    expect(prompt).not.toContain("gate-status entry under the run directory");
   });
 });
 

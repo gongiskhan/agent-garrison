@@ -1,4 +1,11 @@
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+
 import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -165,9 +172,9 @@ describe("kanban engine — parse + prompt + classification", () => {
     expect(buildCardPrompt({ list, card: {}, validNext: vn })).not.toContain("Run directory");
   });
 
-  it("classificationFor returns the list's explicit {taskType,tier} (§10)", () => {
-    expect(classificationFor(getList(board, "implement"))).toEqual({ taskType: "code", tier: "T2-deep" });
-    expect(classificationFor(getList(board, "review"))).toEqual({ taskType: "other", tier: "T1-standard" });
+  it("classificationFor derives from the list's PHASE (D15 — per-list pins are dead)", () => {
+    expect(classificationFor(getList(board, "implement"))).toEqual({ taskType: "implement", tier: "T1-standard" });
+    expect(classificationFor(getList(board, "review"))).toEqual({ taskType: "review", tier: "T1-standard" });
   });
 });
 
@@ -411,33 +418,24 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     expect(triggerFor(byId.backlog)).toBe("manual");
   });
 
-  it("each agent list has the right skill, classification, and validNext (the authoritative table)", () => {
-    expect(classificationFor(byId.plan)).toEqual({ taskType: "code", tier: "T2-deep" });
-    expect(byId.plan.skill).toBe("autothing-plan");
+  it("each agent list maps to a PHASE and validNext only (D15 — no per-list pins)", () => {
+    // The list IS the phase; skill/model/effort resolve from the compiled policy.
+    for (const id of ["plan", "implement", "review", "adversarial-review", "test", "adversarial-test", "walkthrough", "validate"]) {
+      expect(byId[id].phase).toBe(id);
+      expect(byId[id].skill).toBeUndefined();
+      expect(byId[id].taskType).toBeUndefined();
+      expect(byId[id].tier).toBeUndefined();
+      expect(byId[id].mode).toBeUndefined();
+    }
+    expect(classificationFor(byId.plan)).toEqual({ taskType: "plan", tier: "T1-standard" });
     expect(byId.plan.validNext).toEqual(["implement"]);
-
-    expect(byId.implement.skill).toBe("autothing-implement");
     expect(byId.implement.validNext).toEqual(["review"]);
-
-    expect(byId.review.skill).toBe("autothing-review");
-    expect(classificationFor(byId.review)).toEqual({ taskType: "review", tier: "T1-standard" });
     expect(byId.review.validNext).toEqual(["adversarial-review", "implement"]);
-
-    expect(byId["adversarial-review"].skill).toBe("autothing-adversarial-review");
     expect(byId["adversarial-review"].validNext).toEqual(["test", "implement"]);
-
-    expect(byId.test.skill).toBe("autothing-test");
     expect(byId.test.batched).toBe(true);
     expect(byId.test.validNext).toEqual(["adversarial-test", "implement"]);
-
-    expect(byId["adversarial-test"].skill).toBe("autothing-adversarial-test");
     expect(byId["adversarial-test"].validNext).toEqual(["walkthrough", "implement"]);
-
-    expect(byId.walkthrough.skill).toBe("autothing-walkthrough");
     expect(byId.walkthrough.validNext).toEqual(["validate", "implement"]);
-
-    expect(byId.validate.skill).toBe("autothing-validate");
-    expect(classificationFor(byId.validate)).toEqual({ taskType: "ops", tier: "T1-standard" });
     expect(byId.validate.validNext).toEqual(["done", "implement"]);
   });
 
@@ -446,7 +444,8 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     expect(byId.todo.validNext).toEqual(["discuss", "plan"]);
     expect(byId.discuss.kind).toBe("agent-interactive");
     expect(isInteractive(byId.discuss)).toBe(true);
-    expect(byId.discuss.mode).toBe("james");
+    // D15: per-list mode is dead — the gateway resolves the face.
+    expect(byId.discuss.mode).toBeUndefined();
     expect(byId.discuss.validNext).toEqual(["plan"]);
     expect(byId.done.terminal).toBe(true);
     expect(byId.done.validNext).toEqual([]);

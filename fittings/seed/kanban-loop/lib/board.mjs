@@ -26,8 +26,31 @@ async function readJSON(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
+// One-shot board migration (D15): v2 boards carried per-list skill/taskType/
+// tier/mode pins — the dead config GARRISON-UNIFY-V1 deletes. Strip them,
+// stamp each agent list's phase (its id), bump to v3. Idempotent; unknown
+// fields survive.
+export function migrateBoard(board) {
+  if (!board || typeof board !== "object") return board;
+  if ((board.version || 0) >= 3) return board;
+  const lists = (board.lists || []).map((l) => {
+    const { skill, taskType, tier, mode, ...rest } = l;
+    if (rest.kind === "agent" && !rest.phase) rest.phase = rest.id;
+    return rest;
+  });
+  return { ...board, version: 3, lists };
+}
+
 export async function loadBoard(root = kanbanRoot()) {
-  return readJSON(path.join(root, "board.json"));
+  const board = await readJSON(path.join(root, "board.json"));
+  // v2→v3 migration on read, persisted back so it runs once; a fresh board is
+  // already v3.
+  if (board && (board.version || 0) < 3) {
+    const migrated = migrateBoard(board);
+    await saveBoard(migrated, root);
+    return migrated;
+  }
+  return board;
 }
 
 export async function saveBoard(board, root = kanbanRoot()) {
@@ -44,7 +67,7 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, at = new Date().toISOString() }) {
   const id = ulid();
   const card = {
     id,
@@ -58,6 +81,15 @@ export async function createCard(root, { title, description = "", project = null
     cost: null,
     goalMode: Boolean(goalMode),
     acceptance,
+    // ── run-policy fields (S4: D2/D8/D17) ─────────────────────────────────
+    // workKind names the policy work kind whose phase plan is this card's
+    // rail; phases is the per-card toggle map merged OVER the plan (an OFF
+    // phase renders off, never hidden); tier rides classification (the phase
+    // is the task type); origin records who registered the run.
+    workKind: typeof workKind === "string" && workKind ? workKind : null,
+    phases: phases && typeof phases === "object" ? phases : null,
+    tier: typeof tier === "string" && tier ? tier : null,
+    origin: typeof origin === "string" && origin ? origin : null,
     // ── execution visibility ──────────────────────────────────────────────
     // The card's activity timeline (engine.withEvent appends to it on every
     // transition); the last operative reply snippet (shown on the card front);

@@ -7,6 +7,13 @@
 // distinguished (empty vs no-match vs moved) with honest reasons + the operative's
 // actual reply; every transition appends a timeline event; and project inference parses.
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

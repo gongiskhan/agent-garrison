@@ -53,6 +53,7 @@ import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn } from "../lib/gateway-client.mjs";
 import { inferProject } from "../lib/infer-project.mjs";
+import { loadPolicy } from "../lib/policy.mjs";
 import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
@@ -91,10 +92,8 @@ export function buildBoardView(board, cards) {
       kind: list.kind || "manual",
       trigger: triggerFor(list),
       interactive: Boolean(isInteractive(list)),
-      skill: list.skill ?? null,
-      taskType: list.taskType ?? null,
-      tier: list.tier ?? null,
-      mode: list.mode ?? null,
+      // D15: phase only — skill/taskType/tier/mode live in the compiled policy.
+      phase: list.phase ?? (list.kind === "agent" ? list.id : null),
       terminal: Boolean(list.terminal),
       notifyOnEntry: Boolean(list.notifyOnEntry),
       validNext: Array.isArray(list.validNext) ? list.validNext : [],
@@ -125,6 +124,13 @@ export function cardSummary(card) {
     sessionIds: Array.isArray(card.sessionIds) ? card.sessionIds : [],
     briefPath: card.briefPath ?? null,
     videoUrl: card.videoUrl ?? null,
+    // S4 (D2/D17): the run-policy fields — the work kind naming the rail, the
+    // per-card phase toggles (OFF phases render as dimmed chips: honesty), the
+    // tier, and who registered the run.
+    workKind: card.workKind ?? null,
+    phases: card.phases ?? null,
+    tier: card.tier ?? null,
+    origin: card.origin ?? null,
     // The last dispatch failure (set by engine.processCard on transport defer
     // or run-failed, and by handlePatchCard when an auto-dispatch can't reach
     // the gateway). The UI renders a clear badge + Retry button when this is
@@ -406,20 +412,6 @@ export function isValidListId(s) {
   return typeof s === "string" && /^[a-z0-9][a-z0-9-]*$/i.test(s) && s.length <= 64;
 }
 
-// A single-line free-string field (taskType, tier): reject newlines and path
-// separators so a value can't carry traversal/injection into a downstream prompt
-// or path. Empty/whitespace collapses to null.
-function cleanScalarField(v) {
-  if (v == null) return { value: null };
-  if (typeof v !== "string") return { error: "must be a string or null" };
-  const s = v.trim();
-  if (!s) return { value: null };
-  if (/[\n\r\t/\\]/.test(s) || s.includes("..")) {
-    return { error: "must not contain newlines, path separators or .." };
-  }
-  return { value: s };
-}
-
 // A cron field for a scheduler-beat list (the schedule the beat fires on) or null.
 // Validate the SHAPE — a 5-field POSIX cron (min hour dom mon dow), each field built
 // only from cron-legal chars — so a bad value can't register a never-firing/garbage
@@ -436,20 +428,6 @@ function cleanCronField(v) {
   return { value: s };
 }
 
-// A skill name token: a clean skill id (e.g. autothing-plan, plugin:skill) or
-// null. No whitespace / separators / `..` — it is forwarded to the gateway as a
-// skill hint and must not carry traversal or shell-ish junk.
-function cleanSkillField(v) {
-  if (v == null) return { value: null };
-  if (typeof v !== "string") return { error: "skill must be a string or null" };
-  const s = v.trim();
-  if (!s) return { value: null };
-  if (!/^[a-z0-9][a-z0-9:-]*$/i.test(s)) {
-    return { error: "skill must be a clean skill-name token" };
-  }
-  return { value: s };
-}
-
 // A multi-line prompt field (executePrompt / routerPrompt): any string is fine
 // (these are sent verbatim to the operative as instructions); only the type is
 // checked. Empty collapses to "".
@@ -459,9 +437,8 @@ function cleanPromptField(v) {
   return { value: v };
 }
 
-// The triggers a list may carry (engine.triggerFor honors these). Editing is
-// restricted to this set so a typo can't silently turn an agent list into a
-// never-firing column.
+// A list's trigger is restricted to this set so a typo can't silently turn an
+// agent list into a never-firing column.
 const VALID_TRIGGERS = new Set(["immediate", "manual", "scheduler-beat"]);
 
 // The fields a MANUAL / terminal list (kind "manual") may edit — it has no
@@ -469,7 +446,7 @@ const VALID_TRIGGERS = new Set(["immediate", "manual", "scheduler-beat"]);
 const MANUAL_EDITABLE = new Set(["title", "validNext"]);
 // The agent-only fields a manual list must NEVER accept (rejected with a clear
 // error rather than silently ignored, so the UI can't half-configure a column).
-const AGENT_ONLY_FIELDS = ["skill", "executePrompt", "routerPrompt", "trigger", "beatCron", "mode", "taskType", "tier"];
+const AGENT_ONLY_FIELDS = ["executePrompt", "routerPrompt", "trigger", "beatCron"];
 
 // applyListConfig — the pure list-config updater. Reads `listId` from `board`,
 // applies ONLY the editable fields PRESENT in `patch`, validates each, and
@@ -479,11 +456,11 @@ const AGENT_ONLY_FIELDS = ["skill", "executePrompt", "routerPrompt", "trigger", 
 //   - manual: only title + validNext (agent-only fields are REJECTED).
 //   - agent-interactive (Discuss): editable like an agent list but interactive
 //     stays true and mode is kept (its trigger stays manual unless explicitly set).
-//   - agent: title, skill, executePrompt, routerPrompt, validNext, trigger,
-//     mode, taskType, tier.
-// validNext must be a subset of the board's existing list ids; trigger must be a
-// known trigger; taskType/tier reject newlines + path separators; skill must be
-// a clean token or null.
+//   - agent: title, executePrompt, routerPrompt, validNext, trigger, beatCron.
+// D15: skill/taskType/tier/mode are NO LONGER per-list settings — resolution
+// comes from the compiled Orchestrator policy; the patch REJECTS those keys.
+// validNext must be a subset of the board's existing list ids; trigger must be
+// a known trigger.
 export function applyListConfig(board, listId, patch) {
   if (!board || !Array.isArray(board.lists)) return { error: "invalid board" };
   if (!isValidListId(listId)) return { error: "invalid list id" };
@@ -527,10 +504,14 @@ export function applyListConfig(board, listId, patch) {
     next.validNext = [...new Set(vn)];
   }
 
-  if ("skill" in patch) {
-    const r = cleanSkillField(patch.skill);
-    if (r.error) return { error: `skill: ${r.error}` };
-    next.skill = r.value;
+  // D15: per-list skill/taskType/tier/mode config is DEAD — resolution comes
+  // from the compiled Orchestrator policy. Reject the keys outright (a clear
+  // error beats a silently-dropped field); the composer view is where routing
+  // is configured now.
+  for (const dead of ["skill", "taskType", "tier", "mode"]) {
+    if (dead in patch) {
+      return { error: `'${dead}' is no longer a per-list setting — resolution comes from the compiled Orchestrator policy (edit it in the Orchestrator composer view)` };
+    }
   }
 
   if ("executePrompt" in patch) {
@@ -556,24 +537,6 @@ export function applyListConfig(board, listId, patch) {
     const r = cleanCronField(patch.beatCron);
     if (r.error) return { error: `beatCron: ${r.error}` };
     next.beatCron = r.value;
-  }
-
-  if ("mode" in patch) {
-    const r = cleanScalarField(patch.mode);
-    if (r.error) return { error: `mode: ${r.error}` };
-    next.mode = r.value;
-  }
-
-  if ("taskType" in patch) {
-    const r = cleanScalarField(patch.taskType);
-    if (r.error) return { error: `taskType: ${r.error}` };
-    next.taskType = r.value;
-  }
-
-  if ("tier" in patch) {
-    const r = cleanScalarField(patch.tier);
-    if (r.error) return { error: `tier: ${r.error}` };
-    next.tier = r.value;
   }
 
   // Structure never changes: pin id/order/kind back to the on-board values even
@@ -803,7 +766,14 @@ async function handleCreateCard(req, res, opts) {
     project: typeof body.project === "string" && body.project.trim() ? body.project.trim() : null,
     list: "backlog",
     goalMode: body.goalMode === true,
-    acceptance: typeof body.acceptance === "string" ? body.acceptance : null
+    acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
+    // S4 (D2/D8/D17): the work kind naming the card's phase plan, the per-card
+    // phase toggles merged over it, the tier (direct field or the D8 payload's
+    // classification), and the origin of the registration.
+    workKind: typeof body.workKind === "string" ? body.workKind : null,
+    phases: body.phases && typeof body.phases === "object" ? body.phases : null,
+    tier: typeof body.tier === "string" ? body.tier : (typeof body.classification?.tier === "string" ? body.classification.tier : null),
+    origin: typeof body.origin === "string" ? body.origin : null
   });
   // Visible project inference for a no-project card — fire-and-forget so create returns
   // at once; the events land on the card and surface on the next board poll.
@@ -827,6 +797,21 @@ async function handleInferProject(req, res, opts, id) {
   jsonRes(res, 200, { card: cardSummary({ ...card, inferState: "running" }), inferring: true });
 }
 
+// An engine-context request (the run engine's own moves, the gateway's D8 card
+// registration) carries the x-garrison-engine header; everything else is a
+// manual/human request subject to the D16 locks.
+function isEngineRequest(req) {
+  return typeof req.headers["x-garrison-engine"] === "string" && req.headers["x-garrison-engine"].length > 0;
+}
+
+// D16: cards on autonomous (agent-kind) lists are ENGINE-OWNED — the board API
+// rejects manual moves and edits on them. needs-attention is the one human
+// touchpoint on the autonomous side; interactive + manual lists stay editable.
+function isEngineOwned(board, card) {
+  const list = getList(board, card.list);
+  return Boolean(list && list.kind === "agent" && !isInteractive(list));
+}
+
 // PATCH /cards/:id — manual gate: Move to a list and/or set editable fields
 // (project, goalMode, sliceId, acceptance). CAS against the card's rev so a
 // concurrent tick is never silently overwritten. A Move target must be a real
@@ -839,6 +824,15 @@ async function handlePatchCard(req, res, opts, id) {
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id — the write must never use a tampered on-disk id
   const board = await loadBoard(root);
+  // D16 lock: a card on an autonomous list is engine-owned — manual moves and
+  // edits are rejected in the API (the UI hides the controls too). The engine
+  // and the gateway's registration flow pass x-garrison-engine.
+  if (isEngineOwned(board, card) && !isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "engine-owned",
+      message: `Card is on the autonomous list "${card.list}" — it is engine-owned (D16). Wait for the run, or resolve it from needs-attention if it parks.`
+    });
+  }
   const next = { ...card };
   if (typeof body.list === "string") {
     if (!getList(board, body.list)) return jsonRes(res, 400, { error: `unknown list: ${body.list}` });
@@ -946,6 +940,15 @@ async function handleDeleteCard(req, res, opts, id) {
   try { card = await loadCard(opts.root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id
+  // D16: an engine-owned card (on an autonomous list) cannot be deleted
+  // mid-run — resolve it via needs-attention first.
+  const boardForLock = await loadBoard(opts.root);
+  if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "engine-owned",
+      message: `Card is on the autonomous list "${card.list}" — engine-owned (D16). Let the run finish or resolve it from needs-attention, then delete.`
+    });
+  }
   const removed = [];
 
   // 1. The card's own directory (always).
@@ -1276,12 +1279,11 @@ async function handleGetLists(req, res, opts) {
       beatCron: l.beatCron ?? null,
       interactive: Boolean(isInteractive(l)),
       terminal: Boolean(l.terminal),
-      skill: l.skill ?? null,
+      // D15: a list maps to a phase name and nothing else; skill/taskType/
+      // tier/mode resolve from the compiled Orchestrator policy.
+      phase: l.phase ?? (l.kind === "agent" ? l.id : null),
       executePrompt: l.executePrompt ?? "",
       routerPrompt: l.routerPrompt ?? "",
-      mode: l.mode ?? null,
-      taskType: l.taskType ?? null,
-      tier: l.tier ?? null,
       validNext: Array.isArray(l.validNext) ? l.validNext : []
     }));
   jsonRes(res, 200, { version: board.version ?? 2, rev: boardRev, lists });
@@ -1507,6 +1509,21 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
+      // GET /policy — read-only passthrough of the compiled Orchestrator policy
+      // (work kinds, phase plans, skill bindings) so the card-create UI can
+      // offer work kinds + per-card phase toggles (D17). 404 when Garrison has
+      // not compiled one yet; the UI degrades to plain creation.
+      if (pathname === "/policy" && method === "GET") {
+        const policy = loadPolicy();
+        if (!policy) return jsonRes(res, 404, { error: "no compiled policy (start Garrison / the Orchestrator fitting)" });
+        return jsonRes(res, 200, {
+          workKinds: policy.workKinds || {},
+          phasePlans: policy.phasePlans || {},
+          defaultWorkKind: policy.defaultWorkKind || null,
+          phases: policy.phases || [],
+          phaseSkills: policy.phaseSkills || { bindings: {}, overrides: {} }
+        });
+      }
       if (pathname === "/projects" && method === "GET") return handleProjects(req, res);
       if (pathname === "/skills" && method === "GET") return handleSkills(req, res);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);

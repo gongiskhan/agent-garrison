@@ -209,32 +209,44 @@ export function resolveDisciplineV2(config, profile, tier) {
 }
 
 // ── Phase rails ──────────────────────────────────────────────────────────────
-// A work kind names a phase plan; the rail is the plan's ordered phases with
-// per-phase on/off, each bound to its skill (kind override > global binding).
-// `cardToggles` (D17) is an optional map {phase: false} merged over the plan —
-// a disabled phase stays IN the rail, rendered off (honesty, never hidden).
+// A work kind names a phase plan; a phase plan is an ORDERED SUBSET of the
+// pipeline phases (D2) — so the rail carries EVERY pipeline phase: the plan's
+// phases (plan order, on/off per plan), then the remaining pipeline phases
+// (policy order) rendered OFF with off_reason "phase-plan". A disabled phase
+// stays IN the rail, rendered off — honesty, never hidden. `cardToggles`
+// (D17) is an optional map {phase: false} merged over the plan.
 export function railFor(config, workKindName, cardToggles) {
   const kindName = workKindName || config.defaultWorkKind;
   const kind = (config.workKinds || {})[kindName];
   if (!kind) throw new Error(`policy: unknown work kind "${kindName}"`);
   const plan = (config.phasePlans || {})[kind.phasePlan];
   if (!plan) throw new Error(`policy: work kind "${kindName}" names unknown phase plan "${kind.phasePlan}"`);
+  const allPhases = Array.isArray(config.phases) ? config.phases : [...PHASES];
   const bindings = (config.phaseSkills || {}).bindings || {};
   const overrides = ((config.phaseSkills || {}).overrides || {})[kindName] || {};
+  const entry = (id, planOn) => {
+    const toggledOff = cardToggles && cardToggles[id] === false;
+    return {
+      id,
+      on: planOn && !toggledOff,
+      ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: "phase-plan" }),
+      skill: overrides[id] || bindings[id] || null
+    };
+  };
+  const inPlan = new Map(
+    (plan.phases || []).map((ph) => {
+      const id = typeof ph === "string" ? ph : ph.id;
+      const on = typeof ph === "string" ? true : ph.on !== false;
+      return [id, on];
+    })
+  );
   return {
     workKind: kindName,
     evidence: plan.evidence || "none",
-    phases: (plan.phases || []).map((ph) => {
-      const id = typeof ph === "string" ? ph : ph.id;
-      const planOn = typeof ph === "string" ? true : ph.on !== false;
-      const toggledOff = cardToggles && cardToggles[id] === false;
-      return {
-        id,
-        on: planOn && !toggledOff,
-        ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: "phase-plan" }),
-        skill: overrides[id] || bindings[id] || null
-      };
-    })
+    phases: [
+      ...[...inPlan.entries()].map(([id, on]) => entry(id, on)),
+      ...allPhases.filter((id) => !inPlan.has(id)).map((id) => entry(id, false))
+    ]
   };
 }
 

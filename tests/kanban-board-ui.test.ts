@@ -5,6 +5,13 @@
 // Hermetic: a tmpdir GARRISON_KANBAN_DIR and a sandbox project root.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+
 import { promises as fs } from "node:fs";
 import { realpathSync, symlinkSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -56,11 +63,11 @@ function fakeBoard() {
       { id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual", validNext: ["todo"] },
       {
         id: "plan", title: "Plan", order: 1, kind: "agent", trigger: "immediate",
-        skill: "autothing-plan", taskType: "code", tier: "T2-deep", mode: "james", validNext: ["implement"]
+        phase: "plan", validNext: ["implement"]
       },
       {
         id: "adversarial-review", title: "Adversarial Review", order: 2, kind: "agent", trigger: "immediate",
-        skill: "autothing-adversarial-review", taskType: "review", tier: "T1-standard", validNext: ["test", "implement"]
+        phase: "adversarial-review", validNext: ["test", "implement"]
       },
       { id: "done", title: "Done", order: 3, kind: "manual", trigger: "manual", terminal: true, validNext: [] }
     ]
@@ -88,10 +95,12 @@ describe("buildBoardView", () => {
     expect(plan.cards.map((c: any) => c.id)).toEqual(["B".repeat(26), "C".repeat(26)]);
     expect(advReview.cards).toEqual([]); // no card on it
 
-    // The view carries the list's skill/trigger so the UI can render the column.
-    expect(plan.skill).toBe("autothing-plan");
+    // The view carries the list's phase/trigger so the UI can render the column
+    // (D15: no per-list skill — bindings live in the compiled policy).
+    expect(plan.phase).toBe("plan");
     expect(plan.trigger).toBe("immediate");
-    expect(advReview.skill).toBe("autothing-adversarial-review");
+    expect(advReview.phase).toBe("adversarial-review");
+    expect(advReview.skill).toBeUndefined();
 
     // The flat array still carries every card.
     expect(view.cards).toHaveLength(3);
