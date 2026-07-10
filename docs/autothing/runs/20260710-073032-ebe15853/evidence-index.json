@@ -313,7 +313,7 @@
    "at": "2026-07-10T13:16:08Z"
   },
   "videos": "8/8",
-  "finishedAt": "2026-07-10T13:16:52Z",
+  "finishedAt": "2026-07-10T13:58:55Z",
   "summary": "16/16 slices passed; full suite 1637 green; 8/8 UI walkthroughs + 10 casts; 5 independent-review defects fixed (2 blockers); mutation+security-review PASS; deliberate-red PASS; codex-checkpoint + report DEGRADED (external/config); acceptance verified to env limits with named external blockers (codex 401, GCS scope, D37 compute, Mac hardware)",
   "designAudit": {
    "status": "passed",
@@ -350,6 +350,7 @@
    "residual_minors": "rev-s3 (5), rev-s1314 (4), rev2-s567 (dir-listing HTML now path-confined), rev2-s1011 (process-name XSS defused by React) - non-blocking polish, listed in FOLLOWUP",
    "at": "2026-07-10T13:55:56Z"
   },
-  "suiteAfterFixes": "1645 passed / 12 skipped"
+  "suiteAfterFixes": "1645 passed / 12 skipped",
+  "finalSuite": "1645 passed / 12 skipped; typecheck clean; lint clean"
  }
 }
