@@ -10,7 +10,7 @@
 # the Garrison host, not the remote), NOT a re-run of it. Steps that cannot be done purely
 # over SSH (task-capable skills bundle, per-runtime prerequisites) are printed as honest
 # TODO / skipped lines rather than silently omitted.
-set -uo pipefail
+set -euo pipefail
 
 BRIDGE_REPO="https://github.com/gongiskhan/garrison-outpost-bridge.git"
 CONFIG_DIR="$HOME/.garrison-outpost"

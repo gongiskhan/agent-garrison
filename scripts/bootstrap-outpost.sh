@@ -52,6 +52,7 @@ fi
 
 # --- Clone or update ---
 mkdir -p "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR" 2>/dev/null || true  # token lives here — keep it private
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
   echo "==> Updating bridge at $INSTALL_DIR"
@@ -67,13 +68,16 @@ echo "==> Installing dependencies and building"
 
 # --- Config ---
 echo "==> Writing $CONFIG_DIR/config.json"
-cat > "$CONFIG_DIR/config.json" <<JSON
+# The config holds the pairing token — create it 0600 so it is never world-readable.
+( umask 077; cat > "$CONFIG_DIR/config.json" <<JSON
 {
   "host_url": "$GARRISON_HOST",
   "token": "$GARRISON_TOKEN",
   "machine_name": "$MACHINE_NAME"
 }
 JSON
+)
+chmod 600 "$CONFIG_DIR/config.json" 2>/dev/null || true
 
 # --- Launchd plist ---
 mkdir -p "$HOME/Library/LaunchAgents"
