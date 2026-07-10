@@ -392,6 +392,43 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     return { card: res.card, outcome: { status: "moved", from: card.list, to: fwd, phasesOff: skipped } };
   }
   // Mint runId + runDir on the card's FIRST agent-list entry, and fold the mint into
+  // OUTPOST AFFINITY (D27): a card naming an outpost runs its phase sessions
+  // there; a NAMED-BUT-OFFLINE outpost parks the card in needs-attention with
+  // that reason (never silently runs locally against the card's affinity).
+  // The resolution seam lives in ./outpost-dispatch.mjs (single-outpost only).
+  if (card.outpost) {
+    try {
+      const { resolveOutpostDispatch } = await import("./outpost-dispatch.mjs");
+      const daemon = process.env.GARRISON_OUTPOST_URL || "http://127.0.0.1:3702";
+      let outposts = [];
+      try {
+        const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });
+        if (r.ok) outposts = (await r.json()).outposts || [];
+      } catch { /* daemon down → treated as offline below */ }
+      const disp = resolveOutpostDispatch(card, outposts);
+      if (!disp.ok) {
+        const reason = `Outpost affinity "${card.outpost}" is not dispatchable: ${disp.reason || "offline"}. Parked until the outpost is back (or clear the affinity from needs-attention).`;
+        const res = await saveCardCAS(root, {
+          ...card,
+          ...parkFields(card, card.list, reason),
+          events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost ${card.outpost} offline`, detail: reason })
+        }, baseRev, now());
+        if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+        return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-offline" } };
+      }
+    } catch {
+      // The seam is absent (outposts not built/installed) — an affinity card
+      // cannot honor its affinity; park honestly rather than run locally.
+      const reason = `Outpost affinity "${card.outpost}" cannot be resolved (outpost dispatch unavailable). Parked.`;
+      const res = await saveCardCAS(root, {
+        ...card,
+        ...parkFields(card, card.list, reason),
+        events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost dispatch unavailable`, detail: reason })
+      }, baseRev, now());
+      if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+      return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-unavailable" } };
+    }
+  }
   // the SAME acquire write so it is persisted CAS-safely (no extra write, no race).
   const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
   // Acquire the card: CAS the running-status write (+ run fields if just minted). A

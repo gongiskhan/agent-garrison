@@ -67,7 +67,7 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, outpost = null, at = new Date().toISOString() }) {
   const id = ulid();
   const card = {
     id,
@@ -90,6 +90,9 @@ export async function createCard(root, { title, description = "", project = null
     phases: phases && typeof phases === "object" ? phases : null,
     tier: typeof tier === "string" && tier ? tier : null,
     origin: typeof origin === "string" && origin ? origin : null,
+    // D27: single-outpost affinity — the run engine dispatches this card's
+    // phase sessions to the named outpost; offline → needs-attention.
+    outpost: typeof outpost === "string" && outpost ? outpost : null,
     // ── execution visibility ──────────────────────────────────────────────
     // The card's activity timeline (engine.withEvent appends to it on every
     // transition); the last operative reply snippet (shown on the card front);

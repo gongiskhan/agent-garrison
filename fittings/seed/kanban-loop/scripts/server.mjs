@@ -131,6 +131,7 @@ export function cardSummary(card) {
     phases: card.phases ?? null,
     tier: card.tier ?? null,
     origin: card.origin ?? null,
+    outpost: card.outpost ?? null,
     // The last dispatch failure (set by engine.processCard on transport defer
     // or run-failed, and by handlePatchCard when an auto-dispatch can't reach
     // the gateway). The UI renders a clear badge + Retry button when this is
@@ -781,7 +782,8 @@ async function handleCreateCard(req, res, opts) {
     workKind: typeof body.workKind === "string" ? body.workKind : null,
     phases: body.phases && typeof body.phases === "object" ? body.phases : null,
     tier: typeof body.tier === "string" ? body.tier : (typeof body.classification?.tier === "string" ? body.classification.tier : null),
-    origin: typeof body.origin === "string" ? body.origin : null
+    origin: typeof body.origin === "string" ? body.origin : null,
+    outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null
   });
   // Visible project inference for a no-project card — fire-and-forget so create returns
   // at once; the events land on the card and surface on the next board poll.
