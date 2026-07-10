@@ -8,22 +8,10 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-// @ts-ignore - pure .mjs
-import {
-  classifyExecution,
-  isSignificantAutonomous,
-  biasTarget,
-  resolvePhaseTarget
-} from "../fittings/seed/orchestrator/lib/policy-core.mjs";
-// @ts-ignore - pure .mjs
-import {
-  gateKeyForPhase,
-  hasPhaseGateEvidence,
-  classificationForPhase,
-  skillForPhase,
-  railForCard,
-  phaseOnForCard
-} from "../fittings/seed/kanban-loop/lib/policy.mjs";
+// @ts-ignore - pure .mjs (single line so the ignore anchors to the specifier)
+import { classifyExecution, isSignificantAutonomous, biasTarget, resolvePhaseTarget } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
+// @ts-ignore - pure .mjs (single line so the ignore anchors to the specifier)
+import { gateKeyForPhase, hasPhaseGateEvidence, classificationForPhase, skillForPhase, railForCard, phaseOnForCard } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore - pure .mjs
 import {
   sessionsSignal,
@@ -255,10 +243,10 @@ describe("power-core signal boundaries (D33)", () => {
   it("loadSignal: threshold is exclusive; non-finite load reports null and never blocks", () => {
     expect(loadSignal(1.0, 1.0).blocking).toBe(false);
     expect(loadSignal(1.01, 1.0).blocking).toBe(true);
-    const bad = loadSignal("nope", 1.0);
+    const bad = loadSignal("nope" as unknown as number, 1.0); // deliberate bad input
     expect(bad.blocking).toBe(false);
     expect(bad.value).toBeNull();
-    expect(loadSignal(2, undefined).detail.threshold).toBe(1.0);
+    expect(loadSignal(2, undefined as unknown as number).detail.threshold).toBe(1.0);
   });
 
   it("keepAwakeSignal: active strictly before until; value is the ISO deadline only while active", () => {

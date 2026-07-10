@@ -23,6 +23,7 @@ let acquireCodexLock: () => Promise<void>;
 let releaseCodexLock: () => void;
 
 beforeAll(async () => {
+  // @ts-ignore - pure .mjs, entry-guarded (import is side-effect-free)
   const mod = await import("../fittings/seed/codex-runtime/scripts/bridge.mjs");
   acquireCodexLock = mod.acquireCodexLock;
   releaseCodexLock = mod.releaseCodexLock;
