@@ -15,6 +15,21 @@
     }
   },
   {
+    "id": "mcp-gateway",
+    "name": "MCP gateway",
+    "repo": "local:fittings/seed/mcp-gateway",
+    "localPath": "fittings/seed/mcp-gateway",
+    "summary": "MCP sidecar for orchestrator/soul-mode sessions. Spawned per session by the http-gateway as a stdio MCP child; hosts the garrison-control tool set (talk_to, wait_for, session and worktree management).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-mcp-gateway",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
     "id": "basic-memory",
     "name": "Basic Memory",
     "repo": "local:fittings/seed/basic-memory",

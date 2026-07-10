@@ -14,6 +14,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
@@ -65,6 +66,9 @@ x-garrison:
         - id: http-gateway
           config:
             port: 4777
+            bind_host: 127.0.0.1
+        - id: mcp-gateway
+          config:
             bind_host: 127.0.0.1
       runtimes:
         - id: codex-runtime

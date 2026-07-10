@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-09T12:37:54.292002+00:00'
+generated_at: '2026-07-10T16:18:52.604732+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/automations
@@ -82,16 +82,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/kanban-loop
-- repo_url: _local/orchestrator
-  name: orchestrator
-  version: 0.1.0
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/model-router.md
-  deployed_file_hashes:
-    .claude/commands/model-router.md: sha256:1a663ea38148f2a0f9cd016a7602d53392733ed6062821c63014c621111c5e0b
+- repo_url: _local/mcp-gateway
+  name: garrison-mcp-gateway
+  version: 0.2.0
+  package_type: invalid
   source: local
-  local_path: ../../fittings/seed/orchestrator
+  local_path: ../../fittings/seed/mcp-gateway
 - repo_url: _local/modes
   name: modes
   version: 0.1.0
@@ -104,6 +100,16 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/orchestrator
+  name: orchestrator
+  version: 0.2.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/orchestrator.md
+  deployed_file_hashes:
+    .claude/commands/orchestrator.md: sha256:1f9431bac70c9b9a78381518a68da8cc4624ac8f585bf2e269680605b1b5476e
+  source: local
+  local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/scheduler
   name: scheduler
   version: 0.1.0

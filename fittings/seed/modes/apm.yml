@@ -27,7 +27,11 @@ x-garrison:
   provides:
     - kind: modes
       name: modes
-  consumes: []
+  # optional-one, not one: compositions without soul mode still compose; the
+  # runner's runtime downgrade warning remains the fallback when absent.
+  consumes:
+    - kind: mcp-gateway
+      cardinality: optional-one
   setup:
     command: node scripts/setup.mjs
     idempotent: true

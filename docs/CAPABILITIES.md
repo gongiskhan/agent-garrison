@@ -11,21 +11,24 @@ The set grew across phases, then **shrank with the 2026-06-07 Quarters pivot**
 Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
-via the `capabilityKinds` array in `src/lib/types.ts` (14 kinds):
+via the `capabilityKinds` array in `src/lib/types.ts` (15 kinds):
 `orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`,
-`runtime`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`,
-`voice`, `view`.
+`runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`,
+`outpost`, `monitor`, `voice`, `view`.
 
 Dropped kinds, kept below under *Dropped kinds (historical)* for readers
 tracing old manifests (the resolver rejects them today):
 
-- Dropped in the Quarters pivot (2026-06-07): `soul`, `agent-skill`, `mcp-gateway`.
+- Dropped in the Quarters pivot (2026-06-07): `soul`, `agent-skill`
+  (`mcp-gateway` was dropped alongside them and re-added 2026-07-10 for
+  soul-mode `talk_to` - the modes Fitting cannot express its dependency
+  without it; same precedent as `automation-runner`).
 - Dropped in the Dev Env consolidation (2026-06-11): `terminal-session`, `worktree`, `session-view`; their three Fittings collapsed into the single `dev-env` Fitting/kind (Workspaces was deleted outright).
 - `data-source` (dropped in the pivot, revived 2026-06-10 for
   trello-data-source, dropped again 2026-06-26): superseded by `connector`,
   which is strictly more general; Trello moved to the `trello` connector.
 - `artifact-store`: retired with the artifact-store Faculty; the file-browser
-  Fitting is the artifact surface today.
+  Fitting is the artifact surface today (canonical root `~/.garrison/files`).
 
 `automation-runner` was likewise dropped in the pivot and re-added 2026-06-13
 (MR wave): the scheduler Fitting and the nightly Improver both need it, and its
@@ -180,6 +183,28 @@ A Fitting that hosts the agent loop and exposes a uniform
 - **Typically consumes:** `vault` for engine credentials where needed.
 - **Interface (TBD — runtime SDK milestone):** must implement the
   RuntimeAdapter contract (see `src/lib/runtime-selection.ts`).
+
+## mcp-gateway
+
+A stdio MCP sidecar the primary gateway spawns per soul session, exposing
+the `garrison-control` tool set (`talk_to` and friends) that orchestrator/soul
+mode (Gary/Joe/James) requires.
+
+> Re-added 2026-07-10: dropped in the 2026-06-07 pivot, restored when the
+> S2 brain merge made soul mode mainline and the modes Fitting could not
+> express its hard dependency without the kind (the `automation-runner`
+> precedent). It is a sidecar, never the primary gateway -
+> `resolveGatewayFitting` skips it when picking the gateway that fronts
+> the operative.
+
+- **Cardinality:** `optional-one`; the modes Fitting consumes it softly, so
+  compositions without soul mode still compose (they run normal gateway mode
+  with a runtime downgrade warning).
+- **Typically provides:** the mcp-gateway Fitting under the `gateway` faculty.
+- **Typically consumes:** `orchestrator` (`optional-one`).
+- **Interface:** spawned as a stdio MCP child via the shared
+  `.garrison/mcp.json` (`writeSharedMcpConfig`); requires its
+  `x-garrison.setup` hook to have installed `@modelcontextprotocol/sdk`.
 
 ## channel
 
@@ -346,6 +371,20 @@ Fittings produce — markdown documents, recordings, audio, images.
 Retired with the artifact-store Faculty; the file-browser Fitting is the
 artifact surface today (scoped workspace root, Monaco viewing/editing,
 rendered markdown, inline images).
+
+The canonical workspace root is `~/.garrison/files` (overridable via
+`GARRISON_FILEBROWSER_ROOT`, projected from the file-browser selection's
+`root` config). Writers use plain filesystem writes - no CLI, sidecar, or
+registration step - into first-level namespace folders the file-browser
+seeds on boot:
+
+- `documents/` - user-facing markdown, reports, specs
+- `recordings/` - audio, video, screen captures
+- `runs/` - run outputs, logs, evidence from automated work
+- `uploads/` - files the user supplied
+
+The user reads everything through the Files view (sidebar Views), on
+phone or desktop.
 
 - **Cardinality:** singleton per composition.
 - **Typically provided by:** the Fitting in the former `artifact-store`

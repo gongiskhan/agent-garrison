@@ -20,27 +20,20 @@ x-garrison:
     - kind: mcp-gateway
       name: mcp-gateway
   consumes:
-    - kind: agent-skill
-      name: tier-classifier
-      cardinality: optional-one
-    - kind: agent-skill
-      name: testing
-      cardinality: optional-one
     - kind: orchestrator
       cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 120000
   verify:
     command: node apm_modules/_local/mcp-gateway/scripts/gateway.mjs --probe
     expect: ok
     timeout_ms: 8000
   for_consumers: |
-    Orchestrator-mode sidecar — not invoked directly by the Operative.
-    Runs as a companion to Claude Code sessions. Same-machine sessions use stdio MCP
-    (Claude Code spawns it as a child process). Remote outpost sessions use HTTP MCP
-    (gateway runs on the Garrison host, Claude Code on the remote machine connects
-    over Tailscale).
-
-    Tools:
-      - classify_tier, run_tests (present when corresponding Fitting is installed)
-      - garrison-control set (present when GARRISON_HTTP_GATEWAY_BASE_URL is set):
-        talk_to, wait_for, list_active_sessions, end_session, list_workdirs,
-        list_worktrees, create_worktree, get_worktree, close_worktree
+    Orchestrator/soul-mode sidecar - not invoked directly by the Operative.
+    The http-gateway spawns it per soul session as a stdio MCP child (no port of
+    its own); remote outpost sessions connect over HTTP MCP instead. Hosts the
+    garrison-control tool set (present when GARRISON_HTTP_GATEWAY_BASE_URL is
+    set): talk_to, wait_for, list_active_sessions, end_session, list_workdirs,
+    list_worktrees, create_worktree, get_worktree, close_worktree.

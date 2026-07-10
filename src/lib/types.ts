@@ -97,6 +97,12 @@ export const capabilityKinds = [
   "connector",
   // runtime: added 2026-06-14 (BRIEF v4 Runtime faculty) — a runtime Fitting (Claude Code, Codex, Gemini-CLI) hosts the agent loop and exposes a uniform delegate() bridge. Multiple may coexist; the composition names one primary, others secondary. Same "add a kind when a real Fitting needs one" precedent (codex-runtime / gemini-runtime need it).
   "runtime",
+  // mcp-gateway: re-added 2026-07-10 - the per-session stdio/HTTP MCP sidecar
+  // (talk_to, wait_for, ...) the http-gateway spawns for orchestrator/soul mode.
+  // Dropped in the Quarters pivot, re-added on the automation-runner precedent
+  // (add a kind only when a real Fitting needs one): the mcp-gateway Fitting
+  // provides it and `modes` cannot express the dependency without it.
+  "mcp-gateway",
   "channel",
   "vault",
   // dev-env: the consolidated Dev Env surface (2026-06-11). Replaces the
