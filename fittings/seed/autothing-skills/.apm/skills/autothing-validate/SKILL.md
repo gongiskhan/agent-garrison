@@ -1,11 +1,26 @@
 ---
 name: autothing-validate
-model: sonnet
-effort: high
 description: Validate a slice's Definition of Done from its durable gate markers and decide Done vs Implement — read the gate-status.json under a passed-in runDir + sliceId, check every DoD gate (tests/typecheck/lint/build/e2e exit 0, design audit clean for UI, fresh-context review approve, independent test pass, and a VERIFIED walkthrough video), write the durable `validated` gate record, and end with a parseable Done|Implement last line. Use for "validate the Definition of Done", "check the gate markers and decide Done or Implement", "write the durable gate record for this slice", or as the engine of the Kanban Validate list. NOT a test runner (that is autothing-test) and NOT a code review (that is autothing-review).
 ---
 
 # autothing-validate
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 Standalone Definition-of-Done validator for ONE slice. Reads the slice's durable
 gate markers, checks the DoD (including a verified walkthrough video), writes a

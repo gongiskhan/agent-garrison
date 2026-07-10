@@ -57,6 +57,57 @@ async function logDecision(rec) {
   appendFileSync(DECISIONS, JSON.stringify(rec) + "\n", "utf8");
 }
 
+// ── run-wide Codex serialization (GARRISON-UNIFY-V1 D14) ────────────────────
+// Codex's shared OAuth/API token is revoked by CONCURRENT `codex` processes,
+// so THIS FITTING owns the one-call-at-a-time constraint — callers (skills,
+// the checkpoint, per-slice passes) no longer serialize themselves. A
+// machine-wide O_EXCL lock file with owner pid + stale-breaking: acquire
+// before the delegate, release after; a dead owner's lock is broken; waiting
+// callers poll (bounded) rather than fail, so serialization is transparent.
+import { rmSync } from "node:fs";
+const LOCK_FILE = path.join(DATA_DIR, "codex.lock");
+const LOCK_POLL_MS = 2_000;
+const LOCK_WAIT_MAX_MS = Number(process.env.CODEX_LOCK_WAIT_MAX_MS || 30 * 60_000); // a real checkpoint runs long
+
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return e.code === "EPERM"; }
+}
+
+async function acquireCodexLock() {
+  mkdirSync(DATA_DIR, { recursive: true });
+  const deadline = Date.now() + LOCK_WAIT_MAX_MS;
+  for (;;) {
+    try {
+      writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), { flag: "wx" });
+      return;
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      // Lock held: break it ONLY when the owner is provably gone.
+      try {
+        const owner = JSON.parse(readFileSync(LOCK_FILE, "utf8"));
+        if (!pidAlive(owner.pid)) { rmSync(LOCK_FILE, { force: true }); continue; }
+      } catch {
+        rmSync(LOCK_FILE, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline) throw new Error(`codex serialization lock held past ${LOCK_WAIT_MAX_MS}ms (owner alive) — refusing to run concurrently`);
+      await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
+    }
+  }
+}
+
+function releaseCodexLock() {
+  try {
+    const owner = JSON.parse(readFileSync(LOCK_FILE, "utf8"));
+    if (owner.pid === process.pid) rmSync(LOCK_FILE, { force: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes("--probe")) {
@@ -77,6 +128,8 @@ async function main() {
   }
   const spec = parseTaskSpec(raw);
   const adapter = new CodexAdapter();
+  // D14: the fitting owns the one-Codex-call-at-a-time constraint.
+  await acquireCodexLock();
   try {
     const result = await delegate(spec, {
       adapter,
@@ -89,7 +142,9 @@ async function main() {
     process.stdout.write(JSON.stringify(result) + "\n");
   } catch (err) {
     process.stdout.write(JSON.stringify({ error: err?.code || "error", message: err?.message }) + "\n");
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    releaseCodexLock();
   }
 }
 

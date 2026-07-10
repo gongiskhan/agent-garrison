@@ -1,11 +1,26 @@
 ---
 name: autothing-project-foundation
-model: opus
-effort: high
 description: Idempotently audit and scaffold a project's Claude-Code foundation — a lean root CLAUDE.md with a routing index, living /docs (product-overview, architecture, conventions, governance, decisions), per-area skills under .claude/skills/, and git init. Read-only DETECT pass produces a gap list; GENERATE creates only the missing/partial pieces and NEVER rewrites an existing canonical file. Use to set up a new or existing repo for agent-driven work, or to audit what foundation a repo is missing — without running a full build. autothing calls this as its Phase 0/1; usable directly. Do NOT use to plan build slices (that is the planning/FLOW_PLAN step) or to implement features.
 ---
 
 # autothing-project-foundation
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 Sets up (or audits) the per-project foundation that lets agents work a repo coherently: a lean root `CLAUDE.md` that routes to area skills, a small set of living `/docs`, the warranted area skills inside the project's `.claude/skills/`, and a git repo. **USER-scope skill; everything it writes is PROJECT-scope** (inside the target repo).
 

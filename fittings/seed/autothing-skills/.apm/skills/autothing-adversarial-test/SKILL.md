@@ -1,11 +1,26 @@
 ---
 name: autothing-adversarial-test
-model: sonnet
-effort: high
 description: Independent functional test — a FRESH-CONTEXT Anthropic session that has seen neither the diff nor autothing-test's committed spec drives the running app/feature through ONLY the slice's acceptance criteria, writing and executing its OWN Playwright probes, and returns pass/fail with a reproducible probe. In an autothing build a failure sends the slice back to autothing-implement; standalone, report what it observed. Use for "independent test this", "fresh-context functional test", "second test pass", or as the independent test gate of a build. NOT Claude's own committed test (use autothing-test) and NOT the cross-model Codex checkpoint (use autothing-codex-checkpoint).
 ---
 
 # autothing-adversarial-test
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 Independent functional test — decorrelated by **context and evidence**, not vendor. A session that has seen neither the diff nor `autothing-test`'s committed spec drives the *running* app through the acceptance itself, so it catches "the code and its test share the same wrong assumption" — the same failure mode the old cross-model Playwright pass targeted, without needing a second vendor to get it.
 

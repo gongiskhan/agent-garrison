@@ -1,11 +1,26 @@
 ---
 name: autothing-implement
-model: opus
-effort: high
 description: Implement an already-planned slice or a single well-scoped code change end-to-end — explore the relevant code first (vision-first for UI, reading the FLOW_PLAN acceptance and the project's area skill), then write the code to satisfy it, following existing conventions and fixing forward. This is the code-writing step of an autothing build and the step the gates (test, review, walkthrough) send work back to when they find issues. Usable standalone to implement one focused change with autothing discipline. Use for "implement this slice/change", "write the code for this planned feature", or when a gate sends a slice back to fix. NOT for planning (use autothing-plan), NOT the full multi-slice build (use autothing), and NOT bug-hunting or running/testing on their own.
 ---
 
 # autothing-implement
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 The code-writing step of an autothing build, and a standalone implementer for one focused change. It EXPLORES first, then writes the code. It does NOT plan the slice list (that is `autothing-plan`) and does NOT run the gates (`autothing-test` / `autothing-review` / `autothing-adversarial-review` / `autothing-adversarial-test` / `autothing-walkthrough` are separate).
 

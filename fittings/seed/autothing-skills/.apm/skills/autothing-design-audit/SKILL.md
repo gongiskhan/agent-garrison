@@ -1,11 +1,26 @@
 ---
 name: autothing-design-audit
-model: fable
-effort: xhigh
 description: Subjective design and UX audit of the current UI change — judge the running app against the project's design tokens and conventions for visual hierarchy, spacing, consistency, responsiveness, and polish, using the design skills (frontend-design, huashu-design). In an autothing build, real issues send the slice back to autothing-implement to fix; standalone, report the verdict and issues. Use for "design audit", "review the UI/UX of this", "is this polished enough", or as the design gate of a build. Skip for non-UI changes. NOT a correctness test (use autothing-test) and NOT a code review (use autothing-review).
 ---
 
 # autothing-design-audit
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 The subjective design/UX gate — judges the running UI against the project's design tokens + conventions. The design gate of an autothing build, and a standalone UI/UX auditor. **Skip entirely for non-UI changes.**
 

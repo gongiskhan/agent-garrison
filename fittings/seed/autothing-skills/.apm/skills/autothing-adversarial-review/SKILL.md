@@ -1,11 +1,26 @@
 ---
 name: autothing-adversarial-review
-model: fable
-effort: xhigh
 description: Decorrelated fresh-context code review — a FRESH-CONTEXT Anthropic session (no access to the implementer's notes, exploration, or rationale) reviews the current diff against ONLY the slice's acceptance criteria and the spec/plan sections it cites, gathers its own evidence (runs build/typecheck/lint/tests itself rather than trusting reported exit codes), and returns a structured approve/needs-work verdict. In an autothing build, real findings go back to autothing-implement; standalone, report the verdict and findings. Use for "review this fresh", "decorrelated review", "second opinion on this change", or as the fresh-context review gate of a build. NOT Claude's own same-context review (use autothing-review) and NOT the cross-model Codex checkpoint (use autothing-codex-checkpoint).
 ---
 
 # autothing-adversarial-review
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 Decorrelated adversarial review — decorrelation comes from **fresh context**, not a different vendor. A reviewer that has never seen the implementer's session, notes, or rationale re-derives whether the change is correct from the acceptance criteria, the spec, and the diff alone, and backs every finding with evidence it gathered itself. The single per-slice review gate of an autothing build, and a standalone second-opinion reviewer.
 

@@ -1,11 +1,26 @@
 ---
 name: autothing-review
-model: fable
-effort: xhigh
 description: Code-review the current change or diff for correctness bugs and quality cleanups (reuse, simplification, efficiency) using Claude Code's built-in review mechanism (the code-review skill). A standalone same-model review; the per-slice review gate is now autothing-adversarial-review (Part 8.1 merged this same-model pass into the fresh-context review). Standalone it just reports the findings. Use for "review this code", "review my diff/PR", "code review before shipping". NOT the fresh-context decorrelated review (use autothing-adversarial-review) and NOT a test runner (use autothing-test).
 ---
 
 # autothing-review
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 Same-model (Claude) code review of the current change. A standalone code reviewer.
 

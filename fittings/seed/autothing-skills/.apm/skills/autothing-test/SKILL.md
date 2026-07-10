@@ -1,11 +1,26 @@
 ---
 name: autothing-test
-model: sonnet
-effort: high
 description: Write a COMMITTED, re-runnable correctness test for the current change and run it, plus clean build/typecheck/lint — the objective correctness gate. The default is end-to-end THROUGH THE UI (Playwright / playwright-cli) plus unit tests; a CLI/TUI deliverable uses a committed driver + asciinema capture. In an autothing build a failure sends the slice back to autothing-implement (autothing owns the retry ceiling); standalone it just reports the findings. Use for "write and run tests for this change", "add a committed e2e test", or as the test gate of a build. NOT a one-off manual run (use /run or /verify) and NOT the independent fresh-context test pass (use autothing-adversarial-test).
 ---
 
 # autothing-test
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 The objective correctness gate — write a COMMITTED, re-runnable test for the current change and run it, plus a clean build/typecheck/lint. A standalone test-writer/runner, and the test gate of an autothing build.
 

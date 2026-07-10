@@ -1,11 +1,26 @@
 ---
 name: autothing-parallel-work
-model: opus
-effort: high
 description: Decide HOW to split multi-step work across agents and run it safely — agent teams vs dynamic workflows vs sequential, the disjoint-files rule, and which shared runtime must serialize. Use BEFORE fanning a batch of work out to subagents/teammates/workflows (new modules, multi-slice builds, verification/research/design-audit fan-out, migrations), or when deciding whether two units of work can run concurrently at all. Encodes the standing preference — agent teams whenever they fit, workflows where teams don't, sequential only for genuinely shared work. autothing uses this for its build loop; usable directly for any parallelizable task. When the coord stack (beads / agent-mail / coord-mcp) is present, use its planning gate + cross-session file leases for multi-session safety, falling back to the disjoint-files discipline when absent. Do NOT use for the actual editing/testing of a single unit (that is an area/testing skill) or for recording evidence (that is walkthrough).
 ---
 
 # autothing-parallel-work
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 Parallelize aggressively where it is SAFE; serialize only what genuinely must be. The lesson driving this skill: parallelism is blocked by **shared files** and **shared stateful runtime**, NOT by the agent mechanism. No mechanism makes two agents editing the same file safe — you EARN parallelism by decomposing work into disjoint file ownership.
 

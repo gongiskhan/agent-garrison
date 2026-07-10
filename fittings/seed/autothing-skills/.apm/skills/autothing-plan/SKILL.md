@@ -1,11 +1,26 @@
 ---
 name: autothing-plan
-model: fable
-effort: xhigh
 description: Reproduce Claude Code plan mode autonomously — explore the request and codebase with read-only Explore subagents, design with Plan subagents, then write a concise, durable implementation plan file. Does NOT call native EnterPlanMode/ExitPlanMode (they fail in agent and auto contexts) and never mutates the system except the plan file. Use proactively BEFORE any non-trivial implementation task — a new feature, multiple valid approaches, changes that affect existing behavior or structure, architectural decisions, multi-file changes (more than 2-3 files), or unclear requirements that need exploring first. Do NOT use for single-line or few-line fixes, adding one well-specified function, tasks with very specific detailed instructions, or pure research. autothing invokes this as its planning phase; also usable standalone.
 ---
 
 # autothing-plan
+
+## Policy-read preamble (hard requirement, D5)
+
+Before doing ANYTHING else, read the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
+file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+
+This skill carries NO model/effort pins — its execution parameters come from
+the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
+gate duties from the bindable phase-skill contract (the Orchestrator fitting's
+PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+(runDir, card, phase), write the phase's gate-status entry under the runDir,
+and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+list.
+
 
 Reproduces the **exploration + planning quality** of Claude Code's native plan mode without using the native plan-mode tools. Native plan mode cannot be driven autonomously — `EnterPlanMode` throws in agent/subagent contexts and `ExitPlanMode` always raises a human approval dialog — so this skill copies plan mode's *prompts and read-only discipline* instead, and produces a durable plan file a build phase can execute.
 
