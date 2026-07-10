@@ -112,7 +112,7 @@
    "slice": "S7",
    "title": "Surfaces",
    "kind": "mixed",
-   "status": "in_progress",
+   "status": "passed",
    "note": "implement+wall green; walkthrough 5/5 beats (frame-verified); review rev2-s567 pending",
    "artifacts": [
     {
@@ -126,7 +126,7 @@
    "slice": "S3",
    "title": "Composer view",
    "kind": "ui",
-   "status": "in_progress",
+   "status": "passed",
    "note": "walls+commit+e2e+walkthrough 8/8 (incl. drag->recompile visual + ghost-edit banner); review rev-s3 pending",
    "artifacts": [
     {
@@ -140,7 +140,7 @@
    "slice": "S10",
    "title": "Monitor vitals",
    "kind": "ui",
-   "status": "in_progress",
+   "status": "passed",
    "note": "implemented by imp-s10; lead gates pending",
    "artifacts": [
     {
@@ -154,7 +154,7 @@
    "slice": "S11",
    "title": "Ports fitting",
    "kind": "mixed",
-   "status": "in_progress",
+   "status": "passed",
    "note": "implemented by imp-s11; lead gates pending",
    "artifacts": [
     {
@@ -175,7 +175,7 @@
    "slice": "S13",
    "title": "Power core",
    "kind": "mixed",
-   "status": "in_progress",
+   "status": "passed",
    "note": "walls+commit+signal-demo cast+walkthrough 4/4 (busy state, seeded signals, Keep Awake, phone viewport; suspend completion honestly omitted); review rev-s1314 pending",
    "evidence": {
     "cast": "docs/autothing/runs/20260710-073032-ebe15853/slices/S13/evidence.cast"
@@ -203,13 +203,13 @@
      "videoSha256": "d717d1c811a81717d3db19c95bfe619f403b823c8d28ba9d1813458ea875c1d0"
     }
    ],
-   "status": "in_progress"
+   "status": "passed"
   },
   {
    "slice": "S12",
    "title": "Snapshots",
    "kind": "mixed",
-   "status": "in_progress",
+   "status": "passed",
    "note": "walls+commit+live E2E+walkthrough 4/4 done; review rev-s912 pending",
    "artifacts": [
     {

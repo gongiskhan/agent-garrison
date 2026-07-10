@@ -1,6 +1,6 @@
 {
-  "slice": "S11",
-  "title": "Ports",
+  "slice": "S7",
+  "title": "Surfaces",
   "updatedAt": "2026-07-10T13:14:39Z",
   "phase": "passed",
   "status": "passed",
@@ -11,7 +11,7 @@
     "used": 0
   },
   "blockers": [],
-  "commit": "80356ee",
+  "commit": "dd55690",
   "gates": {
     "typecheck": {
       "exit": 0,
@@ -47,7 +47,7 @@
     },
     "walkthrough": {
       "status": "passed",
-      "summary": "5/5 beats (scan, label, loopback, copy, kill) (frame-verified)"
+      "summary": "5/5 beats (labeled plain escape hatch) (frame-verified)"
     }
   }
 }
