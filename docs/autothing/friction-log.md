@@ -37,3 +37,6 @@ resource/timing contention (the test itself exercises self-healing with real SIG
 escalation and multi-second waits). Not touched by run 20260701-092738-9b939e7a's changes
 (improver Fitting only) - noting for whoever next investigates full-suite flakiness, not
 fixed here (out of scope, didn't reproduce on rerun).
+- 2026-07-10T19:15:44Z [autothing] background Agent completion results were never delivered to the lead as notifications; lead extracted final messages from subagent transcript JSONLs by hand -> document transcript-extraction as the reliable collection path (or fix delivery)
+- 2026-07-10T19:15:44Z [autothing] Stop-hook goal loop + "foreground sleep blocked" interact badly: idle waiting burns loop iterations; the workaround (timeout N bash -c 'until [ -f /nonexistent ]...') works -> bless a canonical bounded-wait idiom in the skill
+- 2026-07-10T19:15:44Z [walkthrough] pass-record.json beats[] entries carry null ok/assertOk fields; real failure detail lives only in top-level results/unexpectedFailures -> align the two shapes

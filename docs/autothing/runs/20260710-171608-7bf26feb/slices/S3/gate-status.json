@@ -38,5 +38,27 @@
     "at": "2026-07-10T18:54:25Z",
     "notes": 3,
     "evidence": "typecheck 0, vitest 1646 passed, node --check 12/12, independent greps zero"
+  },
+  "designAudit": {
+    "verdict": "clean",
+    "by": [
+      "fresh-context design audit"
+    ],
+    "at": "2026-07-10T19:14:27Z",
+    "notes": "3 pre-existing notes; em-dash + mobile-wrap fixed in polish commit"
+  },
+  "adversarialTest": {
+    "verdict": "pass",
+    "probes": 13,
+    "at": "2026-07-10T19:14:27Z"
+  },
+  "video": {
+    "status": "verified",
+    "mode": "evidence",
+    "verifiedAt": "2026-07-10T19:14:27Z",
+    "videoSha256": "1cbf3a3896daf53a3ce8c117ae083fb67a4d222386fe06bd8b0667e6cdcb9a4f",
+    "videoBytes": 1011750,
+    "evidence": "evidence.json",
+    "path": "/home/ggomes/.walkthrough/runs/agent-garrison/flow-v2/s3-worktree-sweep/2026-07-10_20-12-43/final.mp4"
   }
 }

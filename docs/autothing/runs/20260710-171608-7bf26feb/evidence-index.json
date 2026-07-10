@@ -3,9 +3,32 @@
   "project": "agent-garrison",
   "brief": "GARRISON-FLOW-V2",
   "createdAt": "2026-07-10T17:58:16Z",
-  "gatesConfig": { "test": true, "adversarialReview": true, "adversarialTest": true, "codexSliceReview": true, "design": true, "walkthrough": true, "deliberateRed": true, "mutation": true, "report": true, "foundation": true, "codexCheckpoint": true, "askQuestions": false, "profile": "build" },
-  "slices": {},
-  "globalGate": { "status": "in-progress" },
+  "gatesConfig": {
+    "test": true,
+    "adversarialReview": true,
+    "adversarialTest": true,
+    "codexSliceReview": true,
+    "design": true,
+    "walkthrough": true,
+    "deliberateRed": true,
+    "mutation": true,
+    "report": true,
+    "foundation": true,
+    "codexCheckpoint": true,
+    "askQuestions": false,
+    "profile": "build"
+  },
+  "slices": {
+    "S3": {
+      "status": "passed",
+      "at": "2026-07-10T19:15:44Z",
+      "gateStatus": "slices/S3/gate-status.json",
+      "video": "http://100.88.165.46:8099/agent-garrison/flow-v2/s3-worktree-sweep/2026-07-10_20-12-43/final.mp4"
+    }
+  },
+  "globalGate": {
+    "status": "in-progress"
+  },
   "runLog": "../../../RUN_LOG.md",
   "runSpec": "RUN_SPEC.md",
   "flowPlan": "FLOW_PLAN.md"

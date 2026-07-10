@@ -95,3 +95,12 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - evidence: docs/autothing/runs/20260710-171608-7bf26feb/{RUN_SPEC.md,FLOW_PLAN.md,plan-coord-engine.md}
 - build order: S3, S1, S2, S4, S5, S9, S6, S7, S8 (serial at slice level; intra-slice parallelism on disjoint files)
 - models: 1x Plan subagent (session model) for S1/S2 engine design; E12 spike CONFIRMED-YES (PostToolUse carries tool_response.answers)
+
+## DECISION 2026-07-10T18:39:07Z (run 20260710-171608-7bf26feb) — codex unavailable, degraded slots
+- Re-verified this run: codex login status = Not logged in; no OPENAI_API_KEY; no ~/.codex/auth.json; vault parked-undecryptable. Probe output: ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com
+- Same external cause + failed remediation as the 2026-07-10T08:17:56Z UNIFY DECISION. Policy: all codexSliceReview slots record degraded (codex-unavailable), never faked, never block; run-level codex-checkpoint will be an external blocker unless credentials appear mid-run (operator: OPENAI_API_KEY or codex login).
+
+## GATE S3 (run 20260710-171608-7bf26feb) — WORKTREES_GONE_OK
+- verdict: PASSED all gates. implement (4 teammates + lead stitch incl. monitor-default E1-miss fix), securityWall clean (gitleaks 0 / semgrep 0 / dep-audit 0 high), test exit 0 (typecheck 0, 1645+ tests, machinery grep ZERO w/ recorded exclusions), fences 0f223f9 + polish commit, adversarialReview approve (fresh-context, 0 defects, 3 notes), codexSliceReview degraded (codex-unavailable, honest), adversarialTest pass (13/13 live probes incl. real session create/close at repo root), designAudit clean (2 of 3 pre-existing notes fixed in polish), video verified (evidence mode, 4/4 beats, both truths).
+- evidence: docs/autothing/runs/20260710-171608-7bf26feb/slices/S3/ (gate-status.json, evidence.json, design/*.png, video sha in gate-status)
+- durations: implement ~35min (parallel), gates ~45min; models: teammates+review/test/design on claude-fable-5, codex n/a
