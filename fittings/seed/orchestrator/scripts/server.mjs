@@ -139,6 +139,11 @@ async function handlePutRouting(req, res, query) {
     return json(res, 400, { error: "invalid-json" });
   }
   const next = body.config ?? body;
+  // Reject a v1 config on this endpoint (rev-s3 minor): a v1 doc passes validate
+  // and is written to routing.json verbatim while policy.json is compiled from the
+  // migrated v2 shape, so the two diverge and a later GET feeds the v2-only
+  // composer a config it can't render. The composer only ever sends v2.
+  if (!isV2(next)) return json(res, 422, { error: "invalid-config", errors: ["routing.json must be v2 (policyVersion 2); v1 configs are migrated at load, not accepted on PUT"] });
   const errors = validateRoutingConfig(next);
   if (errors.length) return json(res, 422, { error: "invalid-config", errors });
   // Compile the policy FIRST (D4/D12): a config that validates but cannot
@@ -411,6 +416,9 @@ export async function startServer(opts = {}) {
       {
         const m = pathname.match(/^\/ghost-edits\/([^/]+)\/(apply|reject)$/);
         if (m && req.method === "POST") return await handleGhostAction(res, decodeURIComponent(m[1]), m[2]);
+        // An unknown /ghost-edits/* action must 404, not fall through to
+        // serveStatic and return the SPA index.html with 200 (rev-s3 minor).
+        if (pathname.startsWith("/ghost-edits/")) return json(res, 404, { error: "not-found" });
       }
       return await serveStatic(req, res, pathname);
     } catch (err) {
