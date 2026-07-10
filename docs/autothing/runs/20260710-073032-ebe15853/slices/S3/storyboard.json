@@ -1,0 +1,203 @@
+{
+  "title": "S3 Orchestrator Composer - evidence storyboard (2 clips concatenated)",
+  "project": "agent-garrison",
+  "folder": "orchestrator-composer",
+  "note": "Recorded as two clips then concatenated into evidence.mp4. clip 1 = desktop 1280x2960 (AC-1..AC-7); clip 2 = iPhone 390x844 (AC-8), letterboxed onto the 1280x2960 canvas. The composer's dnd-kit drag (AC-2) has no walkthrough-recorder action, so it was driven off-camera as a real pointer drag; the beat shows the persisted result.",
+  "clips": [
+    {
+      "role": "desktop AC-1..AC-7",
+      "video": {
+        "width": 1280,
+        "height": 2960,
+        "fps": 30
+      },
+      "segments": [
+        {
+          "type": "browser",
+          "id": "compose",
+          "baseURL": "http://127.0.0.1:36553",
+          "startPath": "/",
+          "runTimeoutMs": 180000,
+          "beats": [
+            {
+              "id": "ac1",
+              "caption": "AC-1 - four surfaces: tray, 18x3 matrix, rails, try-it",
+              "expectedScreen": "the full Orchestrator Composer top-to-bottom: a TARGETS tray of cards each with an effort dial, an 18-row MATRIX with T0-trivial / T1-standard / T2-deep columns, four WORK-KIND RAILS, and a TRY IT strip - all four surfaces visible",
+              "actions": [
+                {
+                  "type": "waitFor",
+                  "selector": ".ghosts"
+                },
+                {
+                  "type": "waitFor",
+                  "selector": ".tray .tcard"
+                },
+                {
+                  "type": "waitFor",
+                  "selector": "table.matrix tbody tr"
+                },
+                {
+                  "type": "waitFor",
+                  "selector": ".rail:has(.rail-kind:text-is(\"full-feature\"))"
+                },
+                {
+                  "type": "waitFor",
+                  "selector": ".tryit-input"
+                }
+              ],
+              "assert": {
+                "selector": ".tryit-input"
+              },
+              "hold": 2000
+            },
+            {
+              "id": "ac2",
+              "caption": "AC-2 - drag set implement x T2-deep to cc-sonnet-med",
+              "expectedScreen": "the matrix implement row, T2-deep (rightmost) column cell highlighted with a yellow box, reading a Claude Code 'sonnet' token with effort 'medium' (the cc-sonnet-med target dropped onto it)",
+              "assert": {
+                "selector": "table.matrix tbody tr:has(.rh-name:text-is(\"implement\")) td.cell:last-child",
+                "text": "sonnet",
+                "highlight": true
+              },
+              "hold": 1600
+            }
+          ]
+        },
+        {
+          "type": "evidence",
+          "id": "ac3",
+          "command": "jq '.matrix.implement[\"T2-deep\"]' /tmp/claude-1001/-home-ggomes-dev-garrison/ebe15853-d4b5-48f9-ba9c-86bd29b0059b/scratchpad/s3/garrison-home/orchestrator/policy.json",
+          "source": "policy.json - matrix.implement[\"T2-deep\"] (what the gateway reads)",
+          "caption": "AC-3 - the drop recompiled policy.json (model sonnet)",
+          "expectedScreen": "a JSON panel of policy.json's implement T2-deep entry, the \"model\": \"sonnet\" line highlighted, alongside \"targetId\": \"cc-sonnet-med\"",
+          "highlight": {
+            "match": "\"model\": \"sonnet\"",
+            "note": "the drag autosaved and recompiled the gateway policy: implement x T2-deep now routes to cc-sonnet-med"
+          },
+          "hold": 2800
+        },
+        {
+          "type": "browser",
+          "id": "interact",
+          "continue": true,
+          "runTimeoutMs": 180000,
+          "beats": [
+            {
+              "id": "ac4",
+              "caption": "AC-4 - effort dial retuned cc-haiku-low to medium",
+              "expectedScreen": "the cc-haiku-low target card in the tray with its effort dial's 'medium' segment now the active (accent) segment, highlighted with a yellow box",
+              "actions": [
+                {
+                  "type": "click",
+                  "selector": ".tray .tcard:has(.tcard-id:has-text(\"cc-haiku-low\")) .dial .seg:text-is(\"medium\")"
+                }
+              ],
+              "assert": {
+                "selector": ".tray .tcard:has(.tcard-id:has-text(\"cc-haiku-low\")) .dial .seg.on",
+                "text": "medium",
+                "highlight": true
+              },
+              "hold": 1600
+            },
+            {
+              "id": "ac5",
+              "caption": "AC-5 - toggled test off in api-change (dimmed, still shown)",
+              "expectedScreen": "the api-change work-kind rail with its 'test' phase chip now dimmed (off) but still present in the rail next to the other chips - off, never hidden",
+              "actions": [
+                {
+                  "type": "click",
+                  "selector": ".rail:has(.rail-kind:text-is(\"api-change\")) .chip:has(.chip-name:text-is(\"test\")) .chip-toggle"
+                }
+              ],
+              "assert": {
+                "selector": ".rail:has(.rail-kind:text-is(\"api-change\")) .chip.off:has(.chip-name:text-is(\"test\"))",
+                "highlight": true
+              },
+              "hold": 1800
+            },
+            {
+              "id": "ac6",
+              "caption": "AC-6 - dry-run resolved the full rail",
+              "expectedScreen": "the try-it output: kind/tier/type pills (kind: full-feature, tier: T1-standard, type: implement) above a resolved rail of phase chips, each chip showing a skill name and a model/effort target",
+              "actions": [
+                {
+                  "type": "fill",
+                  "selector": ".tryit-input",
+                  "text": "implement a login page with tests"
+                },
+                {
+                  "type": "click",
+                  "selector": "button:Dry run"
+                },
+                {
+                  "type": "waitFor",
+                  "selector": ".tryit-chain"
+                },
+                {
+                  "type": "waitFor",
+                  "selector": ".tryit-rail .tchip"
+                }
+              ],
+              "assert": {
+                "selector": ".tryit-out",
+                "text": "kind:",
+                "highlight": true
+              },
+              "hold": 2400
+            },
+            {
+              "id": "ac7",
+              "caption": "AC-7 - Improver proposals: nothing auto-applies",
+              "expectedScreen": "the Improver proposals panel highlighted at the top of the composer, showing one policy-edit proposal (the test gate failed in 2/3 full-feature runs) with Accept and Dismiss buttons - review before applying",
+              "assert": {
+                "selector": ".ghosts",
+                "text": "review before applying",
+                "highlight": true
+              },
+              "hold": 2200
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "role": "iphone AC-8",
+      "video": {
+        "width": 390,
+        "height": 844,
+        "fps": 30
+      },
+      "segments": [
+        {
+          "type": "browser",
+          "id": "phone",
+          "baseURL": "http://127.0.0.1:36553",
+          "startPath": "/",
+          "runTimeoutMs": 120000,
+          "beats": [
+            {
+              "id": "ac8",
+              "caption": "AC-8 - iPhone 390x844: matrix scrolls in its own container",
+              "expectedScreen": "the composer at iPhone width (390px): a single-column layout with the topbar and profile buttons wrapped, and the 18-row matrix inside its own container whose T1-standard / T2-deep columns are cut off at the container's right edge (it scrolls horizontally on its own), with no page-level horizontal overflow",
+              "actions": [
+                {
+                  "type": "waitFor",
+                  "selector": ".matrix-scroll"
+                },
+                {
+                  "type": "waitFor",
+                  "selector": ".colhead:has(.ch-name:text-is(\"T0-trivial\"))"
+                }
+              ],
+              "assert": {
+                "selector": ".colhead:has(.ch-name:text-is(\"T0-trivial\"))",
+                "highlight": true
+              },
+              "hold": 2600
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

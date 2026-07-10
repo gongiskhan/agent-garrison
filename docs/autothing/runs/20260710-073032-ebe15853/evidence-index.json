@@ -127,7 +127,14 @@
    "title": "Composer view",
    "kind": "ui",
    "status": "in_progress",
-   "note": "imp-s3 implementing"
+   "note": "walls+commit+e2e+walkthrough 8/8 (incl. drag->recompile visual + ghost-edit banner); review rev-s3 pending",
+   "artifacts": [
+    {
+     "file": "slices/S3/evidence.mp4",
+     "videoBytes": 7396066,
+     "videoSha256": "ddb627840fae5847a3355335fede8f47602fc5c6fbb833100de16ece0c1f944e"
+    }
+   ]
   },
   {
    "slice": "S10",
@@ -226,6 +233,32 @@
     "compile --check (unknown target -> exit 1)"
    ],
    "at": "2026-07-10T08:16:47Z"
+  },
+  "mutation": {
+   "status": "passed",
+   "scope": "run-critical pure modules: policy-core, kanban policy, power-core, improver policy rule (engine.mjs excluded: I/O-heavy, timeout-noise; its behavior is covered by run-engine/kanban integration tests)",
+   "before": {
+    "coveredScore": {
+     "policyCore": 34,
+     "kanbanPolicy": 58,
+     "powerCore": 71,
+     "improverRule": 0
+    }
+   },
+   "after": {
+    "coveredScore": {
+     "policyCore": 52,
+     "kanbanPolicy": 70,
+     "powerCore": 76,
+     "improverRule": 65
+    },
+    "killed": 807,
+    "survived": 459,
+    "noCoverage": 765
+   },
+   "response": "26 killer assertions committed (e9cc256) pinning autonomy rules, D9 evidence branches, rail fallbacks, power-signal boundaries; improver tests switched to static imports (coverage was invisible to the runner)",
+   "notes": "policy-core noCoverage residue = v1-migration + markdown-rendering paths exercised by suite files outside the focused mutation config; survivors dominated by defensive optional-chaining equivalents",
+   "at": "2026-07-10T11:51:00Z"
   }
  }
 }

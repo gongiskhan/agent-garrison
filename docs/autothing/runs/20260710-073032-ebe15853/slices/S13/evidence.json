@@ -1,0 +1,51 @@
+[
+  {
+    "beat": "ac1",
+    "criterionId": "AC-1",
+    "timestamp": 2.026,
+    "assert": "IDLE badge + countdown clock + the six busy-signal rows (Working sessions, In-flight cards, Presence heartbeat, SSH sessions, Load average, Keep Awake) all render with live values; .signal-list visible and highlighted",
+    "result": "pass"
+  },
+  {
+    "beat": "ac2",
+    "criterionId": "AC-2",
+    "timestamp": 9.085,
+    "assert": "seeded working session (+ presence heartbeat) drives the box BUSY: BUSY badge, 'Box is busy' hero (countdown held, not counting), Working sessions row reads '1 working' with an amber blocking dot; 'text:1 working' visible and highlighted",
+    "result": "pass"
+  },
+  {
+    "beat": "ac3",
+    "criterionId": "AC-3",
+    "timestamp": 41.784,
+    "assert": "clicking the 1h Keep Awake pill activates the pin: the panel shows 'until 01:35 PM' with a Cancel button; .keep-active contains 'until' and is highlighted (Keep Awake only blocks suspension — safe)",
+    "result": "pass"
+  },
+  {
+    "beat": "ac4",
+    "criterionId": "AC-4",
+    "timestamp": 16.631,
+    "assert": "clicking Suspend Now shows the confirmation/warning state — the button turns red and reads 'Tap again to confirm'; this is a client-only guard that makes NO server call, so nothing can be suspended; button highlighted",
+    "result": "pass"
+  },
+  {
+    "beat": "ac4-warning-code",
+    "criterionId": "AC-4",
+    "timestamp": 24.4,
+    "assert": "the actual 10-second warning code path in server.mjs runSuspend is shown off-camera as an evidence panel: line 359 broadcasts 'suspend-warning' (SUSPEND_WARNING_MS = 10000) before the suspend POST; the real suspend was NEVER triggered on camera for box safety; match 'suspend-warning' present in the source",
+    "result": "pass"
+  },
+  {
+    "beat": "ac5",
+    "criterionId": "AC-5",
+    "timestamp": 28.921,
+    "assert": "Awake hours panel renders from the seeded log: '10.1h today' and '133.0h last 7 days'; .awake-grid contains 'last 7 days' and is highlighted",
+    "result": "pass"
+  },
+  {
+    "beat": "ac6",
+    "criterionId": "AC-6",
+    "timestamp": 36.881,
+    "assert": "the whole UI is recorded at a 390x844 phone viewport and renders full-width and usable — countdown plus large Suspend Now / Keep Awake touch targets; Suspend Now button visible",
+    "result": "pass"
+  }
+]

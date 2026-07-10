@@ -1,0 +1,125 @@
+{
+  "title": "S13 Power fitting UI — evidence",
+  "project": "agent-garrison",
+  "folder": "power",
+  "video": { "width": 390, "height": 844, "fps": 30 },
+  "segments": [
+    {
+      "type": "browser",
+      "id": "ac1-render",
+      "baseURL": "http://127.0.0.1:7390",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac1",
+          "caption": "AC-1 - state, countdown & 6 live signals",
+          "expectedScreen": "the Power page at IDLE with a countdown clock and the six busy-signal rows (sessions, cards, presence, SSH, load, Keep Awake) highlighted",
+          "actions": [ { "type": "waitFor", "selector": ".signal-list" } ],
+          "assert": { "selector": ".signal-list", "highlight": true },
+          "hold": 2200
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "ac2-busy",
+      "baseURL": "http://127.0.0.1:7391",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac2",
+          "caption": "AC-2 - working session blocks; box BUSY",
+          "expectedScreen": "the Power page showing the BUSY badge, a 'Box is busy' hero, and the Working sessions row reading 1 working highlighted",
+          "actions": [ { "type": "waitFor", "selector": ".signal-list" } ],
+          "assert": { "selector": "text:1 working", "highlight": true },
+          "hold": 2200
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "ac4-confirm",
+      "baseURL": "http://127.0.0.1:7390",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac4",
+          "caption": "AC-4 - Suspend Now asks to confirm first",
+          "expectedScreen": "the Suspend Now button changed to a red 'Tap again to confirm' state, highlighted",
+          "actions": [
+            { "type": "waitFor", "selector": "button:Suspend Now" },
+            { "type": "click", "selector": "button:Suspend Now" }
+          ],
+          "assert": { "selector": "button:Tap again to confirm", "highlight": true },
+          "hold": 2000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac4-warning-code",
+      "file": "fittings/seed/power-default/scripts/server.mjs",
+      "lineRange": [349, 382],
+      "kind": "code",
+      "source": "server.mjs — runSuspend (self-suspend sequence)",
+      "caption": "AC-4 - 10s warning + honest-fail suspend in code",
+      "expectedScreen": "server.mjs runSuspend source with the suspend-warning broadcast line highlighted and a note about the 10-second warning",
+      "highlight": {
+        "match": "suspend-warning",
+        "note": "clients get a 10-second warning (SUSPEND_WARNING_MS = 10000) before the suspend POST; never fired on camera for box safety"
+      },
+      "hold": 5000
+    },
+    {
+      "type": "browser",
+      "id": "ac5-awake",
+      "baseURL": "http://127.0.0.1:7390",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac5",
+          "caption": "AC-5 - awake hours: today & last 7 days",
+          "expectedScreen": "the Awake hours panel showing a 'today' hours value and a 'last 7 days' hours value, highlighted",
+          "actions": [ { "type": "waitFor", "selector": ".awake-grid" } ],
+          "assert": { "selector": ".awake-grid", "text": "last 7 days", "highlight": true },
+          "hold": 2200
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "ac6-mobile",
+      "baseURL": "http://127.0.0.1:7390",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac6",
+          "caption": "AC-6 - mobile-first: usable on a phone",
+          "expectedScreen": "the Power page rendered full-width on a narrow 390px phone viewport with the countdown and large Suspend Now / Keep Awake touch targets",
+          "actions": [ { "type": "waitFor", "selector": "button:Suspend Now" } ],
+          "assert": { "selector": "button:Suspend Now" },
+          "hold": 2000
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "ac3-keepawake",
+      "baseURL": "http://127.0.0.1:7390",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac3",
+          "caption": "AC-3 - Keep Awake pinned for 1 hour",
+          "expectedScreen": "the Keep Awake panel showing an active 'until <time>' pin with a Cancel button, highlighted",
+          "actions": [
+            { "type": "waitFor", "selector": "button:1h" },
+            { "type": "click", "selector": "button:1h" }
+          ],
+          "assert": { "selector": ".keep-active", "text": "until", "highlight": true },
+          "hold": 2000
+        }
+      ]
+    }
+  ]
+}

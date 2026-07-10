@@ -67,3 +67,5 @@
 - 12:31 `GATE` walkthrough S12 (4/4 beats) delivered by wt-s12, frame verified (shell view, sandbox repo).
 - 12:33 `GATE` item 9 -> pass: request contract tests + S7 walkthrough + improver-nightly job + memory hooks verified.
 - 12:36 `GATE` item 6 -> pass: live board probe (403 engine-owned on agent list; needs-attention edit accepted; move-out re-enters, status ok).
+- 12:51 `GATE` mutation (run-level) PASSED: 2031 mutants, covered-score policy-core 34->52, kanban policy 58->70, power-core 71->76, improver 0->65 after 26 committed killers (e9cc256); scope + residue notes in evidence-index.
+- 12:51 `GATE` walkthrough S3 (8/8 beats) delivered: drag->recompile visual, try-it rail, ghost-edit banner (item 17 visual), iPhone viewport. Frame verified.
