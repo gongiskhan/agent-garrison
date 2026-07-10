@@ -191,6 +191,21 @@
     }
   },
   {
+    "id": "power-default",
+    "name": "Power (default)",
+    "repo": "local:fittings/seed/power-default",
+    "localPath": "fittings/seed/power-default",
+    "summary": "Idle watcher that self-suspends the box when nothing is running - evaluates dev-env sessions, kanban cards, presence, SSH, load, and a Keep Awake pin, then suspends the GCE instance after a continuous-clear window. Serves a mobile-first control UI on its own port (default 7090).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-power-default",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "orchestrator",
     "name": "Orchestrator",
     "repo": "local:fittings/seed/orchestrator",
@@ -419,6 +434,20 @@
     "summary": "Garrison-managed ~/.claude config surfaces (commands, agents, hooks, templates, mcp.json, settings fragments), imported from the decommissioned claude-share repo. Synced via `garrison config`.",
     "platforms": [
       "claude-code"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "snapshots-default",
+    "name": "Snapshots",
+    "repo": "local:fittings/seed/snapshots-default",
+    "localPath": "fittings/seed/snapshots-default",
+    "summary": "Off-site, encrypted restic backups of the Garrison state - ~/.garrison, ~/.claude, and the projects root - to a GCS backend, on a systemd user timer independent of Garrison. Restore is manual: the view prints the exact restic restore command.",
+    "platforms": [
+      "all"
     ],
     "ratings": {
       "global": 4.5,
