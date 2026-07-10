@@ -380,6 +380,7 @@ describe("parseLsof (macOS)", () => {
 // read-then-kill. crossSiteBlocked() rejects a non-loopback Host (rebinding) and
 // a cross-site Origin (CSRF) before the handler runs. (Same guard is applied to
 // the power + outpost mutating endpoints.)
+// @ts-ignore — pure .mjs server module (entry-guarded, so importing is side-effect-free)
 import { crossSiteBlocked } from "../fittings/seed/ports-default/scripts/server.mjs";
 
 function fakeReqRes(headers: Record<string, string>) {
