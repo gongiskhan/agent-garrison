@@ -336,6 +336,16 @@ describe("killGuard", () => {
     expect(guard.reason).toBeNull();
   });
 
+  it("PID-reuse defense: a pid absent from the CURRENT listening set is refused", () => {
+    // The handler re-scans immediately before calling the guard, so `latest`
+    // reflects live sockets: a pid that listened at the previous poll but has
+    // since exited (and whose number the kernel may have reused for something
+    // unrelated) is not in the fresh set and must be refused - never signalled.
+    const fresh = new Set([183476]); // 277350 has since exited
+    expect(killGuard(277350, { listeningPids: fresh }).allowed).toBe(false);
+    expect(killGuard(183476, { listeningPids: fresh }).allowed).toBe(true);
+  });
+
   it("accepts an array of listening pids too", () => {
     expect(killGuard(42, { listeningPids: [42, 43] }).allowed).toBe(true);
     expect(killGuard(44, { listeningPids: [42, 43] }).allowed).toBe(false);

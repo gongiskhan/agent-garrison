@@ -264,6 +264,12 @@ async function handleKill(req, res, pid, opts) {
   const body = await readBody(req);
   const signalName = body?.signal === "KILL" ? "KILL" : "TERM";
   const n = Number(pid);
+  // Re-scan RIGHT NOW before the guard: `latest.listeningPids` is up to a full
+  // scan interval (5s) stale, so a listener that has since exited and had its
+  // pid reused by an unrelated process would pass the guard and get signalled
+  // (PID-reuse TOCTOU). A fresh scan shrinks that window to the guard-to-kill
+  // microseconds. Best-effort — a failed scan leaves the last set in place.
+  await runScan().catch(() => {});
   const guard = killGuard(n, {
     selfPid: process.pid,
     parentPid: opts.parentPid,
