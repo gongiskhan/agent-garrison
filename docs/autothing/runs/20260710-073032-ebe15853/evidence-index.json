@@ -298,6 +298,12 @@
    "reason": "codex-unavailable",
    "detail": "OpenAI auth 401 (Missing bearer): no API key in env, ~/.codex, or Vault. Preflight ping failed; the run-level cross-model checkpoint cannot execute. Per autothing-codex-checkpoint: a genuine auth failure is an EXTERNAL blocker recorded degraded, never a silent skip or false clean. The codex-runtime serialization path it would use was independently reviewed + hardened this run (35ce2ee).",
    "at": "2026-07-10T13:10:51Z"
+  },
+  "report": {
+   "status": "degraded",
+   "reason": "no-webhook",
+   "detail": "AUTOTHING_SLACK_WEBHOOK_URL unset; report composed to report-summary.md and printed in place (a missing webhook never fails the run)",
+   "at": "2026-07-10T13:16:08Z"
   }
  }
 }
