@@ -1,0 +1,1 @@
+[{"beat":"ac1","criterionId":"S9-AC1","assert":"agent-sdk-haiku-fast target, authModes complete","result":"pass"},{"beat":"ac2","criterionId":"S9-AC2","assert":"FENCE + consumers grep 0","result":"pass"},{"beat":"ac3","criterionId":"S9-AC3","assert":"claude -p short-flag guard active","result":"pass"}]

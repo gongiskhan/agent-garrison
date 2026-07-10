@@ -117,3 +117,10 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ## DEVIATION (run 20260710-171608-7bf26feb) — claude -p remote-dispatch exception
 - The S9 short-flag guard surfaced a PRE-EXISTING real usage: kanban-loop outpost-dispatch pipes a prompt into `claude -p` on a REMOTE outpost host (no PTY over the exec API). Removing it would break outpost dispatch (out of scope). Recorded as the ONE sanctioned exception, allowlisted in the guard with justification; comment mentions no longer count (line-aware guard). The local capability exclusion stands unchanged.
+
+## GATE S2+S4+S5+S9 (run 20260710-171608-7bf26feb)
+- S2 PASSED (COORD_ATTRIBUTION_OK): review approve after HIGH index-isolation + MEDIUM trailer-spoof fixes (regressions committed); adv-test 111/111 vs real git; design clean after 6 fixes; video 3/3 verified. Fences 02cc9d0/51519b5/233f8df.
+- S4 PASSED (FLOW_GENERIC_OK): review approve (contract F1 fixed); evidence panels 3/3; scratch repo validated; user-scope staleness heals at apm install (recorded). Fence ec83cd7.
+- S5 PASSED (UX_QA_OK): review approve; GATE_KEYS cross-boundary fix; evidence panels 3/3. Fence 9c0d22d.
+- S9 PASSED (RUNTIME_FREEDOM_OK, UI beat folded into S6, e2e retarget deferred to final walk): review approve; key-mask + badge + short-flag fixes; remote-dispatch claude -p exception DEVIATION recorded. Fences 2090809/be767f2/dec1461.
+- codexSliceReview: degraded (codex-unavailable) on all four - recorded, never faked.
