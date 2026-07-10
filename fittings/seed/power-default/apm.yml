@@ -1,0 +1,78 @@
+name: power-default
+version: 0.1.0
+description: Power Fitting for Agent Garrison — an idle watcher that self-suspends the box when nothing is running, with a mobile-first control UI on its own port.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: surfaces
+  cardinality_hint: single
+  own_port: true
+  default_port: 7090
+  component_shape: plugin
+  # DETACHED on purpose: the idle watcher must outlive any single operative. If it
+  # were operative-bound it would stop on `down`, and then the box could never
+  # suspend itself while idle (which is exactly when there is no operative). It
+  # boots with Garrison and survives the orphan sweep + `down`.
+  lifecycle: detached
+  platforms:
+    - claude-code
+  summary: >-
+    Runs an idle watcher that ticks every 30s and evaluates six busy signals (dev-env
+    working sessions, kanban in-flight cards, presence heartbeats, active SSH sessions,
+    1-minute load average, and a Keep Awake pin). When EVERY signal has been continuously
+    clear for idle_minutes (default 30), it self-suspends the GCE instance: logs the
+    request, broadcasts a 10-second warning to connected clients, runs `sync`, then POSTs
+    the Compute Engine suspend call using the metadata-server token (no SDK, no gcloud).
+    Also detects resume (wall-vs-monotonic divergence) and health-probes the other
+    own-port fittings. Serves a mobile-first React UI (default port 7090) with the live
+    countdown, a two-step Suspend Now button, the Keep Awake pin, per-signal live values,
+    and today/7-day awake-hours. NOTE on this box: the default service-account token lacks
+    the compute scope, so the suspend POST returns 403 and the UI surfaces that honestly.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7090
+      description: HTTP port the Power server binds to. Falls back to the next free port when in use (the automations engine live-holds 7090).
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: idle_minutes
+      type: integer
+      default: 30
+      description: Minutes every busy signal must stay continuously clear before the box self-suspends.
+    - key: load_threshold
+      type: number
+      default: 1.0
+      description: 1-minute load average above which the box counts as busy.
+    - key: power_page_url
+      type: string
+      description: Optional external URL that can wake this box (shown in the UI as a copy field; never logged).
+  provides: []
+  consumes: []
+  setup:
+    command: node ui/build.mjs
+    idempotent: true
+    timeout_ms: 60000
+  verify:
+    command: node apm_modules/_local/power-default/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The Power watcher is a DETACHED own-port fitting. Discover it at runtime by reading:
+      ~/.garrison/ui-fittings/power-default.json  → { fittingId, port, url, pid, startedAt }
+    Then `GET <url>/health` to confirm reachability before linking.
+    Endpoints:
+      GET    /health                → { ok, port, pid }
+      GET    /api/state             → busy verdict + per-signal values + countdown +
+                                       awake-hours + config
+      POST   /presence  {source}    → record a presence heartbeat (keeps the box awake
+                                       for idle_minutes); the dev-env / web-channel /
+                                       kanban UIs POST this while the user is active
+      POST   /api/suspend {confirm:true} → fire the manual suspend path (10s warning)
+      POST   /api/keep-awake {hours} → pin awake for 1/4/8h;  DELETE cancels it
+      PUT    /api/config            → update idle_minutes / load_threshold / power_page_url
+      GET    /api/events            → SSE: state ticks + the 10-second suspend warning
+    The box is BUSY if ANY signal blocks; it suspends ONLY after every signal has been
+    continuously clear for idle_minutes. Any evaluation error counts as busy (fail safe).
