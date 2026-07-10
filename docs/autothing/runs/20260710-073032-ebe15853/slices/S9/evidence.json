@@ -21,7 +21,7 @@
     "timestamp": 14.428,
     "assert": { "selector": ".installer-cmd", "text": "GARRISON_TOKEN=", "highlight": true },
     "result": "pass",
-    "note": "Pair-a-new-Mac flow mints a token and surfaces the one-line installer, highlighted: curl -fsSL http://100.64.0.1:3702/install.sh | GARRISON_HOST=... GARRISON_TOKEN=op-tok-ec353e71ed98 GARRISON_MACHINE=loft-mac bash. Token is carried in the installer; the installer is shown and NOT run."
+    "note": "Pair-a-new-Mac flow mints a token and surfaces the one-line installer, highlighted: curl -fsSL http://100.64.0.1:3702/install.sh | GARRISON_HOST=... GARRISON_TOKEN=op-tok-REDACTED GARRISON_MACHINE=loft-mac bash. Token is carried in the installer; the installer is shown and NOT run."
   },
   {
     "beat": "ac4",
