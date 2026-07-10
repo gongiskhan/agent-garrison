@@ -45,6 +45,12 @@ const VOICE_STATUS_FILES = [
 // cards by reaching the kanban-loop Fitting server-to-server (its own port,
 // discovered here — not hardcoded, since findFreePort may bump 7089).
 const KANBAN_STATUS_FILE = path.join(STATUS_ROOT, "kanban-loop.json");
+// Dev-env discovery: the HUD's session switcher lists / creates / commands the
+// real multi-session engine (the dev-env Fitting, FITTING_ID "dev-env" →
+// dev-env.json). The switcher talks to it server-to-server so a browser never
+// needs to cross-origin to 7086 and each session's Claude PTY stays independent
+// (commanding one never interrupts another). Absent = the switcher hides.
+const DEVENV_STATUS_FILE = path.join(STATUS_ROOT, "dev-env.json");
 
 // Reuse the proven "web" channel ring buffer on the gateway — the Jarvis HUD
 // is an alternative front-end to the web channel, not a second concurrent one.
@@ -55,6 +61,7 @@ function parseArgs(argv) {
     port: Number(process.env.JARVIS_PORT || 7092),
     host: process.env.JARVIS_HOST || "127.0.0.1",
     gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
+    devEnvUrl: process.env.GARRISON_DEVENV_URL || "",
     tlsCert: process.env.JARVIS_TLS_CERT || "",
     tlsKey: process.env.JARVIS_TLS_KEY || ""
   };
@@ -63,6 +70,7 @@ function parseArgs(argv) {
     if (a === "--port") out.port = Number(argv[++i]);
     else if (a === "--host") out.host = argv[++i];
     else if (a === "--gateway-url") out.gatewayUrl = argv[++i];
+    else if (a === "--dev-env-url") out.devEnvUrl = argv[++i];
     else if (a === "--tls-cert") out.tlsCert = argv[++i];
     else if (a === "--tls-key") out.tlsKey = argv[++i];
   }
@@ -944,6 +952,126 @@ async function handleChat(req, res, opts) {
   }, payload);
 }
 
+// ── dev-env session switcher ─────────────────────────────────────────────────
+// The HUD's session switcher drives the dev-env Fitting's real multi-session
+// engine (port 7086): list / create / command one session by id, and stream its
+// reply. Server-to-server (loopback, no Origin header) so the browser never
+// cross-origins to dev-env; commanding one session's Claude PTY never interrupts
+// another's (they are independent, tmux-backed node-pty children).
+
+// dev-env base URL: explicit --dev-env-url / env wins, else its status file, else
+// null → the switcher hides (dev-env not stationed). Rediscovered each call so it
+// survives a dev-env restart on a new port.
+function readDevEnvUrl(opts) {
+  if (opts?.devEnvUrl) return opts.devEnvUrl;
+  return readFittingInfo(DEVENV_STATUS_FILE)?.url || null;
+}
+
+// Buffered JSON POST proxy to an arbitrary upstream (dev-env). Mirrors postJson
+// but forwards a caller-built object and carries the upstream status through.
+function proxyJson(res, baseUrl, subpath, method, payload, timeoutMs = 8000) {
+  let target;
+  try { target = new URL(subpath, baseUrl); } catch { jsonRes(res, 502, { error: "bad dev-env target" }); return; }
+  const headers = { Accept: "application/json" };
+  let body;
+  if (payload !== undefined) {
+    body = Buffer.from(JSON.stringify(payload));
+    headers["Content-Type"] = "application/json";
+    headers["Content-Length"] = body.length;
+  }
+  const upstream = http.request(
+    { method, hostname: target.hostname, port: target.port, path: target.pathname + (target.search || ""), headers, timeout: timeoutMs },
+    (up) => {
+      let raw = "";
+      up.on("data", (c) => { raw += c; });
+      up.on("end", () => {
+        res.statusCode = up.statusCode || 502;
+        res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
+        res.end(raw || "{}");
+      });
+    }
+  );
+  upstream.on("error", (err) => { try { jsonRes(res, 502, { error: `dev-env: ${err.message}` }); } catch {} });
+  upstream.on("timeout", () => { try { upstream.destroy(); jsonRes(res, 504, { error: "dev-env timeout" }); } catch {} });
+  if (body !== undefined) upstream.write(body);
+  upstream.end();
+}
+
+// GET /api/dev-sessions → dev-env GET /sessions, annotated with `available` so
+// the HUD knows whether to show the switcher. Any failure degrades to an empty,
+// unavailable list (the panel section simply omits itself).
+async function handleDevSessions(req, res, opts) {
+  const base = readDevEnvUrl(opts);
+  if (!base) { jsonRes(res, 200, { available: false, sessions: [] }); return; }
+  const data = await fetchJson(base, "/sessions", 3000);
+  if (!data || !Array.isArray(data.sessions)) { jsonRes(res, 200, { available: false, sessions: [] }); return; }
+  jsonRes(res, 200, { available: true, sessions: data.sessions });
+}
+
+// POST /api/dev-sessions → dev-env POST /sessions ("start session"). Defaults the
+// project path to the active workspace root when the caller omits it, so "cria
+// uma sessão" from the HUD lands in the project Jarvis is currently following.
+async function handleDevCreate(req, res, opts) {
+  const base = readDevEnvUrl(opts);
+  if (!base) { jsonRes(res, 503, { error: "dev-env not available" }); return; }
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { jsonRes(res, 400, { error: `invalid json: ${err.message}` }); return; }
+  let projectPath = typeof body?.path === "string" && body.path.trim() ? body.path.trim() : "";
+  if (!projectPath) projectPath = (await resolveWorkspaceRoot(opts)).root || "";
+  if (!projectPath) { jsonRes(res, 400, { error: "no project path (workspace root unknown)" }); return; }
+  const payload = {
+    path: projectPath,
+    ...(typeof body?.title === "string" && body.title.trim() ? { title: body.title.trim() } : {}),
+    ...(typeof body?.mode === "string" ? { mode: body.mode } : {}),
+    ...(body?.continue === true ? { continue: true } : {})
+  };
+  proxyJson(res, base, "/sessions", "POST", payload, 20000);
+}
+
+// POST /api/dev-sessions/:id/instruct → dev-env /sessions/:id/instruct. Writes the
+// text into THAT session's Claude PTY (two-phase text+Enter, handled dev-env side).
+async function handleDevInstruct(req, res, opts, sessionId) {
+  const base = readDevEnvUrl(opts);
+  if (!base) { jsonRes(res, 503, { error: "dev-env not available" }); return; }
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { jsonRes(res, 400, { error: `invalid json: ${err.message}` }); return; }
+  const text = typeof body?.text === "string" ? body.text : typeof body?.message === "string" ? body.message : "";
+  if (!text.trim()) { jsonRes(res, 400, { error: "text required" }); return; }
+  const payload = { text, ...(Number.isFinite(body?.delayMs) ? { delayMs: body.delayMs } : {}) };
+  proxyJson(res, base, `/sessions/${encodeURIComponent(sessionId)}/instruct`, "POST", payload, 10000);
+}
+
+// GET /api/dev-sessions/:id/stream → dev-env /sessions/:id/claude/stream (rich SSE:
+// hello / assistant {text} / turn {active} / status). The HUD mirrors the chosen
+// session's live reply from this without touching the orchestrator.
+function handleDevStream(req, res, opts, sessionId) {
+  const base = readDevEnvUrl(opts);
+  if (!base) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    try { res.write(`event: error\ndata: ${JSON.stringify({ message: "dev-env not available" })}\n\n`); } catch {}
+    try { res.end(); } catch {}
+    return;
+  }
+  const target = new URL(`/sessions/${encodeURIComponent(sessionId)}/claude/stream`, base);
+  pipeUpstreamSse(req, res, {
+    method: "GET",
+    hostname: target.hostname,
+    port: target.port,
+    path: target.pathname,
+    headers: { Accept: "text/event-stream" }
+  });
+}
+
+// POST /api/dev-sessions/:id/interrupt → dev-env /sessions/:id/claude/interrupt
+// (ESC into that session's PTY). Lets the HUD stop a runaway session by id.
+function handleDevInterrupt(req, res, opts, sessionId) {
+  const base = readDevEnvUrl(opts);
+  if (!base) { jsonRes(res, 503, { error: "dev-env not available" }); return; }
+  proxyJson(res, base, `/sessions/${encodeURIComponent(sessionId)}/claude/interrupt`, "POST", {}, 5000);
+}
+
 function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
@@ -1067,6 +1195,21 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (kbStart && method === "POST") return handleKanbanStart(res, kbStart[1]);
       if (pathname === "/api/operative" && method === "GET") return handleOperative(res, liveOpts);
       if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
+      // Real multi-session engine (dev-env) — the HUD's session switcher.
+      if (pathname === "/api/dev-sessions" && method === "GET") return handleDevSessions(req, res, liveOpts);
+      if (pathname === "/api/dev-sessions" && method === "POST") return handleDevCreate(req, res, liveOpts);
+      {
+        const m = pathname.match(/^\/api\/dev-sessions\/([^/]+)\/instruct$/);
+        if (m && method === "POST") return handleDevInstruct(req, res, liveOpts, decodeURIComponent(m[1]));
+      }
+      {
+        const m = pathname.match(/^\/api\/dev-sessions\/([^/]+)\/stream$/);
+        if (m && method === "GET") return handleDevStream(req, res, liveOpts, decodeURIComponent(m[1]));
+      }
+      {
+        const m = pathname.match(/^\/api\/dev-sessions\/([^/]+)\/interrupt$/);
+        if (m && method === "POST") return handleDevInterrupt(req, res, liveOpts, decodeURIComponent(m[1]));
+      }
       if (pathname === "/api/worktrees" && method === "GET") {
         // Scope the worktrees list to the active project so it actually
         // populates (the gateway needs a ?project= repo path; without it the

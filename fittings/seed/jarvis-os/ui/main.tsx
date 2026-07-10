@@ -22,6 +22,7 @@ import ReportOverlay from "./ReportOverlay";
 import DiffOverlay from "./DiffOverlay";
 import KanbanOverlay from "./KanbanOverlay";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
+import { parseSessionIntent, type SessionIntent } from "./session-intent";
 import { resolveKanbanCardUrl } from "./deep-link";
 import { classifyStandbyUtterance, isStopPhrase } from "./voice-phrases";
 import { EP_DEFAULTS, graceWindowMs, coerceEpCfg, type EpCfg } from "./endpointing";
@@ -269,6 +270,17 @@ type ProjectState = {
 };
 type SessionRow = { session_id: string; soul: string; status: string; mode?: string };
 type WorktreeRow = { id?: string; branch?: string; title?: string; path?: string };
+// The dev-env Fitting's real, independently-running Claude Code sessions — the
+// ones the switcher lists, creates, and commands by id (see /api/dev-sessions).
+type DevSession = {
+  id: string;
+  title?: string | null;
+  branch?: string | null;
+  projectName?: string | null;
+  projectPath?: string | null;
+  lastStatus?: string;
+  claudePty?: { state?: string; busy?: boolean };
+};
 type OperativeState = {
   gateway: { ok: boolean; mode?: string | null; uptimeMs?: number | null; sessions?: number | null; channels?: number | null };
   voice: { ok: boolean; ready?: boolean };
@@ -325,6 +337,21 @@ function soulIsLive(name: string, sessions: SessionRow[]): boolean {
   return sessions.some((s) => s.soul === name || s.soul === `soul-${name}`);
 }
 
+// The dev-session switcher polls faster than the workspace panel: the whole
+// point is watching sessions run concurrently, so a stale busy dot reads as
+// Jarvis being out of the loop.
+const DEVSESSION_POLL_MS = 4_000;
+
+// Short human label for a dev session (project / branch / title, else a short id).
+function devSessionName(s: DevSession): string {
+  return (s.projectName || s.branch || s.title || s.id.slice(0, 8)) as string;
+}
+// A dev session is actively working if its Claude PTY is busy or its last hook
+// status says so — either way the switcher shows a lit dot (proves concurrency).
+function devSessionWorking(s: DevSession): boolean {
+  return s.lastStatus === "working" || s.claudePty?.busy === true;
+}
+
 // The gateway proxies worktrees to the dev-env Fitting; shapes vary by source
 // (bare array vs {worktrees}/{items}). Normalise defensively — an unknown shape
 // just means the section stays hidden.
@@ -379,6 +406,23 @@ function App() {
   const [project, setProject] = useState<ProjectState | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [worktrees, setWorktrees] = useState<WorktreeRow[]>([]);
+  // Dev-session switcher: the real multi-session engine (dev-env). `activeSessionId`
+  // is the session voice/text commands are routed to; null = the orchestrator
+  // (today's default). Refs shadow both so the voice handler / stream read the
+  // latest without re-wiring finalizeTurn.
+  const [devSessions, setDevSessions] = useState<DevSession[]>([]);
+  const [devAvailable, setDevAvailable] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const devSessionsRef = useRef<DevSession[]>([]);
+  useEffect(() => { devSessionsRef.current = devSessions; }, [devSessions]);
+  const activeSessionRef = useRef<string | null>(null);
+  useEffect(() => { activeSessionRef.current = activeSessionId; }, [activeSessionId]);
+  // The assistant bubble the active session's rich stream replaces in place, and
+  // the latest reply text (for speak-on-complete). Refs so the SSE handlers,
+  // created once per active session, always see the current turn.
+  const sessionBubbleRef = useRef<string | null>(null);
+  const sessionReplyTextRef = useRef<string>("");
+  const awaitingSessionReplyRef = useRef<boolean>(false);
   const [wsOpen, setWsOpen] = useState(true);
   // Operative panel (left flank): runtime health + agents/skills surface.
   const [operative, setOperative] = useState<OperativeState | null>(null);
@@ -569,6 +613,37 @@ function App() {
     const timer = window.setInterval(tick, WORKSPACE_POLL_MS);
     return () => { alive = false; window.clearInterval(timer); };
   }, []);
+
+  // One-shot dev-session refresh — shared by the fast poll and the create/switch
+  // flows (so a freshly-created or newly-busy session shows up without waiting a
+  // full poll interval). Silent on failure; toggles `devAvailable` so the switcher
+  // hides cleanly when dev-env isn't stationed.
+  const refreshDevSessions = useCallback(() => {
+    fetch("/api/dev-sessions")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d || typeof d !== "object") return;
+        if (typeof d.available === "boolean") setDevAvailable(d.available);
+        if (Array.isArray(d.sessions)) setDevSessions(d.sessions);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Dev-session poll: faster than the workspace panel so the busy dots feel live
+  // (a user watching two sessions run needs to SEE both working at once).
+  useEffect(() => {
+    refreshDevSessions();
+    const timer = window.setInterval(refreshDevSessions, DEVSESSION_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [refreshDevSessions]);
+
+  // Clear a stale active session: if the selected one drops off the list (closed
+  // elsewhere), fall back to the orchestrator rather than commanding a dead id.
+  useEffect(() => {
+    if (activeSessionId && devAvailable && !devSessions.some((s) => s.id === activeSessionId)) {
+      setActiveSessionId(null);
+    }
+  }, [devSessions, devAvailable, activeSessionId]);
 
   // One-shot kanban refresh — shared by the poll below and the create-card flow
   // (so a freshly-created card appears without waiting a full poll interval).
@@ -1038,6 +1113,146 @@ function App() {
     endTurnIfDone();
   }, [setMode, enqueueSpeech, pushCallout, endTurnIfDone, refreshKanban]);
 
+  // ── dev-session switcher: command a chosen session without touching others ────
+
+  // Send a turn to ONE dev-env session by id. Unlike `send` (orchestrator SSE),
+  // this writes into that session's Claude PTY via /instruct and lets the active-
+  // session rich stream (below) mirror the reply. The other sessions keep running
+  // untouched — that is the "sem interromper" guarantee.
+  const sendToSession = useCallback(async (sessionId: string, message: string, shownAs?: string) => {
+    const msg = (message || "").trim();
+    if (!msg || sendingRef.current) return;
+    sendingRef.current = true;
+    hasInteractedRef.current = true;
+    stopSpeech();
+    const label = devSessionName(devSessionsRef.current.find((s) => s.id === sessionId) ?? ({ id: sessionId } as DevSession));
+    const bubbleId = genId("a");
+    sessionBubbleRef.current = bubbleId;
+    sessionReplyTextRef.current = "";
+    awaitingSessionReplyRef.current = true;
+    setActivity([]);
+    setTurns((prev) => [
+      ...prev.slice(-6),
+      { id: genId("u"), role: "user", content: shownAs || msg },
+      { id: bubbleId, role: "assistant", content: "" }
+    ]);
+    setMode("working");
+    try {
+      const res = await fetch(`/api/dev-sessions/${encodeURIComponent(sessionId)}/instruct`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: msg })
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        awaitingSessionReplyRef.current = false;
+        setTurns((prev) => prev.map((t) => t.id === bubbleId
+          ? { ...t, role: "error", content: `sessão ${label}: ${d?.error || res.status}` } : t));
+        setMode("error");
+        enqueueSpeech(`Não consegui enviar para a sessão ${label}.`);
+        setTimeout(() => { if (modeRef.current === "error") endTurnIfDone(); }, 2000);
+      } else {
+        // The reply arrives on the active-session stream; refresh the list so the
+        // session's busy dot lights immediately.
+        refreshDevSessions();
+      }
+    } catch (err: any) {
+      awaitingSessionReplyRef.current = false;
+      setTurns((prev) => prev.map((t) => t.id === bubbleId
+        ? { ...t, role: "error", content: `network: ${err?.message || String(err)}` } : t));
+      setMode("error");
+      setTimeout(() => { if (modeRef.current === "error") endTurnIfDone(); }, 2000);
+    } finally {
+      sendingRef.current = false;
+    }
+  }, [stopSpeech, setMode, enqueueSpeech, endTurnIfDone, refreshDevSessions]);
+
+  // Route a turn: to the active dev session when one is selected, else to the
+  // orchestrator (today's default). Every command site (voice, dock, text) goes
+  // through here so "selected session B" means B receives everything.
+  const dispatch = useCallback((message: string, shownAs?: string) => {
+    const sid = activeSessionRef.current;
+    if (sid) return sendToSession(sid, message, shownAs);
+    return send(message, shownAs);
+  }, [send, sendToSession]);
+
+  // Create a new dev-env session (button or voice). Defaults to the active
+  // workspace project (server-side) unless a path is given; selects it on success.
+  const createDevSession = useCallback(async (opts?: { path?: string; title?: string }): Promise<string | null> => {
+    try {
+      const res = await fetch("/api/dev-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(opts || {})
+      });
+      const d = await res.json().catch(() => null);
+      if (res.ok && d?.id) {
+        setActiveSessionId(d.id);
+        refreshDevSessions();
+        enqueueSpeech("Sessão criada. Estás agora nela.");
+        return d.id;
+      }
+      enqueueSpeech(`Não consegui criar a sessão${d?.error ? `: ${d.error}` : ""}.`);
+    } catch {
+      enqueueSpeech("Não consegui criar a sessão.");
+    }
+    return null;
+  }, [enqueueSpeech, refreshDevSessions]);
+
+  // Resolve a spoken query to a session: a 1-based index, else a name fragment
+  // matched against project / branch / title. Returns null on no/ambiguous match.
+  const resolveSession = useCallback((query: string): DevSession | null | "ambiguous" => {
+    const list = devSessionsRef.current;
+    if (!list.length) return null;
+    const q = query.trim().toLowerCase();
+    if (/^\d{1,2}$/.test(q)) return list[Number(q) - 1] ?? null;
+    const hits = list.filter((s) =>
+      [s.projectName, s.branch, s.title].some((f) => typeof f === "string" && f.toLowerCase().includes(q)));
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1) return "ambiguous";
+    return null;
+  }, []);
+
+  // Hybrid fast-path for session voice commands (switch / create / back-to-
+  // orchestrator), mirroring handleKanbanIntent.
+  const handleSessionIntent = useCallback(async (intent: SessionIntent) => {
+    if (intent.kind === "switch-off") {
+      setActiveSessionId(null);
+      enqueueSpeech("De volta ao orquestrador.");
+      endTurnIfDone();
+      return;
+    }
+    if (intent.kind === "create") {
+      // A named project fragment picks an existing session's project dir; anything
+      // else creates in the current workspace (server default).
+      let projectPath: string | undefined;
+      if (intent.project) {
+        const match = resolveSession(intent.project);
+        if (match && match !== "ambiguous" && match.projectPath) projectPath = match.projectPath;
+      }
+      await createDevSession(projectPath ? { path: projectPath } : undefined);
+      endTurnIfDone();
+      return;
+    }
+    // switch
+    const found = resolveSession(intent.query);
+    if (found === "ambiguous") {
+      enqueueSpeech(`Há mais do que uma sessão com "${intent.query}". Sê mais específico.`);
+    } else if (found) {
+      setActiveSessionId(found.id);
+      enqueueSpeech(`Agora na sessão ${devSessionName(found)}.`);
+    } else {
+      enqueueSpeech(`Não encontrei a sessão "${intent.query}".`);
+    }
+    endTurnIfDone();
+  }, [enqueueSpeech, endTurnIfDone, createDevSession, resolveSession]);
+
+  // Click a session row: select it, or deselect (→ orchestrator) if it's already
+  // active. Silent — the visual "ativa" marker is the feedback.
+  const toggleSession = useCallback((id: string) => {
+    setActiveSessionId((cur) => (cur === id ? null : id));
+  }, []);
+
   // The grace window expired with no resumed speech: the turn is real. Commit —
   // pause the VAD, take the eager transcript (usually already resolved; a fresh
   // STT only when the eager one was invalidated) and send.
@@ -1073,7 +1288,7 @@ function App() {
       if (res.kind === "stay-dormant") { endTurnIfDone(); return; }
       console.debug(`[wake] woke by voice — query="${res.query.slice(0, 50)}"`);
       exitStandby(!res.query);
-      if (res.query) void send(res.query);
+      if (res.query) void dispatch(res.query);
       else endTurnIfDone();
       return;
     }
@@ -1088,15 +1303,18 @@ function App() {
     // loop-safety: drop empty / sub-word transcripts (a stray noise blip) —
     // quietly, so ambient noise never spams a callout.
     if (r.transcript && r.transcript.replace(/[^\p{L}\p{N}]+/gu, " ").trim().length >= 2) {
-      // Hybrid fast-path: a recognised kanban command is handled locally; anything
-      // else falls through to the orchestrator as a normal turn.
+      // Hybrid fast-paths, checked before dispatch: a session command (switch /
+      // create / back-to-orchestrator) or a kanban command is handled locally;
+      // anything else is dispatched (active session or orchestrator).
+      const sIntent = parseSessionIntent(r.transcript.trim());
+      if (sIntent) { void handleSessionIntent(sIntent); return; }
       const intent = parseKanbanIntent(r.transcript.trim());
       if (intent) { void handleKanbanIntent(intent); return; }
-      void send(r.transcript);
+      void dispatch(r.transcript);
     } else {
       endTurnIfDone(); // nothing usable → re-arm and keep listening
     }
-  }, [setMode, sttRequest, send, endTurnIfDone, pushCallout, enterStandby, exitStandby, handleKanbanIntent]);
+  }, [setMode, sttRequest, dispatch, endTurnIfDone, pushCallout, enterStandby, exitStandby, handleKanbanIntent, handleSessionIntent]);
 
   // (Re)arm the end-of-turn decision timer.
   const armGraceTimer = useCallback((delayMs: number) => {
@@ -1524,6 +1742,44 @@ function App() {
     return () => { try { es?.close(); } catch {} };
   }, [voiceAvailable, enqueueSpeech, pushCallout]);
 
+  // Active dev-session mirror: while a session is selected, subscribe to its rich
+  // stream (dev-env's screen observer). `assistant {text}` is the FULL current
+  // reply (replace-in-place), `turn {active}` drives the orb + fires speech once
+  // when a command we sent completes. One stream at a time; re-opens on switch.
+  useEffect(() => {
+    if (!activeSessionId) return;
+    let es: EventSource | null = null;
+    try { es = new EventSource(`/api/dev-sessions/${encodeURIComponent(activeSessionId)}/stream`); } catch { return; }
+    const onAssistant = (e: MessageEvent) => {
+      let d: any;
+      try { d = JSON.parse(e.data); } catch { return; }
+      const text = typeof d?.text === "string" ? stripMarkers(d.text) : "";
+      sessionReplyTextRef.current = text;
+      const id = sessionBubbleRef.current;
+      if (id) setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, content: text } : t)));
+    };
+    const onTurn = (e: MessageEvent) => {
+      let d: any;
+      try { d = JSON.parse(e.data); } catch { return; }
+      if (d?.active) { setMode("working"); return; }
+      // Turn went idle. If it's the completion of a command we just sent, speak
+      // the reply once and re-arm; a plain idle (e.g. right after switching) is
+      // silent so we never re-speak a session's stale screen.
+      if (awaitingSessionReplyRef.current) {
+        awaitingSessionReplyRef.current = false;
+        const reply = sessionReplyTextRef.current.trim();
+        setMode("idle");
+        if (reply) { pushCallout("sessão", reply); enqueueSpeech(reply); }
+        else endTurnIfDone();
+      } else {
+        setMode("idle");
+      }
+    };
+    es.addEventListener("assistant", onAssistant as EventListener);
+    es.addEventListener("turn", onTurn as EventListener);
+    return () => { try { es?.close(); } catch {} };
+  }, [activeSessionId, setMode, enqueueSpeech, pushCallout, endTurnIfDone]);
+
   useEffect(() => () => {
     try { void vadRef.current?.destroy(); } catch {}
     try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
@@ -1652,6 +1908,59 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
                     </span>
                   </span>
                 </div>
+                {devAvailable && (
+                  <div className="jarvis-ws-section">
+                    <span className="jarvis-ws-label jarvis-sess-head">
+                      <span>sessões</span>
+                      <button
+                        className="jarvis-sess-new"
+                        onClick={() => void createDevSession()}
+                        title="Criar uma nova sessão Claude no projeto ativo"
+                      >
+                        + nova
+                      </button>
+                    </span>
+                    {activeSessionId ? (
+                      <button
+                        className="jarvis-ws-row jarvis-sess-row is-orchestrator"
+                        onClick={() => setActiveSessionId(null)}
+                        title="Voltar ao orquestrador"
+                      >
+                        <span className="jarvis-op-dot" />
+                        <span className="jarvis-ws-key">↩</span>
+                        <span className="jarvis-ws-text">orquestrador</span>
+                      </button>
+                    ) : (
+                      <span className="jarvis-ws-row is-standby">
+                        <span className="jarvis-op-dot is-ok" />
+                        <span className="jarvis-ws-key">▶</span>
+                        <span className="jarvis-ws-text">orquestrador</span>
+                        <span className="jarvis-ws-when">ativo</span>
+                      </span>
+                    )}
+                    {devSessions.length === 0 ? (
+                      <span className="jarvis-ws-row is-standby">
+                        <span className="jarvis-ws-text jarvis-ws-muted">sem sessões — diz “cria uma sessão”</span>
+                      </span>
+                    ) : devSessions.slice(0, 6).map((s, i) => {
+                      const active = s.id === activeSessionId;
+                      const working = devSessionWorking(s);
+                      return (
+                        <button
+                          key={s.id}
+                          className={`jarvis-ws-row jarvis-sess-row${active ? " is-active" : ""}`}
+                          onClick={() => toggleSession(s.id)}
+                          title={active ? "Sessão ativa — clica para voltar ao orquestrador" : "Falar com esta sessão"}
+                        >
+                          <span className={`jarvis-op-dot${working ? " is-ok" : ""}`} />
+                          <span className="jarvis-ws-key">{i + 1}</span>
+                          <span className="jarvis-ws-text">{devSessionName(s)}</span>
+                          <span className="jarvis-ws-when">{active ? "ativa" : (working ? "working" : (s.lastStatus || ""))}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {(operative.souls.length > 0 || sessions.length > 0) && (
                   <div className="jarvis-ws-section">
                     <span className="jarvis-ws-label">agents</span>
@@ -1878,7 +2187,7 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
           <button
             key={a.label}
             className="jarvis-dock-btn"
-            onClick={() => void send(a.prompt, a.label)}
+            onClick={() => void dispatch(a.prompt, a.label)}
             disabled={mode === "working"}
             title={a.prompt}
           >
