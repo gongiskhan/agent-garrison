@@ -590,12 +590,19 @@ async function handleCreateSession(req, res) {
       EXTERNAL_STATUSES.has(session.lastStatus);
     if (!externalNow) {
       const wantContinue = body.continue === true || body.resume === true;
-      // Start THROUGH the orchestrator (deliverable #3) when asked: resolve the
-      // face + composed mode prompt + model from /api/orchestrator/place and
-      // launch claude with those. Any failure (Garrison down, modes not installed)
-      // falls back cleanly to a bare session.
+      // GARRISON-UNIFY-V1 S7 (D22): the ORCHESTRATED path is the DEFAULT —
+      // every new session carries the composed mode prompt + model from
+      // /api/orchestrator/place. A plain, unorchestrated session remains
+      // available behind ONE explicit action (body.plain === true — the UI
+      // labels it "plain claude, for debugging Garrison itself") and its use
+      // is LOGGED. Any placement failure (Garrison down, modes not installed)
+      // still falls back cleanly to a bare session — Garrison's own failures
+      // must be debuggable from inside dev-env.
       let orchestrated = null;
-      if (body.orchestrated === true || typeof body.mode === "string") {
+      const wantPlain = body.plain === true;
+      if (wantPlain) {
+        console.log(`[dev-env] PLAIN session requested for ${session.worktreePath} (unorchestrated escape hatch, D22) — logged`);
+      } else {
         try {
           const spec = await placeViaOrchestrator({
             channel: "dev-env",
@@ -611,6 +618,9 @@ async function handleCreateSession(req, res) {
           }
         } catch {
           orchestrated = null; // graceful fallback to a bare session
+        }
+        if (!orchestrated) {
+          console.log(`[dev-env] orchestrated placement unavailable for ${session.worktreePath} — bare-session fallback`);
         }
       }
       ensurePty({

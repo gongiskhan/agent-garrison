@@ -1093,7 +1093,7 @@ async function handleStartCard(req, res, opts, id) {
     const all = await loadAllCards(root);
     const projectKey = card.project || "(no-project)";
     const projectCards = all.filter((c) => c.list === card.list && (c.project || "(no-project)") === projectKey);
-    void processBatch({ root, board, listId: card.list, cards: projectCards, batchRunFn: batchGatewayRunFn(gatewayUrl), cap })
+    void processBatch({ root, board, listId: card.list, cards: projectCards, batchRunFn: batchGatewayRunFn(gatewayUrl), cap, cwd: opts.cwd })
       .catch((err) => console.error(`[kanban-loop] start/batch failed for ${id}:`, err?.message || err));
     return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true, batched: true });
   }

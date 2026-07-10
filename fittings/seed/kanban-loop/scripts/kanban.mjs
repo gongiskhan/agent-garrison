@@ -316,7 +316,7 @@ async function tickList(listId) {
   if (list.batched) {
     const batchRunFn = batchGatewayRunFn(gatewayUrl);
     const listCards = cards.filter((c) => c.list === listId);
-    const { outcomes } = await processBatch({ root, board, listId, cards: listCards, batchRunFn, cap });
+    const { outcomes } = await processBatch({ root, board, listId, cards: listCards, batchRunFn, cap, cwd: process.cwd() });
     const projects = new Set(outcomes.map((o) => o.project));
     for (const o of outcomes) {
       console.log(`kanban-loop: [${o.project}] card ${o.id} → ${o.status}${o.to ? " " + o.to : ""}`);

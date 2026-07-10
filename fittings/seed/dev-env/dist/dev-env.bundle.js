@@ -5,7 +5,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -39919,6 +39923,54 @@ function createVoiceClient(base = "") {
   };
 }
 
+// packages/claude-chat/src/sanitize.ts
+var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
+var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
+var ORCH_RE_G = /\[orchestrator-active\]/gi;
+var GLYPH = "[\u273B\u2736\u2737\u2735\u2733\u2732\u2734\u2726\u2727\u274B\u2749\u2217*\xB7\u2022\u273D\u2722\u271C\u271B]";
+var THINKING_SUMMARY_RE = new RegExp(
+  `^\\s*(?:${GLYPH}\\s*)?(?:thinking|thought)(?:\\s+for\\s+\\d+(?:\\.\\d+)?s)?\\s*(?:\u2026|\\.\\.\\.)?\\s*$`,
+  "i"
+);
+var TREE_MARKER_RE = /^\s*[⎿└╰┗├]\s?/;
+var ACTIVITY_CLAUSE_RE = /^(?:thinking for \d+(?:\.\d+)?s|searching for \d+ patterns?|reading \d+ files?|running \d+ (?:shell )?commands?|writing \d+ files?|wrote \d+ files?|editing \d+ files?|edited \d+ files?|fetching \d+ \w+|listing \d+ \w+|creating \d+ \w+)$/i;
+function isActivityLine(trimmed) {
+  if (!trimmed.endsWith("\u2026") && !trimmed.endsWith("...")) return false;
+  const body = trimmed.replace(/(?:…|\.\.\.)\s*$/, "");
+  const segs = body.split(",").map((s) => s.trim()).filter(Boolean);
+  return segs.length > 0 && segs.every((s) => ACTIVITY_CLAUSE_RE.test(s));
+}
+function isNoiseLine(line) {
+  const t = line.trim();
+  if (!t) return false;
+  if (THINKING_SUMMARY_RE.test(t)) return true;
+  if (TREE_MARKER_RE.test(t)) return true;
+  if (isActivityLine(t)) return true;
+  return false;
+}
+function sanitizeAssistantText(raw) {
+  const input = typeof raw === "string" ? raw : "";
+  const meta = {};
+  const routeMatch = ROUTE_RE.exec(input);
+  if (routeMatch) {
+    if (routeMatch[1]?.trim()) meta.route = routeMatch[1].trim();
+    if (routeMatch[2]?.trim()) meta.rule = routeMatch[2].trim();
+    if (routeMatch[3]?.trim()) meta.profile = routeMatch[3].trim();
+  }
+  const hadBadges = routeMatch != null || /\[orchestrator-active\]/i.test(input);
+  const withoutBadges = input.replace(ROUTE_RE_G, " ").replace(ORCH_RE_G, " ");
+  const kept = withoutBadges.split("\n").filter((l) => !isNoiseLine(l));
+  const text = kept.join("\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { text, meta, hadBadges };
+}
+function routeChipLabel(meta) {
+  const route = meta.route;
+  if (!route) return null;
+  const m = /(opus|sonnet|haiku|gpt|codex|gemini)/i.exec(route);
+  if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  return route;
+}
+
 // packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
@@ -40075,18 +40127,25 @@ var THEME_ICONS = [
     ] })
   }
 ];
-function buildSendMeta(context, mode3) {
+function buildSendMeta(context, mode3, autonomous) {
   const hasContext = context !== void 0 && context !== null;
   const hasMode = typeof mode3 === "string" && mode3.trim().length > 0;
-  if (!hasContext && !hasMode) return void 0;
+  const hasAutonomous = autonomous === true;
+  if (!hasContext && !hasMode && !hasAutonomous) return void 0;
   const meta = {};
   if (hasContext) meta.context = context;
   if (hasMode) meta.mode = mode3.trim();
+  if (hasAutonomous) meta.autonomous = true;
   return meta;
 }
-function ClaudeChat({ transport, composerAdornment, title, features, context, mode: mode3, initialMessage }) {
+function ClaudeChat({ transport, composerAdornment, title, features, context, mode: mode3, initialMessage, initialMessageHidden, initialHistory, onTurnComplete }) {
   const feat = features ?? {};
-  const [turns, setTurns] = (0, import_react2.useState)([]);
+  const seededTurns = (0, import_react2.useMemo)(
+    () => (initialHistory ?? []).map((h) => ({ id: nextId(), user: h.user, assistant: h.assistant, streaming: false, hideUser: h.hideUser })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const [turns, setTurns] = (0, import_react2.useState)(seededTurns);
   const [status, setStatus] = (0, import_react2.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
   const [busy, setBusy] = (0, import_react2.useState)(false);
   const [conn, setConn] = (0, import_react2.useState)("reconnecting");
@@ -40095,6 +40154,11 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
   const [input, setInput] = (0, import_react2.useState)("");
   const [commands, setCommands] = (0, import_react2.useState)([]);
   const [menuIdx, setMenuIdx] = (0, import_react2.useState)(0);
+  const [autonomousOn, setAutonomousOn] = (0, import_react2.useState)(false);
+  const autonomousRef = (0, import_react2.useRef)(false);
+  (0, import_react2.useEffect)(() => {
+    autonomousRef.current = autonomousOn;
+  }, [autonomousOn]);
   const scrollRef = (0, import_react2.useRef)(null);
   const pinnedRef = (0, import_react2.useRef)(true);
   const taRef = (0, import_react2.useRef)(null);
@@ -40265,17 +40329,17 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
   const modeRef = (0, import_react2.useRef)(mode3);
   modeRef.current = mode3;
   const send = (0, import_react2.useCallback)(
-    (text) => {
+    (text, opts) => {
       const t = text.trim();
       if (!t) return;
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
       const wire = dir ? `${dir}
 
 ${t}` : t;
-      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true }]);
+      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
       setBusy(true);
       pinnedRef.current = true;
-      const meta = buildSendMeta(contextRef.current, modeRef.current);
+      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : void 0);
       const sendFn = transport.sendMessage;
       const p = meta ? sendFn(wire, meta) : sendFn(wire);
       p.catch(() => {
@@ -40290,7 +40354,7 @@ ${t}` : t;
     const msg = (initialMessage ?? "").trim();
     if (!msg) return;
     kickedRef.current = true;
-    send(msg);
+    send(msg, { hideUser: initialMessageHidden });
   }, [initialMessage]);
   const runCommand = (0, import_react2.useCallback)(
     (line) => {
@@ -40308,9 +40372,10 @@ ${t}` : t;
     [runCommand]
   );
   const copyLast = (0, import_react2.useCallback)(async () => {
-    const last = [...turns].reverse().find((t) => t.assistant.trim());
+    const last = [...turns].reverse().find((t) => sanitizeAssistantText(t.assistant).text.trim());
     if (!last) return;
-    if (await writeClipboard(last.assistant)) {
+    const cleanText = sanitizeAssistantText(last.assistant).text;
+    if (await writeClipboard(cleanText)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     }
@@ -40354,11 +40419,23 @@ ${t}` : t;
     }
     setSpeaking(false);
   }, []);
+  const persistedRef = (0, import_react2.useRef)(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
+  const onTurnCompleteRef = (0, import_react2.useRef)(onTurnComplete);
+  onTurnCompleteRef.current = onTurnComplete;
   const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  (0, import_react2.useEffect)(() => {
+    const cb = onTurnCompleteRef.current;
+    if (!cb || !latestAssistant || latestAssistant.streaming) return;
+    const assistant = latestAssistant.assistant.trim();
+    if (!assistant) return;
+    if (persistedRef.current === latestAssistant.id) return;
+    persistedRef.current = latestAssistant.id;
+    cb({ user: latestAssistant.user, assistant: latestAssistant.assistant });
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
   (0, import_react2.useEffect)(() => {
     if (!readAloud || !voiceUsable || !latestAssistant) return;
     if (latestAssistant.streaming) return;
-    const text = latestAssistant.assistant.trim();
+    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
     void speak(text);
@@ -40522,49 +40599,55 @@ ${t}` : t;
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-scroll", ref: scrollRef, onScroll, onClick: onCodeCopyClick, children: [
       turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
-      turns.map((t) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-turn", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-user", children: t.user }),
-        (t.assistant || t.streaming) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-assistant", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: md.parse(t.assistant || "") } }),
-          t.streaming && t.assistant && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
-          t.streaming && !t.assistant && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-working", role: "status", "aria-live": "polite", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "cc-working-dots", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {}),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {}),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {})
+      turns.map((t) => {
+        const clean = sanitizeAssistantText(t.assistant);
+        const routeLabel = routeChipLabel(clean.meta);
+        const routeTitle = clean.meta.route ? `routed via ${clean.meta.route}${clean.meta.rule ? ` \xB7 rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` \xB7 ${clean.meta.profile} profile` : ""}` : void 0;
+        return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-turn", children: [
+          !t.hideUser && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-user", children: t.user }),
+          (clean.text || t.streaming) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-assistant", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: md.parse(clean.text || "") } }),
+            t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
+            t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-working", role: "status", "aria-live": "polite", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "cc-working-dots", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {}),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {}),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {})
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-label", children: "Working" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
+              workingHint && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-hint", title: workingHint, children: workingHint })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-label", children: "Working" }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
-            workingHint && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-hint", title: workingHint, children: workingHint })
-          ] }),
-          t.assistant.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-msgactions", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-              "button",
-              {
-                type: "button",
-                className: "cc-msgcopy",
-                title: "Copy this response",
-                onClick: () => copyMsg(t.id, t.assistant),
-                children: copiedId === t.id ? "Copied" : "Copy"
-              }
-            ),
-            feat.voice && voiceUsable && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-              "button",
-              {
-                type: "button",
-                className: "cc-speak",
-                title: "Read this response aloud",
-                "aria-label": "Read this response aloud",
-                onClick: () => void speak(t.assistant),
-                children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
-                ] })
-              }
-            )
+            clean.text.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-msgactions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-msgcopy",
+                  title: "Copy this response",
+                  onClick: () => copyMsg(t.id, clean.text),
+                  children: copiedId === t.id ? "Copied" : "Copy"
+                }
+              ),
+              feat.voice && voiceUsable && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-speak",
+                  title: "Read this response aloud",
+                  "aria-label": "Read this response aloud",
+                  onClick: () => void speak(clean.text),
+                  children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                  ] })
+                }
+              ),
+              routeLabel && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-routechip", title: routeTitle, children: routeLabel })
+            ] })
           ] })
-        ] })
-      ] }, t.id)),
+        ] }, t.id);
+      }),
       showRaw && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("pre", { className: "cc-raw", children: screen.join("\n") })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusstrip", title: "Claude Code status line", children: status.rows.length > 0 ? status.rows.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusrow", children: r }, i)) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusrow cc-dim", children: "no status" }) }),
@@ -40676,6 +40759,17 @@ ${t}` : t;
       )) }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-composerrow", children: [
         composerAdornment,
+        feat.autonomous && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          "button",
+          {
+            type: "button",
+            className: `cc-autonomous ${autonomousOn ? "cc-autonomous-on" : ""}`,
+            "aria-pressed": autonomousOn,
+            title: autonomousOn ? "Autonomous ON: this message registers a run card on the board; the reply carries the card link" : "Autonomous OFF: messages run interactively. Turn on to register the work as an autonomous run card",
+            onClick: () => setAutonomousOn((v) => !v),
+            children: "Autonomous"
+          }
+        ),
         feat.voice && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "button",
           {
@@ -41141,7 +41235,7 @@ var MODE_OPTIONS = [
   { value: "joe", label: "Joe \u2014 dev (default)" },
   { value: "gary", label: "Gary \u2014 assistant" },
   { value: "james", label: "James \u2014 product / architect" },
-  { value: "off", label: "Bare session (no orchestrator)" }
+  { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
 ];
 var DEFAULT_MODE = "joe";
 function buildSessionRequest({
@@ -41154,10 +41248,11 @@ function buildSessionRequest({
     body.continue = true;
     return body;
   }
-  if (mode3 && mode3 !== "off") {
-    body.orchestrated = true;
-    body.mode = mode3;
+  if (mode3 === "plain" || mode3 === "off") {
+    body.plain = true;
+    return body;
   }
+  if (mode3) body.mode = mode3;
   return body;
 }
 

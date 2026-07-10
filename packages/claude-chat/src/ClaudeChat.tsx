@@ -183,6 +183,13 @@ export interface ChatFeatures {
   theme?: boolean;
   /** Read-aloud + push-to-talk via the host's same-origin /voice proxy. */
   voice?: boolean;
+  /**
+   * Autonomous toggle (GARRISON-UNIFY-V1 D21) — when pressed, every send
+   * carries meta.autonomous = true (the explicit D8 marker); the gateway
+   * registers significant work as a run card and replies with the card link.
+   * Default OFF; only the web channel opts in.
+   */
+  autonomous?: boolean;
 }
 
 // Model picks. Selecting one submits `/model <id>` into the Claude Code TUI,
@@ -282,6 +289,8 @@ const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }
 export interface ChatSendMeta {
   context?: unknown;
   mode?: string;
+  /** D21/D8: the explicit autonomous marker (the composer toggle). */
+  autonomous?: boolean;
 }
 type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
 
@@ -289,13 +298,15 @@ type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
 // current opaque context/mode, or return undefined when BOTH are absent so a
 // context-unaware transport is invoked with exactly one argument (its previous
 // behavior). Exported for hermetic unit testing of the threading contract.
-export function buildSendMeta(context: unknown, mode: string | undefined): ChatSendMeta | undefined {
+export function buildSendMeta(context: unknown, mode: string | undefined, autonomous?: boolean): ChatSendMeta | undefined {
   const hasContext = context !== undefined && context !== null;
   const hasMode = typeof mode === "string" && mode.trim().length > 0;
-  if (!hasContext && !hasMode) return undefined;
+  const hasAutonomous = autonomous === true;
+  if (!hasContext && !hasMode && !hasAutonomous) return undefined;
   const meta: ChatSendMeta = {};
   if (hasContext) meta.context = context;
   if (hasMode) meta.mode = (mode as string).trim();
+  if (hasAutonomous) meta.autonomous = true;
   return meta;
 }
 
@@ -371,6 +382,11 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [input, setInput] = useState("");
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
+  // D21: the Autonomous toggle (feature-gated; default off). A ref mirrors the
+  // state so the send callback reads the CURRENT value without re-binding.
+  const [autonomousOn, setAutonomousOn] = useState(false);
+  const autonomousRef = useRef(false);
+  useEffect(() => { autonomousRef.current = autonomousOn; }, [autonomousOn]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -589,7 +605,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
       // Pass opaque context/mode as an optional second arg ONLY when present, so
       // a context-unaware transport (createHttpTransport) is called exactly as
       // before. The transport decides whether to read `meta`.
-      const meta = buildSendMeta(contextRef.current, modeRef.current);
+      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : undefined);
       const sendFn = transport.sendMessage as ContextAwareSend;
       const p = meta ? sendFn(wire, meta) : sendFn(wire);
       p.catch(() => {});
@@ -1054,6 +1070,19 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         )}
         <div className="cc-composerrow">
           {composerAdornment}
+          {feat.autonomous && (
+            <button
+              type="button"
+              className={`cc-autonomous ${autonomousOn ? "cc-autonomous-on" : ""}`}
+              aria-pressed={autonomousOn}
+              title={autonomousOn
+                ? "Autonomous ON: this message registers a run card on the board; the reply carries the card link"
+                : "Autonomous OFF: messages run interactively. Turn on to register the work as an autonomous run card"}
+              onClick={() => setAutonomousOn((v) => !v)}
+            >
+              Autonomous
+            </button>
+          )}
           {feat.voice && (
             <button
               type="button"

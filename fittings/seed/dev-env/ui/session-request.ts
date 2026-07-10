@@ -1,10 +1,12 @@
-// Pure request-body builder for the Dev Env "New session" dialog (s3c).
+// Pure request-body builder for the Dev Env "New session" dialog.
 //
-// Kept React-free so it can be unit-tested without a DOM. The dialog's mode
-// dropdown maps to this: a real mode (gary/joe/james) starts the session THROUGH
-// the orchestrator (the server then calls /api/orchestrator/place and launches
-// Claude with the composed mode prompt + model); "off" starts a bare session.
-// `resume` keeps the legacy `claude --continue` path and never goes orchestrated.
+// GARRISON-UNIFY-V1 S7 (D22): the ORCHESTRATED path is the DEFAULT — a new
+// session goes through the orchestrator (the server calls
+// /api/orchestrator/place and launches Claude with the composed mode prompt +
+// model). The one explicit escape hatch is the clearly-labeled PLAIN option
+// ("plain claude, for debugging Garrison itself"), which sends plain:true and
+// is logged server-side. `resume` keeps the legacy `claude --continue` path.
+// Kept React-free so it can be unit-tested without a DOM.
 
 export interface ModeOption {
   value: string;
@@ -17,7 +19,7 @@ export const MODE_OPTIONS: ModeOption[] = [
   { value: "joe", label: "Joe — dev (default)" },
   { value: "gary", label: "Gary — assistant" },
   { value: "james", label: "James — product / architect" },
-  { value: "off", label: "Bare session (no orchestrator)" }
+  { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
 ];
 
 export const DEFAULT_MODE = "joe";
@@ -36,9 +38,14 @@ export function buildSessionRequest({
     body.continue = true;
     return body; // resume is the legacy --continue path; never orchestrated
   }
-  if (mode && mode !== "off") {
-    body.orchestrated = true;
-    body.mode = mode;
+  if (mode === "plain" || mode === "off") {
+    // D22 escape hatch — explicit, labeled, logged server-side. "off" is the
+    // legacy spelling, mapped to the same thing.
+    body.plain = true;
+    return body;
   }
+  // Orchestrated is the DEFAULT: no mode selection still places through the
+  // orchestrator (the server resolves the channel-default face).
+  if (mode) body.mode = mode;
   return body;
 }
