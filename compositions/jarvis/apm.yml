@@ -7,6 +7,7 @@ dependencies:
     - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/jarvis-os
+    - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/trello
@@ -120,6 +121,17 @@ x-garrison:
             bind_host: 127.0.0.1
             orchestrator_mode: true
             model: haiku
+      # Dev Env (own-port 7086) — the real multi-session engine behind the HUD's
+      # session switcher: independent, per-session Claude PTYs the HUD lists,
+      # creates, and commands by id (via /api/dev-sessions). Keyless (consumes
+      # only outpost:any); `up` starts it operative-bound. No tmux on this Mac →
+      # use_tmux:off (direct node-pty; sessions don't survive a dev-env restart).
+      sessions:
+        - id: dev-env
+          config:
+            port: 7086
+            bind_host: 127.0.0.1
+            use_tmux: "off"
       memory:
         - id: knowledge
           config:

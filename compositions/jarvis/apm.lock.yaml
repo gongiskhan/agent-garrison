@@ -1,7 +1,11 @@
 lockfile_version: '1'
-generated_at: '2026-07-08T11:56:20.617403+00:00'
+generated_at: '2026-07-10T14:42:10.683337+00:00'
 apm_version: 0.20.0
 dependencies:
+- repo_url: _local/dev-env
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/dev-env
 - repo_url: _local/garrison-orchestrator
   package_type: apm_package
   deployed_files:

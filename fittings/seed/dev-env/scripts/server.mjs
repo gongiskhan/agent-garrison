@@ -47,7 +47,10 @@ import {
   richStatus,
   keySequence,
   cycleMode,
-  enumerateCommandsCached
+  enumerateCommandsCached,
+  captureLines,
+  isBusy,
+  isPromptReady
 } from "@garrison/claude-pty";
 import {
   aggregateSessions,
@@ -504,6 +507,37 @@ async function handleCreateTerminal(req, res, sessionId) {
   }
 }
 
+// The main Claude TUI is ready to accept a submitted turn: either an empty "❯"
+// prompt (isPromptReady), or an input box present alongside the model/ctx status
+// line (a freshly-spawned session shows a "Try …" placeholder in the box, which
+// isPromptReady treats as non-empty — but the status line only renders once the
+// main TUI is up, never during the boot splash or a trust prompt). Not busy.
+function claudeReady(rec) {
+  try {
+    const handle = mirrorHandle(rec);
+    if (!handle) return false;
+    if (isPromptReady(handle)) return true;
+    if (isBusy(handle)) return false;
+    const lines = captureLines(handle);
+    return lines.some((l) => /❯/.test(l)) &&
+      /(?:Opus|Sonnet|Haiku|Fable)\b[^\n]*ctx/i.test(lines.join("\n"));
+  } catch { return false; }
+}
+
+// Poll the screen until the Claude TUI is ready, up to timeoutMs. Fixes the
+// spawn race where a just-created session's FIRST instruct wrote into a
+// not-yet-ready TUI (boot splash) and was silently lost. A ready session
+// returns on the first poll (~0ms); on timeout we write anyway (never worse
+// than the old fixed-delay behaviour).
+async function waitClaudeReady(rec, timeoutMs = 6000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (claudeReady(rec)) return true;
+    await sleep(150);
+  }
+  return false;
+}
+
 // Send an instruction into the running Claude PTY. The two-phase write
 // (text, pause, "\r") is deliberate: single-chunk text+"\r" can be swallowed
 // as a multiline paste by the Ink TUI, and the pause lets /run's slash-menu
@@ -518,6 +552,9 @@ async function handleInstruct(req, res, sessionId) {
     return jsonRes(res, 409, { error: "no running Claude PTY for this session" });
   }
   try {
+    // Gate on TUI readiness so a fresh session's first command isn't lost to the
+    // boot-splash race (default off via ?wait=0 for callers that manage timing).
+    if (body.waitReady !== false) await waitClaudeReady(rec, Number.isFinite(body.readyTimeoutMs) ? body.readyTimeoutMs : 6000);
     rec.pty.write(text);
     const delayMs = Number.isFinite(body.delayMs) ? Math.max(0, Math.min(5000, body.delayMs)) : 600;
     await sleep(delayMs);
