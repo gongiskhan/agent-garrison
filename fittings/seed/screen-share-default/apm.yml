@@ -1,6 +1,6 @@
 name: screen-share-default
 version: 0.2.0
-description: macOS screenshot capture — ~1fps JPEG polling viewer for phone/remote access. Stand-alone Fitting with own React UI on its own port.
+description: Screen capture (macOS screencapture, Linux scrot/import fallback) — ~1fps JPEG polling viewer for phone/remote access. Stand-alone Fitting with own React UI on its own port.
 target: claude
 type: hybrid
 includes: auto
@@ -48,4 +48,4 @@ x-garrison:
       POST   /start               - begin capture loop
       POST   /stop                - stop capture loop
       GET    /frame               - latest JPEG bytes (Content-Type: image/jpeg) or 404
-    macOS only (uses `screencapture -x`). Screen Recording permission needed for the launching process.
+    macOS uses `screencapture -x` (Screen Recording permission needed for the launching process); Linux falls back to scrot / ImageMagick import when a display exists (headless boxes yield no frames — inherent, not an error).

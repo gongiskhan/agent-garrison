@@ -3,7 +3,8 @@
 //
 // Requires the Garrison dev server to be running at http://127.0.0.1:3000
 
-import { chromium } from "/Users/ggomes/.nvm/versions/node/v22.22.0/lib/node_modules/playwright/index.mjs";
+// Headless-gap fix (S16/E11): resolve playwright from the repo, not a hardcoded Mac nvm path.
+import { chromium } from "playwright";
 
 const BASE = "http://127.0.0.1:3000";
 const POLL_WAIT_MS = 2500; // longer than the 1s session poll, confirm it doesn't come back
