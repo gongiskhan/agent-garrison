@@ -12,5 +12,9 @@ root="${GARRISON_FILEBROWSER_ROOT:-$HOME/.garrison/files}"
 # expand a leading ~
 root="${root/#\~/$HOME}"
 mkdir -p "$root"
+# Seed the shared artifact namespaces (never overwrites anything).
+for ns in documents recordings runs uploads; do
+  mkdir -p "$root/$ns"
+done
 
 echo "file-browser setup ok ($root)"

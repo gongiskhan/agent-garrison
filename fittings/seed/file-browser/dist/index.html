@@ -31,7 +31,13 @@
   #md img { max-width:100%; }
   #img { flex:1; display:flex; align-items:center; justify-content:center; padding:16px; }
   #img img { max-width:100%; max-height:100%; }
-  .empty { color:var(--mute); padding:24px; text-align:center; }
+  .empty { color:var(--mute); padding:24px; text-align:center; font-size:14px; }
+  .actions { display:flex; gap:8px; padding:10px 16px; border-bottom:1px solid var(--rule); }
+  .actions .btn { font-size:12px; min-height:34px; padding:6px 12px; }
+  .empty-root { padding:36px 24px; text-align:center; color:var(--mute); max-width:520px; margin:0 auto; }
+  .empty-root h2 { color:var(--ink); font-size:16px; font-weight:600; margin:0 0 10px; }
+  .empty-root p { font-size:14px; line-height:1.55; margin:0 0 10px; }
+  .empty-root .path { font-family:var(--mono); font-size:12px; color:var(--accent); word-break:break-all; }
   .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:9px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; }
   .toast.show { opacity:1; }
 </style>
@@ -56,12 +62,14 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<input type="file" id="uploadInput" style="display:none" />
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let cwd = "";        // current dir (rel)
 let openFile = null; // {path, kind}
 let showingMd = false;
+let rootAbs = "";    // absolute workspace root, from /api/health
 
 function toast(m) { const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1600); }
 
@@ -79,6 +87,70 @@ function renderCrumbs() {
   }
 }
 
+function actionsRow() {
+  const bar = document.createElement("div"); bar.className = "actions";
+  const nf = document.createElement("button"); nf.type = "button"; nf.className = "btn"; nf.textContent = "New folder"; nf.onclick = newFolder;
+  const up = document.createElement("button"); up.type = "button"; up.className = "btn"; up.textContent = "Upload"; up.onclick = () => $("uploadInput").click();
+  bar.append(nf, up);
+  return bar;
+}
+
+function simpleEmpty() {
+  const d = document.createElement("div"); d.className = "empty"; d.textContent = "Empty folder.";
+  return d;
+}
+
+function rootEmpty() {
+  const d = document.createElement("div"); d.className = "empty-root";
+  const h = document.createElement("h2"); h.textContent = "Operative file workspace";
+  const p1 = document.createElement("p");
+  p1.textContent = "Documents, recordings and run outputs the Operative produces land here, sorted into folders like documents/ and runs/. Nothing has been produced yet.";
+  const rp = document.createElement("p"); rp.className = "path"; rp.textContent = rootAbs || "~/.garrison/files";
+  const p2 = document.createElement("p"); p2.textContent = "Use New folder or Upload above to add your own files.";
+  d.append(h, p1, rp, p2);
+  return d;
+}
+
+async function newFolder() {
+  const name = (prompt("Folder name") || "").trim();
+  if (!name) return;
+  try {
+    const r = await (await fetch("/api/mkdir", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({ path: cwd ? cwd + "/" + name : name }) })).json();
+    if (r.error) throw new Error(r.error);
+    openDir(cwd);
+  } catch (e) { toast("Create failed: " + e.message); }
+}
+
+const TEXT_TYPES = /^(text\/|application\/(json|xml|javascript|x-sh|x-yaml))/;
+const TEXT_EXT = /\.(md|markdown|txt|json|yml|yaml|js|mjs|cjs|ts|tsx|css|html|csv|log|sh|py|toml|xml|svg)$/i;
+function isTextUpload(file) { return TEXT_TYPES.test(file.type || "") || TEXT_EXT.test(file.name); }
+
+$("uploadInput").onchange = async () => {
+  const file = $("uploadInput").files[0];
+  $("uploadInput").value = "";
+  if (!file) return;
+  if (file.size > 2 * 1048576) return toast("Upload failed: file exceeds the 2 MB cap");
+  const rel = cwd ? cwd + "/" + file.name : file.name;
+  try {
+    let body;
+    if (isTextUpload(file)) {
+      body = { path: rel, content: await file.text() };
+    } else {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => reject(new Error("could not read file"));
+        fr.readAsDataURL(file);
+      });
+      body = { path: rel, content: String(dataUrl).split(",")[1] || "", encoding: "base64" };
+    }
+    const r = await (await fetch("/api/file", { method:"PUT", headers:{"content-type":"application/json"}, body: JSON.stringify(body) })).json();
+    if (r.error) throw new Error(r.error);
+    toast("Uploaded " + file.name);
+    openDir(cwd);
+  } catch (e) { toast("Upload failed: " + e.message); }
+};
+
 async function openDir(rel) {
   cwd = rel; openFile = null;
   $("viewer").classList.remove("open");
@@ -88,7 +160,8 @@ async function openDir(rel) {
     const data = await (await fetch("/api/tree?path=" + encodeURIComponent(rel))).json();
     if (data.error) throw new Error(data.error);
     list.innerHTML = "";
-    if (!data.items.length) { list.innerHTML = '<div class="empty">Empty folder.</div>'; return; }
+    list.appendChild(actionsRow());
+    if (!data.items.length) { list.appendChild(rel ? simpleEmpty() : rootEmpty()); return; }
     for (const it of data.items) {
       const row = document.createElement("div"); row.className = "row " + it.type;
       const ic = document.createElement("span"); ic.className = "ic"; ic.textContent = it.type === "dir" ? "▸" : "·";
@@ -154,7 +227,10 @@ $("save").onclick = async () => {
   } catch (e) { toast("Save failed: " + e.message); } finally { $("save").disabled = false; }
 };
 
-openDir("");
+(async () => {
+  try { rootAbs = (await (await fetch("/api/health")).json()).root || ""; } catch { /* header only */ }
+  openDir("");
+})();
 </script>
 </body>
 </html>
