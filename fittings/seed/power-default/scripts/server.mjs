@@ -50,8 +50,8 @@ const SESSIONS_STATE_FILE = path.join(GARRISON, "sessions", "state.json");
 const KANBAN_ROOT = path.join(GARRISON, "kanban-loop");
 
 const FITTING_ID = "power-default";
-const TICK_MS = 30_000;
-const SUSPEND_WARNING_MS = 10_000;
+const TICK_MS = Number(process.env.POWER_TICK_MS || 30_000);
+const SUSPEND_WARNING_MS = Number(process.env.POWER_SUSPEND_WARNING_MS || 10_000);
 const RESUME_GAP_THRESHOLD_MS = 2 * 60 * 1000; // wall-vs-monotonic divergence
 const PRESENCE_RETENTION_MS = 24 * 3600 * 1000; // prune presence records older than a day
 
@@ -270,8 +270,13 @@ async function gatherSignals(now) {
       presenceSignal(runtime.presence, { now, idleMinutes: config.idle_minutes })
     ),
     safeSignal("ssh", "SSH sessions", async () => {
-      const { out } = await runCommand("w", ["-h"], 3000);
-      return sshSignal(parseW(out), { idleMinutes: config.idle_minutes });
+      const r = await runCommand("w", ["-h"], 3000);
+      // FAIL SAFE: a `w` that times out / can't spawn resolves ok:false with
+      // empty output — parsing "" as "no sessions" would let the box suspend
+      // WITH live SSH sessions (rev-s1314 fail-open). An unknown SSH state
+      // counts as busy, exactly as safeSignal treats a throw.
+      if (!r.ok) return { id: "ssh", label: "SSH sessions", blocking: true, value: null, error: r.error || "w unavailable" };
+      return sshSignal(parseW(r.out), { idleMinutes: config.idle_minutes });
     }),
     safeSignal("load", "Load average (1m)", async () => loadSignal(os.loadavg()[0], config.load_threshold)),
     safeSignal("keepAwake", "Keep Awake", async () => keepAwakeSignal(runtime.keepAwake, { now }))
@@ -358,6 +363,25 @@ async function runSuspend(reason) {
     // 2. warn connected clients they have 10 seconds.
     broadcast({ type: "suspend-warning", seconds: SUSPEND_WARNING_MS / 1000, reason });
     await delay(SUSPEND_WARNING_MS);
+    // 2b. The warning is a real CANCEL WINDOW: re-evaluate the busy signals AFTER
+    // the delay. If anything went busy while we warned (a session started, a
+    // heartbeat arrived, someone hit Keep Awake), ABORT — an idle suspend must
+    // never fire over a signal that appeared during its own countdown. The
+    // manual path (reason "manual") is a deliberate confirmed override and is
+    // NOT re-gated. (rev-s1314 blocker: the 10s was not previously a cancel window.)
+    if (reason !== "manual") {
+      const nowChk = Date.now();
+      const recheck = await gatherSignals(nowChk);
+      const { busy } = aggregateSignals(recheck);
+      if (busy) {
+        runtime.lastSignals = recheck;
+        runtime.busy = true;
+        runtime.countdown = { clearSince: null, remainingMs: runtime.config.idle_minutes * 60 * 1000, suspend: false };
+        await appendLog({ kind: "suspend-aborted", reason, why: "busy-signal-appeared-during-warning", signals: recheck.filter((s) => s.blocking || s.error).map((s) => s.id) });
+        broadcast({ type: "suspend-aborted", reason });
+        return; // finally{} resets `suspending` and the countdown
+      }
+    }
     // 3. flush filesystem buffers.
     await runCommand("sync", [], 5000);
     // 4. request the suspend.
