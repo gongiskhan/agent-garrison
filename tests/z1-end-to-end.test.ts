@@ -30,7 +30,9 @@ import { runAction as googleRunAction } from "../fittings/seed/google/scripts/co
 
 const REPO = path.resolve(__dirname, "..");
 const BROWSER_START = path.join(REPO, "fittings", "seed", "browser-default", "scripts", "start.mjs");
-const BROWSER_PORT = 7198;
+// Unique across the test suite - automations-mcp owns 7198, and with strict
+// port binding a collision means one spawn refuses to start (no auto-shift).
+const BROWSER_PORT = 7199;
 const TOKEN = "ya29.SUPER-SECRET-google-access-token-DO-NOT-EVER-LOG-1234567890";
 const DOC_PAGE = "data:text/html,<h1>Q3 Report</h1><p>Revenue up 20%25.</p>";
 
@@ -54,7 +56,11 @@ beforeAll(async () => {
   resetMasterKeyCache();
   await writeVaultSecrets([{ key: "GOOGLE_ACCESS_TOKEN", value: TOKEN }]);
 
-  browser = spawn("node", [BROWSER_START, "--port", String(BROWSER_PORT), "--host", "127.0.0.1"], { stdio: "ignore" });
+  browser = spawn("node", [BROWSER_START, "--port", String(BROWSER_PORT), "--host", "127.0.0.1"], {
+    stdio: "ignore",
+    // Status file goes to the test sandbox, never the live ~/.garrison slot.
+    env: { ...process.env, GARRISON_HOME: path.dirname(vaultPath) }
+  });
   process.env.GARRISON_BROWSER_URL = `http://127.0.0.1:${BROWSER_PORT}`;
   await waitHealthy(process.env.GARRISON_BROWSER_URL, 15000);
 }, 30000);

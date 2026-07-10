@@ -10,7 +10,7 @@
 // operative is raw node-pty, NOT tmux-attachable, so there is no attach path —
 // see the v4 wireframe §4 / the board-ui brief).
 //
-// Scaffolding (findFreePort, status-file registration under
+// Scaffolding (strict configured-port bind, status-file registration under
 // ~/.garrison/ui-fittings/<id>.json, CORS, static dist/ serve, graceful
 // shutdown) follows the dev-env / web-channel own-port precedent. The pure
 // request helpers (buildBoardView, resolveCardLinks, the path-confinement guard,
@@ -61,7 +61,9 @@ import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty"
 const FITTING_ID = "kanban-loop";
 const DEFAULT_PORT = 7089;
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 
 // The working directory Kanban runs operatives in. runDir pointers are
@@ -1468,18 +1470,20 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[kanban-loop] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
   }
-  return null;
 }
 
 async function writeStatusFile(opts) {
@@ -1603,14 +1607,17 @@ export function makeRequestHandler(opts, distDir) {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
-  const free = await findFreePort(opts.port);
-  if (free === null) { console.error(`[kanban-loop] no free port from ${opts.port}`); process.exit(1); }
-  const liveOpts = { ...opts, port: free };
-  if (free !== opts.port) {
-    console.warn(`[kanban-loop] requested port ${opts.port} busy — using ${free}`);
-  }
+  assertStatusSlotFree();
+  const liveOpts = { ...opts };
 
   const server = http.createServer(makeRequestHandler(liveOpts, distDir));
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[kanban-loop] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
 
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {

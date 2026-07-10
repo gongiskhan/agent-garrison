@@ -34,7 +34,7 @@ beforeEach(async () => {
   const shape = shapeForStep({ command: "printf streamed-output" });
   writeFileSync(path.join(dir, "approved-commands.json"), JSON.stringify({ shapes: [shape] }));
   srv = spawn("node", [START], {
-    env: { ...process.env, GARRISON_AUTOMATIONS_DIR: dir, AUTOMATIONS_UI_PORT: String(PORT), AUTOMATIONS_UI_HOST: "127.0.0.1" }
+    env: { ...process.env, GARRISON_HOME: dir, GARRISON_AUTOMATIONS_DIR: dir, AUTOMATIONS_UI_PORT: String(PORT), AUTOMATIONS_UI_HOST: "127.0.0.1" }
   });
   await waitHealthy(8000);
 });

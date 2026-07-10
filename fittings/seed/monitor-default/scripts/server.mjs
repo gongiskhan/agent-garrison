@@ -20,7 +20,9 @@ import { collectVitals } from "./vitals.mjs";
 
 const HOME = os.homedir();
 const LOGS_ROOT = path.join(HOME, ".garrison", "logs");
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
 const SESSIONS_STATE_FILE = path.join(HOME, ".garrison", "sessions", "state.json");
 
@@ -489,18 +491,20 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[monitor] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
   }
-  return null;
 }
 
 async function writeStatusFile(opts) {
@@ -521,15 +525,8 @@ async function clearStatusFile() {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
 
-  const desiredPort = opts.port;
-  let actualPort = desiredPort;
-  const free = await findFreePort(desiredPort);
-  if (free === null) {
-    console.error(`[monitor] no free port found starting from ${desiredPort}`);
-    process.exit(1);
-  }
-  actualPort = free;
-  const liveOpts = { ...opts, port: actualPort };
+  assertStatusSlotFree();
+  const liveOpts = { ...opts };
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -550,9 +547,16 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   });
 
-  server.listen(actualPort, liveOpts.host, async () => {
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[monitor] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
+  server.listen(liveOpts.port, liveOpts.host, async () => {
     await writeStatusFile(liveOpts);
-    console.log(`[monitor] listening on http://${liveOpts.host}:${actualPort} (parent=${liveOpts.parentPid})`);
+    console.log(`[monitor] listening on http://${liveOpts.host}:${liveOpts.port} (parent=${liveOpts.parentPid})`);
   });
 
   // Sample vitals roughly every 5s, off the (default 1 Hz) poll cadence.

@@ -1,4 +1,6 @@
 import path from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeBrowserClient } from "../fittings/seed/automations/lib/browser-client.mjs";
@@ -12,6 +14,8 @@ const REPO = path.resolve(__dirname, "..");
 const START = path.join(REPO, "fittings", "seed", "browser-default", "scripts", "start.mjs");
 const PORT = 7186;
 const BASE = `http://127.0.0.1:${PORT}`;
+// Status file goes to the test sandbox, never the live ~/.garrison slot.
+const GHOME = mkdtempSync(path.join(tmpdir(), "garrison-observe-"));
 
 let srv: ChildProcess | null = null;
 
@@ -25,15 +29,19 @@ async function waitHealthy(ms: number) {
 }
 
 beforeAll(async () => {
-  srv = spawn("node", [START, "--port", String(PORT), "--host", "127.0.0.1"], { stdio: "ignore" });
+  srv = spawn("node", [START, "--port", String(PORT), "--host", "127.0.0.1"], {
+    stdio: "ignore",
+    env: { ...process.env, GARRISON_HOME: GHOME }
+  });
   process.env.GARRISON_BROWSER_URL = BASE;
   await waitHealthy(15000);
-});
+}, 20000);
 
 afterAll(() => {
   if (srv && !srv.killed) srv.kill("SIGTERM");
   srv = null;
   delete process.env.GARRISON_BROWSER_URL;
+  rmSync(GHOME, { recursive: true, force: true });
 });
 
 describe("browser fitting observation (F1)", () => {
@@ -47,9 +55,15 @@ describe("browser fitting observation (F1)", () => {
     ).json();
     const tabId = created.id || created.tabId;
     expect(tabId).toBeTruthy();
-    await new Promise((r) => setTimeout(r, 600));
 
-    const obs = await (await fetch(`${BASE}/tabs/${tabId}/observe?a11y=1`)).json();
+    // Poll until the navigation has committed - a fixed sleep flakes when
+    // several Chromium boots run in parallel under the suite.
+    let obs: any = null;
+    for (let i = 0; i < 40; i++) {
+      obs = await (await fetch(`${BASE}/tabs/${tabId}/observe?a11y=1`)).json();
+      if (typeof obs?.url === "string" && obs.url.includes("Q3 Report")) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
     expect(obs.url).toContain("Q3 Report");
     expect(obs.headingText).toBe("Q3 Report");
     expect(obs.shapeSketch).toContain("button:1");
@@ -68,7 +82,12 @@ describe("browser fitting observation (F1)", () => {
       })
     ).json();
     const tabId = created.id || created.tabId;
-    await new Promise((r) => setTimeout(r, 600));
+    // Poll until the button is rendered - a fixed sleep flakes under suite load.
+    for (let i = 0; i < 40; i++) {
+      const o = await (await fetch(`${BASE}/tabs/${tabId}/observe`)).json();
+      if (typeof o?.shapeSketch === "string" && o.shapeSketch.includes("button:1")) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
 
     const exec = await (
       await fetch(`${BASE}/tabs/${tabId}/execute`, {
@@ -79,8 +98,12 @@ describe("browser fitting observation (F1)", () => {
     ).json();
     expect(exec.ok, JSON.stringify(exec)).toBe(true);
 
-    await new Promise((r) => setTimeout(r, 300));
-    const obs = await (await fetch(`${BASE}/tabs/${tabId}/observe`)).json();
+    let obs: any = null;
+    for (let i = 0; i < 40; i++) {
+      obs = await (await fetch(`${BASE}/tabs/${tabId}/observe`)).json();
+      if (obs?.title === "clicked") break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
     expect(obs.title).toBe("clicked");
   }, 30000);
 
@@ -106,12 +129,22 @@ describe("browser fitting observation (F1)", () => {
   it("automations browser-client navigates, observes, and executes (F2 live)", async () => {
     const client = makeBrowserClient();
     await client.navigate("data:text/html,<h1>Report</h1><button onclick=\"document.title='sent'\">Send</button>");
-    await new Promise((r) => setTimeout(r, 500));
-    const obs = await client.observe();
+    // Poll until rendered - a fixed sleep flakes under suite load.
+    let obs: any = null;
+    for (let i = 0; i < 40; i++) {
+      obs = await client.observe();
+      if (obs?.headingText === "Report") break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
     expect(obs.headingText).toBe("Report");
     expect(obs.shapeSketch).toContain("button:1");
     await client.execute({ kind: "click", text: "Send" });
-    await new Promise((r) => setTimeout(r, 300));
-    expect((await client.observe()).title).toBe("sent");
+    let after: any = null;
+    for (let i = 0; i < 40; i++) {
+      after = await client.observe();
+      if (after?.title === "sent") break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    expect(after.title).toBe("sent");
   }, 30000);
 });

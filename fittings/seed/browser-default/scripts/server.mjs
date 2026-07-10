@@ -7,7 +7,7 @@
 //   - reverse-proxy of Chromium's built-in DevTools at HTTP /devtools/*
 //   - tabs list + canvas page UI at HTTP / and /canvas/:tabId
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -20,7 +20,9 @@ import { WebSocketServer, WebSocket } from "ws";
 import { chromium } from "playwright";
 
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
 
 /** @type {Map<string, TabState>} */
@@ -333,18 +335,37 @@ async function readBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return null; }
 }
 
-async function findFreePort(startPort) {
+// The fitting's own HTTP port is canonical (the Chromium CDP port is
+// OS-assigned via --remote-debugging-port=0). Probe it BEFORE the expensive
+// Chromium launch and refuse to start when it is taken.
+async function assertPortFree(port, host) {
   const net = await import("node:net");
-  for (let port = startPort; port < startPort + 200; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+  const free = await new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, host);
+  });
+  if (!free) {
+    console.error(`[browser] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+    process.exit(1);
   }
-  return null;
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[browser] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
+  }
 }
 
 async function writeStatusFile(opts) {
@@ -399,12 +420,25 @@ async function waitForCdpReady(port, timeoutMs = 15000) {
   throw new Error(`Chromium CDP did not respond on port ${port} within ${timeoutMs}ms`);
 }
 
+// Chromium writes the OS-assigned debugging port into the profile's
+// DevToolsActivePort file. Reading it (instead of pre-probing a port) makes
+// concurrent instances collision-free by construction - each owns its
+// user-data-dir, so no two servers can end up driving the same Chromium.
+async function waitForDevToolsPort(userDataDir, timeoutMs = 15000) {
+  const portFile = path.join(userDataDir, "DevToolsActivePort");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const p = Number(readFileSync(portFile, "utf8").split("\n")[0].trim());
+      if (Number.isInteger(p) && p > 0) return p;
+    } catch { /* not written yet */ }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Chromium did not write ${portFile} within ${timeoutMs}ms`);
+}
+
 async function launchChromium(opts) {
   launchOpts = opts;
-  cdpPort = await findFreePort(9222);
-  if (cdpPort === null) throw new Error("no free CDP port available");
-  cdpHttpEndpoint = `http://127.0.0.1:${cdpPort}`;
-  cdpWsEndpoint = `ws://127.0.0.1:${cdpPort}`;
 
   const exe = resolveFullChromiumBinary();
   // Opt-in PERSISTENT PROFILE: reuse a stable user-data-dir so cookies/consent
@@ -428,7 +462,7 @@ async function launchChromium(opts) {
   // (Playwright uses the same flag in containers). Logged loudly.
   const baseArgs = [
     "--headless=new",
-    `--remote-debugging-port=${cdpPort}`,
+    "--remote-debugging-port=0",
     "--remote-debugging-address=127.0.0.1",
     "--remote-allow-origins=*",
     `--user-data-dir=${userDataDir}`,
@@ -444,6 +478,9 @@ async function launchChromium(opts) {
 
   const launchOnce = (extraArgs) => {
     let sandboxDeath = false;
+    // A stale DevToolsActivePort from a previous run (persistent profile) must
+    // not be read as this launch's port.
+    rmSync(path.join(userDataDir, "DevToolsActivePort"), { force: true });
     const child = spawn(exe, [...baseArgs, ...extraArgs], { stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", () => {});
     child.stderr.on("data", (d) => {
@@ -466,11 +503,13 @@ async function launchChromium(opts) {
 
   // Race CDP readiness against child death, so a sandbox FATAL (immediate)
   // fails fast instead of burning the full CDP timeout before the retry.
-  const readyOrDead = (child) =>
-    Promise.race([
-      waitForCdpReady(cdpPort),
-      new Promise((_, reject) => child.once("exit", () => reject(new Error("chromium exited before CDP became ready"))))
-    ]);
+  const readyOrDead = async (child) => {
+    const dead = new Promise((_, reject) => child.once("exit", () => reject(new Error("chromium exited before CDP became ready"))));
+    cdpPort = await Promise.race([waitForDevToolsPort(userDataDir), dead]);
+    cdpHttpEndpoint = `http://127.0.0.1:${cdpPort}`;
+    cdpWsEndpoint = `ws://127.0.0.1:${cdpPort}`;
+    await Promise.race([waitForCdpReady(cdpPort), dead]);
+  };
 
   let attempt = launchOnce(process.env.GARRISON_BROWSER_NO_SANDBOX === "1" ? ["--no-sandbox"] : []);
   chromiumChild = attempt.child;
@@ -1584,9 +1623,9 @@ function attachRawCdp(ws, tab) {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
-  const free = await findFreePort(opts.port);
-  if (free === null) { console.error(`[browser] no free port from ${opts.port}`); process.exit(1); }
-  const liveOpts = { ...opts, port: free };
+  assertStatusSlotFree();
+  await assertPortFree(opts.port, opts.host);
+  const liveOpts = { ...opts };
 
   await launchChromium(liveOpts);
 
@@ -1714,6 +1753,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     });
   });
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[browser] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      void shutdownChromium().finally(() => process.exit(1));
+      return;
+    }
+    throw err;
+  });
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);

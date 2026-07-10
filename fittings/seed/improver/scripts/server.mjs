@@ -18,7 +18,6 @@
 // scoped, when wired; a recorded marker otherwise). The core never writes owned
 // surfaces directly — only this approved path does.
 
-import { createServer as createNetServer } from "node:net";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -244,21 +243,26 @@ async function serveStatic(req, res, pathname) {
   }
 }
 
-async function findFreePort(preferred) {
-  const tryPort = (port) =>
-    new Promise((resolve) => {
-      const srv = createNetServer();
-      srv.once("error", () => resolve(false));
-      srv.listen(port, "127.0.0.1", () => srv.close(() => resolve(true)));
-    });
-  for (let p = preferred; p < preferred + 50; p++) if (await tryPort(p)) return p;
-  return preferred;
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[improver] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
+  }
 }
 
 export async function startServer(opts = {}) {
   const host = opts.host || process.env.IMPROVER_HOST || "127.0.0.1";
-  const preferred = Number(opts.port || process.env.IMPROVER_PORT || 7088);
-  const port = await findFreePort(preferred);
+  const port = Number(opts.port || process.env.IMPROVER_PORT || 7088);
+  assertStatusSlotFree();
   await mkdir(DATA_DIR, { recursive: true });
 
   const server = http.createServer(async (req, res) => {
@@ -310,6 +314,13 @@ export async function startServer(opts = {}) {
     }
   });
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[improver] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => server.listen(port, host, resolve));
   await writeStatusFile({ port, host });
   process.on("SIGTERM", shutdown);

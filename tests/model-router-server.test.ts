@@ -11,8 +11,11 @@ process.env.MODEL_ROUTER_CONFIG = CONFIG;
 process.env.MODEL_ROUTER_DECISIONS = DECISIONS;
 process.env.GARRISON_HOME = join(dir, "garrison-home");
 
+// Dynamic import: a static import hoists ABOVE the env sandbox lines, so the
+// module would capture the real ~/.garrison as GARRISON_HOME and write/read the
+// live install's status slot.
 // @ts-ignore — pure .mjs server
-import { startServer } from "../fittings/seed/orchestrator/scripts/server.mjs";
+const { startServer } = await import("../fittings/seed/orchestrator/scripts/server.mjs");
 
 let base = "";
 let handle: any;

@@ -6,6 +6,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile, unlink, readFile, readdir } from "node:fs/promises";
 import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, automationsDir } from "../lib/store.mjs";
 import { runAutomation } from "../lib/engine.mjs";
@@ -320,6 +321,22 @@ async function handle(req, res) {
   }
 }
 
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[automations] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
+  }
+}
+
 async function writeStatusFile(port, host) {
   await mkdir(STATUS_ROOT, { recursive: true });
   await writeFile(
@@ -358,26 +375,18 @@ export function createServer() {
   return http.createServer((req, res) => void handle(req, res));
 }
 
-// Bind to the first free port at/after `start` (the runner injects no port, so
-// the default is informational and the fitting self-selects, like kanban-loop).
-async function findFreePort(start, host) {
-  for (let port = start; port < start + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const probe = http.createServer();
-      probe.once("error", () => resolve(false));
-      probe.once("listening", () => probe.close(() => resolve(true)));
-      probe.listen(port, host);
-    });
-    if (free) return port;
-  }
-  return start;
-}
-
 export async function startServer() {
   const host = process.env.AUTOMATIONS_UI_HOST || "127.0.0.1";
-  const desired = Number(process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
-  const port = await findFreePort(desired, host);
+  const port = Number(process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
+  assertStatusSlotFree();
   const server = createServer();
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[automations] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => server.listen(port, host, resolve));
   await writeStatusFile(port, host);
   const shutdown = async () => {

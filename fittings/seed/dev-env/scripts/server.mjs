@@ -85,7 +85,9 @@ const FITTING_ID = "dev-env";
 const DEFAULT_PORT = 7086;
 
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
 const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
@@ -980,18 +982,36 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
+// Fail fast BEFORE the expensive pre-listen work (PTY rehydration): probe the
+// configured port once and refuse to start when it is taken.
+async function assertPortFree(port, host) {
   const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+  const free = await new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, host);
+  });
+  if (!free) {
+    console.error(`[dev-env] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+    process.exit(1);
   }
-  return null;
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[dev-env] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
+  }
 }
 
 async function writeStatusFile(opts) {
@@ -1030,13 +1050,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   setTmuxMode(tmuxOn);
   console.log(`[dev-env] PTY backing: ${tmuxOn ? "tmux (sessions survive restarts)" : "node-pty (direct)"}`);
   console.log(`[dev-env] tab exclusions: ${loadExcludes().length} pattern(s) active`);
-  const free = await findFreePort(opts.port);
-  if (free === null) { console.error(`[dev-env] no free port from ${opts.port}`); process.exit(1); }
-  const liveOpts = { ...opts, port: free };
-  if (free !== DEFAULT_PORT) {
+  assertStatusSlotFree();
+  await assertPortFree(opts.port, opts.host);
+  const liveOpts = { ...opts };
+  if (liveOpts.port !== DEFAULT_PORT) {
     // The installed Claude Code hooks curl the port baked at install time
     // (inherited limitation of the hook contract).
-    console.warn(`[dev-env] live port ${free} differs from default ${DEFAULT_PORT} — installed hooks still POST to the baked port`);
+    console.warn(`[dev-env] configured port ${liveOpts.port} differs from default ${DEFAULT_PORT} - installed hooks still POST to the baked port`);
   }
 
   const server = http.createServer(async (req, res) => {
@@ -1253,6 +1273,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   });
   if (migrated > 0) console.log(`[dev-env] migrated ${migrated} session(s) into the open-set`);
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[dev-env] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);
