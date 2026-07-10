@@ -658,6 +658,24 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
+      // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
+      // same-origin; relay to the Power fitting via its status file. Power
+      // absent → 204 silently (advisory).
+      if (pathname === "/power-heartbeat" && method === "POST") {
+        try {
+          const statusFile = path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "ui-fittings", "power-default.json");
+          const st = JSON.parse(readFileSync(statusFile, "utf8"));
+          const base = st.url || `http://127.0.0.1:${st.port}`;
+          await fetch(`${base}/presence`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ source: "web-channel" }),
+            signal: AbortSignal.timeout(1500)
+          });
+        } catch { /* advisory */ }
+        res.statusCode = 204;
+        return res.end();
+      }
       if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
       if (pathname === "/api/voice/health" && method === "GET") return handleVoiceHealth(res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);

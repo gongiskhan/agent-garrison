@@ -77,6 +77,30 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Auto-collapse sidebar on narrow viewports — at < 720px the 244px sidebar
   // dominates the available content area. Initial state matches the server
   // render (false) and we apply the narrow-viewport collapse in a
+  // Presence heartbeat (GARRISON-UNIFY-V1 S14, D34): POST /api/power/heartbeat
+  // every 60s, ONLY while the page is visible AND has seen user input within
+  // 5 minutes. Self-contained by design (no shared components — composition by
+  // URL); the relay 204s silently when the Power fitting is absent.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let lastInput = Date.now();
+    const markInput = () => { lastInput = Date.now(); };
+    window.addEventListener("pointerdown", markInput, { passive: true });
+    window.addEventListener("keydown", markInput, { passive: true });
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastInput > 5 * 60_000) return;
+      void fetch("/api/power/heartbeat", { method: "POST" }).catch(() => {});
+    };
+    const timer = window.setInterval(beat, 60_000);
+    beat();
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pointerdown", markInput);
+      window.removeEventListener("keydown", markInput);
+    };
+  }, []);
+
   // post-hydration effect to avoid hydration mismatches. Re-evaluated on
   // window resize.
   const NARROW_BREAKPOINT = 720;

@@ -944,6 +944,28 @@ function App() {
     return () => window.clearInterval(t);
   }, [refresh]);
 
+  // Presence heartbeat (GARRISON-UNIFY-V1 S14, D34): POST /power-heartbeat
+  // (same-origin relay to the Power fitting) every 60s, ONLY while visible AND
+  // interacted-with in the last 5 minutes. Self-contained by design.
+  useEffect(() => {
+    let lastInput = Date.now();
+    const markInput = () => { lastInput = Date.now(); };
+    window.addEventListener("pointerdown", markInput, { passive: true });
+    window.addEventListener("keydown", markInput, { passive: true });
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastInput > 5 * 60_000) return;
+      void fetch("/power-heartbeat", { method: "POST" }).catch(() => {});
+    };
+    const t = window.setInterval(beat, 60_000);
+    beat();
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener("pointerdown", markInput);
+      window.removeEventListener("keydown", markInput);
+    };
+  }, []);
+
   // Auto-select: keep the stored selection while it exists; fall back to the
   // first VISIBLE session. The selected session always stays visible even
   // when it fails the active filter, so toggling Show-all off never yanks

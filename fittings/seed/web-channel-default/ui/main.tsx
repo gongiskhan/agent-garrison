@@ -672,6 +672,29 @@ const url = readUrl();
 const threaded = url.thread !== undefined || url.context !== undefined || url.mode !== undefined || url.kickoff !== undefined;
 
 function App() {
+  // Presence heartbeat (GARRISON-UNIFY-V1 S14, D34): POST /power-heartbeat
+  // (same-origin relay to the Power fitting) every 60s, ONLY while visible AND
+  // interacted-with in the last 5 minutes. Unconditional first hook so the
+  // conditional ThreadedApp/ClaudeChat return below cannot skip it.
+  useEffect(() => {
+    let lastInput = Date.now();
+    const markInput = () => { lastInput = Date.now(); };
+    window.addEventListener("pointerdown", markInput, { passive: true });
+    window.addEventListener("keydown", markInput, { passive: true });
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastInput > 5 * 60_000) return;
+      void fetch("/power-heartbeat", { method: "POST" }).catch(() => {});
+    };
+    const t = window.setInterval(beat, 60_000);
+    beat();
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener("pointerdown", markInput);
+      window.removeEventListener("keydown", markInput);
+    };
+  }, []);
+
   if (threaded) return <ThreadedApp url={url} />;
   // Default: the rich operative console (live PTY surface), exactly as before.
   return <ClaudeChat transport={createHttpTransport("/api")} title="Operative" features={{ voice: true, autonomous: true }} />;

@@ -1057,6 +1057,24 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
 
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
+      // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
+      // same-origin; we relay to the Power fitting's own-port server via its
+      // status file. Power absent → 204 silently (advisory).
+      if (pathname === "/power-heartbeat" && method === "POST") {
+        try {
+          const statusFile = path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "ui-fittings", "power-default.json");
+          const st = JSON.parse(readFileSync(statusFile, "utf8"));
+          const base = st.url || `http://127.0.0.1:${st.port}`;
+          await fetch(`${base}/presence`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ source: "dev-env" }),
+            signal: AbortSignal.timeout(1500)
+          });
+        } catch { /* advisory */ }
+        res.statusCode = 204;
+        return res.end();
+      }
       if (pathname === "/sessions" && method === "GET") return handleListSessions(req, res);
       if (pathname === "/sessions" && method === "POST") return await handleCreateSession(req, res);
       if (pathname === "/sessions/cleanup" && method === "POST") return await handleCleanup(req, res);

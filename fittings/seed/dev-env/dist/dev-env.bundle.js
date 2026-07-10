@@ -42400,6 +42400,27 @@ function App() {
     const t = window.setInterval(() => void refresh(), POLL_MS);
     return () => window.clearInterval(t);
   }, [refresh]);
+  (0, import_react7.useEffect)(() => {
+    let lastInput = Date.now();
+    const markInput = () => {
+      lastInput = Date.now();
+    };
+    window.addEventListener("pointerdown", markInput, { passive: true });
+    window.addEventListener("keydown", markInput, { passive: true });
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastInput > 5 * 6e4) return;
+      void fetch("/power-heartbeat", { method: "POST" }).catch(() => {
+      });
+    };
+    const t = window.setInterval(beat, 6e4);
+    beat();
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener("pointerdown", markInput);
+      window.removeEventListener("keydown", markInput);
+    };
+  }, []);
   const selected = sessions.find((s) => s.id === selectedId) ?? null;
   const visibleSessions = sessions.filter(
     (s) => showAll || s.id === selectedId || s.openedInDevEnv === true
