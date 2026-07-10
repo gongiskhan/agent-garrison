@@ -38,7 +38,11 @@ import {
 import { suspendSelf } from "../lib/gcp-suspend.mjs";
 
 const HOME = os.homedir();
-const GARRISON = path.join(HOME, ".garrison");
+// Honor GARRISON_HOME like every other component + the heartbeat relay
+// (src/lib garrisonDir()): hardcoding ~/.garrison put the status file where the
+// relay -- which DOES honor GARRISON_HOME -- couldn't find it, silently breaking
+// the whole heartbeat path in any sandboxed/e2e environment (rev-s1314 S14).
+const GARRISON = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
 const POWER_DIR = path.join(GARRISON, "power");
 const STATUS_ROOT = path.join(GARRISON, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "power-default.json");
