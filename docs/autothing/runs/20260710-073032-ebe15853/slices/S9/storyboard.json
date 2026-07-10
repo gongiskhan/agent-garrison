@@ -8,43 +8,32 @@
     {
       "type": "browser",
       "id": "s9",
-      "baseURL": "http://127.0.0.1:7482",
+      "baseURL": "http://127.0.0.1:7182",
       "startPath": "/",
       "beats": [
         {
           "id": "ac1",
-          "caption": "AC-1 - card: host, ONLINE, version, latency, last seen",
-          "expectedScreen": "the studio-mac card highlighted: green dot + ONLINE, host 100.101.14.32, Agent 0.5.2, a latency in ms, Last seen a few seconds ago",
+          "caption": "AC-1 - card: name, host, ONLINE, latency, last seen",
+          "expectedScreen": "the studio-mac card highlighted: green dot + ONLINE, tailnet host 100.101.14.32, Agent 0.5.2, a Latency in ms, Last seen a few seconds ago",
           "actions": [
             { "type": "waitFor", "selector": ".card", "timeout": 10000 },
             { "type": "click", "selector": ".card:has-text('studio-mac') button:has-text('Ping now')" },
             { "type": "waitFor", "selector": ".card:has-text('studio-mac') .v:has-text('ms')", "timeout": 6000 }
           ],
-          "assert": { "selector": ".card:has-text('studio-mac')", "text": "0.5.2", "highlight": true },
+          "assert": { "selector": ".card:has-text('studio-mac')", "text": "ONLINE", "highlight": true },
           "hold": 2200
         },
         {
           "id": "ac2",
           "caption": "AC-2 - stale heartbeat flips card OFFLINE",
-          "expectedScreen": "the attic-mini card highlighted: red dot + OFFLINE, Last seen 8m ago (heartbeat past the 30s freshness window)",
+          "expectedScreen": "the attic-mini card highlighted: red dot + OFFLINE, Last seen 12m ago (heartbeat past the 30s freshness window)",
           "assert": { "selector": ".card:has-text('attic-mini')", "text": "OFFLINE", "highlight": true },
           "hold": 1800
         },
         {
           "id": "ac3",
-          "caption": "AC-3 - verbs + recent invocation log",
-          "expectedScreen": "the studio-mac card highlighted showing the verb chips (exec.run, fs.read, fs.write, ...) and the invocation-log table with rows and callers (orchestrator, dev-env, kanban-loop)",
-          "actions": [
-            { "type": "click", "selector": ".card:has-text('studio-mac') button:has-text('Show log')" },
-            { "type": "waitFor", "selector": ".card:has-text('studio-mac') .log-table", "timeout": 6000 }
-          ],
-          "assert": { "selector": ".card:has-text('studio-mac')", "text": "orchestrator", "highlight": true },
-          "hold": 2400
-        },
-        {
-          "id": "ac4",
-          "caption": "AC-4 - pairing mints token + one-line installer",
-          "expectedScreen": "the generated one-line installer command highlighted, a curl .../install.sh line carrying GARRISON_TOKEN= and GARRISON_MACHINE=",
+          "caption": "AC-3 - pairing mints token + one-line installer",
+          "expectedScreen": "the generated one-line installer command highlighted, a curl .../install.sh line carrying GARRISON_TOKEN= and GARRISON_MACHINE=loft-mac",
           "actions": [
             { "type": "fill", "selector": "placeholder:machine name", "text": "loft-mac" },
             { "type": "click", "selector": "button:Generate installer" },
@@ -54,15 +43,15 @@
           "hold": 2400
         },
         {
-          "id": "ac5",
-          "caption": "AC-5 - SSH provisioning form: host + user",
-          "expectedScreen": "the SSH provisioning tab with a tailnet-host input, an ssh-user input, and a Provision button (output streams live below); not provisioned",
+          "id": "ac4",
+          "caption": "AC-4 - invocation log entries render on the card",
+          "expectedScreen": "the studio-mac card highlighted showing the invocation-log table (WHEN / VERB / CALLER / MS / RESULT) with rows and callers orchestrator, dev-env, kanban-loop including a red failed row",
           "actions": [
-            { "type": "click", "selector": "button:SSH provisioning" },
-            { "type": "waitFor", "selector": "placeholder:tailnet host or IP", "timeout": 6000 }
+            { "type": "click", "selector": ".card:has-text('studio-mac') button:has-text('Show log')" },
+            { "type": "waitFor", "selector": ".card:has-text('studio-mac') .log-table", "timeout": 6000 }
           ],
-          "assert": { "selector": ".add .tab-body", "text": "Provision", "highlight": true },
-          "hold": 1800
+          "assert": { "selector": ".card:has-text('studio-mac')", "text": "orchestrator", "highlight": true },
+          "hold": 2400
         }
       ]
     }

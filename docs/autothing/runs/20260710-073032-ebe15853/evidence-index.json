@@ -176,11 +176,16 @@
    "title": "Power core",
    "kind": "mixed",
    "status": "in_progress",
-   "note": "walls+commit+signal-demo cast done; review pending",
+   "note": "walls+commit+signal-demo cast+walkthrough 4/4 (busy state, seeded signals, Keep Awake, phone viewport; suspend completion honestly omitted); review rev-s1314 pending",
    "evidence": {
     "cast": "docs/autothing/runs/20260710-073032-ebe15853/slices/S13/evidence.cast"
    },
    "artifacts": [
+    {
+     "file": "slices/S13/evidence.mp4",
+     "videoBytes": 378067,
+     "videoSha256": "62109420bdb48b2dbaff0b7d1ae85b507ccdfff36850ca6fd7a84d42641315d9"
+    },
     {
      "file": "slices/S13/evidence.cast",
      "videoBytes": 1386,

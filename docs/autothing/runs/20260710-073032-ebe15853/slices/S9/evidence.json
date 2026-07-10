@@ -2,41 +2,33 @@
   {
     "beat": "ac1",
     "criterionId": "AC-1",
-    "timestamp": 2.835,
-    "assert": { "selector": ".card:has-text('studio-mac')", "text": "0.5.2", "highlight": true },
+    "timestamp": 2.843,
+    "assert": { "selector": ".card:has-text('studio-mac')", "text": "ONLINE", "highlight": true },
     "result": "pass",
-    "note": "studio-mac card renders name, tailnet host (100.101.14.32), ONLINE state (green dot), latency (10 ms via ping), agent version (0.5.2), last seen (5s ago). Online/latency/version are the live-bridge fields, supplied by the sandbox stand-in host in lieu of the unreachable Mac."
+    "note": "studio-mac card renders name, tailnet host (100.101.14.32), ONLINE state (green dot), latency (12 ms via a live Ping-now RPC), agent version (0.5.2), Last seen (1s ago) and Registered (3d ago). Online/latency are the live-bridge fields, supplied by the sandbox stand-in outpost-host in lieu of an unreachable Mac; heartbeat is computed at request time so the card stays genuinely fresh across the 15s poll."
   },
   {
     "beat": "ac2",
     "criterionId": "AC-2",
-    "timestamp": 7.83,
+    "timestamp": 7.843,
     "assert": { "selector": ".card:has-text('attic-mini')", "text": "OFFLINE", "highlight": true },
     "result": "pass",
-    "note": "attic-mini heartbeat is 8m old (past HEARTBEAT_FRESH_MS=30s); the client's isOnline() flips it to OFFLINE (red dot, controls disabled). Stale timestamp is seeded/sim-controlled."
+    "note": "attic-mini heartbeat is 12m old (past HEARTBEAT_FRESH_MS=30s); the client's isOnline() flips it to OFFLINE (red dot, controls disabled, Latency dash). Stale heartbeat is seeded via a fixed offset in the sandbox registry."
   },
   {
     "beat": "ac3",
     "criterionId": "AC-3",
-    "timestamp": 13.201,
-    "assert": { "selector": ".card:has-text('studio-mac')", "text": "orchestrator", "highlight": true },
+    "timestamp": 14.428,
+    "assert": { "selector": ".installer-cmd", "text": "GARRISON_TOKEN=", "highlight": true },
     "result": "pass",
-    "note": "Verb chips (exec.run, fs.read, fs.write, fs.list, process.spawn, process.send_input, process.resize, process.kill) plus the invocation-log table (WHEN/VERB/CALLER/MS/RESULT) render on the card, including a red failed row (exec.run kanban-loop, RPC timeout). Log read from the seeded ~/.garrison/outposts/log/<day>.jsonl."
+    "note": "Pair-a-new-Mac flow mints a token and surfaces the one-line installer, highlighted: curl -fsSL http://100.64.0.1:3702/install.sh | GARRISON_HOST=... GARRISON_TOKEN=op-tok-ec353e71ed98 GARRISON_MACHINE=loft-mac bash. Token is carried in the installer; the installer is shown and NOT run."
   },
   {
     "beat": "ac4",
     "criterionId": "AC-4",
-    "timestamp": 20.36,
-    "assert": { "selector": ".installer-cmd", "text": "GARRISON_TOKEN=", "highlight": true },
+    "timestamp": 20.407,
+    "assert": { "selector": ".card:has-text('studio-mac')", "text": "orchestrator", "highlight": true },
     "result": "pass",
-    "note": "Pair-a-new-Mac flow mints a token and surfaces the one-line installer: curl -fsSL http://<host>/install.sh | GARRISON_HOST=... GARRISON_TOKEN=... GARRISON_MACHINE=loft-mac bash. Installer shown in the panel; not run."
-  },
-  {
-    "beat": "ac5",
-    "criterionId": "AC-5",
-    "timestamp": 26.301,
-    "assert": { "selector": ".add .tab-body", "text": "Provision", "highlight": true },
-    "result": "pass",
-    "note": "SSH provisioning entry point renders: tailnet-host input, ssh-user input, Provision button, and the 'Output streams live below' hint (streamed-steps area). Not provisioned."
+    "note": "Show-log expands the invocation-log table (WHEN / VERB / CALLER / MS / RESULT) on the studio-mac card with rows across callers orchestrator, dev-env, kanban-loop, including a red failed row (exec.run kanban-loop, 5001 ms, RPC timeout). Log read from the seeded outposts/log/studio-mac.jsonl via the sandbox stand-in host."
   }
 ]
