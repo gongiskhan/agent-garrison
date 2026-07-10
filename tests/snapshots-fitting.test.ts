@@ -106,6 +106,13 @@ describe("excludes.txt", () => {
   it("excludes the Files trash", () => {
     expect(lines.some((l) => l.includes(".garrison/files/.trash"))).toBe(true);
   });
+
+  it("excludes the fitting's own state home (the local repo must never back itself up)", () => {
+    // Regression: without this the local-fallback repo under
+    // ~/.garrison/snapshots/repo entered every snapshot, compounding the
+    // repo size on each nightly run (24G -> 37G across two backups).
+    expect(lines.some((l) => l.includes(".garrison/snapshots"))).toBe(true);
+  });
 });
 
 // Run env.sh in a clean shell and read back the vars it resolved. env.sh is a

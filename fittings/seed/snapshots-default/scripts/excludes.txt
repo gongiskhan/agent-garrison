@@ -2,3 +2,9 @@ node_modules
 apm_modules
 .cache
 **/.garrison/files/.trash
+# The fitting's own state home must NEVER enter the backup set: the local
+# fallback repo lives here, and backing the repo into itself compounds the
+# repo size on every run (24G -> 37G in two snapshots when this was missing).
+# backup.log/state.json are churn, and env holds the repo's own password -
+# circular to restore from the repo it unlocks.
+**/.garrison/snapshots
