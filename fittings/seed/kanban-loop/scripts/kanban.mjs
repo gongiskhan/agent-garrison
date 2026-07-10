@@ -15,6 +15,13 @@ import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards } from "../lib/boa
 import { processCard, processBatch, getList, triggerFor, isInteractive } from "../lib/engine.mjs";
 import { gatewayRunFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
+import { loadPolicy } from "../lib/policy.mjs";
+import {
+  reevaluateWaiting,
+  coordinationConfig,
+  coordinationAvailability,
+  serializeGate
+} from "../lib/coordination.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -277,8 +284,15 @@ async function tick() {
   }
   const root = kanbanRoot();
   const board = await loadBoard(root);
-  const cards = await loadAllCards(root);
   const cap = Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10);
+  // Coordination (GARRISON-FLOW-V2 S1): release any waiting cards whose blocker
+  // reached its release point BEFORE dispatching, then reload so released cards
+  // are seen on their new list this same tick.
+  const cards0 = await loadAllCards(root);
+  await reevaluateWaiting({ root, board, cards: cards0 }).catch(() => {});
+  const cards = await loadAllCards(root);
+  const coordCfg = coordinationConfig(loadPolicy());
+  const degraded = coordCfg.enabled && !coordinationAvailability().ok && coordCfg.serializeWhenUnavailable;
   const runFn = gatewayRunFn(gatewayUrl);
   let processed = 0;
   for (const card of cards) {
@@ -287,6 +301,13 @@ async function tick() {
     if (triggerFor(list) !== "immediate") continue;       // scheduler-beat / manual skip
     if (isInteractive(list)) continue;                    // belt-and-suspenders
     if (card.status === "running" || card.status === "needs-attention") continue;
+    if (card.waitingOn) continue;                         // deferred behind an overlapping run
+    // Serialize gate (D9): coordination enabled but its substrate is unusable —
+    // run only the oldest live card per project until it recovers.
+    if (degraded) {
+      const gate = serializeGate(cards, card, board);
+      if (!gate.allowed) { console.log(`kanban-loop: card ${card.id} → ${gate.reason}`); continue; }
+    }
     const { outcome } = await processCard({ root, board, card, runFn, cap });
     console.log(`kanban-loop: card ${card.id} → ${outcome.status}${outcome.to ? " " + outcome.to : ""}`);
     processed++;
@@ -310,8 +331,13 @@ async function tickList(listId) {
     console.log(`kanban-loop: list '${listId}' is not an agent list — nothing to dispatch.`);
     return;
   }
-  const cards = await loadAllCards(root);
   const cap = Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10);
+  // Release waiting cards first (same as tick), then read fresh.
+  const cards0 = await loadAllCards(root);
+  await reevaluateWaiting({ root, board, cards: cards0 }).catch(() => {});
+  const cards = await loadAllCards(root);
+  const coordCfg = coordinationConfig(loadPolicy());
+  const degraded = coordCfg.enabled && !coordinationAvailability().ok && coordCfg.serializeWhenUnavailable;
 
   if (list.batched) {
     const batchRunFn = batchGatewayRunFn(gatewayUrl);
@@ -330,6 +356,11 @@ async function tickList(listId) {
   for (const card of cards) {
     if (card.list !== listId) continue;
     if (card.status === "running" || card.status === "needs-attention") continue;
+    if (card.waitingOn) continue;                         // deferred behind an overlapping run
+    if (degraded) {
+      const gate = serializeGate(cards, card, board);
+      if (!gate.allowed) { console.log(`kanban-loop: card ${card.id} → ${gate.reason}`); continue; }
+    }
     const { outcome } = await processCard({ root, board, card, runFn, cap });
     console.log(`kanban-loop: card ${card.id} → ${outcome.status}${outcome.to ? " " + outcome.to : ""}`);
     processed++;

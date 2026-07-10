@@ -19,6 +19,20 @@ export interface CardEvent {
   detail?: string | null;
 }
 
+// The wait a card sits under while an earlier overlapping run stabilises/finishes
+// (set by the engine at plan completion; cleared on release or a manual Start
+// override). `until` names the release point the UI shows in the callout.
+export interface WaitingOn {
+  cardId: string;
+  cardTitle?: string | null;
+  grade: string;
+  reason: string;
+  until: string;
+  thenTo?: string;
+  rerun?: boolean;
+  since?: string;
+}
+
 export interface CardSummary {
   id: string;
   title: string;
@@ -47,6 +61,15 @@ export interface CardSummary {
   // Why a card is parked in the needs-attention column, and the list it came from.
   attentionReason: string | null;
   parkedFrom: string | null;
+  // Coordination (GARRISON-FLOW-V2 S1): when this card is deferred behind an
+  // overlapping same-project run, waitingOn names the blocker + why + the release
+  // point; stabilityAt marks its own first-review stability; blocking lists the
+  // cards waiting on THIS one (so a blocker can show "blocks N"). The UI renders a
+  // waiting callout + chips in amber, distinct from the parked red.
+  waitingOn?: WaitingOn | null;
+  stabilityAt?: string | null;
+  planCompletedAt?: string | null;
+  blocking?: string[];
   // ── execution visibility ──────────────────────────────────────────────────
   // A short task description (card front tooltip + operative context); the operative's
   // last reply snippet (what it actually said); the most-recent timeline event + count

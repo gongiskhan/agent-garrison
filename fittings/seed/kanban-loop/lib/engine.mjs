@@ -23,8 +23,17 @@
 // batching preserved as list mechanics (batched + its own beat).
 import path from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog } from "./board.mjs";
+import { saveCard, saveCardCAS, appendCardLog, writeCardLog, loadAllCards } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
+import {
+  coordinationConfig,
+  coordinationAvailability,
+  applyPlanCompletionCoordination,
+  applyBlockerWrite,
+  stabilityFields,
+  removeCardIntents,
+  repoPathForProject
+} from "./coordination.mjs";
 import {
   loadPolicy,
   policyLoadState,
@@ -258,7 +267,7 @@ export function parseNextList(routerOutput, validNext) {
 // next-list ids are injected so the router output can exact-match. D15: the per-list
 // mode line is GONE (mode is the gateway's job); the executing skill is resolved from
 // the compiled policy and named explicitly (the phase-skill binding, D3).
-export function buildCardPrompt({ list, card, validNext, discussionContext = null, skill = null, phase = null }) {
+export function buildCardPrompt({ list, card, validNext, discussionContext = null, skill = null, phase = null, coordinationEnabled = false }) {
   const parts = [];
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
@@ -311,6 +320,24 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
       ""
     );
   }
+  // Coordination (GARRISON-FLOW-V2 Q1): multiple runs may share this project and
+  // branch. The PLAN phase must predict a touch-set so the engine can order
+  // overlapping runs — it is required evidence to advance past Plan. The file is
+  // re-read on each fence, so keep it honest and update it first if the work
+  // needs to grow beyond the prediction.
+  if (coordinationEnabled && phase === "plan" && card.runDir) {
+    parts.push(
+      `COORDINATION: other autonomous runs may be working this same project and branch at the ` +
+        `same time. As part of planning you MUST write a touch-set prediction to ` +
+        `${path.join(card.runDir, "touch-set.json")} — a JSON object of the form ` +
+        `{"version":1,"cardId":"${card.id}","runId":"${card.runId || ""}","project":${JSON.stringify(card.project || null)},` +
+        `"predictedAt":"<ISO>","files":["repo/relative/path.ts"],"dirs":["src/area/"],"surfaces":["config-key or table"],` +
+        `"exclusive":["files that must not be touched concurrently"],"notes":"free text"} listing the repo-relative ` +
+        `files and directory prefixes this run will modify. Be honest and complete; the engine uses it to detect ` +
+        `overlap and order runs, and Plan cannot advance without a valid touch-set.json.`,
+      ""
+    );
+  }
   if (list.executePrompt) parts.push(list.executePrompt, "");
   parts.push(
     // Strict exact-match routing is by design (no fuzzy matching), so the operative
@@ -339,6 +366,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   if (!list || list.kind !== AGENT_KIND) {
     return { card, outcome: { status: "skipped", reason: "not-an-agent-list" } };
+  }
+  // Coordination waiting guard (GARRISON-FLOW-V2 Q4): a card deferred behind an
+  // overlapping run SITS on its list with a waitingOn descriptor — it must not be
+  // dispatched until reevaluateWaiting releases it (or a human Start override
+  // clears the wait). Belt-and-suspenders here in addition to the tick/dispatch
+  // skips, so no path re-dispatches a waiting card.
+  if (card.waitingOn) {
+    return { card, outcome: { status: "waiting", reason: "waiting-on", waitingOn: card.waitingOn } };
   }
   // A human label for the list, used in every event/park message so the timeline reads
   // "Plan", not "plan".
@@ -370,6 +405,17 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const policy = loadPolicy();
   const phase = phaseForList(list);
   const skill = skillForPhase(policy, phase, card.workKind || policy?.defaultWorkKind);
+  // Coordination is ACTIVE when the compiled policy explicitly carries a
+  // `coordination` section (turned on by the composer — S6 — for production; a
+  // policy that predates it, and the deliberate policy-less pure-transition mode,
+  // never coordinate, exactly like the D9 gate-evidence checks), it is enabled
+  // (DEFAULT_COORDINATION fills every sub-key so a present-but-partial section
+  // still works), AND its substrate is usable. When enabled-but-unavailable the
+  // serialize gate (kanban.mjs) restricts to one live card per project instead, so
+  // the plan-completion overlap path is simply skipped here (no concurrent overlap
+  // to order).
+  const coordCfg = coordinationConfig(policy);
+  const coordActive = Boolean(policy && policy.coordination) && coordCfg.enabled && coordinationAvailability().ok;
   // D17 rail fast-forward ON ENTRY: a card sitting on a list whose phase its
   // rail turns OFF advances without dispatching, each skipped phase recorded
   // as an explicit "off" event (rendered off, never a silent pass).
@@ -464,7 +510,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // Fold the Discuss brief (if any) into the prompt so every downstream phase builds
   // from the agreed direction the discussion settled on.
   const discussionContext = readCardBrief(root, runningCard.id);
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, skill, phase });
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, skill, phase, coordinationEnabled: coordActive });
   // Explicit policy-derived classification (phase = taskType, card tier). A
   // missing/unreadable policy degrades to classifier routing (null) — never
   // blocks a card.
@@ -607,6 +653,11 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const expected = validNext.join(", ");
   let target;
   let outcome;
+  // Cross-card coordination writes (blocking-list + events on OTHER cards) are
+  // applied AFTER this card's own CAS save succeeds, so a save conflict doesn't
+  // leave orphaned blocker state.
+  let blockerWrites = [];
+  let terminalIntentRemoval = null;
   if (next) {
     // D17 rail fast-forward AFTER the verdict: if the named next list's phase
     // is OFF for this card's rail, skip forward to the first ON phase,
@@ -624,23 +675,82 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         }));
       }
     }
-    let events = withEvent(runningCard, {
-      at: now(),
-      kind: "routed",
-      message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}${nudged ? " (verdict via follow-up)" : ""}`,
-      detail: snippet || null
-    });
-    for (const ev of offEvents) events = withEvent({ events }, ev);
-    target = {
-      ...runningCard,
-      list: effectiveNext,
-      status: "ok",
-      runningSince: null,
-      lastReply: snippet,
-      lastDispatchError: null,
-      events
-    };
-    outcome = { status: "moved", from: card.list, to: effectiveNext, nudged };
+    // Stability point (Q3): fold the first-clean-review marker into THIS same CAS
+    // write (predicate lives in coordination.stabilityFields; null off the review
+    // seam or when already recorded).
+    const stab = stabilityFields(runningCard, phase, effectiveNext, now);
+    // Plan-completion coordination (Q2/Q4): on plan completion, register the
+    // touch-set and either advance, defer behind an overlapping earlier run
+    // (wait), or park (no valid touch-set). Plan is never batched, so this is the
+    // per-card seam. Skipped off the plan seam or when coordination is inactive.
+    let coord = null;
+    if (coordActive && phase === "plan") {
+      const allCards = await loadAllCards(root);
+      coord = applyPlanCompletionCoordination({ board, card: runningCard, allCards, policy, nextList: effectiveNext, now });
+    }
+    if (coord) blockerWrites = coord.blockerWrites || [];
+
+    if (coord && coord.kind === "park") {
+      target = {
+        ...runningCard,
+        ...parkFields(runningCard, card.list, coord.reason),
+        runningSince: null,
+        lastReply: snippet,
+        lastDispatchError: null,
+        planCompletedAt: coord.planCompletedAt,
+        events: withEvent(runningCard, {
+          at: now(),
+          kind: "parked",
+          message: `Parked from ${listTitle}: no valid touch-set for coordination`,
+          detail: coord.reason
+        })
+      };
+      outcome = { status: "needs-attention", reason: "no-touch-set", validNext };
+    } else if (coord && coord.kind === "wait") {
+      // The card SITS in Plan (gate evidence already written); the deferred move
+      // to thenTo happens on release. No "routed" event — it did not route.
+      let events = runningCard.events ? runningCard.events.slice() : [];
+      for (const ev of coord.selfEvents || []) events = withEvent({ events }, ev);
+      target = {
+        ...runningCard,
+        status: "ok",
+        runningSince: null,
+        lastReply: snippet,
+        lastDispatchError: null,
+        planCompletedAt: coord.planCompletedAt,
+        waitingOn: coord.waitingOn,
+        events
+      };
+      outcome = { status: "waiting", from: card.list, waitingOn: coord.waitingOn };
+    } else {
+      let events = withEvent(runningCard, {
+        at: now(),
+        kind: "routed",
+        message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}${nudged ? " (verdict via follow-up)" : ""}`,
+        detail: snippet || null
+      });
+      for (const ev of offEvents) events = withEvent({ events }, ev);
+      if (stab) events = withEvent({ events }, stab.event);
+      for (const ev of coord?.selfEvents || []) events = withEvent({ events }, ev);
+      target = {
+        ...runningCard,
+        list: effectiveNext,
+        status: "ok",
+        runningSince: null,
+        lastReply: snippet,
+        lastDispatchError: null,
+        ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
+        ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
+        events
+      };
+      outcome = { status: "moved", from: card.list, to: effectiveNext, nudged };
+      // Terminal cleanup (Q1): a card reaching a terminal list drops its ledger
+      // intents so external sessions stop seeing its claims. Applied after save.
+      const landed = getList(board, effectiveNext);
+      if (coordActive && (landed?.terminal || effectiveNext === "done")) {
+        terminalIntentRemoval = { repoPath: repoPathForProject(runningCard.project, board), cardId: runningCard.id };
+      }
+    }
   } else if (gateEvidenceMissing) {
     const geReason = `${listTitle} chose a next step but left NO durable gate evidence for the ${phase} phase under ${runningCard.runDir} (no gates entry in a gate-status.json). Phase progression requires the durable gate record in addition to the verdict (D9) — parked rather than advancing on the operative's word alone. Re-run so the phase skill writes its gate-status entry.`;
     target = {
@@ -708,6 +818,13 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   const res = await saveCardCAS(root, target, runRev, now());
   if (!res.ok) return { card: res.card, outcome: { status: "needs-attention", reason: "conflict-during-run" } };
+  // Cross-card coordination side-writes, only after our own save committed.
+  for (const bw of blockerWrites) {
+    await applyBlockerWrite(root, bw, now);
+  }
+  if (terminalIntentRemoval) {
+    try { removeCardIntents(terminalIntentRemoval); } catch { /* ledger cleanup best-effort */ }
+  }
   return { card: res.card, outcome };
 }
 
@@ -758,6 +875,8 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   }
   const policy = loadPolicy();
   const phase = phaseForList(list);
+  const coordCfg = coordinationConfig(policy);
+  const coordActive = Boolean(policy && policy.coordination) && coordCfg.enabled && coordinationAvailability().ok;
   // Fail SAFE on a CORRUPT policy (rev2-s567 S5#1): a real run whose policy can't
   // be parsed must park, not advance ungated (a null policy skips the D9 check).
   // ABSENT policy stays the deliberate policy-less mode.
@@ -808,21 +927,79 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       }));
     }
   }
-  let events = withEvent(card, {
-    at: now(),
-    kind: "routed",
-    message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext} (in-session)`,
-  });
-  for (const ev of offEvents) events = withEvent({ events }, ev);
-  const res = await saveCardCAS(root, {
-    ...card,
-    list: effectiveNext,
-    status: "ok",
-    runningSince: null,
-    events
-  }, card.rev ?? 0, now());
+  // Stability + plan-completion coordination — the SAME contract as the dispatched
+  // path (processCard), so an in-session run orders against overlapping runs and
+  // marks its stability point identically.
+  const stab = stabilityFields(card, phase, effectiveNext, now);
+  let coord = null;
+  if (coordActive && phase === "plan") {
+    const allCards = await loadAllCards(root);
+    coord = applyPlanCompletionCoordination({ board, card, allCards, policy, nextList: effectiveNext, now });
+  }
+  const blockerWrites = coord?.blockerWrites || [];
+
+  let target;
+  let outcome;
+  let terminalIntentRemoval = null;
+  if (coord && coord.kind === "park") {
+    target = {
+      ...card,
+      ...parkFields(card, card.list, coord.reason),
+      runningSince: null,
+      planCompletedAt: coord.planCompletedAt,
+      events: withEvent(card, {
+        at: now(),
+        kind: "parked",
+        message: `Parked from ${listTitle}: no valid touch-set for coordination (in-session)`,
+        detail: coord.reason
+      })
+    };
+    outcome = { status: "needs-attention", reason: "no-touch-set" };
+  } else if (coord && coord.kind === "wait") {
+    let events = card.events ? card.events.slice() : [];
+    for (const ev of coord.selfEvents || []) events = withEvent({ events }, ev);
+    target = {
+      ...card,
+      status: "ok",
+      runningSince: null,
+      planCompletedAt: coord.planCompletedAt,
+      waitingOn: coord.waitingOn,
+      events
+    };
+    outcome = { status: "waiting", from: card.list, waitingOn: coord.waitingOn };
+  } else {
+    let events = withEvent(card, {
+      at: now(),
+      kind: "routed",
+      message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext} (in-session)`,
+    });
+    for (const ev of offEvents) events = withEvent({ events }, ev);
+    if (stab) events = withEvent({ events }, stab.event);
+    for (const ev of coord?.selfEvents || []) events = withEvent({ events }, ev);
+    target = {
+      ...card,
+      list: effectiveNext,
+      status: "ok",
+      runningSince: null,
+      ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
+      ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
+      events
+    };
+    outcome = { status: "moved", from: card.list, to: effectiveNext };
+    const landed = getList(board, effectiveNext);
+    if (coordActive && (landed?.terminal || effectiveNext === "done")) {
+      terminalIntentRemoval = { repoPath: repoPathForProject(card.project, board), cardId: card.id };
+    }
+  }
+  const res = await saveCardCAS(root, target, card.rev ?? 0, now());
   if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-  return { card: res.card, outcome: { status: "moved", from: card.list, to: effectiveNext } };
+  for (const bw of blockerWrites) {
+    await applyBlockerWrite(root, bw, now);
+  }
+  if (terminalIntentRemoval) {
+    try { removeCardIntents(terminalIntentRemoval); } catch { /* best-effort */ }
+  }
+  return { card: res.card, outcome };
 }
 
 // ── Backlog on-entry inference (FINDING 3) ───────────────────────────────────
@@ -858,6 +1035,7 @@ export function groupCardsByProject(cards, listId) {
   for (const c of cards) {
     if (c.list !== listId) continue;
     if (c.status === "running" || c.status === "needs-attention") continue;
+    if (c.waitingOn) continue; // deferred behind an overlapping run (coordination)
     const key = c.project || "(no-project)";
     (byProject[key] ??= []).push(c);
   }
@@ -1024,6 +1202,10 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         }
         let events = withEvent(a.running, { at: now(), kind: "routed", message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}`, detail: snippet || null });
         for (const ev of offEvents) events = withEvent({ events }, ev);
+        // Stability point (Q3) at the batch seam too — parity across all three
+        // seams (review is not batched today, so this is dormant but correct).
+        const stab = stabilityFields(a.running, phase, effectiveNext, now);
+        if (stab) events = withEvent({ events }, stab.event);
         target = {
           ...a.running,
           list: effectiveNext,
@@ -1031,6 +1213,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           runningSince: null,
           lastReply: snippet,
           lastDispatchError: null,
+          ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
           events
         };
       } else if (gateEvidenceMissing) {

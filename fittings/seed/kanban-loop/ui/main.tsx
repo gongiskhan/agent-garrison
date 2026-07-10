@@ -21,7 +21,8 @@ import {
   type ListConfig,
   type ListConfigPatch,
   type ArtifactRef,
-  type PolicyView
+  type PolicyView,
+  type WaitingOn
 } from "./api";
 import {
   PlayIcon,
@@ -104,6 +105,14 @@ function eventDotClass(kind: string): string {
   return `ev-dot ev-${kind || "generic"}`;
 }
 
+// A short, legible label for the card a wait is blocked on: its title plus the
+// last 6 chars of its id (the id tail keeps it unambiguous when titles repeat).
+function waitingLabel(w: WaitingOn): string {
+  const title = (w.cardTitle || "").trim();
+  const short = (w.cardId || "").slice(-6);
+  return title ? `${title} (${short})` : short || w.cardId;
+}
+
 // ── card front ──────────────────────────────────────────────────────────────
 function Card({
   card,
@@ -165,6 +174,10 @@ function Card({
           : <span className="chip muted" title="no project assigned">no project</span>}
         {inferring && <span className="chip infer" title="inferring the project from the description"><SparkIcon /> inferring project…</span>}
         {parked && <span className="chip attn">needs-attention</span>}
+        {card.waitingOn && <span className="chip waiting" title={card.waitingOn.reason}>waiting</span>}
+        {card.blocking && card.blocking.length > 0 && (
+          <span className="chip" title={`${card.blocking.length} card(s) are waiting on this one`}>blocks {card.blocking.length}</span>
+        )}
         {card.parkedFrom && <span className="chip" title="the list it parked from">from {card.parkedFrom}</span>}
         {list.kind === "agent" && (
           <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
@@ -203,6 +216,14 @@ function Card({
           {card.liveTail
             ? <pre className="run-tail">{card.liveTail}</pre>
             : <div className="run-wait">waiting for the operative’s first output…</div>}
+        </div>
+      )}
+
+      {/* WAITING: deferred behind an overlapping same-project run (amber, distinct
+          from the parked red). Names the blocker, why, and the release point. */}
+      {card.waitingOn && (
+        <div className="state-callout waiting">
+          Waiting on {waitingLabel(card.waitingOn)}: {card.waitingOn.reason} (until {card.waitingOn.until})
         </div>
       )}
 
@@ -686,6 +707,11 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       )}
       {parked && card.attentionReason && (
         <div className="state-callout parked">{card.attentionReason}</div>
+      )}
+      {card.waitingOn && (
+        <div className="state-callout waiting">
+          Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {card.waitingOn.reason} (until {card.waitingOn.until})
+        </div>
       )}
 
       {card.description && card.description.trim() && (

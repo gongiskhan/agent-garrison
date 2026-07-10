@@ -54,6 +54,12 @@ import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn } from "../lib/gateway-client.mjs";
 import { inferProject } from "../lib/infer-project.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
+import {
+  readTouchSet,
+  coordinationConfig,
+  coordinationAvailability,
+  serializeGate
+} from "../lib/coordination.mjs";
 import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
@@ -139,6 +145,15 @@ export function cardSummary(card) {
     // the gateway). The UI renders a clear badge + Retry button when this is
     // non-null. A successful dispatch clears it back to null.
     lastDispatchError: card.lastDispatchError ?? null,
+    // Coordination (GARRISON-FLOW-V2 S1): when this card is deferred behind an
+    // overlapping same-project run, waitingOn carries the blocker + why + until;
+    // stabilityAt marks its own first-review stability point; planCompletedAt is
+    // the total-order key; blocking lists the cards waiting on THIS one. The UI
+    // renders a waiting callout + chips (amber, distinct from the parked red).
+    waitingOn: card.waitingOn ?? null,
+    stabilityAt: card.stabilityAt ?? null,
+    planCompletedAt: card.planCompletedAt ?? null,
+    blocking: Array.isArray(card.blocking) ? card.blocking : [],
     // Why a card is parked + where it came from (set by the engine when it moves a
     // card to the needs-attention column). The UI shows the reason on the card.
     attentionReason: card.attentionReason ?? null,
@@ -585,6 +600,22 @@ export function shouldAutoDispatch(board, listId) {
   return !!l && l.kind === "agent" && !isInteractive(l) && triggerFor(l) === "immediate";
 }
 
+// Is a card LIVE — occupying its project's serialize slot / counting as an overlap
+// candidate? Mirrors coordination.mjs's isLiveCard (which is module-private there):
+// a card is live when it is running, waiting behind another card, or has a minted
+// runDir on a non-terminal list. Kept byte-aligned with that predicate so the
+// board's create-time provisional check agrees with the engine's overlap scan.
+function isCardLive(board, c) {
+  if (!c) return false;
+  if (c.waitingOn) return true;
+  if (c.status === "running") return true;
+  if (c.runDir) {
+    const list = getList(board, c.list);
+    if (!(list && (list.terminal || c.list === "done"))) return true;
+  }
+  return false;
+}
+
 // Is the gateway actually up? PING it before dispatching so a Move/Start while no
 // operative is running LEAVES the card on its list to wait — instead of firing a
 // doomed run that processCard would convert into a needs-attention park. Any HTTP
@@ -787,6 +818,40 @@ async function handleCreateCard(req, res, opts) {
     origin: typeof body.origin === "string" ? body.origin : null,
     outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null
   });
+  // Coordination (GARRISON-FLOW-V2 S1, Q2 point 1): when coordination is active and
+  // this project already has other LIVE cards, record an honest provisional note.
+  // A fresh card has no touch-set yet (its runDir is minted on first plan dispatch),
+  // so the real overlap is only computed when its Plan completes and writes
+  // touch-set.json — until then we do NOT guess, we just flag the contention.
+  if (card.project) {
+    try {
+      const policy = loadPolicy();
+      const coord = coordinationConfig(policy);
+      if (coord.enabled && policy?.coordination) {
+        const board = await loadBoard(opts.root);
+        const all = await loadAllCards(opts.root);
+        const livePeers = all.filter(
+          (c) => c.id !== card.id && (c.project || null) === (card.project || null) && isCardLive(board, c)
+        );
+        if (livePeers.length > 0 && !readTouchSet(card.runDir)) {
+          const updated = await updateCard(opts.root, card.id, (c) => ({
+            ...c,
+            events: withEvent(c, {
+              at: new Date().toISOString(),
+              kind: "coordination",
+              message:
+                `Provisional - ${livePeers.length} other live card(s) on ${card.project}; ` +
+                `overlap computed when Plan completes and writes its touch-set`
+            })
+          }));
+          if (updated) Object.assign(card, updated);
+        }
+      }
+    } catch (err) {
+      // Provisional coordination is best-effort visibility — never fail a create over it.
+      console.error(`[kanban-loop] provisional coordination for ${card.id}:`, err?.message || err);
+    }
+  }
   // Visible project inference for a no-project card — fire-and-forget so create returns
   // at once; the events land on the card and surface on the next board poll.
   if (!card.project) {
@@ -911,6 +976,27 @@ async function handlePatchCard(req, res, opts, id) {
   // auto-dispatch, matching the doorway's intent + engine.mjs's own claim (rev2-s567 S5-2).
   const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !isEngineRequest(req);
   if (autoDispatch && opts.gatewayUrl) {
+    // Coordination (GARRISON-FLOW-V2 S1) gates, applied the same way the tick does
+    // before dispatching: a card deferred behind an overlapping run does NOT
+    // auto-dispatch on move; and when coordination's substrate is degraded, the
+    // serialize gate lets only the oldest live card per project proceed. Both leave
+    // the card on its (already-moved) list, to be released/retried by a later tick.
+    if (result.card.waitingOn) {
+      const w = result.card.waitingOn;
+      return jsonRes(res, 200, {
+        card: cardSummary(result.card),
+        dispatched: false,
+        note: `waiting on ${w.cardTitle || w.cardId} (${w.until}) — will dispatch when released`
+      });
+    }
+    const coordCfg = coordinationConfig(loadPolicy());
+    if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
+      const allCards = await loadAllCards(root);
+      const gate = serializeGate(allCards, result.card, board);
+      if (!gate.allowed) {
+        return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: false, note: gate.reason });
+      }
+    }
     if (await gatewayReachable(opts.gatewayUrl)) {
       // processChain runs the AUTOMATED FLOW: this list, then the next immediate
       // agent list, and so on (Plan → Implement → Review → …) without waiting for a
@@ -1050,6 +1136,25 @@ async function handleStartCard(req, res, opts, id) {
   const list = getList(board, card.list);
   if (!list) return jsonRes(res, 400, { error: `card on unknown list: ${card.list}` });
 
+  // Coordination override (GARRISON-FLOW-V2 S1, Q4): a manual Start on a card that
+  // is WAITING behind an overlapping run is a DELIBERATE escape hatch. Clear the
+  // wait (recording it honestly on the timeline) before dispatching — there is no
+  // separate override endpoint; the button press IS the override.
+  if (card.waitingOn) {
+    const w = card.waitingOn;
+    const cleared = await updateCard(root, id, (c) => (c.waitingOn ? ({
+      ...c,
+      waitingOn: null,
+      events: withEvent(c, {
+        at: new Date().toISOString(),
+        kind: "coordination",
+        message: `Wait overridden manually (was waiting on ${w.cardTitle || w.cardId})`,
+        detail: w.reason || null
+      })
+    }) : null));
+    if (cleared) { card = cleared; card.id = id; }
+  }
+
   // An INTERACTIVE list (Discuss) advances ONLY by a manual Move (PATCH) — never
   // by Start/Advance (brief decision 8: the advance is manual). Reject it here so
   // a Start cannot skip the brief-to-disk hand-off.
@@ -1091,6 +1196,18 @@ async function handleStartCard(req, res, opts, id) {
   const gatewayUrl = opts.gatewayUrl;
   if (!gatewayUrl || !(await gatewayReachable(gatewayUrl))) {
     return jsonRes(res, 503, { error: "gateway not reachable — start an operative (composition up) before dispatching an agent list" });
+  }
+  // Coordination serialize gate (GARRISON-FLOW-V2 S1, Q8): when coordination is
+  // enabled but its substrate is degraded, only the oldest live card per project may
+  // dispatch — the same choke the tick applies. A waiting card already had its wait
+  // cleared above (Start is the override), so this only guards the degraded fallback.
+  {
+    const coordCfg = coordinationConfig(loadPolicy());
+    if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
+      const allCards = await loadAllCards(root);
+      const gate = serializeGate(allCards, card, board);
+      if (!gate.allowed) return jsonRes(res, 409, { error: gate.reason, card: cardSummary(card) });
+    }
   }
   const cap = opts.cap;
 

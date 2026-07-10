@@ -112,6 +112,19 @@ export async function createCard(root, { title, description = "", project = null
     sessionIds: [],     // Claude Code transcript ids for each run (pointers)
     briefPath: null,    // James-mode brief produced in Discuss (under briefs_path)
     videoUrl: null,     // walkthrough gallery link (set by the Walkthrough list)
+    // ── coordination fields (GARRISON-FLOW-V2 S1, Q4) ──────────────────────
+    // Same-branch multi-run coordination. waitingOn holds the wait descriptor
+    // when the engine defers a plan-completed card behind an overlapping run
+    // (the card SITS in Plan, gate evidence already written, until the blocker
+    // reaches its release point); stabilityAt marks the card's first-review
+    // stability point (overlapping medium waiters may start); planCompletedAt
+    // is the total-order key for ordering overlapping runs; blocking is the
+    // best-effort list of cards waiting on THIS card (UI convenience). New
+    // keys, so a pre-coordination card simply reads them as undefined.
+    waitingOn: null,
+    stabilityAt: null,
+    planCompletedAt: null,
+    blocking: [],
     created: at,
     updated: at
   };
@@ -251,6 +264,32 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     await atomicWriteJSON(cardFile(root, card.id), next);
     return { ok: true, card: next };
   });
+}
+
+// Read-immediately, mutate, CAS-write a card by id — retrying a few times when a
+// concurrent write bumps the rev under us. `mutate(card)` returns the next card (or a
+// falsy value to leave it unchanged). Used for CROSS-CARD event writes (a card writing
+// a coordination/blocking event onto ANOTHER card it does not "own" the read of): the
+// engine's per-card processing has the running card's rev, but a blocker card must be
+// read-then-CAS-written independently. Returns the written card, the unchanged card, or
+// null on repeated conflict / missing card. (This is the same shape as the board
+// server's private updateCard helper; kept here so the engine + coordination lib can
+// reuse it without depending on the server.)
+export async function updateCardCAS(root, id, mutate, tries = 6) {
+  for (let i = 0; i < tries; i++) {
+    let card;
+    try {
+      card = await loadCard(root, id);
+    } catch {
+      return null; // no such card
+    }
+    card.id = id;
+    const next = mutate(card);
+    if (!next) return card; // mutate opted out — nothing to write
+    const res = await saveCardCAS(root, next, card.rev ?? 0);
+    if (res.ok) return res.card;
+  }
+  return null; // lost the CAS race `tries` times
 }
 
 export async function listCardIds(root = kanbanRoot()) {

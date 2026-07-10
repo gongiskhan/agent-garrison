@@ -329,6 +329,7 @@ body {
 .chip.muted { color: var(--mute); font-style: italic; background: var(--paper); }
 .chip.attn { border-color: rgba(155,54,45,0.4); color: var(--alarm); background: var(--alarm-soft); }
 .chip.goal { border-color: rgba(180,134,42,0.5); color: var(--brass); background: var(--warn-soft); }
+.chip.waiting { border-color: rgba(176,114,21,0.45); color: var(--warn); background: var(--warn-soft); }
 
 .card .dispatch-err {
   margin-top: 7px;
@@ -809,6 +810,11 @@ body {
 .ev-failed { background: var(--alarm); }
 .ev-deferred { background: var(--warn); }
 .ev-inference { background: var(--brass); }
+.ev-coordination { background: var(--warn); }
+.ev-stability { background: var(--sage-2); }
+.ev-interference { background: var(--alarm); }
+.ev-fence { background: var(--sage-2); }
+.ev-mail { background: var(--brass); }
 
 /* current-state callout in the detail / watch sheets */
 .state-callout {
@@ -823,6 +829,12 @@ body {
 .state-callout.running { background: var(--sage-soft); color: var(--sage); border: 1px solid #bcc8b6; }
 .state-callout.running .run-spin { margin-top: 3px; }
 .state-callout.parked { background: var(--alarm-soft); color: var(--alarm); border: 1px solid rgba(155,54,45,0.3); }
+/* WAITING: deferred behind an overlapping run — amber, deliberately distinct from
+   the parked red so a wait never reads as a failure. */
+.state-callout.waiting { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(176,114,21,0.35); }
+/* On the card front the callout sits inside the card body — tighten its margin so it
+   reads as part of the card, matching the compact .dispatch-err block beside it. */
+.card .state-callout.waiting { margin-bottom: 8px; font-size: 12px; padding: 8px 10px; }
 
 /* description / last-reply blocks in the detail */
 .detail-desc { margin-bottom: 16px; }
