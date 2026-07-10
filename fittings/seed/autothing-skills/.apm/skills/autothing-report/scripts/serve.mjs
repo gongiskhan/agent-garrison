@@ -94,15 +94,20 @@ function runServer() {
       if (!ALLOWED_ROOTS.some((r) => real === r || real.startsWith(r + path.sep))) { res.writeHead(403); return res.end('forbidden'); }
       let st; try { st = fs.statSync(real); } catch { res.writeHead(404); return res.end('not found'); }
       if (st.isDirectory()) {
+        // Escape file/dir names + the request path before interpolating into the
+        // index HTML — a name containing markup would otherwise inject into the
+        // page (defense-in-depth; names come from the run engine, not attackers).
+        const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+          ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const entries = fs.readdirSync(real, { withFileTypes: true });
         const items = entries.map((e) => {
           const isDir = e.isDirectory() || (e.isSymbolicLink() && safeIsDir(path.join(fp, e.name)));
-          const href = path.posix.join(reqPath, e.name) + (isDir ? '/' : '');
-          return `<li><a href="${href}">${e.name}${isDir ? '/' : ''}</a></li>`;
+          const href = esc(path.posix.join(reqPath, e.name) + (isDir ? '/' : ''));
+          return `<li><a href="${href}">${esc(e.name)}${isDir ? '/' : ''}</a></li>`;
         }).join('');
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        return res.end(`<!doctype html><meta charset=utf8><title>${reqPath}</title>` +
-          `<h2>Index of ${reqPath}</h2><ul>${items || '<li><em>(empty)</em></li>'}</ul>`);
+        return res.end(`<!doctype html><meta charset=utf8><title>${esc(reqPath)}</title>` +
+          `<h2>Index of ${esc(reqPath)}</h2><ul>${items || '<li><em>(empty)</em></li>'}</ul>`);
       }
       res.writeHead(200, { 'content-type': ctype(real) });
       fs.createReadStream(real).pipe(res);
