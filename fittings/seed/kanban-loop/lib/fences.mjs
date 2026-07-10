@@ -83,7 +83,7 @@ function fenceMessage(card, phase) {
   const runId = clean(card.runId || "");
   const ph = clean(phase);
   return (
-    `garrison(${project}): ${ph} fence — ${title}\n\n` +
+    `garrison(${project}): ${ph} fence - ${title}\n\n` +
     `Garrison-Card: ${cardId}\n` +
     `Garrison-Run: ${runId}\n` +
     `Garrison-Phase: ${ph}`
@@ -101,7 +101,7 @@ export function commitFence({ repoPath, card, phase, touchSet, otherClaims = [],
   if (!repoPath) {
     return {
       record: null,
-      events: [{ at, kind: "fence", message: `Fence skipped for ${phase}: could not resolve a repo path for project ${card.project || "(none)"} — changes on this branch stay unattributable.` }]
+      events: [{ at, kind: "fence", message: `Fence skipped for ${phase}: could not resolve a repo path for project ${card.project || "(none)"} - changes on this branch stay unattributable.` }]
     };
   }
   const events = [];
@@ -154,7 +154,7 @@ export function commitFence({ repoPath, card, phase, touchSet, otherClaims = [],
   } catch (err) {
     return {
       record: null,
-      events: [{ at, kind: "fence", message: `Fence failed for ${phase} (git error) — advancing without a fence; the gap will read as unattributable.`, detail: String(err?.stderr || err?.message || err) }]
+      events: [{ at, kind: "fence", message: `Fence failed for ${phase} (git error) - advancing without a fence; the gap will read as unattributable.`, detail: String(err?.stderr || err?.message || err) }]
     };
   }
 }

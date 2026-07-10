@@ -1182,7 +1182,7 @@ async function handleAbandonCard(req, res, opts, id) {
   try { releaseLeases({ repoPath, cardId: id }); } catch { /* best-effort */ }
 
   const n = descriptor.commits.length;
-  const reason = `Abandoned - prepared revert of ${n} commits ready; confirm to apply`;
+  const reason = `Abandoned - prepared revert of ${n} commit${n === 1 ? "" : "s"} ready; confirm to apply`;
   const updated = await updateCard(root, id, (c) => ({
     ...c,
     // Park it in needs-attention (a real list move). Preserve an existing parkedFrom
@@ -1237,6 +1237,8 @@ async function handleRevertCard(req, res, opts, id) {
     const updated = await updateCard(root, id, (c) => ({
       ...c,
       preparedRevert: next,
+      // Refresh the parked reason so the callout stops saying "confirm to apply".
+      attentionReason: "Revert hit a conflict - aborted cleanly; resolve manually",
       events: withEvent(c, {
         at,
         kind: "coordination",
@@ -1259,9 +1261,14 @@ async function handleRevertCard(req, res, opts, id) {
   const message = result.state === "noop"
     ? "Revert confirmed - no attributed commits to revert, nothing to apply"
     : `Revert applied - ${revertCommits.length} revert commit(s) landed`;
+  // Refresh the parked reason so the callout stops saying "confirm to apply".
+  const attentionReason = result.state === "noop"
+    ? "Revert confirmed - no commits to revert"
+    : `Revert applied - ${revertCommits.length} commit${revertCommits.length === 1 ? "" : "s"} reverted`;
   const updated = await updateCard(root, id, (c) => ({
     ...c,
     preparedRevert: next,
+    attentionReason,
     events: withEvent(c, {
       at,
       kind: "coordination",

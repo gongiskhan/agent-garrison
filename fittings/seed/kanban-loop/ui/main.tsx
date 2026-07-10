@@ -113,6 +113,16 @@ function waitingLabel(w: WaitingOn): string {
   return title ? `${title} (${short})` : short || w.cardId;
 }
 
+// The reason clause rendered after "Waiting on <label>: " — grade-aware so each S2
+// wait reads truthfully. Overlap waits (medium/heavy) name the grade + the release
+// point; an exclusive-lease wait and an interference wait have their own phrasing
+// (their release point — "it releases" / "its fix fence" — folded into the clause).
+function waitingClause(w: WaitingOn): string {
+  if (w.grade === "lease") return "exclusive lease held, until it releases";
+  if (w.grade === "interference") return "broken by its commits, until its fix fence";
+  return `${w.grade} overlap, until ${w.until}`;
+}
+
 // ── card front ──────────────────────────────────────────────────────────────
 function Card({
   card,
@@ -230,7 +240,7 @@ function Card({
           from the parked red). Names the blocker, why, and the release point. */}
       {card.waitingOn && (
         <div className="state-callout waiting">
-          Waiting on {waitingLabel(card.waitingOn)}: {card.waitingOn.grade} overlap, until {card.waitingOn.until}
+          Waiting on {waitingLabel(card.waitingOn)}: {waitingClause(card.waitingOn)}
         </div>
       )}
 
@@ -780,7 +790,7 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       )}
       {card.waitingOn && (
         <div className="state-callout waiting">
-          Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {card.waitingOn.grade} overlap, until {card.waitingOn.until}
+          Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {waitingClause(card.waitingOn)}
         </div>
       )}
 
@@ -914,7 +924,7 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
             Offered on a non-running card that hasn't already been abandoned; the
             confirm() guard and the separate revert step keep it deliberate. */}
         {!running && !card.preparedRevert && (
-          <button className="btn danger" disabled={abandoning} onClick={() => void doAbandon()} style={{ marginBottom: 9 }}>
+          <button className="btn danger" disabled={abandoning} onClick={() => void doAbandon()}>
             {abandoning ? "Preparing…" : "Abandon & prepare revert"}
           </button>
         )}

@@ -686,11 +686,14 @@ body {
   .field.grid2 { grid-template-columns: 1fr; }
 }
 
-/* ── danger (card delete) — Garrison .btn.danger ── */
+/* ── danger (card abandon + delete) — Garrison .btn.danger ── */
 .danger-zone {
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
 }
 .btn.danger { border-color: var(--alarm); color: var(--alarm); background: white; }
 .btn.danger:hover:not(:disabled) { background: var(--alarm-soft); }

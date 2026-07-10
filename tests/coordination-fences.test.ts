@@ -87,13 +87,13 @@ describe("commitFence — scoped staging", () => {
     const card = { id: "01CARDX", runId: "01RUNX", project: "proj", title: "A very long card title that should be truncated to fifty chars max here" };
     commitFence({ repoPath: repo, card, phase: "review", touchSet: ts({ files: ["x.ts"] }), otherClaims: [] });
     const body = git(repo, "log", "-1", "--format=%B");
-    expect(body).toMatch(/^garrison\(proj\): review fence — /m);
+    expect(body).toMatch(/^garrison\(proj\): review fence - /m);
     expect(body).toContain("Garrison-Card: 01CARDX");
     expect(body).toContain("Garrison-Run: 01RUNX");
     expect(body).toContain("Garrison-Phase: review");
     // subject title capped at 50 chars
     const subject = body.split("\n")[0];
-    const titlePart = subject.split("— ")[1];
+    const titlePart = subject.split("fence - ")[1];
     expect(titlePart.length).toBeLessThanOrEqual(50);
   });
 });

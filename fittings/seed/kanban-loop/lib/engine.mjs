@@ -23,7 +23,7 @@
 // batching preserved as list mechanics (batched + its own beat).
 import path from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog, loadAllCards } from "./board.mjs";
+import { saveCard, saveCardCAS, appendCardLog, writeCardLog, loadAllCards, loadCard } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -464,10 +464,13 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       if (repoPath) {
         const lease = acquireLeases({ repoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
         if (!lease.ok) {
-          const reason = `exclusive lease held by ${lease.heldBy || "another run"} on ${excl.join(", ")}`;
+          // Resolve the holder's title so the UI shows a name, not a bare id tail.
+          let holderTitle = null;
+          if (lease.heldBy) { try { holderTitle = (await loadCard(root, lease.heldBy))?.title || null; } catch { /* best-effort */ } }
+          const reason = `exclusive lease held by ${holderTitle ? `${holderTitle} (${String(lease.heldBy).slice(-6)})` : lease.heldBy || "another run"} on ${excl.join(", ")}`;
           const waitingOn = {
             cardId: lease.heldBy || null,
-            cardTitle: null,
+            cardTitle: holderTitle,
             grade: "lease",
             reason,
             until: "lease",
@@ -757,13 +760,13 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         const offender = liveCards.find((c) => c.id === attr.offenderCardId);
         if (offender) {
           const offenderFenceSha = Array.isArray(offender.fences) && offender.fences.length ? offender.fences[offender.fences.length - 1].sha : null;
-          const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) — commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
+          const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) - commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
           const refunded = Math.max(0, (runningCard.iterations || 0) - 1);
           interference = {
             waitingOn: { cardId: offender.id, cardTitle: offender.title || null, grade: "interference", reason, until: "fence", offenderFenceSha, rerun: true, thenTo: card.list, since: now() },
             refunded,
-            selfEvent: { at: now(), kind: "interference", message: `Interference: ${listTitle} failed due to card ${offender.id}'s commits — waiting for its fix (iteration refunded to ${refunded})`, detail: reason },
-            blockerWrites: [{ cardId: offender.id, addBlocking: runningCard.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${runningCard.id} (${runningCard.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} — it is waiting for your next fence (fix).` } }],
+            selfEvent: { at: now(), kind: "interference", message: `Interference: ${listTitle} failed due to card ${offender.title || "untitled"} (${String(offender.id).slice(-6)})'s commits - waiting for its fix (iteration refunded to ${refunded})`, detail: reason },
+            blockerWrites: [{ cardId: offender.id, addBlocking: runningCard.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${runningCard.id} (${runningCard.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} - it is waiting for your next fence (fix).` } }],
             mails: [{ toCardId: offender.id, subject: `Interference: you broke ${runningCard.id} at ${phase}`, body: reason }]
           };
         }
@@ -844,7 +847,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       // implement, re-register the intent so the outward ledger reflects it.
       if (coordActive && phase === "implement" && myTouchSet && coordRepoPath) {
         const grown = reregisterTouchSetIfGrown({ repoPath: coordRepoPath, card: runningCard, touchSet: myTouchSet, now });
-        if (grown.grown) fenceEvents = fenceEvents.concat([{ at: now(), kind: "coordination", message: `Touch-set grew during ${phase} — re-registered (added ${grown.added.join(", ")})` }]);
+        if (grown.grown) fenceEvents = fenceEvents.concat([{ at: now(), kind: "coordination", message: `Touch-set grew during ${phase} - re-registered (added ${grown.added.join(", ")})` }]);
       }
       let events = withEvent(runningCard, {
         at: now(),
@@ -1085,13 +1088,13 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       const offender = liveCards.find((c) => c.id === attr.offenderCardId);
       if (offender) {
         const offenderFenceSha = Array.isArray(offender.fences) && offender.fences.length ? offender.fences[offender.fences.length - 1].sha : null;
-        const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) — commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
+        const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) - commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
         const refunded = Math.max(0, (card.iterations || 0) - 1);
         interference = {
           waitingOn: { cardId: offender.id, cardTitle: offender.title || null, grade: "interference", reason, until: "fence", offenderFenceSha, rerun: true, thenTo: card.list, since: now() },
           refunded,
-          selfEvent: { at: now(), kind: "interference", message: `Interference: ${listTitle} failed due to card ${offender.id}'s commits — waiting for its fix (in-session)`, detail: reason },
-          blockerWrites: [{ cardId: offender.id, addBlocking: card.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${card.id} (${card.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} — it is waiting for your next fence (fix).` } }],
+          selfEvent: { at: now(), kind: "interference", message: `Interference: ${listTitle} failed due to card ${offender.title || "untitled"} (${String(offender.id).slice(-6)})'s commits - waiting for its fix (in-session)`, detail: reason },
+          blockerWrites: [{ cardId: offender.id, addBlocking: card.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${card.id} (${card.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} - it is waiting for your next fence (fix).` } }],
           mails: [{ toCardId: offender.id, subject: `Interference: you broke ${card.id} at ${phase}`, body: reason }]
         };
       }
@@ -1159,7 +1162,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
     }
     if (coordActive && phase === "implement" && myTouchSet && coordRepoPath) {
       const grown = reregisterTouchSetIfGrown({ repoPath: coordRepoPath, card, touchSet: myTouchSet, now });
-      if (grown.grown) fenceEvents = fenceEvents.concat([{ at: now(), kind: "coordination", message: `Touch-set grew during ${phase} — re-registered (added ${grown.added.join(", ")})` }]);
+      if (grown.grown) fenceEvents = fenceEvents.concat([{ at: now(), kind: "coordination", message: `Touch-set grew during ${phase} - re-registered (added ${grown.added.join(", ")})` }]);
     }
     let events = withEvent(card, {
       at: now(),
@@ -1425,13 +1428,13 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
             const offender = liveCards.find((c) => c.id === attr.offenderCardId);
             if (offender) {
               const offenderFenceSha = Array.isArray(offender.fences) && offender.fences.length ? offender.fences[offender.fences.length - 1].sha : null;
-              const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) — commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
+              const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) - commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
               const refunded = Math.max(0, (a.running.iterations || 0) - 1);
               interference = {
                 waitingOn: { cardId: offender.id, cardTitle: offender.title || null, grade: "interference", reason, until: "fence", offenderFenceSha, rerun: true, thenTo: a.running.list, since: now() },
                 refunded,
-                selfEvent: { at: now(), kind: "interference", message: `Interference (batch): ${listTitle} failed due to card ${offender.id}'s commits — waiting for its fix (iteration refunded to ${refunded})`, detail: reason },
-                blockerWrites: [{ cardId: offender.id, addBlocking: a.running.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${a.running.id} (${a.running.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} — it is waiting for your next fence (fix).` } }],
+                selfEvent: { at: now(), kind: "interference", message: `Interference (batch): ${listTitle} failed due to card ${offender.title || "untitled"} (${String(offender.id).slice(-6)})'s commits - waiting for its fix (iteration refunded to ${refunded})`, detail: reason },
+                blockerWrites: [{ cardId: offender.id, addBlocking: a.running.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${a.running.id} (${a.running.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} - it is waiting for your next fence (fix).` } }],
                 mails: [{ toCardId: offender.id, subject: `Interference: you broke ${a.running.id} at ${phase}`, body: reason }]
               };
             }
