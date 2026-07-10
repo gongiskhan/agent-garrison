@@ -101,6 +101,15 @@ export interface EagerBootSummary {
 export interface EagerBootOptions {
   // Tests inject a fixture library; production resolves the real one.
   library?: LibraryEntry[];
+  // Runner-projected env for this boot wave (GARRISON_GATEWAY_URL,
+  // GARRISON_COMPOSITION_ID), so an eager respawn during `up` carries the same
+  // env as startOperativeBoundFittings instead of running gatewayless.
+  extraEnv?: Record<string, string>;
+  // Per-fitting env override - the EXACT env the runner just used for its
+  // operative-bound starts (vault + projected config + tracked keys). Sharing
+  // it keeps the env fingerprints identical across both callers, so the eager
+  // pass can never heal-restart a fitting the runner started moments earlier.
+  extraEnvById?: Record<string, Record<string, string>>;
 }
 
 // The server-boot sequence (called from src/instrumentation.ts).
@@ -132,7 +141,17 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
       continue;
     }
     if (isOwnPortFitting(entry)) {
-      const result = await startOwnPortFitting(entry, await vaultEnvForEntry(entry));
+      // Runner-driven boots (a provided extraEnv/extraEnvById) know the full
+      // desired env, so they may heal on env drift; the detached server-boot
+      // child knows only the vault and must never strip a richer env from an
+      // already-running fitting.
+      const runnerEnv = options.extraEnvById?.[fittingId] ?? options.extraEnv;
+      const spawnEnv = { ...(await vaultEnvForEntry(entry)), ...(runnerEnv ?? {}) };
+      const result = await startOwnPortFitting(
+        entry,
+        spawnEnv,
+        runnerEnv === undefined ? {} : { healOnEnvDrift: true }
+      );
       if (!result.ok) {
         const error = result.error ?? "start failed";
         summary.failed.push({ id: fittingId, error });
@@ -142,8 +161,9 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
         console.log(`[garrison] eager-boot: skipped ${fittingId} (already running)`);
       } else if (result.healed) {
         summary.booted.push(fittingId);
+        const reason = result.healReason === "env-drift" ? "a changed env value" : "vault secrets";
         console.log(
-          `[garrison] eager-boot: restarted ${fittingId} with vault secrets${result.pid ? ` (pid ${result.pid})` : ""}`
+          `[garrison] eager-boot: restarted ${fittingId} with ${reason}${result.pid ? ` (pid ${result.pid})` : ""}`
         );
       } else {
         summary.booted.push(fittingId);

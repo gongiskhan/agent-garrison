@@ -12,7 +12,16 @@ import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
 import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
 import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
-import { isOperativeBound, startOwnPortFitting, stopOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
+import {
+  isOperativeBound,
+  listSpawnRecordIds,
+  ownPortConfigEnv,
+  startOwnPortFitting,
+  stopOwnPortFitting,
+  vaultEnvForEntry
+} from "./own-port-lifecycle";
+import { readLibrary } from "./library";
+import { deriveViewProvisions } from "./view-instances";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import {
   resolvePrimaryRuntime,
@@ -189,7 +198,8 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           capabilitiesBlock: renderCapabilitiesBlock(soulEntries),
           routingSection: await resolveRoutingSection(
             composition.directory,
-            buildRuntimeEntries(soulEntries, composition.selections)
+            buildRuntimeEntries(soulEntries, composition.selections),
+            (message) => appendLog(compositionId, "stderr", `routing: ${message}`)
           ),
           routingCorePath: ROUTING_CORE_PATH
         });
@@ -302,14 +312,24 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       await startDevWatcher(compositionId);
     }
     appendLog(compositionId, "runner", `Operative process started${child.pid ? ` with pid ${child.pid}` : ""}`);
-    await startOperativeBoundFittings(compositionId);
+    const operativeEnvById = await startOperativeBoundFittings(compositionId);
     // Eager-toggled views also boot with the operative (not just with the
     // server): covers detached-lifecycle fittings and the case where the
     // server-start boot was missed. runEagerBoot skips anything already
     // running, so operative-bound fittings just started above are untouched.
-    // Best-effort — a failed eager boot must not fail the operative.
+    // It receives the same env the runner just projected (per-fitting where
+    // known, gateway URL + composition id otherwise) so an eager respawn is
+    // never gatewayless. Best-effort - a failed eager boot must not fail the
+    // operative.
     try {
-      const eager = await runEagerBoot();
+      const eagerGatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
+      const eager = await runEagerBoot({
+        extraEnv: {
+          GARRISON_COMPOSITION_ID: compositionId,
+          ...(eagerGatewayBaseUrl ? { GARRISON_GATEWAY_URL: eagerGatewayBaseUrl } : {})
+        },
+        extraEnvById: Object.fromEntries(operativeEnvById)
+      });
       if (eager.booted.length > 0 || eager.warmed.length > 0) {
         appendLog(
           compositionId,
@@ -399,6 +419,18 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
           }
         }
       }
+      // The spawn records are Garrison's own kill ledger - everything it ever
+      // spawned and has not confirmed dead. Sweeping from them (not just the
+      // current selections) reaps DESELECTED fittings and clobbered status
+      // slots that would otherwise squat their ports forever. A fitting no
+      // longer in the library can never be managed again, so its record is
+      // sweepable too; detached-lifecycle fittings keep their opt-out.
+      const libraryById = new Map((await readLibrary()).map((entry) => [entry.id, entry]));
+      for (const fittingId of await listSpawnRecordIds()) {
+        const entry = libraryById.get(fittingId);
+        if (entry && !isOperativeBound(entry)) continue;
+        sweepable.add(fittingId);
+      }
       for (const fittingId of sweepable) {
         if (protectedIds.has(fittingId)) continue;
         if (prefs.eager[fittingId]) continue;
@@ -417,7 +449,9 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
   return rt.reconciliation;
 }
 
-async function startOperativeBoundFittings(compositionId: string): Promise<void> {
+async function startOperativeBoundFittings(
+  compositionId: string
+): Promise<Map<string, Record<string, string>>> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
   // The live gateway URL (set after the gateway started above). Injected into every
@@ -425,6 +459,20 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
   // e.g. the Kanban board dispatches an agent-list card's run through GARRISON_GATEWAY_URL;
   // without this it logs "Start on agent lists is disabled" and the run loop is dead.
   const gatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
+  // Selection config per fitting id, projected into the spawn env (see
+  // ownPortConfigEnv) so servers read their composition config - e.g. the
+  // file-browser's `root` lands as GARRISON_FILEBROWSER_ROOT instead of the
+  // apm.yml value being decorative.
+  const configById = new Map<string, Record<string, unknown>>();
+  for (const items of Object.values(composition.selections)) {
+    for (const item of items ?? []) {
+      configById.set(item.id, (item.config ?? {}) as Record<string, unknown>);
+    }
+  }
+  // Returned so the in-up eager boot reuses the EXACT same env per fitting -
+  // a different env there would drift the fingerprint and double-drive the
+  // fitting through a needless heal-restart.
+  const envByFitting = new Map<string, Record<string, string>>();
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
     // Project the ACTIVE composition id into every operative-bound own-port fitting so a
@@ -433,17 +481,19 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
     // resolves THIS composition's live modes/routing rather than always "default".
     const extraEnv = {
       ...(await vaultEnvForEntry(entry)),
+      ...ownPortConfigEnv(entry.id, configById.get(entry.id) ?? {}),
       GARRISON_COMPOSITION_ID: compositionId,
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
-    const result = await startOwnPortFitting(entry, extraEnv);
+    envByFitting.set(entry.id, extraEnv);
+    const result = await startOwnPortFitting(entry, extraEnv, { healOnEnvDrift: true });
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
       continue;
     }
     if (result.healed) {
       const reason = result.healReason === "env-drift"
-        ? "to pick up a changed env value (gateway URL / composition id)"
+        ? "to pick up a changed env value (gateway URL / composition id / config)"
         : "to deliver vault secrets";
       appendLog(compositionId, "runner", `own-port ${entry.id} restarted ${reason}${result.pid ? ` (pid ${result.pid})` : ""}`);
     } else if (result.alreadyRunning) {
@@ -452,6 +502,7 @@ async function startOperativeBoundFittings(compositionId: string): Promise<void>
       appendLog(compositionId, "runner", `own-port ${entry.id} started${result.pid ? ` (pid ${result.pid})` : ""}`);
     }
   }
+  return envByFitting;
 }
 
 // Exported for the eager-lifecycle vitest gate; the app reaches this through
@@ -774,11 +825,16 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
   // BRIEF v4 MR1b: inject the compiled Model Router policy via {{routing}}.
   // No-op when the orchestrator prompt has no placeholder (e.g. the live
   // garrison-orchestrator), so the default composition is untouched.
+  const routingDiagnostics: string[] = [];
   const routingSection = await resolveRoutingSection(
     composition.directory,
-    buildRuntimeEntries(entries, composition.selections)
+    buildRuntimeEntries(entries, composition.selections),
+    (message) => routingDiagnostics.push(message)
   );
   if (orchestrator.includes("{{routing}}") && routingSection == null) {
+    for (const message of routingDiagnostics) {
+      appendLog(compositionId, "stderr", `routing: ${message}`);
+    }
     appendLog(compositionId, "stderr", MISSING_ROUTING_CONFIG_WARNING);
   }
   const orchestratorRouted = substituteRoutingPlaceholder(orchestrator, routingSection);
@@ -820,7 +876,7 @@ const ROUTING_CORE_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/lib/ro
 const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/config/routing.seed.json");
 
 export const MISSING_ROUTING_CONFIG_WARNING =
-  "WARNING: orchestrator prompt has a {{routing}} placeholder but no valid routing.json was found — the routing section will be empty";
+  "WARNING: orchestrator prompt has a {{routing}} placeholder but the routing section could not be built (see the routing diagnostics above) - the routing section will be empty";
 
 // Pure: replace {{routing}} with the compiled section (or strip it cleanly when
 // unavailable, so the placeholder never leaks into the assembled prompt).
@@ -833,26 +889,38 @@ export function substituteRoutingPlaceholder(prompt: string, section: string | n
 // Resolve + compile the routing section for a composition. Prefers a
 // composition-scoped <dir>/.garrison/routing.json (written by the fitting's
 // view PUT /routing), falling back to the model-router seed config. Returns
-// null (and the caller warns) when no valid config is found.
+// null (and the caller warns) when no valid config is found or the compiler
+// cannot load; each null path reports a DISTINCT diagnostic through
+// onDiagnostic so a missing/invalid routing.json is never conflated with a
+// compiler-load failure (the webpack empty-lazy-context incident).
 export async function resolveRoutingSection(
   compositionDir: string,
-  runtimeEntries: RuntimeEntry[] = []
+  runtimeEntries: RuntimeEntry[] = [],
+  onDiagnostic?: (message: string) => void
 ): Promise<string | null> {
   const scoped = path.join(compositionDir, ".garrison", "routing.json");
   let raw: string | null = null;
+  let configPath = scoped;
   try {
     raw = await fs.readFile(scoped, "utf8");
   } catch {
     try {
       raw = await fs.readFile(SEED_ROUTING_PATH, "utf8");
+      configPath = SEED_ROUTING_PATH;
     } catch {
+      onDiagnostic?.(
+        `routing.json missing: neither ${scoped} nor the seed ${SEED_ROUTING_PATH} is readable`
+      );
       return null;
     }
   }
   let config: unknown;
   try {
     config = JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    onDiagnostic?.(
+      `routing.json invalid: ${configPath} is not valid JSON (${err instanceof Error ? err.message : String(err)})`
+    );
     return null;
   }
   // Auto-surface composed runtime fittings as model-router targets (S3): a
@@ -864,14 +932,23 @@ export async function resolveRoutingSection(
     deriveRuntimeTargets(runtimeEntries)
   );
   try {
-    const mod = (await import(pathToFileURL(ROUTING_CORE_PATH).href)) as {
+    // webpackIgnore keeps the specifier out of EVERY webpack compilation -
+    // without it Next compiles this fully-dynamic import into an empty lazy
+    // context module that rejects every request, so the routing section was
+    // silently empty under the Next server (same fix as src/instrumentation.ts).
+    const mod = (await import(/* webpackIgnore: true */ pathToFileURL(ROUTING_CORE_PATH).href)) as {
       compileRouting: (c: unknown, p?: string | null) => string;
       validateRoutingConfig: (c: unknown) => string[];
       compilePolicy: (c: unknown, p?: string | null) => unknown;
       stableStringify: (v: unknown) => string;
     };
     const errors = mod.validateRoutingConfig(config);
-    if (errors.length) return null;
+    if (errors.length) {
+      onDiagnostic?.(
+        `routing.json invalid: ${configPath} failed validation: ${errors.join("; ")}`
+      );
+      return null;
+    }
     const activeProfile = (config as { activeProfile?: string }).activeProfile ?? null;
     // D4: composition start recompiles the machine-readable policy — the one
     // consumption interface for the run engine + phase skills (no HTTP).
@@ -883,7 +960,12 @@ export async function resolveRoutingSection(
       console.warn("[runner] policy.json compile at assembly failed:", err);
     }
     return mod.compileRouting(config, activeProfile);
-  } catch {
+  } catch (err) {
+    // NOT a config problem: the compiler module itself failed to load or
+    // threw. Swallowing this is how the empty-{{routing}} incident hid.
+    onDiagnostic?.(
+      `routing compiler failed to load or run (${ROUTING_CORE_PATH}): ${err instanceof Error ? err.message : String(err)}`
+    );
     return null;
   }
 }
@@ -904,6 +986,24 @@ export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {
       providerEntries.push({
         kind: provision.kind,
         name: provision.name,
+        summary,
+        forConsumers
+      });
+    }
+    // Derived view providers: a fitting with no declared provides but with a
+    // ui.views[]/own_port surface AND a for_consumers block (e.g. the
+    // file-browser's artifact-surface guidance) must still reach the
+    // Operative's prompt - the resolver derives its `view` capability, so the
+    // assembly derives the matching provider line. One line per fitting, not
+    // per view, so multi-view fittings don't duplicate their guidance.
+    if (
+      entry.metadata.provides.length === 0 &&
+      forConsumers &&
+      deriveViewProvisions(entry.id, entry.metadata).length > 0
+    ) {
+      providerEntries.push({
+        kind: "view",
+        name: entry.id,
         summary,
         forConsumers
       });
@@ -1007,6 +1107,17 @@ async function resolveGatewayFitting(
   for (const selection of gatewaySelections) {
     const entry = entries.find((candidate) => candidate.id === selection.id);
     if (!entry) continue;
+
+    // Never pick an MCP sidecar as the PRIMARY gateway: a fitting providing
+    // the mcp-gateway capability (or the mcp-gateway fitting itself) serves
+    // MCP tools, not the /chat//jobs//channels HTTP surface the channels and
+    // heartbeat dispatch depend on. Matching on the provides list / id keeps
+    // the pick order-independent when both gateways are selected, whether or
+    // not the mcp-gateway kind is in the capabilityKinds enum.
+    const isMcpSidecar =
+      entry.id === "mcp-gateway" ||
+      entry.metadata.provides.some((provision) => String(provision.kind) === "mcp-gateway");
+    if (isMcpSidecar) continue;
 
     const fittingDir = path.join(
       composition.directory,

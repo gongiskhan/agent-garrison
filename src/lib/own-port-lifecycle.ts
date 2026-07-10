@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, writeSync } from "node:fs";
-import { readFile, unlink } from "node:fs/promises";
+import { readFile, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { garrisonDir } from "./claude-home";
 import { ROOT_DIR } from "./paths";
@@ -19,17 +19,55 @@ import type { LibraryEntry } from "./types";
 // runner-projected configuration the fitting reads from process.env on boot.
 const TRACKED_ENV_KEYS = ["GARRISON_GATEWAY_URL", "GARRISON_COMPOSITION_ID"] as const;
 
-// Stable fingerprint of the tracked env keys in extraEnv. Only the tracked keys
-// participate, so adding an unrelated key to extraEnv never forces a restart.
-// Missing keys count as the literal string "<absent>" (NOT "" — an empty string
-// is a value the user might intentionally set). The fingerprint is sha256 of
-// `key=value` lines so two runs with the same tracked env hash identically
-// regardless of how the runner ordered the keys.
+// Runner-projected per-fitting config keys (see ownPortConfigEnv) also drift-
+// track: they follow GARRISON_<ID>_<KEY>, so a changed composition config value
+// (e.g. the file-browser's root) restarts the fitting on the next `up` instead
+// of being silently ignored. Vault secret names never carry this shape in
+// practice, and even if one did, a changed secret forcing a restart is correct.
+const PROJECTED_CONFIG_ENV_PATTERN = /^GARRISON_[A-Z0-9]+_[A-Z0-9_]+$/;
+
+// Project a fitting's selected composition config into its spawn env. The
+// convention fitting servers read is GARRISON_<ID>_<KEY> with the id's
+// separators DROPPED (file-browser reads GARRISON_FILEBROWSER_ROOT) and the
+// key's separators normalised to "_". Only scalar values (string, number,
+// boolean) project; nested objects/arrays are skipped.
+export function ownPortConfigEnv(
+  fittingId: string,
+  config: Record<string, unknown>
+): Record<string, string> {
+  const id = fittingId.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(config ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === "object") continue;
+    const normKey = key.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+    env[`GARRISON_${id}_${normKey}`] = String(value);
+  }
+  return env;
+}
+
+// Stable fingerprint of the lifecycle-managed env in extraEnv: the fixed
+// tracked keys plus any projected config keys present. Unrelated keys never
+// participate, so adding one to extraEnv never forces a restart. Missing
+// tracked keys count as the literal string "<absent>" (NOT "" - an empty
+// string is a value the user might intentionally set). The fingerprint is
+// sha256 of `key=value` lines with the projected keys sorted, so two runs with
+// the same env hash identically regardless of how the runner ordered the keys.
 export function envFingerprintForExtraEnv(extraEnv: Record<string, string> | undefined): string {
   const hash = createHash("sha256");
   for (const key of TRACKED_ENV_KEYS) {
     const value = extraEnv && key in extraEnv ? extraEnv[key] : "<absent>";
     hash.update(`${key}=${value}\n`);
+  }
+  const projected = Object.keys(extraEnv ?? {})
+    .filter(
+      (key) =>
+        PROJECTED_CONFIG_ENV_PATTERN.test(key) &&
+        !(TRACKED_ENV_KEYS as readonly string[]).includes(key)
+    )
+    .sort();
+  for (const key of projected) {
+    hash.update(`${key}=${extraEnv![key]}\n`);
   }
   return hash.digest("hex");
 }
@@ -68,6 +106,22 @@ function spawnRecordDir(): string {
 
 export function spawnRecordPath(fittingId: string): string {
   return path.join(spawnRecordDir(), `${fittingId}.json`);
+}
+
+// Every fitting id with a spawn record on disk - Garrison's own kill ledger:
+// everything it ever spawned and has not confirmed dead. The startup orphan
+// sweep enumerates from here (not just current composition selections) so a
+// deselected fitting or a clobbered status slot still gets reaped.
+export async function listSpawnRecordIds(): Promise<string[]> {
+  try {
+    const names = await readdir(spawnRecordDir());
+    return names
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => name.slice(0, -".json".length))
+      .filter((id) => isValidFittingId(id));
+  } catch {
+    return [];
+  }
 }
 
 export function statusFilePath(fittingId: string): string {
@@ -218,6 +272,47 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+// Pid-reuse guard for acting on a SPAWN RECORD's pid (the status file is the
+// fitting's own writing and keeps its historical trust). On Linux /proc/<pid>
+// is created at process start, so a process born meaningfully AFTER the record
+// was written cannot be the recorded one - killing it would hit an unrelated
+// process (the post-reboot stale-record case). Where /proc is unavailable the
+// record is trusted, matching the status-file behaviour.
+async function pidMatchesRecord(pid: number, startedAt: string): Promise<boolean> {
+  const recorded = Date.parse(startedAt);
+  if (!Number.isFinite(recorded)) return true;
+  try {
+    const st = await stat(`/proc/${pid}`);
+    const born = st.mtimeMs || st.ctimeMs;
+    if (!born) return true;
+    return born <= recorded + 60_000;
+  } catch {
+    return true;
+  }
+}
+
+// SIGTERM the pid, wait for it to exit, escalate to SIGKILL if it lingers.
+// Returns whether the process is confirmed gone; callers must keep tracking
+// files (and refuse to respawn) on false - a live process must never become an
+// untracked one.
+async function terminateWithEscalation(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // already gone
+  }
+  let exited = await waitForExit(pid);
+  if (!exited) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // died between the timeout and the escalation
+    }
+    exited = await waitForExit(pid, 1500);
+  }
+  return exited;
+}
+
 // The heal path SIGTERMs the old process, then must wait for it to actually
 // exit before respawning: the old process owns the port and (on SIGTERM)
 // removes the status file — spawning early would race both. Returns whether
@@ -244,6 +339,12 @@ export interface StartOptions {
   // Checked under the per-fitting lock so a concurrent down/sweep cannot
   // stop the fitting between the caller's check and the spawn.
   onlyIfRunning?: boolean;
+  // Opt-in: restart a running fitting whose recorded env fingerprint differs
+  // from this call's extraEnv. Only callers that KNOW the full desired env
+  // (the runner's up path) may set it - a narrower caller (vault heal, manual
+  // start) healing on drift would strip the gateway URL / composition id from
+  // a correctly-spawned fitting.
+  healOnEnvDrift?: boolean;
 }
 
 export async function startOwnPortFitting(
@@ -277,19 +378,35 @@ async function startOwnPortFittingLocked(
   const recordFresh = Number.isFinite(recordAgeMs) && recordAgeMs >= 0 && recordAgeMs <= BOOT_WINDOW_MS;
   const bootingWithoutStatus =
     livePid === null && record !== null && recordFresh && isProcessAlive(record.pid);
-  if (livePid === null && record !== null && !bootingWithoutStatus) {
-    // Stale record with no status file: leftover from an exit that bypassed
-    // stopOwnPortFitting (crash, reboot). Remove it so it cannot vouch for a
-    // reused pid or mask a future keyless run.
+  if (bootingWithoutStatus && record !== null) livePid = record.pid;
+  if (options.onlyIfRunning && livePid === null) {
+    // The vault-heal pass must never cold-boot OR kill anything not running;
+    // any stale record is left for the next real start/sweep to reconcile.
+    return { ok: true, notRunning: true };
+  }
+  if (livePid === null && record !== null) {
+    if (isProcessAlive(record.pid) && (await pidMatchesRecord(record.pid, record.startedAt))) {
+      // The recorded process is still alive with no status file (clobbered
+      // slot, fitting that never wrote one). Cold-spawning over it would
+      // orphan a live process on its port - kill it first, and refuse to
+      // double-spawn if it will not die.
+      const exited = await terminateWithEscalation(record.pid);
+      if (!exited) {
+        return {
+          ok: false,
+          error: `recorded pid ${record.pid} survived SIGTERM and SIGKILL; refusing to double-spawn`,
+          status: 500
+        };
+      }
+    }
+    // Stale record with no live recorded process: leftover from an exit that
+    // bypassed stopOwnPortFitting (crash, reboot) or the kill above. Remove it
+    // so it cannot vouch for a reused pid or mask a future keyless run.
     try {
       await unlink(spawnRecordPath(entry.id));
     } catch {
       // ignore
     }
-  }
-  if (bootingWithoutStatus && record !== null) livePid = record.pid;
-  if (options.onlyIfRunning && livePid === null) {
-    return { ok: true, notRunning: true };
   }
   let heal = false;
   let healReason: "vault" | "env-drift" | null = null;
@@ -303,12 +420,15 @@ async function startOwnPortFittingLocked(
       healReason = "vault";
     }
     // Tracked-env drift: if the running fitting was last spawned with a
-    // different GARRISON_GATEWAY_URL / GARRISON_COMPOSITION_ID than we want now,
-    // restart it so it picks up the fresh value. Same recorded-pid gate as the
-    // vault check — a process restarted outside Garrison says nothing about
-    // ITS env, so we don't act on its drift. A record with no envFingerprint
-    // (legacy) matches anything (no spurious heal); the respawn writes one.
-    if (!heal && record?.pid === livePid && record.envFingerprint) {
+    // different GARRISON_GATEWAY_URL / GARRISON_COMPOSITION_ID / projected
+    // config than we want now, restart it so it picks up the fresh value.
+    // Opt-in per call (healOnEnvDrift): only the runner's up path knows the
+    // full desired env - a narrower caller acting on drift would strip it.
+    // Same recorded-pid gate as the vault check - a process restarted outside
+    // Garrison says nothing about ITS env, so we don't act on its drift. A
+    // record with no envFingerprint (legacy) matches anything (no spurious
+    // heal); the respawn writes one.
+    if (!heal && options.healOnEnvDrift && record?.pid === livePid && record.envFingerprint) {
       const desired = envFingerprintForExtraEnv(extraEnv);
       if (record.envFingerprint !== desired) {
         heal = true;
@@ -417,47 +537,89 @@ export async function stopOwnPortFitting(fittingId: string): Promise<StopResult>
 }
 
 async function stopOwnPortFittingLocked(fittingId: string): Promise<StopResult> {
-  // The spawn record dies with every stop, even when the status file is
-  // already gone — an external exit must not leave a stale
-  // secretsDelivered:true record that masks a future keyless run.
+  const jsonPath = statusFilePath(fittingId);
+  const record = await readSpawnRecord(fittingId);
+
+  let pid: number | null = null;
+  if (existsSync(jsonPath)) {
+    try {
+      const raw = await readFile(jsonPath, "utf8");
+      const parsed = JSON.parse(raw) as { pid?: number };
+      if (typeof parsed.pid === "number") pid = parsed.pid;
+    } catch {
+      // unreadable status file; fall through to the spawn record
+    }
+  }
+  // No usable status file: fall back to Garrison's own spawn record so a stop
+  // can never leave the recorded process alive but untracked (boot window,
+  // clobbered status slot, fitting that never wrote its file). Guarded against
+  // OS pid reuse - a record from before a reboot must not kill a stranger.
+  if (pid === null && record !== null) {
+    if (isProcessAlive(record.pid) && (await pidMatchesRecord(record.pid, record.startedAt))) {
+      pid = record.pid;
+    }
+  }
+
+  if (pid === null || !isProcessAlive(pid)) {
+    // Nothing alive - safe to clear the tracking files. An external exit must
+    // not leave a stale secretsDelivered:true record that masks a future
+    // keyless run.
+    try {
+      await unlink(spawnRecordPath(fittingId));
+    } catch {
+      // ignore
+    }
+    try {
+      await unlink(jsonPath);
+    } catch {
+      // ignore
+    }
+    return { ok: true, wasRunning: false, pid };
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e?.code !== "ESRCH") {
+      return { ok: false, wasRunning: true, pid, error: e.message ?? String(err), status: 500 };
+    }
+  }
+  let exited = await waitForExit(pid);
+  if (!exited) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // died between the timeout and the escalation
+    }
+    exited = await waitForExit(pid, 1500);
+  }
+  if (!exited) {
+    // The process would not die. KEEP the tracking files - deleting them here
+    // would convert a live process into an untracked one, exactly the orphan
+    // generator this path exists to close.
+    return {
+      ok: false,
+      wasRunning: true,
+      pid,
+      error: `pid ${pid} survived SIGTERM and SIGKILL; keeping status file and spawn record`,
+      status: 500
+    };
+  }
+
+  // Confirmed exit - the tracking files may go. The Fitting normally removes
+  // its own status file on SIGTERM; this is the crash-safe backstop.
   try {
     await unlink(spawnRecordPath(fittingId));
   } catch {
     // ignore
   }
-  const jsonPath = statusFilePath(fittingId);
-  if (!existsSync(jsonPath)) {
-    return { ok: true, wasRunning: false };
-  }
-
-  let pid: number | null = null;
-  try {
-    const raw = await readFile(jsonPath, "utf8");
-    const parsed = JSON.parse(raw) as { pid?: number };
-    if (typeof parsed.pid === "number") pid = parsed.pid;
-  } catch {
-    // fall through; we'll still delete the file
-  }
-
-  if (pid !== null) {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch (err) {
-      const e = err as NodeJS.ErrnoException;
-      if (e?.code !== "ESRCH") {
-        return { ok: false, wasRunning: true, pid, error: e.message ?? String(err), status: 500 };
-      }
-    }
-  }
-
-  // Best-effort cleanup; the Fitting normally does this itself on SIGTERM.
   try {
     await unlink(jsonPath);
   } catch {
     // ignore
   }
-
-  return { ok: true, wasRunning: pid !== null, pid };
+  return { ok: true, wasRunning: true, pid };
 }
 
 // Stop-then-start under a single lock so the fresh process never races the old

@@ -137,4 +137,34 @@ describe("routing assembly (MR1b — assembly-ok)", () => {
     const section = await resolveRoutingSection(dir);
     expect(section).toBeNull();
   });
+
+  it("resolveRoutingSection reports a validation diagnostic for an invalid config (never conflated with a compiler-load failure)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "garrison-routing-"));
+    mkdirSync(join(dir, ".garrison"), { recursive: true });
+    writeFileSync(join(dir, ".garrison", "routing.json"), JSON.stringify({ version: 1, profiles: {} }), "utf8");
+    const diagnostics: string[] = [];
+    const section = await resolveRoutingSection(dir, [], (message) => diagnostics.push(message));
+    expect(section).toBeNull();
+    expect(diagnostics.join("\n")).toContain("failed validation");
+    expect(diagnostics.join("\n")).not.toContain("compiler failed to load");
+  });
+
+  it("resolveRoutingSection reports an invalid-JSON diagnostic for a malformed routing.json", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "garrison-routing-"));
+    mkdirSync(join(dir, ".garrison"), { recursive: true });
+    writeFileSync(join(dir, ".garrison", "routing.json"), "{ not json", "utf8");
+    const diagnostics: string[] = [];
+    const section = await resolveRoutingSection(dir, [], (message) => diagnostics.push(message));
+    expect(section).toBeNull();
+    expect(diagnostics.join("\n")).toContain("not valid JSON");
+  });
+
+  it("resolveRoutingSection emits NO diagnostics on the happy path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "garrison-routing-"));
+    mkdirSync(join(dir, ".garrison"), { recursive: true });
+    const diagnostics: string[] = [];
+    const section = await resolveRoutingSection(dir, [], (message) => diagnostics.push(message));
+    expect(section).not.toBeNull();
+    expect(diagnostics).toEqual([]);
+  });
 });

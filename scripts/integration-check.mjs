@@ -88,6 +88,96 @@ async function checkAssembledPrompt() {
   );
 }
 
+// The routing section can ONLY break under the real Next server (webpack
+// compiles the runner's fully-dynamic routing-core import into an empty lazy
+// context unless webpackIgnore'd); vitest runs under plain node and can never
+// catch it. So this live check asserts: whenever the composition's
+// orchestrator prompt carries {{routing}}, the assembled prompt written by
+// up() contains a non-empty compiled routing section.
+async function checkRoutingSection() {
+  const promptPath = path.join(COMPOSITION_DIR, ".garrison", "assembled-system-prompt.md");
+  if (!(await pathExists(promptPath))) {
+    record(
+      "Routing section",
+      "fail",
+      `Missing ${path.relative(REPO_ROOT, promptPath)} - cannot verify the routing section.`,
+      "Run the operative once (Run button in the Garrison UI) to generate the assembled prompt."
+    );
+    return;
+  }
+  // Mirror the runner's prompt resolution: the selected orchestrator fitting's
+  // .apm/prompts/*.prompt.md, falling back to the composition's
+  // .garrison/prompts/orchestrator.md.
+  let source = null;
+  let sourceLabel = "";
+  try {
+    const { load } = await import("js-yaml");
+    const manifest = load(await fs.readFile(path.join(COMPOSITION_DIR, "apm.yml"), "utf8"));
+    const selections = manifest?.["x-garrison"]?.composition?.selections ?? {};
+    const orchestratorId = selections.orchestrator?.[0]?.id;
+    if (orchestratorId) {
+      const library = JSON.parse(
+        await fs.readFile(path.join(REPO_ROOT, "data", "library.json"), "utf8")
+      );
+      const localPath = library.find((entry) => entry.id === orchestratorId)?.localPath;
+      if (localPath) {
+        const promptDir = path.join(REPO_ROOT, localPath, ".apm", "prompts");
+        const promptFile = (await fs.readdir(promptDir)).find((file) =>
+          file.endsWith(".prompt.md")
+        );
+        if (promptFile) {
+          source = await fs.readFile(path.join(promptDir, promptFile), "utf8");
+          sourceLabel = path.relative(REPO_ROOT, path.join(promptDir, promptFile));
+        }
+      }
+    }
+  } catch {
+    // fall through to the composition fallback prompt
+  }
+  if (source === null) {
+    try {
+      const fallback = path.join(COMPOSITION_DIR, ".garrison", "prompts", "orchestrator.md");
+      source = await fs.readFile(fallback, "utf8");
+      sourceLabel = path.relative(REPO_ROOT, fallback);
+    } catch {
+      record(
+        "Routing section",
+        "warn",
+        "Could not resolve the orchestrator prompt source; skipping the routing-section assertion.",
+        ""
+      );
+      return;
+    }
+  }
+  if (!source.includes("{{routing}}")) {
+    record(
+      "Routing section",
+      "pass",
+      "Orchestrator prompt has no {{routing}} placeholder; nothing to assert.",
+      sourceLabel
+    );
+    return;
+  }
+  const assembled = await fs.readFile(promptPath, "utf8");
+  const hasMarker = assembled.includes("<!-- garrison:routing");
+  const hasPolicy = assembled.includes("## Routing policy");
+  if (hasMarker && hasPolicy) {
+    record(
+      "Routing section",
+      "pass",
+      "Assembled prompt carries the compiled routing section for the {{routing}} placeholder.",
+      `${sourceLabel} has {{routing}}; assembled prompt contains the garrison:routing marker + Routing policy section.`
+    );
+  } else {
+    record(
+      "Routing section",
+      "fail",
+      `${sourceLabel} carries {{routing}} but the assembled prompt has NO compiled routing section - the placeholder substituted to empty.`,
+      "Check the runner log: 'routing compiler failed to load' means the routing-core dynamic import broke under the Next server (webpackIgnore regression); 'routing.json missing/invalid' means the config is bad."
+    );
+  }
+}
+
 async function checkGatewayHealth() {
   try {
     const response = await fetch(`${GATEWAY_URL}/health`, {
@@ -253,6 +343,7 @@ function printReport() {
 async function main() {
   await checkAuth();
   await checkAssembledPrompt();
+  await checkRoutingSection();
   const gatewayUp = await checkGatewayHealth();
   if (gatewayUp) {
     await runNetworkChecks();

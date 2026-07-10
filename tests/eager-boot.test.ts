@@ -76,7 +76,9 @@ writeFileSync(
       port: 0,
       url: "http://127.0.0.1:0",
       pid: process.pid,
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      gatewayUrl: process.env.GARRISON_GATEWAY_URL ?? null,
+      compositionId: process.env.GARRISON_COMPOSITION_ID ?? null
     },
     null,
     2
@@ -276,6 +278,35 @@ describe("eager boot (Layer 3)", () => {
     const marker = readJson<{ active: string[] }>(markerFile());
     expect(marker.active).toContain("sess-2");
     console.log(`LAZY_RESTORE_OK ${FIXTURE_ID}`);
+  });
+
+  it("passes the runner-provided extraEnv to the spawned fitting (eager respawns are not gatewayless)", async () => {
+    await setEagerBoot(FIXTURE_ID, true);
+
+    const summary = await runEagerBoot({
+      library: [ownPortEntry],
+      extraEnv: {
+        GARRISON_GATEWAY_URL: "http://127.0.0.1:49777",
+        GARRISON_COMPOSITION_ID: "default"
+      },
+      // Per-fitting env (the runner's own operative-bound env) wins over the
+      // flat fallback, keeping the fingerprints of both callers identical.
+      extraEnvById: {
+        [FIXTURE_ID]: {
+          GARRISON_GATEWAY_URL: "http://127.0.0.1:48777",
+          GARRISON_COMPOSITION_ID: "default"
+        }
+      }
+    });
+    expect(summary.booted).toEqual([FIXTURE_ID]);
+
+    await waitFor(() => existsSync(statusFile()), "fixture status file");
+    const status = readJson<{ pid: number; gatewayUrl: string | null; compositionId: string | null }>(
+      statusFile()
+    );
+    livePids.push(status.pid);
+    expect(status.gatewayUrl).toBe("http://127.0.0.1:48777");
+    expect(status.compositionId).toBe("default");
   });
 
   it("prefs round-trip on disk; invalid ids are rejected", async () => {

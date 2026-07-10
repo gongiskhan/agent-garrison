@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { envFingerprintForExtraEnv } from "@/lib/own-port-lifecycle";
+import { envFingerprintForExtraEnv, ownPortConfigEnv } from "@/lib/own-port-lifecycle";
 
 // The env-drift heal added in V1d hinges on a stable, narrow fingerprint over a
 // FIXED set of tracked env keys (GARRISON_GATEWAY_URL, GARRISON_COMPOSITION_ID).
@@ -67,5 +67,52 @@ describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
     const firstSpawnFingerprint = envFingerprintForExtraEnv(desired);
     const secondSpawnFingerprint = envFingerprintForExtraEnv(desired);
     expect(secondSpawnFingerprint).toBe(firstSpawnFingerprint);
+  });
+
+  it("a projected config key (GARRISON_<ID>_<KEY>) participates in the fingerprint", () => {
+    // Changing the file-browser's root in apm.yml must drift the fingerprint
+    // so the next `up` heal-restarts the fitting with the new value instead of
+    // silently ignoring the config change.
+    const base = { GARRISON_GATEWAY_URL: "http://127.0.0.1:4777" };
+    const a = envFingerprintForExtraEnv({ ...base, GARRISON_FILEBROWSER_ROOT: "~/.garrison/files" });
+    const b = envFingerprintForExtraEnv({ ...base, GARRISON_FILEBROWSER_ROOT: "/srv/files" });
+    const absent = envFingerprintForExtraEnv(base);
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(absent);
+  });
+
+  it("projected key order never changes the fingerprint", () => {
+    const a = envFingerprintForExtraEnv({
+      GARRISON_FILEBROWSER_ROOT: "~/.garrison/files",
+      GARRISON_FILEBROWSER_PORT: "7091"
+    });
+    const b = envFingerprintForExtraEnv({
+      GARRISON_FILEBROWSER_PORT: "7091",
+      GARRISON_FILEBROWSER_ROOT: "~/.garrison/files"
+    });
+    expect(a).toBe(b);
+  });
+});
+
+describe("ownPortConfigEnv (composition config → spawn env projection)", () => {
+  it("projects scalar config as GARRISON_<ID-without-dashes>_<KEY>, skipping nested values", () => {
+    expect(
+      ownPortConfigEnv("file-browser", {
+        root: "~/.garrison/files",
+        port: 7091,
+        read_only: false,
+        nested: { a: 1 },
+        list: [1, 2],
+        empty: null
+      })
+    ).toEqual({
+      GARRISON_FILEBROWSER_ROOT: "~/.garrison/files",
+      GARRISON_FILEBROWSER_PORT: "7091",
+      GARRISON_FILEBROWSER_READ_ONLY: "false"
+    });
+  });
+
+  it("returns an empty projection for an empty config", () => {
+    expect(ownPortConfigEnv("kanban-loop", {})).toEqual({});
   });
 });

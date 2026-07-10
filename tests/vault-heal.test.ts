@@ -449,8 +449,14 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
         expect(result.error).toMatch(/survived SIGTERM and SIGKILL/);
         expect(result.healed).toBeUndefined();
         expect(result.pid).toBeUndefined();
-        // No new child, and no record claiming the secrets arrived.
-        expect(existsSync(recordFile(VAULT_ID))).toBe(false);
+        // No new child, and the tracking files are KEPT: the process is still
+        // alive, and dropping them would convert it into an untracked orphan.
+        // The surviving record still says secretsDelivered:false, so it can
+        // never mask a future keyless run.
+        expect(existsSync(statusFile(VAULT_ID))).toBe(true);
+        expect(existsSync(recordFile(VAULT_ID))).toBe(true);
+        expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).secretsDelivered).toBe(false);
+        expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).pid).toBe(oldPid);
         expect(
           killSpy.mock.calls.filter(([pid, signal]) => pid === oldPid && signal === "SIGKILL")
         ).toHaveLength(1);

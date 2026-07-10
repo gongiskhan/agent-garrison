@@ -191,7 +191,10 @@ export async function assembleSouls(input: {
   const tierByMode: Record<string, string> = {};
   if (routingCorePath) {
     try {
-      const rc = (await import(pathToFileURL(routingCorePath).href)) as {
+      // webpackIgnore keeps the specifier out of EVERY webpack compilation -
+      // without it Next compiles this fully-dynamic import into an empty lazy
+      // context that rejects every request (same fix as src/instrumentation.ts).
+      const rc = (await import(/* webpackIgnore: true */ pathToFileURL(routingCorePath).href)) as {
         biasRole: (role: string, bias: unknown) => string;
         modeBiasFor: (mode: string, modesConfig: unknown) => unknown;
       };
