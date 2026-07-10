@@ -1,0 +1,60 @@
+name: ports-default
+version: 0.1.0
+description: Ports Fitting for Agent Garrison — lists every listening TCP port on this box, labels each from the worktree registry / ui-fitting status files / owning process, and offers open-in-browser and guarded kill actions. Serves its own React UI on its own port (default 7088).
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: surfaces
+  cardinality_hint: single
+  own_port: true
+  default_port: 7088
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Scans listening TCP sockets (`ss -tlnpH` on Linux, `lsof -iTCP -sTCP:LISTEN -P -n` on macOS) every few seconds and on demand, labelling each port from the worktree registry (50000-54999 pool → worktree name), then ~/.garrison/ui-fittings/*.json status files (fittingId), then the owning pid + command line. Each row shows the bind address with a loopback badge, an open-over-tailnet link (hidden for loopback binds), open-in-Browser-pane, copy URL, and a guarded kill (SIGTERM, then SIGKILL). Serves a phone-friendly React UI on its own port (default 7088).
+  config_schema:
+    - key: port
+      type: integer
+      default: 7088
+      description: HTTP port the Ports server binds to. Falls back to next free port when in use.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: scan_interval_ms
+      type: integer
+      default: 5000
+      description: How often the scan loop re-reads the listening TCP sockets.
+  provides: []
+  consumes: []
+  setup:
+    command: node ui/build.mjs
+    idempotent: true
+    timeout_ms: 60000
+  verify:
+    command: node apm_modules/_local/ports-default/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The Ports view is discovered at runtime by reading:
+      ~/.garrison/ui-fittings/ports-default.json
+    The file (written when the server binds) carries:
+      { fittingId, port, url, pid, startedAt }
+    Then `GET <url>/health` to confirm reachability before linking.
+    Endpoints:
+      GET  /health                              → {ok: true, port, pid, host}
+      GET  /api/ports                           → {ports[], scannedAt, tailnetHost, platform, self}
+                                                  each port row: {port, address, loopback,
+                                                  wildcard, severity, pid, pids[], command,
+                                                  labelSource, label, labelDetail}
+      GET  /api/ports?fresh=1                   → forces a rescan before responding
+      POST /api/ports/:port/open-in-browser     → navigates a browser-default tab to
+                                                  http://127.0.0.1:<port>; 502 when the
+                                                  Browser Fitting is absent/unreachable
+      POST /api/pids/:pid/kill {signal}         → SIGTERM/SIGKILL an owning pid; 403 when
+                                                  the guard refuses (pid<=1, this server or
+                                                  its parent, or a pid holding no listening
+                                                  socket in the last scan)
+    Labels resolve in order: worktree registry (50000-54999 pool → worktree name) >
+    ui-fitting status file (fittingId) > owning pid + command line.
