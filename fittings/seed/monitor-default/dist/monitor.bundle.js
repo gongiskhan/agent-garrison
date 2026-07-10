@@ -5,7 +5,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -24,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1898,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1910,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2360,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2372,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2433,7 +2437,7 @@ var require_react_dom_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment = 7;
+        var Fragment2 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -3590,7 +3594,7 @@ var require_react_dom_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment:
+            case Fragment2:
               return "Fragment";
             case HostComponent:
               return type;
@@ -12019,7 +12023,7 @@ var require_react_dom_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current2, fragment, lanes, key) {
-            if (current2 === null || current2.tag !== Fragment) {
+            if (current2 === null || current2.tag !== Fragment2) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -12422,7 +12426,7 @@ var require_react_dom_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment) {
+                  if (child.tag === Fragment2) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17898,7 +17902,7 @@ var require_react_dom_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current2, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment:
+            case Fragment2:
               return updateFragment(current2, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current2, workInProgress2, renderLanes2);
@@ -18170,7 +18174,7 @@ var require_react_dom_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment:
+            case Fragment2:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22431,7 +22435,7 @@ var require_react_dom_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment, elements, key, mode);
+          var fiber = createFiber(Fragment2, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -23536,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23549,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23580,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24473,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24485,13 +24489,142 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/monitor-default/ui/main.tsx
 var import_client = __toESM(require_client());
 var import_react = __toESM(require_react());
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function portUrl(port) {
   const here = typeof window !== "undefined" ? window.location.hostname : "localhost";
   return `http://${here || "localhost"}:${port}`;
+}
+function fmtBytes(n) {
+  if (n == null || !Number.isFinite(n)) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+function fmtBps(n) {
+  if (n == null || !Number.isFinite(n)) return "-";
+  return `${fmtBytes(n)}/s`;
+}
+function fmtLoad(n) {
+  return n == null || !Number.isFinite(n) ? "-" : n.toFixed(2);
+}
+function sevClass(s) {
+  return s === "critical" ? "sev-critical" : s === "warn" ? "sev-warn" : "sev-ok";
+}
+function barSeverityClass(s) {
+  return s === "critical" ? "bar-critical" : s === "warn" ? "bar-warn" : "";
+}
+function unitStateClass(active) {
+  return active === "active" ? "unit-active" : active === "failed" ? "unit-failed" : "unit-other";
+}
+function Bar({ percent, severity }) {
+  const p = percent == null || !Number.isFinite(percent) ? 0 : Math.max(0, Math.min(100, percent));
+  const cls = "bar-fill" + (severity ? ` ${barSeverityClass(severity)}` : "");
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "bar", role: "progressbar", "aria-valuenow": Math.round(p), "aria-valuemin": 0, "aria-valuemax": 100, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: cls, style: { width: `${p}%` } }) });
+}
+function VitalsPanel({ vitals }) {
+  if (!vitals) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", { className: "vitals", "aria-label": "system vitals", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vitals-empty muted", children: "collecting system vitals..." }) });
+  }
+  const { cpu, mem, net, disks, units } = vitals;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "vitals", "aria-label": "system vitals", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vitals-grid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-title", children: "CPU" }),
+        cpu ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-big mono", children: cpu.currentLoad != null ? `${cpu.currentLoad.toFixed(0)}%` : "-" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bar, { percent: cpu.currentLoad }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-sub mono", children: [
+            "load ",
+            fmtLoad(cpu.load1),
+            " \xB7 ",
+            fmtLoad(cpu.load5),
+            " \xB7 ",
+            fmtLoad(cpu.load15),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "muted", children: [
+              " \xB7 ",
+              cpu.cores,
+              " cores"
+            ] })
+          ] })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-sub muted", children: "unavailable" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-title", children: "Memory" }),
+        mem ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-big mono", children: [
+            mem.usePercent.toFixed(0),
+            "%"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bar, { percent: mem.usePercent }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-sub mono", children: [
+            fmtBytes(mem.used),
+            " / ",
+            fmtBytes(mem.total),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "muted", children: " used" })
+          ] })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-sub muted", children: "unavailable" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-title", children: "Network" }),
+        net ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-net", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "net-row mono", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "net-dir", children: "rx" }),
+            " ",
+            fmtBps(net.rxSec)
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "net-row mono", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "net-dir", children: "tx" }),
+            " ",
+            fmtBps(net.txSec)
+          ] })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-sub muted", children: "unavailable" })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-card vital-wide", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-title", children: "Disks" }),
+      disks.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-sub muted", children: "no mounts reported" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "disk-list", children: disks.map((d, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "disk-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "disk-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "disk-mount mono", title: `${d.fs}${d.type ? ` (${d.type})` : ""}`, children: d.mount }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "disk-usage mono", children: [
+            fmtBytes(d.used),
+            " / ",
+            fmtBytes(d.size),
+            d.usePercent != null && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "disk-pct " + sevClass(d.severity), children: [
+              " \xB7 ",
+              d.usePercent.toFixed(0),
+              "%"
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bar, { percent: d.usePercent, severity: d.severity })
+      ] }, `${d.mount}-${i}`)) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "vital-card vital-wide", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-title", children: "Garrison units" }),
+      units.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "vital-sub muted", children: "no garrison-* systemd user units" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "units-table-wrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "units-table mono", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "unit" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "load" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "active" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "sub" })
+        ] }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: units.map((u, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "unit-name", children: u.unit }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: u.load }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "unit-state " + unitStateClass(u.active), children: u.active }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: u.sub })
+        ] }, `${u.unit}-${i}`)) })
+      ] }) })
+    ] })
+  ] });
 }
 function StatusDot({ status, stat }) {
   const first = stat?.[0] ?? "?";
@@ -24766,6 +24899,7 @@ function Drilldown({
 }
 function App() {
   const [entities, setEntities] = (0, import_react.useState)([]);
+  const [vitals, setVitals] = (0, import_react.useState)(null);
   const [openPid, setOpenPid] = (0, import_react.useState)(null);
   const [error, setError] = (0, import_react.useState)(null);
   (0, import_react.useEffect)(() => {
@@ -24775,6 +24909,7 @@ function App() {
         const data = JSON.parse(ev.data);
         if (data.kind === "snapshot") {
           setEntities(data.entities);
+          if (data.vitals !== void 0) setVitals(data.vitals ?? null);
           setError(null);
         }
       } catch (e) {
@@ -24798,7 +24933,10 @@ function App() {
       ] }),
       error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "error", children: error })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", { className: "grid", children: entities.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty-state", children: "No entities yet. The Monitor watches descendants of the Garrison runtime \u2014 spawn something through the runner to see it here." }) : [...live, ...dead].map((e) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProcessCard, { entity: e, onOpen: setOpenPid }, e.pid)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "content", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(VitalsPanel, { vitals }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", { className: "grid", children: entities.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty-state", children: "No entities yet. The Monitor watches descendants of the Garrison runtime - spawn something through the runner to see it here." }) : [...live, ...dead].map((e) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProcessCard, { entity: e, onOpen: setOpenPid }, e.pid)) })
+    ] }),
     open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       Drilldown,
       {

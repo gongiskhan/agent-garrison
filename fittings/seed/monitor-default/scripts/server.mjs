@@ -16,6 +16,8 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 
+import { collectVitals } from "./vitals.mjs";
+
 const HOME = os.homedir();
 const LOGS_ROOT = path.join(HOME, ".garrison", "logs");
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
@@ -156,6 +158,26 @@ let entities = new Map(); // pid -> entity record
 let knownPids = new Set();
 const sseSubscribers = new Set();
 
+// Latest system-vitals sample (CPU / memory / disks / network / garrison-*
+// systemd units). Refreshed on a slow cadence off the poll loop; broadcast in
+// the SSE snapshot and served at GET /api/vitals. Null until the first sample.
+let latestVitals = null;
+let vitalsSampling = false;
+
+// Refresh latestVitals without ever throwing into the poll loop. Guards against
+// overlapping samples (fsSize / networkStats can outlast one poll tick).
+async function sampleVitals() {
+  if (vitalsSampling) return;
+  vitalsSampling = true;
+  try {
+    latestVitals = await collectVitals();
+  } catch (err) {
+    console.error("[monitor] vitals error:", err?.message ?? err);
+  } finally {
+    vitalsSampling = false;
+  }
+}
+
 function metaForPid(pid) {
   const metaPath = path.join(LOGS_ROOT, String(pid), "meta.json");
   if (!existsSync(metaPath)) return null;
@@ -213,7 +235,7 @@ function extractSessionId(cmd) {
 
 function broadcastSnapshot() {
   if (sseSubscribers.size === 0) return;
-  const payload = `data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()] })}\n\n`;
+  const payload = `data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()], vitals: latestVitals })}\n\n`;
   for (const res of sseSubscribers) {
     try { res.write(payload); } catch {}
   }
@@ -346,6 +368,10 @@ function handleEntities(req, res) {
   jsonRes(res, 200, { entities: [...entities.values()] });
 }
 
+function handleVitals(req, res) {
+  jsonRes(res, 200, latestVitals ?? { ts: null, cpu: null, mem: null, disks: [], net: null, units: [] });
+}
+
 function handleEntity(req, res, pid) {
   const e = entities.get(Number(pid));
   if (!e) {
@@ -360,7 +386,7 @@ function handleEntityStream(req, res) {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.write(`data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()] })}\n\n`);
+  res.write(`data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()], vitals: latestVitals })}\n\n`);
   sseSubscribers.add(res);
   req.on("close", () => sseSubscribers.delete(res));
 }
@@ -511,6 +537,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/api/entities") return handleEntities(req, res);
+      if (pathname === "/api/vitals") return handleVitals(req, res);
       if (pathname === "/api/entities/stream") return handleEntityStream(req, res);
       const entityMatch = pathname.match(/^\/api\/entities\/(\d+)$/);
       if (entityMatch) return handleEntity(req, res, entityMatch[1]);
@@ -528,7 +555,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     console.log(`[monitor] listening on http://${liveOpts.host}:${actualPort} (parent=${liveOpts.parentPid})`);
   });
 
-  const tick = () => poll(liveOpts.parentPid).catch((err) => console.error("[monitor] poll error:", err.message));
+  // Sample vitals roughly every 5s, off the (default 1 Hz) poll cadence.
+  const vitalsEveryTicks = Math.max(1, Math.round(5000 / liveOpts.pollMs));
+  let tickCount = 0;
+  const tick = () => {
+    if (tickCount % vitalsEveryTicks === 0) sampleVitals();
+    tickCount++;
+    return poll(liveOpts.parentPid).catch((err) => console.error("[monitor] poll error:", err.message));
+  };
   tick();
   const pollHandle = setInterval(tick, liveOpts.pollMs);
 
