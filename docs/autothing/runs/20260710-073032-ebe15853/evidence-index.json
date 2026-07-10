@@ -133,6 +133,12 @@
      "file": "slices/S3/evidence.mp4",
      "videoBytes": 7396066,
      "videoSha256": "ddb627840fae5847a3355335fede8f47602fc5c6fbb833100de16ece0c1f944e"
+    },
+    {
+     "file": "slices/S3/phone-fill-fixed.png",
+     "bytes": 51691,
+     "sha256": "d486d9aa95df36a197fa97dbbf196117d537cf7ee6eb6c923164893d1f9a2d47",
+     "note": "post-fix phone layout, 100% target-card fill at 390px (design-audit MAJOR fixed 058ea0d)"
     }
    ]
   },
