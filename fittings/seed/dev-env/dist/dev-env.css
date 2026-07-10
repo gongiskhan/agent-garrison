@@ -188,6 +188,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 /* ---- Mobile (≤720px): one pane full-screen; Claude | Shell | Browser tabs ---- */
 @media (max-width: 720px) {
   .header { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  .tabs-empty { white-space: normal; min-width: 0; }
   .terminals-col { flex: 1 !important; }
   .browser-pane-host { flex: 1 !important; }
   .claude-pane, .terminals-deck { flex: 1 !important; border-bottom: none; }

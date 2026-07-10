@@ -42718,9 +42718,9 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
           },
           s.id
         )),
-        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tabs-empty", children: "No sessions \u2014 start a session or run claude anywhere." }),
+        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tabs-empty", children: "No sessions - start a session or run claude anywhere." }),
         sessions.length > 0 && visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "tabs-empty", children: [
-          "No active sessions \u2014 ",
+          "No active sessions - ",
           hiddenCount,
           " hidden."
         ] })

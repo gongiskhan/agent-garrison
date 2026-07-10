@@ -1406,9 +1406,9 @@ function App() {
               </span>
             </span>
           ))}
-          {sessions.length === 0 && <span className="tabs-empty">No sessions — start a session or run claude anywhere.</span>}
+          {sessions.length === 0 && <span className="tabs-empty">No sessions - start a session or run claude anywhere.</span>}
           {sessions.length > 0 && visibleSessions.length === 0 && (
-            <span className="tabs-empty">No active sessions — {hiddenCount} hidden.</span>
+            <span className="tabs-empty">No active sessions - {hiddenCount} hidden.</span>
           )}
         </div>
         <button

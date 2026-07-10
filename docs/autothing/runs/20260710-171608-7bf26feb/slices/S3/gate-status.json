@@ -1,0 +1,42 @@
+{
+  "slice": "S3",
+  "title": "Worktree sweep (D10)",
+  "kind": "mixed",
+  "implement": {
+    "status": "passed",
+    "at": "2026-07-10T18:38:15Z",
+    "summary": "4-teammate fan-out (dev-env refactor, gateways, srclib+ports, prompts/docs/state) + lead stitch (monitor-default fix, README/testing wording, refresh:prompts)"
+  },
+  "securityWall": {
+    "gitleaks": 0,
+    "semgrep": 0,
+    "depAudit": "0 high/critical",
+    "at": "2026-07-10T18:38:15Z"
+  },
+  "test": {
+    "status": "passed",
+    "exit": 0,
+    "at": "2026-07-10T18:38:15Z",
+    "summary": "typecheck 0; vitest 1645 passed/12 skipped; machinery grep zero with documented exclusions; committed tests updated (ports-fitting rewrite, worktree-ports deleted, dev-env suite re-keyed)"
+  },
+  "fence": {
+    "sha": "0f223f9",
+    "trailer": "Garrison-Card: autothing-20260710-171608-7bf26feb-S3",
+    "at": "2026-07-10T18:38:15Z"
+  },
+  "grepExclusions": "history/test-required/native-isolation: worktrees-brief(SUPERSEDED banner), DECISIONS(superseded entry), CAPABILITIES+dev-env.test dropped-kinds (test contract), METADATA/ROADMAP/V1_DOD/FITTINGS/WHATS-NEW/conversations/briefs/handoffs/exploration (history), state.mjs+monitor server.mjs (migration legacy-field reads), metadata.ts alias, types.ts comment, CLAUDE.md native-isolation rule, tmux conf false-positive",
+  "codexSliceReview": {
+    "status": "degraded",
+    "reason": "codex-unavailable",
+    "actualModel": null,
+    "at": "2026-07-10T18:39:43Z",
+    "detail": "401 Unauthorized api.openai.com - not logged in, no API key, vault parked"
+  },
+  "adversarialReview": {
+    "verdict": "approve",
+    "by": "fresh-context claude-fable-5",
+    "at": "2026-07-10T18:54:25Z",
+    "notes": 3,
+    "evidence": "typecheck 0, vitest 1646 passed, node --check 12/12, independent greps zero"
+  }
+}
