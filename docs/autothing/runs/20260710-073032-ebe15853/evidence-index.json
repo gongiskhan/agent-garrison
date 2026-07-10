@@ -297,7 +297,8 @@
    ],
    "gitleaks": "5 hits total: 4 pre-existing baseline (docs/phases May/Jul + dev-env bundle, out of run scope), 1 this-run fabricated sandbox pairing token (12-char demo, not the 48-hex real format) redacted from the tip",
    "semgrep": "available; not auto-run (no project ruleset configured; manual adversarial pass substituted)",
-   "at": "2026-07-10T13:10:00Z"
+   "at": "2026-07-10T13:10:00Z",
+   "note": "deep-review findings recovered + applied: 4 blockers, 8 majors fixed with regression tests; full suite 1645 green"
   },
   "codexCheckpoint": {
    "status": "degraded",
@@ -326,6 +327,29 @@
     "S12": "APPROVE (nit: restore-command copy button, word-break wrap, empty-state reason)"
    },
    "at": "2026-07-10T13:28:16Z"
-  }
+  },
+  "adversarialReview": {
+   "status": "passed",
+   "by": "fresh-context deep reviewers (rev-s3, rev-s912, rev-s1314, rev2-s567, rev2-s1011, rev-floor) - verdicts recovered from subagent transcripts (mailbox not delivering final messages this session), ALL findings applied",
+   "findings_applied": [
+    "rev-s3 BLOCKER: async route dispatch not awaited -> dead catch -> process crash (orchestrator+monitor+outpost) -> c17b63f",
+    "rev-s3 MAJOR: concurrent-PUT temp-file collision -> per-request random suffix -> c17b63f",
+    "rev2-s567 S5#1 BLOCKER: engine dropped D9 ungated on a corrupt policy -> fail-safe park -> e5ad55d",
+    "rev2-s567 S6 MAJOR: evidence-home 0.0.0.0 bind + unconfined symlinks -> tailnet bind + realpath confine -> 795c4f4",
+    "rev-s1314 S13 BLOCKER: 10s warning not a cancel window -> re-gather+abort on busy -> 8e6c312",
+    "rev-s1314 S13 MAJOR: ssh busy-signal fail-open on w timeout -> fail-safe busy -> 8e6c312",
+    "rev-s1314 S14 MAJOR: power server ignored GARRISON_HOME -> honored -> (status file relayable)",
+    "rev2-s1011 MAJOR: ports kill no Origin/CSRF -> crossSiteBlocked guard -> ports+power+outpost",
+    "rev-s912 MAJOR: outpost provisioning ssh arg-injection RCE -> validated (fixed pre-review, 9f01122)",
+    "rev-s912 minors: provision set -e, bootstrap 0600 token config",
+    "rev2-s1011/rev-floor: PID-reuse TOCTOU (9ae60a4), origin guards close drive-by kill/suspend"
+   ],
+   "clean": [
+    "rev-floor: engine D16/path-traversal/snapshots/orchestrator-atomic all verified clean or fixed"
+   ],
+   "residual_minors": "rev-s3 (5), rev-s1314 (4), rev2-s567 (dir-listing HTML now path-confined), rev2-s1011 (process-name XSS defused by React) - non-blocking polish, listed in FOLLOWUP",
+   "at": "2026-07-10T13:55:56Z"
+  },
+  "suiteAfterFixes": "1645 passed / 12 skipped"
  }
 }
