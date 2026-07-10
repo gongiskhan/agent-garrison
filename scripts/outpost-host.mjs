@@ -28,7 +28,13 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 const PORT = parseInt(process.env.GARRISON_OUTPOST_PORT || "3702", 10);
-const BIND = process.env.GARRISON_OUTPOST_BIND || "0.0.0.0";
+// Secure by default: bind LOOPBACK, not 0.0.0.0. The daemon's HTTP API relays
+// exec.run to connected Mac bridges (RCE-to-Mac) and mutates the registry, all
+// unauthenticated; 0.0.0.0 exposed that on every interface (the public GCP one
+// included), so anyone on the LAN/tailnet could pair + relay commands. The local
+// UI proxy reaches it on 127.0.0.1; pairing a REMOTE Mac requires the operator to
+// opt into a tailnet bind explicitly via GARRISON_OUTPOST_BIND=<tailnet-ip>.
+const BIND = process.env.GARRISON_OUTPOST_BIND || "127.0.0.1";
 const PROTOCOL_VERSION = 1;
 const AUTH_TIMEOUT_MS = 10_000;
 const RPC_TIMEOUT_MS = 10_000;
@@ -599,6 +605,24 @@ function json(res, status, body) {
   res.end(data);
 }
 
+// CSRF guard for the mutating / RCE-relaying endpoints (register, pair, rpc,
+// unregister). A drive-by webpage the user visits can POST to a loopback service
+// (readBody accepts any content-type, so it's a no-preflight "simple request")
+// and reach exec.run relay → RCE on a paired Mac. A browser cross-site request
+// always carries an Origin header; legitimate callers (the local UI proxy, the
+// Mac's `curl`, server-to-server) send none. So: reject any request whose Origin
+// is present and not loopback. Returns true when blocked (already answered 403).
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+function crossSiteBlocked(req, res) {
+  const origin = req.headers["origin"];
+  if (origin) {
+    let ok = false;
+    try { ok = LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase()); } catch { ok = false; }
+    if (!ok) { json(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" }); return true; }
+  }
+  return false;
+}
+
 async function handleHttp(req, res) {
   const url = new URL(req.url, `http://127.0.0.1:${livePort}`);
   const path = url.pathname;
@@ -640,6 +664,7 @@ async function handleHttp(req, res) {
   }
 
   if (method === "POST" && path === "/registry/register") {
+    if (crossSiteBlocked(req, res)) return;
     try {
       const body = await parseBody(req);
       const { name, token } = body;
@@ -653,6 +678,7 @@ async function handleHttp(req, res) {
 
   // Mint a pairing token and return the one-line installer for a new Mac.
   if (method === "POST" && path === "/registry/pair") {
+    if (crossSiteBlocked(req, res)) return;
     try {
       const body = await parseBody(req);
       const name = (body?.name || "").trim();
@@ -674,6 +700,7 @@ async function handleHttp(req, res) {
 
   const deleteMatch = path.match(/^\/registry\/(.+)$/);
   if (method === "DELETE" && deleteMatch) {
+    if (crossSiteBlocked(req, res)) return;
     const name = decodeURIComponent(deleteMatch[1]);
     const conn = connections.get(name);
     if (conn?.ws) {
@@ -691,6 +718,7 @@ async function handleHttp(req, res) {
 
   const rpcMatch = path.match(/^\/outposts\/(.+)\/rpc$/);
   if (method === "POST" && rpcMatch) {
+    if (crossSiteBlocked(req, res)) return;
     const name = decodeURIComponent(rpcMatch[1]);
     const caller = String(req.headers["x-garrison-caller"] || req.socket.remoteAddress || "unknown");
     const started = Date.now();
