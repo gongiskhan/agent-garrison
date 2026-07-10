@@ -59,3 +59,4 @@
   wt-s7, wt-s9, wt-s12, wt-s13; design audit da-s1011. Mutation sandbox synced to HEAD,
   ready. Remaining after agents: apply findings, design audits, mutation ->
   security-review -> codex checkpoint (degraded) -> report -> GLOBAL GATE.
+- 12:27 `GATE` item 8 serve clause verified live: serve.mjs tailnet-bound, /runs serves the evidence home, traversal contained (404/400).
