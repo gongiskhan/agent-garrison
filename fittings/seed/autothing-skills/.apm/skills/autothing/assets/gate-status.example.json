@@ -1,6 +1,6 @@
 {
-  "slice": "sso-login",
-  "title": "Microsoft 365 SSO login flow",
+  "slice": "signup-flow",
+  "title": "User signup flow",
   "updatedAt": "2026-06-04T14:22:10Z",
   "phase": "done",
   "status": "passed",
@@ -8,17 +8,17 @@
   "profile": "feature",
   "retries": { "limit": 5, "used": 1 },
   "gates": {
-    "tests":     { "cmd": "npm run test -w ekoa",                          "exit": 0, "at": "2026-06-04T14:20:00Z", "durationMs": 41230, "summary": "12 passed" },
+    "tests":     { "cmd": "npm run test",                          "exit": 0, "at": "2026-06-04T14:20:00Z", "durationMs": 41230, "summary": "12 passed" },
     "typecheck": { "cmd": "npm run typecheck --workspaces --if-present",   "exit": 0, "at": "2026-06-04T14:20:31Z", "durationMs": 9800,  "summary": "0 errors" },
-    "lint":      { "cmd": "npm run lint -w ekoa",                          "exit": 0, "at": "2026-06-04T14:20:48Z", "durationMs": 6100,  "summary": "clean" },
+    "lint":      { "cmd": "npm run lint",                          "exit": 0, "at": "2026-06-04T14:20:48Z", "durationMs": 6100,  "summary": "clean" },
     "securityWall": { "gitleaks": { "exit": 0 }, "semgrep": { "exit": 0, "findings": 0 }, "depAudit": { "exit": 0, "high": 0, "critical": 0 }, "at": "2026-06-04T14:20:55Z", "durationMs": 15400, "summary": "no secrets, 0 SAST findings, deps clean" },
     "build":     { "cmd": "npm run build --workspaces --if-present",       "exit": 0, "at": "2026-06-04T14:21:40Z", "durationMs": 52000, "summary": "next build ok" },
-    "e2e":       { "cmd": "npx playwright test e2e/sso-login.spec.ts",     "exit": 0, "at": "2026-06-04T14:21:55Z", "durationMs": 18700, "summary": "3 passed, 0 console errors" },
+    "e2e":       { "cmd": "npx playwright test e2e/signup-flow.spec.ts",     "exit": 0, "at": "2026-06-04T14:21:55Z", "durationMs": 18700, "summary": "3 passed, 0 console errors" },
     "adversarialReview": { "verdict": "approve", "by": "claude-fable-5", "actualModel": "claude-fable-5", "fallbackCause": null, "evidence": ["npm test: 3 passed", "npm run typecheck: 0 errors"], "at": "2026-06-04T14:21:30Z", "durationMs": 120400, "findings": [] },
-    "adversarialTest": { "result": "pass", "by": "claude-sonnet-5", "actualModel": "claude-sonnet-5", "fallbackCause": null, "probe": "docs/autothing/slices/sso-login/adversarial-test-sso-login.spec.ts", "at": "2026-06-04T14:21:45Z", "durationMs": 96000 },
+    "adversarialTest": { "result": "pass", "by": "claude-sonnet-5", "actualModel": "claude-sonnet-5", "fallbackCause": null, "probe": "docs/autothing/slices/signup-flow/adversarial-test-signup-flow.spec.ts", "at": "2026-06-04T14:21:45Z", "durationMs": 96000 },
     "codexSliceReview": { "verdict": "approve", "by": "gpt-5.5", "actualModel": "gpt-5.5", "effort": "high", "at": "2026-06-04T14:21:38Z", "durationMs": 84000, "findings": [] },
     "designAudit": { "verdict": "clean", "by": ["frontend-design", "huashu-design"], "at": "2026-06-04T14:22:02Z", "durationMs": 61000, "notes": "matched design tokens; fixed 2 spacing regressions during the audit" },
-    "video":     { "status": "verified", "mode": "evidence", "verifiedAt": "2026-06-04T14:22:09Z", "flagged": false, "link": "http://100.108.210.116:8099/ekoa/2026-06-04T142150/final.mp4", "runDir": ".walkthrough/runs/2026-06-04T142150", "evidence": "docs/autothing/runs/<runId>/slices/sso-login/evidence.json" }
+    "video":     { "status": "verified", "mode": "evidence", "verifiedAt": "2026-06-04T14:22:09Z", "flagged": false, "link": "http://gallery.example.invalid:8099/exampleapp/2026-06-04T142150/final.mp4", "runDir": ".walkthrough/runs/2026-06-04T142150", "evidence": "docs/autothing/runs/<runId>/slices/signup-flow/evidence.json" }
   },
   "_gate_slot_when_operator_disabled": { "status": "skipped", "reason": "operator-disabled" },
   "_gate_slot_when_kind_conditional":  { "status": "skipped", "reason": "kind-conditional" },

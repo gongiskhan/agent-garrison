@@ -8,6 +8,7 @@
     "adversarial-review",
     "test",
     "adversarial-test",
+    "security-review",
     "design-audit",
     "walkthrough",
     "validate",
@@ -58,6 +59,7 @@
           "adversarial-review": { "default": "cc-fable-xhigh", "cells": {} },
           "test": { "default": "cc-sonnet-med", "cells": {} },
           "adversarial-test": { "default": "cc-sonnet-high", "cells": {} },
+          "security-review": { "default": "cc-fable-xhigh", "cells": {} },
           "design-audit": { "default": "cc-fable-xhigh", "cells": {} },
           "walkthrough": { "default": "cc-sonnet-med", "cells": {} },
           "validate": { "default": "cc-sonnet-high", "cells": {} },
@@ -87,6 +89,7 @@
           "adversarial-review": { "default": "cc-fable-xhigh", "cells": {} },
           "test": { "default": "cc-sonnet-med", "cells": {} },
           "adversarial-test": { "default": "cc-sonnet-high", "cells": {} },
+          "security-review": { "default": "cc-fable-xhigh", "cells": {} },
           "design-audit": { "default": "cc-fable-xhigh", "cells": {} },
           "walkthrough": { "default": "cc-sonnet-med", "cells": {} },
           "validate": { "default": "cc-sonnet-high", "cells": {} },
@@ -119,6 +122,7 @@
           "adversarial-review": { "default": "cc-fable-xhigh", "cells": {} },
           "test": { "default": "cc-sonnet-med", "cells": {} },
           "adversarial-test": { "default": "cc-sonnet-high", "cells": {} },
+          "security-review": { "default": "cc-fable-xhigh", "cells": {} },
           "design-audit": { "default": "cc-fable-xhigh", "cells": {} },
           "walkthrough": { "default": "cc-sonnet-med", "cells": {} },
           "validate": { "default": "cc-sonnet-high", "cells": {} },
@@ -168,6 +172,7 @@
     "adversarial-review",
     "test",
     "adversarial-test",
+    "security-review",
     "design-audit",
     "walkthrough",
     "validate",
@@ -208,6 +213,7 @@
       "implement": "autothing-implement",
       "review": "autothing-review",
       "adversarial-review": "autothing-adversarial-review",
+      "security-review": "autothing-security-review",
       "test": "autothing-test",
       "adversarial-test": "autothing-adversarial-test",
       "design-audit": "autothing-design-audit",
@@ -217,5 +223,13 @@
       "report": "autothing-report"
     },
     "overrides": {}
+  },
+  "projects": {
+    "agent-garrison": {
+      "security_sensitive": false,
+      "profile": {
+        "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:7777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
+      }
+    }
   }
 }

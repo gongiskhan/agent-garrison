@@ -407,7 +407,8 @@ export function compilePolicy(config, profile) {
     phasePlans: cfg.phasePlans || {},
     workKinds: cfg.workKinds || {},
     defaultWorkKind: cfg.defaultWorkKind || null,
-    phaseSkills: cfg.phaseSkills || { bindings: {}, overrides: {} }
+    phaseSkills: cfg.phaseSkills || { bindings: {}, overrides: {} },
+    projects: cfg.projects || {}
   };
 }
 

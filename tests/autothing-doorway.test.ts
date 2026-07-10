@@ -56,14 +56,18 @@ describe("one policy, one brain — grep proofs (D5/D14, acceptance 3+7)", () =>
     }
   });
 
-  it("every verb skill carries the policy-read preamble with the exact D5 error", () => {
+  it("every verb skill carries the SOFT policy-read preamble; only the doorway hard-stops (D12)", () => {
     for (const dir of readdirSync(FAMILY)) {
-      if (dir === "autothing") continue;
+      if (dir === "autothing") continue; // the doorway legitimately hard-requires Garrison (see the doorway block)
       const skillMd = path.join(FAMILY, dir, "SKILL.md");
       if (!existsSync(skillMd)) continue;
       const s = readFileSync(skillMd, "utf8");
       expect(s, `${dir} preamble`).toContain("Policy-read preamble");
-      expect(s, `${dir} D5 error`).toContain(D5_ERROR);
+      // D12: verb skills degrade gracefully when the policy is absent — they must NOT
+      // carry the doorway's hard stop, and instead proceed standalone.
+      expect(s, `${dir} no D5 hard-stop`).not.toContain(D5_ERROR);
+      expect(s, `${dir} no 'does not run standalone'`).not.toContain("does not run standalone");
+      expect(s, `${dir} soft standalone branch`).toMatch(/Policy absent[\s\S]*NEVER stop/);
     }
   });
 

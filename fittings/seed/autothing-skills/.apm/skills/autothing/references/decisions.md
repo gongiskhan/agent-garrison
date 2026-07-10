@@ -133,3 +133,16 @@ Applied the full autothing Improvement Brief (Parts 1-13) across the skill famil
 **Verdict token appended, signature frozen.** The terminal verdict gains `codexSlice:<approved>/<ran|off>`, APPENDED after `gates-disabled:`/`profile:` exactly as those were — the hook-matched `(run <runId>) … videos:<n>/<n>` signature is byte-identical, `goal-stop.sh` untouched.
 
 **Scope.** `SKILL.md` (new "Per-slice Codex adversarial pass" section + gate-toggle table `--no-codex-slice` + gatesConfig/sentinel key + pipeline/passed/handover/non-negotiable), `references/build-loop.md` (step 3b + skipped-gates + verdict + passed + lead-print), `assets/gate-status.example.json` + `assets/evidence-index.example.json` (new gate slot + globalGate roll-up + notes), `autothing-codex-checkpoint/SKILL.md` + `references/codex-checkpoint.md` (API-key auth + budget cap + the two-call-points serialization note).
+
+
+---
+
+## 2026-07-10 — security scrutiny made OPT-IN; target-project-shaped checkpoint scopes demoted (GARRISON-FLOW-V2 D11/D13)
+
+**Decision.** The generic flow no longer treats security scrutiny as an always-on floor beyond the deterministic wall. This is a *design change layered on top of the history above* (those entries stay as-written):
+
+- The **deterministic `securityWall`** (gitleaks + semgrep + dependency-audit) in `autothing-test` stays universal and ambient - it runs on every slice regardless of profile, unchanged.
+- The **security-boundary review rubric** (formerly folded into `autothing-adversarial-review` on a "security-boundary" heuristic) and the **conditional per-slice cross-model `codexSliceReview`** move into a NEW **opt-in `autothing-security-review` phase**. It is enabled only when `projects.<label>.security_sensitive` is set in the compiled policy or the work kind explicitly includes the `security-review` phase; it is in NO default phase plan or work kind, and the classifier never selects security phases otherwise.
+- `autothing-codex-checkpoint`'s **default scopes are genericized**: whole-repo security (authz/tenant/injection/secrets) is the always-applicable default, auth/session middleware a default where present; the `shared/` contract and the anonymisation/egress pipeline are **demoted from canonical scopes to illustrative brief-supplied optional examples** (specific architectures, not defaults every repo carries). The run-level checkpoint gate is otherwise unchanged.
+
+**Scope.** `autothing-adversarial-review/SKILL.md` (boundary rubric removed, points to the opt-in phase), `autothing-codex-checkpoint/SKILL.md` (scopes demoted), `autothing-security-review/SKILL.md` (new), the two `assets/*.example.json` schema exemplars (genericized off the former client-specific sample run), the `autothing-project-foundation` templates (domain-neutral examples), and the policy (`routing.seed.json` -> `~/.garrison/orchestrator/policy.json`: new `security-review` phase + binding + matrix cell, new `projects` section).

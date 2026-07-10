@@ -5,21 +5,22 @@ description: Independent functional test — a FRESH-CONTEXT Anthropic session t
 
 # autothing-adversarial-test
 
-## Policy-read preamble (hard requirement, D5)
+## Policy-read preamble (soft - D5/D12)
 
-Before doing ANYTHING else, read the compiled Orchestrator policy at
-`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
-file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+At the start of every invocation, look for the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`).
 
-> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
-
-This skill carries NO model/effort pins — its execution parameters come from
-the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
-gate duties from the bindable phase-skill contract (the Orchestrator fitting's
-PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
-(runDir, card, phase), write the phase's gate-status entry under the runDir,
-and print the phase's `GATE <phase>: <verdict>` line before choosing the next
-list.
+- **Policy present** (a Garrison run): it is the single authority. This skill
+  carries NO model/effort pins - its execution parameters come from the policy
+  matrix cell for its phase (`matrix[<phase>][<tier>]`), and its gate duties
+  from the bindable phase-skill contract (the Orchestrator fitting's
+  PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+  (runDir, card, phase), write the phase's gate-status entry under the runDir,
+  and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+  list.
+- **Policy absent** (standalone, any repo): proceed with the caller-supplied
+  context and sensible defaults - NEVER stop. Report to the caller rather than
+  writing gate-status/run artifacts, and skip any board/run-engine steps.
 
 
 Independent functional test — decorrelated by **context and evidence**, not vendor. A session that has seen neither the diff nor `autothing-test`'s committed spec drives the *running* app through the acceptance itself, so it catches "the code and its test share the same wrong assumption" — the same failure mode the old cross-model Playwright pass targeted, without needing a second vendor to get it.

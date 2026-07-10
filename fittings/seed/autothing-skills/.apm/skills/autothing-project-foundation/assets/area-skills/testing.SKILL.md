@@ -21,7 +21,7 @@ Definition of done for the bars this skill gates: `docs/governance.md`.
 ### 2. Write a COMMITTED, re-runnable test from the confirmed outcome (the gate)
 The correctness gate must be a durable artifact checked into the repo — NOT ephemeral `.playwright-cli/` logs, NOT the walkthrough video. Pick the form that fits the stack:
 - **Runner available** (Next.js app, etc.): add `@playwright/test` specs under `e2e/` covering the slice's routes + critical flow. Scaffold the runner if missing (`@playwright/test`, a `playwright.config.ts` at the dev base URL, a `test:e2e` script).
-- **No runner ships** (e.g. a Cortex/artifact bundle): commit a re-runnable playwright-cli driver (e.g. `e2e/<slice>.mjs`) that drives the flow and asserts the result + exit code. This keeps the `e2e-testing` skill's "drive with playwright-cli" approach while leaving a durable assertion.
+- **No runner ships** (e.g. a packaged artifact bundle with no test runner): commit a re-runnable playwright-cli driver (e.g. `e2e/<slice>.mjs`) that drives the flow and asserts the result + exit code. This keeps the `e2e-testing` skill's "drive with playwright-cli" approach while leaving a durable assertion.
 - Either way: assert the real behaviour you confirmed, AND assert **no console errors** (fail on any `console.error`/`pageerror`). Add/extend unit tests (`vitest run`) for non-UI logic.
 - **Commit it.** A later slice must be able to re-run every prior slice's gate to catch regressions.
 

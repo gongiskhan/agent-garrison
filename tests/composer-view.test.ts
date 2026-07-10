@@ -137,12 +137,13 @@ describe("composer view (S3) — server contract behind the composer", () => {
       })
     ).json();
 
-    // api-change → implement-test plan (implement, test); the other 9 pipeline phases
-    // stay in the rail rendered OFF (honesty — never a silent pass).
+    // api-change → implement-test plan (implement, test); the other 10 pipeline phases
+    // (incl. the opt-in security-review phase) stay in the rail rendered OFF
+    // (honesty — never a silent pass).
     const phases = r.rail.phases;
-    expect(phases.length).toBe(11);
+    expect(phases.length).toBe(12);
     const offChips = phases.filter((p: any) => p.on === false);
-    expect(offChips.length).toBe(9);
+    expect(offChips.length).toBe(10);
     // an off chip still carries its bound skill and an off_reason, but no resolved target.
     const off = offChips.find((p: any) => p.id === "design-audit");
     expect(off).toBeTruthy();

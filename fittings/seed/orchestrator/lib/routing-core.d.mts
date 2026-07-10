@@ -187,6 +187,10 @@ export interface PhaseSkills {
   bindings: Record<string, string>;
   overrides: Record<string, Record<string, string>>;
 }
+export interface Project {
+  security_sensitive?: boolean;
+  profile?: Record<string, unknown>;
+}
 export interface PolicyConfigV2 {
   version: 2;
   activeProfile: string;
@@ -203,6 +207,7 @@ export interface PolicyConfigV2 {
   workKinds?: Record<string, WorkKind>;
   defaultWorkKind?: string | null;
   phaseSkills?: PhaseSkills;
+  projects?: Record<string, Project>;
 }
 
 export interface CompiledPolicyCell {
@@ -232,6 +237,7 @@ export interface CompiledPolicy {
   workKinds: Record<string, WorkKind>;
   defaultWorkKind: string | null;
   phaseSkills: PhaseSkills;
+  projects: Record<string, Project>;
 }
 
 export interface RailPhase {

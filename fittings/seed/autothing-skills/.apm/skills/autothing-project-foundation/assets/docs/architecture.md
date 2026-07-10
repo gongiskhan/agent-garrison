@@ -23,7 +23,7 @@
 | {{api/backend}} | `{{path/**}}` |
 
 ## Integration points
-<!-- External systems (e.g. Microsoft 365 Graph: mail/SharePoint/SSO), auth model, webhook endpoints, how secrets are provided. Never inline secrets here. -->
+<!-- External systems (e.g. a mail provider API, an object store), auth model, webhook endpoints, how secrets are provided. Never inline secrets here. -->
 - {{integration}} — auth: {{model}}; endpoints: `{{path}}`; secrets via: {{env var names, not values}}.
 
 ## Running locally

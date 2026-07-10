@@ -5,21 +5,22 @@ description: Decorrelated fresh-context code review — a FRESH-CONTEXT Anthropi
 
 # autothing-adversarial-review
 
-## Policy-read preamble (hard requirement, D5)
+## Policy-read preamble (soft - D5/D12)
 
-Before doing ANYTHING else, read the compiled Orchestrator policy at
-`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
-file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+At the start of every invocation, look for the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`).
 
-> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
-
-This skill carries NO model/effort pins — its execution parameters come from
-the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
-gate duties from the bindable phase-skill contract (the Orchestrator fitting's
-PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
-(runDir, card, phase), write the phase's gate-status entry under the runDir,
-and print the phase's `GATE <phase>: <verdict>` line before choosing the next
-list.
+- **Policy present** (a Garrison run): it is the single authority. This skill
+  carries NO model/effort pins - its execution parameters come from the policy
+  matrix cell for its phase (`matrix[<phase>][<tier>]`), and its gate duties
+  from the bindable phase-skill contract (the Orchestrator fitting's
+  PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+  (runDir, card, phase), write the phase's gate-status entry under the runDir,
+  and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+  list.
+- **Policy absent** (standalone, any repo): proceed with the caller-supplied
+  context and sensible defaults - NEVER stop. Report to the caller rather than
+  writing gate-status/run artifacts, and skip any board/run-engine steps.
 
 
 Decorrelated adversarial review — decorrelation comes from **fresh context**, not a different vendor. A reviewer that has never seen the implementer's session, notes, or rationale re-derives whether the change is correct from the acceptance criteria, the spec, and the diff alone, and backs every finding with evidence it gathered itself. The single per-slice review gate of an autothing build, and a standalone second-opinion reviewer.
@@ -39,15 +40,15 @@ An assertion with no evidence behind it is not a finding. Before writing any ver
 2. **Run the objective checks itself** — build, typecheck, lint, and the slice's own committed test suite (`autothing-test`'s tests) — rather than trusting the implementer's self-reported exit codes. A decorrelated gate re-derives the evidence, it does not inherit it.
 3. For each concern, either (a) cite the exact spec/acceptance section it violates, or (b) attach the failing command + its output. A concern with neither is dropped before it reaches the verdict — "this looks off" is not admissible.
 
-## Security-boundary rubric (Part 12.7)
-When the diff touches **security-boundary code** — auth, crypto, egress, parsing, path containment — the review's rubric EXPLICITLY includes, alongside correctness:
-- **authorization on every touched path** — no route, handler, or branch reachable without the check it should carry;
-- **injection surfaces** — every interpolation into SQL, shell, HTML, a template, or a filesystem path;
-- **secret handling** — no secret logged, echoed, committed, or returned to a caller that should not see it;
-- **tenant/org scoping** — every query and mutation constrained to the caller's tenant/org;
-- **input validation at the boundary** — untrusted input validated and normalised before it crosses inward.
-
-A security-boundary diff gets this review **regardless of run profile** — a thinned/patch profile that would otherwise trim gates does not skip it.
+## Security-boundary review — moved to the opt-in security-review phase
+This review no longer folds a security-boundary rubric into every slice. That
+rubric (authorization on every touched path, injection surfaces, secret
+handling, tenant/org scoping, input validation at the boundary) now lives in
+the opt-in **autothing-security-review** phase, enabled per project
+(`projects.<label>.security_sensitive` in the policy) or by explicit work-kind
+inclusion - not fired automatically on a "security-boundary" heuristic. The
+universal deterministic secrets/SAST floor (`securityWall` in autothing-test)
+still runs on every slice regardless of profile.
 
 ## Verdict
 - **`approve`** — no material, evidence-backed finding survives.

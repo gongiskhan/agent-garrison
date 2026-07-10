@@ -5,21 +5,22 @@ description: Reproduce Claude Code plan mode autonomously — explore the reques
 
 # autothing-plan
 
-## Policy-read preamble (hard requirement, D5)
+## Policy-read preamble (soft - D5/D12)
 
-Before doing ANYTHING else, read the compiled Orchestrator policy at
-`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If the
-file is missing or unreadable, STOP IMMEDIATELY and print exactly:
+At the start of every invocation, look for the compiled Orchestrator policy at
+`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`).
 
-> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
-
-This skill carries NO model/effort pins — its execution parameters come from
-the policy matrix cell for its phase (`matrix[<phase>][<tier>]`), and its
-gate duties from the bindable phase-skill contract (the Orchestrator fitting's
-PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
-(runDir, card, phase), write the phase's gate-status entry under the runDir,
-and print the phase's `GATE <phase>: <verdict>` line before choosing the next
-list.
+- **Policy present** (a Garrison run): it is the single authority. This skill
+  carries NO model/effort pins - its execution parameters come from the policy
+  matrix cell for its phase (`matrix[<phase>][<tier>]`), and its gate duties
+  from the bindable phase-skill contract (the Orchestrator fitting's
+  PHASE_SKILL_CONTRACT.md): do the phase's work in the run context handed to you
+  (runDir, card, phase), write the phase's gate-status entry under the runDir,
+  and print the phase's `GATE <phase>: <verdict>` line before choosing the next
+  list.
+- **Policy absent** (standalone, any repo): proceed with the caller-supplied
+  context and sensible defaults - NEVER stop. Report to the caller rather than
+  writing gate-status/run artifacts, and skip any board/run-engine steps.
 
 
 Reproduces the **exploration + planning quality** of Claude Code's native plan mode without using the native plan-mode tools. Native plan mode cannot be driven autonomously — `EnterPlanMode` throws in agent/subagent contexts and `ExitPlanMode` always raises a human approval dialog — so this skill copies plan mode's *prompts and read-only discipline* instead, and produces a durable plan file a build phase can execute.

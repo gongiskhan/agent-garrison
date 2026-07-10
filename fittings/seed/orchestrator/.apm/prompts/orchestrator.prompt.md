@@ -100,6 +100,14 @@ other prompt repeats it):
   evidence (walkthrough video / asciinema) → validate → (run-level) security
   review + Codex checkpoint → report. Each phase runs under its bound skill and
   the model/effort the policy's matrix cell resolves.
+- **Security review is opt-in.** Beyond the always-on deterministic wall
+  (typecheck / lint / structural greps / secrets scan), never add the
+  `security-review` phase or a per-slice cross-model security pass unless the
+  project is security-sensitive (`projects.<label>.security_sensitive` in the
+  policy is true) or the work kind explicitly includes `security-review`. It is
+  in no default phase plan; do not select it - and do not classify a turn into a
+  security phase - on a "this looks security-adjacent" heuristic. Most work is
+  not security-sensitive and runs without it.
 - **The 5-attempt ceiling.** A gate that finds a real defect loops the slice
   back to implement; after 5 attempts on genuinely buildable work, mark the
   slice blocked with the external cause — never more.

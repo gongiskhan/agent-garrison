@@ -76,7 +76,7 @@ describe("orchestrator policy core (S1)", () => {
     // A phase plan is an ordered SUBSET: phases outside the plan stay in the
     // rail rendered OFF (honesty, never hidden).
     const docs = mod.railFor(cfg, "docs-change");
-    expect(docs.phases.length).toBe(11);
+    expect(docs.phases.length).toBe(12);
     expect(docs.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["implement"]);
     expect(docs.phases.find((p: { id: string }) => p.id === "walkthrough").off_reason).toBe("phase-plan");
     expect(docs.evidence).toBe("text");
@@ -84,8 +84,10 @@ describe("orchestrator policy core (S1)", () => {
     expect(api.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["implement", "test"]);
     expect(api.evidence).toBe("logs");
     const full = mod.railFor(cfg, "full-feature");
-    expect(full.phases.length).toBe(11);
-    expect(full.phases.every((p: { on: boolean }) => p.on)).toBe(true);
+    expect(full.phases.length).toBe(12);
+    // every phase in the full plan is ON; the opt-in security-review phase is the one OFF chip.
+    expect(full.phases.filter((p: { on: boolean }) => p.on).length).toBe(11);
+    expect(full.phases.find((p: { id: string }) => p.id === "security-review").on).toBe(false);
     expect(full.evidence).toBe("video");
     expect(full.phases.find((p: { id: string }) => p.id === "review").skill).toBe("autothing-review");
     // default kind
@@ -98,7 +100,7 @@ describe("orchestrator policy core (S1)", () => {
     const wt = rail.phases.find((p: { id: string }) => p.id === "walkthrough");
     expect(wt.on).toBe(false);
     expect(wt.off_reason).toBe("card-toggle");
-    expect(rail.phases.length).toBe(11); // still present
+    expect(rail.phases.length).toBe(12); // still present
   });
 
   it("per-kind skill overrides win over global bindings (D3)", async () => {
@@ -126,7 +128,7 @@ describe("orchestrator policy core (S1)", () => {
       "implement",
       "test"
     ]);
-    expect(rail.phases.length).toBe(11); // off phases stay visible
+    expect(rail.phases.length).toBe(12); // off phases stay visible
   });
 
   it("validation catches unknown targets, phases and plans", async () => {
