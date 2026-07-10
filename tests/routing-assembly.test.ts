@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { buildOrchestratorInstructions } from "../src/lib/orchestrator-projection";
 import { substituteRoutingPlaceholder, resolveRoutingSection, substituteCapabilitiesPlaceholder } from "../src/lib/runner";
 // @ts-ignore — pure .mjs core typed by routing-core.d.mts
-import { compileRouting, routingMarkerV2 } from "../fittings/seed/model-router/lib/routing-core.mjs";
+import { compileRouting, routingMarkerV2 } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
 // resolveRoutingSection now also compiles ~/.garrison/orchestrator/policy.json
 // (D4); point it at a sandbox so tests never write the real home state.
@@ -15,11 +15,11 @@ beforeAll(() => {
 
 const ROOT = join(__dirname, "..");
 const PROMPT = readFileSync(
-  join(ROOT, "fittings/seed/model-router/.apm/prompts/model-router.prompt.md"),
+  join(ROOT, "fittings/seed/orchestrator/.apm/prompts/orchestrator.prompt.md"),
   "utf8"
 );
 const SEED = JSON.parse(
-  readFileSync(join(ROOT, "fittings/seed/model-router/config/routing.seed.json"), "utf8")
+  readFileSync(join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8")
 );
 
 describe("routing assembly (MR1b — assembly-ok)", () => {

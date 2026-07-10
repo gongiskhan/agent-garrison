@@ -32,9 +32,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ── locate the model-router fitting (repo seed OR installed composition) ──────
 export function resolveModelRouterDir(compositionDir) {
   const candidates = [
+    process.env.GARRISON_ORCHESTRATOR_DIR,
     process.env.GARRISON_MODEL_ROUTER_DIR,
+    // orchestrator fitting (renamed from model-router in GARRISON-UNIFY-V1 S2)
+    compositionDir && path.join(compositionDir, "apm_modules", "_local", "orchestrator"),
+    path.resolve(HERE, "..", "..", "..", "orchestrator"),
+    // legacy fallback for a not-yet-migrated composition
     compositionDir && path.join(compositionDir, "apm_modules", "_local", "model-router"),
-    // fittings/seed/http-gateway/scripts/lib -> fittings/seed/model-router
     path.resolve(HERE, "..", "..", "..", "model-router"),
   ].filter(Boolean);
   for (const c of candidates) {
@@ -450,6 +454,58 @@ export class RoutedGateway {
     return this.classifier.session;
   }
 
+  // D8: register significant autonomous work as a card in the Plan list via
+  // the board API — the run engine takes it from there; the caller replies
+  // with the card link. Discovery via the kanban-loop status file (URL-link
+  // contract, never a hardcoded port). Returns {id, url} or null (board down /
+  // not installed → the caller falls back inline; never hard-blocks).
+  async createAutonomousCard(message, classification, opts = {}) {
+    try {
+      const statusFile = path.join(
+        process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"),
+        "ui-fittings",
+        "kanban-loop.json"
+      );
+      const status = JSON.parse(fs.readFileSync(statusFile, "utf8"));
+      const base = status.url || `http://127.0.0.1:${status.port}`;
+      const payload = this.core.buildAutonomousCardPayload
+        ? this.core.buildAutonomousCardPayload({
+            brief: message,
+            project: opts.project ?? null,
+            workKind: opts.workKind ?? null,
+            phases: opts.phases ?? null,
+            taskType: classification?.taskType,
+            tier: classification?.tier
+          })
+        : { description: message, goalMode: true };
+      const created = await fetch(`${base}/cards`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!created.ok) throw new Error(`board POST /cards → ${created.status}`);
+      const card = await created.json();
+      const id = card.id || card.card?.id;
+      if (!id) throw new Error("board POST /cards returned no id");
+      // Move to Plan so the engine dispatches it (engine-context move).
+      const rev = card.rev ?? card.card?.rev ?? 0;
+      const moved = await fetch(`${base}/cards/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        body: JSON.stringify({ list: "plan", rev })
+      });
+      if (!moved.ok) {
+        this.logFn({ kind: "autonomous-card-move-failed", id, status: moved.status });
+      }
+      const url = `${base}/#/cards/${id}`;
+      this.logFn({ kind: "autonomous-card-created", id, url, taskType: classification?.taskType, tier: classification?.tier });
+      return { id, url };
+    } catch (err) {
+      this.logFn({ kind: "autonomous-card-failed", error: err?.message });
+      return null;
+    }
+  }
+
   // Stage A: ask the pinned warm classifier ONE question; code resolves.
   async classify(message) {
     // Deterministic keyword fast-path first (skips the LLM classifier + its drift).
@@ -500,6 +556,17 @@ export class RoutedGateway {
     if (honored) {
       this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });
     }
+    // Autonomy axis (D8): the preRoute output extends to {taskType, tier,
+    // execution}. Deterministic origin rules first, then the classifier's read.
+    if (typeof this.core.classifyExecution === "function") {
+      classification.execution = this.core.classifyExecution({
+        channel: opts.channel,
+        explicitAutonomous: opts.autonomous === true || opts.execution === "autonomous",
+        mode: opts.mode,
+        message,
+        classification
+      });
+    }
     const route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });
     // Enrich the logged decision with the RUNTIME/provider/model so the log shows
@@ -507,11 +574,13 @@ export class RoutedGateway {
     decision.runtime = route.target?.runtime ?? null;
     decision.provider = route.target?.provider ?? null;
     decision.model = route.target?.model ?? null;
+    decision.execution = classification.execution ?? null;
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
       kind: "route-resolved",
       taskType: classification.taskType,
       tier: classification.tier,
+      execution: classification.execution ?? null,
       role: route.role,
       target: route.targetId,
       runtime: decision.runtime,

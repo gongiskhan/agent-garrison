@@ -44,7 +44,7 @@ export function resolvePlacementPaths(
       : path.join(rootDir, "fittings/seed/modes"),
     routingConfigPath: existsSync(scopedRouting)
       ? scopedRouting
-      : path.join(rootDir, "fittings/seed/model-router/config/routing.seed.json")
+      : path.join(rootDir, "fittings/seed/orchestrator/config/routing.seed.json")
   };
 }
 

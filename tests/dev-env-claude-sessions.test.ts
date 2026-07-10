@@ -59,7 +59,7 @@ describe("readLiveRegistry — live-registry-ok", () => {
     writeSession("a.json", { pid: alive, sessionId: "real", cwd: "/Users/ggomes/dev/projA", status: "idle", updatedAt: 222, kind: "interactive" });
     writeSession("b.json", { pid: alive, sessionId: "shell", cwd: "/Users/ggomes/dev/projB", status: "shell" });
     writeSession("c.json", { pid: dead, sessionId: "stale", cwd: "/Users/ggomes/dev/projC" });
-    writeSession("d.json", { pid: alive, sessionId: "internal-garrison", cwd: path.join(os.homedir(), ".garrison/model-router/classifier-cwd") });
+    writeSession("d.json", { pid: alive, sessionId: "internal-garrison", cwd: path.join(os.homedir(), ".garrison/orchestrator/classifier-cwd") });
     writeSession("e.json", { pid: alive, sessionId: "internal-comp", cwd: "/Users/ggomes/dev/garrison/compositions/default" });
     writeSession("f.json", { pid: alive, sessionId: "broadroot", cwd: os.homedir() });
     writeSession("g.json", { pid: alive }); // missing sessionId/cwd → skipped
@@ -114,7 +114,7 @@ describe("readLiveRegistry — live-registry-ok", () => {
     expect(isInternalCwd(path.join(os.homedir(), "dev"))).toBe(true);
     expect(isInternalCwd("/anything/compositions/default")).toBe(true);
     expect(isInternalCwd(path.join(os.homedir(), ".garrison"))).toBe(true); // exact root
-    expect(isInternalCwd(path.join(os.homedir(), ".garrison/model-router/classifier-cwd"))).toBe(true);
+    expect(isInternalCwd(path.join(os.homedir(), ".garrison/orchestrator/classifier-cwd"))).toBe(true);
     expect(isInternalCwd(path.join(os.homedir(), ".claude"))).toBe(false);
     expect(isInternalCwd("/Users/ggomes/dev/ekoa-dev")).toBe(false);
     expect(isInternalCwd("")).toBe(true);

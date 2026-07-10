@@ -8,7 +8,7 @@
 //                     → {classification, route, compiled?}  (Stage A: pure resolve;
 //                       live classify only when no manual taskType/tier supplied)
 //   GET  /telemetry → recent decisions.jsonl rows + per-target hit counts
-// Self-registers at ~/.garrison/ui-fittings/model-router.json on listen.
+// Self-registers at ~/.garrison/ui-fittings/orchestrator.json on listen.
 //
 // The view and the Improver both go through this API (whole-document, baseline-
 // hash guarded). Config path is composition-scoped so the runner's
@@ -20,7 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { mkdir, readFile, writeFile, unlink, stat } from "node:fs/promises";
 import {
   compileRouting,
@@ -41,17 +41,37 @@ const DIST_DIR = path.join(FITTING_DIR, "dist");
 const SEED_CONFIG = path.join(FITTING_DIR, "config", "routing.seed.json");
 const HOME = os.homedir();
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
-const STATUS_FILE = path.join(GARRISON_HOME, "ui-fittings", "model-router.json");
+const FITTING_ID = "orchestrator";
+const STATUS_FILE = path.join(GARRISON_HOME, "ui-fittings", `${FITTING_ID}.json`);
+// State home for off-composition config (the fitting was renamed from
+// model-router in GARRISON-UNIFY-V1 S2; a one-shot migration moves the old dir).
+const STATE_DIR = path.join(GARRISON_HOME, FITTING_ID);
+const LEGACY_STATE_DIR = path.join(GARRISON_HOME, "model-router");
+
+// One-shot state migration: if the legacy ~/.garrison/model-router dir exists
+// and the new one does not, move it. Env var names accept the MODEL_ROUTER_*
+// spellings for back-compat with an already-running composition's env.
+function migrateLegacyState() {
+  try {
+    if (existsSync(LEGACY_STATE_DIR) && !existsSync(STATE_DIR)) renameSync(LEGACY_STATE_DIR, STATE_DIR);
+    const legacyStatus = path.join(GARRISON_HOME, "ui-fittings", "model-router.json");
+    if (existsSync(legacyStatus)) rmSync(legacyStatus, { force: true });
+  } catch {
+    /* best-effort; a fresh box has neither */
+  }
+}
 
 function configPath() {
-  if (process.env.MODEL_ROUTER_CONFIG) return process.env.MODEL_ROUTER_CONFIG;
+  if (process.env.ORCHESTRATOR_CONFIG || process.env.MODEL_ROUTER_CONFIG)
+    return process.env.ORCHESTRATOR_CONFIG || process.env.MODEL_ROUTER_CONFIG;
   if (process.env.GARRISON_COMPOSITION_DIR)
     return path.join(process.env.GARRISON_COMPOSITION_DIR, ".garrison", "routing.json");
-  return path.join(GARRISON_HOME, "model-router", "routing.json");
+  return path.join(STATE_DIR, "routing.json");
 }
 
 function decisionsPath() {
-  if (process.env.MODEL_ROUTER_DECISIONS) return process.env.MODEL_ROUTER_DECISIONS;
+  if (process.env.ORCHESTRATOR_DECISIONS || process.env.MODEL_ROUTER_DECISIONS)
+    return process.env.ORCHESTRATOR_DECISIONS || process.env.MODEL_ROUTER_DECISIONS;
   return path.join(path.dirname(configPath()), "decisions.jsonl");
 }
 
@@ -171,7 +191,7 @@ async function liveClassify(config, prompt) {
   try {
     const { WarmPtySessionPool, OperativePtySession } = await import("@garrison/claude-pty");
     if (!_pool) {
-      const cwd = path.join(GARRISON_HOME, "model-router", "classifier-cwd");
+      const cwd = path.join(STATE_DIR, "classifier-cwd");
       await mkdir(cwd, { recursive: true });
       _pool = new WarmPtySessionPool({
         size: 1,
@@ -233,8 +253,9 @@ async function findFreePort(preferred) {
 }
 
 export async function startServer(opts = {}) {
-  const host = opts.host || process.env.MODEL_ROUTER_HOST || "127.0.0.1";
-  const preferred = Number(opts.port || process.env.MODEL_ROUTER_PORT || 7087);
+  const host = opts.host || process.env.ORCHESTRATOR_HOST || process.env.MODEL_ROUTER_HOST || "127.0.0.1";
+  const preferred = Number(opts.port || process.env.ORCHESTRATOR_PORT || process.env.MODEL_ROUTER_PORT || 7087);
+  migrateLegacyState();
   const port = await findFreePort(preferred);
 
   const server = http.createServer(async (req, res) => {
@@ -260,7 +281,7 @@ export async function startServer(opts = {}) {
   try {
     await writeCompiledPolicy(JSON.parse(await loadConfigRaw()));
   } catch (err) {
-    console.error("[model-router] policy compile at startup failed:", err?.message || err);
+    console.error("[orchestrator] policy compile at startup failed:", err?.message || err);
   }
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
@@ -270,7 +291,7 @@ export async function startServer(opts = {}) {
     await mkdir(path.dirname(STATUS_FILE), { recursive: true });
     await writeFile(
       STATUS_FILE,
-      JSON.stringify({ fittingId: "model-router", port, url: `http://${host}:${port}`, pid: process.pid, startedAt: new Date().toISOString() }, null, 2),
+      JSON.stringify({ fittingId: FITTING_ID, port, url: `http://${host}:${port}`, pid: process.pid, startedAt: new Date().toISOString() }, null, 2),
       "utf8"
     );
   }
@@ -291,8 +312,8 @@ export async function startServer(opts = {}) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  startServer().then((s) => console.log(`[model-router] listening on ${s.host}:${s.port}`)).catch((e) => {
-    console.error("[model-router] start failed:", e);
+  startServer().then((s) => console.log(`[orchestrator] listening on ${s.host}:${s.port}`)).catch((e) => {
+    console.error("[orchestrator] start failed:", e);
     process.exit(1);
   });
 }

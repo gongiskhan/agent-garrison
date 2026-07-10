@@ -9,7 +9,7 @@ import {
   resolveRoute
 } from "@/lib/model-router";
 
-const CONFIG = path.resolve(__dirname, "..", "fittings", "seed", "model-router", "routing.json");
+const CONFIG = path.resolve(__dirname, "..", "fittings", "seed", "orchestrator", "routing.json");
 
 describe("model router config/compiler", () => {
   it("compiles the seed active profile with the routing marker and continuations", async () => {

@@ -1,5 +1,5 @@
 {
-  "name": "@garrison/model-router-fitting",
+  "name": "@garrison/orchestrator-fitting",
   "version": "0.1.0",
   "private": true,
   "type": "module",

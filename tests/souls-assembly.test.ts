@@ -47,12 +47,12 @@ describe("souls assembly (s1c)", () => {
 
   it("findModesEntry / findOrchestratorEntryId pick the right providers", () => {
     const entries = [
-      { id: "model-router", metadata: { provides: [{ kind: "orchestrator", name: "model-router" }] } },
+      { id: "orchestrator", metadata: { provides: [{ kind: "orchestrator", name: "orchestrator" }] } },
       { id: "modes", metadata: { provides: [{ kind: "modes", name: "modes" }] } },
       { id: "basic-memory", metadata: { provides: [{ kind: "memory-store", name: "basic" }] } }
     ];
     expect(findModesEntry(entries)?.id).toBe("modes");
-    expect(findOrchestratorEntryId(entries)).toBe("model-router");
+    expect(findOrchestratorEntryId(entries)).toBe("orchestrator");
     expect(findModesEntry([{ id: "x", metadata: { provides: [] } }])).toBeNull();
   });
 
@@ -65,13 +65,13 @@ describe("souls assembly (s1c)", () => {
       compositionDir: dir,
       modesDir: SEED_MODES,
       orchestratorPromptPath: orchPrompt,
-      orchestratorFittingId: "model-router",
+      orchestratorFittingId: "orchestrator",
       capabilitiesBlock: "- memory:local — recall",
       routingSection: "## Routing policy\nActive Profile: balanced",
-      routingCorePath: join(ROOT, "fittings/seed/model-router/lib/routing-core.mjs")
+      routingCorePath: join(ROOT, "fittings/seed/orchestrator/lib/routing-core.mjs")
     });
     expect(config).not.toBeNull();
-    expect(config!.orchestratorFittingId).toBe("model-router");
+    expect(config!.orchestratorFittingId).toBe("orchestrator");
     expect(Object.keys(config!.souls).sort()).toEqual(["soul-gary", "soul-james", "soul-joe"]);
     for (const mode of ["gary", "joe", "james"]) {
       const p = join(dir, ".garrison", "souls", `${mode}.md`);
@@ -117,7 +117,7 @@ describe("souls assembly (s1c)", () => {
       compositionDir: dir,
       modesDir: dir,
       orchestratorPromptPath: join(dir, "p.md"),
-      orchestratorFittingId: "model-router",
+      orchestratorFittingId: "orchestrator",
       capabilitiesBlock: "",
       routingSection: null
     });

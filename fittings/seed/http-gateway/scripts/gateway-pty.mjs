@@ -203,6 +203,35 @@ async function runRoutedTurn(message, onChunk, hints) {
   // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
   // skill + suppressContinuations controls. Absent hints → classify as before.
   const pre = await router.preRoute(message, hints || {}); // classify/honor + resolve + LOG + switch
+  // D8: significant autonomous work is never done inline — it becomes a card in
+  // the Plan list and the reply carries the card link. Card-/scheduler-originated
+  // turns (the run engine's own worker dispatches) run inline as before.
+  {
+    const cls = pre.classification || {};
+    const origin = String(hints?.channel || "").toLowerCase();
+    const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board";
+    if (
+      cls.execution === "autonomous" &&
+      !cardOriginated &&
+      typeof router.core?.isSignificantAutonomous === "function" &&
+      router.core.isSignificantAutonomous(cls)
+    ) {
+      const card = await router.createAutonomousCard(message, cls, {
+        workKind: hints?.workKind ?? null,
+        phases: hints?.phases ?? null,
+        project: hints?.project ?? null,
+      });
+      if (card) {
+        const reply =
+          `Registered as an autonomous run — the board's run engine will drive it through the pipeline.\n` +
+          `Card: ${card.url}`;
+        broadcastRich("assistant", { text: reply });
+        logEvent("stdout", { kind: "autonomous-card", id: card.id, url: card.url });
+        return { reply, session_id: null, cost_usd: null, route: pre.route?.targetId ?? null, card: card.id, cardUrl: card.url };
+      }
+      // board unavailable → fall through inline (never hard-block on the window)
+    }
+  }
   // Agent SDK runtime (non-Anthropic model via the Claude Agent SDK): the turn
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
@@ -347,6 +376,18 @@ function routeHintsFromBody(body) {
     classification,
     skill: typeof body?.skill === "string" ? body.skill : null,
     suppressContinuations: body?.suppressContinuations === true,
+    // D8 autonomy inputs: the channel name (kanban/scheduler dispatches run
+    // inline; other channels' significant autonomous work becomes a card), the
+    // explicit autonomous marker (web-channel toggle / autothing doorway), the
+    // resolved mode (Gary conversation floors interactive), and optional card
+    // fields (workKind / per-card phase toggles / project) for the created card.
+    channel: typeof body?.channel === "string" ? body.channel : null,
+    autonomous: body?.autonomous === true,
+    execution: typeof body?.execution === "string" ? body.execution : undefined,
+    mode: typeof body?.mode === "string" ? body.mode : undefined,
+    workKind: typeof body?.workKind === "string" ? body.workKind : null,
+    phases: body?.phases && typeof body.phases === "object" ? body.phases : null,
+    project: typeof body?.project === "string" ? body.project : null,
     // An EXPLICIT per-turn timeout (ms). The Kanban Loop sends a generous one because a
     // real autothing-* turn (plan/implement/review/…) runs far longer than the default
     // 5-min turn timeout, which otherwise kills the turn → HTTP 500 → the card parks.

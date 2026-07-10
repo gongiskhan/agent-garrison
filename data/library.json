@@ -162,21 +162,6 @@
     }
   },
   {
-    "id": "garrison-orchestrator",
-    "name": "Garrison Orchestrator",
-    "repo": "local:fittings/seed/garrison-orchestrator",
-    "localPath": "fittings/seed/garrison-orchestrator",
-    "summary": "Delegating Orchestrator \u2014 routes requests to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-orchestrator",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
     "id": "monitor-default",
     "name": "Monitor (default)",
     "repo": "local:fittings/seed/monitor-default",
@@ -192,11 +177,11 @@
     }
   },
   {
-    "id": "model-router",
-    "name": "Model Router",
-    "repo": "local:fittings/seed/model-router",
-    "localPath": "fittings/seed/model-router",
-    "summary": "Orchestrator Faculty \u2014 a visible routing policy (Exceptions / Matrix / Continuations) that resolves each prompt to a role + discipline + continuation, then maps the role to a concrete runtime-target via the active Profile. Serves a Policy / Simulator view on its own port (default 7087).",
+    "id": "orchestrator",
+    "name": "Orchestrator",
+    "repo": "local:fittings/seed/orchestrator",
+    "localPath": "fittings/seed/orchestrator",
+    "summary": "Orchestrator Faculty \u2014 the single brain and control panel. Owns the compiled policy (task types, matrix, phase plans, work kinds, skill bindings), the preRoute (task-type + tier + execution), the {{routing}} injection, and the composer view. Absorbs the former Model Router.",
     "platforms": [
       "claude-code"
     ],

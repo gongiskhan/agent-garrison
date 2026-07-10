@@ -10,8 +10,8 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(__dirname, "..");
-const CORE = pathToFileURL(path.join(ROOT, "fittings/seed/model-router/lib/routing-core.mjs")).href;
-const SEED = path.join(ROOT, "fittings/seed/model-router/config/routing.seed.json");
+const CORE = pathToFileURL(path.join(ROOT, "fittings/seed/orchestrator/lib/routing-core.mjs")).href;
+const SEED = path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
 
 async function core() {
   return import(CORE);

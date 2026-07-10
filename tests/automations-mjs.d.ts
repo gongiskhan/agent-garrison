@@ -42,6 +42,7 @@ declare module "*/automations/lib/browser-orchestrator.mjs" {
 }
 declare module "*/automations/lib/discuss.mjs" {
   export function slugify(name: string): string;
+  export function freshAutomationSlug(): string;
   export function buildAutomationKickoff(opts?: any): string;
   export function buildAutomationDiscussUrl(opts?: any): string;
   export function buildDiscussParams(opts?: any): { mode: string; context: string; kickoff: string; thread: string; title?: string };

@@ -29,6 +29,9 @@ import {
   inferPhasePlan,
   biasTarget,
   resolvePhaseTarget,
+  classifyExecution,
+  isSignificantAutonomous,
+  buildAutonomousCardPayload,
   PHASES,
   TASK_TYPES_V2,
   POLICY_VERSION
@@ -50,6 +53,9 @@ export {
   inferPhasePlan,
   biasTarget,
   resolvePhaseTarget,
+  classifyExecution,
+  isSignificantAutonomous,
+  buildAutonomousCardPayload,
   PHASES,
   TASK_TYPES_V2,
   POLICY_VERSION

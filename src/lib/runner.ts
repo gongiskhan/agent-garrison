@@ -816,8 +816,8 @@ export function capabilitiesPlaceholderWarning(prompt: string): string | null {
 // dependency-free routing-core.mjs (single source of truth, also imported by
 // the bare-node own-port view and vitest). We dynamic-import it by file URL at
 // runtime so it is never pulled into the Next webpack bundle.
-const ROUTING_CORE_PATH = path.join(ROOT_DIR, "fittings/seed/model-router/lib/routing-core.mjs");
-const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/model-router/config/routing.seed.json");
+const ROUTING_CORE_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/lib/routing-core.mjs");
+const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/config/routing.seed.json");
 
 export const MISSING_ROUTING_CONFIG_WARNING =
   "WARNING: orchestrator prompt has a {{routing}} placeholder but no valid routing.json was found — the routing section will be empty";

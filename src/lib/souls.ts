@@ -5,7 +5,7 @@
 // + the {{routing}} policy — writes them under <composition>/.garrison/souls/, and
 // hands the gateway a GARRISON_SOULS_CONFIG. That activates the gateway's
 // orchestrator/soul mode (fittings/seed/http-gateway/scripts/gateway.mjs), which
-// boots an orchestrator session (the assembled model-router prompt) and spawns the
+// boots an orchestrator session (the assembled orchestrator prompt) and spawns the
 // per-mode soul sessions on demand, keyed `soul-<mode>` in its session registry.
 //
 // This module deliberately imports nothing from runner.ts (which imports it) —
@@ -59,7 +59,7 @@ export function findModesEntry<T extends EntryLike>(entries: T[]): T | null {
   );
 }
 
-// The selected orchestrator fitting's id (model-router by default), used as the
+// The selected orchestrator fitting's id (orchestrator by default), used as the
 // orchestratorFittingId so the gateway labels the orchestrator session.
 export function findOrchestratorEntryId(entries: EntryLike[]): string | null {
   return (

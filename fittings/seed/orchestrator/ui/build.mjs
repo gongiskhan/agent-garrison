@@ -28,4 +28,4 @@ await build({
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
 copyFileSync(path.join(HERE, "styles.css"), path.join(DIST, "styles.css"));
 
-console.log("[model-router:build] wrote dist/");
+console.log("[orchestrator:build] wrote dist/");

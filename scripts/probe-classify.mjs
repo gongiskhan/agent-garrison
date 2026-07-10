@@ -10,10 +10,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WarmPtySessionPool, OperativePtySession } from "../packages/claude-pty/src/index.mjs";
-import { buildClassifierPrompt, parseClassification } from "../fittings/seed/model-router/lib/routing-core.mjs";
+import { buildClassifierPrompt, parseClassification } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const config = JSON.parse(readFileSync(path.join(here, "..", "fittings", "seed", "model-router", "config", "routing.seed.json"), "utf8"));
+const config = JSON.parse(readFileSync(path.join(here, "..", "fittings", "seed", "orchestrator", "config", "routing.seed.json"), "utf8"));
 
 const FIXTURES = [
   "fix the failing login unit test",

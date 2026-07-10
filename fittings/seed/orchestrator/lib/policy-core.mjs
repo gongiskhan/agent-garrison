@@ -407,6 +407,61 @@ export function resolvePhaseTarget(policy, phase, tier) {
   return cell;
 }
 
+// ── Autonomy axis (D8) ───────────────────────────────────────────────────────
+// preRoute output extends to {taskType, tier, execution}. Deterministic rules
+// first (pure): a card- or scheduler-originated turn is autonomous; an explicit
+// autonomous marker (the web-channel toggle, the autothing doorway) is
+// autonomous; a multi-step cross-app automation shape is autonomous; otherwise
+// the classifier's read stands, with Gary-mode conversation flooring to
+// interactive. Returns "interactive" | "autonomous".
+const AUTONOMOUS_CHANNELS = new Set(["kanban", "scheduler", "board", "autothing"]);
+const AUTOMATION_SHAPE = /\b(then|after that|every day|each morning|on a schedule|and then|for each|across (all|both)|multi-step|automate|workflow)\b/i;
+const BUILD_VERBS = new Set([
+  "plan", "implement", "test", "review", "adversarial-review", "adversarial-test",
+  "design-audit", "walkthrough", "validate", "codex-checkpoint"
+]);
+
+export function classifyExecution({ channel, explicitAutonomous, mode, message, classification } = {}) {
+  if (explicitAutonomous === true) return "autonomous";
+  if (channel && AUTONOMOUS_CHANNELS.has(String(channel).toLowerCase())) return "autonomous";
+  if (
+    typeof message === "string" &&
+    AUTOMATION_SHAPE.test(message) &&
+    (classification?.taskType === "ops" || classification?.taskType === "other")
+  ) {
+    return "autonomous";
+  }
+  if (mode === "gary") return "interactive";
+  if (classification && BUILD_VERBS.has(classification.taskType)) return "autonomous";
+  return "interactive";
+}
+
+// Whether an autonomous turn is "significant" enough to become a card+run
+// rather than run inline (the autothing scope test): a build verb, or a code
+// task above T0. Pure.
+export function isSignificantAutonomous(classification) {
+  if (!classification) return false;
+  if (BUILD_VERBS.has(classification.taskType)) return true;
+  if (classification.taskType === "code" && classification.tier !== "T0-trivial") return true;
+  return false;
+}
+
+// Build the board-API card payload for an autonomous run (D8 card creation).
+// Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
+// optional per-card toggle map merged over the work kind's plan (D17).
+export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier } = {}) {
+  return {
+    description: brief || "",
+    project: project || null,
+    list: "backlog",
+    goalMode: true,
+    workKind: workKind || null,
+    phases: phases || null,
+    origin: "orchestrator",
+    classification: taskType && tier ? { taskType, tier } : null
+  };
+}
+
 // ── compileRoutingV2 — the {{routing}} markdown for v2 configs ──────────────
 function targetLabelV2(config, targetId) {
   const t = (config.targets || []).find((x) => x.id === targetId);

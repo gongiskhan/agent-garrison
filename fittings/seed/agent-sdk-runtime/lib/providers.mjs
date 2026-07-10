@@ -1,7 +1,7 @@
 // providers.mjs — Agent-SDK provider table + capability records (BRIEF
 // §"Providers"). All providers REQUIRE a non-Anthropic base URL (THE FENCE
 // enforces it); all are authenticated from the Vault. Self-contained (mirrors the
-// model-router base URLs; the capability records and SDK env wiring are
+// Orchestrator routing-target base URLs; the capability records and SDK env wiring are
 // SDK-specific). Capability record per target generalises `effort: unsupported`:
 // it records which content-block features the endpoint actually serves, so the
 // orchestrator never routes an unsupported block type (e.g. MCP / vision) at a

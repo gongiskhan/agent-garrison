@@ -1,0 +1,69 @@
+name: orchestrator
+version: 0.2.0
+description: Orchestrator for Agent Garrison — the single brain and control panel. Owns the compiled policy (task types × tiers → targets, phase plans, work kinds, phase-skill bindings), the preRoute, the {{routing}} injection, and the composer view. Absorbs the former Model Router (GARRISON-UNIFY-V1 D6).
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: orchestrator
+  cardinality_hint: single
+  own_port: true
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: >-
+    Fills the Orchestrator Faculty — the one policy, one brain. Owns the v2
+    policy config (matrix resolving every task type × tier straight to a
+    target; phase plans; work kinds; the phase-skill registry), compiles it
+    byte-stably into both the routing.md injected via {{routing}} and the
+    machine-readable ~/.garrison/orchestrator/policy.json (the single
+    consumption interface for the run engine and every phase skill), and
+    serves the own-port composer view (default 7087) that owns GET/PUT
+    /routing with baseline-hash guarding.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7087
+      description: HTTP port the Orchestrator view + config API binds to. Falls back to next free port when in use.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over Tailscale.
+    - key: routing_config
+      type: path
+      default: routing.json
+      description: Composition-scoped policy config path (whole-document, baseline-hash guarded on PUT).
+  provides:
+    - kind: orchestrator
+      name: orchestrator
+  consumes:
+    # The modes Fitting (Gary/Joe/James souls + shared voice + per-mode routing
+    # bias) is optional: when selected, src/lib/souls.ts folds each soul into the
+    # GARRISON_SOULS_CONFIG the gateway runs. optional-one tolerates 0 providers,
+    # so a composition without modes is unaffected.
+    - kind: modes
+      cardinality: optional-one
+  setup:
+    command: node ui/build.mjs && node scripts/compile.mjs --check
+    idempotent: true
+    timeout_ms: 90000
+  verify:
+    command: node apm_modules/_local/orchestrator/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 15000
+  for_consumers: |
+    The Orchestrator fills the Orchestrator Faculty and owns every routing knob:
+    task types, models, efforts, runtimes, phase plans, work kinds, and
+    phase-skill bindings. Its compiled routing.md is injected into the assembled
+    system prompt via the {{routing}} placeholder; its compiled machine-readable
+    policy lands at ~/.garrison/orchestrator/policy.json (atomic, byte-stable)
+    on every accepted PUT and at composition start — the run engine and every
+    phase skill read THAT file, never HTTP. The operative does NOT choose its
+    own model: the gateway pre-routes (Stage A: taskType + tier + execution)
+    before the turn and places it on the resolved target.
+    Every reply must end with `[route: <target-id> | rule: <rule-id> | profile: <name>]`.
+    Config API (own-port server, default 7087):
+      GET  /routing   → {config, baselineSha}
+      PUT  /routing   → whole-document write, 409 on baselineSha mismatch,
+                        422 when the policy fails to compile; recompiles
+                        policy.json on success

@@ -12,8 +12,8 @@ import path from "node:path";
 // resolve client-side (bundled routing-core), so no live model is needed.
 
 const REPO_ROOT = process.cwd();
-const SERVER = path.join(REPO_ROOT, "fittings", "seed", "model-router", "scripts", "server.mjs");
-const SEED = path.join(REPO_ROOT, "fittings", "seed", "model-router", "config", "routing.seed.json");
+const SERVER = path.join(REPO_ROOT, "fittings", "seed", "orchestrator", "scripts", "server.mjs");
+const SEED = path.join(REPO_ROOT, "fittings", "seed", "orchestrator", "config", "routing.seed.json");
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -100,7 +100,7 @@ test("Model Router view: matrix edit → simulate reflects it; discipline + cont
   await page.getByTestId("compiled-profile").selectOption("economy");
   await expect(page.getByTestId("compiled-output")).toContainText("ollama-local");
 
-  const shot = testInfo.outputPath("model-router-view.png");
+  const shot = testInfo.outputPath("orchestrator-view.png");
   await page.screenshot({ path: shot, fullPage: true });
-  console.log(`[model-router-view] screenshot: ${shot}`);
+  console.log(`[orchestrator-view] screenshot: ${shot}`);
 });

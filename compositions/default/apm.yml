@@ -14,7 +14,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
-    - path: ../../fittings/seed/model-router
+    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/scheduler
@@ -40,7 +40,7 @@ x-garrison:
         log_sink: runner
     selections:
       orchestrator:
-        - id: model-router
+        - id: orchestrator
           config:
             port: 7087
             bind_host: 127.0.0.1

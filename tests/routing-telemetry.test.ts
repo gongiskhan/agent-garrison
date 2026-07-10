@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs (internal telemetry module)
-import { promptDigest, decisionRecord, formatRouteToken, parseRouteToken, checkHonored, appendDecision, readDecisions } from "../fittings/seed/model-router/lib/routing-telemetry.mjs";
+import { promptDigest, decisionRecord, formatRouteToken, parseRouteToken, checkHonored, appendDecision, readDecisions } from "../fittings/seed/orchestrator/lib/routing-telemetry.mjs";
 
 const route = { profile: "balanced", role: "expert", ruleId: "cell:code/T2-deep", via: "cell", targetId: "cc-opus-high", target: {} };
 const classification = { taskType: "code", tier: "T2-deep", matchedException: null };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 // @ts-ignore — pure .mjs, no .d.mts (internal stage-b module)
-import { planSwitch, buildLaunchEnv, buildRespawnOpts, MissingProviderKeyError, PROVIDERS } from "../fittings/seed/model-router/lib/stage-b.mjs";
+import { planSwitch, buildLaunchEnv, buildRespawnOpts, MissingProviderKeyError, PROVIDERS } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 
 const opus = { id: "cc-opus-high", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "opus", effort: "high" };
 const haiku = { id: "cc-haiku-low", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "haiku", effort: "low" };

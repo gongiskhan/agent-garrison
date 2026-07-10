@@ -12,10 +12,10 @@ import {
   resolveDiscipline,
   validateRoutingConfig,
   routingMarkerV2
-} from "../fittings/seed/model-router/lib/routing-core.mjs";
-import type { TaskType, RuntimeTarget, Classification } from "../fittings/seed/model-router/lib/routing-core.mjs";
+} from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+import type { TaskType, RuntimeTarget, Classification } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
-const SEED = join(__dirname, "..", "fittings", "seed", "model-router", "config", "routing.seed.json");
+const SEED = join(__dirname, "..", "fittings", "seed", "orchestrator", "config", "routing.seed.json");
 const config = JSON.parse(readFileSync(SEED, "utf8"));
 
 describe("routing compiler (MR1a)", () => {

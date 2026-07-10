@@ -118,13 +118,13 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
     expect(failed).toBe(true);
   });
 
-  it("the orchestrator consumes modes at optional-one alongside model-router (singleton-safe)", () => {
+  it("the orchestrator consumes modes at optional-one alongside the orchestrator fitting (singleton-safe)", () => {
     const orchestratorMeta = parseGarrisonMetadata({
       faculty: "orchestrator",
       cardinality_hint: "single",
       component_shape: "system-prompt",
       platforms: ["claude-code"],
-      provides: [{ kind: "orchestrator", name: "model-router" }],
+      provides: [{ kind: "orchestrator", name: "orchestrator" }],
       consumes: [{ kind: "modes", cardinality: "optional-one" }],
       verify: { command: "echo ok", expect: "ok", timeout_ms: 10000 }
     });
@@ -138,14 +138,14 @@ describe("modes fitting (s1a) + capability kind/faculty (s1b)", () => {
     });
 
     const ok = resolveCapabilities([
-      { id: "model-router", metadata: orchestratorMeta },
+      { id: "orchestrator", metadata: orchestratorMeta },
       { id: "modes", metadata: modesMeta }
     ]);
     expect(ok.ok).toBe(true);
 
     // a second modes provider must trip the singleton guard
     const dup = resolveCapabilities([
-      { id: "model-router", metadata: orchestratorMeta },
+      { id: "orchestrator", metadata: orchestratorMeta },
       { id: "modes", metadata: modesMeta },
       { id: "modes-2", metadata: modesMeta }
     ]);

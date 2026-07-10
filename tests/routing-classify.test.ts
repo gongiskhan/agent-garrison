@@ -6,10 +6,10 @@ import {
   buildClassifierPrompt,
   parseClassification,
   resolveRoute
-} from "../fittings/seed/model-router/lib/routing-core.mjs";
+} from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
 const config = JSON.parse(
-  readFileSync(join(__dirname, "..", "fittings", "seed", "model-router", "config", "routing.seed.json"), "utf8")
+  readFileSync(join(__dirname, "..", "fittings", "seed", "orchestrator", "config", "routing.seed.json"), "utf8")
 );
 
 describe("Stage A classifier prompt (MR1c)", () => {

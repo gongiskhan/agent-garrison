@@ -1,44 +1,68 @@
 lockfile_version: '1'
-generated_at: '2026-06-29T05:46:11.818715+00:00'
-apm_version: 0.11.0
+generated_at: '2026-07-09T12:37:54.292002+00:00'
+apm_version: 0.24.0
 dependencies:
 - repo_url: _local/automations
+  name: automations
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/automations
 - repo_url: _local/basic-memory
+  name: basic-memory
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/garrison-memory
+  - .claude/skills/garrison-memory/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-memory/SKILL.md: sha256:7677a6177ed2a9beb026acd9d872fc075683d7c16b034bb7b5298442ee5228c6
   source: local
   local_path: ../../fittings/seed/basic-memory
 - repo_url: _local/browser-default
+  name: browser-default
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/garrison-browser
+  - .claude/skills/garrison-browser/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-browser/SKILL.md: sha256:8725c4e7d290536f264c1671d9d46cb9b920695797cc861310e55b48b32baed5
   source: local
   local_path: ../../fittings/seed/browser-default
 - repo_url: _local/codex-runtime
+  name: codex-runtime
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/codex-runtime
 - repo_url: _local/deepgram-voice
+  name: deepgram-voice
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/deepgram-voice
 - repo_url: _local/dev-env
+  name: dev-env
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
 - repo_url: _local/file-browser
+  name: file-browser
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/file-browser
 - repo_url: _local/gemini-runtime
+  name: gemini-runtime
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/gemini-runtime
 - repo_url: _local/http-gateway
+  name: http-gateway
+  version: 0.2.0
   package_type: apm_package
   deployed_files:
   - .claude/rules/http-gateway.md
@@ -47,57 +71,84 @@ dependencies:
   source: local
   local_path: ../../fittings/seed/http-gateway
 - repo_url: _local/improver
+  name: improver
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/improver
 - repo_url: _local/kanban-loop
+  name: kanban-loop
+  version: 0.2.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/kanban-loop
-- repo_url: _local/model-router
+- repo_url: _local/orchestrator
+  name: orchestrator
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/commands/model-router.md
   deployed_file_hashes:
     .claude/commands/model-router.md: sha256:1a663ea38148f2a0f9cd016a7602d53392733ed6062821c63014c621111c5e0b
   source: local
-  local_path: ../../fittings/seed/model-router
+  local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/modes
+  name: modes
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/modes
 - repo_url: _local/monitor-default
+  name: monitor-default
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
 - repo_url: _local/scheduler
+  name: scheduler
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/scheduler
+  - .claude/skills/scheduler/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/scheduler/SKILL.md: sha256:3137fb60e14786dd4c5755dbb34f2d1295ab8c342391f9b518f919f3d31a939e
   source: local
   local_path: ../../fittings/seed/scheduler
 - repo_url: _local/screen-share-default
+  name: screen-share-default
+  version: 0.2.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/screen-share-default
 - repo_url: _local/slack-channel
+  name: slack-channel
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/slack-channel
 - repo_url: _local/trello
+  name: trello
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/rules/trello-data-source.md
   - .claude/skills/trello
+  - .claude/skills/trello/SKILL.md
   deployed_file_hashes:
     .claude/rules/trello-data-source.md: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
+    .claude/skills/trello/SKILL.md: sha256:98db910b886112716671873c3c2faea81a12cbb1ed880bebb6091fb36e4d06ee
   source: local
   local_path: ../../fittings/seed/trello
 - repo_url: _local/vault-git-sync
+  name: vault-git-sync
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/vault-git-sync
 - repo_url: _local/web-channel-default
+  name: web-channel-default
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/web-channel-default

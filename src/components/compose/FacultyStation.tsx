@@ -791,7 +791,7 @@ function OrchestratorGlobalConfig({
           </select>
           <div className="hint">
             Which composed runtime hosts the orchestrator. Leave as Default for the
-            Claude Code engine; other composed runtimes become model-router targets.
+            Claude Code engine; other composed runtimes become Orchestrator routing targets.
             Pick a runtime&apos;s provider on its own card to run it on Ollama / DeepSeek / Z.ai.
           </div>
         </div>

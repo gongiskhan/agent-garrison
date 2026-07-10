@@ -12,7 +12,7 @@ process.env.MODEL_ROUTER_DECISIONS = DECISIONS;
 process.env.GARRISON_HOME = join(dir, "garrison-home");
 
 // @ts-ignore — pure .mjs server
-import { startServer } from "../fittings/seed/model-router/scripts/server.mjs";
+import { startServer } from "../fittings/seed/orchestrator/scripts/server.mjs";
 
 let base = "";
 let handle: any;

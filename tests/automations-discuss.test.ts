@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { slugify, buildAutomationKickoff, buildAutomationDiscussUrl, buildDiscussParams } from "../fittings/seed/automations/lib/discuss.mjs";
+import { slugify, freshAutomationSlug, buildAutomationKickoff, buildAutomationDiscussUrl, buildDiscussParams } from "../fittings/seed/automations/lib/discuss.mjs";
 
 // H1 — chat-to-build authoring (reuses the Kanban Discuss -> web-channel handoff).
 
@@ -37,6 +37,31 @@ describe("discuss-automation handoff (H1)", () => {
     // the same session; both base64 like context/kickoff.
     expect(Buffer.from(p.thread, "base64").toString("utf8")).toBe("automation-weekly-report");
     expect(Buffer.from(p.title!, "base64").toString("utf8")).toBe("Weekly Report");
+  });
+
+  // Regression: the "+ Discuss an automation" button carries NO name. It used to
+  // collide every click onto the single thread `automation-automation` (+ brief
+  // `automation.md`), so reopening Discuss always landed on the previous, possibly
+  // failed, conversation. A new automation must mint a fresh unique slug per click.
+  it("freshAutomationSlug mints a distinct, filesystem-safe slug each call", () => {
+    const a = freshAutomationSlug();
+    const b = freshAutomationSlug();
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/^[a-z0-9-]+$/); // safe as a thread key + brief filename stem
+  });
+
+  it("a nameless new-automation Discuss gets a UNIQUE thread + brief per open (no shared 'automation-automation')", () => {
+    // Mirrors the /api/automations/discuss-url endpoint: no name -> fresh slug.
+    const open1 = buildDiscussParams({ slug: freshAutomationSlug() });
+    const open2 = buildDiscussParams({ slug: freshAutomationSlug() });
+    const thread1 = Buffer.from(open1.thread, "base64").toString("utf8");
+    const thread2 = Buffer.from(open2.thread, "base64").toString("utf8");
+    expect(thread1).not.toBe(thread2);
+    expect(thread1).not.toBe("automation-automation");
+    const brief1 = JSON.parse(Buffer.from(open1.context, "base64").toString("utf8")).briefAbsPath;
+    const brief2 = JSON.parse(Buffer.from(open2.context, "base64").toString("utf8")).briefAbsPath;
+    expect(brief1).not.toBe(brief2);
+    expect(brief1).not.toContain("/automation.md");
   });
 
   it("discuss URL targets the web-channel embed in james mode with base64 context+kickoff", () => {

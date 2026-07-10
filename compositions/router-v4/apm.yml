@@ -3,7 +3,7 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
-    - path: ../../fittings/seed/model-router
+    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/memory
 x-garrison:
@@ -19,7 +19,7 @@ x-garrison:
         log_sink: runner
     selections:
       orchestrator:
-        - id: model-router
+        - id: orchestrator
           config: {}
       gateway:
         - id: http-gateway

@@ -254,7 +254,8 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   "browser-default": Globe,
   "dev-env": SquareTerminal,
   improver: Sparkles,
-  "model-router": Route,
+  orchestrator: Route,
+  "model-router": Route, // legacy id (renamed to orchestrator, GARRISON-UNIFY-V1 S2)
   "monitor-default": Activity,
   "screen-share-default": ScreenShare,
   "deepgram-voice": Mic,

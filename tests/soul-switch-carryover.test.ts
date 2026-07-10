@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 // @ts-ignore — pure .mjs
-import { buildContextCarryover, buildRespawnOpts } from "../fittings/seed/model-router/lib/stage-b.mjs";
+import { buildContextCarryover, buildRespawnOpts } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 // @ts-ignore — pure .mjs
 import { createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
@@ -16,7 +16,7 @@ import { createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/g
 // the fallback deterministically; scripts/probe-soul-switch.mjs proves it live.
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SEED = JSON.parse(readFileSync(join(REPO_ROOT, "fittings/seed/model-router/config/routing.seed.json"), "utf8"));
+const SEED = JSON.parse(readFileSync(join(REPO_ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8"));
 
 class FakeSession {
   cfg: any;

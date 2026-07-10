@@ -6,7 +6,7 @@ import { placeOrchestratedSession, resolvePlacementMode, safeComposition, resolv
 
 const ROOT = join(__dirname, "..");
 const MODES_DIR = join(ROOT, "fittings/seed/modes");
-const RCONF = join(ROOT, "fittings/seed/model-router/config/routing.seed.json");
+const RCONF = join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
 const NAMES = ["gary", "joe", "james"];
 const CH = { "dev-env": "joe", slack: "gary", web: "gary" };
 

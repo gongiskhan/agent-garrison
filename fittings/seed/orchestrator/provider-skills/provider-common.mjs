@@ -103,7 +103,7 @@ async function writeArtifact(provider, output, spec) {
 
 async function runArtifactCli(artifactCli, output, filename, title) {
   return new Promise((resolve) => {
-    const child = spawn("python3", [artifactCli, "write", "delegations", filename, "--title", title, "--mime", "text/markdown", "--producer", "model-router"], {
+    const child = spawn("python3", [artifactCli, "write", "delegations", filename, "--title", title, "--mime", "text/markdown", "--producer", "orchestrator"], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     let stdout = "";
