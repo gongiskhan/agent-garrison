@@ -294,6 +294,93 @@ function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
   upstream.end();
 }
 
+// SSE proxy for POST /api/chat with SERVER-SIDE turn persistence. Differs from
+// pipeUpstreamSse in two deliberate ways:
+//   1. It watches the upstream stream for the `done` event and tees the exchange
+//      (user message + settled reply) into the thread store, so the transcript
+//      survives navigation/tab-close mid-turn.
+//   2. It does NOT propagate client-close to the gateway request - the turn runs
+//      to `done` server-side so the reply is persisted and the task is never
+//      orphaned invisibly. Writes to a gone client are simply skipped.
+function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessage } = {}) {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  let clientGone = false;
+  req.on("close", () => { clientGone = true; });
+  req.on("error", () => { clientGone = true; });
+  res.on("error", () => { clientGone = true; });
+  const clientWrite = (chunk) => {
+    if (clientGone || res.writableEnded || res.destroyed) return;
+    try { res.write(chunk); } catch { clientGone = true; }
+  };
+  const clientEnd = () => {
+    if (res.writableEnded || res.destroyed) return;
+    try { res.end(); } catch { /* gone */ }
+  };
+
+  let persisted = false;
+  const persistDone = (reply) => {
+    if (persisted || !threadId) return;
+    persisted = true;
+    const messages = [{ role: "user", text: userMessage }];
+    if (typeof reply === "string" && reply.trim()) messages.push({ role: "assistant", text: reply });
+    appendMessages(threadId, messages).catch((err) => {
+      console.error(`[web-channel] failed to persist turn into thread ${threadId}: ${err.message}`);
+    });
+  };
+  // Scan the upstream SSE frames for the `done` event (same block parse as the
+  // browser client). The gateway JSON-stringifies each payload on one data line.
+  let scanBuf = "";
+  const scanForDone = (chunk) => {
+    scanBuf += chunk.toString("utf8");
+    let idx;
+    while ((idx = scanBuf.indexOf("\n\n")) !== -1) {
+      const block = scanBuf.slice(0, idx);
+      scanBuf = scanBuf.slice(idx + 2);
+      let name = "message";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (name !== "done") continue;
+      let payload = {};
+      try { payload = data ? JSON.parse(data) : {}; } catch { /* ignore */ }
+      persistDone(payload?.reply);
+    }
+  };
+
+  const upstream = http.request(upstreamOpts, (up) => {
+    if (up.statusCode && up.statusCode >= 400) {
+      clientWrite(`event: error\ndata: ${JSON.stringify({ error: `upstream ${up.statusCode}` })}\n\n`);
+      up.resume();
+      clientEnd();
+      return;
+    }
+    up.on("data", (chunk) => {
+      scanForDone(chunk);
+      clientWrite(chunk);
+    });
+    up.on("end", () => clientEnd());
+    up.on("error", (err) => {
+      clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+      clientEnd();
+    });
+  });
+  upstream.on("error", (err) => {
+    clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+    clientEnd();
+  });
+  if (upstreamBody !== undefined) {
+    upstream.write(upstreamBody);
+  }
+  upstream.end();
+}
+
 function handleStream(req, res, opts) {
   const target = new URL(`/channels/${CHANNEL_ID}/stream`, opts.gatewayUrl);
   pipeUpstreamSse(req, res, {
@@ -486,12 +573,15 @@ async function handleChat(req, res, opts) {
     jsonRes(res, 400, { error: "message is required" });
     return;
   }
+  // The client's thread id (never forwarded to the gateway) - the exchange is
+  // persisted into it server-side when the upstream `done` event arrives.
+  const threadId = typeof body?.thread === "string" && body.thread.trim() ? body.thread.trim() : null;
   // Forward the opaque context + mode + optional routing hint through to the gateway.
   const payload = JSON.stringify(
     buildGatewayChatBody({ message, context: body?.context, mode: body?.mode, classification: body?.classification, autonomous: body?.autonomous })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
-  pipeUpstreamSse(req, res, {
+  pipeChatSse(req, res, {
     method: "POST",
     hostname: target.hostname,
     port: target.port,
@@ -501,13 +591,14 @@ async function handleChat(req, res, opts) {
       "Content-Length": Buffer.byteLength(payload),
       Accept: "text/event-stream"
     }
-  }, payload);
+  }, payload, { threadId, userMessage: message });
 }
 
 // ── Conversation threads (session list + history) ──────────────────────────
 // Generic, opaque-keyed transcript organizer over the one rolling operative. The
-// channel persists each completed exchange (client-driven) and lists/serves prior
-// threads so the UI can show a session list and move between conversations.
+// server persists each completed exchange itself (handleChat tees the upstream
+// `done` event into the thread the client named) and lists/serves prior threads
+// so the UI can show a session list and move between conversations.
 async function handleThreadsList(res) {
   jsonRes(res, 200, { threads: await listThreads() });
 }
@@ -600,18 +691,23 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort, host) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, host);
-    });
-    if (free) return port;
+// True when `pid` names a live process (EPERM still means alive, just not ours).
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
   }
-  return null;
+}
+
+async function readStatusFile() {
+  try {
+    return JSON.parse(await readFile(STATUS_FILE, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 async function writeStatusFile(opts) {
@@ -632,9 +728,15 @@ async function clearStatusFile() {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
 
-  const free = await findFreePort(opts.port, opts.host);
-  if (free === null) {
-    console.error(`[web-channel] no free port found starting from ${opts.port}`);
+  // Port discipline: never overwrite a status file whose pid is a LIVE other
+  // process - a second spawn must fail loudly instead of silently stealing the
+  // tracking slot and orphaning the first instance (the two-generations bug).
+  const existing = await readStatusFile();
+  if (existing && Number.isInteger(existing.pid) && existing.pid !== process.pid && pidAlive(existing.pid)) {
+    console.error(
+      `[web-channel] refusing to start: ${STATUS_FILE} tracks a live instance ` +
+      `(pid ${existing.pid}, ${existing.url ?? `port ${existing.port}`}) - stop it first`
+    );
     process.exit(1);
   }
   // Optional TLS so mobile browsers get a secure context (getUserMedia / mic
@@ -650,7 +752,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       tls = null;
     }
   }
-  const liveOpts = { ...opts, port: free, scheme: tls ? "https" : "http" };
+  const liveOpts = { ...opts, scheme: tls ? "https" : "http" };
 
   const requestHandler = async (req, res) => {
     try {
@@ -727,6 +829,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       return;
     }
     wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || ""));
+  });
+
+  // Bind the CONFIGURED port only - no findFreePort auto-shift. A busy port is a
+  // hard, loud failure so the runner surfaces the conflict instead of the server
+  // silently splitting brain across two ports.
+  server.on("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[web-channel] port ${liveOpts.port} on ${liveOpts.host} is already in use - refusing to auto-shift; free the port or change the configured port`);
+    } else {
+      console.error(`[web-channel] server error: ${err.message}`);
+    }
+    process.exit(1);
   });
 
   server.listen(liveOpts.port, liveOpts.host, async () => {

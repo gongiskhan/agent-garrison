@@ -304,23 +304,6 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-slashmenu { left: 8px; right: auto; min-width: 420px; max-width: 560px; }
 }
 
-/* D21: the Autonomous composer toggle (feature-gated; web channel only) */
-.cc-autonomous {
-  border: 1px solid var(--cc-border, #3a3f4b);
-  background: transparent;
-  color: var(--cc-fg-dim, #9aa3b2);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.cc-autonomous-on {
-  border-color: var(--cc-accent, #7aa2f7);
-  color: var(--cc-accent, #7aa2f7);
-  background: color-mix(in srgb, var(--cc-accent, #7aa2f7) 12%, transparent);
-}
-
 
 /* === web-channel skin (override layer) === */
 /* ============================================================================

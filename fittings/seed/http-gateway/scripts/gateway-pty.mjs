@@ -29,6 +29,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   OperativePtySession,
+  captureLines,
   extractReply,
   openRichStream,
   richStatus,
@@ -135,6 +136,23 @@ async function initRouting() {
   });
   await router.start();
   session = router.getOperativeSession();
+  if (continueSession && continueWedged(session)) {
+    logEvent("stderr", {
+      kind: "continue-wedge",
+      message: "claude --continue found no conversation to resume - clearing the stale session marker and respawning fresh",
+    });
+    await clearPriorSessionMarker();
+    try {
+      router.shutdown();
+    } catch {
+      /* best effort */
+    }
+    router = null;
+    session = null;
+    // The marker is gone, so the retry spawns WITHOUT --continue (bounded: the
+    // wedge check is gated on continueSession).
+    return initRouting();
+  }
   ptyStatus = "ready";
   await markPriorSession();
   logEvent("stdout", { kind: "routing-ready", model: MODEL, profile: router.config?.activeProfile });
@@ -170,6 +188,30 @@ async function markPriorSession() {
   }
 }
 
+async function clearPriorSessionMarker() {
+  try {
+    await fs.unlink(SESSION_ID_FILE);
+  } catch {
+    /* already gone */
+  }
+}
+
+// The session-marker wedge: the marker file says "continue" but this machine has
+// no resumable conversation (fresh box, wiped ~/.claude, ...), so `claude
+// --continue` renders a "No conversation found to continue" banner and the
+// operative sits permanently wedged on it. Detect the banner on the freshly
+// spawned screen so the caller can clear the stale marker and respawn fresh.
+const CONTINUE_WEDGE_RE = /no conversation found to continue/i;
+
+function continueWedged(sess) {
+  try {
+    if (!sess?.handle) return false;
+    return captureLines(sess.handle).some((line) => CONTINUE_WEDGE_RE.test(line));
+  } catch {
+    return false;
+  }
+}
+
 async function spawnOperative({ resume = true } = {}) {
   const continueSession = resume && (await hasPriorSession());
   const appendSystemPromptFile = SYSTEM_PROMPT_PATH || undefined;
@@ -189,6 +231,20 @@ async function spawnOperative({ resume = true } = {}) {
     claudeBinary: CLAUDE_BINARY,
     providerLaunch: PROVIDER_LAUNCH,
   });
+  if (continueSession && continueWedged(session)) {
+    logEvent("stderr", {
+      kind: "continue-wedge",
+      message: "claude --continue found no conversation to resume - clearing the stale session marker and respawning fresh",
+    });
+    try {
+      session.dispose();
+    } catch {
+      /* best effort */
+    }
+    session = null;
+    await clearPriorSessionMarker();
+    return spawnOperative({ resume: false });
+  }
   ptyStatus = "ready";
   await markPriorSession();
   logEvent("stdout", { kind: "ready", session_id: session.getClaudeSessionId(), continued: continueSession });

@@ -1,7 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 
 // Deterministic UI smoke for the rich Claude chat (web-channel). Boots a FAKE
@@ -126,8 +128,11 @@ test.describe("web-channel rich chat UI", () => {
     const gwPort = await freePort();
     wcPort = await freePort();
     fake = startFakeGateway(gwPort);
+    // Scratch GARRISON_HOME: the server refuses to boot over a live install's
+    // status slot, and the spec must never touch the real ~/.garrison.
+    const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), "wc-e2e-"));
     wc = spawn("node", [WEB_CHANNEL], {
-      env: { ...process.env, GARRISON_GATEWAY_URL: `http://127.0.0.1:${gwPort}`, WEB_CHANNEL_PORT: String(wcPort), WEB_CHANNEL_HOST: "127.0.0.1" },
+      env: { ...process.env, GARRISON_HOME: scratchHome, GARRISON_GATEWAY_URL: `http://127.0.0.1:${gwPort}`, WEB_CHANNEL_PORT: String(wcPort), WEB_CHANNEL_HOST: "127.0.0.1" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     // wait for web-channel health
@@ -149,7 +154,7 @@ test.describe("web-channel rich chat UI", () => {
   });
 
   test("renders chat shell, status strip, mode switcher, and slash menu", async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${wcPort}/`);
+    await page.goto(`http://127.0.0.1:${wcPort}/?console=1`);
 
     // Chat root + composer present.
     await expect(page.locator(".cc-root")).toBeVisible();
@@ -174,7 +179,7 @@ test.describe("web-channel rich chat UI", () => {
   });
 
   test("wears the Garrison skin (cream paper + serif title)", async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${wcPort}/`);
+    await page.goto(`http://127.0.0.1:${wcPort}/?console=1`);
     await expect(page.locator(".cc-root")).toBeVisible();
 
     // The web-channel skin re-points the component palette at Garrison "paper"
@@ -189,7 +194,7 @@ test.describe("web-channel rich chat UI", () => {
   });
 
   test("shows a working indicator, then highlights code with working copy buttons", async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${wcPort}/`);
+    await page.goto(`http://127.0.0.1:${wcPort}/?console=1`);
     await expect(page.locator(".cc-input")).toBeVisible();
 
     await page.locator(".cc-input").fill("Add a debounced autosave and show me the hook.");

@@ -3,14 +3,15 @@
 // whose history is restored on open.
 //
 // Two surfaces, chosen by the URL:
-//   • Rich operative console (DEFAULT, no thread/context/mode/kickoff) — mounts
-//     @garrison/claude-chat against the gateway's live /claude/* PTY surface,
-//     EXACTLY as before. This is the operative test interface; untouched.
-//   • Threaded conversations (a `thread` key OR context/mode/kickoff present) —
-//     the same component on the orchestrator path (/api/chat → gateway
-//     /chat/stream) wrapped in a sessions sidebar. Each turn is persisted into a
-//     thread (server-side, /api/threads/*), so reopening shows the history and
-//     you can switch between conversations.
+//   • Threaded conversations (DEFAULT - the bare URL the Garrison sidebar embeds,
+//     and host-opened Discuss links carrying thread/context/mode/kickoff) -
+//     @garrison/claude-chat on the orchestrator path (/api/chat → gateway
+//     /chat/stream) wrapped in a sessions sidebar. The most recent thread
+//     auto-opens; each turn is persisted SERVER-SIDE into its thread (server.mjs
+//     tees the exchange on the upstream `done` event), so reopening shows the
+//     history and a mid-turn navigation never loses the exchange.
+//   • Rich operative console (explicit ?console=1) - the same component against
+//     the gateway's live /claude/* PTY surface. The operative test interface.
 //
 // The channel stays generic: a `thread` is an OPAQUE key + optional title a host
 // (Kanban / Automations) puts on the query string. The channel never interprets
@@ -71,6 +72,9 @@ interface UrlState {
   title: string | undefined;
   returnUrl: string | undefined;
   returnLabel: string | undefined;
+  /** Explicit ?console=1 - mount the raw PTY operative console instead of the
+   *  threaded surface. */
+  console: boolean;
 }
 
 // Return to whatever page the user came from (the board / Automations), robust across
@@ -95,7 +99,7 @@ function goBackToHost(): void {
 
 function readUrl(): UrlState {
   if (typeof window === "undefined") {
-    return { context: undefined, mode: undefined, kickoff: undefined, thread: undefined, title: undefined, returnUrl: undefined, returnLabel: undefined };
+    return { context: undefined, mode: undefined, kickoff: undefined, thread: undefined, title: undefined, returnUrl: undefined, returnLabel: undefined, console: false };
   }
   const q = new URLSearchParams(window.location.search);
   const modeRaw = q.get("mode");
@@ -117,11 +121,15 @@ function readUrl(): UrlState {
     title,
     returnUrl,
     returnLabel,
+    console: q.get("console") === "1",
   };
 }
 
 // ── Context-aware transport (orchestrator path) ─────────────────────────────
-function createOrchestratorTransport(base = "/api"): ChatTransport {
+// `threadId` identifies the conversation this transport serves; it rides every
+// POST /api/chat body so the SERVER can persist the exchange into the thread
+// when the upstream `done` event arrives (survives navigation/tab-close mid-turn).
+function createOrchestratorTransport(base = "/api", threadId?: string): ChatTransport {
   const b = base.replace(/\/$/, "");
   let listener: ((ev: ChatEvent) => void) | null = null;
   let acc = "";
@@ -129,8 +137,9 @@ function createOrchestratorTransport(base = "/api"): ChatTransport {
   const send: (text: string, meta?: ChatSendMeta) => Promise<void> = async (text, meta) => {
     acc = "";
     const payload: Record<string, unknown> = { message: text };
+    if (threadId) payload.thread = threadId;
     if (meta?.context !== undefined && meta.context !== null) payload.context = meta.context;
-    // D21: the composer's Autonomous toggle — the explicit D8 marker.
+    // D21: the chat's Autonomous toggle (toolbar chip) - the explicit D8 marker.
     if (meta?.autonomous === true) payload.autonomous = true;
     if (typeof meta?.mode === "string" && meta.mode.trim()) {
       payload.mode = meta.mode.trim();
@@ -268,15 +277,6 @@ async function apiEnsureThread(payload: { id?: string; title?: string; source?: 
     return d.thread ?? null;
   } catch { return null; }
 }
-async function apiAppend(id: string, messages: ThreadMessage[]): Promise<void> {
-  try {
-    await fetch(`/api/threads/${encodeURIComponent(id)}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages }),
-    });
-  } catch { /* best effort */ }
-}
 async function apiDelete(id: string): Promise<void> {
   try { await fetch(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" }); } catch { /* ignore */ }
 }
@@ -406,8 +406,6 @@ function BriefPanel({ path: briefPath, onClose }: { path: string; onClose: () =>
 }
 
 // ── Threaded app (sidebar + chat) ───────────────────────────────────────────
-const orchestratorTransport = createOrchestratorTransport("/api");
-
 function ThreadedApp({ url }: { url: UrlState }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -503,14 +501,13 @@ function ThreadedApp({ url }: { url: UrlState }) {
     }
   }, [activeId, openThread, newChat]);
 
-  const persistTurn = useCallback(async (exchange: { user: string; assistant: string }) => {
-    if (!activeId) return;
-    await apiAppend(activeId, [
-      { role: "user", text: exchange.user },
-      { role: "assistant", text: exchange.assistant },
-    ]);
+  // Persistence is SERVER-SIDE: server.mjs handleChat tees each exchange into the
+  // thread when the upstream `done` event arrives (the transport sends the thread
+  // id on every POST /api/chat), so a mid-turn navigation or tab close never loses
+  // it. On turn completion the client only refreshes the session list metadata.
+  const onTurnSettled = useCallback(async () => {
     await refreshList();
-  }, [activeId, refreshList]);
+  }, [refreshList]);
 
   const history = useMemo(() => {
     if (!activeThread) return [] as { user: string; assistant: string; hideUser?: boolean }[];
@@ -564,6 +561,9 @@ function ThreadedApp({ url }: { url: UrlState }) {
 
   const mode = activeThread?.mode ?? url.mode;
   const kickoff = activeId && kickoffFor === activeId ? url.kickoff : undefined;
+  // One transport per open thread (ClaudeChat re-mounts on activeId anyway), so
+  // every send carries the thread id the server persists under.
+  const transport = useMemo(() => createOrchestratorTransport("/api", activeId ?? undefined), [activeId]);
 
   return (
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}`}>
@@ -651,7 +651,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
         ) : (
           <ClaudeChat
             key={activeId}
-            transport={orchestratorTransport}
+            transport={transport}
             title="Operative"
             features={{ voice: true, autonomous: true }}
             context={ctx}
@@ -659,7 +659,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             initialMessage={kickoff}
             initialMessageHidden={Boolean(kickoff)}
             initialHistory={history}
-            onTurnComplete={(ex) => { void persistTurn(ex); void checkBriefAfterTurn(); }}
+            onTurnComplete={() => { void onTurnSettled(); void checkBriefAfterTurn(); }}
           />
         )}
       </main>
@@ -668,8 +668,12 @@ function ThreadedApp({ url }: { url: UrlState }) {
 }
 
 // ── Mount ───────────────────────────────────────────────────────────────────
+// The threaded surface is the DEFAULT (the bare URL the Garrison sidebar embeds
+// gets the sessions sidebar + persisted history); the raw PTY console needs an
+// explicit ?console=1. Host-opened Discuss links (thread/context/mode/kickoff)
+// mount the threaded surface as before.
 const url = readUrl();
-const threaded = url.thread !== undefined || url.context !== undefined || url.mode !== undefined || url.kickoff !== undefined;
+const threaded = !url.console;
 
 function App() {
   // Presence heartbeat (GARRISON-UNIFY-V1 S14, D34): POST /power-heartbeat
@@ -696,7 +700,7 @@ function App() {
   }, []);
 
   if (threaded) return <ThreadedApp url={url} />;
-  // Default: the rich operative console (live PTY surface), exactly as before.
+  // Explicit ?console=1: the rich operative console (live PTY surface).
   return <ClaudeChat transport={createHttpTransport("/api")} title="Operative" features={{ voice: true, autonomous: true }} />;
 }
 

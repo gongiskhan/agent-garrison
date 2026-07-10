@@ -17,7 +17,7 @@ x-garrison:
     - key: port
       type: integer
       default: 7083
-      description: HTTP port the web-channel server binds to. Falls back to next free port when in use.
+      description: HTTP port the web-channel server binds to. The server refuses to start (exit 1) when the port is taken - no auto-shift.
     - key: bind_host
       type: string
       default: 127.0.0.1

@@ -40257,7 +40257,9 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
   }, []);
   const applyAssistant = (0, import_react2.useCallback)((text) => {
     setTurns((prev) => {
-      if (prev.length === 0) return prev;
+      if (prev.length === 0) {
+        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true }];
+      }
       const last = prev[prev.length - 1];
       if (last.assistant === text) return prev;
       const copy = prev.slice();
@@ -40268,11 +40270,19 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
   (0, import_react2.useEffect)(() => {
     const off = transport.connect((ev) => {
       switch (ev.type) {
-        case "hello":
+        case "hello": {
           setStatus(ev.status);
           setBusy(ev.busy);
           setScreen(ev.screen ?? []);
+          const helloAssistant = typeof ev.assistant === "string" ? ev.assistant : "";
+          if (helloAssistant.trim()) {
+            const stillStreaming = ev.busy;
+            setTurns(
+              (prev) => prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true }]
+            );
+          }
           break;
+        }
         case "assistant":
           applyAssistant(ev.text);
           break;
@@ -40662,7 +40672,7 @@ ${t}` : t;
       },
       m
     )) }),
-    (feat.model || feat.effort || feat.voice) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-toolbar", children: [
+    (feat.model || feat.effort || feat.voice || feat.autonomous) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-toolbar", children: [
       feat.model && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Model", children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-tool-label", children: "Model" }),
         MODELS.map((m) => {
@@ -40695,6 +40705,17 @@ ${t}` : t;
         ))
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-tool-spacer" }),
+      feat.autonomous && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "button",
+        {
+          type: "button",
+          className: `cc-chip ${autonomousOn ? "cc-chip-active" : ""}`,
+          "aria-pressed": autonomousOn,
+          title: autonomousOn ? "Autonomous ON: sends register a run card on the board; the reply carries the card link" : "Autonomous OFF: messages run interactively. Turn on to register the work as an autonomous run card",
+          onClick: () => setAutonomousOn((v) => !v),
+          children: "Autonomous"
+        }
+      ),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
         "button",
         {
@@ -40759,17 +40780,6 @@ ${t}` : t;
       )) }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-composerrow", children: [
         composerAdornment,
-        feat.autonomous && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "button",
-          {
-            type: "button",
-            className: `cc-autonomous ${autonomousOn ? "cc-autonomous-on" : ""}`,
-            "aria-pressed": autonomousOn,
-            title: autonomousOn ? "Autonomous ON: this message registers a run card on the board; the reply carries the card link" : "Autonomous OFF: messages run interactively. Turn on to register the work as an autonomous run card",
-            onClick: () => setAutonomousOn((v) => !v),
-            children: "Autonomous"
-          }
-        ),
         feat.voice && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "button",
           {

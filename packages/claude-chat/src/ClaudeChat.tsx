@@ -184,10 +184,10 @@ export interface ChatFeatures {
   /** Read-aloud + push-to-talk via the host's same-origin /voice proxy. */
   voice?: boolean;
   /**
-   * Autonomous toggle (GARRISON-UNIFY-V1 D21) — when pressed, every send
-   * carries meta.autonomous = true (the explicit D8 marker); the gateway
-   * registers significant work as a run card and replies with the card link.
-   * Default OFF; only the web channel opts in.
+   * Autonomous toggle (GARRISON-UNIFY-V1 D21) - a toolbar chip; when pressed,
+   * every send carries meta.autonomous = true (the explicit D8 marker); the
+   * gateway registers significant work as a run card and replies with the
+   * card link. Default OFF; only the web channel opts in.
    */
   autonomous?: boolean;
 }
@@ -289,7 +289,7 @@ const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }
 export interface ChatSendMeta {
   context?: unknown;
   mode?: string;
-  /** D21/D8: the explicit autonomous marker (the composer toggle). */
+  /** D21/D8: the explicit autonomous marker (the toolbar chip). */
   autonomous?: boolean;
 }
 type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
@@ -501,9 +501,14 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   }, []);
 
   // Reflect the latest assistant text into the most recent turn's assistant slot.
+  // A reply arriving with NO local transcript (this client mounted or reloaded
+  // while a turn was already running server-side) is REBOUND to a fresh turn
+  // instead of dropped, so a reconnecting client picks the stream back up.
   const applyAssistant = useCallback((text: string) => {
     setTurns((prev) => {
-      if (prev.length === 0) return prev;
+      if (prev.length === 0) {
+        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true }];
+      }
       const last = prev[prev.length - 1];
       if (last.assistant === text) return prev;
       const copy = prev.slice();
@@ -515,11 +520,24 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   useEffect(() => {
     const off = transport.connect((ev: ChatEvent) => {
       switch (ev.type) {
-        case "hello":
+        case "hello": {
           setStatus(ev.status);
           setBusy(ev.busy);
           setScreen(ev.screen ?? []);
+          // Rebind a reloaded client: when the operative already has a reply on
+          // screen (possibly still streaming) and this client has no transcript,
+          // seed a turn from the hello snapshot instead of showing an empty chat.
+          const helloAssistant = typeof ev.assistant === "string" ? ev.assistant : "";
+          if (helloAssistant.trim()) {
+            const stillStreaming = ev.busy;
+            setTurns((prev) =>
+              prev.length > 0
+                ? prev
+                : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true }]
+            );
+          }
           break;
+        }
         case "assistant":
           applyAssistant(ev.text);
           break;
@@ -968,7 +986,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         ))}
       </div>
 
-      {(feat.model || feat.effort || feat.voice) && (
+      {(feat.model || feat.effort || feat.voice || feat.autonomous) && (
         <div className="cc-toolbar">
           {feat.model && (
             <div className="cc-tool-group" role="group" aria-label="Model">
@@ -1006,6 +1024,19 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             </div>
           )}
           <span className="cc-tool-spacer" />
+          {feat.autonomous && (
+            <button
+              type="button"
+              className={`cc-chip ${autonomousOn ? "cc-chip-active" : ""}`}
+              aria-pressed={autonomousOn}
+              title={autonomousOn
+                ? "Autonomous ON: sends register a run card on the board; the reply carries the card link"
+                : "Autonomous OFF: messages run interactively. Turn on to register the work as an autonomous run card"}
+              onClick={() => setAutonomousOn((v) => !v)}
+            >
+              Autonomous
+            </button>
+          )}
           <button
             type="button"
             className="cc-chip"
@@ -1070,19 +1101,6 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         )}
         <div className="cc-composerrow">
           {composerAdornment}
-          {feat.autonomous && (
-            <button
-              type="button"
-              className={`cc-autonomous ${autonomousOn ? "cc-autonomous-on" : ""}`}
-              aria-pressed={autonomousOn}
-              title={autonomousOn
-                ? "Autonomous ON: this message registers a run card on the board; the reply carries the card link"
-                : "Autonomous OFF: messages run interactively. Turn on to register the work as an autonomous run card"}
-              onClick={() => setAutonomousOn((v) => !v)}
-            >
-              Autonomous
-            </button>
-          )}
           {feat.voice && (
             <button
               type="button"
