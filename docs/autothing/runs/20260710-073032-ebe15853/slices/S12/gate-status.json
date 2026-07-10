@@ -1,0 +1,21 @@
+{
+  "slice": "S12",
+  "title": "Snapshots fitting",
+  "updatedAt": "2026-07-10T10:39:12Z",
+  "phase": "review",
+  "status": "in_progress",
+  "kind": "mixed",
+  "profile": "build",
+  "retries": { "limit": 5, "used": 0 },
+  "blockers": [],
+  "commit": "a2a0333",
+  "gates": {
+    "typecheck": { "exit": 0, "summary": "clean" },
+    "lint": { "exit": 0, "summary": "next lint clean" },
+    "securityWall": { "gitleaks": { "exit": 0, "summary": "full-diff scan, no leaks" } },
+    "test": { "exit": 0, "summary": "snapshots-fitting 12 tests incl restic round trip; full suite 1599 green" },
+    "adversarialReview": { "status": "pending", "by": "rev-s912" },
+    "adversarialTest": { "status": "pending", "by": "rev-s912" },
+    "walkthrough": { "status": "pending" }
+  }
+}

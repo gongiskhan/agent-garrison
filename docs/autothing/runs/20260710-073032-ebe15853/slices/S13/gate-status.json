@@ -1,0 +1,21 @@
+{
+  "slice": "S13",
+  "title": "Power core",
+  "updatedAt": "2026-07-10T10:39:12Z",
+  "phase": "review",
+  "status": "in_progress",
+  "kind": "mixed",
+  "profile": "build",
+  "retries": { "limit": 5, "used": 0 },
+  "blockers": [],
+  "commit": "46e29e5",
+  "gates": {
+    "typecheck": { "exit": 0, "summary": "clean" },
+    "lint": { "exit": 0, "summary": "next lint clean" },
+    "securityWall": { "gitleaks": { "exit": 0, "summary": "full-diff scan, no leaks" } },
+    "test": { "exit": 0, "summary": "power-fitting 37 tests green; full suite 1599 green" },
+    "adversarialReview": { "status": "pending", "by": "rev-s1314" },
+    "adversarialTest": { "status": "pending", "by": "rev-s1314" },
+    "walkthrough": { "status": "pending" }
+  }
+}

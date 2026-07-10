@@ -3,7 +3,7 @@ version: 0.1.0
 description: >-
   Claude Code runtime (Runtime Faculty) — the node-pty engine that drives the
   real interactive Claude Code TUI. The DEFAULT PRIMARY runtime that hosts the
-  Operative's orchestrator loop. Selectable as a model-router claude-code target,
+  Operative's orchestrator loop. Selectable as an orchestrator claude-code target,
   with provider/base-url overrides (Max OAuth by default; Ollama / DeepSeek / Z.ai
   by base-url swap).
 target: claude
@@ -21,7 +21,7 @@ x-garrison:
     (packages/claude-pty) that drives the real interactive Claude Code TUI. This
     is the DEFAULT PRIMARY runtime — the engine that hosts the Operative's
     orchestrator loop, via the HTTP gateway or the direct PTY operative. It also
-    registers as a model-router `runtime: claude-code` target so the orchestrator
+    registers as an orchestrator `runtime: claude-code` target so the orchestrator
     can route turns to it at a chosen model/effort. By default it runs on the
     Max-plan Claude account (anthropic-plan, no base URL); selecting a non-default
     provider swaps ANTHROPIC_BASE_URL (+ vault auth token) so the SAME Claude Code
@@ -30,7 +30,7 @@ x-garrison:
     - key: provider
       type: select
       default: anthropic-plan
-      description: Inference backend for this runtime. anthropic-plan = your Max account (no base URL). Others swap ANTHROPIC_BASE_URL (+ vault key) so the Claude Code engine runs against that provider. Resolution reuses the model-router PROVIDERS registry.
+      description: Inference backend for this runtime. anthropic-plan = your Max account (no base URL). Others swap ANTHROPIC_BASE_URL (+ vault key) so the Claude Code engine runs against that provider. Resolution reuses the orchestrator PROVIDERS registry.
       options:
         - anthropic-plan
         - ollama-local
@@ -39,7 +39,7 @@ x-garrison:
     - key: model
       type: select
       default: opus
-      description: Default model when this runtime runs the orchestrator (GARRISON_MODEL). The model-router may override per turn.
+      description: Default model when this runtime runs the orchestrator (GARRISON_MODEL). The orchestrator may override per turn.
       options:
         - opus
         - sonnet
@@ -63,7 +63,7 @@ x-garrison:
     runs the Operative's orchestrator loop — you are most likely already talking
     to it. When a composition names this runtime as its `primary_runtime`, the
     runner spawns the orchestrator on the Claude Code PTY / HTTP gateway path. The
-    model-router can also route individual turns to it as a `runtime: claude-code`
+    the orchestrator can also route individual turns to it as a `runtime: claude-code`
     target at a chosen model + effort.
 
     Provider override: pick `provider` to run the SAME Claude Code engine against

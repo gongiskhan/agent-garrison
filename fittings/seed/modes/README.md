@@ -15,7 +15,7 @@ All three share one **voice** (`voice/shared-voice.md`: prose, no
 bullets/headers/em-dashes, never opens with flattery, tuned for text-to-speech)
 and one **memory**. Switching is by name at the start of a message, sticky, with
 channel defaults (`modes.json` `channelDefaults`: dev-env → Joe, Slack → Gary).
-Per-mode routing bias nudges the model-router role (Gary leans fast, Joe expert,
+Per-mode routing bias nudges the orchestrator role (Gary leans fast, Joe expert,
 James expert then standard).
 
 ## Files
@@ -34,7 +34,7 @@ the gateway as `GARRISON_SOULS_CONFIG`.
 ## Requires
 Modes activates the gateway's **orchestrator/soul mode**, which drives souls
 through the **mcp-gateway** sidecar (the `talk_to` / spawn-soul MCP tools). A
-modes composition must therefore also select an orchestrator (e.g. `model-router`),
+modes composition must therefore also select an orchestrator (e.g. `orchestrator`),
 the `http-gateway`, and **`mcp-gateway`**. If mcp-gateway is absent the runner
 logs a warning and stays in the normal single-operative routed mode (it will not
 boot an orchestrator that can't reach its souls).
