@@ -373,3 +373,53 @@ describe("parseLsof (macOS)", () => {
     expect(wildcard.wildcard).toBe(true);
   });
 });
+
+// GARRISON-UNIFY-V1 S11 security regression (rev2-s1011 MAJOR): the mutating
+// endpoints (kill, open-in-browser) are unauthenticated + loopback-bound, so a
+// drive-by page could CORS-simple POST a SIGTERM, and DNS-rebinding enabled
+// read-then-kill. crossSiteBlocked() rejects a non-loopback Host (rebinding) and
+// a cross-site Origin (CSRF) before the handler runs. (Same guard is applied to
+// the power + outpost mutating endpoints.)
+import { crossSiteBlocked } from "../fittings/seed/ports-default/scripts/server.mjs";
+
+function fakeReqRes(headers: Record<string, string>) {
+  const res: { statusCode: number; body: unknown; ended: boolean; headers: Record<string, string> } = { statusCode: 200, body: null, ended: false, headers: {} };
+  const resObj = {
+    statusCode: 200,
+    setHeader(k: string, v: string) { res.headers[k] = v; },
+    end(s: string) { res.ended = true; res.body = s ? JSON.parse(s) : null; res.statusCode = resObj.statusCode; }
+  };
+  Object.defineProperty(resObj, "statusCode", { get() { return res.statusCode; }, set(v) { res.statusCode = v; } });
+  return { req: { headers }, res: resObj, out: res };
+}
+
+describe("crossSiteBlocked (S11 CSRF / DNS-rebinding guard)", () => {
+  it("allows a same-origin loopback request (Host + Origin loopback)", () => {
+    const { req, res, out } = fakeReqRes({ host: "127.0.0.1:7088", origin: "http://127.0.0.1:7088" });
+    expect(crossSiteBlocked(req, res, {})).toBe(false);
+    expect(out.ended).toBe(false);
+  });
+
+  it("allows a request with no Origin header (curl / same-origin GET-turned-POST)", () => {
+    const { req, res } = fakeReqRes({ host: "localhost:7088" });
+    expect(crossSiteBlocked(req, res, {})).toBe(false);
+  });
+
+  it("blocks a cross-site Origin (CSRF)", () => {
+    const { req, res, out } = fakeReqRes({ host: "127.0.0.1:7088", origin: "http://evil.example.com" });
+    expect(crossSiteBlocked(req, res, {})).toBe(true);
+    expect(out.statusCode).toBe(403);
+    expect(String(out.body && (out.body as { reason?: string }).reason)).toMatch(/CSRF/);
+  });
+
+  it("blocks a non-loopback Host (DNS-rebinding)", () => {
+    const { req, res, out } = fakeReqRes({ host: "attacker.example.com", origin: "http://attacker.example.com" });
+    expect(crossSiteBlocked(req, res, {})).toBe(true);
+    expect(out.statusCode).toBe(403);
+    expect(String(out.body && (out.body as { reason?: string }).reason)).toMatch(/rebinding/);
+  });
+
+  it("allows IPv6 loopback and the bound 0.0.0.0 form", () => {
+    expect(crossSiteBlocked(fakeReqRes({ host: "[::1]:7088" }).req, fakeReqRes({}).res, {})).toBe(false);
+  });
+});
