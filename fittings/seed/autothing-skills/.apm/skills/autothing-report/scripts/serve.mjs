@@ -24,7 +24,16 @@ const ROOT = path.resolve(argVal('--root') || path.join(HOME, '.autothing', 'rep
 const RUNS_ROOT = path.resolve(argVal('--runs-root') || process.env.GARRISON_RUNS_DIR
   || path.join(process.env.GARRISON_HOME || path.join(HOME, '.garrison'), 'runs'));
 const PORT = parseInt(argVal('--port') || '8091', 10);
+// Files this server may serve after symlink resolution: the report root, the
+// runs home, and the garrison home (where legit in-place log/artifact symlinks
+// point). realpath must land under one of these or the request is 403'd.
+const GARRISON_HOME_DIR = path.resolve(process.env.GARRISON_HOME || path.join(HOME, '.garrison'));
 const STATUS = path.join(HOME, '.autothing', 'report-serve.json');
+// Bind to the tailnet interface (the documented reach), NOT 0.0.0.0 which also
+// exposes on any public interface (firewall-gated on a cloud box). Override with
+// REPORT_SERVE_HOST; tailscaleIP() falls back to the first non-internal IPv4,
+// then loopback, so the server is never bound wider than a single interface.
+const SERVE_BIND_HOST = process.env.REPORT_SERVE_HOST || tailscaleIP();
 const SELF = new URL(import.meta.url).pathname;
 
 function tailscaleIP() {
@@ -67,6 +76,7 @@ function ensureRunning() {
 }
 
 function runServer() {
+  const ALLOWED_ROOTS = [ROOT, RUNS_ROOT, GARRISON_HOME_DIR].map((r) => path.resolve(r));
   const server = http.createServer((req, res) => {
     try {
       const reqPath = decodeURIComponent((req.url || '/').split('?')[0]);
@@ -76,9 +86,15 @@ function runServer() {
       const fp = underRuns
         ? path.join(RUNS_ROOT, reqPath.slice('/runs'.length) || '/')
         : path.join(ROOT, reqPath);
-      let st; try { st = fs.statSync(fp); } catch { res.writeHead(404); return res.end('not found'); }
+      // Realpath containment: this server FOLLOWS symlinks (logs served in place),
+      // and the `..` check above only catches lexical traversal in the URL — a
+      // symlink UNDER the runs tree pointing at /etc/passwd would still be served.
+      // Resolve the real path and confine it to the allowed roots.
+      let real; try { real = fs.realpathSync(fp); } catch { res.writeHead(404); return res.end('not found'); }
+      if (!ALLOWED_ROOTS.some((r) => real === r || real.startsWith(r + path.sep))) { res.writeHead(403); return res.end('forbidden'); }
+      let st; try { st = fs.statSync(real); } catch { res.writeHead(404); return res.end('not found'); }
       if (st.isDirectory()) {
-        const entries = fs.readdirSync(fp, { withFileTypes: true });
+        const entries = fs.readdirSync(real, { withFileTypes: true });
         const items = entries.map((e) => {
           const isDir = e.isDirectory() || (e.isSymbolicLink() && safeIsDir(path.join(fp, e.name)));
           const href = path.posix.join(reqPath, e.name) + (isDir ? '/' : '');
@@ -88,11 +104,11 @@ function runServer() {
         return res.end(`<!doctype html><meta charset=utf8><title>${reqPath}</title>` +
           `<h2>Index of ${reqPath}</h2><ul>${items || '<li><em>(empty)</em></li>'}</ul>`);
       }
-      res.writeHead(200, { 'content-type': ctype(fp) });
-      fs.createReadStream(fp).pipe(res);
+      res.writeHead(200, { 'content-type': ctype(real) });
+      fs.createReadStream(real).pipe(res);
     } catch { res.writeHead(500); res.end('error'); }
   });
-  server.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, SERVE_BIND_HOST, () => {
     try { const s = JSON.parse(fs.readFileSync(STATUS, 'utf8')); s.pid = process.pid; fs.writeFileSync(STATUS, JSON.stringify(s, null, 2)); } catch {}
   });
 }
