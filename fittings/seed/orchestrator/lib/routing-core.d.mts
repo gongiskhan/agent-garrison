@@ -203,6 +203,14 @@ export interface Project {
   security_sensitive?: boolean;
   profile?: Record<string, unknown>;
 }
+export interface CoordinationPolicy {
+  enabled?: boolean;
+  thresholds?: { heavyFiles?: number; heavyRatio?: number };
+  exclusiveLeases?: string[];
+  fences?: { enabled?: boolean; trailer?: string };
+  leaseTtlMinutes?: number;
+  serializeWhenUnavailable?: boolean;
+}
 export interface PolicyConfigV2 {
   version: 2;
   activeProfile: string;
@@ -221,6 +229,7 @@ export interface PolicyConfigV2 {
   phaseSkills?: PhaseSkills;
   projects?: Record<string, Project>;
   uxQa?: UxQaPolicy;
+  coordination?: CoordinationPolicy;
 }
 
 export interface CompiledPolicyCell {
@@ -252,6 +261,7 @@ export interface CompiledPolicy {
   phaseSkills: PhaseSkills;
   projects: Record<string, Project>;
   uxQa: UxQaPolicy;
+  coordination?: CoordinationPolicy;
 }
 
 export interface RailPhase {

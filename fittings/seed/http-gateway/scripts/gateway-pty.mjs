@@ -296,7 +296,7 @@ async function runRoutedTurn(message, onChunk, hints) {
     // Inject the off-screen agent-sdk reply + a status badge into rich clients so
     // the channel UI clearly shows the routed runtime/model (not the idle operative).
     broadcastRich("status", {
-      rows: [`Garrison orchestrator → runtime: agent-sdk · provider: ${r.provider} · model: ${r.model} · fenced (non-Anthropic)`],
+      rows: [`Garrison orchestrator → runtime: agent-sdk · provider: ${r.provider} · model: ${r.model}`],
       mode: "agent-sdk",
       contextPct: null,
       model: `${r.model} · agent-sdk/${r.provider}`,

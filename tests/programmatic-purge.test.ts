@@ -25,6 +25,7 @@ const TARGET_DIRS = ["src", "packages", "fittings", "scripts"];
 
 const BANNED: Array<{ label: string; re: RegExp }> = [
   { label: "claude --print (headless)", re: /--print\b/ },
+  { label: "claude -p (headless short flag)", re: /\bclaude['"]?,?\s+['"]?-p\b/ },
   { label: "headless stream-json output", re: /output-format[ "',]+stream-json/ },
 ];
 

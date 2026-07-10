@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 
 import { runImprover, upsertQueue } from "../lib/improver-core.mjs";
 import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
+import { runCoordinationRule } from "../lib/coordination-rule.mjs";
 import { runDreamPhase, chooseDreamRunTurn } from "../lib/memory-dream.mjs";
 import { scanSkillTelemetry, telemetryToJSON } from "../lib/skill-telemetry.mjs";
 import { loadProvenance } from "../lib/provenance.mjs";
@@ -342,6 +343,20 @@ async function runSkills() {
     console.log(`ORCHESTRATOR-POLICY — proposals=${policyRule.proposals.length} (runs=${policyRule.inputs.runs}, frictionLines=${policyRule.inputs.frictionLines})`);
   } catch (err) {
     console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
+  }
+  // ── coordination rule (GARRISON-FLOW-V2 S6, D17) ──
+  // Watches attributed interference + ordering decisions + touch-set-prediction
+  // misses on the kanban cards and proposes threshold / lease-list / prediction
+  // edits into the SAME queue — rendered as composer ghost edits, never auto-applied.
+  try {
+    const coordRule = runCoordinationRule({ now });
+    for (const p of coordRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(`COORDINATION — proposals=${coordRule.proposals.length} (cards=${coordRule.inputs.cards})`);
+  } catch (err) {
+    console.error("coordination rule failed (skipped):", err?.message || err);
   }
   writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2), "utf8");
   writeFileSync(REPORT_FILE, JSON.stringify({ ...memRun.report, dream: dream.housekeeping }, null, 2), "utf8");

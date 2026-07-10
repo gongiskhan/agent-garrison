@@ -79,6 +79,8 @@ const railFor = railForCore as unknown as (config: Cfg, workKind?: string | null
 const EFFORTS = ["low", "medium", "high", "xhigh"];
 const EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 const RUNTIME_OPTIONS = ["claude-code", "ollama", "agent-sdk", "codex", "gemini"];
+// Severity vocabulary for the ux-qa threshold (blocker strictest → note loosest).
+const SEVERITIES = ["blocker", "major", "minor", "note"];
 
 // The runtime label shown on each target card (the engine the turn runs on).
 function runtimeLabel(t: AnyTarget | null | undefined): string {
@@ -837,16 +839,24 @@ function Inspector({
 }
 
 // ── 4. TRY-IT STRIP ───────────────────────────────────────────────────────────
+type GateResolution = {
+  securityReview?: { included?: boolean; byPlan?: boolean; byProject?: boolean; project?: string | null; reason?: string };
+  uxQa?: { included?: boolean; severityThreshold?: string; reason?: string };
+};
 type TryItResult = {
   classification?: { taskType?: string; tier?: string; execution?: string };
   workKind?: string | null;
+  project?: string | null;
   rail?: Rail | null;
+  gates?: GateResolution | null;
   error?: string;
 };
 function TryItStrip({ config }: { config: Cfg }) {
   const kinds = Object.keys(config.workKinds || {});
+  const projectNames = Object.keys(config.projects || {}).sort();
   const [prompt, setPrompt] = useState("");
   const [workKind, setWorkKind] = useState(config.defaultWorkKind || kinds[0] || "");
+  const [project, setProject] = useState("");
   const [result, setResult] = useState<TryItResult | null>(null);
   const [busy, setBusy] = useState(false);
   const run = async () => {
@@ -856,7 +866,7 @@ function TryItStrip({ config }: { config: Cfg }) {
       const r = await fetch("/simulate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tryIt: true, prompt, workKind })
+        body: JSON.stringify({ tryIt: true, prompt, workKind, project: project || null })
       });
       setResult(await r.json());
     } catch (err) {
@@ -867,6 +877,7 @@ function TryItStrip({ config }: { config: Cfg }) {
   };
   const rail = result?.rail || null;
   const exec = result?.classification?.execution;
+  const gates = result?.gates || null;
   return (
     <section className="surface">
       <h2 className="surface-h">Try it</h2>
@@ -880,10 +891,18 @@ function TryItStrip({ config }: { config: Cfg }) {
             if (e.key === "Enter") run();
           }}
         />
-        <select value={workKind} onChange={(e) => setWorkKind(e.target.value)}>
+        <select value={workKind} onChange={(e) => setWorkKind(e.target.value)} aria-label="work kind">
           {kinds.map((k) => (
             <option key={k} value={k}>
               {k}
+            </option>
+          ))}
+        </select>
+        <select value={project} onChange={(e) => setProject(e.target.value)} aria-label="project">
+          <option value="">(no project)</option>
+          {projectNames.map((p) => (
+            <option key={p} value={p}>
+              {p}
             </option>
           ))}
         </select>
@@ -901,8 +920,27 @@ function TryItStrip({ config }: { config: Cfg }) {
             <span className="pill">kind: {result.workKind || "?"}</span>
             <span className="pill">tier: {result.classification?.tier || "?"}</span>
             <span className="pill">type: {result.classification?.taskType || "?"}</span>
+            {result.project ? <span className="pill">project: {result.project}</span> : null}
             {exec ? <span className={`pill exec ${exec}`}>{exec}</span> : null}
           </div>
+          {gates ? (
+            <div className="tryit-gates">
+              <div className={`gate-row${gates.securityReview?.included ? " on" : " off"}`}>
+                <span className="gate-name">security-review</span>
+                <span className={`gate-flag${gates.securityReview?.included ? " on" : " off"}`}>
+                  {gates.securityReview?.included ? "included" : "not included"}
+                </span>
+                <span className="gate-why">{gates.securityReview?.reason}</span>
+              </div>
+              <div className={`gate-row${gates.uxQa?.included ? " on" : " off"}`}>
+                <span className="gate-name">ux-qa</span>
+                <span className={`gate-flag${gates.uxQa?.included ? " on" : " off"}`}>
+                  {gates.uxQa?.included ? "included" : "not included"}
+                </span>
+                <span className="gate-why">{gates.uxQa?.reason}</span>
+              </div>
+            </div>
+          ) : null}
           {rail ? (
             <div className="tryit-rail">
               {rail.phases.map((ph: RailPhase & { target?: AnyTarget }) => {
@@ -1050,6 +1088,240 @@ function GhostEdits({ onApplied }: { onApplied: () => void }) {
   );
 }
 
+// ── 5. COORDINATION (GARRISON-FLOW-V2 S6, D3/D6) ──────────────────────────────
+// Same-branch multi-run coordination controls. Editing ANY control writes the
+// `coordination` section into the config, which recompiles policy.json — the
+// engine treats a present section as "coordination on" (an absent section, e.g.
+// a legacy policy, never coordinates). fences + leaseTtlMinutes pass through
+// verbatim (not surfaced here); we only touch the four surfaced keys.
+function coordView(config: Cfg) {
+  const c = config.coordination || {};
+  return {
+    enabled: c.enabled !== false,
+    heavyFiles: c.thresholds?.heavyFiles ?? 3,
+    heavyRatio: c.thresholds?.heavyRatio ?? 0.5,
+    leases: Array.isArray(c.exclusiveLeases) ? c.exclusiveLeases : [],
+    serialize: c.serializeWhenUnavailable !== false
+  };
+}
+function ensureCoord(draft: Cfg) {
+  const c = (draft.coordination = draft.coordination || {});
+  c.thresholds = c.thresholds || {};
+  if (!Array.isArray(c.exclusiveLeases)) c.exclusiveLeases = [];
+  return c;
+}
+
+// A two-segment on/off toggle matching the profile/effort seg styling.
+function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label?: string }) {
+  return (
+    <span className="toggle" role="group" aria-label={label || "toggle"}>
+      <button type="button" className={`seg${on ? " on" : ""}`} onClick={() => onChange(true)}>
+        on
+      </button>
+      <button type="button" className={`seg${!on ? " on" : ""}`} onClick={() => onChange(false)}>
+        off
+      </button>
+    </span>
+  );
+}
+
+function CoordinationSurface({ config, commit }: { config: Cfg; commit: (p: Producer) => void }) {
+  const v = coordView(config);
+  const [newLease, setNewLease] = useState("");
+  const setEnabled = (on: boolean) => commit((d) => ((ensureCoord(d).enabled = on), d));
+  const setSerialize = (on: boolean) => commit((d) => ((ensureCoord(d).serializeWhenUnavailable = on), d));
+  const setHeavyFiles = (n: number) =>
+    commit((d) => ((ensureCoord(d).thresholds!.heavyFiles = Math.max(1, Math.round(n))), d));
+  const setHeavyRatio = (n: number) =>
+    commit((d) => ((ensureCoord(d).thresholds!.heavyRatio = Math.min(1, Math.max(0.01, n))), d));
+  const addLease = () => {
+    const t = newLease.trim();
+    if (!t) return;
+    commit((d) => {
+      const c = ensureCoord(d);
+      if (!c.exclusiveLeases!.includes(t)) c.exclusiveLeases!.push(t);
+      return d;
+    });
+    setNewLease("");
+  };
+  const removeLease = (p: string) =>
+    commit((d) => {
+      const c = ensureCoord(d);
+      c.exclusiveLeases = (c.exclusiveLeases || []).filter((x) => x !== p);
+      return d;
+    });
+
+  return (
+    <section className="surface">
+      <h2 className="surface-h">Coordination</h2>
+      <p className="surface-hint">
+        How concurrent autonomous runs on the same project + branch avoid stepping on each other. Overlap is scored from each
+        run&rsquo;s predicted touch-set; heavy overlap serializes, medium waits for the earlier run&rsquo;s stability point.
+      </p>
+      <div className="ctl-grid">
+        <div className="ctl-row">
+          <span className="ctl-label">Enabled</span>
+          <Toggle on={v.enabled} onChange={setEnabled} label="coordination enabled" />
+          <span className="ctl-note">off = runs never coordinate (each proceeds independently)</span>
+        </div>
+        <div className="ctl-row">
+          <span className="ctl-label">Heavy: shared files</span>
+          <input
+            className="ctl-num"
+            type="number"
+            min={1}
+            step={1}
+            value={v.heavyFiles}
+            onChange={(e) => e.target.value !== "" && setHeavyFiles(Number(e.target.value))}
+          />
+          <span className="ctl-note">this many shared exact files (or more) grades the overlap heavy → serialize</span>
+        </div>
+        <div className="ctl-row">
+          <span className="ctl-label">Heavy: shared ratio</span>
+          <input
+            className="ctl-num"
+            type="number"
+            min={0.01}
+            max={1}
+            step={0.05}
+            value={v.heavyRatio}
+            onChange={(e) => e.target.value !== "" && setHeavyRatio(Number(e.target.value))}
+          />
+          <span className="ctl-note">shared files ÷ smaller touch-set at or above this also grades heavy</span>
+        </div>
+        <div className="ctl-row">
+          <span className="ctl-label">Serialize when unavailable</span>
+          <Toggle on={v.serialize} onChange={setSerialize} label="serialize when unavailable" />
+          <span className="ctl-note">if the coordination substrate is down, allow only one live card per project</span>
+        </div>
+      </div>
+      <div className="lease-block">
+        <div className="ctl-label">Exclusive-lease paths</div>
+        <p className="ctl-note">
+          A run touching any of these takes an exclusive lease first, so two runs never rewrite it at once (lockfiles are the
+          classic case). Repo-relative paths.
+        </p>
+        <div className="lease-list">
+          {v.leases.length ? (
+            v.leases.map((p) => (
+              <span key={p} className="lease-item">
+                <span className="lease-path">{p}</span>
+                <button type="button" className="lease-x" aria-label={`remove ${p}`} onClick={() => removeLease(p)}>
+                  <IconClose />
+                </button>
+              </span>
+            ))
+          ) : (
+            <span className="muted">none</span>
+          )}
+        </div>
+        <div className="lease-add">
+          <input
+            placeholder="add a path, e.g. package-lock.json"
+            value={newLease}
+            onChange={(e) => setNewLease(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addLease();
+            }}
+          />
+          <button type="button" onClick={addLease} disabled={!newLease.trim()}>
+            Add path
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── 6. SECURITY (per-project, GARRISON-FLOW-V2 S6, D13) ───────────────────────
+// Per-project security_sensitive flag. When set, the opt-in security-review
+// phase runs for that project's work (the doorway/skill adds it) even though no
+// default plan carries it — the Try-it strip resolves this live.
+function SecuritySurface({ config, commit }: { config: Cfg; commit: (p: Producer) => void }) {
+  const projects = config.projects || {};
+  const names = Object.keys(projects).sort();
+  const [newProj, setNewProj] = useState("");
+  const setFlag = (name: string, on: boolean) =>
+    commit((d) => {
+      d.projects = d.projects || {};
+      const p = (d.projects[name] = d.projects[name] || {});
+      p.security_sensitive = on;
+      return d;
+    });
+  const addProject = () => {
+    const t = newProj.trim();
+    if (!t) return;
+    commit((d) => {
+      d.projects = d.projects || {};
+      if (!d.projects[t]) d.projects[t] = { security_sensitive: false };
+      return d;
+    });
+    setNewProj("");
+  };
+
+  return (
+    <section className="surface">
+      <h2 className="surface-h">Security-sensitive projects</h2>
+      <p className="surface-hint">
+        Mark a project security-sensitive to add the opt-in security-review phase to its runs (boundary rubric + cross-model
+        checks). No default work kind includes security-review otherwise.
+      </p>
+      <div className="proj-list">
+        {names.length ? (
+          names.map((name) => (
+            <div key={name} className="proj-row">
+              <span className="proj-name">{name}</span>
+              <Toggle on={!!projects[name]?.security_sensitive} onChange={(on) => setFlag(name, on)} label={`${name} security-sensitive`} />
+            </div>
+          ))
+        ) : (
+          <div className="muted">no projects configured yet</div>
+        )}
+      </div>
+      <div className="lease-add">
+        <input
+          placeholder="add a project label, e.g. my-app"
+          value={newProj}
+          onChange={(e) => setNewProj(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") addProject();
+          }}
+        />
+        <button type="button" onClick={addProject} disabled={!newProj.trim()}>
+          Add project
+        </button>
+      </div>
+    </section>
+  );
+}
+
+// ── 7. UX-QA threshold (GARRISON-FLOW-V2 S6, D14) ─────────────────────────────
+function QaSurface({ config, commit }: { config: Cfg; commit: (p: Producer) => void }) {
+  const sev = config.uxQa?.severityThreshold || "major";
+  const setSev = (v: string) =>
+    commit((d) => {
+      d.uxQa = d.uxQa || {};
+      d.uxQa.severityThreshold = v as NonNullable<Cfg["uxQa"]>["severityThreshold"];
+      return d;
+    });
+  return (
+    <section className="surface">
+      <h2 className="surface-h">UX-QA threshold</h2>
+      <p className="surface-hint">
+        The ux-qa phase records findings by severity. At or above this level a finding loops the slice back to implement; below,
+        it is recorded as a note.
+      </p>
+      <div className="sev-dial" role="group" aria-label="ux-qa severity threshold">
+        {SEVERITIES.map((s) => (
+          <button key={s} type="button" className={`seg${sev === s ? " on" : ""}`} onClick={() => setSev(s)}>
+            {s}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ── header / status ───────────────────────────────────────────────────────────
 function StatusPill({ state }: { state: SaveState }) {
   if (state === "saving") return <span className="status saving">saving…</span>;
@@ -1177,6 +1449,9 @@ function App() {
           <TargetsTray config={config} commit={commit} />
           <MatrixBoard config={config} commit={commit} />
           <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />
+          <CoordinationSurface config={config} commit={commit} />
+          <SecuritySurface config={config} commit={commit} />
+          <QaSurface config={config} commit={commit} />
           <TryItStrip config={config} />
           <RecentDecisions />
         </main>

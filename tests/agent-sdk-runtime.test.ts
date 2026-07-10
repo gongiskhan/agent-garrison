@@ -31,9 +31,11 @@ describe("Runtime freedom — the Agent SDK reaches Anthropic + third-party endp
     const { env, baseUrl, vaultKey } = buildSdkEnv({ provider: "anthropic", model: "claude-haiku-4-5" }, { secrets: null });
     expect(baseUrl).toBe(null); // SDK default Anthropic endpoint
     expect(vaultKey).toBe(null); // Max OAuth, not a Vault key
-    // No base-URL override and no forced empty key — the SDK uses stored OAuth creds.
+    // No base-URL override; the key is forced EMPTY (an empty string is falsy
+    // to the CLI's key check, so stored OAuth creds win) — masking any stray
+    // ANTHROPIC_API_KEY in the inherited process env that would bill the API pool.
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
-    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe("");
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
@@ -43,7 +45,7 @@ describe("Runtime freedom — the Agent SDK reaches Anthropic + third-party endp
       { baseEnv: { ANTHROPIC_BASE_URL: "https://leak.example", ANTHROPIC_API_KEY: "leak", ANTHROPIC_AUTH_TOKEN: "leak" } }
     );
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
-    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe(""); // masked, not merely deleted (process env underneath)
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 

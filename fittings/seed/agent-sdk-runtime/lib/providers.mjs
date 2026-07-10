@@ -147,7 +147,11 @@ export function buildSdkEnv(target = {}, opts = {}) {
 
   // Anthropic on the Max subscription: no base URL override, no key — the SDK
   // falls back to the stored OAuth credentials (D29), billed to the plan.
+  // Force the key EMPTY (not merely deleted): the delete above only cleans
+  // opts.baseEnv, and the SDK inherits the PROCESS env underneath — a stray
+  // ANTHROPIC_API_KEY there would silently bill the API pool instead.
   if (spec.anthropic) {
+    env.ANTHROPIC_API_KEY = "";
     return { env, baseUrl: null, vaultKey: null };
   }
 

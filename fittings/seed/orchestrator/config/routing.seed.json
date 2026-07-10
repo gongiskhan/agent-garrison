@@ -237,5 +237,13 @@
   },
   "uxQa": {
     "severityThreshold": "major"
+  },
+  "coordination": {
+    "enabled": true,
+    "thresholds": { "heavyFiles": 3, "heavyRatio": 0.5 },
+    "exclusiveLeases": ["apm.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
+    "fences": { "enabled": true, "trailer": "Garrison-Card" },
+    "leaseTtlMinutes": 60,
+    "serializeWhenUnavailable": true
   }
 }

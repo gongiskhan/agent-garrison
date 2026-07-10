@@ -28817,6 +28817,7 @@ var railFor2 = railFor;
 var EFFORTS = ["low", "medium", "high", "xhigh"];
 var EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 var RUNTIME_OPTIONS = ["claude-code", "ollama", "agent-sdk", "codex", "gemini"];
+var SEVERITIES = ["blocker", "major", "minor", "note"];
 function runtimeLabel(t) {
   if (!t) return "unset";
   if (t.type === "workflow") return "workflow";
@@ -29401,8 +29402,10 @@ function Inspector({
 }
 function TryItStrip({ config }) {
   const kinds = Object.keys(config.workKinds || {});
+  const projectNames = Object.keys(config.projects || {}).sort();
   const [prompt, setPrompt] = (0, import_react5.useState)("");
   const [workKind, setWorkKind] = (0, import_react5.useState)(config.defaultWorkKind || kinds[0] || "");
+  const [project, setProject] = (0, import_react5.useState)("");
   const [result, setResult] = (0, import_react5.useState)(null);
   const [busy, setBusy] = (0, import_react5.useState)(false);
   const run = async () => {
@@ -29412,7 +29415,7 @@ function TryItStrip({ config }) {
       const r = await fetch("/simulate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tryIt: true, prompt, workKind })
+        body: JSON.stringify({ tryIt: true, prompt, workKind, project: project || null })
       });
       setResult(await r.json());
     } catch (err) {
@@ -29423,6 +29426,7 @@ function TryItStrip({ config }) {
   };
   const rail = result?.rail || null;
   const exec = result?.classification?.execution;
+  const gates = result?.gates || null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "surface", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "surface-h", children: "Try it" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tryit-row", children: [
@@ -29438,7 +29442,11 @@ function TryItStrip({ config }) {
           }
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: workKind, onChange: (e) => setWorkKind(e.target.value), children: kinds.map((k) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: k, children: k }, k)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: workKind, onChange: (e) => setWorkKind(e.target.value), "aria-label": "work kind", children: kinds.map((k) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: k, children: k }, k)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { value: project, onChange: (e) => setProject(e.target.value), "aria-label": "project", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: "(no project)" }),
+        projectNames.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p, children: p }, p))
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "primary", onClick: run, disabled: busy, children: busy ? "..." : "Dry run" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "tryit-note", children: "Deterministic dry-run: a heuristic classifier resolves the rail here. The real live classifier runs at the gateway." }),
@@ -29457,8 +29465,24 @@ function TryItStrip({ config }) {
           "type: ",
           result.classification?.taskType || "?"
         ] }),
+        result.project ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "pill", children: [
+          "project: ",
+          result.project
+        ] }) : null,
         exec ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pill exec ${exec}`, children: exec }) : null
       ] }),
+      gates ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tryit-gates", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `gate-row${gates.securityReview?.included ? " on" : " off"}`, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "gate-name", children: "security-review" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `gate-flag${gates.securityReview?.included ? " on" : " off"}`, children: gates.securityReview?.included ? "included" : "not included" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "gate-why", children: gates.securityReview?.reason })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `gate-row${gates.uxQa?.included ? " on" : " off"}`, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "gate-name", children: "ux-qa" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `gate-flag${gates.uxQa?.included ? " on" : " off"}`, children: gates.uxQa?.included ? "included" : "not included" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "gate-why", children: gates.uxQa?.reason })
+        ] })
+      ] }) : null,
       rail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "tryit-rail", children: rail.phases.map((ph) => {
         const t = ph.target || null;
         const g = glyphFor(t);
@@ -29570,6 +29594,176 @@ function GhostEdits({ onApplied }) {
     ] }, p.id))
   ] });
 }
+function coordView(config) {
+  const c = config.coordination || {};
+  return {
+    enabled: c.enabled !== false,
+    heavyFiles: c.thresholds?.heavyFiles ?? 3,
+    heavyRatio: c.thresholds?.heavyRatio ?? 0.5,
+    leases: Array.isArray(c.exclusiveLeases) ? c.exclusiveLeases : [],
+    serialize: c.serializeWhenUnavailable !== false
+  };
+}
+function ensureCoord(draft) {
+  const c = draft.coordination = draft.coordination || {};
+  c.thresholds = c.thresholds || {};
+  if (!Array.isArray(c.exclusiveLeases)) c.exclusiveLeases = [];
+  return c;
+}
+function Toggle({ on, onChange, label }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "toggle", role: "group", "aria-label": label || "toggle", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: `seg${on ? " on" : ""}`, onClick: () => onChange(true), children: "on" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: `seg${!on ? " on" : ""}`, onClick: () => onChange(false), children: "off" })
+  ] });
+}
+function CoordinationSurface({ config, commit }) {
+  const v = coordView(config);
+  const [newLease, setNewLease] = (0, import_react5.useState)("");
+  const setEnabled = (on) => commit((d) => (ensureCoord(d).enabled = on, d));
+  const setSerialize = (on) => commit((d) => (ensureCoord(d).serializeWhenUnavailable = on, d));
+  const setHeavyFiles = (n) => commit((d) => (ensureCoord(d).thresholds.heavyFiles = Math.max(1, Math.round(n)), d));
+  const setHeavyRatio = (n) => commit((d) => (ensureCoord(d).thresholds.heavyRatio = Math.min(1, Math.max(0.01, n)), d));
+  const addLease = () => {
+    const t = newLease.trim();
+    if (!t) return;
+    commit((d) => {
+      const c = ensureCoord(d);
+      if (!c.exclusiveLeases.includes(t)) c.exclusiveLeases.push(t);
+      return d;
+    });
+    setNewLease("");
+  };
+  const removeLease = (p) => commit((d) => {
+    const c = ensureCoord(d);
+    c.exclusiveLeases = (c.exclusiveLeases || []).filter((x) => x !== p);
+    return d;
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "surface", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "surface-h", children: "Coordination" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "surface-hint", children: "How concurrent autonomous runs on the same project + branch avoid stepping on each other. Overlap is scored from each run\u2019s predicted touch-set; heavy overlap serializes, medium waits for the earlier run\u2019s stability point." }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ctl-grid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ctl-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-label", children: "Enabled" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Toggle, { on: v.enabled, onChange: setEnabled, label: "coordination enabled" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-note", children: "off = runs never coordinate (each proceeds independently)" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ctl-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-label", children: "Heavy: shared files" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "input",
+          {
+            className: "ctl-num",
+            type: "number",
+            min: 1,
+            step: 1,
+            value: v.heavyFiles,
+            onChange: (e) => e.target.value !== "" && setHeavyFiles(Number(e.target.value))
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-note", children: "this many shared exact files (or more) grades the overlap heavy \u2192 serialize" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ctl-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-label", children: "Heavy: shared ratio" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "input",
+          {
+            className: "ctl-num",
+            type: "number",
+            min: 0.01,
+            max: 1,
+            step: 0.05,
+            value: v.heavyRatio,
+            onChange: (e) => e.target.value !== "" && setHeavyRatio(Number(e.target.value))
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-note", children: "shared files \xF7 smaller touch-set at or above this also grades heavy" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ctl-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-label", children: "Serialize when unavailable" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Toggle, { on: v.serialize, onChange: setSerialize, label: "serialize when unavailable" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ctl-note", children: "if the coordination substrate is down, allow only one live card per project" })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "lease-block", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "ctl-label", children: "Exclusive-lease paths" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "ctl-note", children: "A run touching any of these takes an exclusive lease first, so two runs never rewrite it at once (lockfiles are the classic case). Repo-relative paths." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "lease-list", children: v.leases.length ? v.leases.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "lease-item", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "lease-path", children: p }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "lease-x", "aria-label": `remove ${p}`, onClick: () => removeLease(p), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IconClose, {}) })
+      ] }, p)) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "muted", children: "none" }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "lease-add", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "input",
+          {
+            placeholder: "add a path, e.g. package-lock.json",
+            value: newLease,
+            onChange: (e) => setNewLease(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === "Enter") addLease();
+            }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", onClick: addLease, disabled: !newLease.trim(), children: "Add path" })
+      ] })
+    ] })
+  ] });
+}
+function SecuritySurface({ config, commit }) {
+  const projects = config.projects || {};
+  const names = Object.keys(projects).sort();
+  const [newProj, setNewProj] = (0, import_react5.useState)("");
+  const setFlag = (name, on) => commit((d) => {
+    d.projects = d.projects || {};
+    const p = d.projects[name] = d.projects[name] || {};
+    p.security_sensitive = on;
+    return d;
+  });
+  const addProject = () => {
+    const t = newProj.trim();
+    if (!t) return;
+    commit((d) => {
+      d.projects = d.projects || {};
+      if (!d.projects[t]) d.projects[t] = { security_sensitive: false };
+      return d;
+    });
+    setNewProj("");
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "surface", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "surface-h", children: "Security-sensitive projects" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "surface-hint", children: "Mark a project security-sensitive to add the opt-in security-review phase to its runs (boundary rubric + cross-model checks). No default work kind includes security-review otherwise." }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "proj-list", children: names.length ? names.map((name) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "proj-row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "proj-name", children: name }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Toggle, { on: !!projects[name]?.security_sensitive, onChange: (on) => setFlag(name, on), label: `${name} security-sensitive` })
+    ] }, name)) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "muted", children: "no projects configured yet" }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "lease-add", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "input",
+        {
+          placeholder: "add a project label, e.g. my-app",
+          value: newProj,
+          onChange: (e) => setNewProj(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Enter") addProject();
+          }
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", onClick: addProject, disabled: !newProj.trim(), children: "Add project" })
+    ] })
+  ] });
+}
+function QaSurface({ config, commit }) {
+  const sev = config.uxQa?.severityThreshold || "major";
+  const setSev = (v) => commit((d) => {
+    d.uxQa = d.uxQa || {};
+    d.uxQa.severityThreshold = v;
+    return d;
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "surface", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "surface-h", children: "UX-QA threshold" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "surface-hint", children: "The ux-qa phase records findings by severity. At or above this level a finding loops the slice back to implement; below, it is recorded as a note." }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sev-dial", role: "group", "aria-label": "ux-qa severity threshold", children: SEVERITIES.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: `seg${sev === s ? " on" : ""}`, onClick: () => setSev(s), children: s }, s)) })
+  ] });
+}
 function StatusPill({ state }) {
   if (state === "saving") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "status saving", children: "saving\u2026" });
   if (state === "saved") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "status saved", children: "saved" });
@@ -29669,6 +29863,9 @@ function App() {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetsTray, { config, commit }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MatrixBoard, { config, commit }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RailsSurface, { config, commit, onInspect: (kind, phase) => setInspector({ kind, phase }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CoordinationSurface, { config, commit }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SecuritySurface, { config, commit }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QaSurface, { config, commit }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TryItStrip, { config }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RecentDecisions, {})
       ] }),

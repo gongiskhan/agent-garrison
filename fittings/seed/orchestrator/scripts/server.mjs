@@ -249,6 +249,49 @@ function heuristicClassify(prompt) {
   return { taskType, tier, matchedException: null };
 }
 
+// Try-it strip gate reasoning (S6 D15/D13): for a dry-run request, resolve
+// whether the security-review and ux-qa phases WOULD run for this work kind +
+// project, and WHY. Pure — reads the passed config + base rail, no I/O.
+//
+// security-review is in NO default plan (S4 made it opt-in): it runs when the
+// selected work kind's plan explicitly carries it, OR the chosen project is
+// marked security_sensitive (the doorway/skill adds the phase then; the
+// classifier never picks it on its own). ux-qa runs iff the plan includes it
+// (S5), and its findings loop back at or above uxQa.severityThreshold.
+function tryItGates(config, baseRail, workKind, projectLabel) {
+  const phaseOn = (id) => {
+    const p = (baseRail?.phases || []).find((x) => x.id === id);
+    return !!(p && p.on);
+  };
+  const kindLabel = workKind || config.defaultWorkKind || "the selected work kind";
+
+  const byPlanSec = phaseOn("security-review");
+  const project = projectLabel && config.projects ? config.projects[projectLabel] : null;
+  const byProjectSec = !!(project && project.security_sensitive);
+  let secReason;
+  if (byPlanSec) secReason = `the ${kindLabel} plan explicitly includes a security-review phase`;
+  else if (byProjectSec) secReason = `project "${projectLabel}" is marked security-sensitive, so the security-review phase is added`;
+  else if (projectLabel) secReason = `project "${projectLabel}" is not security-sensitive and the ${kindLabel} plan omits security-review`;
+  else secReason = `no project selected and the ${kindLabel} plan omits security-review (the classifier never adds it on its own)`;
+
+  const byPlanUx = phaseOn("ux-qa");
+  const severityThreshold = (config.uxQa && config.uxQa.severityThreshold) || "major";
+  const uxReason = byPlanUx
+    ? `the ${kindLabel} plan includes ux-qa — findings at or above "${severityThreshold}" loop the slice back; below are recorded as notes`
+    : `the ${kindLabel} plan omits ux-qa`;
+
+  return {
+    securityReview: {
+      included: byPlanSec || byProjectSec,
+      byPlan: byPlanSec,
+      byProject: byProjectSec,
+      project: projectLabel || null,
+      reason: secReason
+    },
+    uxQa: { included: byPlanUx, severityThreshold, reason: uxReason }
+  };
+}
+
 async function handleSimulate(req, res) {
   const raw = await loadConfigRaw();
   const config = JSON.parse(raw);
@@ -275,9 +318,12 @@ async function handleSimulate(req, res) {
     const execution = classifyExecution({ message: String(body.prompt || ""), classification });
     const route = resolveRoute(config, profile, classification);
     const workKind = body.workKind || config.defaultWorkKind || null;
+    const project = typeof body.project === "string" && body.project ? body.project : null;
     let rail;
+    let gates = null;
     try {
       const base = railFor(config, workKind);
+      gates = tryItGates(config, base, workKind, project);
       rail = {
         ...base,
         phases: base.phases.map((ph) => {
@@ -293,7 +339,7 @@ async function handleSimulate(req, res) {
     } catch (err) {
       rail = { error: String(err?.message || err) };
     }
-    return json(res, 200, { classification: { ...classification, execution }, route, profile, workKind, rail, dryRun: true });
+    return json(res, 200, { classification: { ...classification, execution }, route, profile, workKind, project, rail, gates, dryRun: true });
   }
 
   let classification;
@@ -374,8 +420,15 @@ async function handleGhostEdits(res) {
     const r = await fetch(`${baseUrl}/api/queue`, { signal: withTimeout(4000) });
     if (!r.ok) return json(res, 200, { available: false, proposals: [], error: `improver ${r.status}` });
     const q = await r.json();
+    // Both improver rules that target the routing policy render as composer ghost
+    // edits: `orchestrator-policy` (effort/phase/binding edits, D38) and
+    // `coordination` (interference-watch → threshold/lease/prediction edits, S6
+    // D17). Both carry applyVia "PUT /routing", so a click routes through the
+    // Improver's apply → our PUT. Filter by rule (present on thin AND full queue
+    // rows) rather than applyVia (absent on the nightly's thin index rows).
+    const POLICY_GHOST_RULES = new Set(["orchestrator-policy", "coordination"]);
     const proposals = (q.queue || [])
-      .filter((p) => p && p.rule === "orchestrator-policy")
+      .filter((p) => p && POLICY_GHOST_RULES.has(p.rule))
       .map((p) => ({ id: p.id, rule: p.rule, claim: p.claim, diff: p.diff, decision: p.decision, status: p.status, at: p.at }));
     return json(res, 200, { available: true, improverUrl: baseUrl, proposals });
   } catch (err) {

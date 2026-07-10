@@ -333,6 +333,34 @@ export function validatePolicyConfig(config) {
       if (!phases.includes(ph)) errors.push(`phaseSkills override ${kind}: unknown phase ${ph}`);
     }
   }
+  // Coordination section (GARRISON-FLOW-V2 S6): optional, but when present its
+  // types must hold — the compiled policy is what the kanban engine reads, so a
+  // mistyped threshold or a non-string lease path would break coordination
+  // silently. Reject on the PUT instead (the composer reverts + shows why).
+  const coord = config.coordination;
+  if (coord !== undefined) {
+    if (typeof coord !== "object" || coord === null || Array.isArray(coord)) {
+      errors.push("coordination must be an object");
+    } else {
+      if ("enabled" in coord && typeof coord.enabled !== "boolean") errors.push("coordination.enabled must be a boolean");
+      if ("serializeWhenUnavailable" in coord && typeof coord.serializeWhenUnavailable !== "boolean")
+        errors.push("coordination.serializeWhenUnavailable must be a boolean");
+      if (coord.thresholds !== undefined) {
+        const th = coord.thresholds;
+        if (typeof th !== "object" || th === null) errors.push("coordination.thresholds must be an object");
+        else {
+          if ("heavyFiles" in th && !(Number.isFinite(th.heavyFiles) && th.heavyFiles >= 1))
+            errors.push("coordination.thresholds.heavyFiles must be a number >= 1");
+          if ("heavyRatio" in th && !(Number.isFinite(th.heavyRatio) && th.heavyRatio > 0 && th.heavyRatio <= 1))
+            errors.push("coordination.thresholds.heavyRatio must be a number in (0, 1]");
+        }
+      }
+      if (coord.exclusiveLeases !== undefined) {
+        if (!Array.isArray(coord.exclusiveLeases) || coord.exclusiveLeases.some((p) => typeof p !== "string"))
+          errors.push("coordination.exclusiveLeases must be an array of strings");
+      }
+    }
+  }
   return errors;
 }
 
@@ -409,7 +437,14 @@ export function compilePolicy(config, profile) {
     defaultWorkKind: cfg.defaultWorkKind || null,
     phaseSkills: cfg.phaseSkills || { bindings: {}, overrides: {} },
     projects: cfg.projects || {},
-    uxQa: cfg.uxQa || { severityThreshold: "major" }
+    uxQa: cfg.uxQa || { severityThreshold: "major" },
+    // Coordination (GARRISON-FLOW-V2 S6): carried through ONLY when the config
+    // declares it, so the kanban engine's `Boolean(policy.coordination)` gate
+    // stays OFF for a policy that predates the composer (a stripped/legacy
+    // config never coordinates), and turns ON the moment the composer seeds the
+    // section. The composer surfaces enabled / thresholds / exclusiveLeases /
+    // serializeWhenUnavailable; fences + leaseTtlMinutes pass through verbatim.
+    ...(cfg.coordination && typeof cfg.coordination === "object" ? { coordination: cfg.coordination } : {})
   };
 }
 
