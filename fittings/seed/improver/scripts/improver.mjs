@@ -37,6 +37,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { runImprover, upsertQueue } from "../lib/improver-core.mjs";
+import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
 import { runDreamPhase, chooseDreamRunTurn } from "../lib/memory-dream.mjs";
 import { scanSkillTelemetry, telemetryToJSON } from "../lib/skill-telemetry.mjs";
 import { loadProvenance } from "../lib/provenance.mjs";
@@ -327,6 +328,20 @@ async function runSkills() {
   for (const p of memRun.proposals) {
     writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
     queue = upsertQueue(queue, p);
+  }
+  // ── orchestrator-policy rule (GARRISON-UNIFY-V1 S15, D38) ──
+  // Reads the friction log + run outcomes and proposes policy edits (work
+  // kinds, phase plans, matrix cells, skill bindings) into the SAME queue —
+  // rendered as ghost edits in the composer, never auto-applied.
+  try {
+    const policyRule = runOrchestratorPolicyRule({ now });
+    for (const p of policyRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(`ORCHESTRATOR-POLICY — proposals=${policyRule.proposals.length} (runs=${policyRule.inputs.runs}, frictionLines=${policyRule.inputs.frictionLines})`);
+  } catch (err) {
+    console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
   }
   writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2), "utf8");
   writeFileSync(REPORT_FILE, JSON.stringify({ ...memRun.report, dream: dream.housekeeping }, null, 2), "utf8");
