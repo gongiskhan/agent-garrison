@@ -22,39 +22,91 @@
    "slice": "S1",
    "title": "Policy core",
    "kind": "api",
-   "status": "passed"
+   "status": "passed",
+   "artifacts": [
+    {
+     "file": "slices/S1/evidence.cast",
+     "videoBytes": 1412,
+     "videoSha256": "46771a54d0766fa619ceb60676d1b42d10453f076544798a466840aeab391ca5"
+    }
+   ]
   },
   {
    "slice": "S8",
    "title": "Config home",
    "kind": "api",
-   "status": "passed"
+   "status": "passed",
+   "artifacts": [
+    {
+     "file": "slices/S8/config-drift-demo.cast",
+     "videoBytes": 452,
+     "videoSha256": "50e7d610d5d4bd2911c6761c28c2c3075efc166a7df9ccbf54fba582c6ca7e57"
+    },
+    {
+     "file": "slices/S8/config-status.cast",
+     "videoBytes": 415,
+     "videoSha256": "6577e17f44bd03acf4d873ab9a600c844057f796fe2c2f1bddf34727bc20fa6c"
+    },
+    {
+     "file": "slices/S8/evidence.cast",
+     "videoBytes": 1257,
+     "videoSha256": "7f18c010257b04e4010e1ddaeeb318eb2a71575d08fc7493de78236db6e7bda4"
+    }
+   ]
   },
   {
    "slice": "S2",
    "title": "Brain merge",
    "kind": "api",
-   "status": "passed"
+   "status": "passed",
+   "artifacts": [
+    {
+     "file": "slices/S2/evidence.cast",
+     "videoBytes": 1310,
+     "videoSha256": "14b940ea40b0906a74b02d9e955a6abc227658c0138558e06df3e4c8c6529fe8"
+    }
+   ]
   },
   {
    "slice": "S4",
    "title": "Run engine",
    "kind": "mixed",
-   "status": "passed"
+   "status": "passed",
+   "artifacts": [
+    {
+     "file": "slices/S4/evidence.mp4",
+     "videoBytes": 1144598,
+     "videoSha256": "6fba7647c5692ae6edbd05d07a83b07122bc40437cd3bf5a35938886e360c75a"
+    }
+   ]
   },
   {
    "slice": "S5",
    "title": "Thin doorway",
    "kind": "api",
    "status": "in_progress",
-   "note": "implement+wall green; review pending"
+   "note": "implement+wall green; review pending",
+   "artifacts": [
+    {
+     "file": "slices/S5/evidence.cast",
+     "videoBytes": 2483,
+     "videoSha256": "1dfde6382e3ad95ae2aada041ef71085809618feb82b93334444a5144c1b0577"
+    }
+   ]
   },
   {
    "slice": "S6",
    "title": "Evidence home",
    "kind": "api",
    "status": "in_progress",
-   "note": "implement+wall green; review pending"
+   "note": "implement+wall green; review pending",
+   "artifacts": [
+    {
+     "file": "slices/S6/evidence.cast",
+     "videoBytes": 3898,
+     "videoSha256": "a6c58d7ba6ac67110e7f1d87927bc0b5cf5c7d7430f059773ab786de8b759d90"
+    }
+   ]
   },
   {
    "slice": "S7",
@@ -75,14 +127,28 @@
    "title": "Monitor vitals",
    "kind": "ui",
    "status": "in_progress",
-   "note": "implemented by imp-s10; lead gates pending"
+   "note": "implemented by imp-s10; lead gates pending",
+   "artifacts": [
+    {
+     "file": "slices/S10/evidence.mp4",
+     "videoBytes": 791233,
+     "videoSha256": "56883d4398bc6d7a8e0a160f853605e9d4e9babe96af4e4dcef2573b3cd169c4"
+    }
+   ]
   },
   {
    "slice": "S11",
    "title": "Ports fitting",
    "kind": "mixed",
    "status": "in_progress",
-   "note": "implemented by imp-s11; lead gates pending"
+   "note": "implemented by imp-s11; lead gates pending",
+   "artifacts": [
+    {
+     "file": "slices/S11/evidence.mp4",
+     "videoBytes": 1930511,
+     "videoSha256": "1156b1229011f398ade529a08a03206a5ca90ef6489585e8ab4c68d51ac6d7bf"
+    }
+   ]
   },
   {
    "slice": "S16",
@@ -99,7 +165,14 @@
    "note": "walls+commit+signal-demo cast done; review pending",
    "evidence": {
     "cast": "docs/autothing/runs/20260710-073032-ebe15853/slices/S13/evidence.cast"
-   }
+   },
+   "artifacts": [
+    {
+     "file": "slices/S13/evidence.cast",
+     "videoBytes": 1386,
+     "videoSha256": "b4cd64686c3cdf37c0c53539a25a74712e96111d6a75a8f9c8f1d5f5bff1fca6"
+    }
+   ]
   },
   {
    "slice": "S9",
@@ -110,7 +183,19 @@
    "title": "Snapshots",
    "kind": "mixed",
    "status": "in_progress",
-   "note": "walls+commit done; review + walkthrough pending"
+   "note": "walls+commit done; review + walkthrough pending",
+   "artifacts": [
+    {
+     "file": "slices/S12/evidence.cast",
+     "videoBytes": 1375,
+     "videoSha256": "016d5d3cbb8e90bb6027ce52d2a80964613d5a3ae67e7ac6d201ba8fb745c783"
+    },
+    {
+     "file": "slices/S12/restore-demo.cast",
+     "videoBytes": 4890,
+     "videoSha256": "cfb04ec55feb1d1d43b546578d265bb39e9cabcb24285499da21689168dec98a"
+    }
+   ]
   },
   {
    "slice": "S15",
