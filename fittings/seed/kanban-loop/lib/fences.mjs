@@ -39,7 +39,7 @@ function headSha(repoPath) {
 // moved is reported under both names — conservative for intersection).
 function commitFiles(repoPath, sha) {
   try {
-    return git(repoPath, ["show", "--name-only", "--no-renames", "--format=", sha])
+    return git(repoPath, ["show", "--name-only", "--no-renames", "--format=", "--end-of-options", sha])
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean);
@@ -69,13 +69,24 @@ function dirtyPaths(repoPath) {
   return paths;
 }
 
+// Collapse ALL whitespace (incl. newlines) so no interpolated field can inject a
+// second line — a project/title/id containing "\nGarrison-Card: <victim>" must not
+// forge a trailer that attribution/revert would read.
+function clean(s, max) {
+  const t = String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+  return max ? t.slice(0, max) : t;
+}
 function fenceMessage(card, phase) {
-  const title = String(card.title || "(untitled)").replace(/\s+/g, " ").trim().slice(0, 50);
+  const project = clean(card.project || "no-project");
+  const title = clean(card.title || "(untitled)", 50);
+  const cardId = clean(card.id || "");
+  const runId = clean(card.runId || "");
+  const ph = clean(phase);
   return (
-    `garrison(${card.project || "no-project"}): ${phase} fence — ${title}\n\n` +
-    `Garrison-Card: ${card.id}\n` +
-    `Garrison-Run: ${card.runId || ""}\n` +
-    `Garrison-Phase: ${phase}`
+    `garrison(${project}): ${ph} fence — ${title}\n\n` +
+    `Garrison-Card: ${cardId}\n` +
+    `Garrison-Run: ${runId}\n` +
+    `Garrison-Phase: ${ph}`
   );
 }
 
@@ -100,22 +111,24 @@ export function commitFence({ repoPath, card, phase, touchSet, otherClaims = [],
       try { return existsSync(path.join(repoPath, p)); } catch { return false; }
     });
 
-    let staged = false;
+    // Detection is SCOPED to this card's paths (`status --porcelain -- <paths>`),
+    // so a foreign file staged by a concurrent card on the shared branch never
+    // makes us think we have something to commit.
+    let hasChanges = false;
     if (present.length) {
-      git(repoPath, ["add", "--", ...present]);
-      // `git diff --cached --quiet` exits 1 when there ARE staged changes.
-      try {
-        git(repoPath, ["diff", "--cached", "--quiet"]);
-        staged = false;
-      } catch (e) {
-        if (e && e.status === 1) staged = true;
-        else throw e;
-      }
+      const st = git(repoPath, ["status", "--porcelain", "--", ...present]);
+      hasChanges = st.split("\n").some((l) => l.trim());
     }
 
     let record;
-    if (staged) {
-      git(repoPath, ["commit", "-m", fenceMessage(card, phase)]);
+    if (hasChanges) {
+      // Stage + commit ONLY this card's paths. `git commit --only -- <paths>`
+      // commits exactly those paths even when OTHER files are already staged in
+      // the index (another live card's `git add`), so a foreign staged file can
+      // never ride into THIS card's fence under THIS card's trailer — it stays
+      // staged, untouched.
+      git(repoPath, ["add", "--", ...present]);
+      git(repoPath, ["commit", "--only", "-m", fenceMessage(card, phase), "--", ...present]);
       const sha = headSha(repoPath);
       record = { phase, sha, at, empty: false };
       events.push({ at, kind: "fence", message: `Fenced ${phase}: committed touch-set (${sha ? sha.slice(0, 10) : "?"})` });
@@ -162,7 +175,7 @@ export function attributeBreakage({ repoPath, victimCard, victimTouchSet, liveCa
   let raw;
   try {
     // %H then NUL then body then RS between commits.
-    raw = git(repoPath, ["log", `${anchor}..HEAD`, "--format=%H%x00%B%x1e"]);
+    raw = git(repoPath, ["log", "--format=%H%x00%B%x1e", "--end-of-options", `${anchor}..HEAD`]);
   } catch {
     return empty;
   }
@@ -174,8 +187,11 @@ export function attributeBreakage({ repoPath, victimCard, victimTouchSet, liveCa
       const nul = block.indexOf("\x00");
       const sha = (nul === -1 ? block : block.slice(0, nul)).trim();
       const body = nul === -1 ? "" : block.slice(nul + 1);
-      const m = body.match(/^Garrison-Card:\s*(\S+)\s*$/m);
-      return { sha, cardId: m ? m[1] : null };
+      // Take the LAST Garrison-Card line, not the first — a spoofed trailer
+      // injected earlier in the body (via a hostile interpolated field) cannot
+      // win over the real trailer git appends at the end of the message.
+      const all = [...body.matchAll(/^Garrison-Card:[ \t]*(\S+)[ \t]*$/gm)];
+      return { sha, cardId: all.length ? all[all.length - 1][1] : null };
     })
     .filter((c) => c.sha);
 
@@ -234,7 +250,7 @@ export function prepareRevert({ repoPath, card, now = () => new Date().toISOStri
     // commits AFTER this one, by ANOTHER card, touching the same files
     let later = [];
     try {
-      later = git(repoPath, ["log", "--format=%H", `${sha}..HEAD`]).split("\n").map((s) => s.trim()).filter(Boolean);
+      later = git(repoPath, ["log", "--format=%H", "--end-of-options", `${sha}..HEAD`]).split("\n").map((s) => s.trim()).filter(Boolean);
     } catch {
       later = [];
     }
@@ -252,7 +268,12 @@ export function prepareRevert({ repoPath, card, now = () => new Date().toISOStri
     commits, // newest first (git log default)
     preparedAt,
     conflictRisk,
-    state: "prepared"
+    state: "prepared",
+    // Honesty (D8): the revert only covers COMMITTED fences. Abandoning does not
+    // stop a still-running live session (a stale advance is CAS-dropped) and
+    // uncommitted working-tree edits are NOT in these commits, so they are not
+    // covered by the prepared revert.
+    note: "Prepared from committed fences only; a running live session and uncommitted working-tree edits are not covered by this revert."
   };
 }
 
@@ -268,7 +289,7 @@ export function executeRevert({ repoPath, cardId, commits, now = () => new Date(
   const revertCommits = [];
   for (const sha of list) {
     try {
-      git(repoPath, ["revert", "--no-commit", sha]);
+      git(repoPath, ["revert", "--no-commit", "--end-of-options", sha]);
     } catch (err) {
       // conflict or bad sha — clean up so the tree is never left half-reverted
       try { git(repoPath, ["revert", "--abort"]); } catch { /* no sequencer */ }

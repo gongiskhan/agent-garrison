@@ -13,17 +13,15 @@ reverse.**
 ## What a bindable skill MUST do
 
 1. **Read the compiled policy first.** At the start of every invocation, read
-   `~/.garrison/orchestrator/policy.json`. If the file is missing or
-   unreadable, stop immediately with exactly:
-
-   > Garrison Orchestrator policy not found at
-   > ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not
-   > run standalone.
-
-   No env-var override, no embedded default, no fallback model choice. The
-   skill's own model/effort/runtime for the phase come from the policy matrix
-   cell `matrix[<phase>][<tier>]` — a skill never carries `model:` frontmatter
-   and never picks its own model.
+   `~/.garrison/orchestrator/policy.json`. When present, the policy is the
+   sole authority: the skill's model/effort/runtime for the phase come from
+   the policy matrix cell `matrix[<phase>][<tier>]` — a skill never carries
+   `model:` frontmatter and never picks its own model while a policy governs.
+   When the policy is missing or unreadable, a VERB skill proceeds standalone
+   with the caller-supplied context and conservative defaults — it never
+   stops (GARRISON-FLOW-V2 D12). Only the DOORWAY skill retains the hard
+   no-standalone gate ("Start Garrison; the doorway does not run standalone"),
+   because registering a card requires the board and engine to exist.
 
 2. **Consume the run context it is handed.** The engine (or doorway) invokes
    the skill with: `runDir` (the run's evidence directory under

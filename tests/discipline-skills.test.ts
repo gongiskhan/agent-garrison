@@ -26,14 +26,14 @@ describe("discipline → verb-skill mapping (s4 / deliverable #1)", () => {
     // (policy phaseSkills.bindings, D3), not hardcoded names — swapping a binding
     // in the composer changes these lines with zero code changes.
     // T1-standard: self-review → the bound review skill, tests → the bound test
-    // skill. NO UI design audit at standard tier (deep UI review only).
+    // skill. NO UI UX-QA gate at standard tier (deep UI review only).
     expect(t1).toContain(SEED.phaseSkills.bindings.review);
     expect(t1).toContain(SEED.phaseSkills.bindings.test);
-    expect(t1).not.toContain(SEED.phaseSkills.bindings["design-audit"]);
-    // T2-deep: review-by → bound review (design-audit CONDITIONAL on UI),
+    expect(t1).not.toContain(SEED.phaseSkills.bindings["ux-qa"]);
+    // T2-deep: review-by → bound review (ux-qa CONDITIONAL on UI),
     // full-gates → bound test, video → bound walkthrough, link → bound validate.
     expect(t2).toContain(SEED.phaseSkills.bindings.review);
-    expect(t2).toContain(SEED.phaseSkills.bindings["design-audit"]);
+    expect(t2).toContain(SEED.phaseSkills.bindings["ux-qa"]);
     expect(t2).toContain("for UI changes"); // conditional, not a blanket second gate
     expect(t2).toContain(SEED.phaseSkills.bindings.test);
     expect(t2).toContain(SEED.phaseSkills.bindings.walkthrough);

@@ -55,7 +55,7 @@ const PASSING_GATES = (sliceId: string) => ({
     lint: { exit: 0 },
     build: { exit: 0 },
     e2e: { exit: 0 },
-    designAudit: { verdict: "clean" },
+    uxQa: { verdict: "clean", severityThreshold: "major", findings: [] },
     // 2026-07-07 decorrelation rename: the per-slice review is the fresh-context
     // adversarialReview; the independent test pass is adversarialTest.
     adversarialReview: { verdict: "approve" },
@@ -112,7 +112,7 @@ describe("autothing-validate validate.mjs", () => {
     expect(stdout).toContain("no gate-status.json");
   });
 
-  it("pure-CLI slice (kind=automation) tolerates n/a adversarialTest and no designAudit → Done", () => {
+  it("pure-CLI slice (kind=automation) tolerates n/a adversarialTest and no uxQa → Done", () => {
     const [runDir, sliceId] = makeRun("cli-slice", {
       slice: "cli-slice",
       kind: "automation",
@@ -130,6 +130,51 @@ describe("autothing-validate validate.mjs", () => {
     const [last] = runValidate(runDir, sliceId);
     expect(last).toBe("Done");
     expect(readMarker(runDir, sliceId).validated.status).toBe("Done");
+  });
+
+  it("UI slice with uxQa issues but only below-threshold notes → Done (clean-with-notes)", () => {
+    const gs = PASSING_GATES("uxqa-notes");
+    gs.gates.uxQa = {
+      verdict: "issues",
+      severityThreshold: "major",
+      findings: [{ id: "uxqa-1", severity: "minor" }, { id: "uxqa-2", severity: "note" }]
+    } as any;
+    const [runDir, sliceId] = makeRun("uxqa-notes", gs);
+    const [last, stdout] = runValidate(runDir, sliceId);
+    expect(last).toBe("Done");
+    expect(stdout).toContain("uxQa: ok — clean-with-notes");
+    expect(readMarker(runDir, sliceId).validated.status).toBe("Done");
+  });
+
+  it("UI slice with a uxQa finding at/above threshold → Implement (loops back)", () => {
+    const gs = PASSING_GATES("uxqa-blocking");
+    gs.gates.uxQa = {
+      verdict: "issues",
+      severityThreshold: "major",
+      findings: [{ id: "uxqa-1", severity: "major" }]
+    } as any;
+    const [runDir, sliceId] = makeRun("uxqa-blocking", gs);
+    const [last] = runValidate(runDir, sliceId);
+    expect(last).toBe("Implement");
+    expect(readMarker(runDir, sliceId).validated.failed.some((r: string) => r.startsWith("uxQa"))).toBe(true);
+  });
+
+  it("UI slice with uxQa skipped → Implement (a UI slice always has a UI to walk)", () => {
+    const gs = PASSING_GATES("uxqa-skipped");
+    gs.gates.uxQa = { verdict: "skipped", reason: "kind-conditional" } as any;
+    const [runDir, sliceId] = makeRun("uxqa-skipped", gs);
+    const [last] = runValidate(runDir, sliceId);
+    expect(last).toBe("Implement");
+    expect(readMarker(runDir, sliceId).validated.failed.some((r: string) => r.startsWith("uxQa"))).toBe(true);
+  });
+
+  it("UI slice missing the uxQa gate → Implement", () => {
+    const gs: any = PASSING_GATES("uxqa-missing");
+    delete gs.gates.uxQa;
+    const [runDir, sliceId] = makeRun("uxqa-missing", gs);
+    const [last] = runValidate(runDir, sliceId);
+    expect(last).toBe("Implement");
+    expect(readMarker(runDir, sliceId).validated.failed.some((r: string) => r.startsWith("uxQa"))).toBe(true);
   });
 
   it("UI slice with adversarialTest n/a → Implement (a UI slice always has an app; n/a is not acceptable)", () => {

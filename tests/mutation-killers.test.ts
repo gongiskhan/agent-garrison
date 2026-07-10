@@ -54,7 +54,7 @@ describe("isSignificantAutonomous boundaries", () => {
   it("every pipeline verb is significant", () => {
     for (const v of [
       "plan", "implement", "test", "review", "adversarial-review", "adversarial-test",
-      "design-audit", "walkthrough", "validate", "codex-checkpoint"
+      "ux-qa", "walkthrough", "validate", "codex-checkpoint"
     ]) {
       expect(isSignificantAutonomous({ taskType: v, tier: "T0-trivial" })).toBe(true);
     }

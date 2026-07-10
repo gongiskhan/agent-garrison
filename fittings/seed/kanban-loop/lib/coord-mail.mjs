@@ -100,26 +100,33 @@ const mailFile = (runDir, id) => path.join(runDir, "coordination", "mail", `${id
 export async function sendCoordMail({ root, fromCard, toCard, subject, body, repoPath = null, now = () => new Date().toISOString() }) {
   const at = typeof now === "function" ? now() : now;
   const id = ulid();
-  // Try agent-mail first (bounded), so the persisted record carries the true
-  // transport. The bound guarantees the file write is never blocked indefinitely.
-  const delivered = await tryAgentMail({ fromCard, toCard, subject, body });
-  const transport = delivered ? "agent-mail" : "file";
-  const record = { id, at, fromCardId: fromCard.id, toCardId: toCard.id, subject: subject || "", body: body || "", transport };
+  const targets = [fromCard.runDir, toCard.runDir].filter(Boolean);
 
-  for (const runDir of [fromCard.runDir, toCard.runDir]) {
-    if (!runDir) continue;
+  // 1. Write the durable evidence FIRST, with the fallback transport ("file").
+  // This is the D4 record and it must survive a crash MID agent-mail attempt, so
+  // it is persisted before that attempt, not after.
+  let record = { id, at, fromCardId: fromCard.id, toCardId: toCard.id, subject: subject || "", body: body || "", transport: "file" };
+  for (const runDir of targets) {
     try { await atomicWriteJSON(mailFile(runDir, id), record); } catch { /* evidence best-effort */ }
   }
 
-  // A mail event on both cards (best-effort CAS-retry — never clobbers a concurrent
-  // engine write).
+  // 2. Bounded best-effort agent-mail push; on success, upgrade the persisted
+  // records' transport honestly.
+  const delivered = await tryAgentMail({ fromCard, toCard, subject, body });
+  if (delivered) {
+    record = { ...record, transport: "agent-mail" };
+    for (const runDir of targets) {
+      try { await atomicWriteJSON(mailFile(runDir, id), record); } catch { /* best-effort upgrade */ }
+    }
+  }
+
+  // 3. A mail event on both cards (best-effort CAS-retry — never clobbers a
+  // concurrent engine write) + the outward ledger row.
   if (root) {
-    const evt = (dir) => ({ at, kind: "mail", message: `Mail ${dir} ${dir === "to" ? short(fromCard) : short(toCard)}: ${subject || "(no subject)"} [${transport}]`, detail: body || null });
+    const evt = (dir) => ({ at, kind: "mail", message: `Mail ${dir} ${dir === "to" ? short(fromCard) : short(toCard)}: ${subject || "(no subject)"} [${record.transport}]`, detail: body || null });
     await updateCardCAS(root, fromCard.id, (c) => ({ ...c, events: appendEvent(c, evt("to")) })).catch(() => {});
     await updateCardCAS(root, toCard.id, (c) => ({ ...c, events: appendEvent(c, evt("from")) })).catch(() => {});
   }
-
-  // Outward-facing ledger row (Q9 step 3) — best-effort.
   try { appendMailLedgerRow({ repoPath, fromCard, toCard, subject, body, now: at }); } catch { /* best-effort */ }
 
   return record;

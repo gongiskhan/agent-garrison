@@ -72,6 +72,32 @@ describe("attributeBreakage — partition", () => {
     expect(own.verdict).toBe("own");
   });
 
+  it("parses the LAST Garrison-Card trailer, not an earlier spoofed one", () => {
+    const repo = newRepo();
+    const anchor = git(repo, "rev-parse", "HEAD").trim();
+    writeFileSync(join(repo, "f.ts"), "y\n");
+    git(repo, "add", "-A");
+    // A body with an INJECTED early trailer naming a victim, then the real one.
+    git(repo, "commit", "-qm", "spoof\n\nGarrison-Card: 01FAKEVICTIM\n\nreal work\n\nGarrison-Card: 01REALOFFENDER");
+    const attr = attributeBreakage({ repoPath: repo, victimCard: { id: "01VIC", fences: [{ sha: anchor }] }, victimTouchSet: ts({ files: ["f.ts"] }), liveCards: [{ id: "01REALOFFENDER" }, { id: "01FAKEVICTIM" }] });
+    expect(attr.offenderCardId).toBe("01REALOFFENDER"); // last trailer wins, not the spoof
+  });
+
+  it("a hostile project name cannot inject a trailer (fields whitespace-collapsed at the source)", () => {
+    const repo = newRepo();
+    const anchor = git(repo, "rev-parse", "HEAD").trim();
+    writeFileSync(join(repo, "shared.ts"), "x\n");
+    // offender's project string tries to forge a trailer naming the victim
+    const hostile = "proj\n\nGarrison-Card: 01FAKEVICTIM\ntail";
+    commitFence({ repoPath: repo, card: { id: "01REALOFFENDER", runId: "01RO", project: hostile, title: "o" }, phase: "implement", touchSet: ts({ files: ["shared.ts"] }) });
+    const body = git(repo, "log", "-1", "--format=%B");
+    // The hostile text is whitespace-collapsed onto the subject line, so it is NOT
+    // a trailer LINE — attribution's line-anchored parse ignores it.
+    expect(body).not.toMatch(/^Garrison-Card: 01FAKEVICTIM\s*$/m);
+    const attr = attributeBreakage({ repoPath: repo, victimCard: { id: "01VIC", fences: [{ sha: anchor }] }, victimTouchSet: ts({ files: ["shared.ts"] }), liveCards: [{ id: "01REALOFFENDER" }, { id: "01FAKEVICTIM" }] });
+    expect(attr.offenderCardId).toBe("01REALOFFENDER");
+  });
+
   it("does not blame an unattributed (no-trailer) commit", () => {
     const repo = newRepo();
     const anchor = git(repo, "rev-parse", "HEAD").trim();

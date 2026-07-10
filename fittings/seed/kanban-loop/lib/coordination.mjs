@@ -460,11 +460,19 @@ export function acquireLeases({ repoPath, card, paths, ttlMinutes = DEFAULT_COOR
       continue;
     }
     if (!cur || leaseExpired(cur, nowMs)) {
+      // Take over an absent/expired lease by unlink-then-O_EXCL create, so two
+      // processes racing the same expired lease cannot both "take" it: whoever
+      // loses the exclusive create (EEXIST) treats it as held-by-other.
+      try { rmSync(file, { force: true }); } catch { /* already gone */ }
       try {
-        writeFileSync(file, record(p));
+        writeFileSync(file, record(p), { flag: "wx" });
         acquired.push(p);
         continue;
-      } catch { /* fall through to block */ }
+      } catch {
+        const winner = readLease(file);
+        rollbackLeases(repoPath, card.id, acquired);
+        return { ok: false, heldBy: winner?.cardId || null, path: normPath(p) };
+      }
     }
     // held by another live card — roll back and report
     rollbackLeases(repoPath, card.id, acquired);

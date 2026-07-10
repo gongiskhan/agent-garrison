@@ -137,7 +137,7 @@ describe("routing resolver (MR1c core — pure code)", () => {
         "adversarial-review",
         "test",
         "adversarial-test",
-        "design-audit",
+        "ux-qa",
         "walkthrough",
         "validate",
         "codex-checkpoint",

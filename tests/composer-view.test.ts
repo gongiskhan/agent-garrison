@@ -145,7 +145,7 @@ describe("composer view (S3) — server contract behind the composer", () => {
     const offChips = phases.filter((p: any) => p.on === false);
     expect(offChips.length).toBe(10);
     // an off chip still carries its bound skill and an off_reason, but no resolved target.
-    const off = offChips.find((p: any) => p.id === "design-audit");
+    const off = offChips.find((p: any) => p.id === "ux-qa");
     expect(off).toBeTruthy();
     expect(off.off_reason).toBe("phase-plan");
     expect(off.target).toBeUndefined();

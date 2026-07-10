@@ -54,6 +54,23 @@ describe("commitFence — scoped staging", () => {
     expect(out.events.some((e: any) => /unattributable/.test(e.message) && /foreign\.txt/.test(e.message))).toBe(true);
   });
 
+  it("commits ONLY this card's paths even when a FOREIGN file is already staged (index isolation)", () => {
+    // Reviewer repro: a concurrent card pre-staged secret.txt; our fence claims
+    // only mine.txt and must not sweep the pre-staged foreign file into HEAD.
+    const repo = newRepo();
+    writeFileSync(join(repo, "mine.txt"), "mine\n");
+    writeFileSync(join(repo, "secret.txt"), "foreign, pre-staged by another card\n");
+    git(repo, "add", "--", "secret.txt");
+    const card = { id: "01ISO", runId: "01RISO", project: "p", title: "iso" };
+    const out = commitFence({ repoPath: repo, card, phase: "implement", touchSet: ts({ files: ["mine.txt"] }), otherClaims: [] });
+    expect(out.record.empty).toBe(false);
+    const show = git(repo, "show", "--name-only", "--format=", "HEAD").trim().split("\n").filter(Boolean);
+    expect(show).toContain("mine.txt");
+    expect(show).not.toContain("secret.txt"); // foreign staged file did NOT ride in
+    // secret.txt is still staged (staged "A" state), untouched by the fence
+    expect(git(repo, "status", "--porcelain").split("\n").some((l) => /secret\.txt/.test(l) && /^A/.test(l))).toBe(true);
+  });
+
   it("does NOT flag a foreign dirty file when another live card's claims cover it", () => {
     const repo = newRepo();
     mkdirSync(join(repo, "src"), { recursive: true });
