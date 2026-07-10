@@ -11,12 +11,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OperativePtySession } from "../packages/claude-pty/src/index.mjs";
-import { buildClassifierPrompt, parseClassification, resolveRoute } from "../fittings/seed/model-router/lib/routing-core.mjs";
-import { decisionRecord, appendDecision, readDecisions, formatRouteToken, checkHonored } from "../fittings/seed/model-router/lib/routing-telemetry.mjs";
+import { buildClassifierPrompt, parseClassification, resolveRoute } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+import { decisionRecord, appendDecision, readDecisions, formatRouteToken, checkHonored } from "../fittings/seed/orchestrator/lib/routing-telemetry.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, "..");
-const config = JSON.parse(readFileSync(path.join(ROOT, "fittings/seed/model-router/config/routing.seed.json"), "utf8"));
+const config = JSON.parse(readFileSync(path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8"));
 const ASSEMBLED = path.join(ROOT, "compositions/router-v4/.garrison/assembled-system-prompt.md");
 
 const TASK = "fix the failing login unit test";

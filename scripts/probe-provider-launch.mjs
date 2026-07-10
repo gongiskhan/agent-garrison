@@ -13,7 +13,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { OperativePtySession, isBusy } from "../packages/claude-pty/src/index.mjs";
-import { buildLaunchEnv } from "../fittings/seed/model-router/lib/stage-b.mjs";
+import { buildLaunchEnv } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 
 const MODEL = process.argv[2] || "qwen3:0.6b";
 const HARD_MS = 150_000;
