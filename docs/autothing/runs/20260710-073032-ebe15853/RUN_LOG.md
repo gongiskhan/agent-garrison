@@ -64,3 +64,4 @@
 - 12:35 `GATE` walkthrough S7 (5/5 beats) delivered by wt-s7, plain-escape-hatch frame verified by run owner.
 - 12:30 `GATE` item 5 -> pass: ITEM5-RAIL-OK (docs-change implement-only, off-phases rendered with off_reason; card-toggle walkthrough off).
 - 12:31 `GATE` item 2 -> pass: ITEM2-BINDING-SWAP-OK (rebind review -> recompile -> skillForPhase + card rail show the swapped skill; contract doc verified).
+- 12:31 `GATE` walkthrough S12 (4/4 beats) delivered by wt-s12, frame verified (shell view, sandbox repo).

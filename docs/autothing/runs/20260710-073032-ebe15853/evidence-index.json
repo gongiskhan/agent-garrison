@@ -190,8 +190,13 @@
    "title": "Snapshots",
    "kind": "mixed",
    "status": "in_progress",
-   "note": "walls+commit done; review + walkthrough pending",
+   "note": "walls+commit+live E2E+walkthrough 4/4 done; review rev-s912 pending",
    "artifacts": [
+    {
+     "file": "slices/S12/evidence.mp4",
+     "videoBytes": 1687820,
+     "videoSha256": "66ed85665cabea175e9f7084817d664b1c9e5e4100d78212267f98909f414ae8"
+    },
     {
      "file": "slices/S12/evidence.cast",
      "videoBytes": 1375,
