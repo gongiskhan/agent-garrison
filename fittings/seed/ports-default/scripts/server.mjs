@@ -189,6 +189,37 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// Local-origin guard for STATE-CHANGING requests (kill, open-in-browser). The
+// server is unauthenticated and loopback-bound, so a page the user visits could
+// otherwise reach it two ways: a CORS-simple cross-site POST (which the browser
+// sends with an Origin header), or DNS-rebinding (which points a hostile domain
+// at 127.0.0.1, so the request's Host header is that domain). Reject both:
+//   - Host must resolve to loopback (blocks DNS-rebinding), and
+//   - Origin, if present, must be same-origin (blocks cross-site fetch).
+// Returns true when the request is blocked (and has already been answered 403).
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+export function crossSiteBlocked(req, res, opts) {
+  const hostHeader = String(req.headers["host"] || "");
+  const hostName = hostHeader.replace(/:\d+$/, "").toLowerCase();
+  if (hostName && !LOOPBACK_HOSTS.has(hostName)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback Host '${hostName}' (DNS-rebinding guard)` });
+    return true;
+  }
+  const origin = req.headers["origin"];
+  if (origin) {
+    let ok = false;
+    try {
+      const h = new URL(origin).hostname.toLowerCase();
+      ok = LOOPBACK_HOSTS.has(h);
+    } catch { ok = false; }
+    if (!ok) {
+      jsonRes(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" });
+      return true;
+    }
+  }
+  return false;
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     let data = "";
@@ -380,10 +411,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
       const openMatch = pathname.match(/^\/api\/ports\/(\d+)\/open-in-browser$/);
       if (openMatch && method === "POST") {
+        if (crossSiteBlocked(req, res, liveOpts)) return;
         return await handleOpenInBrowser(req, res, openMatch[1]);
       }
       const killMatch = pathname.match(/^\/api\/pids\/(\d+)\/kill$/);
       if (killMatch && method === "POST") {
+        if (crossSiteBlocked(req, res, liveOpts)) return;
         return await handleKill(req, res, killMatch[1], liveOpts);
       }
       return serveStatic(req, res, distDir);
