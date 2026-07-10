@@ -1,0 +1,66 @@
+[
+  {
+    "beat": "ac1",
+    "criterionId": "AC-1",
+    "timestamp": 2.234,
+    "caption": "AC-1 — lists map to a phase, no per-list config",
+    "assert": "Board renders phase-mapped columns: Plan/Implement show a \"phase: …\" subheader; manual lists show kind·trigger (no per-list skill/taskType/tier/mode)",
+    "result": "pass"
+  },
+  {
+    "beat": "ac1-lists",
+    "criterionId": "AC-1",
+    "timestamp": 9.333,
+    "caption": "AC-1 — the Plan list carries only a phase (no skill/taskType/tier/mode)",
+    "assert": "GET /lists Plan object carries \"phase\": \"plan\" and no skill/taskType/tier/mode fields (D15)",
+    "result": "pass"
+  },
+  {
+    "beat": "ac2-rail",
+    "criterionId": "AC-2",
+    "timestamp": 17.29,
+    "caption": "AC-2 — a work kind gives the card its rail (phase plan)",
+    "assert": "New-card sheet with the full-feature work kind renders its rail as phase chips PLAN…REPORT (phases from the work kind’s phase plan)",
+    "result": "pass"
+  },
+  {
+    "beat": "ac2-backlog",
+    "criterionId": "AC-2",
+    "timestamp": 23.312,
+    "caption": "AC-2 — the card lands in the entry list carrying its work kind",
+    "assert": "The created card lands in the Backlog (entry) list carrying its full-feature work-kind chip",
+    "result": "pass"
+  },
+  {
+    "beat": "ac3",
+    "criterionId": "AC-3",
+    "timestamp": 30.491,
+    "caption": "AC-3 — with the plan gate evidence, the card advanced Plan → Implement",
+    "assert": "With the plan-phase gate present, the card advanced Plan → Implement (activity line “Plan → Implement (in-session)”, engine-owned)",
+    "result": "pass"
+  },
+  {
+    "beat": "ac3-gate",
+    "criterionId": "AC-3",
+    "timestamp": 37.533,
+    "caption": "AC-3 — the durable plan-phase gate the engine required before advancing",
+    "assert": "The runDir gate-status.json carries the gates.plan entry — the durable evidence that permitted the advance (D9)",
+    "result": "pass"
+  },
+  {
+    "beat": "ac4",
+    "criterionId": "AC-4",
+    "timestamp": 40.854,
+    "caption": "AC-4 — advancing WITHOUT gate evidence parks the card needs-attention",
+    "assert": "Advancing WITHOUT gate evidence parked the card in Needs attention with reason “no durable gate evidence for the plan phase” (D9)",
+    "result": "pass"
+  },
+  {
+    "beat": "ac5-403",
+    "criterionId": "AC-5",
+    "timestamp": 48.7,
+    "caption": "AC-5 — a manual move into a locked autonomous list is rejected (HTTP 403)",
+    "assert": "Manual PATCH /cards/{id} move of a card on an autonomous list is rejected: HTTP 403 engine-owned (D16)",
+    "result": "pass"
+  }
+]
