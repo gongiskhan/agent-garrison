@@ -30,6 +30,18 @@
       "at": "2026-07-10T21:07:04Z",
       "gateStatus": "slices/S1/gate-status.json",
       "video": "http://100.88.165.46:8099/agent-garrison/flow-v2/s1-coordination-ordering/2026-07-10_22-05-38/final.mp4"
+    },
+    "S4": {
+      "status": "gates-in-flight",
+      "at": "2026-07-10T22:45:53Z"
+    },
+    "S2": {
+      "status": "gates-in-flight",
+      "at": "2026-07-10T22:45:53Z"
+    },
+    "S5": {
+      "status": "gates-in-flight",
+      "at": "2026-07-10T22:45:53Z"
     }
   },
   "globalGate": {

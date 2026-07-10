@@ -1,0 +1,1 @@
+[{"beat":"ac1","criterionId":"S4-AC1","assert":"grep count 0","result":"pass"},{"beat":"ac2","criterionId":"S4-AC2","assert":"doorway-only hard gate","result":"pass"},{"beat":"ac3","criterionId":"S4-AC3","assert":"security-review bound, inAnyPlan false, flag false","result":"pass"}]
