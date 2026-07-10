@@ -5,10 +5,12 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
-const ROOT = path.resolve(__dirname, "..");
-const RULE = pathToFileURL(path.join(ROOT, "fittings/seed/improver/lib/orchestrator-policy-rule.mjs")).href;
+// Static import (not a pathToFileURL dynamic import): the module must load
+// through the test runner's module graph so instrumentation-based tooling
+// (mutation testing) sees these tests covering it.
+// @ts-ignore - pure .mjs
+import * as ruleMod from "../fittings/seed/improver/lib/orchestrator-policy-rule.mjs";
 
 function outcome(kind: string, gates: Record<string, { status: string }>) {
   return {
@@ -20,7 +22,7 @@ function outcome(kind: string, gates: Record<string, { status: string }>) {
 
 describe("orchestrator-policy rule (S15/D38)", () => {
   it("a phase failing in >=50% of runs proposes an effort step UP", async () => {
-    const mod = await import(RULE);
+    const mod = ruleMod;
     const outcomes = [
       outcome("full-feature", { test: { status: "failed" } }),
       outcome("full-feature", { test: { status: "failed" } }),
@@ -36,7 +38,7 @@ describe("orchestrator-policy rule (S15/D38)", () => {
   });
 
   it("a phase skipped in ALL runs of a kind proposes turning it off in the plan", async () => {
-    const mod = await import(RULE);
+    const mod = ruleMod;
     const outcomes = [
       outcome("api-change", { designAudit: { status: "skipped" } }),
       outcome("api-change", { designAudit: { status: "skipped" } }),
@@ -49,7 +51,7 @@ describe("orchestrator-policy rule (S15/D38)", () => {
   });
 
   it("a consistently-clean gate across >=5 runs proposes a step DOWN", async () => {
-    const mod = await import(RULE);
+    const mod = ruleMod;
     const outcomes = Array.from({ length: 5 }, () => outcome("full-feature", { walkthrough: { status: "passed" } }));
     const props = mod.analyzeForPolicyProposals({ outcomes, at: "2026-01-01T00:00:00Z" });
     const down = props.find((p: { id: string }) => p.id.startsWith("orchestrator-policy-calm-"));
@@ -58,7 +60,7 @@ describe("orchestrator-policy rule (S15/D38)", () => {
   });
 
   it("repeated friction mentions of a skill propose a binding review", async () => {
-    const mod = await import(RULE);
+    const mod = ruleMod;
     const frictionLines = [
       { project: "p", line: "- 2026-01-01T00:00:00Z [autothing-walkthrough] flaky capture → tighten retry" },
       { project: "p", line: "- 2026-01-02T00:00:00Z [autothing-walkthrough] missed caption → fix prompt" },
@@ -72,7 +74,7 @@ describe("orchestrator-policy rule (S15/D38)", () => {
   });
 
   it("small samples propose NOTHING (conservative thresholds)", async () => {
-    const mod = await import(RULE);
+    const mod = ruleMod;
     const props = mod.analyzeForPolicyProposals({
       outcomes: [outcome("full-feature", { test: { status: "failed" } })],
       frictionLines: [{ project: "p", line: "- ts [autothing-test] one-off → n/a" }],
@@ -82,7 +84,7 @@ describe("orchestrator-policy rule (S15/D38)", () => {
   });
 
   it("collectors read the evidence home + friction logs from sandboxes", async () => {
-    const mod = await import(RULE);
+    const mod = ruleMod;
     const runs = mkdtempSync(path.join(tmpdir(), "runs-"));
     mkdirSync(path.join(runs, "proj", "r1"), { recursive: true });
     writeFileSync(
