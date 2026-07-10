@@ -1,0 +1,80 @@
+{
+  "slice": "S8",
+  "title": "Config home",
+  "updatedAt": "2026-07-10T08:33:23Z",
+  "phase": "passed",
+  "status": "passed",
+  "kind": "api",
+  "profile": "build",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "blockers": [],
+  "gates": {
+    "typecheck": {
+      "exit": 0,
+      "summary": "clean"
+    },
+    "lint": {
+      "exit": 0,
+      "summary": "no warnings"
+    },
+    "securityWall": {
+      "gitleaks": {
+        "exit": 0,
+        "summary": "clean on payload + autothing-skills + config-sync (pruned .security-key, logs)"
+      },
+      "semgrep": {
+        "exit": 0,
+        "summary": "clean"
+      },
+      "validateFitting": {
+        "exit": 0,
+        "summary": "both fittings PASS architecture/security/prompt-injection/quality (security test-examples excluded from seed)"
+      }
+    },
+    "test": {
+      "exit": 0,
+      "summary": "8 config-sync tests; full suite 1432 passed, only the 4 pre-existing baseline failures"
+    },
+    "acceptance11a": {
+      "exit": 0,
+      "summary": "claude-share archived (isArchived:true); push returns GitHub 403 'repository was archived so it is read-only'",
+      "evidence": "archive-proof.txt"
+    },
+    "acceptance11b": {
+      "exit": 0,
+      "summary": "garrison config status detects a sandbox ~/.claude edit; unit tests prove capture+commit; breadcrumb GARRISON-MANAGED.md written to ~/.claude",
+      "evidence": "config-status.cast"
+    },
+    "adversarialTest": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "designAudit": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "codexSliceReview": {
+      "status": "degraded",
+      "reason": "codex-unavailable",
+      "actualModel": null
+    },
+    "video": {
+      "status": "verified",
+      "mode": "asciinema (api slice)",
+      "link": "docs/autothing/runs/20260710-073032-ebe15853/slices/S8/evidence.cast",
+      "videoBytes": 1257,
+      "videoSha256": "7f18c010257b04e4010e1ddaeeb318eb2a71575d08fc7493de78236db6e7bda4",
+      "verifiedBy": "content assertion (sentinel strings present in the cast)",
+      "at": "2026-07-10T10:16:09Z"
+    }
+  },
+  "commits": [
+    "9eab5d0"
+  ],
+  "tags": [
+    "run-20260710-073032-s8-implement"
+  ]
+}

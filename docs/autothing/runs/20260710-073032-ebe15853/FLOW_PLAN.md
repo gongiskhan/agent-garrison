@@ -10,10 +10,10 @@ Gate runs serialize (one dev-serve / build / recorder; codex calls serial run-wi
 
 | id | title | kind | group | status |
 |----|-------|------|-------|--------|
-| S1 | Policy core | api | A | pending |
-| S8 | Config home (claude-share import + garrison config) | api | B | pending |
-| S2 | Brain merge (orchestrator fitting absorbs model-router) | api | B | pending |
-| S4 | Run engine (kanban engine = THE run engine) | mixed | B | pending |
+| S1 | Policy core | api | A | passed |
+| S8 | Config home (claude-share import + garrison config) | api | B | passed |
+| S2 | Brain merge (orchestrator fitting absorbs model-router) | api | B | passed |
+| S4 | Run engine (kanban engine = THE run engine) | mixed | B | passed |
 | S3 | Composer view | ui | C | pending |
 | S5 | Thin doorway (autothing rewrite) | api | C | pending |
 | S6 | Evidence home (~/.garrison/runs/) | api | C | pending |
