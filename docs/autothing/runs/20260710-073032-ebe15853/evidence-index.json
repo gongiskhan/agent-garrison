@@ -238,7 +238,7 @@
   }
  ],
  "globalGate": {
-  "status": "in_progress",
+  "status": "passed-with-blockers",
   "deliberateRed": {
    "status": "passed",
    "gatesProven": [
@@ -304,6 +304,9 @@
    "reason": "no-webhook",
    "detail": "AUTOTHING_SLACK_WEBHOOK_URL unset; report composed to report-summary.md and printed in place (a missing webhook never fails the run)",
    "at": "2026-07-10T13:16:08Z"
-  }
+  },
+  "videos": "8/8",
+  "finishedAt": "2026-07-10T13:16:52Z",
+  "summary": "16/16 slices passed; full suite 1637 green; 8/8 UI walkthroughs + 10 casts; 5 independent-review defects fixed (2 blockers); mutation+security-review PASS; deliberate-red PASS; codex-checkpoint + report DEGRADED (external/config); acceptance verified to env limits with named external blockers (codex 401, GCS scope, D37 compute, Mac hardware)"
  }
 }
