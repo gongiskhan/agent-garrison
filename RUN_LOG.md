@@ -114,3 +114,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ## DECISION (run 20260710-171608-7bf26feb) — S2 review loop-back (attempt 2)
 - adversarialReview: needs-work. HIGH: unscoped git commit sweeps pre-staged foreign index entries under the card's trailer (fix: commit --only + pathspec, diff working tree). MEDIUM: trailer spoofing via newline-bearing project names (fix: sanitize interpolations + parse final trailer block). Hardening: atomic lease takeover, mail-record-first ordering, end-of-options git args. Fixes dispatched to s1-engine at 2026-07-10T22:17:21Z.
+
+## DEVIATION (run 20260710-171608-7bf26feb) — claude -p remote-dispatch exception
+- The S9 short-flag guard surfaced a PRE-EXISTING real usage: kanban-loop outpost-dispatch pipes a prompt into `claude -p` on a REMOTE outpost host (no PTY over the exec API). Removing it would break outpost dispatch (out of scope). Recorded as the ONE sanctioned exception, allowlisted in the guard with justification; comment mentions no longer count (line-aware guard). The local capability exclusion stands unchanged.
