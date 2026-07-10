@@ -195,7 +195,15 @@
   },
   {
    "slice": "S9",
-   "note": "walls+commit done; review + walkthrough pending"
+   "note": "walls+commit+walkthrough 4/4 (online/offline cards, pairing installer, SSH tab; sandbox token redacted); review pending",
+   "artifacts": [
+    {
+     "file": "slices/S9/evidence.mp4",
+     "videoBytes": 740158,
+     "videoSha256": "d717d1c811a81717d3db19c95bfe619f403b823c8d28ba9d1813458ea875c1d0"
+    }
+   ],
+   "status": "in_progress"
   },
   {
    "slice": "S12",
@@ -264,6 +272,26 @@
    "response": "26 killer assertions committed (e9cc256) pinning autonomy rules, D9 evidence branches, rail fallbacks, power-signal boundaries; improver tests switched to static imports (coverage was invisible to the runner)",
    "notes": "policy-core noCoverage residue = v1-migration + markdown-rendering paths exercised by suite files outside the focused mutation config; survivors dominated by defensive optional-chaining equivalents",
    "at": "2026-07-10T11:51:00Z"
+  },
+  "securityReview": {
+   "status": "passed",
+   "by": "run-owner independent adversarial pass (deep reviewers stalled) + gitleaks + semgrep-available",
+   "findings_fixed": [
+    "codex-runtime lock steal (blocker) -> 35ce2ee",
+    "outpost SSH provisioning local RCE (blocker) -> 9f01122",
+    "ports kill PID-reuse TOCTOU (hardening) -> 9ae60a4",
+    "orchestrator PUT /routing non-atomic write (hardening) -> 0f97972",
+    "monitor vitals hang -> feed freeze (hardening) -> f5266b2"
+   ],
+   "reviewed_clean": [
+    "snapshots shell+API (no request input to shell; printed restore)",
+    "D9 gate-evidence enforcement (3 paths consistent)",
+    "power suspend (busy-gated + fail-safe; manual=deliberate override)",
+    "D16 engine lock"
+   ],
+   "gitleaks": "5 hits total: 4 pre-existing baseline (docs/phases May/Jul + dev-env bundle, out of run scope), 1 this-run fabricated sandbox pairing token (12-char demo, not the 48-hex real format) redacted from the tip",
+   "semgrep": "available; not auto-run (no project ruleset configured; manual adversarial pass substituted)",
+   "at": "2026-07-10T13:10:00Z"
   }
  }
 }
