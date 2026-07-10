@@ -107,3 +107,7 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ## DECISION 2026-07-10T20:24:37Z (run 20260710-171608-7bf26feb) — S1 review loop-back (attempt 2)
 - adversarialReview: needs-work. MAJOR: stability-waiter stranded when blocker deleted/abandoned/terminal-without-stability (shouldRelease stability branch too narrow). Fix + regression tests dispatched to s1-engine. Also: ../ traversal rejected in touch-set validation (S2 consumes paths in git ops); stabilityFields always-on ACCEPTED per D2 (unconditional review-pass event) with comment.
+
+## GATE S1 (run 20260710-171608-7bf26feb) — COORD_ORDERING_OK
+- verdict: PASSED. implement (s1-engine lib+hooks, s1-server-ui insertion points+badges), securityWall clean, test exit 0 (typecheck 0, 1691 tests, 51 new coordination tests), fences a72a7b6 + 9fa4aac + UI-fix commit pending, adversarialReview approve after 1 loop-back (MAJOR: stranded stability-waiter -> releaseReason fix + regressions; traversal rejection), codexSliceReview degraded (codex-unavailable), adversarialTest pass (54/54 vs real server incl. D9 degraded 409), designAudit clean after 1 loop-back (callout composition), video verified (3/3 beats).
+- notable: coordination activates on policy coordination-section presence; S6 seeds production ON. until:'fence' release predicate stubbed for S2.

@@ -24,6 +24,12 @@
       "at": "2026-07-10T19:15:44Z",
       "gateStatus": "slices/S3/gate-status.json",
       "video": "http://100.88.165.46:8099/agent-garrison/flow-v2/s3-worktree-sweep/2026-07-10_20-12-43/final.mp4"
+    },
+    "S1": {
+      "status": "passed",
+      "at": "2026-07-10T21:07:04Z",
+      "gateStatus": "slices/S1/gate-status.json",
+      "video": "http://100.88.165.46:8099/agent-garrison/flow-v2/s1-coordination-ordering/2026-07-10_22-05-38/final.mp4"
     }
   },
   "globalGate": {

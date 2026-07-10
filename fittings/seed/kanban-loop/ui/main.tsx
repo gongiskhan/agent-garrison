@@ -223,7 +223,7 @@ function Card({
           from the parked red). Names the blocker, why, and the release point. */}
       {card.waitingOn && (
         <div className="state-callout waiting">
-          Waiting on {waitingLabel(card.waitingOn)}: {card.waitingOn.reason} (until {card.waitingOn.until})
+          Waiting on {waitingLabel(card.waitingOn)}: {card.waitingOn.grade} overlap, until {card.waitingOn.until}
         </div>
       )}
 
@@ -710,7 +710,7 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       )}
       {card.waitingOn && (
         <div className="state-callout waiting">
-          Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {card.waitingOn.reason} (until {card.waitingOn.until})
+          Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {card.waitingOn.grade} overlap, until {card.waitingOn.until}
         </div>
       )}
 

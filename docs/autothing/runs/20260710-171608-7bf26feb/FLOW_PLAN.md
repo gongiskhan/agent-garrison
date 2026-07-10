@@ -43,7 +43,7 @@ Final phase: built-in security-review, codex checkpoint (scopes: fence/revert gi
 | slice | status |
 |---|---|
 | S3 | passed |
-| S1 | pending |
+| S1 | passed |
 | S2 | pending |
 | S4 | pending |
 | S5 | pending |

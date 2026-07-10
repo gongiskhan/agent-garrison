@@ -1,8 +1,60 @@
 {
-  "slice": "S1", "title": "Touch-set intents, overlap ordering, stability (D1-D3, D9)", "kind": "mixed",
-  "implement": { "status": "passed", "at": "2026-07-10T20:14:40Z", "summary": "s1-engine (lib/coordination.mjs + engine/board/kanban hooks + 39 tests) then s1-server-ui (server insertion points + UI badges + 6 tests); coordination gates on policy section presence (S6 seeds production ON)" },
-  "securityWall": { "gitleaks": 0, "semgrep": 0, "depAudit": "unchanged deps", "at": "2026-07-10T20:14:40Z" },
-  "test": { "status": "passed", "exit": 0, "at": "2026-07-10T20:14:40Z", "summary": "typecheck 0; vitest 1691 passed (45 new coordination tests committed)" },
-  "fence": { "sha": "a72a7b6", "trailer": "Garrison-Card: autothing-20260710-171608-7bf26feb-S1", "at": "2026-07-10T20:14:40Z" },
-  "codexSliceReview": { "status": "degraded", "reason": "codex-unavailable", "actualModel": null, "at": "2026-07-10T20:14:40Z" }
+  "slice": "S1",
+  "title": "Touch-set intents, overlap ordering, stability (D1-D3, D9)",
+  "kind": "mixed",
+  "implement": {
+    "status": "passed",
+    "at": "2026-07-10T20:14:40Z",
+    "summary": "s1-engine (lib/coordination.mjs + engine/board/kanban hooks + 39 tests) then s1-server-ui (server insertion points + UI badges + 6 tests); coordination gates on policy section presence (S6 seeds production ON)"
+  },
+  "securityWall": {
+    "gitleaks": 0,
+    "semgrep": 0,
+    "depAudit": "unchanged deps",
+    "at": "2026-07-10T20:14:40Z"
+  },
+  "test": {
+    "status": "passed",
+    "exit": 0,
+    "at": "2026-07-10T20:14:40Z",
+    "summary": "typecheck 0; vitest 1691 passed (45 new coordination tests committed)"
+  },
+  "fence": {
+    "sha": "a72a7b6",
+    "trailer": "Garrison-Card: autothing-20260710-171608-7bf26feb-S1",
+    "at": "2026-07-10T20:14:40Z"
+  },
+  "codexSliceReview": {
+    "status": "degraded",
+    "reason": "codex-unavailable",
+    "actualModel": null,
+    "at": "2026-07-10T20:14:40Z"
+  },
+  "adversarialReview": {
+    "verdict": "approve",
+    "by": "fresh-context claude-fable-5",
+    "at": "2026-07-10T21:07:04Z",
+    "loopBacks": 1,
+    "summary": "needs-work (MAJOR strand) -> fixed 9fa4aac -> RECHECK approve"
+  },
+  "adversarialTest": {
+    "verdict": "pass",
+    "checks": 54,
+    "at": "2026-07-10T21:07:04Z"
+  },
+  "designAudit": {
+    "verdict": "clean",
+    "at": "2026-07-10T21:07:04Z",
+    "loopBacks": 1,
+    "summary": "issues(2) callout composition -> fixed -> RECHECK clean"
+  },
+  "video": {
+    "status": "verified",
+    "mode": "evidence",
+    "verifiedAt": "2026-07-10T21:07:04Z",
+    "videoSha256": "2cd525cd44432dcd9d2ee9285e920e6e5b3419a10aaead0a193d8e3e526ff32e",
+    "videoBytes": 652188,
+    "evidence": "evidence.json",
+    "path": "/home/ggomes/.walkthrough/runs/agent-garrison/flow-v2/s1-coordination-ordering/2026-07-10_22-05-38/final.mp4"
+  }
 }
