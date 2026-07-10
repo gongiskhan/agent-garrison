@@ -340,8 +340,13 @@ export function buildClassifierPrompt(config, userPrompt) {
     for (const e of exceptions) lines.push(`  - ${e.id}: ${e.when}`);
   }
   lines.push("contextKind — optional short string describing the context, else omit.");
+  lines.push(
+    'execution — "autonomous" ONLY when the user explicitly asks for unattended/background/pipeline execution ' +
+      '("run this in the background", "kick off a build", "do this autonomously", "queue this up"); ' +
+      'otherwise "interactive" (the default for conversation and ordinary requests).'
+  );
   lines.push("");
-  lines.push('Respond exactly like: {"taskType":"code","tier":"T1-standard","matchedException":null,"contextKind":"bugfix"}');
+  lines.push('Respond exactly like: {"taskType":"code","tier":"T1-standard","matchedException":null,"contextKind":"bugfix","execution":"interactive"}');
   lines.push("");
   lines.push(`Task: """${String(userPrompt).slice(0, 4000)}"""`);
   return lines.join("\n");
@@ -383,7 +388,9 @@ export function parseClassification(replyText, config) {
   const tier = tiers.includes(obj.tier) ? obj.tier : "T1-standard";
   const matchedException = obj.matchedException && exIds.has(obj.matchedException) ? obj.matchedException : null;
   const contextKind = typeof obj.contextKind === "string" ? obj.contextKind : undefined;
-  return { taskType, tier, matchedException, contextKind };
+  // D8: the classifier's own execution read; out-of-vocab clamps to interactive.
+  const execution = obj.execution === "autonomous" ? "autonomous" : "interactive";
+  return { taskType, tier, matchedException, contextKind, execution };
 }
 
 // Validate a routing config enough to fail loudly at compile/--check time.

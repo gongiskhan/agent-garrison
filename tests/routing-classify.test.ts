@@ -32,7 +32,7 @@ describe("Stage A classifier prompt (MR1c)", () => {
 describe("Stage A response parser (MR1c)", () => {
   it("parses a clean single-line JSON reply", () => {
     const c = parseClassification('{"taskType":"code","tier":"T2-deep","matchedException":null}', config);
-    expect(c).toEqual({ taskType: "code", tier: "T2-deep", matchedException: null, contextKind: undefined });
+    expect(c).toEqual({ taskType: "code", tier: "T2-deep", matchedException: null, contextKind: undefined, execution: "interactive" }); // D8: parser now emits execution
   });
 
   it("parses JSON embedded in prose", () => {

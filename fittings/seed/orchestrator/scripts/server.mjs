@@ -31,6 +31,7 @@ import {
   compilePolicy,
   stableStringify,
   railFor,
+  classifyExecution,
   isV2
 } from "../lib/routing-core.mjs";
 import { readDecisions } from "../lib/routing-telemetry.mjs";
@@ -161,6 +162,30 @@ async function handlePutRouting(req, res, query) {
   json(res, 200, { ok: true, baselineSha: sha(serialized), policyPath: policyTarget });
 }
 
+// Deterministic keyword heuristic for the composer dry-run strip — pure, no I/O,
+// no model. routing-core exports no classifyByKeywords, so this local heuristic
+// stands in; it degrades to {code, T1-standard} (the brief's stated default) when
+// nothing matches. The live classifier still runs at the gateway for real turns.
+function heuristicClassify(prompt) {
+  const p = String(prompt || "").toLowerCase();
+  const has = (...ws) => ws.some((w) => p.includes(w));
+  let taskType = "code";
+  if (has("research", "investigate", "compare", "find out", "look into")) taskType = "research";
+  else if (has("review", "audit")) taskType = "review";
+  else if (has("unit test", "e2e", "add a test", "write tests", "test coverage")) taskType = "test";
+  else if (has("logo", "icon", "image", "picture", "diagram")) taskType = "image";
+  else if (has("video", "screencast", "record a demo")) taskType = "video";
+  else if (has("readme", "documentation", " docs", "blog", "draft", "write up")) taskType = "writing";
+  else if (has("deploy", "infra", "pipeline", "provision", " ops")) taskType = "ops";
+  else if (has("plan ", "design a", "architecture")) taskType = "plan";
+  else if (has("implement", "build", "add ", "create", "feature", "fix", "bug", "page", "endpoint", "api")) taskType = "implement";
+  let tier = "T1-standard";
+  if (has("trivial", "rename", "typo", "one-line", "quick tweak", "small fix")) tier = "T0-trivial";
+  else if (has("architecture", "migration", "security", "redesign", "overhaul", "whole system", "tricky", "complex"))
+    tier = "T2-deep";
+  return { taskType, tier, matchedException: null };
+}
+
 async function handleSimulate(req, res) {
   const raw = await loadConfigRaw();
   const config = JSON.parse(raw);
@@ -171,6 +196,37 @@ async function handleSimulate(req, res) {
     return json(res, 400, { error: "invalid-json" });
   }
   const profile = body.profile || config.activeProfile;
+
+  // Composer dry-run strip (S3 D12): deterministic heuristic classification — NO
+  // live model call — plus the fully-resolved phase rail for the chosen work kind.
+  // Every ON chip is enriched with the target it resolves to at the classified
+  // tier; OFF chips stay in the rail (on:false) so the strip reads honestly.
+  if (body.tryIt) {
+    const classification = heuristicClassify(body.prompt);
+    const execution = classifyExecution({ message: String(body.prompt || ""), classification });
+    const route = resolveRoute(config, profile, classification);
+    const workKind = body.workKind || config.defaultWorkKind || null;
+    let rail;
+    try {
+      const base = railFor(config, workKind);
+      rail = {
+        ...base,
+        phases: base.phases.map((ph) => {
+          if (!ph.on) return ph;
+          const r = resolveRoute(config, profile, { taskType: ph.id, tier: classification.tier });
+          const t = r.target || {};
+          return {
+            ...ph,
+            target: { targetId: r.targetId, model: t.model ?? null, effort: t.effort ?? null, runtime: t.runtime ?? null }
+          };
+        })
+      };
+    } catch (err) {
+      rail = { error: String(err?.message || err) };
+    }
+    return json(res, 200, { classification: { ...classification, execution }, route, profile, workKind, rail, dryRun: true });
+  }
+
   let classification;
   if (body.taskType && body.tier) {
     // manual / deterministic mode (pins, Playwright) — pure resolve, no model.

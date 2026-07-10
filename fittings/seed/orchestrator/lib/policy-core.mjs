@@ -424,8 +424,14 @@ export function resolvePhaseTarget(policy, phase, tier) {
 // first (pure): a card- or scheduler-originated turn is autonomous; an explicit
 // autonomous marker (the web-channel toggle, the autothing doorway) is
 // autonomous; a multi-step cross-app automation shape is autonomous; otherwise
-// the classifier's read stands, with Gary-mode conversation flooring to
-// interactive. Returns "interactive" | "autonomous".
+// THE CLASSIFIER decides (its reply now carries an `execution` field — see
+// buildClassifierPrompt), with Gary-mode conversation flooring to interactive.
+// NOTE (rev-s2 finding #2): there is deliberately NO task-type fallback here —
+// the live classifier vocabulary is the general kinds, so keying autonomy on
+// pipeline-verb task types was dead code with one false-positive ("review this
+// diff" card-ifying an inline review). Ordinary chat work stays interactive
+// unless an origin, an explicit marker, or the classifier itself says
+// autonomous. Returns "interactive" | "autonomous".
 const AUTONOMOUS_CHANNELS = new Set(["kanban", "scheduler", "board", "autothing"]);
 const AUTOMATION_SHAPE = /\b(then|after that|every day|each morning|on a schedule|and then|for each|across (all|both)|multi-step|automate|workflow)\b/i;
 const BUILD_VERBS = new Set([
@@ -444,17 +450,20 @@ export function classifyExecution({ channel, explicitAutonomous, mode, message, 
     return "autonomous";
   }
   if (mode === "gary") return "interactive";
-  if (classification && BUILD_VERBS.has(classification.taskType)) return "autonomous";
+  // The classifier's own read (buildClassifierPrompt asks for it; an absent or
+  // out-of-vocab value means interactive).
+  if (classification?.execution === "autonomous") return "autonomous";
   return "interactive";
 }
 
-// Whether an autonomous turn is "significant" enough to become a card+run
-// rather than run inline (the autothing scope test): a build verb, or a code
-// task above T0. Pure.
+// Whether an AUTONOMOUS turn is "significant" enough to become a card+run
+// rather than run inline (the autothing scope test): a pipeline verb (reachable
+// via explicit engine/doorway hints), or code/ops work above T0. Only consulted
+// AFTER execution resolved autonomous — it never makes something autonomous.
 export function isSignificantAutonomous(classification) {
   if (!classification) return false;
   if (BUILD_VERBS.has(classification.taskType)) return true;
-  if (classification.taskType === "code" && classification.tier !== "T0-trivial") return true;
+  if ((classification.taskType === "code" || classification.taskType === "ops") && classification.tier !== "T0-trivial") return true;
   return false;
 }
 

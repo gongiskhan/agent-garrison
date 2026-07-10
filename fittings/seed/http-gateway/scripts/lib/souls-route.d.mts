@@ -2,7 +2,7 @@
 // typed consumer) gets types without a build step — mirrors the convention used
 // by ../../../model-router/lib/routing-core.d.mts.
 
-import type { RoutingConfig, Classification, RouteResolution } from "../../../../model-router/lib/routing-core.d.mts";
+import type { RoutingConfig, Classification, RouteResolution } from "../../../../orchestrator/lib/routing-core.d.mts";
 
 // The compact annotation the gateway threads into the orchestrator turn when an
 // explicit classification hint is honored.

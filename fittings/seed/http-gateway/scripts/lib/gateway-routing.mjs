@@ -487,15 +487,39 @@ export class RoutedGateway {
       const card = await created.json();
       const id = card.id || card.card?.id;
       if (!id) throw new Error("board POST /cards returned no id");
-      // Move to Plan so the engine dispatches it (engine-context move).
-      const rev = card.rev ?? card.card?.rev ?? 0;
-      const moved = await fetch(`${base}/cards/${id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
-        body: JSON.stringify({ list: "plan", rev })
-      });
-      if (!moved.ok) {
-        this.logFn({ kind: "autonomous-card-move-failed", id, status: moved.status });
+      // Move to Plan so the engine dispatches it (engine-context move). The rev
+      // from the create response goes STALE almost immediately for no-project
+      // cards (the board fires project inference fire-and-forget, whose first
+      // act bumps the rev) — so on ANY failed move, re-GET the card for a
+      // fresh rev and retry, up to 3 times. A card left in Backlog would be
+      // silently stranded (Backlog is a manual list, never auto-dispatched),
+      // which is exactly the failure the retry exists to prevent.
+      let rev = card.rev ?? card.card?.rev ?? 0;
+      let movedOk = false;
+      for (let attempt = 0; attempt < 3 && !movedOk; attempt++) {
+        const moved = await fetch(`${base}/cards/${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+          body: JSON.stringify({ list: "plan", rev })
+        });
+        if (moved.ok) { movedOk = true; break; }
+        this.logFn({ kind: "autonomous-card-move-retry", id, attempt, status: moved.status });
+        // refresh the rev (409 = changed under us; anything else → re-read too)
+        try {
+          const fresh = await fetch(`${base}/cards/${id}`);
+          if (fresh.ok) {
+            const doc = await fresh.json();
+            rev = doc.card?.rev ?? doc.rev ?? rev;
+            const list = doc.card?.list ?? doc.list;
+            if (list === "plan") { movedOk = true; break; } // someone already moved it
+          }
+        } catch { /* retry with the old rev */ }
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+      }
+      if (!movedOk) {
+        // The run would be invisible on a manual list — surface the failure to
+        // the caller instead of claiming success.
+        throw new Error(`board move to plan failed after retries (card ${id} left in backlog)`);
       }
       const url = `${base}/#/cards/${id}`;
       this.logFn({ kind: "autonomous-card-created", id, url, taskType: classification?.taskType, tier: classification?.tier });

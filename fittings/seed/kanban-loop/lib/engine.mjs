@@ -720,7 +720,20 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       ...parkFields(card, card.list, geReason),
       events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no durable gate evidence for ${phase}`, detail: geReason })
     }, card.rev ?? 0, now());
-    return { card: res.card ?? card, outcome: { status: "needs-attention", reason: "no-gate-evidence" } };
+    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: "no-gate-evidence" } };
+  }
+  // requiresEvidence (walkthrough bundle) — the SAME check the dispatched path
+  // enforces (rev-s4 finding #2: this path used to skip it).
+  if (list.requiresEvidence && !hasEvidence(cwd, card.runDir)) {
+    const evReason = `In-session advance from ${listTitle} refused: no tangible evidence under ${card.runDir}/evidence/ (a screenshot or evidence.md). Produce the evidence bundle first.`;
+    const res = await saveCardCAS(root, {
+      ...card,
+      ...parkFields(card, card.list, evReason),
+      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no evidence produced (in-session)`, detail: evReason })
+    }, card.rev ?? 0, now());
+    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: "no-evidence" } };
   }
   const rail = railForCard(policy, card);
   let effectiveNext = verdict;
@@ -842,7 +855,7 @@ export function parseBatchVerdicts(reply, cards, board) {
 // is the card's first agent-list entry): a valid verdict moves it forward; a missing /
 // non-matching verdict, or an iteration-cap breach, loops it to `implement` (the fail
 // edge) or parks it in needs-attention if implement is not a valid next.
-export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString() }) {
+export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd() }) {
   const list = getList(board, listId);
   if (!list || list.kind !== AGENT_KIND) {
     return { outcomes: [], reason: "not-an-agent-list" };
@@ -881,7 +894,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         status: "running",
         iterations: iteration,
         runningSince: now(),
-        events: withEvent(card, { at: now(), kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}` })
+        events: withEvent(card, { at: now(), kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}`, detail: null })
       }, baseRev, now());
       if (!acq.ok) { outcomes.push({ id: card.id, status: "skipped", reason: "conflict", project }); continue; }
       acquired.push({ original: card, running: acq.card, iteration });
@@ -921,18 +934,54 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     const snippet = replySnippet(reply);
     const verdicts = parseBatchVerdicts(reply, runningCards, board);
     for (const a of acquired) {
-      const next = verdicts[a.original.id];
+      let next = verdicts[a.original.id];
       await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\nverdict: ${next ?? "(none)"}\n${reply}\n`);
+      // DURABLE GATE EVIDENCE (D9) — the batch path enforces the SAME check as
+      // processCard: a verdict without the phase's gate-status entry in the
+      // card's runDir parks (rev-s4 finding #1: this path used to bypass it).
+      let gateEvidenceMissing = false;
+      const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
+      if (next && pipelinePhase && a.running.runDir && !hasPhaseGateEvidence(cwd, a.running.runDir, phase)) {
+        next = null;
+        gateEvidenceMissing = true;
+      }
       let target;
       if (next) {
+        // D17 rail fast-forward — same as processCard's post-verdict handling
+        // (rev-s4 finding #3: the batch path used to skip it).
+        const rail = railForCard(policy, a.running);
+        let effectiveNext = next;
+        let offEvents = [];
+        if (rail) {
+          const fwd = effectiveListForCard(board, rail, next, a.running);
+          if (fwd.listId !== next) {
+            effectiveNext = fwd.listId;
+            offEvents = fwd.skipped.map((ph) => ({
+              at: now(),
+              kind: "phase-off",
+              message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+            }));
+          }
+        }
+        let events = withEvent(a.running, { at: now(), kind: "routed", message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}`, detail: snippet || null });
+        for (const ev of offEvents) events = withEvent({ events }, ev);
         target = {
           ...a.running,
-          list: next,
+          list: effectiveNext,
           status: "ok",
           runningSince: null,
           lastReply: snippet,
           lastDispatchError: null,
-          events: withEvent(a.running, { at: now(), kind: "routed", message: `${listTitle} → ${getList(board, next)?.title || next}`, detail: snippet || null })
+          events
+        };
+      } else if (gateEvidenceMissing) {
+        const geReason = `${listTitle} (batched for ${project}) chose a next step but left NO durable gate evidence for the ${phase} phase under ${a.running.runDir}. Phase progression requires the durable gate record in addition to the verdict (D9) — parked rather than advancing on the operative's word alone.`;
+        target = {
+          ...a.running,
+          ...parkFields(a.running, listId, geReason),
+          runningSince: null,
+          lastReply: snippet,
+          events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no durable gate evidence for ${phase}`, detail: geReason })
         };
       } else {
         // No verdict line for THIS card in the batch reply — say so plainly (the batch
@@ -948,8 +997,9 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       }
       const res = await saveCardCAS(root, target, a.running.rev, now());
       if (!res.ok) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "conflict-during-run", project }); continue; }
+      if (gateEvidenceMissing) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-gate-evidence", project }); continue; }
       if (!next) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-exact-match", project }); continue; }
-      outcomes.push({ id: a.original.id, status: "moved", from: listId, to: next, project });
+      outcomes.push({ id: a.original.id, status: "moved", from: listId, to: target.list, project });
     }
   }
   return { outcomes };

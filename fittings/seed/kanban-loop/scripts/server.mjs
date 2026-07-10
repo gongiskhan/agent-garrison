@@ -1256,6 +1256,16 @@ async function handleArtifactWrite(req, res, opts, cardId, ref) {
   try { card = await loadCard(opts.root, cardId); }
   catch { return jsonRes(res, 404, { error: "no such card" }); }
   card.id = cardId;
+  // D16: editing an engine-owned card's plan/brief/log mid-run is a manual edit
+  // — rejected like PATCH (rev-s4 finding #4). Start/Infer stay human-usable by
+  // design (they delegate to the engine); artifact WRITES change run inputs.
+  const boardForLock = await loadBoard(opts.root);
+  if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "engine-owned",
+      message: `Card is on the autonomous list "${card.list}" — its run inputs are engine-owned (D16). Edit from needs-attention if it parks.`
+    });
+  }
   const absPath = resolveArtifactRef(card, ref, { root: opts.root, cwd: opts.cwd });
   if (!absPath) return jsonRes(res, 400, { error: "unknown or out-of-range artifact ref" });
   const confined = confinePath(absPath, allowedRoots(opts.cwd, opts.root));

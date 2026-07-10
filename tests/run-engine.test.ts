@@ -74,7 +74,8 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
 }
 
 function writeGateEvidence(cwd: string, runDir: string, phase: string, status = "passed") {
-  const sliceDir = path.join(cwd, runDir, "slices", "s1");
+  // resolve (not join): an S6 absolute runDir must not concatenate under cwd
+  const sliceDir = path.join(path.resolve(cwd, runDir), "slices", "s1");
   mkdirSync(sliceDir, { recursive: true });
   writeFileSync(
     path.join(sliceDir, "gate-status.json"),
@@ -233,6 +234,41 @@ describe("evidence home (S6/D19)", () => {
     expect(runProjectLabel(null)).toBe("no-project");
     expect(runProjectLabel("~/dev/my repo!")).toBe("my-repo-");
     delete process.env.GARRISON_RUNS_DIR;
+  });
+});
+
+describe("review fixes (rev-s4 findings)", () => {
+  it("the BATCH path enforces D9 gate evidence (finding #1)", async () => {
+    // @ts-ignore pure mjs
+    const { processBatch } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
+    const board = seedBoard();
+    const card = await makeCard(tmp, { list: "test", project: "p1", tier: "T1-standard", runDir: path.join(tmp, "run-b1") });
+    const batchRunFn = async () => ({ reply: `${card.id} adversarial-test` });
+    const { outcomes } = await processBatch({ root: tmp, board, listId: "test", cards: [card], batchRunFn, cwd: tmp });
+    expect(outcomes[0].status).toBe("needs-attention");
+    expect(outcomes[0].reason).toBe("no-gate-evidence");
+    // with evidence → moves
+    const card2 = await makeCard(tmp, { id: "01TESTCARD0000000000000003", list: "test", project: "p1", runDir: path.join(tmp, "run-b2") });
+    writeGateEvidence(tmp, card2.runDir as string, "test");
+    const r2 = await processBatch({ root: tmp, board, listId: "test", cards: [card2], batchRunFn: async () => ({ reply: `${card2.id} adversarial-test` }) , cwd: tmp });
+    expect(r2.outcomes[0].status).toBe("moved");
+  });
+
+  it("advanceCardPhase enforces requiresEvidence like the dispatched path (finding #2)", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { id: "01TESTCARD0000000000000004", list: "walkthrough", runDir: path.join(tmp, "run-w1") });
+    writeGateEvidence(tmp, card.runDir as string, "walkthrough"); // gate entry exists...
+    // ...but NO evidence/ bundle → refused
+    const refused = await advanceCardPhase({ root: tmp, board, card, verdict: "validate", cwd: tmp });
+    expect(refused.outcome.status).toBe("needs-attention");
+    expect(refused.outcome.reason).toBe("no-evidence");
+    // with the bundle → moves
+    const card2 = await makeCard(tmp, { id: "01TESTCARD0000000000000005", list: "walkthrough", runDir: path.join(tmp, "run-w2") });
+    writeGateEvidence(tmp, card2.runDir as string, "walkthrough");
+    mkdirSync(path.join(card2.runDir as string, "evidence"), { recursive: true });
+    writeFileSync(path.join(card2.runDir as string, "evidence", "evidence.md"), "# proof");
+    const ok = await advanceCardPhase({ root: tmp, board, card: card2, verdict: "validate", cwd: tmp });
+    expect(ok.outcome.status).toBe("moved");
   });
 });
 

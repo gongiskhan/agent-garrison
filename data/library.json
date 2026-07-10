@@ -148,6 +148,20 @@
     }
   },
   {
+    "id": "ports-default",
+    "name": "Ports",
+    "repo": "local:fittings/seed/ports-default",
+    "localPath": "fittings/seed/ports-default",
+    "summary": "Lists every listening TCP port on this box, labels each from the worktree registry / ui-fitting status files / owning process, and offers open-over-tailnet, open-in-Browser-pane, copy-URL, and guarded kill actions. Serves its own phone-friendly React UI on its own port (default 7088).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
     "id": "outpost-tailscale-host",
     "name": "Outpost",
     "repo": "local:fittings/seed/outpost-tailscale-host",
@@ -186,7 +200,7 @@
       "claude-code"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-model-router",
+      "github_stars_url": "https://github.com/gongiskhan/garrison-orchestrator",
       "global": 4.5,
       "claude_code": 4.5
     }

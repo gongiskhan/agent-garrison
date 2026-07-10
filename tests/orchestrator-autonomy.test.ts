@@ -52,14 +52,40 @@ describe("autonomy axis (D8)", () => {
     ).toBe("interactive");
   });
 
-  it("ordinary interactive work stays interactive; build verbs classify autonomous", async () => {
+  it("ordinary interactive work stays interactive; the CLASSIFIER's execution read decides (rev-s2 fix)", async () => {
     const mod = await core();
+    // ordinary chat code work → interactive (no dead task-type fallback)
     expect(
       mod.classifyExecution({ channel: "web", classification: { taskType: "code", tier: "T1-standard" } })
     ).toBe("interactive");
+    // "review this diff" must NOT card-ify (the old false-positive)
     expect(
-      mod.classifyExecution({ channel: "web", classification: { taskType: "implement", tier: "T1-standard" } })
+      mod.classifyExecution({ channel: "web", classification: { taskType: "review", tier: "T2-deep" } })
+    ).toBe("interactive");
+    // the classifier's own autonomous read stands
+    expect(
+      mod.classifyExecution({ channel: "web", classification: { taskType: "code", tier: "T1-standard", execution: "autonomous" } })
     ).toBe("autonomous");
+    // ...but Gary-mode conversation still floors interactive? No — explicit
+    // classifier reads rank BELOW the Gary floor per D8 rule order.
+    expect(
+      mod.classifyExecution({ channel: "web", mode: "gary", classification: { taskType: "code", tier: "T1-standard", execution: "autonomous" } })
+    ).toBe("interactive");
+  });
+
+  it("the classifier prompt asks for execution and the parser clamps it", async () => {
+    const mod = await core();
+    const cfg = JSON.parse(
+      (await import("node:fs")).readFileSync(
+        path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json"),
+        "utf8"
+      )
+    );
+    expect(mod.buildClassifierPrompt(cfg, "hello")).toContain("execution");
+    const parsed = mod.parseClassification('{"taskType":"code","tier":"T1-standard","execution":"autonomous"}', cfg);
+    expect(parsed.execution).toBe("autonomous");
+    const clamped = mod.parseClassification('{"taskType":"code","tier":"T1-standard","execution":"bogus"}', cfg);
+    expect(clamped.execution).toBe("interactive");
   });
 
   it("significance test: build verbs and non-trivial code are significant", async () => {
