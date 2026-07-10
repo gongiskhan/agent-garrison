@@ -11,7 +11,7 @@
     "used": 0
   },
   "blockers": [],
-  "commit": "8f905c4",
+  "commit": "058ea0d",
   "gates": {
     "typecheck": {
       "exit": 0,
@@ -42,8 +42,8 @@
     },
     "designAudit": {
       "verdict": "approve",
-      "by": "run-owner self-audit",
-      "summary": "emoji-rule clean; frame-verified professional; deep auditors superseding if delivered"
+      "by": "da-s34 (fresh-context)",
+      "summary": "NEEDS-WORK (phone target-card fill ~51%) -> fixed 058ea0d -> 100% fill, re-verified"
     },
     "walkthrough": {
       "status": "passed",
