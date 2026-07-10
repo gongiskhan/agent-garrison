@@ -1,0 +1,64 @@
+{
+  "title": "S11 Ports Fitting — evidence",
+  "project": "agent-garrison",
+  "folder": "ports",
+  "video": { "width": 1440, "height": 900, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "browser",
+      "id": "ports",
+      "baseURL": "http://127.0.0.1:48001",
+      "startPath": "/",
+      "runTimeoutMs": 180000,
+      "beats": [
+        {
+          "id": "ac1",
+          "caption": "AC-1 — live scan of the host's listening TCP ports",
+          "expectedScreen": "the Ports UI header showing a count like '51 listening · 32 exposed · 19 loopback' (highlighted) above a long table of real host ports (ssh, dns, dev servers), each with Port / Bind / Label / PID / Actions columns",
+          "actions": [
+            { "type": "waitFor", "selector": ".ports-table" },
+            { "type": "waitFor", "selector": "tr:has-text(\"demo-fitting\")" }
+          ],
+          "assert": { "selector": ".app-header .count", "text": "listening", "highlight": true },
+          "hold": 2000
+        },
+        {
+          "id": "ac2",
+          "caption": "AC-2 — a Garrison port labeled from its status file",
+          "expectedScreen": "the demo-fitting row's Label cell highlighted, reading 'demo-fitting' with a 'fitting' source chip — a name from the ui-fittings status file, not just a bare pid",
+          "assert": { "selector": "tr:has-text(\"demo-fitting\") .label-text", "text": "demo-fitting", "highlight": true },
+          "hold": 1800
+        },
+        {
+          "id": "ac3",
+          "caption": "AC-3 — loopback badge; loopback rows hide Open, tailnet rows show it",
+          "expectedScreen": "two adjacent rows: demo-local (127.0.0.1) with a highlighted 'loopback' chip and NO Open link, and demo-fitting (0.0.0.0, 'all interfaces') directly above it that DOES show an 'Open' link",
+          "assert": { "selector": "tr:has-text(\"demo-local\") .chip-loopback", "text": "loopback", "highlight": true },
+          "hold": 2200
+        },
+        {
+          "id": "ac4",
+          "caption": "AC-4 — Copy URL action on the row",
+          "expectedScreen": "the demo-fitting row's Actions column with the 'Copy URL' button highlighted, next to Open / Browser pane / Kill",
+          "assert": { "selector": "tr:has-text(\"demo-fitting\") button:text-is(\"Copy URL\")", "text": "Copy URL", "highlight": true },
+          "hold": 1600
+        },
+        {
+          "id": "ac5",
+          "caption": "AC-5 — SIGTERM (confirmed) kills demo-fitting; row gone after rescan",
+          "expectedScreen": "a green notice banner reading 'Sent SIGTERM to pid <n>' below the header; the demo-fitting row no longer present in the ports table (it was killed and the rescan dropped it)",
+          "actions": [
+            { "type": "waitFor", "selector": "tr:has-text(\"demo-fitting\")" },
+            { "type": "click", "selector": "tr:has-text(\"demo-fitting\") button:text-is(\"Kill\")" },
+            { "type": "waitFor", "selector": "tr:has-text(\"demo-fitting\") button:text-is(\"Confirm SIGTERM\")" },
+            { "type": "click", "selector": "tr:has-text(\"demo-fitting\") button:text-is(\"Confirm SIGTERM\")" },
+            { "type": "waitFor", "selector": "tr:has-text(\"demo-fitting\")", "state": "detached", "timeout": 15000 }
+          ],
+          "assert": { "selector": ".banner-notice", "text": "Sent SIGTERM", "highlight": true },
+          "hold": 2200
+        }
+      ]
+    }
+  ]
+}

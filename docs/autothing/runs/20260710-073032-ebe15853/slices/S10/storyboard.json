@@ -1,0 +1,61 @@
+{
+  "title": "S10 evidence: Monitor host vitals (read-only)",
+  "project": "agent-garrison",
+  "folder": "monitor",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "segments": [
+    {
+      "type": "browser",
+      "id": "vitals",
+      "baseURL": "http://127.0.0.1:7192",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac1",
+          "caption": "AC-1 - live host vitals: CPU load and memory usage",
+          "expectedScreen": "the CPU and Memory vitals cards, each showing a live percentage, a usage bar and load averages",
+          "actions": [
+            { "type": "waitFor", "selector": ".vital-big", "state": "visible", "timeout": 15000 }
+          ],
+          "assert": { "selector": ".vitals-grid", "text": "load", "highlight": true },
+          "hold": 2200
+        },
+        {
+          "id": "ac3",
+          "caption": "AC-3 - network throughput: rx and tx per second",
+          "expectedScreen": "the Network vitals card showing rx and tx throughput values in bytes per second",
+          "assert": { "selector": ".vital-card:has-text(\"Network\")", "text": "RX", "highlight": true },
+          "hold": 2000
+        },
+        {
+          "id": "ac2",
+          "caption": "AC-2 - per-mount disk usage (warn 85% / crit 95%)",
+          "expectedScreen": "the Disks section listing each mount with used/total and a percentage usage bar",
+          "assert": { "selector": ".vital-card:has-text(\"Disks\")", "text": "DISKS", "highlight": true },
+          "hold": 2400
+        },
+        {
+          "id": "ac4",
+          "caption": "AC-4 - garrison-* systemd units section (none active)",
+          "expectedScreen": "the Garrison units section showing the empty state 'no garrison-* systemd user units'",
+          "assert": { "selector": ".vital-card:has-text(\"Garrison units\")", "text": "GARRISON UNITS", "highlight": true },
+          "hold": 2200
+        },
+        {
+          "id": "ac5",
+          "caption": "AC-5 - vitals refresh live (5s cadence)",
+          "expectedScreen": "the vitals grid with CPU, Memory and Network values updating live over the hold",
+          "assert": { "selector": ".vitals-grid", "text": "CPU", "highlight": true },
+          "hold": 9000
+        },
+        {
+          "id": "ac6",
+          "caption": "AC-6 - display-only: no action buttons on the vitals surface",
+          "expectedScreen": "the full read-only vitals surface (CPU / Memory / Network / Disks / units) with no buttons or controls",
+          "assert": { "selector": "section.vitals", "text": "CPU", "highlight": true },
+          "hold": 2600
+        }
+      ]
+    }
+  ]
+}

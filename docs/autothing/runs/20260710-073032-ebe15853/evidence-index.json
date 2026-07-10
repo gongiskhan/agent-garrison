@@ -1,106 +1,134 @@
 {
-  "runId": "20260710-073032-ebe15853",
-  "project": "agent-garrison",
-  "brief": "GARRISON-UNIFY-V1",
-  "profile": "build",
-  "gatesConfig": {
-    "test": true,
-    "adversarialReview": true,
-    "adversarialTest": true,
-    "codexSliceReview": true,
-    "design": true,
-    "walkthrough": true,
-    "deliberateRed": true,
-    "mutation": true,
-    "report": true,
-    "foundation": true,
-    "codexCheckpoint": true,
-    "askQuestions": false
+ "runId": "20260710-073032-ebe15853",
+ "project": "agent-garrison",
+ "brief": "GARRISON-UNIFY-V1",
+ "profile": "build",
+ "gatesConfig": {
+  "test": true,
+  "adversarialReview": true,
+  "adversarialTest": true,
+  "codexSliceReview": true,
+  "design": true,
+  "walkthrough": true,
+  "deliberateRed": true,
+  "mutation": true,
+  "report": true,
+  "foundation": true,
+  "codexCheckpoint": true,
+  "askQuestions": false
+ },
+ "slices": [
+  {
+   "slice": "S1",
+   "title": "Policy core",
+   "kind": "api",
+   "status": "passed"
   },
-  "slices": [
-    {
-      "slice": "S1",
-      "title": "Policy core",
-      "kind": "api",
-      "status": "passed"
-    },
-    {
-      "slice": "S8",
-      "title": "Config home",
-      "kind": "api",
-      "status": "passed"
-    },
-    {
-      "slice": "S2",
-      "title": "Brain merge",
-      "kind": "api",
-      "status": "passed"
-    },
-    {
-      "slice": "S4",
-      "title": "Run engine",
-      "kind": "mixed",
-      "status": "passed"
-    },
-    {
-      "slice": "S5",
-      "title": "Thin doorway",
-      "kind": "api",
-      "status": "in_progress",
-      "note": "implement+wall green; review pending"
-    },
-    {
-      "slice": "S6",
-      "title": "Evidence home",
-      "kind": "api",
-      "status": "in_progress",
-      "note": "implement+wall green; review pending"
-    },
-    {
-      "slice": "S7",
-      "title": "Surfaces",
-      "kind": "mixed",
-      "status": "in_progress",
-      "note": "implement+wall green; review pending"
-    },
-    {
-      "slice": "S3",
-      "title": "Composer view",
-      "kind": "ui",
-      "status": "in_progress",
-      "note": "imp-s3 implementing"
-    },
-    {
-      "slice": "S10",
-      "title": "Monitor vitals",
-      "kind": "ui",
-      "status": "in_progress",
-      "note": "implemented by imp-s10; lead gates pending"
-    },
-    {
-      "slice": "S11",
-      "title": "Ports fitting",
-      "kind": "mixed",
-      "status": "in_progress",
-      "note": "implemented by imp-s11; lead gates pending"
-    },
-    {
-      "slice": "S16",
-      "title": "Headless gaps",
-      "kind": "api",
-      "status": "in_progress",
-      "note": "(b) fixes landed; classification report at verdict"
-    }
-  ],
-  "globalGate": {
-    "status": "in_progress",
-    "deliberateRed": {
-      "status": "passed",
-      "gatesProven": [
-        "gitleaks (planted github-pat + aws-access-token -> exit 1)",
-        "compile --check (unknown target -> exit 1)"
-      ],
-      "at": "2026-07-10T08:16:47Z"
-    }
+  {
+   "slice": "S8",
+   "title": "Config home",
+   "kind": "api",
+   "status": "passed"
+  },
+  {
+   "slice": "S2",
+   "title": "Brain merge",
+   "kind": "api",
+   "status": "passed"
+  },
+  {
+   "slice": "S4",
+   "title": "Run engine",
+   "kind": "mixed",
+   "status": "passed"
+  },
+  {
+   "slice": "S5",
+   "title": "Thin doorway",
+   "kind": "api",
+   "status": "in_progress",
+   "note": "implement+wall green; review pending"
+  },
+  {
+   "slice": "S6",
+   "title": "Evidence home",
+   "kind": "api",
+   "status": "in_progress",
+   "note": "implement+wall green; review pending"
+  },
+  {
+   "slice": "S7",
+   "title": "Surfaces",
+   "kind": "mixed",
+   "status": "in_progress",
+   "note": "implement+wall green; review pending"
+  },
+  {
+   "slice": "S3",
+   "title": "Composer view",
+   "kind": "ui",
+   "status": "in_progress",
+   "note": "imp-s3 implementing"
+  },
+  {
+   "slice": "S10",
+   "title": "Monitor vitals",
+   "kind": "ui",
+   "status": "in_progress",
+   "note": "implemented by imp-s10; lead gates pending"
+  },
+  {
+   "slice": "S11",
+   "title": "Ports fitting",
+   "kind": "mixed",
+   "status": "in_progress",
+   "note": "implemented by imp-s11; lead gates pending"
+  },
+  {
+   "slice": "S16",
+   "title": "Headless gaps",
+   "kind": "api",
+   "status": "in_progress",
+   "note": "E11 class-(b) fixes verified in HEAD; api review pending; FOLLOWUP: tmux pbcopy -> OSC 52"
+  },
+  {
+   "slice": "S13",
+   "title": "Power core",
+   "kind": "mixed",
+   "status": "in_progress",
+   "note": "walls+commit+signal-demo cast done; review pending",
+   "evidence": {
+    "cast": "docs/autothing/runs/20260710-073032-ebe15853/slices/S13/evidence.cast"
+   }
+  },
+  {
+   "slice": "S9",
+   "note": "walls+commit done; review + walkthrough pending"
+  },
+  {
+   "slice": "S12",
+   "title": "Snapshots",
+   "kind": "mixed",
+   "status": "in_progress",
+   "note": "walls+commit done; review + walkthrough pending"
+  },
+  {
+   "slice": "S15",
+   "title": "Improver policy rule",
+   "kind": "api",
+   "status": "in_progress",
+   "note": "committed + run-now gap fixed (2af5968); live chain verified"
   }
+ ],
+ "globalGate": {
+  "status": "in_progress",
+  "deliberateRed": {
+   "status": "passed",
+   "gatesProven": [
+    "gitleaks (planted github-pat + aws-access-token -> exit 1)",
+    "compile --check (unknown target -> exit 1)"
+   ],
+   "at": "2026-07-10T08:16:47Z"
+  }
+ }
 }

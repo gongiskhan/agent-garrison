@@ -1,0 +1,62 @@
+[
+  {
+    "beat": "ac1",
+    "criterionId": "AC-1",
+    "criterion": "The Monitor UI renders live host vitals: CPU load and memory usage.",
+    "timestamp": 2.043,
+    "frame": "frames/beat-00-ac1.png",
+    "assert": ".vitals-grid contains \"load\" (highlighted)",
+    "observed": "Vitals grid highlighted: CPU card reads 14% with a usage bar and 'load 2.99 · 2.40 · 1.78 · 16 cores'; Memory card reads 19% with a bar and '12.0 GB / 62.8 GB used'. Real host counters via systeminformation.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac2",
+    "criterionId": "AC-2",
+    "criterion": "Per-mount disk usage with the warn/crit thresholds (85% warn / 95% crit styling) - the disk section.",
+    "timestamp": 11.891,
+    "frame": "frames/beat-02-ac2.png",
+    "assert": ".vital-card:has-text(\"Disks\") contains \"DISKS\" (highlighted)",
+    "observed": "Disks section highlighted, one row per real mount with used/total, a usage bar and percentage: / 57.2 GB/435 GB · 13%, /sys/firmware/efi/efivars · 13%, /boot 72.5 MB/880 MB · 9%, /boot/efi 6.1 MB/104 MB · 6%. Every mount is below the 85% warn threshold, so all bars render in the ok/default severity; the warn/crit styling (diskSeverity 85/95) is implemented but nothing currently crosses it - filmed honestly.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac3",
+    "criterionId": "AC-3",
+    "criterion": "Network throughput values present.",
+    "timestamp": 7.081,
+    "frame": "frames/beat-01-ac3.png",
+    "assert": ".vital-card:has-text(\"Network\") contains \"RX\" (highlighted)",
+    "observed": "Network card highlighted showing RX 234 KB/s and TX 512 KB/s - real per-second throughput from si.networkStats aggregated over 3 interfaces.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac4",
+    "criterionId": "AC-4",
+    "criterion": "garrison-* systemd user units section (Linux) renders; empty state acceptable if none running.",
+    "timestamp": 17.098,
+    "frame": "frames/beat-03-ac4.png",
+    "assert": ".vital-card:has-text(\"Garrison units\") contains \"GARRISON UNITS\" (highlighted)",
+    "observed": "Garrison units section highlighted showing the honest empty state 'no garrison-* systemd user units'. `systemctl --user list-units garrison-*` returns none on this host, so the Linux-only listing renders its empty state (captioned 'none active').",
+    "result": "pass"
+  },
+  {
+    "beat": "ac5",
+    "criterionId": "AC-5",
+    "criterion": "Vitals REFRESH live across the 5s client cadence - a changed value proves it is not a static snapshot.",
+    "timestamp": 22.138,
+    "frame": "frames/beat-04-ac5.png",
+    "assert": ".vitals-grid contains \"CPU\" (highlighted); two frames extracted 9.2s apart inside the 9s hold (frames/ac5-live-early.png t=22.2 vs frames/ac5-live-late.png t=31.4) compared for changed values",
+    "observed": "Across the ~9s hold (which spans the 5s refresh cadence) multiple live values changed: CPU 19% to 15%, load1 3.42 to 3.66, Memory used 12.6 GB to 12.5 GB, Network RX 12.2 to 8.5 KB/s, TX 47.8 to 50.4 KB/s. Network RX also moved across earlier beats (18.8 to 234 to 18.3 KB/s). Confirms the SSE-driven vitals refresh live, not a frozen snapshot.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac6",
+    "criterionId": "AC-6",
+    "criterion": "Strictly display-only: no control/action buttons anywhere on the vitals surface.",
+    "timestamp": 33.971,
+    "frame": "frames/beat-05-ac6.png",
+    "assert": "section.vitals contains \"CPU\" (whole surface highlighted); off-camera runtime DOM count of interactive elements inside section.vitals",
+    "observed": "The entire vitals surface (CPU / Memory / Network / Disks / Garrison units - 5 cards) is highlighted with no buttons or controls visible. Runtime DOM check of section.vitals: 0 <button>, 0 <a>, 0 <input>/<select>/<textarea>, 0 [role=button], 0 [onclick]. Display-only confirmed.",
+    "result": "pass"
+  }
+]
