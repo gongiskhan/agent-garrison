@@ -219,6 +219,23 @@ describe("rails + per-card phase toggles (D17)", () => {
   });
 });
 
+describe("evidence home (S6/D19)", () => {
+  it("mintRunFields mints an ABSOLUTE runDir under ~/.garrison/runs/<project>/<runId>", async () => {
+    // @ts-ignore pure mjs
+    const { mintRunFields, runProjectLabel } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
+    process.env.GARRISON_RUNS_DIR = path.join(tmp, "runs-home");
+    const minted = mintRunFields({ project: "/home/u/dev/garrison" });
+    expect(path.isAbsolute(minted.runDir)).toBe(true);
+    expect(minted.runDir).toContain(path.join(tmp, "runs-home", "garrison"));
+    expect(minted.runDir.endsWith(minted.runId)).toBe(true);
+    // label safety
+    expect(runProjectLabel("/x/../..")).toBe("no-project");
+    expect(runProjectLabel(null)).toBe("no-project");
+    expect(runProjectLabel("~/dev/my repo!")).toBe("my-repo-");
+    delete process.env.GARRISON_RUNS_DIR;
+  });
+});
+
 describe("in-process advance (D13)", () => {
   it("advanceCardPhase enforces verdict validity + gate evidence, then moves", async () => {
     const board = seedBoard();

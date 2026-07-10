@@ -5,6 +5,12 @@ import { describe, it, expect } from "vitest";
 // mechanics, so pin the policy path at a nonexistent file (policy-less mode);
 // the policy-driven behavior is covered in tests/run-engine.test.ts.
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+// S6 (D19): runDirs mint ABSOLUTE under the evidence home — sandbox it so
+// tests never write the real ~/.garrison/runs.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
 
 import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -137,7 +143,7 @@ describe("kanban CAS (s5 cross-model gate — lost-update guard)", () => {
     expect(skipped.length).toBe(1);
     const disk = await loadCard(root, card.id);
     expect(typeof disk.runId).toBe("string");
-    expect(disk.runDir).toBe(`docs/autothing/runs/${disk.runId}`);
+    expect(disk.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", disk.runId)); // S6: absolute, evidence home
     expect(disk.iterations).toBe(1); // ran once, not twice
   });
 });
@@ -195,7 +201,7 @@ describe("kanban engine — triggers + runId minting", () => {
   it("mintRunFields mints once (idempotent) with a project-relative runDir", () => {
     const m = mintRunFields({ runId: null, runDir: null }, () => 1234);
     expect(m.runId).toHaveLength(26);
-    expect(m.runDir).toBe(`docs/autothing/runs/${m.runId}`);
+    expect(m.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", m.runId)); // S6: absolute
     // already minted → null (no re-mint)
     expect(mintRunFields({ runId: "X", runDir: "docs/autothing/runs/X" })).toBeNull();
   });
@@ -208,7 +214,7 @@ describe("kanban engine — triggers + runId minting", () => {
     const { card: updated, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
     expect(outcome.status).toBe("moved");
     expect(updated.runId).toHaveLength(26);
-    expect(updated.runDir).toBe(`docs/autothing/runs/${updated.runId}`);
+    expect(updated.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", updated.runId));
     // the runDir reached the execute-prompt as literal text
     expect(seen).toContain(updated.runDir);
     // a second entry does NOT re-mint
@@ -479,8 +485,8 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "kanban-pipe-cwd-"));
     const runFn = async ({ card: c }: { card: any }) => {
       if (c.list === "walkthrough") {
-        mkdirSync(join(cwd, c.runDir, "evidence"), { recursive: true });
-        writeFileSync(join(cwd, c.runDir, "evidence", "evidence.md"), "# evidence\nstub\n");
+        mkdirSync(join(c.runDir, "evidence"), { recursive: true }); // S6: runDir absolute
+        writeFileSync(join(c.runDir, "evidence", "evidence.md"), "# evidence\nstub\n");
       }
       return { reply: passReply[c.list] };
     };

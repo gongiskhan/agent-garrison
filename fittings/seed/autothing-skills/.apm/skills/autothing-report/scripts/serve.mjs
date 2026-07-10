@@ -6,9 +6,12 @@
 // a detached server and prints its Tailscale URL; later calls detect the running
 // server and just print the URL. Read-only (GET), with a directory index.
 //
-// Usage:  node serve.mjs [--root <dir>] [--port <n>]
+// Usage:  node serve.mjs [--root <dir>] [--port <n>] [--runs-root <dir>]
 //   default root = ~/.autothing/report   default port = 8091
-// Status file: ~/.autothing/report-serve.json  ({pid, port, root, url, startedAt})
+//   /runs/... additionally serves the evidence home (GARRISON-UNIFY-V1 S6/D20):
+//   default runs-root = ~/.garrison/runs — cards and the final report link
+//   http://<tailnet>:8091/runs/<project>/<runId>/...
+// Status file: ~/.autothing/report-serve.json  ({pid, port, root, runsRoot, url, startedAt})
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,6 +21,8 @@ import { execSync, spawn } from 'node:child_process';
 const HOME = os.homedir();
 const argVal = (f) => { const i = process.argv.indexOf(f); return i >= 0 ? process.argv[i + 1] : null; };
 const ROOT = path.resolve(argVal('--root') || path.join(HOME, '.autothing', 'report'));
+const RUNS_ROOT = path.resolve(argVal('--runs-root') || process.env.GARRISON_RUNS_DIR
+  || path.join(process.env.GARRISON_HOME || path.join(HOME, '.garrison'), 'runs'));
 const PORT = parseInt(argVal('--port') || '8091', 10);
 const STATUS = path.join(HOME, '.autothing', 'report-serve.json');
 const SELF = new URL(import.meta.url).pathname;
@@ -51,13 +56,13 @@ function ensureRunning() {
   fs.mkdirSync(path.dirname(STATUS), { recursive: true });
   try {
     const s = JSON.parse(fs.readFileSync(STATUS, 'utf8'));
-    if (s.pid && s.port === PORT && s.root === ROOT && alive(s.pid)) { console.log(s.url); return; }
+    if (s.pid && s.port === PORT && s.root === ROOT && s.runsRoot === RUNS_ROOT && alive(s.pid)) { console.log(s.url); return; }
   } catch {}
-  const child = spawn(process.execPath, [SELF, '--root', ROOT, '--port', String(PORT)],
+  const child = spawn(process.execPath, [SELF, '--root', ROOT, '--runs-root', RUNS_ROOT, '--port', String(PORT)],
     { detached: true, stdio: 'ignore', env: { ...process.env, _AUTOTHING_SERVE_CHILD: '1' } });
   child.unref();
   const url = `http://${tailscaleIP()}:${PORT}/`;
-  fs.writeFileSync(STATUS, JSON.stringify({ pid: child.pid, port: PORT, root: ROOT, url, startedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(STATUS, JSON.stringify({ pid: child.pid, port: PORT, root: ROOT, runsRoot: RUNS_ROOT, url, startedAt: new Date().toISOString() }, null, 2));
   console.log(url);
 }
 
@@ -66,7 +71,11 @@ function runServer() {
     try {
       const reqPath = decodeURIComponent((req.url || '/').split('?')[0]);
       if (reqPath.includes('..')) { res.writeHead(400); return res.end('bad path'); }
-      const fp = path.join(ROOT, reqPath);
+      // /runs/... serves the evidence home (D20); everything else the report root.
+      const underRuns = reqPath === '/runs' || reqPath.startsWith('/runs/');
+      const fp = underRuns
+        ? path.join(RUNS_ROOT, reqPath.slice('/runs'.length) || '/')
+        : path.join(ROOT, reqPath);
       let st; try { st = fs.statSync(fp); } catch { res.writeHead(404); return res.end('not found'); }
       if (st.isDirectory()) {
         const entries = fs.readdirSync(fp, { withFileTypes: true });

@@ -13,6 +13,12 @@ import { describe, it, expect } from "vitest";
 // mechanics, so pin the policy path at a nonexistent file (policy-less mode);
 // the policy-driven behavior is covered in tests/run-engine.test.ts.
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+// S6 (D19): runDirs mint ABSOLUTE under the evidence home — sandbox it so
+// tests never write the real ~/.garrison/runs.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

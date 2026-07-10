@@ -90,8 +90,24 @@ export function readCardBrief(root, cardId, max = 6000) {
 
 const AGENT_KIND = "agent";
 
-// Project-relative run-directory root the autothing skills already write under.
-const RUN_DIR_BASE = "docs/autothing/runs";
+// The evidence home (GARRISON-UNIFY-V1 S6, D19): run directories live OUTSIDE
+// the project repo, under ~/.garrison/runs/<project>/<runId>/ — the repo keeps
+// only work products and committed re-runnable tests. runDir is now an
+// ABSOLUTE path (path.resolve(cwd, runDir) is a no-op for absolute paths, so
+// every existing consumer keeps working).
+import os from "node:os";
+const RUNS_HOME = () =>
+  process.env.GARRISON_RUNS_DIR ||
+  path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "runs");
+
+// A path-safe project label for the runs home: the project's basename, with
+// anything traversal-ish collapsed. Null project → "(no-project)".
+export function runProjectLabel(project) {
+  if (!project || typeof project !== "string") return "no-project";
+  const base = path.basename(project.trim());
+  const safe = base.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^\.+/, "");
+  return safe || "no-project";
+}
 
 export function getList(board, listId) {
   return (board.lists || []).find((l) => l.id === listId) || null;
@@ -118,12 +134,13 @@ export function isInteractive(list) {
 }
 
 // Mint a runId + runDir for a card iff it does not have one yet. Called when a card
-// first enters an agent list (Start → plan). runDir is project-relative so the same
-// pointer is valid from any working dir the skill resolves against (FINDING 4/10).
+// first enters an agent list (Start → plan). runDir is ABSOLUTE under the
+// evidence home (~/.garrison/runs/<project>/<runId>/, D19) so nothing
+// run-scoped is ever written inside the project repo.
 export function mintRunFields(card, now = Date.now) {
   if (card.runId && card.runDir) return null; // already minted — idempotent
   const runId = ulid(typeof now === "function" ? now() : now);
-  return { runId, runDir: `${RUN_DIR_BASE}/${runId}` };
+  return { runId, runDir: path.join(RUNS_HOME(), runProjectLabel(card.project), runId) };
 }
 
 // D15: per-list taskType/tier/skill/mode config is DEAD. Resolution comes from

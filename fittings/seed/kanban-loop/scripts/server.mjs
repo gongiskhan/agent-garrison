@@ -194,12 +194,20 @@ function liveTailFor(root, card, maxLines = 3, maxChars = 240) {
 // ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl). `root` defaults to the
 // kanban board root (where cards/<id>/log-N.md live); `cwd` is the project root
 // the run + transcript resolve against.
-// The roots an artifact path may live under: the project root (plan/gate/brief),
-// the board root (per-card logs), and the Claude Code projects dir (session
-// transcripts). A served path must be inside ONE of these — the read side
-// (handleArtifact) re-confines against the SAME set.
+// The roots an artifact path may live under: the project root (legacy
+// plan/gate paths), the board root (per-card logs), the Claude Code projects
+// dir (session transcripts), and the evidence home ~/.garrison/runs (S6/D19 —
+// where run directories live now). A served path must be inside ONE of these —
+// the read side (handleArtifact) re-confines against the SAME set.
+export function runsHomeDir() {
+  return (
+    process.env.GARRISON_RUNS_DIR ||
+    path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "runs")
+  );
+}
+
 export function allowedRoots(cwd = projectRoot(), root = kanbanRoot()) {
-  return [cwd, root, claudeProjectsDir()];
+  return [cwd, root, claudeProjectsDir(), runsHomeDir()];
 }
 
 export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot() } = {}) {
@@ -954,14 +962,25 @@ async function handleDeleteCard(req, res, opts, id) {
   // 1. The card's own directory (always).
   if (await deleteCard(opts.root, id)) removed.push(`cards/${id}`);
 
-  // 2. The run directory it produced — only the card's own ULID runId, confined.
+  // 2. The run directory it produced — only the card's own ULID runId, confined
+  // to the evidence home (~/.garrison/runs/, D19). Legacy repo-relative runDirs
+  // (pre-S6 cards) are ALSO handled, confined to the old docs/autothing/runs.
   if (card.runId && isValidCardId(card.runId)) {
-    const runsRoot = path.resolve(projectRoot(), "docs", "autothing", "runs");
-    const candidate = path.resolve(runsRoot, card.runId);
-    const confined = confinePath(candidate, [runsRoot]);
-    if (confined && existsSync(confined)) {
-      try { await rm(confined, { recursive: true, force: true }); removed.push(`docs/autothing/runs/${card.runId}`); }
-      catch { /* best-effort */ }
+    const runsHome = process.env.GARRISON_RUNS_DIR
+      || path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "runs");
+    const legacyRoot = path.resolve(projectRoot(), "docs", "autothing", "runs");
+    const candidates = [];
+    if (typeof card.runDir === "string" && path.isAbsolute(card.runDir)) {
+      const confined = confinePath(path.resolve(card.runDir), [runsHome]);
+      if (confined) candidates.push({ abs: confined, label: card.runDir });
+    }
+    const legacy = confinePath(path.resolve(legacyRoot, card.runId), [legacyRoot]);
+    if (legacy) candidates.push({ abs: legacy, label: `docs/autothing/runs/${card.runId}` });
+    for (const c of candidates) {
+      if (existsSync(c.abs)) {
+        try { await rm(c.abs, { recursive: true, force: true }); removed.push(c.label); }
+        catch { /* best-effort */ }
+      }
     }
   }
 

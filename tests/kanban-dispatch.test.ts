@@ -10,6 +10,12 @@ import { describe, it, expect, afterEach } from "vitest";
 // mechanics, so pin the policy path at a nonexistent file (policy-less mode);
 // the policy-driven behavior is covered in tests/run-engine.test.ts.
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+// S6 (D19): runDirs mint ABSOLUTE under the evidence home — sandbox it so
+// tests never write the real ~/.garrison/runs.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -56,7 +62,8 @@ describe("v1c shouldAutoDispatch — Move onto an immediate agent list starts th
     const disk = await loadCard(root, card.id);
     expect(disk.list).toBe("implement");
     expect(typeof disk.runId).toBe("string");           // runId minted on the first agent-list entry
-    expect(disk.runDir).toBe(`docs/autothing/runs/${disk.runId}`);
+    expect(disk.runDir.endsWith(disk.runId)).toBe(true); // S6: absolute under the evidence home
+    expect(disk.runDir.startsWith(process.env.GARRISON_RUNS_DIR!)).toBe(true);
   });
 });
 

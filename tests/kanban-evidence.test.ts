@@ -10,6 +10,12 @@ import { describe, it, expect } from "vitest";
 // mechanics, so pin the policy path at a nonexistent file (policy-less mode);
 // the policy-driven behavior is covered in tests/run-engine.test.ts.
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+// S6 (D19): runDirs mint ABSOLUTE under the evidence home — sandbox it so
+// tests never write the real ~/.garrison/runs.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
 
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -135,8 +141,9 @@ describe("evidence GATE — a requiresEvidence list cannot advance without produ
     const card = await createCard(root, { title: "T", project: "p", list: "walkthrough" });
     // mint the runDir the engine will look under, and write evidence there
     const runFn = async ({ card: c }: { card: any }) => {
-      mkdirSync(join(cwd, c.runDir, "evidence"), { recursive: true });
-      writeFileSync(join(cwd, c.runDir, "evidence", "after.png"), "PNG");
+      // S6: runDir is ABSOLUTE (evidence home) — use it directly.
+      mkdirSync(join(c.runDir, "evidence"), { recursive: true });
+      writeFileSync(join(c.runDir, "evidence", "after.png"), "PNG");
       return { reply: "captured screenshot\nvalidate" };
     };
     const { outcome } = await processCard({ root, board, card, runFn, cap: 10, cwd });

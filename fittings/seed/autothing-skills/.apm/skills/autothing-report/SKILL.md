@@ -29,7 +29,7 @@ Notifies the operator on Slack that an autothing run is done, with a work summar
 - **Standalone:** invoke any time against a finished run dir to (re)send the report.
 
 ## Inputs
-- `<runDir>` = `docs/autothing/runs/<runId>/` (from autothing Phase 0), `<runId>`, `<project>`.
+- `<runDir>` = `~/.garrison/runs/<project>/<runId>/` (the evidence home, GARRISON-UNIFY-V1 D19 — nothing run-scoped lives inside the project repo; the repo keeps only work products + committed re-runnable tests), `<runId>`, `<project>`.
 - `globalGate.status` + per-slice video links from `<runDir>/evidence-index.json`.
 - This session id: `$CLAUDE_CODE_SESSION_ID`.
 
@@ -38,12 +38,16 @@ Notifies the operator on Slack that an autothing run is done, with a work summar
 ### 1. Gather the summary + gallery URL
 - Read `<runDir>/evidence-index.json`: take `globalGate.status`, the per-slice `video.link` values, and the **gallery base URL** (the common `http://<tailscale-ip>:<port>/` prefix of those links — this is what the `walkthrough` skill already publishes; this skill does NOT re-serve the videos).
 - Compose a concise **summary** (slices passed/blocked, what was built, any blockers with their cause). Write it to `<runDir>/report-summary.md` so it can be passed by path.
+- **Gather EVERY evidence link for the run (D20)** — all slices, all phases, including which phases were OFF and why (rail off / card toggle / operator flag — from the card's `phases` map and each gate-status `skipped` slot) — regardless of how the run was started (chat, board, or skill). Links use the `/runs/<project>/<runId>/...` scheme; the prune (scripts/prune-runs.mjs: newest 20 runs per project or 30 days, whichever retains more; JSON kept indefinitely) may age out heavy media, so the JSON record is the durable spine.
 
 ### 2. Publish the logs over Tailscale — WITHOUT duplicating them
 Build a per-run directory of **symlinks** to the real files (symlinks reference the originals — no content is copied), then start the standing server:
 ```bash
 mkdir -p ~/.autothing/report/<runId>
-ln -sfn "<abs runDir>" ~/.autothing/report/<runId>/run                 # plan, gate-status, evidence-index, friction-log
+# The evidence home is served DIRECTLY at /runs/ (D20) — no per-run symlink
+# needed for run artifacts; the canonical link is
+#   http://<tailnet>:8091/runs/<project>/<runId>/
+# (symlinks under ~/.autothing/report remain supported for extra artifacts)
 TRANSCRIPT="$(find ~/.claude/projects -name "$CLAUDE_CODE_SESSION_ID.jsonl" 2>/dev/null | head -1)"
 [ -n "$TRANSCRIPT" ] && ln -sfn "$TRANSCRIPT" ~/.autothing/report/<runId>/session-transcript.jsonl
 node ~/.claude/skills/autothing-report/scripts/serve.mjs   # prints the Tailscale base URL, e.g. http://100.x.y.z:8091/
