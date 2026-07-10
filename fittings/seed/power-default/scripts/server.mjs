@@ -510,6 +510,26 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// Local-origin guard for state-changing requests. The server is unauthenticated
+// + loopback-bound, so without this a page the user visits could POST /api/suspend
+// (drive-by suspend) or DNS-rebind to reach it. Reject a non-loopback Host
+// (rebinding) and a cross-site Origin (CSRF). Returns true when blocked (answered).
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+function crossSiteBlocked(req, res) {
+  const hostName = String(req.headers["host"] || "").replace(/:\d+$/, "").toLowerCase();
+  if (hostName && !LOOPBACK_HOSTS.has(hostName)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback Host '${hostName}' (DNS-rebinding guard)` });
+    return true;
+  }
+  const origin = req.headers["origin"];
+  if (origin) {
+    let ok = false;
+    try { ok = LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase()); } catch { ok = false; }
+    if (!ok) { jsonRes(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" }); return true; }
+  }
+  return false;
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     let data = "";
@@ -574,6 +594,7 @@ async function handleRequest(req, res, distDir, liveOpts) {
     return jsonRes(res, 200, { ok: true });
   }
   if (pathname === "/api/suspend" && method === "POST") {
+    if (crossSiteBlocked(req, res)) return;
     const body = await readBody(req);
     if (body?.confirm !== true) {
       return jsonRes(res, 400, { ok: false, error: "confirm:true required" });
@@ -586,6 +607,7 @@ async function handleRequest(req, res, distDir, liveOpts) {
     return jsonRes(res, 202, { ok: true, warningSeconds: SUSPEND_WARNING_MS / 1000 });
   }
   if (pathname === "/api/keep-awake" && method === "POST") {
+    if (crossSiteBlocked(req, res)) return;
     const body = await readBody(req);
     const hours = Number(body?.hours);
     if (!KEEP_AWAKE_HOURS.has(hours)) {
@@ -596,11 +618,13 @@ async function handleRequest(req, res, distDir, liveOpts) {
     return jsonRes(res, 200, { ok: true, keepAwake: ka });
   }
   if (pathname === "/api/keep-awake" && method === "DELETE") {
+    if (crossSiteBlocked(req, res)) return;
     await clearKeepAwake();
     broadcast({ type: "state", state: publicState() });
     return jsonRes(res, 200, { ok: true });
   }
   if (pathname === "/api/config" && method === "PUT") {
+    if (crossSiteBlocked(req, res)) return;
     const body = await readBody(req);
     if (Number.isFinite(Number(body?.idle_minutes)) && Number(body.idle_minutes) > 0) {
       runtime.config.idle_minutes = Number(body.idle_minutes);

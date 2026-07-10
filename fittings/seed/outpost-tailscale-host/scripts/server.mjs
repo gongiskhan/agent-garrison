@@ -45,6 +45,27 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// Local-origin guard for state-changing requests (provision/register/pair/rpc/
+// unregister). Unauthenticated + loopback-bound, so without this a page the user
+// visits could POST /provision (trigger SSH) or /outposts/<x>/rpc (run a command
+// on a paired Mac), or DNS-rebind to reach any of them. Reject a non-loopback
+// Host (rebinding) and a cross-site Origin (CSRF). True when blocked (answered).
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+function crossSiteBlocked(req, res) {
+  const hostName = String(req.headers["host"] || "").replace(/:\d+$/, "").toLowerCase();
+  if (hostName && !LOOPBACK_HOSTS.has(hostName)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback Host '${hostName}' (DNS-rebinding guard)` });
+    return true;
+  }
+  const origin = req.headers["origin"];
+  if (origin) {
+    let ok = false;
+    try { ok = LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase()); } catch { ok = false; }
+    if (!ok) { jsonRes(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" }); return true; }
+  }
+  return false;
+}
+
 async function readBody(req) {
   const chunks = [];
   for await (const c of req) chunks.push(c);
@@ -345,9 +366,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/health") return await handleHealth(req, res, liveOpts);
       if (pathname === "/checkouts" && method === "GET") return await handleCheckouts(req, res);
       if (pathname === "/outposts" && method === "GET") return await handleListOutposts(req, res, liveOpts);
-      if (pathname === "/outposts" && method === "POST") return await handleRegisterOutpost(req, res, liveOpts);
-      if (pathname === "/registry/pair" && method === "POST") return await handlePair(req, res, liveOpts);
-      if (pathname === "/provision" && method === "POST") return await handleProvision(req, res, liveOpts);
+      if (pathname === "/outposts" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleRegisterOutpost(req, res, liveOpts); }
+      if (pathname === "/registry/pair" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handlePair(req, res, liveOpts); }
+      if (pathname === "/provision" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleProvision(req, res, liveOpts); }
 
       const provStreamMatch = pathname.match(/^\/provision\/([^/]+)\/stream$/);
       if (provStreamMatch && method === "GET") return await handleProvisionStream(req, res, decodeURIComponent(provStreamMatch[1]));
@@ -356,10 +377,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (logMatch && method === "GET") return await handleLog(req, res, liveOpts, decodeURIComponent(logMatch[1]), parsed.query?.limit);
 
       const rpcMatch = pathname.match(/^\/outposts\/([^/]+)\/rpc$/);
-      if (rpcMatch && method === "POST") return await handleRpc(req, res, liveOpts, decodeURIComponent(rpcMatch[1]));
+      if (rpcMatch && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleRpc(req, res, liveOpts, decodeURIComponent(rpcMatch[1])); }
 
       const unregMatch = pathname.match(/^\/outposts\/([^/]+)$/);
-      if (unregMatch && method === "DELETE") return await handleUnregisterOutpost(req, res, liveOpts, decodeURIComponent(unregMatch[1]));
+      if (unregMatch && method === "DELETE") { if (crossSiteBlocked(req, res)) return; return await handleUnregisterOutpost(req, res, liveOpts, decodeURIComponent(unregMatch[1])); }
 
       return await serveStatic(req, res, distDir);
     } catch (err) {
