@@ -7,9 +7,9 @@
 // Cleans up its synthetic records (the throwaway repo's coord ledgers).
 //
 // Note: this drives the same artifacts a DIRECT `claude` run loads; it does not
-// spawn `claude` itself (PTY-everywhere forbids `claude -p`, and a literal spawn
-// is what CO6's wiring proof covers). Honest framing: it proves the chain's code +
-// wiring, not the model.
+// spawn `claude` itself (Garrison excludes `claude -p` headless as a capability
+// choice, and a literal spawn is what CO6's wiring proof covers). Honest framing:
+// it proves the chain's code + wiring, not the model.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

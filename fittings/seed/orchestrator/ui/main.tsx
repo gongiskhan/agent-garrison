@@ -52,6 +52,7 @@ type AnyTarget = {
   effort?: string;
   workflow?: string;
   pinned?: boolean;
+  authMode?: string;
 };
 type PhaseEntry = string | { id: string; on?: boolean };
 
@@ -78,6 +79,33 @@ const railFor = railForCore as unknown as (config: Cfg, workKind?: string | null
 const EFFORTS = ["low", "medium", "high", "xhigh"];
 const EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 const RUNTIME_OPTIONS = ["claude-code", "ollama", "agent-sdk", "codex", "gemini"];
+
+// The runtime label shown on each target card (the engine the turn runs on).
+function runtimeLabel(t: AnyTarget | null | undefined): string {
+  if (!t) return "unset";
+  if (t.type === "workflow") return "workflow";
+  if (t.provider === "ollama-local") return `${t.runtime || "claude-code"} · ollama`;
+  return t.runtime || t.type || "target";
+}
+
+// The auth mode a target uses (subscription / API key / local). An explicit
+// target.authMode wins; else derive sensibly per runtime/provider so hand-added
+// targets still display a mode (cc-* / anthropic → subscription, ollama → local,
+// codex/gemini/third-party → API key).
+function authModeFor(t: AnyTarget | null | undefined): string {
+  if (!t) return "—";
+  if (t.authMode) return t.authMode;
+  if (t.provider === "ollama-local" || t.provider === "ollama") return "local";
+  if (t.runtime === "codex" || t.runtime === "gemini") return "api-key";
+  if (t.runtime === "agent-sdk" && t.provider && t.provider !== "anthropic") return "api-key";
+  return "subscription";
+}
+
+// Compact display label for an auth mode (API key reads better than the id).
+function authModeLabel(mode: string): string {
+  if (mode === "api-key") return "API key";
+  return mode;
+}
 
 // ── glyphs (styled text marks - no emoji) ─────────────────────────────────────
 function glyphFor(t: AnyTarget | null | undefined): { mark: string; cls: string; title: string } {
@@ -292,6 +320,10 @@ function TargetCard({ target, commit }: { target: AnyTarget; commit: (p: Produce
         <span className="tcard-main">
           <span className="tcard-model">{target.model || target.runtime || target.id}</span>
           <span className="tcard-id">{target.id}{target.pinned ? " · pinned" : ""}</span>
+          <span className="tcard-meta">
+            <span className="tcard-runtime" title="runtime">{runtimeLabel(target)}</span>
+            <span className="tcard-auth" title="auth mode">{authModeLabel(authModeFor(target))}</span>
+          </span>
         </span>
       </div>
       <EffortDial target={target} commit={commit} />
@@ -323,6 +355,7 @@ function AddTargetCard({ config, commit }: { config: Cfg; commit: (p: Producer) 
       built.model = model.trim() || "sonnet";
       built.effort = effort;
     }
+    built.authMode = authModeFor(built);
     commit((draft) => {
       (draft.targets as AnyTarget[]).push(built);
       return draft;

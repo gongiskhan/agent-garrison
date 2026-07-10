@@ -25,7 +25,7 @@ async function run() {
     permissionMode: "bypassPermissions"
     // lean promptMode auto-disables tools (harness.disallowedTools) → pure chat
   });
-  console.log(`[chat] fence=${s.fence.state} preset=${s.harness.preset} baseUrl=${s.baseUrl} model=${model} promptMode=${promptMode}`);
+  console.log(`[chat] preset=${s.harness.preset} baseUrl=${s.baseUrl} model=${model} promptMode=${promptMode}`);
   await adapter.awaitReady(s);
   const t0 = Date.now();
   await adapter.sendTurn(s, question);

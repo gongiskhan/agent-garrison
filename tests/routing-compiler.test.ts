@@ -126,6 +126,41 @@ describe("routing resolver (MR1c core — pure code)", () => {
     expect(economyT2.evidence).toBe("text"); // economy lightens T2 evidence
   });
 
+  // Runtime freedom (D29 / S9)
+  it("every seed target declares an authMode", () => {
+    const modes = new Set(["subscription", "api-key", "local"]);
+    for (const t of config.targets) {
+      expect(t.authMode, `${t.id} has no authMode`).toBeTruthy();
+      expect(modes.has(t.authMode), `${t.id} authMode ${t.authMode} not a known mode`).toBe(true);
+    }
+  });
+
+  it("seeds the fast target agent-sdk-haiku-fast (agent-sdk / Anthropic / subscription)", () => {
+    const fast = config.targets.find((t: RuntimeTarget) => t.id === "agent-sdk-haiku-fast");
+    expect(fast).toBeTruthy();
+    expect(fast.runtime).toBe("agent-sdk");
+    expect(fast.provider).toBe("anthropic");
+    expect(fast.model).toBe("claude-haiku-4-5");
+    expect(fast.authMode).toBe("subscription");
+  });
+
+  it("points latency-sensitive balanced cells at the fast target", () => {
+    // report row default and the trivial writing/ops one-shots resolve to the fast target.
+    const report = resolveRoute(config, "balanced", { taskType: "report" as TaskType, tier: "T1-standard" } as Classification);
+    expect(report.targetId).toBe("agent-sdk-haiku-fast");
+    for (const tt of ["writing", "ops"]) {
+      const r = resolveRoute(config, "balanced", { taskType: tt as TaskType, tier: "T0-trivial" } as Classification);
+      expect(r.targetId, `${tt}/T0-trivial`).toBe("agent-sdk-haiku-fast");
+      expect(r.via).toBe("cell");
+    }
+    // the conversational catch-all (other/T0) stays on the PTY operative path.
+    const otherT0 = resolveRoute(config, "balanced", { taskType: "other", tier: "T0-trivial" } as Classification);
+    expect(otherT0.targetId).toBe("cc-haiku-low");
+    // it did not disturb the standard tiers (writing/T1 still the row default).
+    const writingT1 = resolveRoute(config, "balanced", { taskType: "writing", tier: "T1-standard" } as Classification);
+    expect(writingT1.targetId).toBe("cc-sonnet-med");
+  });
+
   it("every seed profile carries a full compute ladder and a complete verb matrix", () => {
     for (const name of Object.keys(config.profiles)) {
       const p = config.profiles[name];

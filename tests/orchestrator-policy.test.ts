@@ -46,7 +46,9 @@ describe("orchestrator policy core (S1)", () => {
     expect(policy.matrix["test"]["T1-standard"].model).toBe("sonnet");
     expect(policy.matrix["test"]["T1-standard"].effort).toBe("medium");
     expect(policy.matrix["walkthrough"]["T1-standard"].model).toBe("sonnet");
-    expect(policy.matrix["report"]["T1-standard"].model).toBe("haiku");
+    // report is a latency-sensitive one-shot → the fast agent-sdk/Anthropic target (D29 / S9).
+    expect(policy.matrix["report"]["T1-standard"].runtime).toBe("agent-sdk");
+    expect(policy.matrix["report"]["T1-standard"].model).toBe("claude-haiku-4-5");
     expect(policy.matrix["report"]["T1-standard"].effort).toBe("low");
     const codex = policy.matrix["codex-checkpoint"]["T1-standard"];
     expect(codex.runtime).toBe("codex");

@@ -8,6 +8,10 @@ export type ContinuationKind = "plan" | "report" | "document" | "code-change" | 
 export type ContinuationVerb = "store" | "ask" | "route" | "notify";
 export type DisciplineField = "review" | "testing" | "evidence" | "distribution";
 
+// The auth path a target uses, surfaced on the composer target cards + the
+// AgentSDK Quarters view: subscription (Max OAuth), api-key (Vault-sealed key), or
+// local (Ollama, no auth).
+export type AuthMode = "subscription" | "api-key" | "local";
 export interface RuntimeTarget {
   id: string;
   type: "runtime-target";
@@ -17,12 +21,13 @@ export interface RuntimeTarget {
   effort?: "low" | "medium" | "high" | "xhigh" | "ultracode";
   soul?: string;
   pinned?: boolean;
+  authMode?: AuthMode;
   // agent-sdk runtime additions (BRIEF: Agent SDK Runtime). promptMode picks the
   // claude_code preset (full) vs a lean string; capabilities is the per-target
-  // capability record the orchestrator reads before routing a block type.
+  // capability record the orchestrator reads before routing a block type. The
+  // runtime is first-class routable to the Anthropic endpoint too (D29).
   promptMode?: "full" | "lean";
   baseUrl?: string;
-  acceptApiBilling?: boolean;
   capabilities?: {
     text?: boolean;
     toolUse?: boolean;
@@ -36,6 +41,9 @@ export interface SecondaryTarget {
   id: string;
   type: "secondary";
   runtime: string;
+  model?: string;
+  effort?: string;
+  authMode?: AuthMode;
 }
 export interface WorkflowTarget {
   id: string;

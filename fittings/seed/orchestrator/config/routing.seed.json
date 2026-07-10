@@ -34,17 +34,18 @@
     { "id": "ex-video", "when": "the prompt asks to generate or edit a video", "target": "sec-gemini" }
   ],
   "targets": [
-    { "id": "cc-fable-xhigh", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "fable", "effort": "xhigh" },
-    { "id": "cc-opus-high", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "opus", "effort": "high" },
-    { "id": "cc-sonnet-high", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "sonnet", "effort": "high" },
-    { "id": "cc-sonnet-med", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "sonnet", "effort": "medium" },
-    { "id": "cc-haiku-low", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "haiku", "effort": "low" },
-    { "id": "cc-ollama-qwen", "type": "runtime-target", "runtime": "claude-code", "provider": "ollama-local", "model": "qwen2.5-coder", "effort": "medium" },
-    { "id": "cc-ollama-deepseek", "type": "runtime-target", "runtime": "claude-code", "provider": "ollama-local", "model": "deepseek-coder-v2", "effort": "medium" },
-    { "id": "sec-gemini", "type": "secondary", "runtime": "gemini" },
-    { "id": "sec-codex", "type": "secondary", "runtime": "codex" },
-    { "id": "codex-gpt55-high", "type": "secondary", "runtime": "codex", "model": "gpt-5.5", "effort": "high" },
-    { "id": "classifier", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "haiku", "effort": "low", "pinned": true }
+    { "id": "cc-fable-xhigh", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "fable", "effort": "xhigh", "authMode": "subscription" },
+    { "id": "cc-opus-high", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "opus", "effort": "high", "authMode": "subscription" },
+    { "id": "cc-sonnet-high", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "sonnet", "effort": "high", "authMode": "subscription" },
+    { "id": "cc-sonnet-med", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "sonnet", "effort": "medium", "authMode": "subscription" },
+    { "id": "cc-haiku-low", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "haiku", "effort": "low", "authMode": "subscription" },
+    { "id": "agent-sdk-haiku-fast", "type": "runtime-target", "runtime": "agent-sdk", "provider": "anthropic", "model": "claude-haiku-4-5", "effort": "low", "promptMode": "full", "authMode": "subscription" },
+    { "id": "cc-ollama-qwen", "type": "runtime-target", "runtime": "claude-code", "provider": "ollama-local", "model": "qwen2.5-coder", "effort": "medium", "authMode": "local" },
+    { "id": "cc-ollama-deepseek", "type": "runtime-target", "runtime": "claude-code", "provider": "ollama-local", "model": "deepseek-coder-v2", "effort": "medium", "authMode": "local" },
+    { "id": "sec-gemini", "type": "secondary", "runtime": "gemini", "authMode": "api-key" },
+    { "id": "sec-codex", "type": "secondary", "runtime": "codex", "authMode": "api-key" },
+    { "id": "codex-gpt55-high", "type": "secondary", "runtime": "codex", "model": "gpt-5.5", "effort": "high", "authMode": "api-key" },
+    { "id": "classifier", "type": "runtime-target", "runtime": "claude-code", "provider": "anthropic-plan", "model": "haiku", "effort": "low", "pinned": true, "authMode": "subscription" }
   ],
   "profiles": {
     "balanced": {
@@ -64,13 +65,13 @@
           "walkthrough": { "default": "cc-sonnet-med", "cells": {} },
           "validate": { "default": "cc-sonnet-high", "cells": {} },
           "codex-checkpoint": { "default": "codex-gpt55-high", "cells": {} },
-          "report": { "default": "cc-haiku-low", "cells": {} },
+          "report": { "default": "agent-sdk-haiku-fast", "cells": {} },
           "code": { "default": "cc-sonnet-med", "cells": { "T0-trivial": "cc-haiku-low", "T2-deep": "cc-opus-high" } },
           "research": { "default": "cc-sonnet-med", "cells": { "T2-deep": "cc-opus-high" } },
           "image": { "default": "sec-gemini", "cells": {} },
           "video": { "default": "sec-gemini", "cells": {} },
-          "writing": { "default": "cc-sonnet-med", "cells": { "T0-trivial": "cc-haiku-low" } },
-          "ops": { "default": "cc-sonnet-med", "cells": { "T0-trivial": "cc-haiku-low" } },
+          "writing": { "default": "cc-sonnet-med", "cells": { "T0-trivial": "agent-sdk-haiku-fast" } },
+          "ops": { "default": "cc-sonnet-med", "cells": { "T0-trivial": "agent-sdk-haiku-fast" } },
           "other": { "default": "cc-sonnet-med", "cells": { "T0-trivial": "cc-haiku-low" } }
         }
       },

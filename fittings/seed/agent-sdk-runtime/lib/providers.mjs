@@ -1,13 +1,16 @@
-// providers.mjs — Agent-SDK provider table + capability records (BRIEF
-// §"Providers"). All providers REQUIRE a non-Anthropic base URL (THE FENCE
-// enforces it); all are authenticated from the Vault. Self-contained (mirrors the
-// Orchestrator routing-target base URLs; the capability records and SDK env wiring are
-// SDK-specific). Capability record per target generalises `effort: unsupported`:
-// it records which content-block features the endpoint actually serves, so the
-// orchestrator never routes an unsupported block type (e.g. MCP / vision) at a
-// target that cannot serve it.
-
-import { isAnthropicBaseUrl } from "./fence.mjs";
+// providers.mjs — Agent-SDK provider table + capability records.
+//
+// The Agent SDK runtime is first-class routable (D29): it reaches the Anthropic
+// endpoint on the Max subscription as well as third-party Anthropic-compatible
+// endpoints (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy). Third-party
+// providers authenticate from
+// the Vault; the Anthropic subscription path uses the stored OAuth credentials
+// (no key, no base URL override). Each provider carries an `authMode`
+// (subscription / api-key / local) surfaced in the composer + Quarters view.
+// Capability record per target generalises `effort: unsupported`: it records which
+// content-block features the endpoint actually serves, so the orchestrator never
+// routes an unsupported block type (e.g. MCP / vision) at a target that cannot
+// serve it.
 
 // A capability record: which content-block types the endpoint serves.
 const FULL_CAPS = { text: true, toolUse: true, image: true, document: true, webSearch: true, mcp: true };
@@ -15,6 +18,17 @@ const TEXT_TOOLS_ONLY = { text: true, toolUse: true, image: false, document: fal
 const TEXT_TOOLS_MCP = { text: true, toolUse: true, image: false, document: false, webSearch: false, mcp: true };
 
 export const SDK_PROVIDERS = {
+  // The Anthropic endpoint on the Max subscription (D29). No base URL override and
+  // no key — the SDK uses the stored OAuth credentials and bills the plan, exactly
+  // like the main operative. A first-class routing destination.
+  anthropic: {
+    baseUrl: null,
+    anthropic: true,
+    needsKey: false,
+    authMode: "subscription",
+    effort: true,
+    capabilities: FULL_CAPS
+  },
   // Local Ollama native Anthropic-compatible endpoint (v0.14.0+). Free, the live
   // test target. Auth token is a dummy ("ollama"); ANTHROPIC_API_KEY must be "".
   "ollama-local": {
@@ -22,6 +36,7 @@ export const SDK_PROVIDERS = {
     needsKey: false,
     dummyToken: "ollama",
     authTokenEnv: "ANTHROPIC_AUTH_TOKEN",
+    authMode: "local",
     effort: false,
     capabilities: TEXT_TOOLS_MCP
   },
@@ -31,6 +46,7 @@ export const SDK_PROVIDERS = {
     needsKey: true,
     vaultKey: "ZAI_API_KEY",
     authTokenEnv: "ANTHROPIC_AUTH_TOKEN",
+    authMode: "api-key",
     effort: false,
     capabilities: TEXT_TOOLS_MCP
   },
@@ -41,6 +57,7 @@ export const SDK_PROVIDERS = {
     needsKey: true,
     vaultKey: "DEEPSEEK_API_KEY",
     authTokenEnv: "ANTHROPIC_AUTH_TOKEN",
+    authMode: "api-key",
     effort: false,
     capabilities: TEXT_TOOLS_ONLY
   },
@@ -51,6 +68,7 @@ export const SDK_PROVIDERS = {
     needsKey: true,
     vaultKey: "MINIMAX_API_KEY",
     authTokenEnv: "ANTHROPIC_AUTH_TOKEN",
+    authMode: "api-key",
     effort: false,
     capabilities: TEXT_TOOLS_ONLY
   },
@@ -65,6 +83,7 @@ export const SDK_PROVIDERS = {
     needsKey: true,
     vaultKey: "LLM_PROXY_API_KEY",
     authTokenEnv: "ANTHROPIC_AUTH_TOKEN",
+    authMode: "api-key",
     effort: false,
     capabilities: TEXT_TOOLS_ONLY
   }
@@ -97,8 +116,8 @@ export class CapabilityError extends Error {
   }
 }
 
-// The resolved base URL for a target (per-target override for the configurable
-// proxy). Cheap, no secrets — THE FENCE runs on this before any key resolution.
+// The resolved base URL for a target (null for the Anthropic subscription path;
+// a per-target override for the configurable proxy). Cheap, no secrets.
 export function resolveProviderBaseUrl(target = {}) {
   const spec = SDK_PROVIDERS[target.provider];
   if (!spec) throw new Error(`unknown agent-sdk provider "${target.provider}"`);
@@ -111,7 +130,7 @@ export function resolveProviderBaseUrl(target = {}) {
 
 // Build the env passed to the SDK's options.env. Mirrors stage-b's
 // strip-then-set: clear inherited Anthropic vars first (MiniMax precedence trap),
-// then set the non-Anthropic base URL + auth token. Pure + testable; argv/env are
+// then set the endpoint base URL + auth token. Pure + testable; argv/env are
 // asserted without spawning. opts.secrets is the materialized vault or null.
 export function buildSdkEnv(target = {}, opts = {}) {
   const spec = SDK_PROVIDERS[target.provider];
@@ -120,10 +139,17 @@ export function buildSdkEnv(target = {}, opts = {}) {
   const secrets = opts.secrets ?? null;
 
   const env = { ...(opts.baseEnv ?? {}) };
-  // Clear any inherited Anthropic env (MiniMax & others take precedence otherwise).
+  // Clear any inherited Anthropic env (a stray third-party base URL / key must
+  // never leak; MiniMax & others take precedence otherwise).
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_BASE_URL;
   delete env.ANTHROPIC_AUTH_TOKEN;
+
+  // Anthropic on the Max subscription: no base URL override, no key — the SDK
+  // falls back to the stored OAuth credentials (D29), billed to the plan.
+  if (spec.anthropic) {
+    return { env, baseUrl: null, vaultKey: null };
+  }
 
   env.ANTHROPIC_BASE_URL = baseUrl;
   env.ANTHROPIC_API_KEY = ""; // force the SDK onto AUTH_TOKEN, never an inherited key
@@ -218,10 +244,11 @@ export function assertLitellmVersionAllowed(version) {
   return true;
 }
 
-// Sanity helper used by the bridge self-test: every provider's static base URL
-// (where not configurable) must be non-Anthropic.
-export function staticBaseUrlsAreNonAnthropic() {
-  return Object.entries(SDK_PROVIDERS)
-    .filter(([, s]) => !s.configurable)
-    .every(([, s]) => !isAnthropicBaseUrl(s.baseUrl));
+// The authMode a target resolves to (subscription / api-key / local) — the label
+// the composer + Quarters view show. A per-target authMode wins; else the
+// provider's default; else "subscription" (the Anthropic Max path).
+export function authModeFor(target = {}) {
+  if (target.authMode) return target.authMode;
+  const spec = SDK_PROVIDERS[target.provider];
+  return spec?.authMode || "subscription";
 }

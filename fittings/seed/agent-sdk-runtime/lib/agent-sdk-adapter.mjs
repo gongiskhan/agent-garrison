@@ -7,30 +7,17 @@
 // handling, and `awaitResponse` reads the SDK's structured messages directly —
 // NO terminal-scraping heuristics.
 //
-// Two load-bearing properties run at spawn, in order:
-//   1. THE FENCE (lib/fence.mjs) — asserts on the EFFECTIVE resolved base URL
-//      (settings.json #217-aware) and hard-refuses Anthropic billing by default.
-//   2. THE HARNESS (lib/harness.mjs) — per-target promptMode wires the full
-//      claude_code preset (+ settingSources + skills) or a lean string.
+// The runtime is first-class routable to any provider in the SDK provider table,
+// including the Anthropic endpoint on the Max subscription (D29). THE HARNESS
+// (lib/harness.mjs) is the one load-bearing property at spawn: per-target
+// promptMode wires the full claude_code preset (+ settingSources + skills) or a
+// lean string.
 //
 // The real SDK is reached ONLY via the default client factory, which lazy-imports
-// the sole SDK-importing module (lib/sdk-client.mjs) AFTER assertFence() passes.
-// Tests inject `createClient`, so the unit-test path never loads the SDK.
-import { readFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { assertFence } from "./fence.mjs";
+// the sole SDK-importing module (lib/sdk-client.mjs). Tests inject `createClient`,
+// so the unit-test path never loads the SDK.
 import { buildHarness } from "./harness.mjs";
 import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord } from "./providers.mjs";
-
-function defaultReadSettings() {
-  try {
-    const home = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
-    return JSON.parse(readFileSync(path.join(home, "settings.json"), "utf8"));
-  } catch {
-    return null;
-  }
-}
 
 async function defaultCreateClient(args) {
   const mod = await import("./sdk-client.mjs");
@@ -41,7 +28,6 @@ export class AgentSdkAdapter {
   constructor(opts = {}) {
     this.id = "agent-sdk";
     this._createClient = opts.createClient ?? defaultCreateClient;
-    this._readSettings = opts.readSettings ?? defaultReadSettings;
     this._pending = new WeakMap();
   }
 
@@ -51,13 +37,9 @@ export class AgentSdkAdapter {
       append: config.appendSystemPrompt
     });
 
-    // THE FENCE FIRST — on the EFFECTIVE resolved base URL. resolveProviderBaseUrl
-    // is cheap + secret-free, so the fence runs before any key resolution.
+    // Resolve the endpoint base URL (null for the Anthropic subscription path) and
+    // the launch env (resolves the vault key; clears inherited Anthropic vars).
     const baseUrl = resolveProviderBaseUrl(config);
-    const settingsJson = config.settingsJson !== undefined ? config.settingsJson : this._readSettings();
-    const fence = assertFence({ configBaseUrl: baseUrl, settingsJson, acceptApiBilling: !!config.acceptApiBilling });
-
-    // Then the launch env (resolves the vault key; clears inherited Anthropic vars).
     const { env, vaultKey } = buildSdkEnv(config, { secrets: config.secrets ?? null, baseEnv: config.env ?? {} });
     const capabilities = capabilityRecord(config);
 
@@ -67,7 +49,6 @@ export class AgentSdkAdapter {
       harness,
       env,
       baseUrl,
-      fence,
       capabilities,
       vaultKey,
       model: config.model ?? null,

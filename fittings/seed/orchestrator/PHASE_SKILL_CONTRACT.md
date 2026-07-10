@@ -2,8 +2,8 @@
 
 A **phase skill** is any Claude Code skill that can execute one pipeline phase
 of an autonomous Garrison run (plan, implement, review, adversarial-review,
-test, adversarial-test, design-audit, walkthrough, validate, codex-checkpoint,
-report — the policy's `phases` list). The Orchestrator's phase-skill registry
+test, adversarial-test, security-review, ux-qa, walkthrough, validate,
+codex-checkpoint, report — the policy's `phases` list). The Orchestrator's phase-skill registry
 (`phaseSkills.bindings`, per-work-kind `phaseSkills.overrides`) binds each
 phase to the skill that executes it. Swapping a binding in the composer view
 requires **zero code changes** — any skill honoring this contract can be
@@ -54,9 +54,10 @@ reverse.**
 
 ## Seed bindings
 
-The autothing verb skills are the seed bindings (`autothing-plan`,
+The verb skills are the seed bindings (`autothing-plan`,
 `autothing-implement`, `autothing-review`, `autothing-adversarial-review`,
-`autothing-test`, `autothing-adversarial-test`, `autothing-design-audit`,
-`autothing-walkthrough`, `autothing-validate`, `autothing-codex-checkpoint`,
-`autothing-report`). Any work kind may override any binding (e.g. a docs
-review bound to a different review skill than a feature review).
+`autothing-test`, `autothing-adversarial-test`, `autothing-security-review`,
+`garrison-ux-qa`, `autothing-walkthrough`, `autothing-validate`,
+`autothing-codex-checkpoint`, `autothing-report`). Any work kind may
+override any binding (e.g. a docs review bound to a different review skill
+than a feature review).

@@ -7,19 +7,19 @@
 //   bridge.mjs --probe                              # read-only self-test, prints "ok"
 //   echo '<task_spec_json>' | bridge.mjs delegate   # task spec via STDIN (never argv)
 //
-// THE FENCE runs at adapter.spawn — a delegation to an Anthropic base URL (or no
-// base URL) hard-fails before any model call. Full output -> Artifact Store; the
-// delegation -> decisions.jsonl; the return is a schema-validated {summary,
-// artifacts}. The self-test imports NO SDK and makes NO network call.
+// The runtime is first-class routable to any provider in the SDK provider table,
+// including the Anthropic endpoint on the Max subscription (D29). Full output ->
+// Artifact Store; the delegation -> decisions.jsonl; the return is a
+// schema-validated {summary, artifacts}. The self-test imports NO SDK and makes
+// NO network call.
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { delegate, parseTaskSpec } from "@garrison/claude-pty";
 import { AgentSdkAdapter } from "../lib/agent-sdk-adapter.mjs";
-import { assertFence, FenceViolation } from "../lib/fence.mjs";
 import { buildHarness } from "../lib/harness.mjs";
-import { SDK_PROVIDERS, capabilityRecord, staticBaseUrlsAreNonAnthropic } from "../lib/providers.mjs";
+import { SDK_PROVIDERS, capabilityRecord } from "../lib/providers.mjs";
 
 const DATA_DIR =
   process.env.AGENT_SDK_RUNTIME_DATA ||
@@ -61,19 +61,10 @@ async function logDecision(rec) {
   appendFileSync(DECISIONS, JSON.stringify(rec) + "\n", "utf8");
 }
 
-// Read-only self-test: the fence default-denies, the harness wires per-mode and
-// never loads user settings, every static provider base URL is non-Anthropic, and
+// Read-only self-test: the harness wires per-mode and never loads user settings,
+// the Anthropic subscription provider is present (first-class, D29), and
 // DeepSeek's capability record is text+tool-use only.
 function selfTest() {
-  let denied = false;
-  try {
-    assertFence({ configBaseUrl: null });
-  } catch (e) {
-    denied = e instanceof FenceViolation;
-  }
-  if (!denied) throw new Error("fence default-deny FAILED: no base URL did not deny");
-  assertFence({ configBaseUrl: "http://localhost:11434" }); // non-Anthropic passes
-
   const full = buildHarness("full");
   const lean = buildHarness("lean");
   if (full.preset !== "claude_code" || !full.settingSources.includes("project")) throw new Error("harness full FAILED");
@@ -82,7 +73,7 @@ function selfTest() {
     throw new Error("harness must not load user settings (#217 defence)");
   }
 
-  if (!staticBaseUrlsAreNonAnthropic()) throw new Error("a static provider base URL resolves to Anthropic");
+  if (!SDK_PROVIDERS.anthropic) throw new Error("the Anthropic subscription provider is missing (D29)");
   const ds = capabilityRecord({ provider: "deepseek" });
   if (ds.mcp || ds.image || ds.document || ds.webSearch) throw new Error("deepseek capability record must be text+tool-use only");
 
@@ -133,7 +124,6 @@ async function main() {
           model: spec.model,
           promptMode: spec.promptMode || "full",
           baseUrl: spec.baseUrl,
-          acceptApiBilling: !!spec.acceptApiBilling,
           secrets: haveSecrets ? secrets : null,
           maxTurns: spec.maxTurns,
           budgetTokens: spec.budgetTokens,

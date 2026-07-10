@@ -28680,7 +28680,7 @@ var PHASES = [
   "adversarial-review",
   "test",
   "adversarial-test",
-  "design-audit",
+  "ux-qa",
   "walkthrough",
   "validate",
   "codex-checkpoint",
@@ -28817,6 +28817,24 @@ var railFor2 = railFor;
 var EFFORTS = ["low", "medium", "high", "xhigh"];
 var EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 var RUNTIME_OPTIONS = ["claude-code", "ollama", "agent-sdk", "codex", "gemini"];
+function runtimeLabel(t) {
+  if (!t) return "unset";
+  if (t.type === "workflow") return "workflow";
+  if (t.provider === "ollama-local") return `${t.runtime || "claude-code"} \xB7 ollama`;
+  return t.runtime || t.type || "target";
+}
+function authModeFor(t) {
+  if (!t) return "\u2014";
+  if (t.authMode) return t.authMode;
+  if (t.provider === "ollama-local" || t.provider === "ollama") return "local";
+  if (t.runtime === "codex" || t.runtime === "gemini") return "api-key";
+  if (t.runtime === "agent-sdk" && t.provider && t.provider !== "anthropic") return "api-key";
+  return "subscription";
+}
+function authModeLabel(mode) {
+  if (mode === "api-key") return "API key";
+  return mode;
+}
 function glyphFor(t) {
   if (!t) return { mark: "??", cls: "g-other", title: "unset" };
   if (t.provider === "ollama-local") return { mark: "OL", cls: "g-ollama", title: "Ollama (local)" };
@@ -28988,6 +29006,10 @@ function TargetCard({ target, commit }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-id", children: [
           target.id,
           target.pinned ? " \xB7 pinned" : ""
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-meta", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-runtime", title: "runtime", children: runtimeLabel(target) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-auth", title: "auth mode", children: authModeLabel(authModeFor(target)) })
         ] })
       ] })
     ] }),
@@ -29018,6 +29040,7 @@ function AddTargetCard({ config, commit }) {
       built.model = model.trim() || "sonnet";
       built.effort = effort;
     }
+    built.authMode = authModeFor(built);
     commit((draft) => {
       draft.targets.push(built);
       return draft;

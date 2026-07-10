@@ -91,8 +91,16 @@ test("composer renders the whole policy: tray, matrix, work-kind rails, try-it",
   await expect(page.locator("h1")).toHaveText("Composer");
 
   // Targets tray - every seed target is a draggable card.
-  await expect(page.locator(".tray .tcard").filter({ hasText: "cc-opus-high" })).toBeVisible();
+  const opusCard = page.locator(".tray .tcard").filter({ hasText: "cc-opus-high" });
+  await expect(opusCard).toBeVisible();
   expect(await page.locator(".tray .tcard:not(.add)").count()).toBeGreaterThanOrEqual(10);
+  // Every target card shows its runtime + auth mode (D29 / S9).
+  await expect(opusCard.locator(".tcard-runtime")).toBeVisible();
+  await expect(opusCard.locator(".tcard-auth")).toHaveText("subscription");
+  // The fast agent-sdk target is present and shows its runtime + auth mode.
+  const fastCard = page.locator(".tray .tcard").filter({ hasText: "agent-sdk-haiku-fast" });
+  await expect(fastCard.locator(".tcard-runtime")).toContainText("agent-sdk");
+  await expect(fastCard.locator(".tcard-auth")).toHaveText("subscription");
 
   // Matrix - 18 task types × 3 tier columns, resolved tokens in every cell.
   await expect(page.locator("table.matrix thead .ch-name", { hasText: "T2-deep" })).toBeVisible();

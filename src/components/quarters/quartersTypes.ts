@@ -113,7 +113,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "agentsdk",
     label: "AgentSDK",
-    blurb: "Agent SDK runtime (non-Anthropic models) — provider/capability records, THE FENCE state, THE HARNESS state.",
+    blurb: "Agent SDK runtime — provider/capability records, auth modes, and THE HARNESS state. First-class routable to Anthropic + third-party endpoints.",
     writer: "readonly",
     kind: "readonly",
     icon: "Cpu"

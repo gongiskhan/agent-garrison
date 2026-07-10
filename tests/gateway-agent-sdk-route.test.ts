@@ -56,7 +56,7 @@ class FakeAgentSdkAdapter {
   turns: string[] = [];
   async spawn(cfg: any) {
     this.spawned.push(cfg);
-    return { alive: true, harness: { promptMode: cfg.promptMode }, fence: { state: "non-anthropic (fenced — no Anthropic billing)" }, sessionId: "agent-sdk-sess", config: cfg };
+    return { alive: true, harness: { promptMode: cfg.promptMode }, sessionId: "agent-sdk-sess", config: cfg };
   }
   async awaitReady() {}
   async sendTurn(_s: any, text: string) {

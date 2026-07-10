@@ -52,8 +52,9 @@ export function resolveModelRouterDir(compositionDir) {
 }
 
 // Locate the agent-sdk-runtime fitting (for routing a turn to a {runtime:agent-sdk}
-// target — a non-Anthropic model via the Claude Agent SDK). Same resolution shape
-// as the model-router: env override, installed composition, or repo seed.
+// target — any model via the Claude Agent SDK, incl. the Anthropic endpoint).
+// Same resolution shape as the model-router: env override, installed composition,
+// or repo seed.
 export function resolveAgentSdkDir(compositionDir) {
   const candidates = [
     process.env.GARRISON_AGENT_SDK_DIR,
@@ -228,8 +229,8 @@ export class RoutedGateway {
     this._lastTurns = []; // recent {role,text} for context carryover on respawn
     this._respawned = false; // set when the last switch respawned the operative
     this._lastUserMessage = null;
-    // agent-sdk runtime (non-Anthropic models via the Claude Agent SDK). Lazily
-    // constructed; one warm session per {provider,model,promptMode}.
+    // agent-sdk runtime (any model via the Claude Agent SDK, incl. Anthropic).
+    // Lazily constructed; one warm session per {provider,model,promptMode}.
     this._agentSdkAdapter = opts.agentSdkAdapter ?? null;
     this._agentSdkSessions = new Map();
     // secondary runtimes (codex/gpt, gemini) executed directly by the gateway.
@@ -253,8 +254,8 @@ export class RoutedGateway {
     return this.operative?.session ?? null;
   }
 
-  // True when the resolved route runs on the agent-sdk runtime (non-Anthropic
-  // model via the Claude Agent SDK), not the claude-code PTY operative.
+  // True when the resolved route runs on the agent-sdk runtime (any model via the
+  // Claude Agent SDK, incl. Anthropic), not the claude-code PTY operative.
   isAgentSdkTarget(route) {
     return route?.target?.runtime === "agent-sdk";
   }
@@ -270,10 +271,10 @@ export class RoutedGateway {
     return this._agentSdkAdapter;
   }
 
-  // Run one turn on the agent-sdk runtime. THE FENCE (in adapter.spawn) refuses a
-  // non-Anthropic-less launch; THE HARNESS picks the preset (full) or lean (chat,
-  // tools off) per the target's promptMode. One warm session per
-  // {provider,model,promptMode}, reused across turns (SDK resume).
+  // Run one turn on the agent-sdk runtime. THE HARNESS picks the preset (full) or
+  // lean (chat, tools off) per the target's promptMode. The runtime is first-class
+  // routable to any provider incl. the Anthropic endpoint (D29). One warm session
+  // per {provider,model,promptMode}, reused across turns (SDK resume).
   async runAgentSdkTurn(route, message, onChunk) {
     const adapter = await this.getAgentSdkAdapter();
     const t = route.target;
@@ -285,7 +286,6 @@ export class RoutedGateway {
       promptMode,
       leanPrompt: t.leanPrompt,
       baseUrl: t.baseUrl,
-      acceptApiBilling: !!t.acceptApiBilling,
       // cwd: the shared build workspace when set (so file ops hit the real project)
       compositionDir: this.buildWorkspace ?? this.compositionDir,
       disallowedTools: t.disallowedTools,
@@ -306,7 +306,7 @@ export class RoutedGateway {
       provider: t.provider,
       model: t.model,
       promptMode: session.harness?.promptMode,
-      fence: session.fence?.state,
+      authMode: t.authMode ?? null,
       target: route.targetId,
     });
     await adapter.awaitReady(session);
