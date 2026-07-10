@@ -113,7 +113,14 @@
    "title": "Surfaces",
    "kind": "mixed",
    "status": "in_progress",
-   "note": "implement+wall green; review pending"
+   "note": "implement+wall green; walkthrough 5/5 beats (frame-verified); review rev2-s567 pending",
+   "artifacts": [
+    {
+     "file": "slices/S7/evidence.mp4",
+     "videoBytes": 441095,
+     "videoSha256": "19c0b803e1fd5daaad0610fbb138b0794d1db8b2a200212aefb8d167871a8139"
+    }
+   ]
   },
   {
    "slice": "S3",
