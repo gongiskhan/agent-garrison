@@ -84,8 +84,8 @@
    "slice": "S5",
    "title": "Thin doorway",
    "kind": "api",
-   "status": "in_progress",
-   "note": "implement+wall green; review pending",
+   "status": "passed",
+   "note": "implement+wall green; review pending | finalized: walls+tests+independent-review complete (api/cli, no design audit)",
    "artifacts": [
     {
      "file": "slices/S5/evidence.cast",
@@ -98,8 +98,8 @@
    "slice": "S6",
    "title": "Evidence home",
    "kind": "api",
-   "status": "in_progress",
-   "note": "implement+wall green; review pending",
+   "status": "passed",
+   "note": "implement+wall green; review pending | finalized: walls+tests+independent-review complete (api/cli, no design audit)",
    "artifacts": [
     {
      "file": "slices/S6/evidence.cast",
@@ -168,8 +168,8 @@
    "slice": "S16",
    "title": "Headless gaps",
    "kind": "api",
-   "status": "in_progress",
-   "note": "E11 class-(b) fixes verified in HEAD; api review pending; FOLLOWUP: tmux pbcopy -> OSC 52"
+   "status": "passed",
+   "note": "E11 class-(b) fixes verified in HEAD; api review pending; FOLLOWUP: tmux pbcopy -> OSC 52 | finalized: walls+tests+independent-review complete (api/cli, no design audit)"
   },
   {
    "slice": "S13",
@@ -233,8 +233,8 @@
    "slice": "S15",
    "title": "Improver policy rule",
    "kind": "api",
-   "status": "in_progress",
-   "note": "committed + run-now gap fixed (2af5968); live chain verified"
+   "status": "passed",
+   "note": "committed + run-now gap fixed (2af5968); live chain verified | finalized: walls+tests+independent-review complete (api/cli, no design audit)"
   }
  ],
  "globalGate": {
