@@ -430,7 +430,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null, orch
     return spawnPty({
       sessionId: session.id,
       role,
-      cwd: session.worktreePath,
+      cwd: session.projectPath,
       command: role === "claude" ? cc({ resume: true, resumeId }) : undefined,
       restoredScrollbackB64: old.length ? old.toString("base64") : undefined
     });
@@ -442,7 +442,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null, orch
     return spawnPty({
       sessionId: session.id,
       role,
-      cwd: session.worktreePath,
+      cwd: session.projectPath,
       command: cc({ resume: true, resumeId }),
       restoredScrollbackB64: typeof envelope.scrollbackB64 === "string" ? envelope.scrollbackB64 : undefined,
       restoredMarker: `\r\n\x1b[2m[garrison: resuming claude session — ${verb}]\x1b[0m\r\n`
@@ -452,7 +452,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null, orch
   return spawnPty({
     sessionId: session.id,
     role,
-    cwd: session.worktreePath,
+    cwd: session.projectPath,
     command: role === "claude" ? cc({ resume, resumeId }) : undefined
   });
 }

@@ -8,8 +8,7 @@
  *   - On demand, spawns Soul PTY sessions or opens
  *     a TrenchesPanel-style tab via Garrison Next.js (interactive mode).
  *   - Multiplexes events to channel SSE subscribers.
- *   - Exposes /sessions/* and /worktrees/* endpoints used by the
- *     garrison-control MCP tools.
+ *   - Exposes /sessions/* endpoints used by the garrison-control MCP tools.
  *
  * When GARRISON_SOULS_CONFIG is not set, the gateway runs gateway-pty.mjs.
  *
@@ -43,7 +42,7 @@ import {
   writeUserTurn,
   writePromptTempFile
 } from "./lib/spawn-soul.mjs";
-import { WorktreesProxy } from "./lib/worktrees-passthrough.mjs";
+import { resolveProjectPath } from "./lib/project-source.mjs";
 import { buildOrchestratorTurn } from "./lib/orchestrator-prefix.mjs";
 import { resolveMode, buildSwitchEntry, appendSwitchLog } from "./lib/mode-resolver.mjs";
 import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
@@ -66,9 +65,6 @@ const ORCHESTRATOR_MODE = Boolean(SOULS_CONFIG_RAW);
 const registry = new SessionRegistry();
 const channels = new ChannelHub();
 const watcher = new JsonlWatcher();
-// Proxies the dev-env Fitting's /worktrees endpoints (default 7086); the
-// NEXT_BASE_URL argument is legacy and ignored by the proxy.
-const worktrees = new WorktreesProxy(NEXT_BASE_URL);
 
 let soulsConfig = null;
 let orchestratorSessionId = null;
@@ -168,8 +164,7 @@ async function writeSharedMcpConfig() {
           GARRISON_COMPOSITION_DIR: COMPOSITION_DIR,
           // mcp-gateway falls back to discovering tools from the composition
           // when this URL is set; keep it pointed at the http-gateway so
-          // talk_to / create_worktree / list_worktrees etc. can dispatch
-          // back through us.
+          // talk_to / list_active_sessions etc. can dispatch back through us.
           GARRISON_HTTP_GATEWAY_BASE_URL: `http://${HOST}:${PORT}`
         }
       }
@@ -263,7 +258,7 @@ async function spawnSoulSession(opts) {
     tierFlags = [],
     mode,
     cwd,
-    worktreeId,
+    project,
     parentSessionId,
     channel = "main",
     sessionUuid: providedUuid,
@@ -287,23 +282,19 @@ async function spawnSoulSession(opts) {
       session_id: existing.sessionId,
       status: existing.status,
       mode: existing.mode,
-      channel: existing.channel,
-      worktree_id: existing.worktreeId
+      channel: existing.channel
     };
   }
 
   const sessionUuid = providedUuid ?? randomUUID();
-  // Resolve cwd in priority: explicit cwd → worktree path lookup → base_path.
-  // Without this, a soul bound to a worktree would spawn in its base_path
-  // (e.g. ~/code) and write changes in the wrong place.
+  // Resolve cwd in priority: explicit cwd → named project's repo root → base_path.
+  // A soul runs at the project checkout on its current branch; without an
+  // explicit cwd or project it falls back to the soul's configured base_path.
   let resolvedCwd = cwd;
-  if (!resolvedCwd && worktreeId) {
-    try {
-      const wt = await worktrees.getById(worktreeId);
-      if (wt?.worktreePath) resolvedCwd = wt.worktreePath;
-    } catch (err) {
-      logEvent("stderr", { kind: "worktree-cwd-lookup-failed", worktree_id: worktreeId, error: err?.message });
-    }
+  if (!resolvedCwd && project) {
+    const projectPath = resolveProjectPath(project);
+    if (projectPath) resolvedCwd = projectPath;
+    else logEvent("stderr", { kind: "project-cwd-lookup-failed", project });
   }
   if (!resolvedCwd) resolvedCwd = spawnConfig.resolvedBasePath;
   const promptTempPath = await writePromptTempFile(sessionUuid, spawnConfig.promptPath);
@@ -316,7 +307,6 @@ async function spawnSoulSession(opts) {
     cwd: resolvedCwd,
     channel,
     parentSessionId,
-    worktreeId,
     tier,
     tierFlags
   });
@@ -333,7 +323,6 @@ async function spawnSoulSession(opts) {
         message,
         mcpConfigPath,
         soul,
-        worktreeId,
         resume: false,
         promptPath: promptTempPath
       });
@@ -379,51 +368,13 @@ async function spawnSoulSession(opts) {
     if (message) writeUserTurn(state.child, message);
   }
 
-  // If this soul is bound to a worktree, persist the binding into the
-  // session state so the Monitor (and Interactive session-view) can surface
-  // soul/tier/branch metadata on top of raw PIDs.
-  if (worktreeId) {
-    void persistWorktreeBinding({
-      worktreeId,
-      soul,
-      sessionId: sessionUuid,
-      mode: resolvedMode,
-      tier,
-      tierFlags,
-      terminalTabId: state.terminalTabId
-    });
-  }
-
   return {
     session_id: sessionUuid,
     status: state.status,
     mode: state.mode,
     channel: state.channel,
-    worktree_id: state.worktreeId,
     terminal_tab_id: state.terminalTabId
   };
-}
-
-async function persistWorktreeBinding(binding) {
-  if (!NEXT_BASE_URL) return;
-  try {
-    await fetch(new URL("/api/interactive/sessions/binding", NEXT_BASE_URL), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        worktreeId: binding.worktreeId,
-        soul: binding.soul,
-        sessionId: binding.sessionId,
-        mode: binding.mode,
-        tier: binding.tier,
-        tierFlags: binding.tierFlags,
-        terminalTabId: binding.terminalTabId,
-        spawnedAt: new Date().toISOString()
-      })
-    });
-  } catch (err) {
-    logEvent("stderr", { kind: "binding-persist-failed", error: err?.message });
-  }
 }
 
 async function respawnExisting(existing, { tier, tierFlags, message, soul, spawnConfig }) {
@@ -447,7 +398,6 @@ async function respawnExisting(existing, { tier, tierFlags, message, soul, spawn
       status: "running",
       mode: existing.mode,
       channel: existing.channel,
-      worktree_id: existing.worktreeId,
       terminal_tab_id: existing.terminalTabId,
       respawned: true
     };
@@ -488,7 +438,6 @@ async function respawnExisting(existing, { tier, tierFlags, message, soul, spawn
     status: "running",
     mode: existing.mode,
     channel: existing.channel,
-    worktree_id: existing.worktreeId,
     respawned: true
   };
 }
@@ -677,7 +626,7 @@ const server = http.createServer(async (request, response) => {
         tierFlags: Array.isArray(body.tier_flags) ? body.tier_flags : [],
         mode: body.mode,
         cwd: body.cwd,
-        worktreeId: body.worktree_id,
+        project: body.project,
         parentSessionId: body.parent_session_id,
         channel: body.channel,
         sessionUuid: body.session_id,
@@ -714,7 +663,6 @@ const server = http.createServer(async (request, response) => {
     if (method === "GET" && url.pathname === "/sessions") {
       const filter = {
         parent: url.searchParams.get("parent") || undefined,
-        worktreeId: url.searchParams.get("worktree_id") || undefined,
         mode: url.searchParams.get("mode") || undefined,
         soul: url.searchParams.get("soul") || undefined
       };
@@ -763,35 +711,6 @@ const server = http.createServer(async (request, response) => {
         logEvent("stderr", { kind: "workdirs-failed", soul, error: err.message });
       }
       sendJson(response, 200, { workdirs: dirs });
-      return;
-    }
-
-    if (method === "GET" && url.pathname === "/worktrees") {
-      const project = url.searchParams.get("project") || undefined;
-      const id = url.searchParams.get("id") || undefined;
-      try {
-        const data = id ? await worktrees.getById(id) : await worktrees.list(project);
-        sendJson(response, 200, data);
-      } catch (err) { sendJson(response, 502, { error: err.message }); }
-      return;
-    }
-
-    if (method === "POST" && url.pathname === "/worktrees") {
-      const body = await readJsonBody(request);
-      try {
-        const data = await worktrees.create(body);
-        sendJson(response, 201, data);
-      } catch (err) { sendJson(response, 502, { error: err.message }); }
-      return;
-    }
-
-    if (method === "POST" && /^\/worktrees\/([^/]+)\/close$/.test(url.pathname)) {
-      const id = url.pathname.split("/")[2];
-      const body = await readJsonBody(request).catch(() => ({}));
-      try {
-        const data = await worktrees.close({ id, ...body });
-        sendJson(response, 200, data);
-      } catch (err) { sendJson(response, 502, { error: err.message }); }
       return;
     }
 

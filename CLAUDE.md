@@ -108,9 +108,8 @@ src/lib/             Backend runtime (flat, no sub-packages):
                        atomic-write.ts     safe 0600-preserving writes
                        hooks-crud.ts       hooks read/write
                        mcp-writer.ts       MCP config write-through
-                       trenches/           worktree + session management
+                       trenches/           outpost stream helpers
                        validation/         four-check pipeline
-                       worktree/           git worktree CRUD helpers
 src/components/      React UI (Compose, Run, Vault, Chrome,
                      Quarters panels, fitting-views registry + status hook,
                      armory, garrison home).
@@ -158,10 +157,11 @@ Context, Plans — is now a **Quarters platform primitive** surfaced over the re
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
 flag: `dev-env` (7086), `screen-share` (7079), `outposts` (7082),
 `monitor` (7077), `web-channel` (7083), `browser` (7084), `voice` (7085).
-The Dev Env Fitting folds the former terminal/worktree-management/session-view
-into one tabbed surface: every Claude Code session is a tab holding a Claude
-PTY + shell PTY (left) and the live browser pane (right), with worktree / PR
-/ commit-and-push actions in the menu.
+The Dev Env Fitting is one tabbed surface: every Claude Code session is a tab
+holding a Claude PTY + shell PTY (left) and the live browser pane (right), with
+PR / commit-and-push actions on the current branch in the menu. Sessions run in
+the project repo root on the current branch - Garrison spins up no per-task
+branches.
 
 ### Quarters engine
 

@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/@xterm/xterm/lib/xterm.js
+// ../../../node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// node_modules/@xterm/addon-fit/lib/addon-fit.js
+// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// node_modules/highlight.js/lib/core.js
+// ../../../node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "node_modules/highlight.js/lib/core.js"(exports, module) {
+  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_react7 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// fittings/seed/dev-env/ui/terminal-theme.ts
+// ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_react3 = __toESM(require_react());
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// node_modules/marked/lib/marked.esm.js
+// ../../../node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// node_modules/highlight.js/es/core.js
+// ../../../node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// node_modules/highlight.js/es/languages/typescript.js
+// ../../../node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// node_modules/highlight.js/es/languages/javascript.js
+// ../../../node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/python.js
+// ../../../node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/bash.js
+// ../../../node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/json.js
+// ../../../node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/css.js
+// ../../../node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/xml.js
+// ../../../node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/markdown.js
+// ../../../node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/yaml.js
+// ../../../node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/sql.js
+// ../../../node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/rust.js
+// ../../../node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/go.js
+// ../../../node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/diff.js
+// ../../../node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,7 +39813,7 @@ function diff(hljs) {
   };
 }
 
-// packages/claude-chat/src/chat-theme.ts
+// ../../../packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -39880,7 +39880,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// packages/claude-chat/src/voice.ts
+// ../../../packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -39923,7 +39923,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// packages/claude-chat/src/sanitize.ts
+// ../../../packages/claude-chat/src/sanitize.ts
 var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
 var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
 var ORCH_RE_G = /\[orchestrator-active\]/gi;
@@ -39971,7 +39971,7 @@ function routeChipLabel(meta) {
   return route;
 }
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -40817,7 +40817,7 @@ ${t}` : t;
   ] });
 }
 
-// packages/claude-chat/src/transport.ts
+// ../../../packages/claude-chat/src/transport.ts
 function createHttpTransport(base = "/api") {
   const b = base.replace(/\/$/, "");
   const post = async (path, body) => {
@@ -40889,7 +40889,7 @@ function createHttpTransport(base = "/api") {
   };
 }
 
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react3.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -40903,7 +40903,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// fittings/seed/dev-env/ui/browser-pane.tsx
+// ui/browser-pane.tsx
 var import_react4 = __toESM(require_react());
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -41237,10 +41237,10 @@ function BrowserPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_react5 = __toESM(require_react());
 
-// fittings/seed/dev-env/ui/session-request.ts
+// ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "joe", label: "Joe \u2014 dev (default)" },
   { value: "gary", label: "Gary \u2014 assistant" },
@@ -41266,116 +41266,8 @@ function buildSessionRequest({
   return body;
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime());
-function NewWorktreeDialog({
-  onClose,
-  onCreated,
-  onError,
-  initialRepoPath
-}) {
-  const [projects, setProjects] = (0, import_react5.useState)([]);
-  const [repoPath, setRepoPath] = (0, import_react5.useState)(initialRepoPath ?? "");
-  const [branch, setBranch] = (0, import_react5.useState)("");
-  const [baseBranch, setBaseBranch] = (0, import_react5.useState)("main");
-  const [busy, setBusy] = (0, import_react5.useState)(false);
-  (0, import_react5.useEffect)(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/projects");
-        const data = await res.json();
-        if (Array.isArray(data.projects)) {
-          setProjects(data.projects);
-          if (data.projects.length > 0) {
-            setRepoPath((prev) => prev || data.projects[0].path);
-          }
-        }
-      } catch {
-      }
-    })();
-  }, []);
-  async function submit() {
-    if (!repoPath || !branch.trim() || busy) return;
-    setBusy(true);
-    try {
-      const res = await fetch("/worktrees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoPath, branch: branch.trim(), baseBranch: baseBranch.trim() || "main" })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        onError(data?.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      onCreated(String(data.id));
-      onClose();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { children: "New worktree" }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("p", { className: "modal-help", children: [
-      "Creates ",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: "~/.worktrees/<repo>/<branch>" }),
-      ", starts a Claude and a shell terminal there, and opens the tab."
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
-      "Project",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-        "select",
-        {
-          className: "project-picker",
-          value: repoPath,
-          onChange: (e) => setRepoPath(e.target.value),
-          children: [
-            projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("option", { value: p.path, children: p.name }, p.path)),
-            repoPath && !projects.find((p) => p.path === repoPath) && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("option", { value: repoPath, children: repoPath })
-          ]
-        }
-      )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
-      "Branch",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-        "input",
-        {
-          autoFocus: true,
-          type: "text",
-          value: branch,
-          placeholder: "feat/my-change",
-          onChange: (e) => setBranch(e.target.value),
-          onKeyDown: (e) => {
-            if (e.key === "Enter") void submit();
-            if (e.key === "Escape") onClose();
-          }
-        }
-      )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
-      "Base branch",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-        "input",
-        {
-          type: "text",
-          value: baseBranch,
-          onChange: (e) => setBaseBranch(e.target.value),
-          onKeyDown: (e) => {
-            if (e.key === "Enter") void submit();
-            if (e.key === "Escape") onClose();
-          }
-        }
-      )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn", onClick: onClose, children: "Cancel" }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn primary", onClick: () => void submit(), disabled: busy || !branch.trim(), children: busy ? "Creating\u2026" : "Create" })
-    ] })
-  ] }) });
-}
 function StartSessionDialog({
   onClose,
   onCreated,
@@ -41429,8 +41321,8 @@ function StartSessionDialog({
     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "modal-help", children: resume ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
       "Opens a tab and resumes the most recent Claude conversation in the chosen project with ",
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: "claude --continue" }),
-      ". No worktree is created."
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_jsx_runtime5.Fragment, { children: "Opens a tab with a Claude and a shell terminal at the project root. No worktree is created." }) }),
+      ", at the repo root."
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_jsx_runtime5.Fragment, { children: "Opens a tab with a Claude terminal at the project's repo root." }) }),
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
       "Project",
       /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
@@ -41479,26 +41371,6 @@ function StartSessionDialog({
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal-row", children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn", onClick: onClose, children: "Cancel" }),
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn primary", onClick: () => void submit(), disabled: busy || !path.trim(), children: busy ? resume ? "Continuing\u2026" : "Starting\u2026" : resume ? "Continue" : "Start" })
-    ] })
-  ] }) });
-}
-function ConfirmDeleteDialog({
-  label,
-  detail,
-  onClose,
-  onConfirm
-}) {
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { children: "Delete worktree" }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("p", { className: "modal-help", children: [
-      "Removes the git worktree, its directory, the session record, and both terminals for ",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("b", { children: label }),
-      "."
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "modal-help", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: detail }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn", onClick: onClose, autoFocus: true, children: "Cancel" }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn danger", onClick: onConfirm, children: "Delete" })
     ] })
   ] }) });
 }
@@ -41602,7 +41474,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "toast", children: message });
 }
 
-// fittings/seed/dev-env/ui/session-panels.tsx
+// ui/session-panels.tsx
 var import_react6 = __toESM(require_react());
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 function basename(p) {
@@ -41721,7 +41593,7 @@ function SessionsPanel({
   ] });
 }
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {
@@ -41805,11 +41677,10 @@ function basename2(p) {
   return parts[parts.length - 1] ?? p;
 }
 function tabLabel(s) {
-  const folder = s.projectName || basename2(s.worktreePath) || s.id;
+  const folder = s.projectName || basename2(s.projectPath) || s.id;
   let raw;
   if (s.title) raw = s.title;
   else if (!s.branch || s.branch === "main" || s.branch === "master" || s.branch === "detached") raw = folder;
-  else if (s.isWorktree) raw = basename2(s.worktreePath) || s.branch;
   else raw = s.branch;
   return raw.length > 30 ? raw.slice(0, 29) + "\u2026" : raw;
 }
@@ -42152,7 +42023,7 @@ function SessionWorkspace({
     const check = async () => {
       let ok = false;
       try {
-        const res = await fetch(`/app-port?cwd=${encodeURIComponent(session.worktreePath)}`);
+        const res = await fetch(`/app-port?cwd=${encodeURIComponent(session.projectPath)}`);
         ok = res.ok;
       } catch {
       }
@@ -42171,7 +42042,7 @@ function SessionWorkspace({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [active, isMobile, browserPref, session.worktreePath]);
+  }, [active, isMobile, browserPref, session.projectPath]);
   const desktopBrowserVisible = !isMobile && (browserPref === "open" || browserPref !== "closed" && hasAppPort);
   const browserMounted = desktopBrowserVisible || isMobile && active;
   const showBrowser = isMobile ? mobilePane === "browser" : desktopBrowserVisible;
@@ -42341,7 +42212,7 @@ function SessionWorkspace({
     browserMounted && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "browser-pane-host", style: { display: showBrowser ? "flex" : "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
       BrowserPane,
       {
-        cwd: session.worktreePath,
+        cwd: session.projectPath,
         active,
         onWired,
         onManualNav: () => onPinBrowserOpen(session.id),
@@ -42658,34 +42529,16 @@ function App() {
     const ok = await instruct(selected.id, text);
     if (ok) toast("Sent to Claude");
   }
-  async function deleteSelected() {
-    setDialog(null);
-    if (!selected) return;
-    const idx = sessions.findIndex((s) => s.id === selected.id);
-    try {
-      const res = await fetch(`/sessions/${encodeURIComponent(selected.id)}`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast(data?.error ?? `delete failed: HTTP ${res.status}`);
-        return;
-      }
-      const neighbor = sessions[idx + 1] ?? sessions[idx - 1] ?? null;
-      setSelectedId(neighbor ? neighbor.id : null);
-      await refresh();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err));
-    }
-  }
   async function openAppInNewTab() {
     setMenuOpen(false);
     if (!selected) return;
-    const wired = wiredByCwd.current.get(selected.worktreePath);
+    const wired = wiredByCwd.current.get(selected.projectPath);
     if (wired?.canvasUrl) {
       window.open(wired.canvasUrl, "_blank", "noopener");
       return;
     }
     try {
-      const res = await fetch(`/app-port?cwd=${encodeURIComponent(selected.worktreePath)}`);
+      const res = await fetch(`/app-port?cwd=${encodeURIComponent(selected.projectPath)}`);
       if (res.ok) {
         const { port } = await res.json();
         window.open(`http://${window.location.hostname}:${port}`, "_blank", "noopener");
@@ -42764,10 +42617,6 @@ function App() {
             setMenuOpen(false);
             setDialog("continue-session");
           }, children: "Continue session\u2026" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => {
-            setMenuOpen(false);
-            setDialog("new-worktree");
-          }, children: "New worktree\u2026" }),
           /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => void clearStale(), children: "Clear stale sessions" }),
           /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
@@ -42824,14 +42673,7 @@ function App() {
               children: "Open browser"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", disabled: !selected, onClick: () => void openAppInNewTab(), children: "Open app in browser tab" }),
-          selected?.isWorktree && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "menu-sep" }),
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "danger", onClick: () => {
-              setMenuOpen(false);
-              setDialog("confirm-delete");
-            }, children: "Delete worktree" })
-          ] })
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", disabled: !selected, onClick: () => void openAppInNewTab(), children: "Open app in browser tab" })
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "panel-wrap", onClick: (e) => e.stopPropagation(), children: [
@@ -42853,7 +42695,7 @@ function App() {
           {
             className: `tab ${s.id === selectedId ? "active" : ""} ${s.lastStatus === "stale" ? "stale" : ""}`,
             onClick: () => select(s.id),
-            title: `${s.worktreePath}
+            title: `${s.projectPath}
 ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
             children: [
               s.lastStatus === "working" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "spinner", "aria-hidden": "true" }),
@@ -42864,7 +42706,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
                 "span",
                 {
                   className: "close",
-                  title: "Close tab (terminals die; the directory and worktree stay)",
+                  title: "Close tab (terminals die; the directory stays)",
                   onClick: (e) => {
                     e.stopPropagation();
                     void closeTab(s.id);
@@ -42876,7 +42718,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
           },
           s.id
         )),
-        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tabs-empty", children: "No sessions \u2014 create a worktree or start claude anywhere." }),
+        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tabs-empty", children: "No sessions \u2014 start a session or run claude anywhere." }),
         sessions.length > 0 && visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "tabs-empty", children: [
           "No active sessions \u2014 ",
           hiddenCount,
@@ -42961,7 +42803,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
       visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "empty-state", children: [
         /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: "No active sessions." }),
         /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => setDialog("new-worktree"), children: "New worktree\u2026" }),
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => setDialog("start-session"), children: "New session\u2026" }),
           hiddenCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("button", { type: "button", className: "btn", onClick: () => toggleShowAll(), children: [
             "Show all sessions (",
             hiddenCount,
@@ -42970,19 +42812,6 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         ] })
       ] })
     ] }),
-    dialog === "new-worktree" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-      NewWorktreeDialog,
-      {
-        initialRepoPath: selected?.projectPath,
-        onClose: () => setDialog(null),
-        onCreated: (id) => {
-          setSelectedId(id);
-          setVisited((v) => new Set(v).add(id));
-          void refresh();
-        },
-        onError: (m) => toast(m)
-      }
-    ),
     dialog === "start-session" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
       StartSessionDialog,
       {
@@ -43008,15 +42837,6 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
           void refresh();
         },
         onError: (m) => toast(m)
-      }
-    ),
-    dialog === "confirm-delete" && selected && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-      ConfirmDeleteDialog,
-      {
-        label: tabLabel(selected),
-        detail: selected.worktreePath,
-        onClose: () => setDialog(null),
-        onConfirm: () => void deleteSelected()
       }
     ),
     dialog === "settings" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(

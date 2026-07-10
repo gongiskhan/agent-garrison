@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Ports Fitting backend — lists listening TCP sockets on this box and labels
-// each one (worktree registry > ui-fitting status file > owning pid/command).
+// each one (ui-fitting status file > owning pid/command).
 //
 // Discovery: `ss -tlnpH` on Linux, `lsof -iTCP -sTCP:LISTEN -P -n` on macOS.
 // Labeling + parsing are pure and live in ../lib/ports-core.mjs.
@@ -22,7 +22,6 @@ import {
   parseSs,
   parseLsof,
   buildPortRows,
-  buildWorktreeIndex,
   buildStatusIndex,
   listeningPidSet,
   killGuard
@@ -31,7 +30,6 @@ import {
 const HOME = os.homedir();
 const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "ports-default.json");
-const SESSIONS_STATE_FILE = path.join(HOME, ".garrison", "sessions", "state.json");
 const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
 const FITTING_ID = "ports-default";
 
@@ -89,15 +87,6 @@ async function scanSockets() {
   }
   const { stdout } = await execCollect("ss", ["-tlnpH"]);
   return parseSs(stdout);
-}
-
-function readSessionsState() {
-  if (!existsSync(SESSIONS_STATE_FILE)) return {};
-  try {
-    return JSON.parse(readFileSync(SESSIONS_STATE_FILE, "utf8"));
-  } catch {
-    return {};
-  }
 }
 
 // Read every ~/.garrison/ui-fittings/*.json status file (the flat directory
@@ -165,13 +154,11 @@ async function runScan() {
   } catch (err) {
     console.error("[ports] scan failed:", err?.message ?? err);
   }
-  const sessionsState = readSessionsState();
   const statusFiles = await readStatusFiles();
-  const worktreeIndex = buildWorktreeIndex(sessionsState);
   const statusIndex = buildStatusIndex(statusFiles);
   const tailnetHost = await resolveTailnetHost().catch(() => lanIpFallback());
   latest = {
-    rows: buildPortRows(parsed, { worktreeIndex, statusIndex }),
+    rows: buildPortRows(parsed, { statusIndex }),
     listeningPids: listeningPidSet(parsed),
     scannedAt: new Date().toISOString(),
     tailnetHost,

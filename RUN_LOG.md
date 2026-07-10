@@ -68,3 +68,30 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - Mutation gate prep: sandbox at /tmp/garrison-mutation-sandbox with stryker in /tmp/stryker-tools (NOT a repo dependency, honoring the deps constraint).
 - REMAINING lead work: collect + gate S3/S9/S10/S11/S12/S13 (walls, validate-fitting, commits, reviews for s3/s9/s12/s13); S13/S14 signal demos (busy signals blocking suspension in isolation) + D37 blocked recording; walkthrough videos for ui/mixed slices (needs Garrison live: npm start, then walkthrough skill per slice); run-level closing gates IN ORDER (mutation → built-in security-review → codex checkpoint (degraded)); acceptance passes (1-18, several depend on live Garrison + tailnet); LANDING.md; autothing-report (no Slack webhook — degrade); the terminal GLOBAL GATE line LAST.
 - Baseline failures still open (must be green before verdict): tests/autothing-validate.test.ts x3 (fixtures vs installed skill drift — decide: update fixtures to the seed family contract), tests/z1-end-to-end.test.ts (stale automations scratch), tests/browser-observe.test.ts (env hook timeout — classify infra with evidence or fix).
+
+## RUN-START 2026-07-10T17:18:46Z
+- runId: 20260710-171608-7bf26feb
+- brief: GARRISON-FLOW-V2 — same-branch coordination (touch-set intents, stability points, ordering, interference protocol, commit fences, attribution), worktree sweep, generic flow (de-Cortex/de-Ekoa/de-Garrison, opt-in security), ux-qa phase, autonomy collapse (every task a card, garrison rename), Improver Probe, runtime freedom (PTY rule retired, FENCE removed).
+- session: claude-fable-5, effort=session-inherited, host=dev-madrid
+- gatesConfig: all-true (no operator flags); profile: pending-sizing (brief names 9 slices — build expected)
+- preflight: node v20.19.4, jq 1.7, git 2.43.0, codex 0.143.0, gitleaks 8.30.1, semgrep 1.168.0, asciinema 2.4.0, agg 1.9.0, ffmpeg present, playwright 1.61.1
+- coord stack: MCP tools NOT connected this session — disjoint-files discipline fallback (documented degrade path)
+- preconditions (GARRISON-UNIFY-V1): policy.json OK, composer view OK, run engine cards-as-runs OK, phase-skill registry OK, runs home OK-as-mechanism (lazily created)
+
+## GATE phase0-explore (run 20260710-171608-7bf26feb)
+- green condition: E1-E14 explored, FINDING lines printed, UNIFY-V1 preconditions verified
+- verdict: passed (E12 spike still in flight - non-blocking, fallback capture path already confirmed via E13)
+- evidence: docs/autothing/runs/20260710-171608-7bf26feb/phase0/*.md (9 agent reports + full SendMessage extracts + e7-checklist-full.md)
+- preconditions: all 5 UNIFY-V1 artifacts present (runs-home lazily created by engine, treated as present-as-mechanism)
+- models: 7x Explore + 2x general-purpose subagents on session model; durations ~5-13 min wall each, parallel
+- notable: Beads removed from tree (brief assumed it); agent_mail clone absent on this box; no phase-boundary commits exist yet (D5 net-new); pool sessions unobservable to hooks (D22 gating must fail closed); preRoute log has no sessionId (E11 correlation via digest)
+
+## DECISION 2026-07-10T17:45:27Z (run 20260710-171608-7bf26feb)
+- Sizing: 9 slices (S1-S9), profile=build (replaces pending-sizing). Turn cap resized 250 -> 720 (max(300, 80x9)). deliberateRed+mutation ON (>=3 slices). RUN_SPEC.md written with 15-entry assumptions ledger; FLOW_PLAN derives from it. One Plan subagent for S1/S2 engine design; other slices mapped inline from phase0 findings (brief pre-makes all decisions - A13).
+
+## GATE phase1-plan (run 20260710-171608-7bf26feb)
+- green condition: RUN_SPEC.md + FLOW_PLAN.md written, profile assigned, turn cap resized
+- verdict: passed
+- evidence: docs/autothing/runs/20260710-171608-7bf26feb/{RUN_SPEC.md,FLOW_PLAN.md,plan-coord-engine.md}
+- build order: S3, S1, S2, S4, S5, S9, S6, S7, S8 (serial at slice level; intra-slice parallelism on disjoint files)
+- models: 1x Plan subagent (session model) for S1/S2 engine design; E12 spike CONFIRMED-YES (PostToolUse carries tool_response.answers)

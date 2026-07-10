@@ -14,7 +14,7 @@ type PortRow = {
   pid: number | null;
   pids: number[];
   command: string | null;
-  labelSource: "worktree" | "fitting" | "process" | "unknown";
+  labelSource: "fitting" | "process" | "unknown";
   label: string | null;
   labelDetail: string | null;
 };
@@ -43,7 +43,6 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 function labelSourceTag(source: PortRow["labelSource"]): string {
   switch (source) {
-    case "worktree": return "worktree";
     case "fitting": return "fitting";
     case "process": return "process";
     default: return "unknown";

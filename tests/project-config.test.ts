@@ -67,7 +67,6 @@ describe("project-config", () => {
     const cfg = await loadProjectConfig(tmpDir);
     expect(cfg.name).toBe(path.basename(tmpDir));
     expect(cfg.defaultBaseBranch).toMatch(/^(main|master)$/);
-    expect(cfg.worktreeBase).toContain(".worktrees");
   });
 
   it("caches loaded config for the same repoPath", async () => {

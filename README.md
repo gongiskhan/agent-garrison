@@ -199,7 +199,7 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 - `http-gateway` - a small local HTTP gateway for inbound jobs, channels, and session checks
 
 **Surfaces & tools** - own-port Fittings a human uses in a browser tab (Garrison links them under sidebar Views)
-- `dev-env` (7086) - one tab per session: a Claude PTY + shell PTY + the live browser pane, with worktree / PR / commit flows
+- `dev-env` (7086) - one tab per session: a Claude PTY + shell PTY + the live browser pane, with PR / commit flows on the current branch
 - `monitor-default` (7077) - read-only visibility into every process Garrison spawns (PIDs, ports, logs)
 - `screen-share-default` (7079) - ~2fps JPEG screen viewer for phone / remote access
 - `browser-default` (7084) - a headless Chromium substrate the Operative can drive and see
@@ -313,9 +313,9 @@ Garrison is in active development. The live journal is [`docs/GARRISON_ROADMAP.m
 
 | Stage | Goal | Status |
 |---|---|---|
-| **1 - Replace IDE + CLI** | dev-env Fitting (PTY + shell + browser pane per session), worktree CRUD, session badges, screen-share, Documents + Artifact Store | Largely shipped; refining for daily use |
+| **1 - Replace IDE + CLI** | dev-env Fitting (PTY + shell + browser pane per session), session badges, screen-share, Documents + Artifact Store | Largely shipped; refining for daily use |
 | **2 - Disciplined dev pipeline** | classify → plan → execute under `/goal` → validate → test → evidence → report | Design locked 2026-05-26; implementation pending |
-| **3 - Mobile / orchestrator-driven** | Web channel polish, orchestrator spawns worktrees + pipelines, cross-surface continuity | Scoped; depends on Stage 2 |
+| **3 - Mobile / orchestrator-driven** | Web channel polish, orchestrator spawns pipelines on the current branch, cross-surface continuity | Scoped; depends on Stage 2 |
 | **4 - Replace claude.ai discussions** | PM/Architect hat, document-during-conversation, chat UX for long-form | Substrate shipped (Documents + Artifact Store); behaviour missing |
 | **5 - Autonomous loop** | Tasks Faculty, heartbeat-driven pickup, plan-then-approve gate, evidence return | Depends on Stages 2–4 |
 

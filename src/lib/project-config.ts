@@ -14,7 +14,6 @@ const RawConfigSchema = z
     id: z.string().optional(),
     name: z.string().optional(),
     rootPath: z.string().optional(),
-    worktreeBase: z.string().optional(),
     portNeeds: z
       .array(
         z.object({
@@ -25,19 +24,7 @@ const RawConfigSchema = z
       .optional(),
     startupCommands: z.array(z.string()).optional(),
     envTemplate: z.record(z.string()).optional(),
-    defaultBaseBranch: z.string().optional(),
-    portPool: z
-      .object({
-        start: z.number().int().positive(),
-        end: z.number().int().positive()
-      })
-      .optional(),
-    port_pool: z
-      .object({
-        start: z.number().int().positive(),
-        end: z.number().int().positive()
-      })
-      .optional()
+    defaultBaseBranch: z.string().optional()
   })
   .passthrough();
 
@@ -63,7 +50,6 @@ function defaultsForRepo(repoPath: string): ProjectConfig {
     id: name,
     name,
     rootPath: repoPath,
-    worktreeBase: path.join(os.homedir(), ".worktrees", name),
     portNeeds: [],
     startupCommands: [],
     envTemplate: {},
@@ -76,19 +62,14 @@ function mergeConfigs(
   partial: RawConfig | null
 ): ProjectConfig {
   if (!partial) return base;
-  const portPool = partial.portPool ?? partial.port_pool ?? base.portPool;
   return {
     id: partial.id ?? base.id,
     name: partial.name ?? base.name,
     rootPath: base.rootPath,
-    worktreeBase: partial.worktreeBase
-      ? expandHome(partial.worktreeBase)
-      : base.worktreeBase,
     portNeeds: partial.portNeeds ?? base.portNeeds,
     startupCommands: partial.startupCommands ?? base.startupCommands,
     envTemplate: partial.envTemplate ?? base.envTemplate,
-    defaultBaseBranch: partial.defaultBaseBranch ?? base.defaultBaseBranch,
-    portPool
+    defaultBaseBranch: partial.defaultBaseBranch ?? base.defaultBaseBranch
   };
 }
 

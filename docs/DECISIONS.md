@@ -213,7 +213,7 @@ already present) and per-project `port_pool: {start, end}` in
 `~/.garrison/projects/<id>.yml`. Treat the brief's `3000–3100` as
 illustrative.
 **Source:** [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md) §"Port allocation"; user review 2026-05-16.
-**Status:** Settled.
+**Status:** Superseded 2026-07-10 by "Worktrees removed everywhere; same-branch is the only mode" (D10) - worktrees and the port pool are gone.
 
 ## 2026-05-16 · `mcp-gateway --probe` stays lenient by default; `--strict` opt-in
 
@@ -599,3 +599,19 @@ shell-overhaul slice's independent cross-model UI pass is recorded as `blocked(e
 the improver and landing slices got real independent passes at the HTTP level instead.
 **Source:** autothing run 20260701-225923 non-negotiables (self-unblock attempted, external
 cause named). **Status:** Open - revisit if a Codex release restores sandboxed browser launch.
+
+## 2026-07-10 · Worktrees removed everywhere; same-branch is the only mode
+
+GARRISON-FLOW-V2 (D10) removes git worktrees as a Garrison mechanism entirely.
+There are no per-task feature branches, no per-worktree port pools, and no
+Tailscale-URL-per-worktree surfacing. All dev work happens in the project repo
+root on the **current branch**; the dev-env Fitting runs each Claude Code session
+there, and multiple concurrent tasks coordinate by staying off each other's files
+(touch-set overlap and ordering) rather than isolating into branches. The
+orchestrator no longer calls `create_worktree` / `list_worktrees` /
+`close_worktree`; on "ship it" it opens a PR from the current branch via
+`gh pr create`. This **supersedes** the 2026-05-16 "Worktree port pool stays
+50000-54999" decision (the port pool is gone) and retires the worktree/port-pool
+flow described in [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md)
+(kept as a historical design record with a SUPERSEDED banner).
+**Source:** GARRISON-FLOW-V2 S3 sweep; RUN_SPEC / FLOW_PLAN D10. **Status:** Settled.

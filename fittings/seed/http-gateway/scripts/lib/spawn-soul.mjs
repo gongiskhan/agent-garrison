@@ -19,11 +19,7 @@ const GARRISON_TOOLS_DISALLOWED_FOR_SOULS = [
   "mcp__garrison__wait_for",
   "mcp__garrison__list_active_sessions",
   "mcp__garrison__end_session",
-  "mcp__garrison__list_workdirs",
-  "mcp__garrison__list_worktrees",
-  "mcp__garrison__create_worktree",
-  "mcp__garrison__get_worktree",
-  "mcp__garrison__close_worktree"
+  "mcp__garrison__list_workdirs"
 ];
 
 export function disallowedToolsForSoul(spawnConfig) {
@@ -197,7 +193,6 @@ export async function spawnInteractiveTab({
   message,
   mcpConfigPath,
   soul,
-  worktreeId,
   resume,
   promptPath
 }) {
@@ -216,7 +211,6 @@ export async function spawnInteractiveTab({
   const body = {
     session_id: sessionUuid,
     soul,
-    worktree_id: worktreeId,
     cwd,
     args,
     message,

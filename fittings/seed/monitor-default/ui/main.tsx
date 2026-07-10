@@ -38,7 +38,7 @@ type Entity = {
   soul?: string | null;
   tier?: { model?: string; effort?: string; tier?: number; reason?: string } | null;
   branch?: string | null;
-  worktreePath?: string | null;
+  projectPath?: string | null;
   title?: string | null;
   mode?: string | null;
 };
@@ -325,7 +325,7 @@ function ProcessCard({ entity, onOpen }: { entity: Entity; onOpen: (pid: number)
           <span className="tag tag-tier">{tierLabel(entity.tier)}</span>
         )}
         {entity.branch && (
-          <span className="tag tag-branch mono" title={entity.worktreePath ?? undefined}>
+          <span className="tag tag-branch mono" title={entity.projectPath ?? undefined}>
             {entity.branch}
           </span>
         )}

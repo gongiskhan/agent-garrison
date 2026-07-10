@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // dev-env backend — the consolidated Dev Env Fitting (port 7086). One server
-// folds the three retired dev-work Fittings into a single surface:
+// folds the retired dev-work Fittings into a single surface:
 //   - PTY terminals (ptys.mjs, from terminal-armory-default)
-//   - session state + Claude Code hook receiver (state.mjs, from
-//     session-view-sequoias) — every Claude Code session becomes a tab
-//   - git worktree CRUD (worktrees.mjs, from worktree-management-sequoias)
+//   - session state + Claude Code hook receiver + session CRUD (state.mjs,
+//     from session-view-sequoias) — every Claude Code session becomes a tab,
+//     same-branch, at its project's repo root
 // Scaffolding (routing, WS upgrade, status file, static serving) follows the
 // terminal donor.
 
@@ -53,33 +53,27 @@ import {
   aggregateSessions,
   applyHookEvent,
   cleanupState,
-  getDirty,
-  hasLiveClaudeProcess,
-  isBroadRoot,
-  liveRegistryRows,
-  migrateOpenSet,
-  openSessionByClaudeId,
-  readStateFile,
-  runWorkingIdleFallback,
-  setDirtyCheckTtl,
-  setSessionOpen
-} from "./state.mjs";
-import { listHistory } from "./claude-sessions.mjs";
-import { tailnetUrlForPort } from "./tailnet.mjs";
-import {
   createProjectSession,
-  createWorktree,
   deleteSession,
   expandHome,
   findSessionById,
-  isWorktreePath,
+  getDirty,
+  hasLiveClaudeProcess,
+  isBroadRoot,
   listProjects,
-  listWorktreesEnriched,
+  liveRegistryRows,
+  migrateOpenSet,
+  openSessionByClaudeId,
   readDevRoot,
-  removeSessionRecord,
+  readStateFile,
+  runWorkingIdleFallback,
+  setDirtyCheckTtl,
   setPaneClosed,
+  setSessionOpen,
   writeDevRoot
-} from "./worktrees.mjs";
+} from "./state.mjs";
+import { listHistory } from "./claude-sessions.mjs";
+import { tailnetUrlForPort } from "./tailnet.mjs";
 
 const FITTING_ID = "dev-env";
 const DEFAULT_PORT = 7086;
@@ -261,7 +255,6 @@ function assembleSessions() {
     out.push({
       id: row.id,
       branch: row.branch,
-      worktreePath: row.worktreePath,
       projectName: row.projectName,
       projectPath: row.projectPath,
       lastStatus,
@@ -269,12 +262,11 @@ function assembleSessions() {
       claudeSessionId: row.claudeSessionId,
       title: row.title,
       source: row.source,
-      dirty: getDirty(row.worktreePath),
-      isWorktree: isWorktreePath(row.worktreePath),
+      dirty: getDirty(row.projectPath),
       external,
-      excluded: isExcluded(row.worktreePath),
-      isBroadRoot: isBroadRoot(row.worktreePath),
-      liveProcess: hasLiveClaudeProcess(row.worktreePath, row.claudeSessionId),
+      excluded: isExcluded(row.projectPath),
+      isBroadRoot: isBroadRoot(row.projectPath),
+      liveProcess: hasLiveClaudeProcess(row.projectPath, row.claudeSessionId),
       openedInDevEnv: row.openedInDevEnv === true,
       claudeClosed: Boolean(row.panesClosed?.claude),
       claudePty,
@@ -477,7 +469,7 @@ async function handleEnsurePty(req, res, sessionId) {
   if (!found) return jsonRes(res, 404, { error: `session id not found: ${sessionId}` });
   try {
     ensurePty({
-      session: { id: sessionId, worktreePath: found.worktreePath },
+      session: { id: sessionId, projectPath: found.projectPath },
       role,
       resume: body.resume === true,
       resumeId: role === "claude" ? found.claudeSessionId || null : null
@@ -499,7 +491,7 @@ async function handleCreateTerminal(req, res, sessionId) {
   if (!found) return jsonRes(res, 404, { error: `session id not found: ${sessionId}` });
   try {
     const role = allocateTerminalRole(sessionId);
-    ensurePty({ session: { id: sessionId, worktreePath: found.worktreePath }, role });
+    ensurePty({ session: { id: sessionId, projectPath: found.projectPath }, role });
     jsonRes(res, 201, { ok: true, role, pty: ptySummary(sessionId, role) });
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -585,7 +577,7 @@ async function handleCreateSession(req, res) {
   const body = (await readBody(req)) || {};
   try {
     const { session, existed } = await createProjectSession({ path: body.path, title: body.title });
-    const stub = { id: session.id, worktreePath: session.worktreePath };
+    const stub = { id: session.id, projectPath: session.projectPath };
     const externalNow =
       existed &&
       ptySummary(session.id, "claude").state !== "running" &&
@@ -603,7 +595,7 @@ async function handleCreateSession(req, res) {
       let orchestrated = null;
       const wantPlain = body.plain === true;
       if (wantPlain) {
-        console.log(`[dev-env] PLAIN session requested for ${session.worktreePath} (unorchestrated escape hatch, D22) — logged`);
+        console.log(`[dev-env] PLAIN session requested for ${session.projectPath} (unorchestrated escape hatch, D22) — logged`);
       } else {
         try {
           const spec = await placeViaOrchestrator({
@@ -622,7 +614,7 @@ async function handleCreateSession(req, res) {
           orchestrated = null; // graceful fallback to a bare session
         }
         if (!orchestrated) {
-          console.log(`[dev-env] orchestrated placement unavailable for ${session.worktreePath} — bare-session fallback`);
+          console.log(`[dev-env] orchestrated placement unavailable for ${session.projectPath} — bare-session fallback`);
         }
       }
       ensurePty({
@@ -647,8 +639,9 @@ async function handleCreateSession(req, res) {
 
 // POST /sessions/:id/close — tab close = kill PTYs + UNPIN (openedInDevEnv:false)
 // but KEEP the record so the session stays in History and can be resumed. (DELETE
-// /sessions/:id is the separate "truly remove + drop the git worktree" path.) A
-// late dying-claude hook only updates lastStatus on the kept record; it never
+// /sessions/:id is the separate "truly remove the record" path — it tombstones
+// and drops the record, never touching git or the directory.) A late
+// dying-claude hook only updates lastStatus on the kept record; it never
 // re-pins, so the tab stays closed.
 async function handleCloseSession(req, res, sessionId) {
   try {
@@ -689,37 +682,6 @@ async function handleHook(req, res, queryParams = {}) {
   const result = await applyHookEvent(event, body);
   if (result.ok === false) return jsonRes(res, 400, { error: result.error });
   jsonRes(res, 200, result);
-}
-
-// POST /worktrees — create + record + spawn BOTH PTYs before responding, so
-// the new tab appears (with live panes) on the UI's next poll. The flat
-// legacy fields stay top-level for gateway-passthrough compatibility; the
-// assembled DevEnvSession rides along under `session`.
-async function handleCreateWorktree(req, res) {
-  const body = (await readBody(req)) || {};
-  try {
-    const created = await createWorktree(body);
-    const sessionStub = { id: created.id, worktreePath: created.worktreePath };
-    ensurePty({ session: sessionStub, role: "claude" });
-    // Pin the worktree session as a tab so it survives a reboot like any other.
-    await setSessionOpen(created.id, true);
-    // No default shell terminal — opened on demand via the deck's + button.
-    const session = assembleSessions().find((s) => s.id === created.id) ?? null;
-    jsonRes(res, 201, { ...created, session });
-  } catch (err) {
-    jsonRes(res, err.status ?? 500, { error: err.message });
-  }
-}
-
-async function handleListWorktrees(req, res, queryParams) {
-  const repoPath = expandHome(queryParams.repoPath || "");
-  if (!repoPath) return jsonRes(res, 400, { error: "repoPath required" });
-  try {
-    const worktrees = await listWorktreesEnriched(repoPath);
-    jsonRes(res, 200, { worktrees, projectPath: repoPath });
-  } catch (err) {
-    jsonRes(res, 500, { error: err.message });
-  }
 }
 
 async function handleListProjects(req, res, queryParams) {
@@ -800,7 +762,7 @@ function handleClaudeStatus(req, res, sessionId) {
 
 function handleClaudeCommands(req, res, sessionId) {
   const found = findSessionById(sessionId);
-  const cwd = found?.worktreePath;
+  const cwd = found?.projectPath;
   jsonRes(res, 200, { commands: enumerateCommandsCached(cwd ? { cwd } : {}) });
 }
 
@@ -1122,12 +1084,6 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         if (action === "stt" && method === "POST") return await handleVoiceStt(req, res);
       }
 
-      if (pathname === "/worktrees" && method === "GET") return await handleListWorktrees(req, res, parsed.query);
-      if (pathname === "/worktrees" && method === "POST") return await handleCreateWorktree(req, res);
-
-      const wtDelMatch = pathname.match(/^\/worktrees\/([^/]+)$/);
-      if (wtDelMatch && method === "DELETE") return await handleDeleteSession(req, res, decodeURIComponent(wtDelMatch[1]));
-
       const ptyKillMatch = pathname.match(/^\/sessions\/([^/]+)\/ptys\/(claude|shell(?:-\d+)?)$/);
       if (ptyKillMatch && method === "DELETE") {
         return await handleKillPty(req, res, decodeURIComponent(ptyKillMatch[1]), ptyKillMatch[2]);
@@ -1266,7 +1222,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   // visible tab → keep it open). After this every record carries the flag, so
   // the tab strip is rebuilt from persistence — surviving a reboot.
   const migrated = await migrateOpenSet((session) => {
-    if (hasLiveClaudeProcess(session.worktreePath, session.claudeSessionId)) return true;
+    if (hasLiveClaudeProcess(session.projectPath, session.claudeSessionId)) return true;
     if (ptySummary(session.id, "claude").state === "running") return true;
     const t = Date.parse(session.lastStatusAt || "");
     return Number.isFinite(t) && Date.now() - t < 90 * 60 * 1000;

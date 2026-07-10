@@ -219,7 +219,7 @@ A **Faculty** is a slot in a composition. It has a name, a cardinality (`single`
 | 14 | `artifact-store` | single | Filesystem-backed storage for files Fittings produce. |
 | 15 | `sync` | single | Periodic mirroring (e.g. vault sync to outposts). |
 | 16 | `monitor` | single | Read-only visibility into spawned PIDs/ports/logs. |
-| 17 | `sessions` | single (own-port) | Claude Code dev environment — session tabs, terminals, worktrees, browser pane. |
+| 17 | `sessions` | single (own-port) | Claude Code dev environment — session tabs, terminals, browser pane. |
 | 18 | `screen-share` | single (own-port) | Screen-capture relay. |
 | 19 | `outposts` | single (own-port) | Multi-machine bridge to other Macs over Tailscale. |
 | 20 | `web-channel` | single (own-port) | Browser chat surface. |
@@ -389,7 +389,7 @@ These ship a React UI on their own HTTP port. The **human** opens them in a brow
 
 Examples:
 
-- `dev-env` — per-session Claude Code dev environment (Claude + shell PTYs, browser pane, worktree lifecycle).
+- `dev-env` — per-session Claude Code dev environment (Claude + shell PTYs, browser pane; sessions on the current branch).
 - `screen-share-default` — macOS screen-capture viewer.
 - `outpost-tailscale-host` — remote-Mac bridge management.
 - `web-channel-default` — mobile-friendly chat surface.
@@ -755,14 +755,14 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 
 | Fitting | Faculty | What it does |
 |---|---|---|
-| `outpost-tailscale-host` | outposts | Bridge for a Tailscale-connected remote Mac. Spawn processes, read files, manage worktrees via the Outpost Protocol. |
+| `outpost-tailscale-host` | outposts | Bridge for a Tailscale-connected remote Mac. Spawn processes, read files via the Outpost Protocol. |
 | `outpost-actions` | skills | Agent skill for invoking ops on remote outposts — run commands, read/write files. |
 
 ### Workbench (tool-facing, own-port)
 
 | Fitting | Faculty | Port | What it does |
 |---|---|---|---|
-| `dev-env` | sessions | 7086 | Per-session Claude Code dev environment — Claude + shell PTYs, quick-prompt bar, live browser pane, git worktree lifecycle, session dashboard. |
+| `dev-env` | sessions | 7086 | Per-session Claude Code dev environment — Claude + shell PTYs, quick-prompt bar, live browser pane, current-branch sessions, session dashboard. |
 | `screen-share-default` | screen-share | 7079 | macOS screen-capture — ~2fps JPEG polling for phone/remote access. |
 | `browser-default` | browser | 7084 | Headless Chromium with screencast, input, raw CDP, and DevTools reverse-proxy. |
 | `monitor-default` | monitor | 7077 | Read-only PID/port/log dashboard. |

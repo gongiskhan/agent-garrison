@@ -1,5 +1,13 @@
 # Brief: Worktrees, Ports, and Surface-Aware Orchestration
 
+> **SUPERSEDED 2026-07-10 by GARRISON-FLOW-V2 (D10).** Worktrees were removed
+> everywhere; same-branch is the only mode. Garrison no longer spins up per-task
+> git branches, worktrees, or port pools - all dev work happens in the project
+> repo root on the current branch, and concurrent tasks coordinate via touch-set
+> overlap and ordering rather than branch isolation. This document is retained
+> unchanged as the historical design record; do not treat its worktree/port-pool
+> flow as current.
+
 **Status:** Active implementation brief
 **Target implementer:** Claude Code (Opus)
 **Builds on:**

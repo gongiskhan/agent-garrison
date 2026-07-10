@@ -5,9 +5,14 @@
 // retirement). New here: the git-dirty cache (stale-while-revalidate) and the
 // extended cleanup that operates on the RAW state file — the aggregate hides
 // missing-path rows, so cleanup must not go through it.
+//
+// Sessions are same-branch only: each runs at its project's repo root, so a
+// record's working directory is its `projectPath`. The session-CRUD helpers
+// (createProjectSession / findSessionById / deleteSession / setPaneClosed /
+// dev-root / project listing) live here too.
 
 import { exec, execFile } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +24,7 @@ import { readLiveRegistry } from "./claude-sessions.mjs";
 const execP = promisify(exec);
 
 const HOME = os.homedir();
+const DEV_ROOT_FILE = path.join(HOME, ".garrison", "dev-root");
 export const STATE_FILE = process.env.GARRISON_STATE_PATH && process.env.GARRISON_STATE_PATH.trim().length > 0
   ? process.env.GARRISON_STATE_PATH
   : path.join(HOME, ".garrison", "sessions", "state.json");
@@ -101,14 +107,13 @@ export function liveRegistryRows() {
   return liveRegistry().rows;
 }
 
-// True when a live `claude` is running at `worktreePath`, or a live session
-// carries `claudeSessionId`. Keeps the original name/signature so the server's
-// assembleSessions keeps working; now backed by the registry, not ps/lsof.
-export function hasLiveClaudeProcess(worktreePath, claudeSessionId = null) {
+// True when a live `claude` is running at `cwd`, or a live session carries
+// `claudeSessionId`. Backed by the registry, not ps/lsof.
+export function hasLiveClaudeProcess(cwd, claudeSessionId = null) {
   const reg = liveRegistry();
   if (claudeSessionId && reg.bySid.has(claudeSessionId)) return true;
-  if (!worktreePath) return false;
-  return reg.byCwd.has(worktreePath) || reg.byCwd.has(realResolve(worktreePath));
+  if (!cwd) return false;
+  return reg.byCwd.has(cwd) || reg.byCwd.has(realResolve(cwd));
 }
 
 // Close tombstones: closing/deleting a session races the dying claude's
@@ -186,6 +191,21 @@ export function readStateFile() {
   }
   if (!parsed || typeof parsed !== "object") return null;
   if (!parsed.projects || typeof parsed.projects !== "object") return null;
+  // One-time migration off the worktree schema: the session's working directory
+  // used to be stored as `worktreePath` (it is now `projectPath` — same-branch,
+  // repo root), and `baseBranch` was the fork point for a worktree (dead now).
+  // Normalise on read so every consumer sees the new shape; the next state write
+  // persists it.
+  for (const project of Object.values(parsed.projects)) {
+    for (const session of Object.values(project?.sessions ?? {})) {
+      if (!session) continue;
+      if (session.worktreePath !== undefined) {
+        if (session.projectPath === undefined) session.projectPath = session.worktreePath;
+        delete session.worktreePath;
+      }
+      if (session.baseBranch !== undefined) delete session.baseBranch;
+    }
+  }
   return parsed;
 }
 
@@ -212,7 +232,9 @@ export async function writeStateAtomic(state) {
 }
 
 // Aggregate view: one row per session, missing-path rows hidden, stale
-// derived. This feeds GET /sessions; cleanup goes through the raw file.
+// derived. This feeds GET /sessions; cleanup goes through the raw file. A
+// session's working directory IS its project path (same-branch, repo root), so
+// one `projectPath` covers both the map key and the cwd.
 export function aggregateSessions() {
   const state = readStateFile();
   const out = [];
@@ -222,11 +244,9 @@ export function aggregateSessions() {
     const projectPath = (project && project.path) || key;
     const projectName = (project && project.name) || path.basename(projectPath);
     const projectExists = !projectPath.startsWith("/") || existsSync(projectPath);
+    if (!projectExists) continue;
     for (const [branchKey, session] of Object.entries(project?.sessions ?? {})) {
       const branch = (session && session.branch) || branchKey;
-      const worktreePath = (session && session.worktreePath) || "";
-      const worktreeExists = worktreePath.startsWith("/") ? existsSync(worktreePath) : true;
-      if (!projectExists || !worktreeExists) continue;
       let lastStatus = session?.lastStatus;
       if (!SESSION_STATUSES.has(lastStatus)) lastStatus = "idle";
       const lastStatusAt = session?.lastStatusAt || "";
@@ -240,7 +260,6 @@ export function aggregateSessions() {
       out.push({
         id: session?.id ?? null,
         branch,
-        worktreePath,
         lastStatus,
         lastStatusAt,
         lastHookEvent: session?.lastHookEvent,
@@ -311,10 +330,10 @@ export async function setSessionStatus(projectPath, branch, status, hookEvent, o
     // A just-closed cwd must not be re-created by the dying claude's last
     // hooks — including via the read-modify-write path where the hook read
     // the state before the close landed.
-    if (isTombstoned(opts.worktreePath || projectPath)) return null;
+    if (isTombstoned(opts.cwd || projectPath)) return null;
     session = project.sessions[createKey] = {
       branch,
-      worktreePath: opts.worktreePath || projectPath,
+      projectPath: opts.cwd || projectPath,
       ports: {},
       envFiles: [],
       createdAt: now,
@@ -324,7 +343,6 @@ export async function setSessionStatus(projectPath, branch, status, hookEvent, o
       id: randomUUID(),
       claudeSessionId: opts.claudeSessionId || null,
       title: opts.title || null,
-      baseBranch: opts.baseBranch || null,
       status: "active",
       urls: {},
       bindings: [],
@@ -424,7 +442,7 @@ export async function openSessionByClaudeId({ claudeSessionId, cwd, title = null
     const now = new Date().toISOString();
     const session = (project.sessions[claudeSessionId] = {
       branch: branch || "main",
-      worktreePath: cwd,
+      projectPath: cwd,
       ports: {},
       envFiles: [],
       createdAt: now,
@@ -434,7 +452,6 @@ export async function openSessionByClaudeId({ claudeSessionId, cwd, title = null
       id: randomUUID(),
       claudeSessionId,
       title: title || null,
-      baseBranch: null,
       status: "active",
       urls: {},
       bindings: [],
@@ -469,51 +486,49 @@ export async function applyHookEvent(event, body) {
     return { ok: true, matched: false, dropped: true, reason: "cwd recently closed" };
   }
 
-  // Try to match an existing session by worktreePath (covers both
-  // worktree-created sessions and previously hook-autocreated ones).
-  // realResolve keeps symlink aliases (~/dev vs ~/Projects) on one row.
   // Match an existing record. Prefer an EXACT claudeSessionId match (covers the
-  // UUID-keyed /open tabs); else fall back to a worktreePath match. ALWAYS use
-  // the actual sessions-map KEY so setSessionStatus updates THAT record instead
-  // of creating a duplicate under session.branch ("main").
+  // UUID-keyed /open tabs); else fall back to a projectPath (cwd) match.
+  // realResolve keeps symlink aliases (~/dev vs ~/Projects) on one row. ALWAYS
+  // use the actual sessions-map KEY so setSessionStatus updates THAT record
+  // instead of creating a duplicate under session.branch ("main").
   const state = readStateFile() || { version: 1, projects: {} };
   let matchedProject = null;
   let matchedKey = null;
-  let matchedWorktreePath = null;
+  let matchedCwd = null;
   let matchedBySid = false;
   for (const [projectPath, project] of Object.entries(state.projects ?? {})) {
     for (const [mapKey, session] of Object.entries(project?.sessions ?? {})) {
       if (claudeSessionId && session?.claudeSessionId === claudeSessionId) {
         matchedProject = projectPath;
         matchedKey = mapKey;
-        matchedWorktreePath = session.worktreePath || null;
+        matchedCwd = session.projectPath || null;
         matchedBySid = true;
         break;
       }
       if (
         !matchedProject &&
-        session?.worktreePath &&
-        realResolve(session.worktreePath) === normalized &&
+        session?.projectPath &&
+        realResolve(session.projectPath) === normalized &&
         // skip a same-cwd row that already owns a DIFFERENT sid — it's another
         // session, and this hook (carrying its own sid) must not hijack it.
         !(claudeSessionId && session.claudeSessionId && session.claudeSessionId !== claudeSessionId)
       ) {
         matchedProject = projectPath; // tentative cwd match — a later sid match still wins
         matchedKey = mapKey;
-        matchedWorktreePath = session.worktreePath || null;
+        matchedCwd = session.projectPath || null;
       }
     }
     if (matchedBySid) break;
   }
 
   if (matchedProject) {
-    // Pass the matched worktreePath: if the row was DELETED between this (unlocked)
-    // match and the locked write, setSessionStatus's create path then checks the
-    // tombstone against the real worktree cwd — not projectPath — and refuses to
-    // resurrect a just-deleted worktree session.
+    // Pass the matched cwd: if the row was DELETED between this (unlocked)
+    // match and the locked write, setSessionStatus's create path then checks
+    // the tombstone against the real cwd and refuses to resurrect a
+    // just-deleted session.
     await setSessionStatus(matchedProject, matchedKey, status, event, {
       claudeSessionId,
-      worktreePath: matchedWorktreePath || undefined
+      cwd: matchedCwd || undefined
     });
     return { ok: true, matched: true, autoCreated: false };
   }
@@ -536,7 +551,7 @@ export async function applyHookEvent(event, body) {
     displayName = rel ? `${path.basename(gitRoot)}/${rel}` : path.basename(gitRoot);
   }
   await setSessionStatus(normalized, branch, status, event, {
-    worktreePath: normalized,
+    cwd: normalized,
     projectName: displayName,
     source: "hook-autocreated",
     claudeSessionId,
@@ -614,11 +629,11 @@ export async function cleanupState() {
     const sessions = project?.sessions ?? {};
     for (const [branch, session] of Object.entries(sessions)) {
       scanned++;
-      const wt = session?.worktreePath || "";
-      const wtExists = wt.startsWith("/") ? existsSync(wt) : true;
+      const cwd = session?.projectPath || "";
+      const cwdExists = cwd.startsWith("/") ? existsSync(cwd) : true;
       let reason = null;
-      if (!wtExists) {
-        reason = "worktree-missing";
+      if (!cwdExists) {
+        reason = "path-missing";
       } else if (session?.lastStatus === "dead") {
         reason = "dead";
       } else if (session?.lastStatus === "stale") {
@@ -670,4 +685,187 @@ export function getDirty(cwd) {
     refreshDirty(cwd);
   }
   return entry ? entry.value : null;
+}
+
+// ─────────────────────────── session CRUD
+// Same-branch sessions only: a session runs at its project's repo root, so its
+// working directory IS its `projectPath`. "delete" tombstones + drops the
+// record, never touching git or the directory.
+
+export function expandHome(p) {
+  if (!p) return p;
+  if (p === "~" || p.startsWith("~/")) return path.join(HOME, p.slice(1).replace(/^\/+/, ""));
+  return p;
+}
+
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function ensureProject(state, projectPath) {
+  if (!state.projects[projectPath]) {
+    state.projects[projectPath] = {
+      path: projectPath,
+      name: path.basename(projectPath),
+      sessions: {}
+    };
+  }
+  return state.projects[projectPath];
+}
+
+// Create (or reuse) a session record for a project directory — the menu's
+// "Start session" path. The record keys by the directory itself (its repo
+// root), with source "dev-env".
+export async function createProjectSession({ path: rawPath, title: rawTitle }) {
+  const projectPath = expandHome(String(rawPath || "").trim());
+  const title = rawTitle ? String(rawTitle) : null;
+  if (!projectPath || !projectPath.startsWith("/")) {
+    throw httpError(400, "path (absolute) required");
+  }
+  if (!existsSync(projectPath)) {
+    throw httpError(404, `path does not exist: ${projectPath}`);
+  }
+  // realResolve: ~/dev and ~/Projects alias each other on some machines —
+  // lexical comparison would create two sessions (two claudes) for one
+  // physical directory.
+  const normalized = realResolve(projectPath);
+
+  // Reuse an existing record whose projectPath is this directory. Rows whose
+  // project key vanished from disk are skipped: the aggregate hides them, so
+  // reusing one would hand back a session the path-missing sweep immediately
+  // kills.
+  return withStateWrite(async () => {
+    const state = readStateFile() || { version: 1, projects: {} };
+    for (const [projectKey, project] of Object.entries(state.projects ?? {})) {
+      const projectExists = !projectKey.startsWith("/") || existsSync(projectKey);
+      if (!projectExists) continue;
+      for (const session of Object.values(project?.sessions ?? {})) {
+        if (session?.projectPath && realResolve(session.projectPath) === normalized && session.id) {
+          return { session, existed: true };
+        }
+      }
+    }
+
+    let branch = "detached";
+    try {
+      const { stdout } = await execP("git rev-parse --abbrev-ref HEAD", { cwd: normalized, timeout: 1500 });
+      branch = stdout.trim() || "detached";
+    } catch {}
+
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const project = ensureProject(state, normalized);
+    project.sessions[branch] = {
+      branch,
+      projectPath: normalized,
+      id,
+      title,
+      status: "active",
+      lastStatus: "idle",
+      lastStatusAt: now,
+      bindings: [],
+      source: "dev-env"
+    };
+    try {
+      await writeStateAtomic(state);
+    } catch (err) {
+      throw httpError(500, `state write failed: ${err.message}`);
+    }
+    return { session: project.sessions[branch], existed: false };
+  });
+}
+
+// Find a session record by id in the raw state file. Returns the project map
+// KEY as `projectPath` — which is also the session's cwd (same-branch) — plus
+// the sessions-map key and the claude session id for lazy resume.
+export function findSessionById(id) {
+  const state = readStateFile();
+  if (!state) return null;
+  for (const [projectPath, project] of Object.entries(state.projects ?? {})) {
+    for (const [branchKey, session] of Object.entries(project?.sessions ?? {})) {
+      if (session?.id === id) {
+        return {
+          projectPath: session.projectPath || projectPath,
+          branch: session.branch || branchKey,
+          key: branchKey, // the actual sessions-map key (≠ branch for UUID-keyed /open tabs)
+          claudeSessionId: session.claudeSessionId ?? null, // so lazy resume can --resume the EXACT session
+          session
+        };
+      }
+    }
+  }
+  return null;
+}
+
+// Remove the session record — the "truly remove" path (DELETE /sessions/:id).
+// Only the record is dropped; the directory and git are never touched. The
+// tombstone stops the dying claude's last hooks from resurrecting the row.
+export async function deleteSession(id) {
+  return withStateWrite(async () => {
+    const found = findSessionById(id);
+    if (!found) throw httpError(404, `session id not found: ${id}`);
+    tombstoneCwd(found.projectPath);
+    const state = readStateFile();
+    const project = state?.projects?.[found.projectPath];
+    if (project?.sessions) {
+      delete project.sessions[found.key];
+      await writeStateAtomic(state);
+    }
+    return found;
+  });
+}
+
+// Per-pane closed markers live on the session record so every connected
+// Dev Env client (desktop + iPad) sees the same close state — a client-local
+// flag would let the other client's lazy shell-spawn resurrect the pane.
+export async function setPaneClosed(id, role, closed) {
+  return withStateWrite(async () => {
+    const found = findSessionById(id);
+    if (!found) return null;
+    const state = readStateFile();
+    const session = state?.projects?.[found.projectPath]?.sessions?.[found.key];
+    if (!session) return null;
+    const panes = session.panesClosed && typeof session.panesClosed === "object" ? session.panesClosed : {};
+    if (closed) panes[role] = true;
+    else delete panes[role];
+    session.panesClosed = panes;
+    await writeStateAtomic(state);
+    return session;
+  });
+}
+
+export async function readDevRoot() {
+  try {
+    const raw = await readFile(DEV_ROOT_FILE, "utf8");
+    const trimmed = raw.trim();
+    if (trimmed) return trimmed;
+  } catch {}
+  return path.join(HOME, "dev");
+}
+
+export async function writeDevRoot(value) {
+  await mkdir(path.dirname(DEV_ROOT_FILE), { recursive: true });
+  await writeFile(DEV_ROOT_FILE, String(value).trim() + "\n");
+}
+
+export function listProjects(devRoot) {
+  if (!existsSync(devRoot)) return [];
+  const projects = [];
+  let entries = [];
+  entries = readdirSync(devRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (entry.name.startsWith(".")) continue;
+    const projectPath = path.join(devRoot, entry.name);
+    try {
+      const st = statSync(projectPath);
+      if (!st.isDirectory()) continue;
+    } catch { continue; }
+    if (!existsSync(path.join(projectPath, ".git"))) continue;
+    projects.push({ name: entry.name, path: projectPath });
+  }
+  projects.sort((a, b) => a.name.localeCompare(b.name));
+  return projects;
 }

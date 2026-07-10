@@ -35,5 +35,4 @@ x-garrison:
     The http-gateway spawns it per soul session as a stdio MCP child (no port of
     its own); remote outpost sessions connect over HTTP MCP instead. Hosts the
     garrison-control tool set (present when GARRISON_HTTP_GATEWAY_BASE_URL is
-    set): talk_to, wait_for, list_active_sessions, end_session, list_workdirs,
-    list_worktrees, create_worktree, get_worktree, close_worktree.
+    set): talk_to, wait_for, list_active_sessions, end_session, list_workdirs.

@@ -182,7 +182,6 @@ body { min-height: 100vh; }
 .chip-bound { background: rgba(61, 98, 73, 0.14); color: var(--info); }
 
 .chip-source { margin-left: 8px; }
-.chip-worktree { background: rgba(47, 74, 58, 0.14); color: var(--success); }
 .chip-fitting { background: rgba(61, 98, 73, 0.14); color: var(--info); }
 .chip-process { background: var(--border); color: var(--fg-muted); }
 .chip-unknown { background: var(--border); color: var(--muted); }

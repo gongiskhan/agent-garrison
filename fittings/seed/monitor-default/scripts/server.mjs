@@ -192,8 +192,8 @@ function metaForPid(pid) {
 
 // Read the Garrison session registry and build a map keyed on the claude
 // session UUID. Each entry's value carries the soul, tier, branch, and
-// worktree path — enough to badge a Monitor card with "engineer ·
-// sonnet · feat/x". Re-read on every poll; the file is small.
+// project path — enough to badge a Monitor card with "engineer ·
+// sonnet · main". Re-read on every poll; the file is small.
 function readGarrisonBindings() {
   if (!existsSync(SESSIONS_STATE_FILE)) return new Map();
   let raw;
@@ -206,7 +206,7 @@ function readGarrisonBindings() {
   for (const project of Object.values(raw?.projects ?? {})) {
     for (const session of Object.values(project?.sessions ?? {})) {
       const branch = session?.branch ?? null;
-      const worktreePath = session?.worktreePath ?? null;
+      const projectPath = session?.projectPath ?? session?.worktreePath ?? null;
       const title = session?.title ?? null;
       for (const binding of session?.bindings ?? []) {
         if (!binding?.sessionId) continue;
@@ -216,7 +216,7 @@ function readGarrisonBindings() {
           tierFlags: binding.tierFlags ?? [],
           mode: binding.mode ?? null,
           branch,
-          worktreePath,
+          projectPath,
           title,
           spawnedAt: binding.spawnedAt ?? null
         });
@@ -287,7 +287,7 @@ async function poll(rootPid) {
       soul: garrison?.soul ?? null,
       tier: garrison?.tier ?? null,
       branch: garrison?.branch ?? null,
-      worktreePath: garrison?.worktreePath ?? null,
+      projectPath: garrison?.projectPath ?? null,
       title: garrison?.title ?? null,
       mode: garrison?.mode ?? null
     };

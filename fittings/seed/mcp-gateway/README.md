@@ -5,11 +5,12 @@ launched in orchestrator-mode compositions.
 
 ## What it does
 
-The runner writes an `.mcp.json` file into each launched worktree that
-tells Claude Code how to reach this gateway. Same-machine sessions use the
-**stdio** transport (Claude Code spawns the gateway as a child process);
-remote outpost sessions use the **HTTP** transport (gateway runs on the
-Garrison host, Claude Code on the remote machine connects over Tailscale).
+The runner writes an `.mcp.json` file (and a `CLAUDE.md` fragment) into the
+project/session working directory that tells Claude Code how to reach this
+gateway. Same-machine sessions use the **stdio** transport (Claude Code spawns
+the gateway as a child process); remote outpost sessions use the **HTTP**
+transport (gateway runs on the Garrison host, Claude Code on the remote machine
+connects over Tailscale).
 
 ## MCP tools (v1)
 
@@ -43,6 +44,6 @@ GARRISON_COMPOSITION_DIR=/path/to/composition \
 
 ## Policy
 
-The `CLAUDE.md` fragment injected by the launcher into each worktree tells
-the model when to call these tools. The gateway is the capability; the
+The `CLAUDE.md` fragment injected by the launcher into the project/session cwd
+tells the model when to call these tools. The gateway is the capability; the
 policy lives in the prompt.

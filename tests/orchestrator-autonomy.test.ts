@@ -145,7 +145,7 @@ describe("brain merge grep proofs (D6/D7, acceptance 10)", () => {
     expect(merged).toContain("{{routing}}"); // routing duties
     expect(merged).toContain("[route: <target-id> | rule: <rule-id> | profile: <name>]");
     expect(merged).toContain("[orchestrator-active]");
-    expect(merged).toContain("worktree"); // garrison-orchestrator worktree flow
+    expect(merged).toContain("current branch"); // garrison-orchestrator project-work flow (same-branch only, GARRISON-FLOW-V2 D10)
     expect(merged).toContain("origin: ui-tab"); // surface awareness
     expect(merged).toContain("Autonomous work"); // autothing doctrine section
     expect(merged).toContain("5-attempt ceiling");

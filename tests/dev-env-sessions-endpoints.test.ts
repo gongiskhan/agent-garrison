@@ -50,7 +50,7 @@ writeFileSync(
         path: PROJC,
         name: "projC",
         sessions: {
-          main: { branch: "main", worktreePath: PROJC, id: "restored-id", claudeSessionId: RESTORED_CSID, openedInDevEnv: true, lastStatus: "idle", lastStatusAt: nowIso, createdAt: nowIso }
+          main: { branch: "main", projectPath: PROJC, id: "restored-id", claudeSessionId: RESTORED_CSID, openedInDevEnv: true, lastStatus: "idle", lastStatusAt: nowIso, createdAt: nowIso }
         }
       }
     }

@@ -239,7 +239,7 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   },
   sessions: {
     role: "The working dev session and its records.",
-    fit: "Dev Env consolidates terminals, worktrees, and session status into one tabbed surface; the artifact store backs it."
+    fit: "Dev Env consolidates terminals and session status into one tabbed surface; the artifact store backs it."
   },
   surfaces: {
     role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",

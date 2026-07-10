@@ -75,10 +75,9 @@ Notes:
 - `dev-env` is a **singleton** kind. The Fitting's setup is
   `node ui/build.mjs && node scripts/install-hooks.mjs` (build the UI,
   install the Claude Code hook groups tagged `fitting:dev-env`); verify
-  is `probe.mjs`. It owns `~/.garrison/sessions/state.json`, and
-  http-gateway's `/worktrees` passthrough now defaults to it
-  (`http://127.0.0.1:7086` — dev-env keeps the GET/POST `/worktrees`
-  and DELETE `/worktrees/:id` gateway-compat aliases).
+  is `probe.mjs`. It owns `~/.garrison/sessions/state.json`; sessions
+  run in the project repo root on the current branch (same-branch only,
+  GARRISON-FLOW-V2 D10).
 - `deepgram-voice` provides `voice` to `web-channel-default` (push-to-talk
   STT, read-aloud TTS, live `/stream` endpointing); the Deepgram key
   stays server-side.

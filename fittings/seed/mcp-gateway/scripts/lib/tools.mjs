@@ -167,7 +167,7 @@ export async function callTalkTo(input) {
   return httpRequest("POST", "/sessions/spawn", {
     soul: input.soul,
     message: input.message,
-    worktree_id: input.worktree_id,
+    project: input.project,
     mode: input.mode,
     tier_hint: input.tier_hint,
     task_title: input.task_title,
@@ -187,7 +187,6 @@ export async function callWaitFor(input) {
 export async function callListActiveSessions(input = {}) {
   const params = new URLSearchParams();
   if (input.parent) params.set("parent", input.parent);
-  if (input.worktree_id) params.set("worktree_id", input.worktree_id);
   if (input.mode) params.set("mode", input.mode);
   if (input.soul) params.set("soul", input.soul);
   const suffix = params.toString() ? `?${params}` : "";
@@ -200,32 +199,4 @@ export async function callEndSession(input) {
 
 export async function callListWorkdirs(input) {
   return httpRequest("GET", `/workdirs?soul=${encodeURIComponent(input.soul)}`);
-}
-
-export async function callListWorktrees(input = {}) {
-  const params = new URLSearchParams();
-  if (input.project) params.set("project", input.project);
-  const suffix = params.toString() ? `?${params}` : "";
-  return httpRequest("GET", `/worktrees${suffix}`);
-}
-
-export async function callCreateWorktree(input) {
-  return httpRequest("POST", "/worktrees", {
-    project: input.project,
-    task_title: input.task_title,
-    branch_name: input.branch_name,
-    base_branch: input.base_branch
-  });
-}
-
-export async function callGetWorktree(input) {
-  return httpRequest("GET", `/worktrees?id=${encodeURIComponent(input.id)}`);
-}
-
-export async function callCloseWorktree(input) {
-  return httpRequest("POST", `/worktrees/${encodeURIComponent(input.id)}/close`, {
-    action: input.action,
-    pr_title: input.pr_title,
-    pr_body: input.pr_body
-  });
 }

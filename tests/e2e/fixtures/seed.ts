@@ -5,53 +5,32 @@ import { randomUUID } from "node:crypto";
 
 export const TEST_STATE_DIR = path.join(os.homedir(), ".garrison-test");
 export const TEST_STATE_FILE = path.join(TEST_STATE_DIR, "state.json");
-export const TEST_PREFS_FILE = path.join(TEST_STATE_DIR, "ui-tab-prefs.json");
 
-const TAILSCALE_HOST = "100.90.155.85";
-
-export interface SeedWorktree {
+export interface SeedSession {
   branch: string;
-  baseBranch?: string;
   title?: string;
-  status: "active" | "merged" | "discarded";
-  ports?: Record<string, number>;
-  bindings?: Array<{
-    soul: string;
-    sessionId: string;
-    mode: "headless" | "interactive";
-    tier: { model: string };
-    tierFlags: string[];
-    spawnedAt: string;
-  }>;
+  lastStatus?: string;
 }
 
+// Seed the dev-env session ledger: one row per session, keyed by branch, each
+// running at the project's repo root. Sessions are same-branch and carry no
+// per-session port pools.
 export async function seedState(opts: {
   projectPath: string;
-  worktrees: SeedWorktree[];
+  sessions: SeedSession[];
 }): Promise<void> {
   await fsp.mkdir(TEST_STATE_DIR, { recursive: true });
-  const sessions: Record<string, any> = {};
-  for (const wt of opts.worktrees) {
-    const id = randomUUID();
-    const ports = wt.ports ?? { frontend: 50000, backend: 50001 };
-    const urls: Record<string, string> = {};
-    for (const [name, port] of Object.entries(ports)) {
-      urls[name] = `http://${TAILSCALE_HOST}:${port}`;
-    }
-    sessions[wt.branch] = {
-      branch: wt.branch,
-      worktreePath: path.join(os.homedir(), ".worktrees-test", wt.branch.replace(/[/\\]/g, "-")),
-      ports,
-      envFiles: [".env"],
-      createdAt: new Date().toISOString(),
-      lastStatus: "idle",
-      lastStatusAt: new Date().toISOString(),
-      id,
-      title: wt.title,
-      baseBranch: wt.baseBranch ?? "main",
-      status: wt.status,
-      urls,
-      bindings: wt.bindings ?? []
+  const sessions: Record<string, unknown> = {};
+  const nowIso = new Date().toISOString();
+  for (const s of opts.sessions) {
+    sessions[s.branch] = {
+      branch: s.branch,
+      projectPath: opts.projectPath,
+      createdAt: nowIso,
+      lastStatus: s.lastStatus ?? "idle",
+      lastStatusAt: nowIso,
+      id: randomUUID(),
+      title: s.title ?? null
     };
   }
   const state = {
@@ -69,21 +48,4 @@ export async function seedState(opts: {
 
 export async function clearState(): Promise<void> {
   await fsp.rm(TEST_STATE_FILE, { force: true }).catch(() => null);
-  await fsp.rm(TEST_PREFS_FILE, { force: true }).catch(() => null);
-}
-
-export async function seedPrefs(opts: {
-  target: string;
-  projectPath: string;
-  devRoot: string;
-}): Promise<void> {
-  await fsp.mkdir(TEST_STATE_DIR, { recursive: true });
-  const prefs = {
-    worktrees: {
-      lastTarget: opts.target,
-      lastProjectByTarget: { [opts.target]: opts.projectPath },
-      devRootByTarget: { [opts.target]: opts.devRoot }
-    }
-  };
-  await fsp.writeFile(TEST_PREFS_FILE, JSON.stringify(prefs, null, 2));
 }

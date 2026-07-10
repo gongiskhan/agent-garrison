@@ -1,6 +1,6 @@
 name: dev-env
 version: 0.1.0
-description: Consolidated Dev Env — every Claude Code session is a tab with a Claude PTY + shell PTY on the left and a live browser pane on the right; worktree lifecycle and session status are built in. Own React UI on port 7086.
+description: Consolidated Dev Env — every Claude Code session is a tab with a Claude PTY + shell PTY on the left and a live browser pane on the right; same-branch sessions at the project repo root, with session status built in. Own React UI on port 7086.
 target: claude
 type: hybrid
 includes: auto
@@ -12,7 +12,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: One dev surface (default port 7086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; the Claude pane toggles between a raw Terminal view and a rich Chat view (markdown, status line, mode switcher, slash/skill autocomplete) backed by a headless mirror of the same PTY. Git worktree create/delete, quick prompts, and PTY-driven PR/commit flows included.
+  summary: One dev surface (default port 7086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; the Claude pane toggles between a raw Terminal view and a rich Chat view (markdown, status line, mode switcher, slash/skill autocomplete) backed by a headless mirror of the same PTY. Sessions are same-branch (they run at the project's repo root); quick prompts and PTY-driven PR/commit flows included.
   config_schema:
     - key: port
       type: integer
@@ -69,8 +69,9 @@ x-garrison:
                                            directory; reuses an existing
                                            record for the same cwd. No default
                                            shell — terminals are opened on demand
-      POST   /sessions/:id/close         - kill PTYs + remove the record;
-                                           directory and worktree stay
+      POST   /sessions/:id/close         - kill PTYs + unpin the tab; the
+                                           record and directory stay (resumable
+                                           from History)
       POST   /sessions/:id/ptys          - { role, resume? } ensure/restart a
                                            SPECIFIC pty: "claude" or an existing
                                            shell terminal role ("shell",
@@ -97,17 +98,12 @@ x-garrison:
                                            The UI toggles a claude pane between
                                            Terminal and Chat (localStorage
                                            garrison.devenv.claudeView).
-      DELETE /sessions/:id               - remove session record + PTYs (and
-                                           the git worktree when the cwd
-                                           lives under ~/.worktrees)
+      DELETE /sessions/:id               - remove the session record + PTYs
+                                           (tombstones the record; never
+                                           touches git or the directory)
       POST   /sessions/cleanup           - purge missing-path AND stale/dead
                                            records from the raw state file,
                                            killing their PTYs
-      POST   /worktrees                  - { repoPath, branch, baseBranch?,
-                                           title? } create worktree + session
-                                           + claude PTY; 201 with the session
-      GET    /worktrees?repoPath=<path>  - list worktrees (gateway-compat)
-      DELETE /worktrees/:id              - alias of DELETE /sessions/:id
       GET    /projects                   - git repos under the dev root
       GET    /dev-root | PATCH /dev-root - read/set ~/.garrison/dev-root
       GET    /settings/excludes          - { patterns, defaults } tab-monitoring
@@ -126,9 +122,11 @@ x-garrison:
       GET    /tailscale-ip               - this machine's Tailscale IPv4
 
     DevEnvSession shape:
-      { id, branch, worktreePath, projectName, projectPath, lastStatus,
-        lastStatusAt, claudeSessionId, title, source, dirty, isWorktree,
-        external, claudePty, terminals }
+      { id, branch, projectName, projectPath, lastStatus, lastStatusAt,
+        claudeSessionId, title, source, dirty, external, claudePty,
+        terminals }
+    `projectPath` is the session's working directory — its project's repo
+    root (sessions are same-branch and run directly at that root).
     `terminals` is the session's shell deck: [{ id, role, index, state,
     exitCode?, createdAt? }] ordered by creation. PTY summaries carry
     { id?, state: "running"|"exited"|"persisted"|"none", exitCode?,

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 // The core is a pure .mjs module with no type declarations; single-line import
 // so the @ts-ignore anchors to the module specifier and suppresses TS7016.
 // @ts-ignore
-import { parseSs, parseSsLine, parseProcessField, parseLsof, splitAddressPort, isLoopback, isWildcard, severity, buildWorktreeIndex, buildStatusIndex, resolveLabel, buildPortRows, listeningPidSet, killGuard, isInWorktreePool, WORKTREE_POOL_START, WORKTREE_POOL_END } from "../fittings/seed/ports-default/lib/ports-core.mjs";
+import { parseSs, parseSsLine, parseProcessField, parseLsof, splitAddressPort, isLoopback, isWildcard, severity, buildStatusIndex, resolveLabel, buildPortRows, listeningPidSet, killGuard } from "../fittings/seed/ports-default/lib/ports-core.mjs";
 
 // The .mjs exports are untyped (any); this local shape annotates the parsed-row
 // callbacks so the suite typechecks cleanly under noImplicitAny.
@@ -175,55 +175,6 @@ describe("severity", () => {
   });
 });
 
-describe("worktree pool", () => {
-  it("bounds the 50000-54999 pool", () => {
-    expect(WORKTREE_POOL_START).toBe(50000);
-    expect(WORKTREE_POOL_END).toBe(54999);
-    expect(isInWorktreePool(50000)).toBe(true);
-    expect(isInWorktreePool(54999)).toBe(true);
-    expect(isInWorktreePool(49999)).toBe(false);
-    expect(isInWorktreePool(55000)).toBe(false);
-    expect(isInWorktreePool(7088)).toBe(false);
-  });
-});
-
-describe("buildWorktreeIndex", () => {
-  const state = {
-    projects: {
-      "/home/u/dev/app": {
-        sessions: {
-          s1: {
-            branch: "feat/login",
-            worktreePath: "/home/u/dev/app-feat-login",
-            title: null,
-            ports: { web: 50123, api: 50124 }
-          },
-          s2: {
-            branch: "main",
-            worktreePath: "/home/u/dev/app",
-            title: "docs pass",
-            ports: { web: 51999 }
-          }
-        }
-      }
-    }
-  };
-
-  it("maps pool ports to worktree names", () => {
-    const idx = buildWorktreeIndex(state);
-    expect(idx.get(50123)).toMatchObject({ worktree: "feat/login", service: "web" });
-    expect(idx.get(50124)).toMatchObject({ worktree: "feat/login", service: "api" });
-    // title wins over branch as the worktree name.
-    expect(idx.get(51999).worktree).toBe("docs pass");
-  });
-
-  it("tolerates an empty / missing state", () => {
-    expect(buildWorktreeIndex(undefined).size).toBe(0);
-    expect(buildWorktreeIndex({}).size).toBe(0);
-    expect(buildWorktreeIndex({ projects: {} }).size).toBe(0);
-  });
-});
-
 describe("buildStatusIndex", () => {
   it("maps ports to fittingIds", () => {
     const idx = buildStatusIndex([
@@ -239,26 +190,12 @@ describe("buildStatusIndex", () => {
 });
 
 describe("resolveLabel — resolution order", () => {
-  const worktreeIndex = buildWorktreeIndex({
-    projects: {
-      p: { sessions: { s: { branch: "feat/x", ports: { web: 50500 } } } }
-    }
-  });
   const statusIndex = buildStatusIndex([
-    { fittingId: "improver", port: 7088 },
-    // A status file that also claims a pool port — worktree must still win.
-    { fittingId: "ghost", port: 50500 }
+    { fittingId: "improver", port: 7088 }
   ]);
-  const indexes = { worktreeIndex, statusIndex };
+  const indexes = { statusIndex };
 
-  it("worktree registry beats status file and cmdline", () => {
-    const label = resolveLabel({ port: 50500, command: "node", pid: 42 }, indexes);
-    expect(label.source).toBe("worktree");
-    expect(label.label).toBe("feat/x");
-    expect(label.detail).toBe("web");
-  });
-
-  it("status file beats cmdline when no worktree entry", () => {
+  it("status file beats cmdline", () => {
     const label = resolveLabel({ port: 7088, command: "node", pid: 99 }, indexes);
     expect(label.source).toBe("fitting");
     expect(label.label).toBe("improver");
@@ -281,9 +218,8 @@ describe("resolveLabel — resolution order", () => {
 describe("buildPortRows", () => {
   it("labels a full scan and sorts by port", () => {
     const parsed = parseSs(SS_OUTPUT);
-    const worktreeIndex = buildWorktreeIndex({ projects: {} });
     const statusIndex = buildStatusIndex([{ fittingId: "improver", port: 7088 }]);
-    const rows = buildPortRows(parsed, { worktreeIndex, statusIndex });
+    const rows = buildPortRows(parsed, { statusIndex });
     // sorted ascending by port
     const ports = rows.map((r: { port: number }) => r.port);
     expect(ports).toEqual([...ports].sort((a, b) => a - b));

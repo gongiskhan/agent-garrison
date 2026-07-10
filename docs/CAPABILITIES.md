@@ -252,11 +252,10 @@ check rather than sharing state.
 
 The consolidated dev surface (port 7086): every Claude Code session —
 hook-detected or Dev-Env-created — is a tab pairing a Claude PTY and a shell
-PTY with the app's live browser pane; git worktree create/delete, quick
-prompts, and PTY-driven PR/commit flows are built in. Singleton. Replaces the
-dropped `terminal-session`, `worktree`, and `session-view` kinds (2026-06-11
-consolidation). The http-gateway's worktree passthrough proxies this
-Fitting's `/worktrees` endpoints.
+PTY with the app's live browser pane; quick prompts and PTY-driven PR/commit
+flows on the current branch are built in. Singleton. Replaces the three kinds
+retired in the 2026-06-11 Dev Env consolidation. Sessions run in the project
+repo root on the current branch - Garrison spins up no per-task branches.
 
 ## screen-share
 

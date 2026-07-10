@@ -29,10 +29,6 @@ import {
   callListActiveSessions,
   callEndSession,
   callListWorkdirs,
-  callListWorktrees,
-  callCreateWorktree,
-  callGetWorktree,
-  callCloseWorktree,
   automationsAvailable,
   callListAutomations,
   callRunAutomation
@@ -59,7 +55,7 @@ async function discoverTools() {
   if (testingOk) {
     tools.push({
       name: "run_tests",
-      description: "Run the worktree project's native test command (npm/pytest/cargo/go).",
+      description: "Run the project's native test command (npm/pytest/cargo/go).",
       inputSchema: {
         type: "object",
         properties: {
@@ -97,18 +93,18 @@ async function discoverTools() {
     tools.push(
       {
         name: "talk_to",
-        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (ui-tab -> interactive; channel -> headless). Pass worktree_id to bind to a specific worktree; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
+        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (ui-tab -> interactive; channel -> headless). Pass project (or an explicit cwd) to run the session at that repo root on its current branch; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
         inputSchema: {
           type: "object",
           properties: {
             soul: { type: "string", description: "engineer | architect | assistant | researcher | companion" },
             message: { type: "string", description: "What the Soul should do." },
-            worktree_id: { type: "string", description: "Bind the session to this worktree (resolves cwd, surfaces URLs)." },
+            project: { type: "string", description: "Project label (e.g. 'agent-garrison') resolved to its repo root under the dev-root; the session runs there on the current branch." },
             mode: { type: "string", enum: ["headless", "interactive"], description: "Override the origin-derived default." },
             tier_hint: { type: "object", description: "Result of classify_tier — { model, effort, needs_testing, needs_agents_team }." },
             task_title: { type: "string", description: "Short human-readable summary for UI display." },
             channel: { type: "string", description: "Channel id (default 'main')." },
-            cwd: { type: "string", description: "Working directory override." }
+            cwd: { type: "string", description: "Absolute working-directory override (wins over project)." }
           },
           required: ["soul", "message"]
         }
@@ -127,12 +123,11 @@ async function discoverTools() {
       },
       {
         name: "list_active_sessions",
-        description: "Enumerate active Soul sub-sessions. Optional filters: parent, worktree_id, mode, soul.",
+        description: "Enumerate active Soul sub-sessions. Optional filters: parent, mode, soul.",
         inputSchema: {
           type: "object",
           properties: {
             parent: { type: "string" },
-            worktree_id: { type: "string" },
             mode: { type: "string" },
             soul: { type: "string" }
           }
@@ -155,51 +150,6 @@ async function discoverTools() {
           properties: { soul: { type: "string" } },
           required: ["soul"]
         }
-      },
-      {
-        name: "list_worktrees",
-        description: "List Garrison worktrees, sorted by recency. Optional filter by project.",
-        inputSchema: {
-          type: "object",
-          properties: { project: { type: "string", description: "Project id (e.g., 'agent-garrison')." } }
-        }
-      },
-      {
-        name: "create_worktree",
-        description: "Create a new worktree on a feature branch with allocated ports and Tailscale URLs.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            project: { type: "string" },
-            task_title: { type: "string", description: "Short human-readable summary." },
-            branch_name: { type: "string", description: "Override default slug-based branch name." },
-            base_branch: { type: "string", description: "Override projectConfig.defaultBaseBranch." }
-          },
-          required: ["project", "task_title"]
-        }
-      },
-      {
-        name: "get_worktree",
-        description: "Get details (ports, urls, status, bindings) for a worktree by id.",
-        inputSchema: {
-          type: "object",
-          properties: { id: { type: "string" } },
-          required: ["id"]
-        }
-      },
-      {
-        name: "close_worktree",
-        description: "Close a worktree: 'merge' opens a PR via gh, 'discard' removes it, 'leave_open' is a no-op marker. Confirm with the user before merge/discard.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            action: { type: "string", enum: ["merge", "discard", "leave_open"] },
-            pr_title: { type: "string" },
-            pr_body: { type: "string" }
-          },
-          required: ["id", "action"]
-        }
       }
     );
   }
@@ -218,10 +168,6 @@ async function dispatchTool(name, input) {
   if (name === "list_active_sessions") return callListActiveSessions(input);
   if (name === "end_session") return callEndSession(input);
   if (name === "list_workdirs") return callListWorkdirs(input);
-  if (name === "list_worktrees") return callListWorktrees(input);
-  if (name === "create_worktree") return callCreateWorktree(input);
-  if (name === "get_worktree") return callGetWorktree(input);
-  if (name === "close_worktree") return callCloseWorktree(input);
   throw new Error(`unknown tool: ${name}`);
 }
 

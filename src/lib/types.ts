@@ -213,42 +213,15 @@ export interface PortNeed {
   default?: number;
 }
 
-export interface PortPool {
-  start: number;
-  end: number;
-}
-
 export interface ProjectConfig {
   id: string;
   name: string;
   rootPath: string;
-  worktreeBase: string;
   portNeeds: PortNeed[];
   startupCommands: string[];
   envTemplate: Record<string, string>;
   defaultBaseBranch: string;
-  portPool?: PortPool;
 }
-
-export interface Tier {
-  model: string;
-  effort?: "low" | "medium" | "high" | "xhigh" | "max";
-  needs_testing?: boolean;
-  needs_agents_team?: boolean;
-}
-
-export interface WorktreeBinding {
-  soul: string;
-  sessionId: string;
-  mode: "headless" | "interactive";
-  tier: Tier;
-  tierFlags: string[];
-  terminalTabId?: string;
-  spawnedAt: string;
-  lastSummaryAt?: string;
-}
-
-export type WorktreeStatus = "active" | "merged" | "discarded";
 
 export type FittingLifecycle = "operative-bound" | "detached";
 

@@ -5,19 +5,6 @@
 // these directly and the server (scripts/server.mjs) does the file/exec reads.
 
 // ---------------------------------------------------------------------------
-// Worktree port pool. src/lib/worktree/ports.ts allocates dev-server ports for
-// worktrees deterministically inside 50000-54999. The live per-port mapping is
-// recorded in ~/.garrison/sessions/state.json (session.ports); this range is
-// only used to describe/badge which ports the worktree registry can cover.
-// ---------------------------------------------------------------------------
-export const WORKTREE_POOL_START = 50000;
-export const WORKTREE_POOL_END = 54999;
-
-export function isInWorktreePool(port) {
-  return Number.isFinite(port) && port >= WORKTREE_POOL_START && port <= WORKTREE_POOL_END;
-}
-
-// ---------------------------------------------------------------------------
 // Address helpers
 // ---------------------------------------------------------------------------
 
@@ -186,47 +173,6 @@ export function parseLsof(output) {
 // Label indexes
 // ---------------------------------------------------------------------------
 
-function basename(p) {
-  if (!p) return "";
-  const parts = String(p).split(/[/\\]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : String(p);
-}
-
-// A human name for a worktree session, best-effort in priority order.
-export function worktreeName(session) {
-  if (!session) return "worktree";
-  if (session.title) return session.title;
-  if (session.branch) return session.branch;
-  if (session.worktreePath) return basename(session.worktreePath);
-  return "worktree";
-}
-
-// Build port -> worktree descriptor from ~/.garrison/sessions/state.json.
-// state = { projects: { <path>: { sessions: { <id>: { ports:{svc:port}, branch,
-// worktreePath, title } } } } }. Ports live in the 50000-54999 pool.
-export function buildWorktreeIndex(sessionsState) {
-  const index = new Map();
-  const projects = sessionsState?.projects ?? {};
-  for (const project of Object.values(projects)) {
-    const sessions = project?.sessions ?? {};
-    for (const session of Object.values(sessions)) {
-      const ports = session?.ports ?? {};
-      const worktree = worktreeName(session);
-      for (const [service, port] of Object.entries(ports)) {
-        const p = Number(port);
-        if (!Number.isFinite(p)) continue;
-        index.set(p, {
-          worktree,
-          service,
-          branch: session?.branch ?? null,
-          worktreePath: session?.worktreePath ?? null
-        });
-      }
-    }
-  }
-  return index;
-}
-
 // Build port -> fittingId from the ~/.garrison/ui-fittings/*.json status files.
 export function buildStatusIndex(statusFiles) {
   const index = new Map();
@@ -240,23 +186,17 @@ export function buildStatusIndex(statusFiles) {
 }
 
 // ---------------------------------------------------------------------------
-// Label resolution — order: worktree registry > ui-fitting status > pid/cmd.
+// Label resolution — order: ui-fitting status > pid/cmd.
 // ---------------------------------------------------------------------------
 export function resolveLabel(row, indexes = {}) {
-  const worktreeIndex = indexes.worktreeIndex instanceof Map ? indexes.worktreeIndex : new Map();
   const statusIndex = indexes.statusIndex instanceof Map ? indexes.statusIndex : new Map();
 
-  // (1) Worktree registry — pool ports mapped to worktree names.
-  const wt = worktreeIndex.get(row.port);
-  if (wt) {
-    return { source: "worktree", label: wt.worktree, detail: wt.service ?? null };
-  }
-  // (2) ui-fitting status files — port -> fittingId.
+  // (1) ui-fitting status files — port -> fittingId.
   const fittingId = statusIndex.get(row.port);
   if (fittingId) {
     return { source: "fitting", label: fittingId, detail: null };
   }
-  // (3) owning pid + command line.
+  // (2) owning pid + command line.
   if (row.command) {
     return {
       source: "process",

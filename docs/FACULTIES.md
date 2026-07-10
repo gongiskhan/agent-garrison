@@ -26,8 +26,8 @@ bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
 - **sessions** — the working dev session and its records, headlined since the
   2026-06-11 Dev Env consolidation by the **dev-env** Fitting: a tabbed surface
   where each Claude Code session gets a Claude PTY + shell PTY alongside a live
-  browser pane, with worktrees and session status built in. The artifact store
-  backs it.
+  browser pane, with session status built in. Sessions run in the project repo
+  root on the current branch. The artifact store backs it.
 - **surfaces** — the auxiliary own-port live viewers split out of `sessions` on
   2026-06-18: screen-share, the standalone browser, and remote Outpost bridges.
   Each is detected via the `own_port` flag and linked from the sidebar Views

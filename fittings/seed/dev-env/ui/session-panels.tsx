@@ -29,8 +29,8 @@ function basename(p: string): string {
   return parts[parts.length - 1] ?? p;
 }
 
-// project label = last two path segments (so a worktree under ~/.worktrees/<repo>/<slug>
-// or a repo subdir reads clearly), else the basename.
+// project label = last two path segments (so a repo subdir reads clearly),
+// else the basename.
 function projectLabel(cwd: string | null): string {
   if (!cwd) return "(unknown)";
   const parts = cwd.split("/").filter(Boolean);

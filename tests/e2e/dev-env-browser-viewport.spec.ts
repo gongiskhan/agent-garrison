@@ -16,11 +16,11 @@ const DIST = path.join(REPO_ROOT, "fittings", "seed", "dev-env", "dist");
 
 const CANNED_SESSION = {
   id: "e2e-vp-1", branch: "main",
-  worktreePath: "/tmp/devenv-vp-proj", projectName: "devenv-vp",
+  projectName: "devenv-vp",
   projectPath: "/tmp/devenv-vp-proj", lastStatus: "idle",
   lastStatusAt: new Date().toISOString(), claudeSessionId: null,
   title: "devenv-vp", source: "test", dirty: false,
-  isWorktree: false, external: false, openedInDevEnv: true,
+  external: false, openedInDevEnv: true,
   claudeClosed: false, claudePty: { state: "none" }, terminals: [],
 };
 const CT: Record<string, string> = {
