@@ -125,6 +125,11 @@ export async function createCard(root, { title, description = "", project = null
     stabilityAt: null,
     planCompletedAt: null,
     blocking: [],
+    // S2 (Q5/Q7): git fence anchors this run has committed ({phase, sha, at,
+    // empty}) and a prepared-revert descriptor after abandonment. New keys; a
+    // pre-S2 card reads them as undefined.
+    fences: [],
+    preparedRevert: null,
     created: at,
     updated: at
   };

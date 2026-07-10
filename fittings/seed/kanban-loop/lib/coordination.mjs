@@ -31,6 +31,7 @@ import {
   writeFileSync,
   appendFileSync,
   mkdirSync,
+  readdirSync,
   openSync,
   closeSync,
   rmSync
@@ -289,6 +290,36 @@ export function registerTouchSetIntent({ repoPath, card, touchSet, now = () => n
   }
 }
 
+// Re-register a card's touch-set IF it GREW since its last ledger row (Q5:
+// "the fence re-reads touch-set.json each time; growth triggers re-registration").
+// Compares the current files+dirs against the most recent touch-set row for this
+// card's session; appends a fresh row only when new claims appeared. Returns
+// { grown, added } so the caller can record an honest event. A card never yet
+// registered (no prior row) is left to the plan-completion registration.
+export function reregisterTouchSetIfGrown({ repoPath, card, touchSet, now = () => new Date().toISOString() }) {
+  if (!repoPath || !touchSet) return { grown: false, added: [] };
+  let rows = [];
+  try {
+    rows = readFileSync(intentPath(repoPath), "utf8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(Boolean);
+  } catch {
+    rows = [];
+  }
+  const session = `kanban:${card.id}`;
+  const prior = rows.filter((r) => r.session === session && r.kind === "touch-set").pop();
+  if (!prior) return { grown: false, added: [] };
+  const current = [...(touchSet.files || []), ...(touchSet.dirs || [])].map(normPath);
+  const priorSet = new Set((prior.files || []).map(normPath));
+  const added = current.filter((p) => !priorSet.has(p));
+  if (added.length === 0) return { grown: false, added: [] };
+  registerTouchSetIntent({ repoPath, card, touchSet, now });
+  return { grown: true, added };
+}
+
 // Drop every ledger row a card owns (session "kanban:<cardId>") — called when the
 // card reaches a terminal list or is abandoned/deleted, mirroring coord-mcp's
 // removeIntentsBySession. Best-effort; a missing ledger is a no-op.
@@ -319,6 +350,185 @@ export function removeCardIntents({ repoPath, cardId }) {
   } catch {
     /* best-effort */
   }
+}
+
+// Append an outward-facing mail row to the intents ledger (Q9 step 3) so a
+// non-kanban coord-mcp session's digest surfaces the notice. Wire-compatible with
+// intent-store rows; kind:"mail" + toCardId are extra keys those readers ignore.
+// Best-effort; a null repo or write failure is silent (mail evidence lives in the
+// runDir records regardless).
+export function appendMailLedgerRow({ repoPath, fromCard, toCard, subject, body, now = () => new Date().toISOString() }) {
+  if (!repoPath) return null;
+  const ts = typeof now === "function" ? now() : now;
+  const row = {
+    repo: repoPath,
+    session: `kanban:${fromCard.id}`,
+    area: subject || "",
+    files: [],
+    reason: String(body || "").slice(0, 500),
+    ts: ts || new Date().toISOString(),
+    kind: "mail",
+    cardId: fromCard.id,
+    toCardId: toCard?.id || null
+  };
+  try {
+    mkdirSync(intentDir(), { recursive: true });
+    appendFileSync(intentPath(repoPath), JSON.stringify(row) + "\n");
+    return row;
+  } catch {
+    return null;
+  }
+}
+
+// ── path-claim coverage (shared by the scorer, fences, attribution) ─────────
+
+// Does a touch-set claim COVER a repo-relative file path? True when the file
+// equals a claimed exact file, or falls under a claimed dir prefix. Paths are
+// normalised (posix, repo-relative) both sides.
+export function claimCovers(touchSet, file) {
+  if (!touchSet || !file) return false;
+  const f = normPath(file);
+  const files = (touchSet.files || []).map(normPath);
+  if (files.includes(f)) return true;
+  const dirs = (touchSet.dirs || []).map(normPath);
+  return dirs.some((d) => underDir(f, d));
+}
+
+// ── D6 exclusive leases (local file, O_EXCL, TTL) ───────────────────────────
+//
+// A card whose touch-set declares `exclusive` paths takes a local lease on each
+// before it dispatches implement. The lease file is the PRIMARY record (works
+// with agent-mail absent — A1); an agent-mail file_reservation mirror is a
+// best-effort extra handled by the mail layer. sha1(path) keys the file so any
+// path maps to one lease file per repo.
+function leaseDirFor(repoPath) {
+  return path.join(coordDir(), "leases", repoSlug(repoPath));
+}
+function sha1Hex(s) {
+  return crypto.createHash("sha1").update(String(s)).digest("hex");
+}
+function leasePathFor(repoPath, claimPath) {
+  return path.join(leaseDirFor(repoPath), `${sha1Hex(normPath(claimPath))}.json`);
+}
+function readLease(file) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function leaseExpired(lease, nowMs) {
+  const exp = lease?.expiresAt ? Date.parse(lease.expiresAt) : NaN;
+  return !Number.isFinite(exp) || exp <= nowMs;
+}
+
+// Try to take exclusive leases on `paths` for a card. O_EXCL create; a same-card
+// lease is renewed; an EXPIRED foreign lease is broken and taken; a live foreign
+// lease blocks (returns {ok:false, heldBy}). On a block, any lease acquired in
+// THIS call is rolled back so a card never holds a partial set. Returns
+// {ok:true, acquired:[paths]} or {ok:false, heldBy, path}.
+export function acquireLeases({ repoPath, card, paths, ttlMinutes = DEFAULT_COORDINATION.leaseTtlMinutes, now = () => new Date().toISOString() }) {
+  if (!repoPath || !Array.isArray(paths) || paths.length === 0) return { ok: true, acquired: [] };
+  const nowStr = typeof now === "function" ? now() : now;
+  const nowMs = Date.parse(nowStr) || Date.now();
+  const expiresAt = new Date(nowMs + Math.max(1, ttlMinutes) * 60_000).toISOString();
+  const acquired = [];
+  try {
+    mkdirSync(leaseDirFor(repoPath), { recursive: true });
+  } catch {
+    return { ok: true, acquired: [] }; // substrate down -> serialize gate covers it, don't block here
+  }
+  const record = (p) => JSON.stringify({ path: normPath(p), cardId: card.id, runId: card.runId || null, holder: `kanban:${card.id}`, acquiredAt: nowStr, expiresAt });
+  for (const p of paths) {
+    const file = leasePathFor(repoPath, p);
+    try {
+      writeFileSync(file, record(p), { flag: "wx" });
+      acquired.push(p);
+      continue;
+    } catch (err) {
+      if (err?.code !== "EEXIST") {
+        // unexpected error — roll back and treat as unavailable (don't block)
+        rollbackLeases(repoPath, card.id, acquired);
+        return { ok: true, acquired: [] };
+      }
+    }
+    // exists — inspect the holder
+    const cur = readLease(file);
+    if (cur && cur.cardId === card.id) {
+      try { writeFileSync(file, record(p)); } catch { /* renew best-effort */ }
+      acquired.push(p);
+      continue;
+    }
+    if (!cur || leaseExpired(cur, nowMs)) {
+      try {
+        writeFileSync(file, record(p));
+        acquired.push(p);
+        continue;
+      } catch { /* fall through to block */ }
+    }
+    // held by another live card — roll back and report
+    rollbackLeases(repoPath, card.id, acquired);
+    return { ok: false, heldBy: cur?.cardId || null, path: normPath(p) };
+  }
+  return { ok: true, acquired };
+}
+
+function rollbackLeases(repoPath, cardId, paths) {
+  for (const p of paths) {
+    const file = leasePathFor(repoPath, p);
+    const cur = readLease(file);
+    if (cur && cur.cardId === cardId) {
+      try { rmSync(file, { force: true }); } catch { /* best-effort */ }
+    }
+  }
+}
+
+// Renew (extend the TTL of) the leases a card already holds — called at each fence
+// so a long implement phase does not let its own leases expire under it.
+export function renewLeases({ repoPath, card, paths, ttlMinutes = DEFAULT_COORDINATION.leaseTtlMinutes, now = () => new Date().toISOString() }) {
+  if (!repoPath || !Array.isArray(paths) || paths.length === 0) return;
+  const nowStr = typeof now === "function" ? now() : now;
+  const nowMs = Date.parse(nowStr) || Date.now();
+  const expiresAt = new Date(nowMs + Math.max(1, ttlMinutes) * 60_000).toISOString();
+  for (const p of paths) {
+    const file = leasePathFor(repoPath, p);
+    const cur = readLease(file);
+    if (cur && cur.cardId === card.id) {
+      try { writeFileSync(file, JSON.stringify({ ...cur, expiresAt })); } catch { /* best-effort */ }
+    }
+  }
+}
+
+// Release every lease a card holds in a repo (advance past implement, terminal,
+// abandon). Best-effort; scans the repo's lease dir and removes the card's files.
+export function releaseLeases({ repoPath, cardId }) {
+  if (!repoPath || !cardId) return;
+  let entries = [];
+  try {
+    entries = readdirSync(leaseDirFor(repoPath), { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (!e.isFile() || !e.name.endsWith(".json")) continue;
+    const file = path.join(leaseDirFor(repoPath), e.name);
+    const cur = readLease(file);
+    if (cur && cur.cardId === cardId) {
+      try { rmSync(file, { force: true }); } catch { /* best-effort */ }
+    }
+  }
+}
+
+// Is any of `paths` currently leased by a DIFFERENT, non-expired card? Returns the
+// holder cardId (the release predicate for a lease-waiter uses this: null => free).
+export function leaseHeldByOther({ repoPath, cardId, paths, now = () => new Date().toISOString() }) {
+  if (!repoPath || !Array.isArray(paths)) return null;
+  const nowMs = Date.parse(typeof now === "function" ? now() : now) || Date.now();
+  for (const p of paths) {
+    const cur = readLease(leasePathFor(repoPath, p));
+    if (cur && cur.cardId !== cardId && !leaseExpired(cur, nowMs)) return cur.cardId;
+  }
+  return null;
 }
 
 // ── availability probe + serialize gate (Q8, D9) ────────────────────────────
@@ -375,6 +585,7 @@ function isTerminalList(list, listId) {
 // live.
 function isLiveCard(c, board) {
   if (!c) return false;
+  if (c.abandoned) return false; // an abandoned card holds no slot and blocks no one
   if (c.waitingOn) return true;
   if (c.status === "running") return true;
   if (c.runDir) {
@@ -382,6 +593,15 @@ function isLiveCard(c, board) {
     if (!isTerminalList(list, c.list)) return true;
   }
   return false;
+}
+
+// Live same-project peers of a card (excluding itself) — the overlap/attribution
+// candidate set. Exported so the engine can compute "other live cards share the
+// project" without re-deriving liveness.
+export function liveSameProjectCards(allCards, card, board) {
+  return (allCards || []).filter(
+    (c) => c && c.id !== card.id && (c.project || null) === (card.project || null) && isLiveCard(c, board)
+  );
 }
 
 // Serialize gate (Q8): when coordination is ENABLED but UNAVAILABLE (and
@@ -526,6 +746,7 @@ export function applyPlanCompletionCoordination({ board, card, allCards, policy,
   let blocker = null; // { card, grade, shared }
   const selfEvents = [];
   const blockerWrites = [];
+  const mails = []; // courtesy notices (Q9), sent by the engine after the CAS save
   for (const c of allCards || []) {
     if (!c || c.id === card.id) continue;
     if ((c.project || null) !== (card.project || null)) continue;
@@ -555,6 +776,11 @@ export function applyPlanCompletionCoordination({ board, card, allCards, policy,
           message: `Light overlap with ${short(card)} — both proceeding in parallel`
         }
       });
+      mails.push({
+        toCardId: c.id,
+        subject: `Light overlap: ${short(card)}`,
+        body: `Card ${card.id} (${card.title || "untitled"}) is proceeding in parallel; light overlap (${summarizeShared(s)}). No action needed — heads up.`
+      });
       continue;
     }
     // medium/heavy: keep the STRONGEST constraint; among equal grades keep the
@@ -570,7 +796,7 @@ export function applyPlanCompletionCoordination({ board, card, allCards, policy,
   }
 
   if (!blocker) {
-    return { kind: "advance", planCompletedAt: nowStr, selfEvents, blockerWrites };
+    return { kind: "advance", planCompletedAt: nowStr, selfEvents, blockerWrites, mails };
   }
 
   // medium -> wait until the blocker's stability point; heavy -> until terminal.
@@ -605,7 +831,7 @@ export function applyPlanCompletionCoordination({ board, card, allCards, policy,
       detail: reason
     }
   });
-  return { kind: "wait", planCompletedAt: nowStr, waitingOn, selfEvents, blockerWrites };
+  return { kind: "wait", planCompletedAt: nowStr, waitingOn, selfEvents, blockerWrites, mails };
 }
 
 // ── waiting re-evaluation (Q3/Q4 release) ────────────────────────────────────
@@ -632,22 +858,39 @@ function appendEvent(card, event) {
 //   until "stability" — the blocker has recorded its stabilityAt.
 //   until "terminal"  — handled by the disappearance rule above (a still-live
 //                       blocker is by definition not terminal, so it keeps waiting).
-//   until "fence"     — the interference-fence release (S2). The shape exists now
-//                       so waitingOn can carry it, but S1 never CREATES a fence
-//                       wait, so nothing is stranded; the disappearance rule still
-//                       frees any such waiter if its blocker dies.
-function releaseReason(waitingOn, blocker, board) {
+//   until "fence"     — the interference-fence release (S2/Q6): the offender has
+//                       recorded a fence NEWER than the one noted at detection
+//                       (offenderFenceSha) — i.e. its fix landed.
+//   until "lease"     — the exclusive lease(s) the waiter wants are no longer held
+//                       by any other live card (consulted from the lease files, not
+//                       the holder card's lifecycle).
+function releaseReason(waitingOn, blocker, board, waiterCard) {
   const until = waitingOn?.until;
+  // Lease: the truth is the lease files, not a blocker card. Check directly.
+  if (until === "lease") {
+    const repoPath = repoPathForProject(waiterCard?.project, board);
+    const ts = readTouchSet(waiterCard?.runDir);
+    const paths = ts?.exclusive || [];
+    if (!repoPath || paths.length === 0) return "exclusive lease no longer applies";
+    return leaseHeldByOther({ repoPath, cardId: waiterCard.id, paths }) ? null : "exclusive lease is now free";
+  }
+  // Disappearance (deleted / abandoned / terminal) supersedes every other `until`.
   if (!blocker) return "blocker no longer exists (deleted)";
   if (blocker.abandoned) return "blocker was abandoned";
   if (isTerminalList(listById(board, blocker.list), blocker.list)) {
     return until === "stability"
       ? "blocker reached terminal without a stability point"
-      : "blocker reached terminal";
+      : until === "fence"
+        ? "offender reached terminal (no fix fence to wait for)"
+        : "blocker reached terminal";
   }
   if (until === "stability") return blocker.stabilityAt ? "blocker reached its stability point" : null;
   if (until === "terminal") return null; // still live -> not terminal yet
-  if (until === "fence") return null; // S2 fence release; disappearance handled above
+  if (until === "fence") {
+    const fences = Array.isArray(blocker.fences) ? blocker.fences : [];
+    const latest = fences.length ? fences[fences.length - 1].sha : null;
+    return latest && latest !== waitingOn.offenderFenceSha ? "offender landed a new fence (its fix)" : null;
+  }
   return null;
 }
 
@@ -663,7 +906,7 @@ export async function reevaluateWaiting({ root, board, cards, now = () => new Da
     if (!card.waitingOn) continue;
     const w = card.waitingOn;
     const blocker = byId.get(w.cardId) || null;
-    const reason = releaseReason(w, blocker, board);
+    const reason = releaseReason(w, blocker, board, card);
     if (!reason) continue;
     const nowStr = typeof now === "function" ? now() : now;
     const target = w.rerun ? card.list : w.thenTo || card.list;

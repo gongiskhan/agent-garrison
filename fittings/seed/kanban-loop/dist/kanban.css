@@ -330,6 +330,10 @@ body {
 .chip.attn { border-color: rgba(155,54,45,0.4); color: var(--alarm); background: var(--alarm-soft); }
 .chip.goal { border-color: rgba(180,134,42,0.5); color: var(--brass); background: var(--warn-soft); }
 .chip.waiting { border-color: rgba(176,114,21,0.45); color: var(--warn); background: var(--warn-soft); }
+/* a fence chip — deliberately subtle (the latest commit fence sha), mono + muted */
+.chip.fence { color: var(--mute); background: var(--paper); border-color: var(--rule); }
+/* an "applied" / success tag — sage, distinct from the alarm/attn tags */
+.chip.ok { border-color: rgba(61,98,73,0.4); color: var(--sage); background: var(--sage-soft); }
 
 .card .dispatch-err {
   margin-top: 7px;
@@ -835,6 +839,65 @@ body {
 /* On the card front the callout sits inside the card body — tighten its margin so it
    reads as part of the card, matching the compact .dispatch-err block beside it. */
 .card .state-callout.waiting { margin-bottom: 8px; font-size: 12px; padding: 8px 10px; }
+
+/* ── abandonment revert (S2, Q7) ──────────────────────────────────────────────
+   The card-front confirm block on a parked, abandoned card: the commit count + a
+   Confirm-revert button (a destructive action, so .btn.danger). Alarm-tinted like the
+   parked callout it sits under, but with its own frame so the button reads clearly. */
+.card .revert-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding: 7px 9px;
+  border: 1px solid rgba(155,54,45,0.3);
+  background: var(--alarm-soft);
+}
+.card .revert-block .rb-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--alarm);
+  line-height: 1.35;
+}
+.card .revert-block .btn { flex: 0 0 auto; }
+
+/* the detail-sheet prepared-revert section — the commit list + conflict-risk + confirm */
+.prepared-revert {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid rgba(155,54,45,0.3);
+  background: var(--alarm-soft);
+}
+.prepared-revert .dd-title { margin-bottom: 8px; }
+.prepared-revert .pr-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.prepared-revert .pr-count { font-size: 12.5px; color: var(--ink-2); }
+.prepared-revert .pr-commits {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.prepared-revert .pr-commits li {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-mute);
+}
+.prepared-revert .pr-commits li code {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 1px 5px;
+}
+.prepared-revert .pr-commits li.muted { color: var(--mute); font-style: italic; }
 
 /* description / last-reply blocks in the detail */
 .detail-desc { margin-bottom: 16px; }

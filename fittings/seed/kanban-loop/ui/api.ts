@@ -33,6 +33,26 @@ export interface WaitingOn {
   since?: string;
 }
 
+// The card's LATEST commit fence (S2, Q5) — the board shows the most recent one as a
+// subtle chip; the full chain is not projected.
+export interface FenceSummary {
+  phase: string | null;
+  sha: string | null;
+  at: string | null;
+}
+
+// The abandonment prepared-revert descriptor (S2, Q7), thinned for the UI: its state,
+// the commit COUNT, up to 20 short shas (for the detail's commit list), the
+// conflictRisk count, and when it was prepared. A revert is only confirmable while
+// state === "prepared"; "applied"/"conflict" are terminal states shown as a tag.
+export interface PreparedRevertSummary {
+  state: "prepared" | "applied" | "conflict" | string;
+  commits: number;
+  commitShas: string[];
+  conflictRisk: number;
+  preparedAt: string | null;
+}
+
 export interface CardSummary {
   id: string;
   title: string;
@@ -70,6 +90,12 @@ export interface CardSummary {
   stabilityAt?: string | null;
   planCompletedAt?: string | null;
   blocking?: string[];
+  // Coordination (GARRISON-FLOW-V2 S2): the latest commit fence (a subtle sha chip on
+  // the card front) and the abandonment prepared-revert descriptor (the parked
+  // revert-confirm block + the detail's commit list). Both null on a card with no
+  // fences / no abandonment.
+  fences?: FenceSummary | null;
+  preparedRevert?: PreparedRevertSummary | null;
   // ── execution visibility ──────────────────────────────────────────────────
   // A short task description (card front tooltip + operative context); the operative's
   // last reply snippet (what it actually said); the most-recent timeline event + count
@@ -275,6 +301,20 @@ export const api = {
     jfetch<{ card: CardSummary; advanced?: string; outcome?: unknown }>(
       `/cards/${encodeURIComponent(id)}/start`,
       { method: "POST" }
+    ),
+  // Abandon a card: build a PREPARED (not applied) revert of its trailer-attributed
+  // commits and park it in needs-attention. Human-only on the server.
+  abandon: (id: string) =>
+    jfetch<{ card: CardSummary; preparedRevert: PreparedRevertSummary | null }>(
+      `/cards/${encodeURIComponent(id)}/abandon`,
+      { method: "POST" }
+    ),
+  // Apply a card's prepared revert — an EXPLICIT confirm the server also requires
+  // ({ confirm: true }); never auto-applied. Returns the descriptor's new state.
+  revert: (id: string) =>
+    jfetch<{ card: CardSummary; preparedRevert: PreparedRevertSummary | null; reverted?: string[] }>(
+      `/cards/${encodeURIComponent(id)}/revert`,
+      { method: "POST", body: JSON.stringify({ confirm: true }) }
     ),
   inferProject: (id: string) =>
     jfetch<{ card: CardSummary; inferring?: boolean; note?: string }>(

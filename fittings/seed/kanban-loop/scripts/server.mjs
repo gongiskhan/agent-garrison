@@ -36,7 +36,8 @@ import {
   deriveMembership,
   appendCardLog,
   cardBriefFile,
-  cardBriefRel
+  cardBriefRel,
+  atomicWriteJSON
 } from "../lib/board.mjs";
 import {
   getList,
@@ -47,7 +48,9 @@ import {
   triggerFor,
   isInteractive,
   withEvent,
-  replySnippet
+  replySnippet,
+  parkFields,
+  ATTENTION_LIST
 } from "../lib/engine.mjs";
 import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
@@ -58,8 +61,12 @@ import {
   readTouchSet,
   coordinationConfig,
   coordinationAvailability,
-  serializeGate
+  serializeGate,
+  repoPathForProject,
+  removeCardIntents,
+  releaseLeases
 } from "../lib/coordination.mjs";
+import { prepareRevert, executeRevert } from "../lib/fences.mjs";
 import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
@@ -117,6 +124,10 @@ export function buildBoardView(board, cards) {
 // goalMode, status — plus the pointer set (so the UI can show Open without a
 // second fetch). It is a projection, not a copy of any artifact body.
 export function cardSummary(card) {
+  // The card's LATEST commit fence (S2, Q5) — the board shows only the most recent
+  // one as a subtle chip; the full chain lives on the card, not in this projection.
+  const fenceList = Array.isArray(card.fences) ? card.fences : [];
+  const lastFence = fenceList.length ? fenceList[fenceList.length - 1] : null;
   return {
     id: card.id,
     title: card.title ?? "(untitled)",
@@ -154,6 +165,25 @@ export function cardSummary(card) {
     stabilityAt: card.stabilityAt ?? null,
     planCompletedAt: card.planCompletedAt ?? null,
     blocking: Array.isArray(card.blocking) ? card.blocking : [],
+    // Coordination (GARRISON-FLOW-V2 S2): the LATEST fence (phase + short-able sha +
+    // when) for a card whose runs committed touch-set fences, and the abandonment
+    // prepared-revert descriptor thinned for the UI — its state (prepared | applied |
+    // conflict), the commit COUNT, up to 20 short shas + the conflictRisk count for the
+    // detail's commit list, and when it was prepared. The board front shows the count +
+    // a Confirm-revert button; the detail lists the shas. The full descriptor lives on
+    // the card + in <runDir>/coordination/prepared-revert.json, never in this projection.
+    fences: lastFence ? { phase: lastFence.phase ?? null, sha: lastFence.sha ?? null, at: lastFence.at ?? null } : null,
+    preparedRevert: card.preparedRevert
+      ? {
+          state: card.preparedRevert.state ?? "prepared",
+          commits: Array.isArray(card.preparedRevert.commits) ? card.preparedRevert.commits.length : 0,
+          commitShas: (Array.isArray(card.preparedRevert.commits) ? card.preparedRevert.commits : [])
+            .slice(0, 20)
+            .map((s) => String(s).slice(0, 10)),
+          conflictRisk: Array.isArray(card.preparedRevert.conflictRisk) ? card.preparedRevert.conflictRisk.length : 0,
+          preparedAt: card.preparedRevert.preparedAt ?? null
+        }
+      : null,
     // Why a card is parked + where it came from (set by the engine when it moves a
     // card to the needs-attention column). The UI shows the reason on the card.
     attentionReason: card.attentionReason ?? null,
@@ -1094,6 +1124,159 @@ async function handleDeleteCard(req, res, opts, id) {
   jsonRes(res, 200, { ok: true, deleted: id, removed });
 }
 
+// Where a card's prepared-revert descriptor is persisted durably (S2, Q7): a sibling
+// of the run's other coordination evidence. atomicWriteJSON mkdir -p's the dir, so a
+// runDir without a coordination/ subdir yet is fine.
+function preparedRevertFile(runDir) {
+  return path.join(runDir, "coordination", "prepared-revert.json");
+}
+
+// POST /cards/:id/abandon — abandonment revert (S2, Q7, D8). A HUMAN-ONLY action:
+// the run engine's own moves carry x-garrison-engine and are rejected (the engine
+// never abandons a card; a person decides to). It builds a PREPARED (not applied)
+// revert descriptor from the card's trailer-attributed commits, persists it durably +
+// onto the card, releases the card's coordination holds (ledger intents + exclusive
+// leases), and PARKS the card in needs-attention with the abandoned flag set. Setting
+// `abandoned` is what releases any terminal-waiters on the next engine reevaluation
+// (reevaluateWaiting treats an abandoned blocker as gone) and frees the card's
+// serialize-gate slot — the revert itself is NEVER applied here (that is the separate,
+// explicitly-confirmed /revert step).
+async function handleAbandonCard(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin abandon rejected" });
+  if (isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "human-only",
+      message: "Abandonment is a human decision — the run engine never abandons a card. Abandon it from needs-attention in the UI."
+    });
+  }
+  const root = opts.root;
+  let card;
+  try { card = await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id; // pin to the validated route id
+  const board = await loadBoard(root);
+  const repoPath = repoPathForProject(card.project, board);
+  const at = new Date().toISOString();
+
+  // Build the prepared-revert descriptor (read-only on git). An unresolvable repo
+  // yields an honest empty descriptor (0 commits) so abandonment still parks the card.
+  const descriptor = prepareRevert({ repoPath, card }) || {
+    cardId: id,
+    project: card.project ?? null,
+    repoPath: repoPath ?? null,
+    commits: [],
+    preparedAt: at,
+    conflictRisk: [],
+    state: "prepared"
+  };
+
+  // Persist the descriptor durably as run evidence (best-effort — the card copy below
+  // is the authoritative one the UI and /revert read).
+  if (card.runDir) {
+    try { await atomicWriteJSON(preparedRevertFile(card.runDir), descriptor); }
+    catch { /* evidence best-effort */ }
+  }
+
+  // Release the card's outward coordination holds. Both are safe on a null repo.
+  try { removeCardIntents({ repoPath, cardId: id }); } catch { /* best-effort */ }
+  try { releaseLeases({ repoPath, cardId: id }); } catch { /* best-effort */ }
+
+  const n = descriptor.commits.length;
+  const reason = `Abandoned - prepared revert of ${n} commits ready; confirm to apply`;
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    // Park it in needs-attention (a real list move). Preserve an existing parkedFrom
+    // when the card was ALREADY parked (don't overwrite it with needs-attention).
+    ...parkFields(c, c.list === ATTENTION_LIST ? undefined : c.list, reason),
+    abandoned: true,
+    preparedRevert: descriptor,
+    // An abandoned card is no longer waiting on anyone — drop its own wait if it had one.
+    waitingOn: null,
+    events: withEvent(c, {
+      at,
+      kind: "coordination",
+      message: `Abandoned by request - prepared revert of ${n} commit(s) ready to apply`,
+      detail: descriptor.commits.length ? descriptor.commits.map((s) => String(s).slice(0, 10)).join("\n") : null
+    })
+  }));
+  if (!updated) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(card) });
+  return jsonRes(res, 200, { card: cardSummary(updated), preparedRevert: cardSummary(updated).preparedRevert });
+}
+
+// POST /cards/:id/revert — apply a card's prepared revert (S2, Q7, D8). Requires an
+// EXPLICIT { confirm: true } body — anything else is a 400 (the revert is NEVER
+// auto-applied). Runs only when a descriptor in state "prepared" exists; a
+// non-prepared descriptor (already applied, or a prior conflict) is a 409 (the lib
+// never retries a revert silently). On success the descriptor flips to "applied" +
+// the revert commits land (carrying Garrison-Card / Garrison-Revert trailers) and the
+// card stays parked for the user to archive; on ANY conflict executeRevert aborts
+// cleanly (nothing half-applied) and we persist state "conflict" + a 409.
+async function handleRevertCard(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin revert rejected" });
+  const body = (await readBody(req)) || {};
+  if (body.confirm !== true) {
+    return jsonRes(res, 400, { error: "revert requires an explicit { confirm: true } — it is never auto-applied" });
+  }
+  const root = opts.root;
+  let card;
+  try { card = await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id; // pin to the validated route id
+  const pr = card.preparedRevert;
+  if (!pr) return jsonRes(res, 400, { error: "no prepared revert — abandon the card first to prepare one" });
+  if (pr.state !== "prepared") {
+    return jsonRes(res, 409, { error: `revert is not in a confirmable state (state: ${pr.state})`, card: cardSummary(card) });
+  }
+
+  const at = new Date().toISOString();
+  const result = executeRevert({ repoPath: pr.repoPath, cardId: id, commits: pr.commits });
+
+  if (result.state === "conflict") {
+    const next = { ...pr, state: "conflict", conflictAt: at, conflictSha: result.sha ?? null, error: result.error ?? null };
+    if (card.runDir) { try { await atomicWriteJSON(preparedRevertFile(card.runDir), next); } catch { /* best-effort */ } }
+    const updated = await updateCard(root, id, (c) => ({
+      ...c,
+      preparedRevert: next,
+      events: withEvent(c, {
+        at,
+        kind: "coordination",
+        message: `Revert conflicted${result.sha ? ` at ${String(result.sha).slice(0, 10)}` : ""} - aborted cleanly, nothing applied`,
+        detail: result.error ?? null
+      })
+    }));
+    const finalCard = updated ?? card;
+    return jsonRes(res, 409, {
+      error: "revert conflicted - aborted cleanly, nothing was applied",
+      card: cardSummary(finalCard),
+      preparedRevert: cardSummary(finalCard).preparedRevert
+    });
+  }
+
+  // applied (or noop: no attributed commits — trivially done, recorded honestly)
+  const revertCommits = Array.isArray(result.revertCommits) ? result.revertCommits : [];
+  const next = { ...pr, state: "applied", appliedAt: at, revertCommits };
+  if (card.runDir) { try { await atomicWriteJSON(preparedRevertFile(card.runDir), next); } catch { /* best-effort */ } }
+  const message = result.state === "noop"
+    ? "Revert confirmed - no attributed commits to revert, nothing to apply"
+    : `Revert applied - ${revertCommits.length} revert commit(s) landed`;
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    preparedRevert: next,
+    events: withEvent(c, {
+      at,
+      kind: "coordination",
+      message,
+      detail: revertCommits.length ? revertCommits.map((s) => String(s).slice(0, 10)).join("\n") : null
+    })
+  }));
+  const finalCard = updated ?? card;
+  return jsonRes(res, 200, {
+    card: cardSummary(finalCard),
+    preparedRevert: cardSummary(finalCard).preparedRevert,
+    reverted: revertCommits
+  });
+}
+
 // POST /cards/:id/brief — record the James-mode Discuss brief PATH onto the card
 // (the link-never-duplicate write side: the card LINKS the brief, never inlines
 // its body — FINDING 10). Body: { briefPath } — a relative path under briefs_path.
@@ -1698,7 +1881,7 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
@@ -1706,6 +1889,8 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/artifact" && method === "GET") return await handleArtifact(req, res, opts, id, parsed.query.ref);
         if (sub === "/artifact" && method === "PUT") return await handleArtifactWrite(req, res, opts, id, parsed.query.ref);
         if (sub === "/start" && method === "POST") return await handleStartCard(req, res, opts, id);
+        if (sub === "/abandon" && method === "POST") return await handleAbandonCard(req, res, opts, id);
+        if (sub === "/revert" && method === "POST") return await handleRevertCard(req, res, opts, id);
         if (sub === "/brief" && method === "POST") return await handleBriefCard(req, res, opts, id);
         if (sub === "/infer-project" && method === "POST") return await handleInferProject(req, res, opts, id);
         if (sub === "/watch" && method === "GET") return await handleWatchCard(req, res, opts, id);

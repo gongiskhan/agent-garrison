@@ -32,8 +32,21 @@ import {
   applyBlockerWrite,
   stabilityFields,
   removeCardIntents,
-  repoPathForProject
+  repoPathForProject,
+  readTouchSet,
+  liveSameProjectCards,
+  acquireLeases,
+  renewLeases,
+  releaseLeases,
+  reregisterTouchSetIfGrown
 } from "./coordination.mjs";
+import { commitFence, attributeBreakage } from "./fences.mjs";
+import { sendCoordMail } from "./coord-mail.mjs";
+
+// Gate phases whose fail edge (verdict === "implement") triggers breakage
+// attribution (Q6): a loop-back to implement from one of these, with other live
+// same-project cards present, asks "who broke me?" before looping.
+const GATE_PHASES = new Set(["review", "adversarial-review", "test", "adversarial-test", "validate"]);
 import {
   loadPolicy,
   policyLoadState,
@@ -438,6 +451,41 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
     return { card: res.card, outcome: { status: "moved", from: card.list, to: fwd, phasesOff: skipped } };
   }
+  // Exclusive-lease gate (D6): before dispatching IMPLEMENT for a card whose
+  // touch-set declares `exclusive` paths, take the local leases. Held by another
+  // live card -> the card WAITS (until:"lease", re-dispatches in place on release)
+  // WITHOUT consuming an iteration or dispatching. Checked before the acquire so a
+  // blocked card never burns a run.
+  if (coordActive && phase === "implement" && card.runDir) {
+    const ts = readTouchSet(card.runDir);
+    const excl = ts?.exclusive || [];
+    if (excl.length) {
+      const repoPath = repoPathForProject(card.project, board);
+      if (repoPath) {
+        const lease = acquireLeases({ repoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
+        if (!lease.ok) {
+          const reason = `exclusive lease held by ${lease.heldBy || "another run"} on ${excl.join(", ")}`;
+          const waitingOn = {
+            cardId: lease.heldBy || null,
+            cardTitle: null,
+            grade: "lease",
+            reason,
+            until: "lease",
+            thenTo: card.list,
+            rerun: true,
+            since: now()
+          };
+          const res = await saveCardCAS(root, {
+            ...card,
+            waitingOn,
+            events: withEvent(card, { at: now(), kind: "coordination", message: `Waiting on exclusive lease before Implement: ${excl.join(", ")}`, detail: reason })
+          }, baseRev, now());
+          if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+          return { card: res.card, outcome: { status: "waiting", reason: "lease", waitingOn } };
+        }
+      }
+    }
+  }
   // Mint runId + runDir on the card's FIRST agent-list entry, and fold the mint into
   // OUTPOST AFFINITY (D27): a card naming an outpost runs its phase sessions
   // there; a NAMED-BUT-OFFLINE outpost parks the card in needs-attention with
@@ -653,11 +701,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const expected = validNext.join(", ");
   let target;
   let outcome;
-  // Cross-card coordination writes (blocking-list + events on OTHER cards) are
-  // applied AFTER this card's own CAS save succeeds, so a save conflict doesn't
-  // leave orphaned blocker state.
+  // Cross-card coordination writes (blocking-list + events on OTHER cards) and
+  // mail are applied AFTER this card's own CAS save succeeds, so a save conflict
+  // doesn't leave orphaned blocker/mail state.
   let blockerWrites = [];
   let terminalIntentRemoval = null;
+  let mails = []; // [{ toCardId, subject, body }] sent via coord-mail after save
+  let coordAllCards = null;
+  let coordRepoPath = null;
   if (next) {
     // D17 rail fast-forward AFTER the verdict: if the named next list's phase
     // is OFF for this card's rail, skip forward to the first ON phase,
@@ -679,16 +730,47 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     // write (predicate lives in coordination.stabilityFields; null off the review
     // seam or when already recorded).
     const stab = stabilityFields(runningCard, phase, effectiveNext, now);
-    // Plan-completion coordination (Q2/Q4): on plan completion, register the
-    // touch-set and either advance, defer behind an overlapping earlier run
-    // (wait), or park (no valid touch-set). Plan is never batched, so this is the
-    // per-card seam. Skipped off the plan seam or when coordination is inactive.
+    // Coordination context, loaded ONCE per advance when active: the live
+    // same-project peers (overlap/attribution candidates), the resolved repo path
+    // (fences/attribution/leases), and this card's touch-set.
+    if (coordActive) {
+      coordAllCards = await loadAllCards(root);
+      coordRepoPath = repoPathForProject(runningCard.project, board);
+    }
+    const liveCards = coordActive ? liveSameProjectCards(coordAllCards, runningCard, board) : [];
+    const myTouchSet = coordActive ? readTouchSet(runningCard.runDir) : null;
+
+    // (a) Plan-completion coordination (Q2/Q4): register the touch-set and either
+    // advance, defer behind an overlapping earlier run (wait), or park. Plan is
+    // never batched, so this is the per-card seam.
     let coord = null;
     if (coordActive && phase === "plan") {
-      const allCards = await loadAllCards(root);
-      coord = applyPlanCompletionCoordination({ board, card: runningCard, allCards, policy, nextList: effectiveNext, now });
+      coord = applyPlanCompletionCoordination({ board, card: runningCard, allCards: coordAllCards, policy, nextList: effectiveNext, now });
+    }
+    // (b) Breakage attribution (Q6): a gate fail edge (-> implement) with other
+    // live cards present asks "who broke me?" BEFORE looping back. Only a clean
+    // FOREIGN verdict converts the loop-back into an interference wait.
+    let interference = null;
+    if (coordActive && !coord && effectiveNext === "implement" && GATE_PHASES.has(phase) && liveCards.length) {
+      const attr = attributeBreakage({ repoPath: coordRepoPath, victimCard: runningCard, victimTouchSet: myTouchSet, liveCards });
+      if (attr.verdict === "foreign" && attr.offenderCardId) {
+        const offender = liveCards.find((c) => c.id === attr.offenderCardId);
+        if (offender) {
+          const offenderFenceSha = Array.isArray(offender.fences) && offender.fences.length ? offender.fences[offender.fences.length - 1].sha : null;
+          const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) — commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
+          const refunded = Math.max(0, (runningCard.iterations || 0) - 1);
+          interference = {
+            waitingOn: { cardId: offender.id, cardTitle: offender.title || null, grade: "interference", reason, until: "fence", offenderFenceSha, rerun: true, thenTo: card.list, since: now() },
+            refunded,
+            selfEvent: { at: now(), kind: "interference", message: `Interference: ${listTitle} failed due to card ${offender.id}'s commits — waiting for its fix (iteration refunded to ${refunded})`, detail: reason },
+            blockerWrites: [{ cardId: offender.id, addBlocking: runningCard.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${runningCard.id} (${runningCard.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} — it is waiting for your next fence (fix).` } }],
+            mails: [{ toCardId: offender.id, subject: `Interference: you broke ${runningCard.id} at ${phase}`, body: reason }]
+          };
+        }
+      }
     }
     if (coord) blockerWrites = coord.blockerWrites || [];
+    if (coord?.mails?.length) mails = mails.concat(coord.mails);
 
     if (coord && coord.kind === "park") {
       target = {
@@ -722,7 +804,48 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         events
       };
       outcome = { status: "waiting", from: card.list, waitingOn: coord.waitingOn };
+    } else if (interference) {
+      // Foreign breakage (D5): the victim does NOT loop to implement. It sits on
+      // its gate list waiting for the offender's fix fence; the consumed iteration
+      // is refunded (foreign breakage must not eat the victim's cap).
+      blockerWrites = interference.blockerWrites;
+      mails = mails.concat(interference.mails);
+      target = {
+        ...runningCard,
+        status: "ok",
+        runningSince: null,
+        iterations: interference.refunded,
+        lastReply: snippet,
+        lastDispatchError: null,
+        waitingOn: interference.waitingOn,
+        events: withEvent(runningCard, interference.selfEvent)
+      };
+      outcome = { status: "waiting", from: card.list, reason: "interference", waitingOn: interference.waitingOn };
     } else {
+      // Genuine advance. Commit a fence (Q5) BEFORE the CAS save so its sha folds
+      // into this same write; maintain exclusive leases (renew while implementing,
+      // release on advancing past implement or to terminal).
+      let fences = Array.isArray(runningCard.fences) ? runningCard.fences.slice() : [];
+      let fenceEvents = [];
+      const landed = getList(board, effectiveNext);
+      const landedTerminal = Boolean(landed?.terminal || effectiveNext === "done");
+      if (coordActive && coordCfg.fences?.enabled && runningCard.runDir) {
+        const otherClaims = liveCards.map((c) => readTouchSet(c.runDir)).filter(Boolean);
+        const f = commitFence({ repoPath: coordRepoPath, card: runningCard, phase, touchSet: myTouchSet || { files: [], dirs: [] }, otherClaims, now });
+        if (f.record) fences.push(f.record);
+        fenceEvents = f.events || [];
+        const excl = myTouchSet?.exclusive || [];
+        if (coordRepoPath && excl.length) {
+          if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) releaseLeases({ repoPath: coordRepoPath, cardId: runningCard.id });
+          else if (phase === "implement") renewLeases({ repoPath: coordRepoPath, card: runningCard, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
+        }
+      }
+      // Touch-set growth (Q5): if the operative widened its touch-set during
+      // implement, re-register the intent so the outward ledger reflects it.
+      if (coordActive && phase === "implement" && myTouchSet && coordRepoPath) {
+        const grown = reregisterTouchSetIfGrown({ repoPath: coordRepoPath, card: runningCard, touchSet: myTouchSet, now });
+        if (grown.grown) fenceEvents = fenceEvents.concat([{ at: now(), kind: "coordination", message: `Touch-set grew during ${phase} — re-registered (added ${grown.added.join(", ")})` }]);
+      }
       let events = withEvent(runningCard, {
         at: now(),
         kind: "routed",
@@ -732,6 +855,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       for (const ev of offEvents) events = withEvent({ events }, ev);
       if (stab) events = withEvent({ events }, stab.event);
       for (const ev of coord?.selfEvents || []) events = withEvent({ events }, ev);
+      for (const ev of fenceEvents) events = withEvent({ events }, ev);
       target = {
         ...runningCard,
         list: effectiveNext,
@@ -741,14 +865,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         lastDispatchError: null,
         ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
         ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
+        ...(coordActive ? { fences } : {}),
         events
       };
       outcome = { status: "moved", from: card.list, to: effectiveNext, nudged };
       // Terminal cleanup (Q1): a card reaching a terminal list drops its ledger
-      // intents so external sessions stop seeing its claims. Applied after save.
-      const landed = getList(board, effectiveNext);
-      if (coordActive && (landed?.terminal || effectiveNext === "done")) {
-        terminalIntentRemoval = { repoPath: repoPathForProject(runningCard.project, board), cardId: runningCard.id };
+      // intents + leases so external sessions stop seeing its claims. After save.
+      if (coordActive && landedTerminal) {
+        terminalIntentRemoval = { repoPath: coordRepoPath, cardId: runningCard.id };
       }
     }
   } else if (gateEvidenceMissing) {
@@ -824,6 +948,15 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   if (terminalIntentRemoval) {
     try { removeCardIntents(terminalIntentRemoval); } catch { /* ledger cleanup best-effort */ }
+    if (terminalIntentRemoval.repoPath) { try { releaseLeases(terminalIntentRemoval); } catch { /* best-effort */ } }
+  }
+  // Mail (Q9) after save, so a mail event write can't conflict with our own CAS.
+  if (coordActive && mails.length && coordAllCards) {
+    const byId = new Map(coordAllCards.map((c) => [c.id, c]));
+    for (const m of mails) {
+      const toCard = byId.get(m.toCardId);
+      if (toCard) await sendCoordMail({ root, fromCard: res.card, toCard, subject: m.subject, body: m.body, repoPath: coordRepoPath, now });
+    }
   }
   return { card: res.card, outcome };
 }
@@ -927,16 +1060,45 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       }));
     }
   }
-  // Stability + plan-completion coordination — the SAME contract as the dispatched
-  // path (processCard), so an in-session run orders against overlapping runs and
-  // marks its stability point identically.
+  // Stability + coordination — the SAME contract as the dispatched path
+  // (processCard): plan-completion ordering, breakage attribution on the gate fail
+  // edge, and commit fences on a genuine advance, so an in-session run coordinates
+  // identically to a gateway-dispatched one.
   const stab = stabilityFields(card, phase, effectiveNext, now);
+  let coordAllCards = null;
+  let coordRepoPath = null;
+  if (coordActive) {
+    coordAllCards = await loadAllCards(root);
+    coordRepoPath = repoPathForProject(card.project, board);
+  }
+  const liveCards = coordActive ? liveSameProjectCards(coordAllCards, card, board) : [];
+  const myTouchSet = coordActive ? readTouchSet(card.runDir) : null;
+
   let coord = null;
   if (coordActive && phase === "plan") {
-    const allCards = await loadAllCards(root);
-    coord = applyPlanCompletionCoordination({ board, card, allCards, policy, nextList: effectiveNext, now });
+    coord = applyPlanCompletionCoordination({ board, card, allCards: coordAllCards, policy, nextList: effectiveNext, now });
   }
-  const blockerWrites = coord?.blockerWrites || [];
+  let interference = null;
+  if (coordActive && !coord && effectiveNext === "implement" && GATE_PHASES.has(phase) && liveCards.length) {
+    const attr = attributeBreakage({ repoPath: coordRepoPath, victimCard: card, victimTouchSet: myTouchSet, liveCards });
+    if (attr.verdict === "foreign" && attr.offenderCardId) {
+      const offender = liveCards.find((c) => c.id === attr.offenderCardId);
+      if (offender) {
+        const offenderFenceSha = Array.isArray(offender.fences) && offender.fences.length ? offender.fences[offender.fences.length - 1].sha : null;
+        const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) — commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
+        const refunded = Math.max(0, (card.iterations || 0) - 1);
+        interference = {
+          waitingOn: { cardId: offender.id, cardTitle: offender.title || null, grade: "interference", reason, until: "fence", offenderFenceSha, rerun: true, thenTo: card.list, since: now() },
+          refunded,
+          selfEvent: { at: now(), kind: "interference", message: `Interference: ${listTitle} failed due to card ${offender.id}'s commits — waiting for its fix (in-session)`, detail: reason },
+          blockerWrites: [{ cardId: offender.id, addBlocking: card.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${card.id} (${card.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} — it is waiting for your next fence (fix).` } }],
+          mails: [{ toCardId: offender.id, subject: `Interference: you broke ${card.id} at ${phase}`, body: reason }]
+        };
+      }
+    }
+  }
+  let blockerWrites = coord?.blockerWrites || [];
+  let mails = coord?.mails ? coord.mails.slice() : [];
 
   let target;
   let outcome;
@@ -967,7 +1129,38 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       events
     };
     outcome = { status: "waiting", from: card.list, waitingOn: coord.waitingOn };
+  } else if (interference) {
+    blockerWrites = interference.blockerWrites;
+    mails = mails.concat(interference.mails);
+    target = {
+      ...card,
+      status: "ok",
+      runningSince: null,
+      iterations: interference.refunded,
+      waitingOn: interference.waitingOn,
+      events: withEvent(card, interference.selfEvent)
+    };
+    outcome = { status: "waiting", from: card.list, reason: "interference", waitingOn: interference.waitingOn };
   } else {
+    let fences = Array.isArray(card.fences) ? card.fences.slice() : [];
+    let fenceEvents = [];
+    const landed = getList(board, effectiveNext);
+    const landedTerminal = Boolean(landed?.terminal || effectiveNext === "done");
+    if (coordActive && coordCfg.fences?.enabled && card.runDir) {
+      const otherClaims = liveCards.map((c) => readTouchSet(c.runDir)).filter(Boolean);
+      const f = commitFence({ repoPath: coordRepoPath, card, phase, touchSet: myTouchSet || { files: [], dirs: [] }, otherClaims, now });
+      if (f.record) fences.push(f.record);
+      fenceEvents = f.events || [];
+      const excl = myTouchSet?.exclusive || [];
+      if (coordRepoPath && excl.length) {
+        if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) releaseLeases({ repoPath: coordRepoPath, cardId: card.id });
+        else if (phase === "implement") renewLeases({ repoPath: coordRepoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
+      }
+    }
+    if (coordActive && phase === "implement" && myTouchSet && coordRepoPath) {
+      const grown = reregisterTouchSetIfGrown({ repoPath: coordRepoPath, card, touchSet: myTouchSet, now });
+      if (grown.grown) fenceEvents = fenceEvents.concat([{ at: now(), kind: "coordination", message: `Touch-set grew during ${phase} — re-registered (added ${grown.added.join(", ")})` }]);
+    }
     let events = withEvent(card, {
       at: now(),
       kind: "routed",
@@ -976,6 +1169,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
     for (const ev of offEvents) events = withEvent({ events }, ev);
     if (stab) events = withEvent({ events }, stab.event);
     for (const ev of coord?.selfEvents || []) events = withEvent({ events }, ev);
+    for (const ev of fenceEvents) events = withEvent({ events }, ev);
     target = {
       ...card,
       list: effectiveNext,
@@ -983,12 +1177,12 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       runningSince: null,
       ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
       ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
+      ...(coordActive ? { fences } : {}),
       events
     };
     outcome = { status: "moved", from: card.list, to: effectiveNext };
-    const landed = getList(board, effectiveNext);
-    if (coordActive && (landed?.terminal || effectiveNext === "done")) {
-      terminalIntentRemoval = { repoPath: repoPathForProject(card.project, board), cardId: card.id };
+    if (coordActive && landedTerminal) {
+      terminalIntentRemoval = { repoPath: coordRepoPath, cardId: card.id };
     }
   }
   const res = await saveCardCAS(root, target, card.rev ?? 0, now());
@@ -998,6 +1192,14 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   }
   if (terminalIntentRemoval) {
     try { removeCardIntents(terminalIntentRemoval); } catch { /* best-effort */ }
+    if (terminalIntentRemoval.repoPath) { try { releaseLeases(terminalIntentRemoval); } catch { /* best-effort */ } }
+  }
+  if (coordActive && mails.length && coordAllCards) {
+    const byId = new Map(coordAllCards.map((c) => [c.id, c]));
+    for (const m of mails) {
+      const toCard = byId.get(m.toCardId);
+      if (toCard) await sendCoordMail({ root, fromCard: res.card, toCard, subject: m.subject, body: m.body, repoPath: coordRepoPath, now });
+    }
   }
   return { card: res.card, outcome };
 }
@@ -1102,6 +1304,12 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
   const expected = validNext.join(", ");
   const groups = groupCardsByProject(cards, listId);
   const outcomes = [];
+  // Coordination context for the batch (D7 red-path): attribution + fences run
+  // per-card. Loaded once; liveCards/repoPath resolved per card below.
+  const batchPolicy = loadPolicy();
+  const batchCoordCfg = coordinationConfig(batchPolicy);
+  const batchCoordActive = Boolean(batchPolicy && batchPolicy.coordination) && batchCoordCfg.enabled && coordinationAvailability().ok;
+  const batchAllCards = batchCoordActive ? await loadAllCards(root) : null;
   for (const [project, projectCards] of Object.entries(groups)) {
     if (projectCards.length === 0) continue;
     // Acquire every card in the group (CAS the running write + mint run fields). A card
@@ -1183,6 +1391,9 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         gateEvidenceMissing = true;
       }
       let target;
+      let batchBlockerWrites = [];
+      let batchMails = [];
+      let batchInterferenceWait = false;
       if (next) {
         // D17 rail fast-forward — same as processCard's post-verdict handling
         // (rev-s4 finding #3: the batch path used to skip it).
@@ -1200,22 +1411,72 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
             }));
           }
         }
-        let events = withEvent(a.running, { at: now(), kind: "routed", message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}`, detail: snippet || null });
-        for (const ev of offEvents) events = withEvent({ events }, ev);
-        // Stability point (Q3) at the batch seam too — parity across all three
-        // seams (review is not batched today, so this is dormant but correct).
-        const stab = stabilityFields(a.running, phase, effectiveNext, now);
-        if (stab) events = withEvent({ events }, stab.event);
-        target = {
-          ...a.running,
-          list: effectiveNext,
-          status: "ok",
-          runningSince: null,
-          lastReply: snippet,
-          lastDispatchError: null,
-          ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
-          events
-        };
+        // Coordination context for THIS card.
+        const liveCards = batchCoordActive ? liveSameProjectCards(batchAllCards, a.running, board) : [];
+        const repoPath = batchCoordActive ? repoPathForProject(a.running.project, board) : null;
+        const myTouchSet = batchCoordActive ? readTouchSet(a.running.runDir) : null;
+        // (D7) Attribution BEFORE the loop-back: a Test fail edge (-> implement)
+        // with other live cards asks "who broke me?" first; a clean FOREIGN verdict
+        // makes the card WAIT for the offender's fix instead of looping.
+        let interference = null;
+        if (batchCoordActive && effectiveNext === "implement" && GATE_PHASES.has(phase) && liveCards.length) {
+          const attr = attributeBreakage({ repoPath, victimCard: a.running, victimTouchSet: myTouchSet, liveCards });
+          if (attr.verdict === "foreign" && attr.offenderCardId) {
+            const offender = liveCards.find((c) => c.id === attr.offenderCardId);
+            if (offender) {
+              const offenderFenceSha = Array.isArray(offender.fences) && offender.fences.length ? offender.fences[offender.fences.length - 1].sha : null;
+              const reason = `broken by card ${offender.id} (${offender.title || "untitled"}) — commits ${attr.commits.map((s) => s.slice(0, 10)).join(", ")} touching ${attr.overlapFiles.join(", ")}`;
+              const refunded = Math.max(0, (a.running.iterations || 0) - 1);
+              interference = {
+                waitingOn: { cardId: offender.id, cardTitle: offender.title || null, grade: "interference", reason, until: "fence", offenderFenceSha, rerun: true, thenTo: a.running.list, since: now() },
+                refunded,
+                selfEvent: { at: now(), kind: "interference", message: `Interference (batch): ${listTitle} failed due to card ${offender.id}'s commits — waiting for its fix (iteration refunded to ${refunded})`, detail: reason },
+                blockerWrites: [{ cardId: offender.id, addBlocking: a.running.id, event: { at: now(), kind: "interference", message: `Your commits broke card ${a.running.id} (${a.running.title || "untitled"}) at ${phase}`, detail: `${attr.overlapFiles.join(", ")} — it is waiting for your next fence (fix).` } }],
+                mails: [{ toCardId: offender.id, subject: `Interference: you broke ${a.running.id} at ${phase}`, body: reason }]
+              };
+            }
+          }
+        }
+        if (interference) {
+          batchInterferenceWait = true;
+          batchBlockerWrites = interference.blockerWrites;
+          batchMails = interference.mails;
+          target = {
+            ...a.running,
+            status: "ok",
+            runningSince: null,
+            iterations: interference.refunded,
+            lastReply: snippet,
+            lastDispatchError: null,
+            waitingOn: interference.waitingOn,
+            events: withEvent(a.running, interference.selfEvent)
+          };
+        } else {
+          let events = withEvent(a.running, { at: now(), kind: "routed", message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}`, detail: snippet || null });
+          for (const ev of offEvents) events = withEvent({ events }, ev);
+          // Stability point (Q3) at the batch seam too — parity across all three seams.
+          const stab = stabilityFields(a.running, phase, effectiveNext, now);
+          if (stab) events = withEvent({ events }, stab.event);
+          // Commit fence (Q5) on the advance.
+          let fences = Array.isArray(a.running.fences) ? a.running.fences.slice() : [];
+          if (batchCoordActive && batchCoordCfg.fences?.enabled && a.running.runDir) {
+            const otherClaims = liveCards.map((c) => readTouchSet(c.runDir)).filter(Boolean);
+            const f = commitFence({ repoPath, card: a.running, phase, touchSet: myTouchSet || { files: [], dirs: [] }, otherClaims, now });
+            if (f.record) fences.push(f.record);
+            for (const ev of f.events || []) events = withEvent({ events }, ev);
+          }
+          target = {
+            ...a.running,
+            list: effectiveNext,
+            status: "ok",
+            runningSince: null,
+            lastReply: snippet,
+            lastDispatchError: null,
+            ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
+            ...(batchCoordActive ? { fences } : {}),
+            events
+          };
+        }
       } else if (gateEvidenceMissing) {
         const geReason = `${listTitle} (batched for ${project}) chose a next step but left NO durable gate evidence for the ${phase} phase under ${a.running.runDir}. Phase progression requires the durable gate record in addition to the verdict (D9) — parked rather than advancing on the operative's word alone.`;
         target = {
@@ -1239,7 +1500,17 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       }
       const res = await saveCardCAS(root, target, a.running.rev, now());
       if (!res.ok) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "conflict-during-run", project }); continue; }
+      // Cross-card side-writes + mail, after this card's own save committed.
+      for (const bw of batchBlockerWrites) await applyBlockerWrite(root, bw, now);
+      if (batchCoordActive && batchMails.length && batchAllCards) {
+        const byId = new Map(batchAllCards.map((c) => [c.id, c]));
+        for (const m of batchMails) {
+          const toCard = byId.get(m.toCardId);
+          if (toCard) await sendCoordMail({ root, fromCard: res.card, toCard, subject: m.subject, body: m.body, repoPath: repoPathForProject(a.running.project, board), now });
+        }
+      }
       if (gateEvidenceMissing) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-gate-evidence", project }); continue; }
+      if (batchInterferenceWait) { outcomes.push({ id: a.original.id, status: "waiting", reason: "interference", project }); continue; }
       if (!next) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-exact-match", project }); continue; }
       outcomes.push({ id: a.original.id, status: "moved", from: listId, to: target.list, project });
     }

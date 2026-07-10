@@ -123,6 +123,7 @@ function Card({
   onOpen,
   onInfer,
   onDiscuss,
+  onRevert,
   busy
 }: {
   card: CardSummary;
@@ -133,6 +134,7 @@ function Card({
   onOpen: (c: CardSummary) => void;
   onInfer: (c: CardSummary) => void;
   onDiscuss: (c: CardSummary) => void;
+  onRevert: (c: CardSummary) => void;
   busy: boolean;
 }) {
   // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
@@ -185,6 +187,11 @@ function Card({
         {card.goalMode && <span className="chip goal">goalMode</span>}
         {card.workKind && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.workKind}</span>}
         {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
+        {card.fences?.sha && (
+          <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
+            fence {card.fences.sha.slice(0, 7)}
+          </span>
+        )}
         {dispatchErr && (
           <span className="chip attn" title={dispatchErr.message}>{dispatchErr.reason}</span>
         )}
@@ -230,6 +237,28 @@ function Card({
       {/* PARKED: the human reason (no jargon) + what the operative actually said. */}
       {parked && card.attentionReason && (
         <div className="dispatch-err">{card.attentionReason}</div>
+      )}
+      {/* ABANDONED (S2, Q7): a parked card with a prepared revert — the confirm block.
+          Applying is a deliberate, guarded press (never auto-applied); the button is
+          disabled once the revert is applied or has conflicted (state !== "prepared"),
+          with the terminal state shown as a small tag. */}
+      {parked && card.preparedRevert && (
+        <div className="revert-block">
+          <span className="rb-text">
+            Prepared revert of {card.preparedRevert.commits} commit{card.preparedRevert.commits === 1 ? "" : "s"}
+          </span>
+          {card.preparedRevert.state !== "prepared" && (
+            <span className={`chip ${card.preparedRevert.state === "applied" ? "ok" : "attn"}`}>{card.preparedRevert.state}</span>
+          )}
+          <button
+            className="btn danger small"
+            disabled={busy || card.preparedRevert.state !== "prepared"}
+            title={card.preparedRevert.state === "prepared" ? "apply the prepared revert (asks to confirm first)" : `revert ${card.preparedRevert.state}`}
+            onClick={() => onRevert(card)}
+          >
+            Confirm revert
+          </button>
+        </div>
       )}
       {parked && card.lastReply && !card.attentionReason?.includes(card.lastReply.slice(0, 24)) && (
         <div className="card-reply" title="the operative's reply">“{card.lastReply}”</div>
@@ -648,6 +677,10 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [openArt, setOpenArt] = useState<ArtifactRef | null>(null);
+  // S2 (Q7): abandonment + revert action state — separate from the delete flow.
+  const [abandoning, setAbandoning] = useState(false);
+  const [reverting, setReverting] = useState(false);
+  const [actionErr, setActionErr] = useState<string | null>(null);
 
   // Poll the detail while open so the Activity feed updates live as a run progresses
   // (the engine appends events through the run). 3s is responsive without being chatty.
@@ -671,6 +704,43 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setDeleting(false);
+    }
+  }
+
+  // Abandon (S2, Q7): prepare a revert of the card's committed work and park it. The
+  // revert is NOT applied here — a separate confirm applies it. Re-pull the detail so
+  // the prepared-revert section appears at once (the 3s poll would also catch it).
+  async function doAbandon() {
+    if (!window.confirm("Abandon this card and prepare a revert of its committed work? It parks in needs-attention; the revert is NOT applied until you confirm it.")) return;
+    setAbandoning(true);
+    setActionErr(null);
+    try {
+      await api.abandon(cardId);
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll will refresh */ });
+      onChanged();
+      setAbandoning(false);
+    }
+  }
+
+  // Confirm-apply the prepared revert (S2, Q7). A guarded press; the server also
+  // requires an explicit confirm. On a conflict the server aborts cleanly and the
+  // descriptor flips to "conflict" — surfaced here after the re-pull.
+  async function doRevert() {
+    const n = detail?.card.preparedRevert?.commits ?? 0;
+    if (!window.confirm(`Apply the prepared revert of ${n} commit${n === 1 ? "" : "s"}? This adds revert commits to the shared branch.`)) return;
+    setReverting(true);
+    setActionErr(null);
+    try {
+      await api.revert(cardId);
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll will refresh */ });
+      onChanged();
+      setReverting(false);
     }
   }
 
@@ -711,6 +781,44 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       {card.waitingOn && (
         <div className="state-callout waiting">
           Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {card.waitingOn.grade} overlap, until {card.waitingOn.until}
+        </div>
+      )}
+
+      {/* ABANDONED (S2, Q7): the prepared revert — the exact commits to be reverted
+          (short shas), the conflict-risk count, the state tag, and the guarded
+          Confirm-revert button (disabled once applied / conflicted). */}
+      {card.preparedRevert && (
+        <div className="prepared-revert">
+          <div className="dd-title">Prepared revert</div>
+          <div className="pr-head">
+            <span className="pr-count">
+              {card.preparedRevert.commits} commit{card.preparedRevert.commits === 1 ? "" : "s"} to revert
+            </span>
+            {card.preparedRevert.conflictRisk > 0 && (
+              <span className="chip attn" title="these commits were later touched by another card — the revert may conflict">
+                {card.preparedRevert.conflictRisk} at conflict risk
+              </span>
+            )}
+            <span className={`chip ${card.preparedRevert.state === "applied" ? "ok" : card.preparedRevert.state === "conflict" ? "attn" : "muted"}`}>
+              {card.preparedRevert.state}
+            </span>
+          </div>
+          {card.preparedRevert.commitShas.length > 0 && (
+            <ul className="pr-commits">
+              {card.preparedRevert.commitShas.map((s) => <li key={s}><code>{s}</code></li>)}
+              {card.preparedRevert.commits > card.preparedRevert.commitShas.length && (
+                <li className="muted">…and {card.preparedRevert.commits - card.preparedRevert.commitShas.length} more</li>
+              )}
+            </ul>
+          )}
+          <button
+            className="btn danger small"
+            disabled={reverting || card.preparedRevert.state !== "prepared"}
+            onClick={() => void doRevert()}
+          >
+            {reverting ? "Reverting…" : "Confirm revert"}
+          </button>
+          {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
         </div>
       )}
 
@@ -802,6 +910,14 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       </div>
 
       <div className="danger-zone">
+        {/* Abandon (S2, Q7): prepare a revert of the card's committed work + park it.
+            Offered on a non-running card that hasn't already been abandoned; the
+            confirm() guard and the separate revert step keep it deliberate. */}
+        {!running && !card.preparedRevert && (
+          <button className="btn danger" disabled={abandoning} onClick={() => void doAbandon()} style={{ marginBottom: 9 }}>
+            {abandoning ? "Preparing…" : "Abandon & prepare revert"}
+          </button>
+        )}
         {!confirmDel ? (
           <button className="btn danger" onClick={() => setConfirmDel(true)}>Delete card</button>
         ) : (
@@ -1284,6 +1400,25 @@ function App() {
     }
   }
 
+  // Apply a card's prepared revert (S2, Q7). A guarded, deliberate press: a native
+  // confirm() first (the server ALSO requires an explicit confirm), then the board
+  // reloads so the descriptor's new state (applied / conflict) shows either way.
+  async function onRevert(card: CardSummary) {
+    const n = card.preparedRevert?.commits ?? 0;
+    if (!window.confirm(`Apply the prepared revert of ${n} commit${n === 1 ? "" : "s"}? This adds revert commits to the shared branch.`)) return;
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      const res = await api.revert(card.id);
+      setNotice(res.preparedRevert?.state === "applied" ? "Revert applied" : `Revert ${res.preparedRevert?.state ?? "done"}`);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      await load();
+      setBusyCard(null);
+    }
+  }
+
   // Infer the project for a no-project card — fire-and-forget on the server; the
   // "inferring…" pill + the result event show on the next poll.
   async function onInfer(card: CardSummary) {
@@ -1358,6 +1493,7 @@ function App() {
                     onStart={onStart}
                     onInfer={onInfer}
                     onDiscuss={onDiscuss}
+                    onRevert={onRevert}
                     onMove={(c) => {
                       // One valid next list → just move (the server auto-dispatches if
                       // it's an immediate agent list); only ASK when there's a choice.
