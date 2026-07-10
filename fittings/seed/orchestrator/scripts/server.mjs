@@ -210,6 +210,12 @@ async function handleSimulate(req, res) {
     return json(res, 400, { error: "invalid-json" });
   }
   const profile = body.profile || config.activeProfile;
+  // Guard the profile before it reaches resolveRoute/railFor (rev-s3 minor): an
+  // unknown profile would throw deep in resolution and surface as an opaque 500.
+  // A bad request should be a clean 422 the composer can render.
+  if (!config.profiles || !config.profiles[profile]) {
+    return json(res, 422, { error: "unknown-profile", profile, known: Object.keys(config.profiles || {}) });
+  }
 
   // Composer dry-run strip (S3 D12): deterministic heuristic classification — NO
   // live model call — plus the fully-resolved phase rail for the chosen work kind.
