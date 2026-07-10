@@ -810,7 +810,7 @@ async function handleInferProject(req, res, opts, id) {
 // An engine-context request (the run engine's own moves, the gateway's D8 card
 // registration) carries the x-garrison-engine header; everything else is a
 // manual/human request subject to the D16 locks.
-function isEngineRequest(req) {
+export function isEngineRequest(req) {
   return typeof req.headers["x-garrison-engine"] === "string" && req.headers["x-garrison-engine"].length > 0;
 }
 
@@ -901,7 +901,13 @@ async function handlePatchCard(req, res, opts, id) {
   // list, dispatch its run now (fire-and-forget — the run goes through the gateway in
   // the background, the card flips to `running` and is watchable; the PATCH returns at
   // once). A manual / interactive (Discuss) / scheduler-beat (Test) target just moves.
-  const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list);
+  //
+  // BUT an ENGINE request (x-garrison-engine: the autothing doorway positioning the
+  // card, then driving it in-session via advanceCardPhase) must NOT also fire a
+  // background processChain — that double-drives the card (background flow races the
+  // in-session driver → invalid-verdict/park). The header now genuinely suppresses
+  // auto-dispatch, matching the doorway's intent + engine.mjs's own claim (rev2-s567 S5-2).
+  const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !isEngineRequest(req);
   if (autoDispatch && opts.gatewayUrl) {
     if (await gatewayReachable(opts.gatewayUrl)) {
       // processChain runs the AUTOMATED FLOW: this list, then the next immediate

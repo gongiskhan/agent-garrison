@@ -21,7 +21,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
-import { shouldAutoDispatch } from "../fittings/seed/kanban-loop/scripts/server.mjs";
+import { shouldAutoDispatch, isEngineRequest } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
@@ -243,5 +243,35 @@ describe("v1d processChain — auto-runs the flow through immediate agent lists"
     expect(calls).toBeGreaterThan(1);                    // it CHAINED (ran more than one turn)
     const disk = await loadCard(root, final.id);
     expect(disk.list).not.toBe("plan");                 // it moved forward through the pipeline
+  });
+});
+
+// rev2-s567 S5-2 regression: the autothing doorway positions a card on the
+// immediate agent list "plan" with the x-garrison-engine header, then drives it
+// in-session via advanceCardPhase. The PATCH handler must NOT ALSO fire a
+// background processChain for an engine request (double-drive → the background
+// flow races the in-session driver into invalid-verdict/park). The suppression
+// is `shouldAutoDispatch(...) && !isEngineRequest(req)`.
+describe("doorway double-drive suppression (S5-2)", () => {
+  const board = {
+    lists: [
+      { id: "plan", kind: "agent", trigger: "immediate" },
+      { id: "backlog", kind: "manual", trigger: "manual" }
+    ]
+  };
+  it("isEngineRequest detects the x-garrison-engine header", () => {
+    expect(isEngineRequest({ headers: { "x-garrison-engine": "autothing-doorway" } })).toBe(true);
+    expect(isEngineRequest({ headers: {} })).toBe(false);
+    expect(isEngineRequest({ headers: { "x-garrison-engine": "" } })).toBe(false);
+  });
+  it("a move to an immediate agent list auto-dispatches for a HUMAN request but NOT an engine one", () => {
+    const human = { headers: {} };
+    const engine = { headers: { "x-garrison-engine": "autothing-doorway" } };
+    // the exact composed guard from handlePatchCard:
+    const dispatches = (req: { headers: Record<string, string> }) =>
+      shouldAutoDispatch(board, "plan") && !isEngineRequest(req);
+    expect(shouldAutoDispatch(board, "plan")).toBe(true);   // plan is immediate+agent
+    expect(dispatches(human)).toBe(true);                    // human move -> background dispatch
+    expect(dispatches(engine)).toBe(false);                  // doorway drives in-session -> no double-drive
   });
 });
