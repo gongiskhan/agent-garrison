@@ -31,6 +31,7 @@ import { applyWithRetry } from "../lib/apply-core.mjs";
 import { readEcosystemUpdateLog } from "../lib/ecosystem-update.mjs";
 import { readReapplySweepLog } from "../lib/reapply-sweep.mjs";
 import { runEcosystemPhases } from "../lib/ecosystem-phases.mjs";
+import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
 import { resolveCompositionDir } from "../lib/composition-dir.mjs";
 import {
   loadQueue,
@@ -117,7 +118,21 @@ async function doRunNow() {
   // computeDream returns {dreamProposals:[]} when this machine is not primary.
   const dream = await computeDream({ now: at });
   const result = runImprover({ memoryEntries, at, dreamProposals: dream.dreamProposals });
-  if (result.skipped) return { skipped: result.skipped };
+  if (result.skipped) {
+    // The memory improver skipping must not silence the orchestrator-policy
+    // rule - its inputs (run outcomes + friction) are independent of memory.
+    let queue = await loadQueue(QUEUE_FILE);
+    let policyProposals = 0;
+    try {
+      const policyRule = runOrchestratorPolicyRule({ now: at });
+      for (const p of policyRule.proposals) queue = enqueue(queue, p);
+      policyProposals = policyRule.proposals.length;
+      await saveQueue(QUEUE_FILE, queue);
+    } catch (err) {
+      console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
+    }
+    return { skipped: result.skipped, proposals: policyProposals, queue: queue.length };
+  }
 
   let queue = await loadQueue(QUEUE_FILE);
   let autonomy = await loadAutonomy(AUTONOMY_FILE);
@@ -139,9 +154,20 @@ async function doRunNow() {
       }
     }
   }
+  // orchestrator-policy rule (S15/D38) - same rule the nightly main() runs;
+  // Run Now must behave identically. These proposals are NEVER auto-applied
+  // (D38): they only ever enter the review queue / composer ghost edits.
+  let policyProposals = 0;
+  try {
+    const policyRule = runOrchestratorPolicyRule({ now: at });
+    for (const p of policyRule.proposals) queue = enqueue(queue, p);
+    policyProposals = policyRule.proposals.length;
+  } catch (err) {
+    console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
+  }
   await saveQueue(QUEUE_FILE, queue);
   await saveAutonomy(AUTONOMY_FILE, autonomy);
-  return { proposals: result.proposals.length, queue: queue.length, autoApplied, dream: dream.housekeeping };
+  return { proposals: result.proposals.length + policyProposals, queue: queue.length, autoApplied, dream: dream.housekeeping };
 }
 
 // Read-only status for the last ecosystem-update + reapply-sweep runs (Slice 3
