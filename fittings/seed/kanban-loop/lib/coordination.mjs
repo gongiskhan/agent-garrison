@@ -87,6 +87,19 @@ function normPaths(v) {
   return normStrings(v).map(normPath).filter(Boolean);
 }
 
+// A path claim is UNSAFE when it is absolute or contains a `..` traversal segment:
+// it purports to be repo-relative but escapes the repo. S2 feeds these paths
+// straight into scoped `git add`, so an escaping claim is a schema violation, not
+// something to silently normalise away. Checked on the RAW string (before the
+// leading-slash strip in normPath would hide an absolute path).
+function isUnsafePath(raw) {
+  const s = String(raw == null ? "" : raw).trim().replace(/\\/g, "/");
+  if (!s) return false; // empty entries are dropped by normStrings, not a violation
+  if (s.startsWith("/")) return true; // posix absolute
+  if (/^[A-Za-z]:/.test(s)) return true; // windows drive-absolute
+  return s.split("/").some((seg) => seg === ".."); // any traversal segment
+}
+
 export function touchSetPath(runDir) {
   return path.join(runDir, "touch-set.json");
 }
@@ -98,6 +111,13 @@ export function touchSetPath(runDir) {
 export function validateTouchSet(obj) {
   if (!obj || typeof obj !== "object") return null;
   if (obj.version !== 1) return null;
+  // Reject any absolute / traversal path in a path-bearing field — an invalid
+  // touch-set fails the same way a wrong version does (null), which the engine
+  // treats as "no valid touch-set" and parks the plan honestly (Q1 enforcement).
+  for (const field of ["files", "dirs", "exclusive"]) {
+    const v = obj[field];
+    if (Array.isArray(v) && v.some((x) => typeof x === "string" && isUnsafePath(x))) return null;
+  }
   return {
     version: 1,
     cardId: typeof obj.cardId === "string" ? obj.cardId : null,
@@ -393,6 +413,14 @@ export function serializeGate(cards, card, board) {
 // start. Returns { stabilityAt, event } to fold into the SAME CAS write as the
 // move, or null when the predicate is not met (idempotent via the !stabilityAt
 // guard). Called at all three engine seams so the predicate lives in one place.
+//
+// INTENTIONAL (D2): the engine folds this on EVERY clean-review transition,
+// unconditional on the coordination section being present. The stability event is
+// a plain, honest fact about the run ("first review passed") that belongs on the
+// card timeline whether or not any other run is waiting on it; only the
+// plan-completion WAIT decision (applyPlanCompletionCoordination) is gated on
+// coordination being active. So a stabilityAt recorded now is already correct if a
+// later run turns coordination on and needs to wait on this one.
 export function stabilityFields(card, phase, effectiveNext, now = () => new Date().toISOString()) {
   const ts = typeof now === "function" ? now() : now;
   if (phase === "review" && effectiveNext !== "implement" && !card?.stabilityAt) {
@@ -423,7 +451,8 @@ function short(card) {
 
 // Total order key for two runs: earlier planCompletedAt first; a run that has NOT
 // completed plan (no planCompletedAt) sorts as latest; ties break on runId ULID
-// (lexical), which is monotonic — so the order is total and acyclic.
+// (lexical). The ULID suffix is random (not monotonic within a millisecond), so a
+// same-ms tie is arbitrary but still deterministic - the order stays total and acyclic.
 function orderAtMs(planCompletedAt) {
   const ms = planCompletedAt ? Date.parse(planCompletedAt) : NaN;
   return Number.isFinite(ms) ? ms : Infinity;
@@ -457,6 +486,14 @@ function summarizeShared(s) {
 // `nextList` is the engine's already-rail-resolved forward target ("implement"),
 // used as the deferred advance target (waitingOn.thenTo) so a wait releases to the
 // exact list the card would have moved to.
+//
+// Concurrency note: the total order keys on planCompletedAt, which we stamp = now
+// here. Two runs whose plans complete in the SAME tick each read the other as
+// "not yet completed" (no planCompletedAt on disk when each computed its peers),
+// so in that narrow cross-process window neither waits and both proceed in
+// parallel. That is graceful degradation, not deadlock — the ULID tie-break keeps
+// the order total, and the worst case is a missed wait that fences (S2) and
+// attribution still cover, never two runs each blocked on the other.
 export function applyPlanCompletionCoordination({ board, card, allCards, policy, nextList = "implement", now = () => new Date().toISOString() }) {
   const config = coordinationConfig(policy);
   if (!config.enabled) return null;
@@ -582,25 +619,36 @@ function appendEvent(card, event) {
   return events.length > MAX_EVENTS ? events.slice(events.length - MAX_EVENTS) : events;
 }
 
-// Has a waiting card's release predicate cleared?
+// Why (if at all) a waiting card's release predicate has cleared. Returns a
+// human release reason string, or null when it must keep waiting.
+//
+// The blocker DISAPPEARING supersedes every `until`: a blocker that is deleted,
+// abandoned, or has reached a terminal list will never produce any further signal
+// (stability point OR fix fence), so a waiter keyed to one of those would be
+// stranded forever — skipped by every tick, silently. Terminal strictly
+// supersedes stability (a medium waiter whose blocker went straight to Done
+// without a dispatched review still releases). Only when the blocker is still
+// alive-and-progressing do we consult the `until`:
 //   until "stability" — the blocker has recorded its stabilityAt.
-//   until "terminal"  — the blocker is gone (deleted), abandoned, or on a
-//                       terminal list.
+//   until "terminal"  — handled by the disappearance rule above (a still-live
+//                       blocker is by definition not terminal, so it keeps waiting).
 //   until "fence"     — the interference-fence release (S2). The shape exists now
-//                       so waitingOn can carry it, but the predicate is a stub
-//                       returning false until S2 lands fences; a fence-waiter
-//                       therefore never auto-releases in S1 (honest: S1 never
-//                       CREATES a fence wait, so nothing is stranded).
-function shouldRelease(waitingOn, blocker, board) {
+//                       so waitingOn can carry it, but S1 never CREATES a fence
+//                       wait, so nothing is stranded; the disappearance rule still
+//                       frees any such waiter if its blocker dies.
+function releaseReason(waitingOn, blocker, board) {
   const until = waitingOn?.until;
-  if (until === "stability") return Boolean(blocker && blocker.stabilityAt);
-  if (until === "terminal") {
-    if (!blocker) return true; // blocker deleted
-    if (blocker.abandoned) return true;
-    return isTerminalList(listById(board, blocker.list), blocker.list);
+  if (!blocker) return "blocker no longer exists (deleted)";
+  if (blocker.abandoned) return "blocker was abandoned";
+  if (isTerminalList(listById(board, blocker.list), blocker.list)) {
+    return until === "stability"
+      ? "blocker reached terminal without a stability point"
+      : "blocker reached terminal";
   }
-  if (until === "fence") return false; // S2
-  return false;
+  if (until === "stability") return blocker.stabilityAt ? "blocker reached its stability point" : null;
+  if (until === "terminal") return null; // still live -> not terminal yet
+  if (until === "fence") return null; // S2 fence release; disappearance handled above
+  return null;
 }
 
 // Re-evaluate every waiting card against its blocker and release the ones whose
@@ -615,13 +663,14 @@ export async function reevaluateWaiting({ root, board, cards, now = () => new Da
     if (!card.waitingOn) continue;
     const w = card.waitingOn;
     const blocker = byId.get(w.cardId) || null;
-    if (!shouldRelease(w, blocker, board)) continue;
+    const reason = releaseReason(w, blocker, board);
+    if (!reason) continue;
     const nowStr = typeof now === "function" ? now() : now;
     const target = w.rerun ? card.list : w.thenTo || card.list;
     const events = appendEvent(card, {
       at: nowStr,
       kind: "coordination",
-      message: `Released from waiting on ${w.cardTitle || w.cardId} (${w.until} reached) → ${target}`,
+      message: `Released from waiting on ${w.cardTitle || w.cardId} → ${target} (${reason})`,
       detail: w.reason || null
     });
     const res = await saveCardCAS(

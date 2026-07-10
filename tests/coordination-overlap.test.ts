@@ -84,7 +84,7 @@ describe("scoreOverlap — grades", () => {
 
 describe("validateTouchSet — schema v1", () => {
   it("accepts a version-1 object and normalises paths", () => {
-    const v = validateTouchSet({ version: 1, files: ["./src/a.ts", "/src/b.ts"], dirs: ["src/x/"], notes: "n" });
+    const v = validateTouchSet({ version: 1, files: ["./src/a.ts", "src/b.ts/"], dirs: ["src/x/"], notes: "n" });
     expect(v).not.toBeNull();
     expect(v.files).toEqual(["src/a.ts", "src/b.ts"]);
     expect(v.dirs).toEqual(["src/x"]);
@@ -100,6 +100,15 @@ describe("validateTouchSet — schema v1", () => {
     const v = validateTouchSet({ version: 1 });
     expect(v).not.toBeNull();
     expect(v.files).toEqual([]);
+  });
+  it("rejects absolute paths and .. traversal segments in any path field", () => {
+    expect(validateTouchSet({ version: 1, files: ["../etc/passwd"] })).toBeNull();
+    expect(validateTouchSet({ version: 1, files: ["/abs/path.ts"] })).toBeNull();
+    expect(validateTouchSet({ version: 1, dirs: ["src/../../x"] })).toBeNull();
+    expect(validateTouchSet({ version: 1, exclusive: ["/abs"] })).toBeNull();
+    expect(validateTouchSet({ version: 1, files: ["C:/win/abs.ts"] })).toBeNull();
+    // benign relative paths (incl. ./ and dot-containing names) still validate
+    expect(validateTouchSet({ version: 1, files: ["./src/a.ts", "src/a..b.ts"] })).not.toBeNull();
   });
 });
 

@@ -25,7 +25,7 @@ import { join } from "node:path";
 // @ts-ignore — pure .mjs
 import { processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
-import { createCard, loadCard, saveCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { createCard, loadCard, saveCard, deleteCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
@@ -182,6 +182,46 @@ describe("dispatch skip + release", () => {
     const { released } = await reevaluateWaiting({ root, board, cards });
     expect(released).toEqual([]);
     expect((await loadCard(root, w.id)).list).toBe("plan");
+  });
+
+  it("releases a STABILITY-waiter whose blocker was DELETED before ever passing review (no strand)", async () => {
+    const root = tmp();
+    const blocker = await createCard(root, { title: "blocker", project: "proj", list: "review" });
+    const blk = await saveCard(root, { ...blocker, runId: "01AAAAAAAAAAAAAAAAAAAAAAAA", runDir: join(root, "b") });
+    const waiter = await createCard(root, { title: "waiter", project: "proj", list: "plan" });
+    await saveCard(root, {
+      ...waiter,
+      runId: "01BBBBBBBBBBBBBBBBBBBBBBBB",
+      runDir: join(root, "w"),
+      waitingOn: { cardId: blk.id, cardTitle: "blocker", grade: "medium", reason: "r", until: "stability", thenTo: "implement", rerun: false, since: "t" }
+    });
+    await deleteCard(root, blk.id); // blocker gone before it ever recorded stabilityAt
+    const cards = await loadAllCards(root);
+    const { released } = await reevaluateWaiting({ root, board, cards });
+    expect(released.map((r: any) => r.id)).toContain(waiter.id);
+    const disk = await loadCard(root, waiter.id);
+    expect(disk.list).toBe("implement");
+    expect(disk.waitingOn).toBeNull();
+    expect(disk.events.some((e: any) => e.kind === "coordination" && /deleted/.test(e.message))).toBe(true);
+  });
+
+  it("releases a STABILITY-waiter whose blocker reached DONE without a stability point (terminal supersedes)", async () => {
+    const root = tmp();
+    const blocker = await createCard(root, { title: "blocker", project: "proj", list: "done" });
+    const blk = await saveCard(root, { ...blocker, runId: "01AAAAAAAAAAAAAAAAAAAAAAAA", runDir: join(root, "b") }); // NO stabilityAt
+    const waiter = await createCard(root, { title: "waiter", project: "proj", list: "plan" });
+    const w = await saveCard(root, {
+      ...waiter,
+      runId: "01BBBBBBBBBBBBBBBBBBBBBBBB",
+      runDir: join(root, "w"),
+      waitingOn: { cardId: blk.id, cardTitle: "blocker", grade: "medium", reason: "r", until: "stability", thenTo: "implement", rerun: false, since: "t" }
+    });
+    const cards = [await loadCard(root, blk.id), await loadCard(root, w.id)];
+    const { released } = await reevaluateWaiting({ root, board, cards });
+    expect(released.map((r: any) => r.id)).toContain(w.id);
+    const disk = await loadCard(root, w.id);
+    expect(disk.list).toBe("implement");
+    expect(disk.events.some((e: any) => e.kind === "coordination" && /terminal without a stability point/.test(e.message))).toBe(true);
   });
 
   it("reevaluateWaiting releases a terminal-waiter when the blocker reaches Done", async () => {
