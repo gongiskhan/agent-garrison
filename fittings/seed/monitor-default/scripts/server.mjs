@@ -535,18 +535,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     try {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
-      if (pathname === "/health") return handleHealth(req, res, liveOpts);
-      if (pathname === "/api/entities") return handleEntities(req, res);
-      if (pathname === "/api/vitals") return handleVitals(req, res);
-      if (pathname === "/api/entities/stream") return handleEntityStream(req, res);
+      if (pathname === "/health") return await handleHealth(req, res, liveOpts);
+      if (pathname === "/api/entities") return await handleEntities(req, res);
+      if (pathname === "/api/vitals") return await handleVitals(req, res);
+      if (pathname === "/api/entities/stream") return await handleEntityStream(req, res);
       const entityMatch = pathname.match(/^\/api\/entities\/(\d+)$/);
-      if (entityMatch) return handleEntity(req, res, entityMatch[1]);
+      if (entityMatch) return await handleEntity(req, res, entityMatch[1]);
       const logsMatch = pathname.match(/^\/api\/entities\/(\d+)\/logs$/);
-      if (logsMatch) return handleLogs(req, res, logsMatch[1], parsed.query);
-      return serveStatic(req, res, distDir);
+      if (logsMatch) return await handleLogs(req, res, logsMatch[1], parsed.query);
+      return await serveStatic(req, res, distDir);
     } catch (err) {
       console.error("[monitor] handler error:", err);
-      jsonRes(res, 500, { error: err.message });
+      if (!res.headersSent) jsonRes(res, 500, { error: err.message });
     }
   });
 

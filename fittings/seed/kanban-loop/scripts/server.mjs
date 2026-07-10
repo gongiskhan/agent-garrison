@@ -1536,7 +1536,7 @@ export function makeRequestHandler(opts, distDir) {
         return jsonRes(res, 403, { error: "cross-origin mutation rejected" });
       }
 
-      if (pathname === "/health") return handleHealth(req, res, opts);
+      if (pathname === "/health") return await handleHealth(req, res, opts);
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
@@ -1555,8 +1555,8 @@ export function makeRequestHandler(opts, distDir) {
           phaseSkills: policy.phaseSkills || { bindings: {}, overrides: {} }
         });
       }
-      if (pathname === "/projects" && method === "GET") return handleProjects(req, res);
-      if (pathname === "/skills" && method === "GET") return handleSkills(req, res);
+      if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
+      if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);
 
       // PATCH /lists/:listId — configure a list. Validate the id (clean kebab,

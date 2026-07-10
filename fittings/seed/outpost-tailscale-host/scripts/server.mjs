@@ -342,28 +342,28 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
 
-      if (pathname === "/health") return handleHealth(req, res, liveOpts);
-      if (pathname === "/checkouts" && method === "GET") return handleCheckouts(req, res);
-      if (pathname === "/outposts" && method === "GET") return handleListOutposts(req, res, liveOpts);
-      if (pathname === "/outposts" && method === "POST") return handleRegisterOutpost(req, res, liveOpts);
-      if (pathname === "/registry/pair" && method === "POST") return handlePair(req, res, liveOpts);
-      if (pathname === "/provision" && method === "POST") return handleProvision(req, res, liveOpts);
+      if (pathname === "/health") return await handleHealth(req, res, liveOpts);
+      if (pathname === "/checkouts" && method === "GET") return await handleCheckouts(req, res);
+      if (pathname === "/outposts" && method === "GET") return await handleListOutposts(req, res, liveOpts);
+      if (pathname === "/outposts" && method === "POST") return await handleRegisterOutpost(req, res, liveOpts);
+      if (pathname === "/registry/pair" && method === "POST") return await handlePair(req, res, liveOpts);
+      if (pathname === "/provision" && method === "POST") return await handleProvision(req, res, liveOpts);
 
       const provStreamMatch = pathname.match(/^\/provision\/([^/]+)\/stream$/);
-      if (provStreamMatch && method === "GET") return handleProvisionStream(req, res, decodeURIComponent(provStreamMatch[1]));
+      if (provStreamMatch && method === "GET") return await handleProvisionStream(req, res, decodeURIComponent(provStreamMatch[1]));
 
       const logMatch = pathname.match(/^\/outposts\/([^/]+)\/log$/);
-      if (logMatch && method === "GET") return handleLog(req, res, liveOpts, decodeURIComponent(logMatch[1]), parsed.query?.limit);
+      if (logMatch && method === "GET") return await handleLog(req, res, liveOpts, decodeURIComponent(logMatch[1]), parsed.query?.limit);
 
       const rpcMatch = pathname.match(/^\/outposts\/([^/]+)\/rpc$/);
-      if (rpcMatch && method === "POST") return handleRpc(req, res, liveOpts, decodeURIComponent(rpcMatch[1]));
+      if (rpcMatch && method === "POST") return await handleRpc(req, res, liveOpts, decodeURIComponent(rpcMatch[1]));
 
       const unregMatch = pathname.match(/^\/outposts\/([^/]+)$/);
-      if (unregMatch && method === "DELETE") return handleUnregisterOutpost(req, res, liveOpts, decodeURIComponent(unregMatch[1]));
+      if (unregMatch && method === "DELETE") return await handleUnregisterOutpost(req, res, liveOpts, decodeURIComponent(unregMatch[1]));
 
-      return serveStatic(req, res, distDir);
+      return await serveStatic(req, res, distDir);
     } catch (err) {
-      jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      if (!res.headersSent) jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
   });
 

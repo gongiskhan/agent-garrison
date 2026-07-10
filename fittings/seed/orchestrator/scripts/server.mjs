@@ -19,7 +19,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { mkdir, readFile, writeFile, unlink, stat } from "node:fs/promises";
 import {
@@ -163,8 +163,12 @@ async function handlePutRouting(req, res, query) {
   // commit routing.json FIRST and policy.json (the derived cache) second: a
   // crash between the two renames leaves new-config + old-policy, which the
   // server's startup recompile (D4) heals to new-policy, preserving the edit.
-  const cfgTmp = `${configTarget}.tmp-${process.pid}`;
-  const polTmp = `${policyTarget}.tmp-${process.pid}`;
+  // Unique per REQUEST (not just per process): two concurrent PUTs in the same
+  // process share ${pid}, so a shared temp name would let them interleave-write
+  // and rename each other's half-file. A random suffix keeps each write private.
+  const uniq = `${process.pid}-${randomBytes(6).toString("hex")}`;
+  const cfgTmp = `${configTarget}.tmp-${uniq}`;
+  const polTmp = `${policyTarget}.tmp-${uniq}`;
   await writeFile(cfgTmp, serialized, "utf8");
   await writeFile(polTmp, policyBytes, "utf8");
   await rename(cfgTmp, configTarget);
@@ -384,22 +388,27 @@ export async function startServer(opts = {}) {
       const parsed = url.parse(req.url, true);
       const pathname = parsed.pathname;
       const query = new URLSearchParams(parsed.query);
+      // Every handler is async — AWAIT each dispatch so a thrown error is caught
+      // by this try/catch and rendered as a 500. A bare `return handleX(...)`
+      // returns the promise to the (sync) listener, so the catch is dead and any
+      // rejection becomes an unhandledRejection that EXITS the process (a corrupt
+      // routing.json crashing even plain GETs, an unknown /simulate profile, etc).
       if (pathname === "/health") return json(res, 200, { ok: true, port, pid: process.pid });
-      if (pathname === "/routing" && req.method === "GET") return handleGetRouting(req, res);
-      if (pathname === "/routing" && req.method === "PUT") return handlePutRouting(req, res, query);
-      if (pathname === "/simulate" && req.method === "POST") return handleSimulate(req, res);
-      if (pathname === "/telemetry" && req.method === "GET") return handleTelemetry(req, res);
+      if (pathname === "/routing" && req.method === "GET") return await handleGetRouting(req, res);
+      if (pathname === "/routing" && req.method === "PUT") return await handlePutRouting(req, res, query);
+      if (pathname === "/simulate" && req.method === "POST") return await handleSimulate(req, res);
+      if (pathname === "/telemetry" && req.method === "GET") return await handleTelemetry(req, res);
       // D38 ghost edits: same-origin proxy to the Improver's review queue. The
       // browser can neither read ~/.garrison/ui-fittings/improver.json nor POST
       // cross-origin to the Improver's port, so the composer goes through here.
-      if (pathname === "/ghost-edits" && req.method === "GET") return handleGhostEdits(res);
+      if (pathname === "/ghost-edits" && req.method === "GET") return await handleGhostEdits(res);
       {
         const m = pathname.match(/^\/ghost-edits\/([^/]+)\/(apply|reject)$/);
-        if (m && req.method === "POST") return handleGhostAction(res, decodeURIComponent(m[1]), m[2]);
+        if (m && req.method === "POST") return await handleGhostAction(res, decodeURIComponent(m[1]), m[2]);
       }
-      return serveStatic(req, res, pathname);
+      return await serveStatic(req, res, pathname);
     } catch (err) {
-      json(res, 500, { error: "server-error", message: String(err?.message || err) });
+      if (!res.headersSent) json(res, 500, { error: "server-error", message: String(err?.message || err) });
     }
   });
 
