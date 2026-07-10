@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 // @ts-ignore — pure .mjs vitals collector (fittings/seed/monitor-default/scripts/vitals.mjs); single-line so @ts-ignore covers the module specifier (TS7016)
 import { diskSeverity, parseSystemdUnits, listGarrisonUnits, collectVitals, DISK_WARN_PERCENT, DISK_CRITICAL_PERCENT } from "../fittings/seed/monitor-default/scripts/vitals.mjs";
 
@@ -139,5 +139,33 @@ describe("monitor vitals collector (S10)", () => {
       expect(v.units).toEqual([]);
     },
     20000
+  );
+  it(
+    "a hung systeminformation probe degrades to a fallback within the timeout (never wedges the loop)",
+    async () => {
+      // A stale-NFS fsSize that never resolves must not freeze the whole sample:
+      // withTimeout races each si probe and returns the fallback so the poll
+      // loop's re-entrancy guard is always released.
+      const prev = process.env.MONITOR_SI_TIMEOUT_MS;
+      process.env.MONITOR_SI_TIMEOUT_MS = "150";
+      const si = (await import("systeminformation")).default;
+      const realFsSize = si.fsSize;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (si as any).fsSize = () => new Promise(() => {}); // hang forever
+      try {
+        const t0 = Date.now();
+        const v = await collectVitals({ platform: "linux", exec: async () => ({ stdout: "", code: 0 }) });
+        const ms = Date.now() - t0;
+        expect(ms).toBeLessThan(2000);       // did NOT hang on fsSize
+        expect(v.disks).toEqual([]);         // the stuck field degraded to []
+        expect(v.ts).toBeTruthy();           // the sample still completed
+      } finally {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (si as any).fsSize = realFsSize;
+        if (prev === undefined) delete process.env.MONITOR_SI_TIMEOUT_MS;
+        else process.env.MONITOR_SI_TIMEOUT_MS = prev;
+      }
+    },
+    10000
   );
 });

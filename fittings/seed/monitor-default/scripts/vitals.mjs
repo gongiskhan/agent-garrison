@@ -17,6 +17,23 @@ import si from "systeminformation";
 export const DISK_WARN_PERCENT = 85;
 export const DISK_CRITICAL_PERCENT = 95;
 
+// A hung systeminformation probe (fsSize on a stale NFS mount, networkStats on a
+// flaky iface, temperature on some VMs) can NEVER resolve — and .catch() only
+// handles rejection, not a promise that never settles. Since the server samples
+// under a re-entrancy guard, one hang would freeze the ENTIRE vitals feed for
+// the life of the process. Race every probe against a timeout that resolves to
+// a fallback so a stuck field degrades to null/[] instead of wedging the loop.
+// Read at CALL time (not module load) so a test can tune it after import.
+function siTimeoutMs() {
+  return Number(process.env.MONITOR_SI_TIMEOUT_MS || 3000);
+}
+function withTimeout(promise, fallback, ms = siTimeoutMs()) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms))
+  ]);
+}
+
 // Pure: classify a mount's used-percentage into ok / warn / critical. Anything
 // unknown (null / undefined / NaN) is treated as ok so a metric gap never
 // raises a false alarm.
@@ -88,7 +105,7 @@ async function collectCpu(loadavgFn) {
   let currentLoad = null;
   let cores = 0;
   try {
-    const load = await si.currentLoad();
+    const load = await withTimeout(si.currentLoad(), {});
     if (typeof load.currentLoad === "number") currentLoad = load.currentLoad;
     if (Array.isArray(load.cpus)) cores = load.cpus.length;
   } catch {
@@ -111,7 +128,7 @@ async function collectCpu(loadavgFn) {
 
 async function collectMem() {
   try {
-    const m = await si.mem();
+    const m = await withTimeout(si.mem(), null);
     const total = Number(m.total) || 0;
     // On Linux `active` is real in-use memory (excludes reclaimable cache), a
     // truer "used" than `used` which counts buffers/cache. Fall back to `used`.
@@ -126,7 +143,7 @@ async function collectMem() {
 
 async function collectDisks() {
   try {
-    const fs = await si.fsSize();
+    const fs = await withTimeout(si.fsSize(), []);
     const arr = Array.isArray(fs) ? fs : [];
     return arr
       .filter((d) => Number(d.size) > 0)
@@ -152,7 +169,7 @@ async function collectDisks() {
 
 async function collectNet() {
   try {
-    const stats = await si.networkStats("*");
+    const stats = await withTimeout(si.networkStats("*"), []);
     const arr = Array.isArray(stats) ? stats : stats ? [stats] : [];
     let rxSec = 0;
     let txSec = 0;
