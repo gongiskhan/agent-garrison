@@ -1,0 +1,61 @@
+{
+  "title": "Snapshots: backups list, verify, back up now, restore",
+  "project": "agent-garrison",
+  "folder": "snapshots",
+  "video": { "width": 1280, "height": 1000, "fps": 30 },
+  "segments": [
+    {
+      "type": "browser",
+      "id": "snapshots",
+      "baseURL": "http://127.0.0.1:3733",
+      "startPath": "/fitting/snapshots-default",
+      "runTimeoutMs": 180000,
+      "beats": [
+        {
+          "id": "ac1-list",
+          "caption": "AC-1 - last run + snapshots list rendered",
+          "expectedScreen": "Snapshots view: Last backup panel shows a 'success' badge, a timestamp and a processed size; Repository panel lists 2 restic snapshots with short hex ids (56b1218f, c5b8f6b5)",
+          "actions": [
+            { "type": "waitFor", "selector": "text:56b1218f", "timeout": 30000 }
+          ],
+          "assert": { "selector": "text:56b1218f", "highlight": true },
+          "hold": 2600
+        },
+        {
+          "id": "ac2-verify",
+          "caption": "AC-2 - verify passed, no errors found",
+          "expectedScreen": "Verify result panel with a 'check passed' badge and restic check output ending in 'no errors were found'",
+          "actions": [
+            { "type": "click", "selector": "button:Verify repository" },
+            { "type": "waitFor", "selector": "text:no errors were found", "timeout": 60000 }
+          ],
+          "assert": { "selector": "text:no errors were found", "highlight": true },
+          "hold": 2600
+        },
+        {
+          "id": "ac3-backup",
+          "caption": "AC-3 - back up now: list grew to 3",
+          "expectedScreen": "Repository panel now lists 3 snapshots (Snapshots count reads 3) with the newly added 3rd row highlighted",
+          "actions": [
+            { "type": "click", "selector": "button:Back up now" },
+            { "type": "waitTimeout", "ms": 25000 },
+            { "type": "click", "selector": "button:Refresh" },
+            { "type": "waitFor", "selector": "ul:has(li:has-text(\"56b1218f\")) li:nth-child(3)", "timeout": 45000 }
+          ],
+          "assert": { "selector": "ul:has(li:has-text(\"56b1218f\")) li:nth-child(3)", "highlight": true },
+          "hold": 2600
+        },
+        {
+          "id": "ac4-restore",
+          "caption": "AC-4 - restore command printed (manual by design)",
+          "expectedScreen": "Restore panel showing the printed command 'restic -r <repo> restore <id> --target <dir>' highlighted, with the note that restore is never automated",
+          "actions": [
+            { "type": "waitFor", "selector": "text:--target", "timeout": 15000 }
+          ],
+          "assert": { "selector": "text:--target", "highlight": true },
+          "hold": 2600
+        }
+      ]
+    }
+  ]
+}

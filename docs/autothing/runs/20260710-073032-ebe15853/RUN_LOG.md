@@ -62,3 +62,4 @@
 - 12:27 `GATE` item 8 serve clause verified live: serve.mjs tailnet-bound, /runs serves the evidence home, traversal contained (404/400).
 - 12:33 `GATE` item 4 foundation: three-doorway card payloads (gateway D8 / doorway Step-2 / board UI) normalize to an IDENTICAL run-governing shape via board.mjs createCard (only id+origin differ) - ITEM4-CARD-SHAPE-OK.
 - 12:35 `GATE` walkthrough S7 (5/5 beats) delivered by wt-s7, plain-escape-hatch frame verified by run owner.
+- 12:30 `GATE` item 5 -> pass: ITEM5-RAIL-OK (docs-change implement-only, off-phases rendered with off_reason; card-toggle walkthrough off).
