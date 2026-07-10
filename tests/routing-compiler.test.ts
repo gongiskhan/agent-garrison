@@ -2,14 +2,16 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 // Pure .mjs core, typed by its hand-written routing-core.d.mts sibling.
+// GARRISON-UNIFY-V1 S1: the seed is now the v2 policy schema (matrix cells
+// resolve straight to TARGETS; the v1 role layer survives only as derived
+// ladder labels). These tests assert the v2 contract; v1 migration coverage
+// lives in tests/orchestrator-policy.test.ts.
 import {
   compileRouting,
-  resolveRole,
   resolveRoute,
   resolveDiscipline,
   validateRoutingConfig,
-  routingMarker,
-  ROLES
+  routingMarkerV2
 } from "../fittings/seed/model-router/lib/routing-core.mjs";
 import type { TaskType, RuntimeTarget, Classification } from "../fittings/seed/model-router/lib/routing-core.mjs";
 
@@ -26,8 +28,8 @@ describe("routing compiler (MR1a)", () => {
     const a = compileRouting(config, "balanced");
     const b = compileRouting(config, "balanced");
     expect(a).toBe(b); // byte-stable
-    expect(a).toContain(routingMarker("balanced"));
-    expect(a).toContain("<!-- garrison:routing v1 profile=balanced -->");
+    expect(a).toContain(routingMarkerV2("balanced"));
+    expect(a).toContain("<!-- garrison:routing v2 profile=balanced -->");
   });
 
   it("a different profile compiles to different, byte-stable bytes", () => {
@@ -35,18 +37,18 @@ describe("routing compiler (MR1a)", () => {
     const economy = compileRouting(config, "economy");
     expect(economy).toBe(compileRouting(config, "economy")); // byte-stable
     expect(economy).not.toBe(balanced); // profiles differ
-    expect(economy).toContain(routingMarker("economy"));
-    // economy maps expert→ollama-local; balanced→opus
-    expect(economy).toContain("ollama-local");
-    expect(balanced).toContain("opus");
+    expect(economy).toContain(routingMarkerV2("economy"));
+    // economy routes code at cc-ollama-qwen; balanced at cc-opus-high for T2
+    expect(economy).toContain("cc-ollama-qwen");
+    expect(balanced).toContain("cc-opus-high");
   });
 
   // continuations-compile-ok
   it("renders both seeded continuation instructions", () => {
     const compiled = compileRouting(config, "balanced");
-    expect(compiled).toContain("Implement this plan?");
-    expect(compiled).toContain("Act on this report?");
-    expect(compiled).toContain("write the output to the Artifact Store");
+    expect(compiled).toContain("ex-secrets");
+    expect(compiled).toContain("Work kinds → phase rails");
+    expect(compiled).toContain("full-feature");
   });
 
   it("renders the reply-token duty + discipline + matrix", () => {
@@ -58,54 +60,61 @@ describe("routing compiler (MR1a)", () => {
 });
 
 describe("routing resolver (MR1c core — pure code)", () => {
-  // exception → role
+  // exception → target
   it("an ordered exception resolves first (image)", () => {
-    const r = resolveRole(config, { taskType: "code", tier: "T1-standard", matchedException: "ex-image" });
-    expect(r.role).toBe("image");
+    const r = resolveRoute(config, "balanced", {
+      taskType: "code",
+      tier: "T1-standard",
+      matchedException: "ex-image"
+    } as Classification);
+    expect(r.targetId).toBe("sec-gemini");
     expect(r.ruleId).toBe("exception:ex-image");
     expect(r.via).toBe("exception");
   });
 
-  // cell → role
-  it("a matrix cell resolves (code/T2 → expert)", () => {
-    const r = resolveRole(config, { taskType: "code", tier: "T2-deep" });
-    expect(r.role).toBe("expert");
+  // cell → target
+  it("a matrix cell resolves (code/T2 → cc-opus-high)", () => {
+    const r = resolveRoute(config, "balanced", { taskType: "code", tier: "T2-deep" } as Classification);
+    expect(r.targetId).toBe("cc-opus-high");
     expect(r.via).toBe("cell");
+    expect(r.role).toBe("expert"); // derived ladder label survives for logging
   });
 
   // row default
-  it("falls to the row default when the cell is empty (research/T1 → standard)", () => {
-    const r = resolveRole(config, { taskType: "research", tier: "T1-standard" });
-    expect(r.role).toBe("standard");
+  it("falls to the row default when the cell is empty (research/T1 → cc-sonnet-med)", () => {
+    const r = resolveRoute(config, "balanced", { taskType: "research", tier: "T1-standard" } as Classification);
+    expect(r.targetId).toBe("cc-sonnet-med");
     expect(r.via).toBe("row-default");
   });
 
   // column default — row default outranks column default (cell > row > col > global)
   it("row default outranks the column default; a missing row falls to the column default", () => {
-    const r = resolveRole(config, { taskType: "writing", tier: "T2-deep" });
-    // writing row has no T2 cell but default 'standard'; row default wins before the column default.
+    const r = resolveRoute(config, "balanced", { taskType: "writing", tier: "T2-deep" } as Classification);
+    // writing row has no T2 cell but a default; row default wins before the column default.
     expect(r.via).toBe("row-default");
-    const r2 = resolveRole({ ...config, matrix: { ...config.matrix, rows: {} } }, { taskType: "zzz" as TaskType, tier: "T2-deep" });
-    expect(r2.role).toBe("expert");
+    const noRows = JSON.parse(JSON.stringify(config));
+    noRows.profiles.balanced.matrix.rows = {};
+    const r2 = resolveRoute(noRows, "balanced", { taskType: "zzz" as TaskType, tier: "T2-deep" } as Classification);
+    expect(r2.targetId).toBe("cc-opus-high");
     expect(r2.via).toBe("column-default");
   });
 
   // global default
   it("falls to the global default for an unknown task type at T1", () => {
-    const r = resolveRole({ ...config, matrix: { ...config.matrix, rows: {} } }, { taskType: "zzz" as TaskType, tier: "T1-standard" });
-    expect(r.role).toBe("standard");
+    const noRows = JSON.parse(JSON.stringify(config));
+    noRows.profiles.balanced.matrix.rows = {};
+    const r = resolveRoute(noRows, "balanced", { taskType: "zzz" as TaskType, tier: "T1-standard" } as Classification);
+    expect(r.targetId).toBe("cc-sonnet-med");
     expect(r.via).toBe("global-default");
   });
 
-  // rolemap-ok — same prompt, different profile, different target, same matrix
+  // per-profile matrices — same prompt, different profile, different target
   it("the same classification resolves to different targets under different profiles", () => {
-    const cls: Classification = { taskType: "code", tier: "T2-deep" }; // → role expert
+    const cls: Classification = { taskType: "code", tier: "T2-deep" };
     const balanced = resolveRoute(config, "balanced", cls);
     const economy = resolveRoute(config, "economy", cls);
-    expect(balanced.role).toBe("expert");
-    expect(economy.role).toBe("expert"); // matrix unchanged → same role
     expect(balanced.targetId).toBe("cc-opus-high");
-    expect(economy.targetId).toBe("cc-ollama-qwen"); // roleMap differs → different target
+    expect(economy.targetId).toBe("cc-ollama-qwen");
     expect((balanced.target as RuntimeTarget)?.provider).toBe("anthropic-plan");
     expect((economy.target as RuntimeTarget)?.provider).toBe("ollama-local");
   });
@@ -117,10 +126,24 @@ describe("routing resolver (MR1c core — pure code)", () => {
     expect(economyT2.evidence).toBe("text"); // economy lightens T2 evidence
   });
 
-  it("every role in the fixed vocabulary is mapped by every seed profile", () => {
+  it("every seed profile carries a full compute ladder and a complete verb matrix", () => {
     for (const name of Object.keys(config.profiles)) {
-      for (const role of ROLES) {
-        expect(config.profiles[name].roleMap[role]).toBeTruthy();
+      const p = config.profiles[name];
+      expect(p.computeLadder.length).toBeGreaterThanOrEqual(3);
+      for (const phase of [
+        "plan",
+        "implement",
+        "review",
+        "adversarial-review",
+        "test",
+        "adversarial-test",
+        "design-audit",
+        "walkthrough",
+        "validate",
+        "codex-checkpoint",
+        "report"
+      ]) {
+        expect(p.matrix.rows[phase]?.default, `${name}/${phase}`).toBeTruthy();
       }
     }
   });

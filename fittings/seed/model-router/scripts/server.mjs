@@ -27,7 +27,11 @@ import {
   validateRoutingConfig,
   resolveRoute,
   buildClassifierPrompt,
-  parseClassification
+  parseClassification,
+  compilePolicy,
+  stableStringify,
+  railFor,
+  isV2
 } from "../lib/routing-core.mjs";
 import { readDecisions } from "../lib/routing-telemetry.mjs";
 
@@ -49,6 +53,26 @@ function configPath() {
 function decisionsPath() {
   if (process.env.MODEL_ROUTER_DECISIONS) return process.env.MODEL_ROUTER_DECISIONS;
   return path.join(path.dirname(configPath()), "decisions.jsonl");
+}
+
+// D4: the one consumption interface for the run engine + every phase skill.
+function policyPath() {
+  if (process.env.GARRISON_POLICY_PATH) return process.env.GARRISON_POLICY_PATH;
+  return path.join(GARRISON_HOME, "orchestrator", "policy.json");
+}
+
+// Compile the active profile into policy.json — atomic (temp+rename),
+// byte-stable. Called on startup and on every accepted PUT. Failures are
+// reported, never silent (a stale policy.json must not masquerade as fresh).
+async function writeCompiledPolicy(config) {
+  const target = policyPath();
+  const bytes = stableStringify(compilePolicy(config));
+  await mkdir(path.dirname(target), { recursive: true });
+  const tmp = `${target}.tmp-${process.pid}`;
+  await writeFile(tmp, bytes, "utf8");
+  const { rename } = await import("node:fs/promises");
+  await rename(tmp, target);
+  return target;
 }
 
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -99,7 +123,14 @@ async function handlePutRouting(req, res, query) {
   const serialized = JSON.stringify(next, null, 2) + "\n";
   await mkdir(path.dirname(configPath()), { recursive: true });
   await writeFile(configPath(), serialized, "utf8");
-  json(res, 200, { ok: true, baselineSha: sha(serialized) });
+  // Every accepted edit recompiles the machine-readable policy (D4/D12).
+  let policy = null;
+  try {
+    policy = await writeCompiledPolicy(next);
+  } catch (err) {
+    return json(res, 200, { ok: true, baselineSha: sha(serialized), policyError: String(err?.message || err) });
+  }
+  json(res, 200, { ok: true, baselineSha: sha(serialized), policyPath: policy });
 }
 
 async function handleSimulate(req, res) {
@@ -216,6 +247,13 @@ export async function startServer(opts = {}) {
 
   await new Promise((resolve) => server.listen(port, host, resolve));
   await writeStatusFile({ port, host });
+  // Composition start (D4): compile the current config into policy.json so
+  // consumers never read a stale policy after a config change made off-server.
+  try {
+    await writeCompiledPolicy(JSON.parse(await loadConfigRaw()));
+  } catch (err) {
+    console.error("[model-router] policy compile at startup failed:", err?.message || err);
+  }
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
   return { server, port, host, close: () => new Promise((r) => server.close(r)) };

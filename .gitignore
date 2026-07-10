@@ -63,3 +63,15 @@ output/
 test-results/playwright-report/
 test-results/playwright-artifacts/
 test-results/.last-run.json
+
+# >>> autothing >>>
+# Evidence binaries + run liveness state (unversioned; sha256 in evidence-index).
+# Resume-critical small files (FLOW_PLAN.md, evidence-index.json, gate-status.json,
+# RUN_LOG.md, RUN_SPEC.md, LANDING.md) stay VERSIONED — never ignore the runs dir.
+docs/autothing/runs/**/*.cast
+docs/autothing/runs/**/*.webm
+docs/autothing/runs/**/*.mp4
+docs/autothing/runs/**/*.png
+docs/autothing/runs/**/status.json
+docs/autothing/runs/**/owner.lock.json
+# <<< autothing <<<

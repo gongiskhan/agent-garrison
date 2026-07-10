@@ -149,7 +149,9 @@ export async function placeOrchestratedSession(opts: PlacementOptions): Promise<
   if (path.relative(path.resolve(opts.outDir), path.resolve(promptPath)).startsWith("..")) return null;
   await fs.writeFile(promptPath, prompt, "utf8");
 
-  // Model/effort from the mode's routing bias → role → routing target.
+  // Model/effort from the mode's routing bias → compute rank → routing target.
+  // v1 configs map the rank label through the profile roleMap; v2 configs (the
+  // policy schema) index the profile's computeLadder [fast, standard, expert].
   let role = "standard";
   let model: string | null = null;
   let effort: string | null = null;
@@ -157,13 +159,17 @@ export async function placeOrchestratedSession(opts: PlacementOptions): Promise<
     const bias = modeBiasFor(mode, modesJson);
     role = bias ? biasRole("standard", bias) : "standard";
     const routing = JSON.parse(await fs.readFile(opts.routingConfigPath, "utf8")) as {
+      version?: number;
       activeProfile?: string;
-      profiles?: Record<string, { roleMap?: Record<string, string> }>;
+      profiles?: Record<string, { roleMap?: Record<string, string>; computeLadder?: string[] }>;
       targets?: Array<{ id: string; model?: string; effort?: string }>;
     };
     const profileName = routing.activeProfile ?? "balanced";
     const profile = (routing.profiles ?? {})[profileName] ?? {};
-    const targetId = (profile.roleMap ?? {})[role];
+    const targetId =
+      routing.version === 2
+        ? (profile.computeLadder ?? [])[COMPUTE_RANK[role] ?? 1]
+        : (profile.roleMap ?? {})[role];
     const target = (routing.targets ?? []).find((t) => t.id === targetId) ?? null;
     model = target?.model ?? null;
     effort = target?.effort ?? null;

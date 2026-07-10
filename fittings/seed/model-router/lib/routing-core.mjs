@@ -15,6 +15,46 @@
 // roleMap (role -> target id) + discipline overrides. Swapping provider or
 // going local changes only the map, never the policy.
 
+import {
+  isV2,
+  migrateRoutingConfig,
+  validatePolicyConfig,
+  resolveRouteV2,
+  resolveDisciplineV2,
+  compileRoutingV2,
+  routingMarkerV2,
+  compilePolicy,
+  stableStringify,
+  railFor,
+  inferPhasePlan,
+  biasTarget,
+  resolvePhaseTarget,
+  PHASES,
+  TASK_TYPES_V2,
+  POLICY_VERSION
+} from "./policy-core.mjs";
+
+// v2 policy API re-exported so dynamic importers (runner, gateway, server)
+// keep a single entry module.
+export {
+  isV2,
+  migrateRoutingConfig,
+  validatePolicyConfig,
+  resolveRouteV2,
+  resolveDisciplineV2,
+  compileRoutingV2,
+  routingMarkerV2,
+  compilePolicy,
+  stableStringify,
+  railFor,
+  inferPhasePlan,
+  biasTarget,
+  resolvePhaseTarget,
+  PHASES,
+  TASK_TYPES_V2,
+  POLICY_VERSION
+};
+
 export const ROLES = ["expert", "standard", "fast", "image", "video", "review"];
 export const TASK_TYPES = ["code", "review", "research", "image", "video", "writing", "ops", "other"];
 export const TIERS = ["T0-trivial", "T1-standard", "T2-deep"];
@@ -63,6 +103,7 @@ export function resolveRole(config, classification) {
 }
 
 export function resolveRoute(config, profile, classification) {
+  if (isV2(config)) return resolveRouteV2(config, profile, classification);
   const { name, profile: p } = getProfile(config, profile);
   const { role, ruleId, via } = resolveRole(config, classification);
   const targetId = (p.roleMap || {})[role];
@@ -116,6 +157,7 @@ export function modeBiasFor(mode, modesConfig) {
 
 // Merge per-tier discipline defaults with the active profile's overrides.
 export function resolveDiscipline(config, profile, tier) {
+  if (isV2(config)) return resolveDisciplineV2(config, profile, tier);
   const { profile: p } = getProfile(config, profile);
   const base = (config.discipline || {})[tier] || {};
   const over = (p.disciplineOverrides || {})[tier] || {};
@@ -231,11 +273,12 @@ function renderContinuations(config, profileName) {
     .join("\n");
 }
 
-export function routingMarker(profileName) {
-  return `<!-- garrison:routing v${ROUTING_VERSION} profile=${profileName} -->`;
+export function routingMarker(profileName, version = ROUTING_VERSION) {
+  return `<!-- garrison:routing v${version} profile=${profileName} -->`;
 }
 
 export function compileRouting(config, profile) {
+  if (isV2(config)) return compileRoutingV2(config, profile);
   const { name } = getProfile(config, profile);
   const preRoute = ((config.profiles || {})[name] || {}).preRoute ?? "on";
   const sections = [];
@@ -339,6 +382,7 @@ export function parseClassification(replyText, config) {
 
 // Validate a routing config enough to fail loudly at compile/--check time.
 export function validateRoutingConfig(config) {
+  if (isV2(config)) return validatePolicyConfig(config);
   const errors = [];
   if (!config || typeof config !== "object") return ["config is not an object"];
   if (config.version !== ROUTING_VERSION) errors.push(`version must be ${ROUTING_VERSION}`);

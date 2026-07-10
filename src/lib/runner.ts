@@ -23,6 +23,8 @@ import {
   type RuntimeEntry
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
+import { garrisonDir } from "./claude-home";
+import { writeFileAtomic } from "./atomic-write";
 import { resolveCapabilities } from "./capabilities";
 import { reconcileCoordTeardown } from "./coord-wiring";
 import type { FittingSelectionMap, GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
@@ -865,10 +867,21 @@ export async function resolveRoutingSection(
     const mod = (await import(pathToFileURL(ROUTING_CORE_PATH).href)) as {
       compileRouting: (c: unknown, p?: string | null) => string;
       validateRoutingConfig: (c: unknown) => string[];
+      compilePolicy: (c: unknown, p?: string | null) => unknown;
+      stableStringify: (v: unknown) => string;
     };
     const errors = mod.validateRoutingConfig(config);
     if (errors.length) return null;
     const activeProfile = (config as { activeProfile?: string }).activeProfile ?? null;
+    // D4: composition start recompiles the machine-readable policy — the one
+    // consumption interface for the run engine + phase skills (no HTTP).
+    try {
+      const policyFile =
+        process.env.GARRISON_POLICY_PATH ?? path.join(garrisonDir(), "orchestrator", "policy.json");
+      await writeFileAtomic(policyFile, mod.stableStringify(mod.compilePolicy(config, activeProfile)));
+    } catch (err) {
+      console.warn("[runner] policy.json compile at assembly failed:", err);
+    }
     return mod.compileRouting(config, activeProfile);
   } catch {
     return null;
