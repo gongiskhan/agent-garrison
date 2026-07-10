@@ -159,6 +159,18 @@ function finishJob(job, exitCode) {
   job.subs.clear();
 }
 
+// SSH target validation (security-critical). `sshUser`/`sshHost` are placed as
+// a single `user@host` argv token AFTER ssh's -o flags. spawn() uses no shell,
+// so shell metacharacters can't execute — BUT a value beginning with "-" is
+// parsed by ssh's OWN getopt as an option, and `-oProxyCommand=<cmd>` runs
+// <cmd> locally. This endpoint is loopback-bound but unauthenticated, so a
+// drive-by cross-site POST could reach it; validate strictly and never let a
+// dash-leading or metacharacter-bearing value through.
+const SSH_USER_RE = /^[a-z_][a-z0-9_-]{0,31}$/i;                 // POSIX-ish username, no leading dash
+const SSH_HOST_RE = /^(?!-)[A-Za-z0-9._-]{1,253}$|^[0-9a-fA-F:]{2,45}$/; // hostname/IPv4/MagicDNS or IPv6, no leading dash
+// Exported for the regression suite (see tests/outposts-fitting.test.ts).
+export const isValidSshTarget = (user, host) => SSH_USER_RE.test(String(user || "")) && SSH_HOST_RE.test(String(host || ""));
+
 async function handleProvision(req, res, opts) {
   const body = await readBody(req);
   const sshHost = (body?.host || "").trim();
@@ -166,6 +178,11 @@ async function handleProvision(req, res, opts) {
   const rawName = (body?.name || sshHost).trim();
   if (!sshHost || !sshUser) {
     return jsonRes(res, 400, { error: "host and user (strings) required" });
+  }
+  if (!SSH_USER_RE.test(sshUser) || !SSH_HOST_RE.test(sshHost)) {
+    // Reject before ssh ever sees it: a leading "-" or an out-of-charset value
+    // could be parsed by ssh as an option (ProxyCommand -> local RCE).
+    return jsonRes(res, 400, { error: "invalid ssh user or host (expected a plain username and hostname/IP)" });
   }
   // Machine name: a filesystem/registry-safe slug derived from the requested name/host.
   const machine = rawName.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "outpost";
