@@ -277,6 +277,61 @@ async function handleTelemetry(_req, res) {
   json(res, 200, { count: rows.length, recent: rows.slice(-50).reverse(), byTarget, byRule });
 }
 
+// ── D38 ghost edits (Improver proposals proxy) ──────────────────────────────
+// The Improver self-registers at ~/.garrison/ui-fittings/improver.json with a
+// {url}. Resolve it fresh each request (the Improver may (re)start independently).
+function improverBaseUrl() {
+  // Resolve the Garrison home lazily (not the frozen module const) so a live
+  // GARRISON_HOME override is honored and the Improver's registration is read fresh.
+  const home = process.env.GARRISON_HOME || GARRISON_HOME;
+  const p = path.join(home, "ui-fittings", "improver.json");
+  if (!existsSync(p)) return null;
+  try {
+    const j = JSON.parse(readFileSync(p, "utf8"));
+    return j.url || (j.port ? `http://127.0.0.1:${j.port}` : null);
+  } catch {
+    return null;
+  }
+}
+
+const withTimeout = (ms) => (typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+
+// GET /ghost-edits → the Improver's orchestrator-policy proposals, or {available:false}
+// when the Improver is absent/unreachable (the composer skips the overlay silently).
+async function handleGhostEdits(res) {
+  const baseUrl = improverBaseUrl();
+  if (!baseUrl) return json(res, 200, { available: false, proposals: [] });
+  try {
+    const r = await fetch(`${baseUrl}/api/queue`, { signal: withTimeout(4000) });
+    if (!r.ok) return json(res, 200, { available: false, proposals: [], error: `improver ${r.status}` });
+    const q = await r.json();
+    const proposals = (q.queue || [])
+      .filter((p) => p && p.rule === "orchestrator-policy")
+      .map((p) => ({ id: p.id, rule: p.rule, claim: p.claim, diff: p.diff, decision: p.decision, status: p.status, at: p.at }));
+    return json(res, 200, { available: true, improverUrl: baseUrl, proposals });
+  } catch (err) {
+    return json(res, 200, { available: false, proposals: [], error: String(err?.message || err) });
+  }
+}
+
+// POST /ghost-edits/:id/(apply|reject) → proxy to the Improver. NEVER auto-applies:
+// only a user click on Accept/Dismiss reaches here. The Improver owns the actual
+// apply (applyWithRetry → reconcile) so policy.json is recompiled on its side.
+async function handleGhostAction(res, id, action) {
+  const baseUrl = improverBaseUrl();
+  if (!baseUrl) return json(res, 503, { error: "improver-unavailable" });
+  try {
+    const r = await fetch(`${baseUrl}/api/proposals/${encodeURIComponent(id)}/${action}`, {
+      method: "POST",
+      signal: withTimeout(20000)
+    });
+    const body = await r.json().catch(() => ({}));
+    return json(res, r.status, body);
+  } catch (err) {
+    return json(res, 502, { error: "improver-proxy-failed", message: String(err?.message || err) });
+  }
+}
+
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".map": "application/json", ".svg": "image/svg+xml" };
 async function serveStatic(req, res, pathname) {
   let rel = pathname.replace(/^\/+/, "");
@@ -324,6 +379,14 @@ export async function startServer(opts = {}) {
       if (pathname === "/routing" && req.method === "PUT") return handlePutRouting(req, res, query);
       if (pathname === "/simulate" && req.method === "POST") return handleSimulate(req, res);
       if (pathname === "/telemetry" && req.method === "GET") return handleTelemetry(req, res);
+      // D38 ghost edits: same-origin proxy to the Improver's review queue. The
+      // browser can neither read ~/.garrison/ui-fittings/improver.json nor POST
+      // cross-origin to the Improver's port, so the composer goes through here.
+      if (pathname === "/ghost-edits" && req.method === "GET") return handleGhostEdits(res);
+      {
+        const m = pathname.match(/^\/ghost-edits\/([^/]+)\/(apply|reject)$/);
+        if (m && req.method === "POST") return handleGhostAction(res, decodeURIComponent(m[1]), m[2]);
+      }
       return serveStatic(req, res, pathname);
     } catch (err) {
       json(res, 500, { error: "server-error", message: String(err?.message || err) });

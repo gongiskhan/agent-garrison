@@ -242,5 +242,26 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .d-rule { color: var(--faint); font-size: 11px; }
 .muted { color: var(--muted); }
 
+/* ── D38 ghost edits (Improver proposals callout) ───── */
+.ghosts {
+  margin: 12px 16px 0; padding: 12px 14px;
+  border: 1px solid var(--accent); border-radius: 10px;
+  background: linear-gradient(180deg, #16203a, #141826);
+}
+.ghosts-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.ghosts-title { font-weight: 650; font-size: 13px; color: var(--accent); }
+.ghosts-sub { font-size: 12px; color: var(--muted); }
+.ghosts-err { color: var(--bad); font-size: 12px; margin-bottom: 8px; font-family: var(--mono); }
+.ghost {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 0; border-top: 1px solid var(--border);
+}
+.ghost:first-of-type { border-top: none; }
+.ghost-body { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 4px; }
+.ghost-claim { font-weight: 600; font-size: 13px; }
+.ghost-diff { font-size: 12px; color: var(--text); font-family: var(--mono); background: #0b0c10; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; }
+.ghost-decision { font-size: 11.5px; color: var(--muted); }
+.ghost-actions { display: flex; gap: 6px; align-items: center; }
+
 /* drag overlay */
 .drag-ghost { background: var(--panel); border: 1px solid var(--accent); border-radius: 9px; padding: 6px 10px; box-shadow: 0 8px 24px #000a; }

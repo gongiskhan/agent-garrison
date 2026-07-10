@@ -938,6 +938,85 @@ function RecentDecisions() {
   );
 }
 
+// ── D38 ghost edits (Improver proposals) ──────────────────────────────────────
+type Ghost = { id: string; claim?: string; diff?: string; decision?: unknown; status: string; at?: string };
+function GhostEdits({ onApplied }: { onApplied: () => void }) {
+  const [proposals, setProposals] = useState<Ghost[] | null>(null);
+  const [available, setAvailable] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/ghost-edits");
+      const j = await r.json();
+      setAvailable(!!j.available);
+      setProposals(Array.isArray(j.proposals) ? j.proposals : []);
+    } catch {
+      setAvailable(false);
+      setProposals([]);
+    }
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Absent Improver, no matching proposals, or none awaiting a decision → skip silently.
+  if (!available || !proposals) return null;
+  const pending = proposals.filter((p) => p.status === "pending");
+  if (!pending.length) return null;
+
+  const act = async (id: string, action: "apply" | "reject") => {
+    setBusyId(id);
+    setErr(null);
+    try {
+      const r = await fetch(`/ghost-edits/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        setErr(b.message || b.error || `${action} failed`);
+      } else if (action === "apply") {
+        onApplied(); // the Improver mutated the policy — reload the composer draft
+      }
+    } catch (e) {
+      setErr(String((e as Error)?.message || e));
+    } finally {
+      setBusyId(null);
+      load();
+    }
+  };
+
+  const renderDecision = (d: unknown) => (d == null ? "" : typeof d === "string" ? d : JSON.stringify(d));
+
+  return (
+    <div className="ghosts" role="region" aria-label="improver proposals">
+      <div className="ghosts-head">
+        <span className="ghosts-title">Improver proposals</span>
+        <span className="ghosts-sub">
+          {pending.length} policy edit{pending.length > 1 ? "s" : ""} proposed - review before applying (nothing is auto-applied)
+        </span>
+      </div>
+      {err ? <div className="ghosts-err">{err}</div> : null}
+      {pending.map((p) => (
+        <div key={p.id} className="ghost">
+          <div className="ghost-body">
+            {p.claim ? <div className="ghost-claim">{p.claim}</div> : null}
+            {p.diff ? <div className="ghost-diff">{p.diff}</div> : null}
+            {renderDecision(p.decision) ? <div className="ghost-decision">decision: {renderDecision(p.decision)}</div> : null}
+          </div>
+          <div className="ghost-actions">
+            <button type="button" className="primary" disabled={busyId === p.id} onClick={() => act(p.id, "apply")}>
+              {busyId === p.id ? "..." : "Accept"}
+            </button>
+            <button type="button" disabled={busyId === p.id} onClick={() => act(p.id, "reject")}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── header / status ───────────────────────────────────────────────────────────
 function StatusPill({ state }: { state: SaveState }) {
   if (state === "saving") return <span className="status saving">saving…</span>;
@@ -1057,6 +1136,8 @@ function App() {
           </button>
         </div>
       ) : null}
+
+      <GhostEdits onApplied={reload} />
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <main className="board">

@@ -29479,6 +29479,74 @@ function RecentDecisions() {
     ] }, i)) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "muted", children: "no decisions logged yet" }) }) : null
   ] });
 }
+function GhostEdits({ onApplied }) {
+  const [proposals, setProposals] = (0, import_react5.useState)(null);
+  const [available, setAvailable] = (0, import_react5.useState)(false);
+  const [busyId, setBusyId] = (0, import_react5.useState)(null);
+  const [err, setErr] = (0, import_react5.useState)(null);
+  const load = (0, import_react5.useCallback)(async () => {
+    try {
+      const r = await fetch("/ghost-edits");
+      const j = await r.json();
+      setAvailable(!!j.available);
+      setProposals(Array.isArray(j.proposals) ? j.proposals : []);
+    } catch {
+      setAvailable(false);
+      setProposals([]);
+    }
+  }, []);
+  (0, import_react5.useEffect)(() => {
+    load();
+  }, [load]);
+  if (!available || !proposals) return null;
+  const pending = proposals.filter((p) => p.status === "pending");
+  if (!pending.length) return null;
+  const act = async (id, action) => {
+    setBusyId(id);
+    setErr(null);
+    try {
+      const r = await fetch(`/ghost-edits/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        setErr(b.message || b.error || `${action} failed`);
+      } else if (action === "apply") {
+        onApplied();
+      }
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally {
+      setBusyId(null);
+      load();
+    }
+  };
+  const renderDecision = (d) => d == null ? "" : typeof d === "string" ? d : JSON.stringify(d);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ghosts", role: "region", "aria-label": "improver proposals", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ghosts-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ghosts-title", children: "Improver proposals" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "ghosts-sub", children: [
+        pending.length,
+        " policy edit",
+        pending.length > 1 ? "s" : "",
+        " proposed - review before applying (nothing is auto-applied)"
+      ] })
+    ] }),
+    err ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "ghosts-err", children: err }) : null,
+    pending.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ghost", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ghost-body", children: [
+        p.claim ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "ghost-claim", children: p.claim }) : null,
+        p.diff ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "ghost-diff", children: p.diff }) : null,
+        renderDecision(p.decision) ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ghost-decision", children: [
+          "decision: ",
+          renderDecision(p.decision)
+        ] }) : null
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "ghost-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "primary", disabled: busyId === p.id, onClick: () => act(p.id, "apply"), children: busyId === p.id ? "..." : "Accept" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", disabled: busyId === p.id, onClick: () => act(p.id, "reject"), children: "Dismiss" })
+      ] })
+    ] }, p.id))
+  ] });
+}
 function StatusPill({ state }) {
   if (state === "saving") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "status saving", children: "saving\u2026" });
   if (state === "saved") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "status saved", children: "saved" });
@@ -29572,6 +29640,7 @@ function App() {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", onClick: dismissErrors, children: "Dismiss" })
     ] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GhostEdits, { onApplied: reload }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DndContext, { sensors, collisionDetection: closestCenter, onDragStart, onDragEnd, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "board", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetsTray, { config, commit }),
