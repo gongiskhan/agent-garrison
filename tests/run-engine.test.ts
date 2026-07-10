@@ -25,7 +25,8 @@ import {
   skillForPhase,
   classificationForPhase,
   hasPhaseGateEvidence,
-  gateKeyForPhase
+  gateKeyForPhase,
+  policyLoadState
   // @ts-ignore
 } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
@@ -288,5 +289,49 @@ describe("in-process advance (D13)", () => {
     const ok = await advanceCardPhase({ root: tmp, board, card: card2, verdict: "implement", cwd: tmp });
     expect(ok.outcome.status).toBe("moved");
     expect(ok.card.list).toBe("implement");
+  });
+});
+
+// rev2-s567 S5#1 regression: a CORRUPT compiled policy (file present but
+// unparseable) must FAIL SAFE — a real run must park, not fast-forward ungated
+// (a null policy would make pipelinePhase falsy and skip the D9 check). An
+// ABSENT policy stays the deliberate policy-less mode.
+describe("corrupt-policy fail-safe (S5#1 / D9)", () => {
+  it("policyLoadState distinguishes ok / absent / corrupt", () => {
+    resetPolicyCache();
+    expect(policyLoadState()).toBe("ok"); // beforeEach wrote a valid policy
+    process.env.GARRISON_POLICY_PATH = path.join(tmp, "does-not-exist.json");
+    resetPolicyCache();
+    expect(policyLoadState()).toBe("absent");
+    const corrupt = path.join(tmp, "corrupt-policy.json");
+    writeFileSync(corrupt, "{ this is : not json ]");
+    process.env.GARRISON_POLICY_PATH = corrupt;
+    resetPolicyCache();
+    expect(policyLoadState()).toBe("corrupt");
+    expect(loadPolicy()).toBeNull();
+  });
+
+  it("advanceCardPhase PARKS a run whose policy is corrupt (never advances ungated)", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { list: "plan", tier: "T2-deep" });
+    // Even WITH gate evidence written, a corrupt policy must refuse to advance.
+    writeGateEvidence(tmp, card.runDir, "plan");
+    const corrupt = path.join(tmp, "corrupt2.json");
+    writeFileSync(corrupt, "}{ broken");
+    process.env.GARRISON_POLICY_PATH = corrupt;
+    resetPolicyCache();
+    const parked = await advanceCardPhase({ root: tmp, board, card, verdict: "implement", cwd: tmp });
+    expect(parked.outcome.status).toBe("needs-attention");
+    expect(parked.outcome.reason).toBe("policy-corrupt");
+  });
+
+  it("advanceCardPhase still advances in ABSENT policy-less mode (mechanics unchanged)", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { id: "01TESTCARD0000000000000009", list: "plan" });
+    writeGateEvidence(tmp, card.runDir, "plan");
+    process.env.GARRISON_POLICY_PATH = path.join(tmp, "absent.json");
+    resetPolicyCache();
+    const ok = await advanceCardPhase({ root: tmp, board, card, verdict: "implement", cwd: tmp });
+    expect(ok.outcome.status).toBe("moved");
   });
 });

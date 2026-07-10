@@ -34,6 +34,21 @@ export function loadPolicy() {
   }
 }
 
+// Distinguish WHY loadPolicy returned null (D9 fail-safe, rev2-s567 S5#1):
+//   "ok"      — a policy loaded,
+//   "absent"  — no policy file at all (the deliberate "policy-less mode" the
+//               pure transition tests run in — D9 simply doesn't apply), and
+//   "corrupt" — a policy file EXISTS but couldn't be read/parsed (a bad PUT,
+//               disk corruption). A corrupt policy must NOT silently drop D9 and
+//               let cards fast-forward ungated; the engine parks instead.
+export function policyLoadState() {
+  const p = policyPath();
+  let exists = false;
+  try { statSync(p); exists = true; } catch { exists = false; }
+  if (!exists) return "absent";
+  try { JSON.parse(readFileSync(p, "utf8")); return "ok"; } catch { return "corrupt"; }
+}
+
 export function resetPolicyCache() {
   _cache = { path: null, mtimeMs: 0, policy: null };
 }

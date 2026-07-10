@@ -27,6 +27,7 @@ import { saveCard, saveCardCAS, appendCardLog, writeCardLog } from "./board.mjs"
 import { ulid } from "./ulid.mjs";
 import {
   loadPolicy,
+  policyLoadState,
   phaseForList,
   skillForPhase,
   classificationForPhase,
@@ -584,6 +585,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // too (the implement loop-back still transitions with proof the gate ran).
   // Only enforced when the phase is a policy pipeline phase and a runDir exists.
   let gateEvidenceMissing = false;
+  // Fail SAFE on a CORRUPT policy (rev2-s567 S5#1): a real run (has a runDir) whose
+  // policy file exists but can't be parsed must NOT silently lose D9 and fast-forward
+  // ungated — a null `policy` would make pipelinePhase falsy and skip the check
+  // entirely. An ABSENT policy is the deliberate policy-less mode and is unaffected.
+  if (next && !policy && runningCard.runDir && policyLoadState() === "corrupt") {
+    next = null;
+    gateEvidenceMissing = true;
+  }
   const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
   if (next && pipelinePhase && runningCard.runDir && !hasPhaseGateEvidence(cwd, runningCard.runDir, phase)) {
     next = null;
@@ -749,6 +758,19 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   }
   const policy = loadPolicy();
   const phase = phaseForList(list);
+  // Fail SAFE on a CORRUPT policy (rev2-s567 S5#1): a real run whose policy can't
+  // be parsed must park, not advance ungated (a null policy skips the D9 check).
+  // ABSENT policy stays the deliberate policy-less mode.
+  if (card.runDir && !policy && policyLoadState() === "corrupt") {
+    const cpReason = `In-session advance from ${listTitle} refused: the compiled policy at ~/.garrison/orchestrator/policy.json exists but is unreadable — cannot verify the phase-gate contract. Recompile it (edit + save in the composer) before advancing.`;
+    const res = await saveCardCAS(root, {
+      ...card,
+      ...parkFields(card, card.list, cpReason),
+      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: policy unreadable`, detail: cpReason })
+    }, card.rev ?? 0, now());
+    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: "policy-corrupt" } };
+  }
   const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
   if (pipelinePhase && card.runDir && !hasPhaseGateEvidence(cwd, card.runDir, phase)) {
     const geReason = `In-session advance from ${listTitle} refused: no durable gate evidence for the ${phase} phase under ${card.runDir}. Write the phase's gate-status entry first (the bindable-skill contract).`;
