@@ -255,9 +255,15 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     }
     const primaryEntry = soulEntries.find((entry) => entry.id === primaryRuntime.runtimeId);
     const primaryVaultEnv = primaryEntry ? await vaultEnvForEntry(primaryEntry) : {};
+    // Providers are policy data (P2): the launch env resolves provider specs
+    // from the policy's providers section, never a code constant.
+    const providersList = await resolveProvidersList(composition.directory, (message) =>
+      appendLog(compositionId, "stderr", message)
+    );
     const { env: primaryEnv, providerLaunch: primaryProviderLaunch } = buildPrimaryRuntimeEnv(
       primaryRuntime,
-      (key) => primaryVaultEnv[key]
+      (key) => primaryVaultEnv[key],
+      providersList
     );
     if (primaryProviderLaunch) {
       appendLog(
@@ -877,6 +883,36 @@ const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/config
 
 export const MISSING_ROUTING_CONFIG_WARNING =
   "WARNING: orchestrator prompt has a {{routing}} placeholder but the routing section could not be built (see the routing diagnostics above) - the routing section will be empty";
+
+// Providers are policy data (GARRISON-RUNTIMES-V1 P2): resolve the policy's
+// providers section for the primary-runtime launch env. Reads the same
+// scoped-or-seed routing.json as resolveRoutingSection and runs it through
+// routing-core's ensureProviders, so a pre-migration file yields the
+// migration-seeded historical entries (identical to the old constant's
+// behavior) — with a diagnostic, never silently.
+export async function resolveProvidersList(
+  compositionDir: string,
+  onDiagnostic?: (message: string) => void
+): Promise<Array<{ id: string; kind?: string; baseUrl?: string | null; vaultKey?: string; dummyToken?: string }>> {
+  const scoped = path.join(compositionDir, ".garrison", "routing.json");
+  let config: unknown = null;
+  try {
+    config = JSON.parse(await fs.readFile(scoped, "utf8"));
+  } catch {
+    try {
+      config = JSON.parse(await fs.readFile(SEED_ROUTING_PATH, "utf8"));
+    } catch {
+      onDiagnostic?.(
+        `providers: neither ${scoped} nor the seed ${SEED_ROUTING_PATH} is readable — using the migration-seeded provider list`
+      );
+      config = {};
+    }
+  }
+  const mod = (await import(/* webpackIgnore: true */ pathToFileURL(ROUTING_CORE_PATH).href)) as {
+    ensureProviders: (c: unknown) => { providers: Array<{ id: string }> };
+  };
+  return mod.ensureProviders(config ?? {}).providers as Awaited<ReturnType<typeof resolveProvidersList>>;
+}
 
 // Pure: replace {{routing}} with the compiled section (or strip it cleanly when
 // unavailable, so the placeholder never leaks into the assembled prompt).

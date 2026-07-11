@@ -34,7 +34,10 @@ import {
   buildAutonomousCardPayload,
   PHASES,
   TASK_TYPES_V2,
-  POLICY_VERSION
+  POLICY_VERSION,
+  SEED_PROVIDERS,
+  ensureProviders,
+  validateProviders
 } from "./policy-core.mjs";
 
 // v2 policy API re-exported so dynamic importers (runner, gateway, server)
@@ -58,7 +61,10 @@ export {
   buildAutonomousCardPayload,
   PHASES,
   TASK_TYPES_V2,
-  POLICY_VERSION
+  POLICY_VERSION,
+  SEED_PROVIDERS,
+  ensureProviders,
+  validateProviders
 };
 
 export const ROLES = ["expert", "standard", "fast", "image", "video", "review"];

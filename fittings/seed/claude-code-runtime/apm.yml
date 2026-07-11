@@ -30,7 +30,7 @@ x-garrison:
     - key: provider
       type: select
       default: anthropic-plan
-      description: Inference backend for this runtime. anthropic-plan = your Max account (no base URL). Others swap ANTHROPIC_BASE_URL (+ vault key) so the Claude Code engine runs against that provider. Resolution reuses the orchestrator PROVIDERS registry.
+      description: Inference backend for this runtime. anthropic-plan = your Max account (no base URL). Others swap ANTHROPIC_BASE_URL (+ vault key) so the Claude Code engine runs against that provider. Resolution reads the policy's providers section (providers are policy data, not code).
       options:
         - anthropic-plan
         - ollama-local

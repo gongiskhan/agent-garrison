@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 // @ts-ignore — pure .mjs, no .d.mts (internal stage-b module)
-import { planSwitch, buildLaunchEnv, buildRespawnOpts, MissingProviderKeyError, PROVIDERS } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
+import { planSwitch, buildLaunchEnv, buildRespawnOpts, MissingProviderKeyError } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
+// @ts-ignore — pure .mjs (policy heart)
+import { SEED_PROVIDERS, validateProviders, compilePolicy } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
+
+// P2: providers are policy data — every launch-env call supplies the policy's
+// providers section (the migration-seeded list here).
+const PROVIDERS_LIST = SEED_PROVIDERS;
+const providerById = (id: string) => PROVIDERS_LIST.find((p: any) => p.id === id)!;
 
 const opus = { id: "cc-opus-high", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "opus", effort: "high" };
 const haiku = { id: "cc-haiku-low", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "haiku", effort: "low" };
@@ -44,7 +51,7 @@ describe("Stage B switch planning (MR1d — model-switch-ok path)", () => {
 
 describe("Stage B launch env (MR1d — provider-launch-ok)", () => {
   it("anthropic-plan: NO base URL, NO key, strips ANTHROPIC_API_KEY (Max billing safety)", () => {
-    const env = buildLaunchEnv(opus, { baseEnv: { PATH: "/bin", ANTHROPIC_API_KEY: "sk-leak" }, secrets: {} });
+    const env = buildLaunchEnv(opus, { baseEnv: { PATH: "/bin", ANTHROPIC_API_KEY: "sk-leak" }, secrets: {}, providers: PROVIDERS_LIST });
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(env.ANTHROPIC_API_KEY).toBeUndefined(); // never bills against the API key
@@ -52,22 +59,22 @@ describe("Stage B launch env (MR1d — provider-launch-ok)", () => {
   });
 
   it("ollama-local: base URL wired + dummy auth token, no vault key needed", () => {
-    const env = buildLaunchEnv(ollama, { baseEnv: {}, secrets: {} });
-    expect(env.ANTHROPIC_BASE_URL).toBe(PROVIDERS["ollama-local"].baseUrl);
+    const env = buildLaunchEnv(ollama, { baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST });
+    expect(env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local").baseUrl);
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe("ollama");
   });
 
   it("cloud OSS (deepseek): base URL + vault key wired as ANTHROPIC_AUTH_TOKEN", () => {
-    const env = buildLaunchEnv(deepseek, { baseEnv: {}, secrets: { DEEPSEEK_API_KEY: "sk-deepseek-xyz" } });
+    const env = buildLaunchEnv(deepseek, { baseEnv: {}, secrets: { DEEPSEEK_API_KEY: "sk-deepseek-xyz" }, providers: PROVIDERS_LIST });
     expect(env.ANTHROPIC_BASE_URL).toBe("https://api.deepseek.com/anthropic");
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe("sk-deepseek-xyz");
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   it("cloud OSS with ABSENT key → loud MissingProviderKeyError (secret absent)", () => {
-    expect(() => buildLaunchEnv(deepseek, { baseEnv: {}, secrets: {} })).toThrowError(MissingProviderKeyError);
+    expect(() => buildLaunchEnv(deepseek, { baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST })).toThrowError(MissingProviderKeyError);
     try {
-      buildLaunchEnv(deepseek, { baseEnv: {}, secrets: {} });
+      buildLaunchEnv(deepseek, { baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST });
     } catch (e: any) {
       expect(e.vaultLocked).toBe(false);
       expect(e.message).toContain("ABSENT");
@@ -76,7 +83,7 @@ describe("Stage B launch env (MR1d — provider-launch-ok)", () => {
 
   it("cloud OSS with LOCKED vault → loud MissingProviderKeyError (distinguishes locked)", () => {
     try {
-      buildLaunchEnv(deepseek, { baseEnv: {}, secrets: null });
+      buildLaunchEnv(deepseek, { baseEnv: {}, secrets: null, providers: PROVIDERS_LIST });
       throw new Error("should have thrown");
     } catch (e: any) {
       expect(e).toBeInstanceOf(MissingProviderKeyError);
@@ -86,9 +93,58 @@ describe("Stage B launch env (MR1d — provider-launch-ok)", () => {
   });
 
   it("buildRespawnOpts uses --continue + the target model + the provider env", () => {
-    const opts = buildRespawnOpts(ollama, { compositionDir: "/tmp/x", appendSystemPromptFile: "/tmp/x/.garrison/assembled-system-prompt.md", baseEnv: {}, secrets: {} });
+    const opts = buildRespawnOpts(ollama, { compositionDir: "/tmp/x", appendSystemPromptFile: "/tmp/x/.garrison/assembled-system-prompt.md", baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST });
     expect(opts.continueSession).toBe(true);
     expect(opts.model).toBe("qwen2.5-coder");
-    expect(opts.env.ANTHROPIC_BASE_URL).toBe(PROVIDERS["ollama-local"].baseUrl);
+    expect(opts.env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local").baseUrl);
+  });
+});
+
+// P2 — providers as policy data: the loud paths and the policy pass-through.
+describe("providers as policy data (P2)", () => {
+  it("no providers section supplied → loud error naming the fix (never a silent fallback)", () => {
+    expect(() => buildLaunchEnv(opus, { baseEnv: {}, secrets: {} })).toThrowError(/no providers section supplied/);
+  });
+
+  it("unknown provider id → loud error listing the known ids", () => {
+    expect(() =>
+      buildLaunchEnv({ ...opus, provider: "nope" }, { baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST })
+    ).toThrowError(/unknown provider "nope".*anthropic-plan/);
+  });
+
+  it("migration seeds resolve byte-identically to the historical registry", () => {
+    // anthropic-plan: empty env delta; ollama: base URL + dummy token;
+    // deepseek/zai: base URL + vault key as AUTH_TOKEN. (The fifth id,
+    // "anthropic", is the agent-sdk spelling of the Max OAuth path.)
+    expect(PROVIDERS_LIST.map((p: any) => p.id)).toEqual([
+      "anthropic-plan", "anthropic", "ollama-local", "deepseek", "zai-glm"
+    ]);
+    const zai = buildLaunchEnv({ provider: "zai-glm" } as any, { baseEnv: {}, secrets: { ZAI_API_KEY: "zk" }, providers: PROVIDERS_LIST });
+    expect(zai.ANTHROPIC_BASE_URL).toBe("https://api.z.ai/api/anthropic");
+    expect(zai.ANTHROPIC_AUTH_TOKEN).toBe("zk");
+  });
+
+  it("validateProviders rejects duplicates, bad kinds, and null baseUrl on non-plan kinds", () => {
+    expect(validateProviders([{ id: "x", kind: "cloud-oss", baseUrl: null }]).join(" ")).toMatch(/baseUrl is required/);
+    expect(validateProviders([{ id: "x", kind: "weird", baseUrl: "http://h" }]).join(" ")).toMatch(/unknown kind/);
+    expect(
+      validateProviders([
+        { id: "x", kind: "local", baseUrl: "http://h" },
+        { id: "x", kind: "local", baseUrl: "http://h" }
+      ]).join(" ")
+    ).toMatch(/duplicate id/);
+  });
+
+  it("compilePolicy carries providers into the compiled policy and rejects targets on unknown providers", () => {
+    const base: any = {
+      version: 2,
+      activeProfile: "p",
+      profiles: { p: { matrix: { defaults: {}, columns: {}, rows: {} } } },
+      targets: [{ id: "t1", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "opus" }]
+    };
+    const pol = compilePolicy(base);
+    expect(pol.providers.map((p: any) => p.id)).toContain("deepseek");
+    const bad = { ...base, providers: SEED_PROVIDERS, targets: [{ id: "t2", type: "runtime-target", runtime: "claude-code", provider: "ghost", model: "opus" }] };
+    expect(() => compilePolicy(bad)).toThrowError(/unknown provider "ghost"/);
   });
 });

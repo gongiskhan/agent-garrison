@@ -48,6 +48,63 @@ export function isV2(config) {
   return !!config && typeof config === "object" && config.version === 2;
 }
 
+// ── Providers as policy data (GARRISON-RUNTIMES-V1 P2/D2) ───────────────────
+// The provider registry is POLICY DATA, not code. Each entry names an
+// Anthropic-compatible endpoint: id, kind (anthropic-plan | local | cloud-oss),
+// baseUrl (null ONLY for the anthropic-plan Max-OAuth path), vaultKey for the
+// auth credential (or dummyToken for local endpoints that ignore auth), notes.
+// SEED_PROVIDERS reproduces the four historical hardcoded entries byte-for-byte
+// in behavior; migration seeds them so existing routing resolves identically.
+export const SEED_PROVIDERS = [
+  { id: "anthropic-plan", kind: "anthropic-plan", baseUrl: null, notes: "Max OAuth, no base URL, no key" },
+  // The agent-sdk runtime's historical id for the same Max-OAuth endpoint —
+  // live seed targets (agent-sdk-haiku-fast) reference it, so migration seeds
+  // it too (brief said four; reality's target space needs this fifth id).
+  { id: "anthropic", kind: "anthropic-plan", baseUrl: null, notes: "agent-sdk id for the Anthropic Max OAuth endpoint" },
+  { id: "ollama-local", kind: "local", baseUrl: "http://localhost:11434", dummyToken: "ollama", notes: "local Ollama Anthropic-compatible endpoint" },
+  { id: "deepseek", kind: "cloud-oss", baseUrl: "https://api.deepseek.com/anthropic", vaultKey: "DEEPSEEK_API_KEY" },
+  { id: "zai-glm", kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY" }
+];
+
+export const PROVIDER_KINDS = ["anthropic-plan", "local", "cloud-oss"];
+
+// Migration shim: a config authored before the providers section gains the
+// seed entries (pure; the caller/writer logs the migration). A config that
+// already carries providers is returned untouched — the file owns the list.
+export function ensureProviders(config) {
+  if (!config || typeof config !== "object") return config;
+  if (Array.isArray(config.providers) && config.providers.length) return config;
+  return { ...config, providers: SEED_PROVIDERS.map((p) => ({ ...p })) };
+}
+
+export function validateProviders(providers) {
+  const errors = [];
+  if (providers === undefined) return errors; // pre-migration config; ensureProviders seeds
+  if (!Array.isArray(providers)) return ["providers must be an array"];
+  const seen = new Set();
+  for (const p of providers) {
+    if (!p || typeof p !== "object" || typeof p.id !== "string" || !p.id.length) {
+      errors.push(`provider entry invalid: ${JSON.stringify(p)}`);
+      continue;
+    }
+    if (seen.has(p.id)) errors.push(`provider ${p.id}: duplicate id`);
+    seen.add(p.id);
+    if (p.kind !== undefined && !PROVIDER_KINDS.includes(p.kind)) {
+      errors.push(`provider ${p.id}: unknown kind "${p.kind}" (expected ${PROVIDER_KINDS.join("|")})`);
+    }
+    if (p.baseUrl !== null && p.baseUrl !== undefined && typeof p.baseUrl !== "string") {
+      errors.push(`provider ${p.id}: baseUrl must be a string or null`);
+    }
+    if ((p.baseUrl === null || p.baseUrl === undefined) && p.kind !== "anthropic-plan") {
+      errors.push(`provider ${p.id}: baseUrl is required for kind "${p.kind ?? "(unset)"}" (only anthropic-plan runs without one)`);
+    }
+    if (p.vaultKey !== undefined && (typeof p.vaultKey !== "string" || !p.vaultKey.length)) {
+      errors.push(`provider ${p.id}: vaultKey must be a non-empty string when present`);
+    }
+  }
+  return errors;
+}
+
 // ── Migration (pure, deterministic) ─────────────────────────────────────────
 // v1 role-based → v2 target-based. Per profile: materialize the full matrix by
 // resolving every role reference through that profile's roleMap; derive
@@ -105,13 +162,16 @@ export function migrateRoutingConfig(v1) {
     target: mapRole(activeRoleMap, e.role)
   }));
 
-  return {
+  return ensureProviders({
     version: 2,
     activeProfile,
     taskTypes: Array.from(new Set([...(v1.taskTypes || GENERAL_TASK_TYPES), ...TASK_TYPES_V2])),
     tiers: v1.tiers || TIERS,
     tierDefinitions: v1.tierDefinitions || {},
     exceptions,
+    // Providers ride through from a v1 file that already carries them;
+    // ensureProviders seeds the four historical entries otherwise (P2 migration).
+    ...(Array.isArray(v1.providers) && v1.providers.length ? { providers: v1.providers } : {}),
     targets: v1.targets || [],
     profiles,
     discipline: v1.discipline || {},
@@ -121,7 +181,7 @@ export function migrateRoutingConfig(v1) {
     workKinds: {},
     defaultWorkKind: null,
     phaseSkills: { bindings: {}, overrides: {} }
-  };
+  });
 }
 
 // ── Profile access ───────────────────────────────────────────────────────────
@@ -276,6 +336,19 @@ export function validatePolicyConfig(config) {
   const taskTypes = config.taskTypes || TASK_TYPES_V2;
   const tiers = config.tiers || TIERS;
 
+  // Providers section (P2): entries well-formed, and every target that names a
+  // provider names a KNOWN one — an unknown provider id must fail compile, not
+  // surface as a launch-time lookup miss.
+  errors.push(...validateProviders(config.providers));
+  if (Array.isArray(config.providers) && config.providers.length) {
+    const providerIds = new Set(config.providers.map((p) => p && p.id));
+    for (const t of config.targets || []) {
+      if (t && t.provider !== undefined && t.provider !== null && !providerIds.has(t.provider)) {
+        errors.push(`target ${t.id}: unknown provider "${t.provider}" (known: ${[...providerIds].join(", ")})`);
+      }
+    }
+  }
+
   for (const e of config.exceptions || []) {
     if (e.target && !targetIds.has(e.target)) errors.push(`exception ${e.id}: unknown target ${e.target}`);
   }
@@ -384,7 +457,7 @@ function sortForJson(value) {
 // The caller writes stableStringify(compilePolicy(config)) atomically to
 // ~/.garrison/orchestrator/policy.json. NO timestamps — byte-stable.
 export function compilePolicy(config, profile) {
-  const cfg = isV2(config) ? config : migrateRoutingConfig(config);
+  const cfg = ensureProviders(isV2(config) ? config : migrateRoutingConfig(config));
   const errors = validatePolicyConfig(cfg);
   if (errors.length) throw new Error("policy config INVALID:\n  - " + errors.join("\n  - "));
   const { name, profile: p } = getProfileV2(cfg, profile);
@@ -421,6 +494,10 @@ export function compilePolicy(config, profile) {
     taskTypes,
     tiers,
     tierDefinitions: cfg.tierDefinitions || {},
+    // Providers as policy data (P2): the compiled policy is THE consumption
+    // interface, so launch-env building reads providers from here — never from
+    // a code constant. ensureProviders above guarantees the section exists.
+    providers: cfg.providers,
     targets: targetsById,
     computeLadder: p.computeLadder || [],
     exceptions: (cfg.exceptions || []).map((e) => ({

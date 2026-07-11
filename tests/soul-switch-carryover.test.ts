@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 // @ts-ignore — pure .mjs
 import { buildContextCarryover, buildRespawnOpts } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
+// @ts-ignore — pure .mjs (policy heart)
+import { SEED_PROVIDERS } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 // @ts-ignore — pure .mjs
 import { createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
@@ -81,9 +83,9 @@ describe("U4 — buildContextCarryover (the fallback summary)", () => {
   });
 
   it("buildRespawnOpts flags providerLaunch for a non-anthropic provider", () => {
-    const ollama = buildRespawnOpts({ provider: "ollama-local", model: "qwen2.5-coder" }, { baseEnv: {}, secrets: {} });
+    const ollama = buildRespawnOpts({ provider: "ollama-local", model: "qwen2.5-coder" }, { baseEnv: {}, secrets: {}, providers: SEED_PROVIDERS });
     expect(ollama.providerLaunch).toBe(true);
-    const plan = buildRespawnOpts({ provider: "anthropic-plan", model: "opus" }, { baseEnv: {} });
+    const plan = buildRespawnOpts({ provider: "anthropic-plan", model: "opus" }, { baseEnv: {}, providers: SEED_PROVIDERS });
     expect(plan.providerLaunch).toBe(false);
   });
 });

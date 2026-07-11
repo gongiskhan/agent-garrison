@@ -8,17 +8,36 @@
 //     vault key + soul system-prompt are read only at spawn), preserving context
 //     via --continue in the same cwd.
 
-// Anthropic-compatible provider registry. anthropic-plan is the default (Max
-// OAuth, NO base URL, the -p ban applies). Non-anthropic-plan providers set
-// ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN and bill on their own account.
-// Base URLs are the documented Anthropic-compatible endpoints (no live round-trip
-// is asserted — provider-launch-ok asserts the launch ENV is wired correctly).
-export const PROVIDERS = {
-  "anthropic-plan": { kind: "anthropic-plan", baseUrl: null, needsKey: false },
-  "ollama-local": { kind: "local", baseUrl: "http://localhost:11434", needsKey: false, dummyToken: "ollama" },
-  deepseek: { kind: "cloud-oss", baseUrl: "https://api.deepseek.com/anthropic", needsKey: true, vaultKey: "DEEPSEEK_API_KEY" },
-  "zai-glm": { kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", needsKey: true, vaultKey: "ZAI_API_KEY" }
-};
+// Providers are POLICY DATA (GARRISON-RUNTIMES-V1 P2/D2). The historical
+// hardcoded PROVIDERS registry is gone: buildLaunchEnv resolves the provider
+// spec from the policy's `providers` section (opts.providers), which the
+// migration seeds with the four historical entries (anthropic-plan,
+// ollama-local, deepseek, zai-glm) so existing routing resolves identically.
+// A missing providers list or an unknown provider id is a LOUD error — never a
+// silent fallback to a built-in table.
+
+// Normalize a policy provider entry (camelCase policy-file shape) into the
+// spec shape the env builder consumes. needsKey derives from vaultKey.
+function resolveProviderSpec(providers, id) {
+  if (!Array.isArray(providers) || !providers.length) {
+    throw new Error(
+      `provider "${id}" cannot be resolved: no providers section supplied — pass the policy's providers (compilePolicy/ensureProviders output) in opts.providers`
+    );
+  }
+  const p = providers.find((entry) => entry && entry.id === id);
+  if (!p) {
+    throw new Error(
+      `unknown provider "${id}" — not in the policy providers section (known: ${providers.map((e) => e && e.id).join(", ")})`
+    );
+  }
+  return {
+    kind: p.kind ?? (p.baseUrl == null ? "anthropic-plan" : "cloud-oss"),
+    baseUrl: p.baseUrl ?? null,
+    needsKey: !!p.vaultKey,
+    vaultKey: p.vaultKey,
+    dummyToken: p.dummyToken
+  };
+}
 
 export class MissingProviderKeyError extends Error {
   constructor(provider, vaultKey, vaultLocked) {
@@ -35,15 +54,15 @@ export class MissingProviderKeyError extends Error {
 }
 
 // Build the launch env for a runtime-target. baseEnv is the inherited process
-// env; opts.secrets is the materialized vault (key->value) or null when locked.
+// env; opts.secrets is the materialized vault (key->value) or null when locked;
+// opts.providers is the policy's providers section (REQUIRED — P2).
 // Throws MissingProviderKeyError (loud, distinguishes locked vs absent) for a
 // cloud provider with no key.
 export function buildLaunchEnv(target, opts = {}) {
   const baseEnv = opts.baseEnv ?? {};
   const secrets = opts.secrets ?? null; // null = vault locked
   const provider = target.provider || "anthropic-plan";
-  const spec = PROVIDERS[provider];
-  if (!spec) throw new Error(`unknown provider "${provider}"`);
+  const spec = resolveProviderSpec(opts.providers, provider);
   const out = { ...baseEnv };
   // Always strip ANTHROPIC_API_KEY: for anthropic-plan it would force API
   // billing off the Max plan; for third-party providers we use AUTH_TOKEN.

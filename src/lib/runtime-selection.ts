@@ -37,20 +37,19 @@ export interface PrimaryRuntimeDescriptor {
 }
 
 /**
- * Anthropic-compatible provider registry for the PRIMARY (orchestrator) runtime.
- * Mirrors the model-router's PROVIDERS (fittings/seed/model-router/lib/stage-b.mjs)
- * — the router owns per-turn provider switching; this owns the launch-time env for
- * the primary. anthropic-plan is the default (Max OAuth, no base URL).
+ * A provider entry from the policy's `providers` section (GARRISON-RUNTIMES-V1
+ * P2/D2: providers are POLICY DATA, not code). The historical PRIMARY_PROVIDERS
+ * mirror of the orchestrator registry is gone — the runner supplies the policy
+ * section (migration-seeded for pre-P2 configs) to buildPrimaryRuntimeEnv.
  */
-export const PRIMARY_PROVIDERS: Record<
-  string,
-  { baseUrl: string | null; vaultKey: string | null; dummyToken: string | null }
-> = {
-  "anthropic-plan": { baseUrl: null, vaultKey: null, dummyToken: null },
-  "ollama-local": { baseUrl: "http://localhost:11434", vaultKey: null, dummyToken: "ollama" },
-  deepseek: { baseUrl: "https://api.deepseek.com/anthropic", vaultKey: "DEEPSEEK_API_KEY", dummyToken: null },
-  "zai-glm": { baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY", dummyToken: null }
-};
+export interface PolicyProvider {
+  id: string;
+  kind?: string;
+  baseUrl?: string | null;
+  vaultKey?: string;
+  dummyToken?: string;
+  notes?: string;
+}
 
 function engineOf(entry: RuntimeEntry): string {
   const runtimeProvision = entry.provides.find((p) => p.kind === "runtime");
@@ -124,10 +123,13 @@ export interface PrimaryRuntimeEnv {
  * missing/locked vault key throws (fail loud).
  *
  * @param secretLookup resolve a vault key → its value (or undefined if absent/locked).
+ * @param providers the policy's providers section (REQUIRED — P2; the runner
+ *   resolves it from the routing config, migration-seeded when absent there).
  */
 export function buildPrimaryRuntimeEnv(
   descriptor: PrimaryRuntimeDescriptor,
-  secretLookup: (vaultKey: string) => string | undefined
+  secretLookup: (vaultKey: string) => string | undefined,
+  providers: PolicyProvider[]
 ): PrimaryRuntimeEnv {
   const config = descriptor.config;
   const env: Record<string, string> = {
@@ -146,13 +148,31 @@ export function buildPrimaryRuntimeEnv(
     return { env, providerLaunch: false };
   }
 
-  const spec = PRIMARY_PROVIDERS[provider];
-  if (!spec) {
+  if (!Array.isArray(providers) || !providers.length) {
     throw new Error(
-      `unknown provider "${provider}" for primary runtime ${descriptor.runtimeId}; ` +
-        `expected one of ${Object.keys(PRIMARY_PROVIDERS).join(", ")}.`
+      `provider "${provider}" for primary runtime ${descriptor.runtimeId} cannot be resolved: ` +
+        `no providers section supplied — pass the policy's providers (providers are policy data, P2).`
     );
   }
+  const entry = providers.find((p) => p && p.id === provider);
+  if (!entry) {
+    throw new Error(
+      `unknown provider "${provider}" for primary runtime ${descriptor.runtimeId}; ` +
+        `expected one of ${providers.map((p) => p.id).join(", ")}.`
+    );
+  }
+  // A policy entry with a null baseUrl is the Max-OAuth path under another id
+  // (e.g. the agent-sdk "anthropic" spelling) — same early return as the plan.
+  if (entry.kind === "anthropic-plan" || entry.baseUrl == null) {
+    if (entry.baseUrl == null && !(config.base_url && String(config.base_url).trim().length)) {
+      return { env, providerLaunch: false };
+    }
+  }
+  const spec = {
+    baseUrl: entry.baseUrl ?? null,
+    vaultKey: entry.vaultKey ?? null,
+    dummyToken: entry.dummyToken ?? null
+  };
 
   const baseUrlOverride = config.base_url !== undefined ? String(config.base_url).trim() : "";
   const baseUrl = baseUrlOverride || spec.baseUrl;

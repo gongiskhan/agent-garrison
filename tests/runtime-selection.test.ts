@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PRIMARY_RUNTIME,
-  PRIMARY_PROVIDERS,
   resolvePrimaryRuntime,
   buildPrimaryRuntimeEnv,
   deriveRuntimeTargets,
   mergeRuntimeTargets,
-  type RuntimeEntry
+  type RuntimeEntry,
+  type PolicyProvider
 } from "@/lib/runtime-selection";
+// @ts-ignore — pure .mjs (policy heart): providers are policy data (P2)
+import { SEED_PROVIDERS } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
+
+const POLICY_PROVIDERS: PolicyProvider[] = SEED_PROVIDERS;
+const providerById = (id: string) => POLICY_PROVIDERS.find((p) => p.id === id)!;
 
 const ccRuntime: RuntimeEntry = {
   id: "claude-code-runtime",
@@ -79,7 +84,7 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
 
   it("is behaviour-preserving for the default provider with no explicit model", () => {
     const d = resolvePrimaryRuntime({ primaryRuntimeId: undefined, runtimeEntries: [] });
-    const { env, providerLaunch } = buildPrimaryRuntimeEnv(d, noSecrets);
+    const { env, providerLaunch } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
     expect(providerLaunch).toBe(false);
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
     // Does NOT clobber the existing GARRISON_MODEL default when no model is configured.
@@ -95,7 +100,7 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
       isDefault: true,
       config: { model: "sonnet" }
     };
-    const { env } = buildPrimaryRuntimeEnv(d, noSecrets);
+    const { env } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
     expect(env.GARRISON_MODEL).toBe("sonnet");
   });
 
@@ -104,9 +109,9 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
       primaryRuntimeId: "claude-code-runtime",
       runtimeEntries: [{ ...ccRuntime, config: { provider: "ollama-local" } }]
     });
-    const { env, providerLaunch } = buildPrimaryRuntimeEnv(d, noSecrets);
+    const { env, providerLaunch } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
     expect(providerLaunch).toBe(true);
-    expect(env.ANTHROPIC_BASE_URL).toBe(PRIMARY_PROVIDERS["ollama-local"].baseUrl);
+    expect(env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local").baseUrl);
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe("ollama");
     expect(env.GARRISON_PROVIDER).toBe("ollama-local");
     expect(env.ANTHROPIC_API_KEY).toBe("");
@@ -117,8 +122,10 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
       primaryRuntimeId: "claude-code-runtime",
       runtimeEntries: [{ ...ccRuntime, config: { provider: "deepseek" } }]
     });
-    const { env, providerLaunch } = buildPrimaryRuntimeEnv(d, (k) =>
-      k === "DEEPSEEK_API_KEY" ? "sk-deepseek-xyz" : undefined
+    const { env, providerLaunch } = buildPrimaryRuntimeEnv(
+      d,
+      (k) => (k === "DEEPSEEK_API_KEY" ? "sk-deepseek-xyz" : undefined),
+      POLICY_PROVIDERS
     );
     expect(providerLaunch).toBe(true);
     expect(env.ANTHROPIC_BASE_URL).toBe("https://api.deepseek.com/anthropic");
@@ -130,7 +137,7 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
       primaryRuntimeId: "claude-code-runtime",
       runtimeEntries: [{ ...ccRuntime, config: { provider: "zai-glm" } }]
     });
-    expect(() => buildPrimaryRuntimeEnv(d, () => undefined)).toThrow(/requires vault key ZAI_API_KEY/);
+    expect(() => buildPrimaryRuntimeEnv(d, () => undefined, POLICY_PROVIDERS)).toThrow(/requires vault key ZAI_API_KEY/);
   });
 
   it("honors an explicit base_url override", () => {
@@ -138,7 +145,7 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
       primaryRuntimeId: "claude-code-runtime",
       runtimeEntries: [{ ...ccRuntime, config: { provider: "ollama-local", base_url: "http://localhost:9999" } }]
     });
-    const { env } = buildPrimaryRuntimeEnv(d, noSecrets);
+    const { env } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
     expect(env.ANTHROPIC_BASE_URL).toBe("http://localhost:9999");
   });
 
@@ -147,7 +154,7 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
       primaryRuntimeId: "claude-code-runtime",
       runtimeEntries: [{ ...ccRuntime, config: { provider: "made-up" } }]
     });
-    expect(() => buildPrimaryRuntimeEnv(d, noSecrets)).toThrow(/unknown provider "made-up"/);
+    expect(() => buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS)).toThrow(/unknown provider "made-up"/);
   });
 });
 

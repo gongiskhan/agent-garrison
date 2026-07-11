@@ -658,6 +658,10 @@ export class RoutedGateway {
       appendSystemPromptFile: this.appendSystemPromptFile,
       baseEnv: process.env,
       secrets: this.secrets ?? null,
+      // Providers are policy data (P2): resolve the section from the loaded
+      // routing config (ensureProviders seeds the historical four for a
+      // pre-migration file) so buildLaunchEnv never falls back silently.
+      providers: this.core.ensureProviders(this.config)?.providers,
       permissionMode: "bypassPermissions",
     });
     const fresh = await this.spawnFn(opts);
