@@ -99,5 +99,12 @@
   "runLog": "../../../RUN_LOG.md",
   "runSpec": "RUN_SPEC.md",
   "flowPlan": "FLOW_PLAN.md",
-  "landing": "LANDING.md"
+  "landing": "LANDING.md",
+  "report": {
+    "status": "not-sent",
+    "reason": "no AUTOTHING_SLACK_WEBHOOK_URL configured",
+    "artifactsUrl": "http://100.88.165.46:8091/20260710-171608-7bf26feb/",
+    "galleryUrl": "http://100.88.165.46:8099/",
+    "at": "2026-07-11T05:15:32Z"
+  }
 }
