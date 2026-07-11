@@ -45,6 +45,7 @@ import {
   processCard,
   processChain,
   processBatch,
+  recoverInterruptedRuns,
   triggerFor,
   isInteractive,
   withEvent,
@@ -1933,6 +1934,17 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(here, "..", "dist");
   assertStatusSlotFree();
   const liveOpts = { ...opts };
+
+  // Recover cards stranded "running" by a mid-run restart — their dispatch died
+  // with the previous process, so nothing will ever finish or revert them.
+  try {
+    const recovered = await recoverInterruptedRuns(liveOpts.root);
+    if (recovered.length) {
+      console.log(`[kanban-loop] recovered ${recovered.length} interrupted run(s): ${recovered.join(", ")}`);
+    }
+  } catch (err) {
+    console.error("[kanban-loop] interrupted-run recovery failed:", err?.message || err);
+  }
 
   const server = http.createServer(makeRequestHandler(liveOpts, distDir));
   server.once("error", (err) => {

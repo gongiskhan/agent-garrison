@@ -68,6 +68,16 @@ export function spawnClaudePty(command, argv, opts = {}) {
   });
 
   let disposed = false;
+  // Track the child's real lifecycle. node-pty keeps `pty.pid` set after the
+  // process exits, so "pid !== undefined" is NOT a liveness signal — a claude
+  // that bailed at startup (e.g. `--resume` of a session this machine doesn't
+  // have) would read as alive forever and every turn would type into a corpse.
+  let exited = false;
+  let exitCode = null;
+  pty.onExit(({ exitCode: code }) => {
+    exited = true;
+    exitCode = typeof code === "number" ? code : 0;
+  });
   return {
     pty,
     term,
@@ -107,7 +117,10 @@ export function spawnClaudePty(command, argv, opts = {}) {
       pty.write(bytes);
     },
     isAlive() {
-      return !disposed && pty.pid !== undefined;
+      return !disposed && !exited && pty.pid !== undefined;
+    },
+    exitCode() {
+      return exitCode;
     },
     dispose() {
       if (disposed) return;

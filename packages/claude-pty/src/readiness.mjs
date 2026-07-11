@@ -38,6 +38,14 @@ export class AuthTrapError extends Error {
   }
 }
 
+export class StartupExitError extends Error {
+  constructor(excerpt) {
+    super(`Claude exited during startup:\n${excerpt}`);
+    this.name = "StartupExitError";
+    this.excerpt = excerpt;
+  }
+}
+
 /**
  * Wait until the spawned session is ready for its first prompt. Resolves with
  * the JSONL transcript path if it was discovered (else null — the caller falls
@@ -64,6 +72,16 @@ export async function waitForSessionReady(handle, opts) {
       if (AUTH_TRAP_PATTERNS.some((p) => p.test(clean))) {
         clearInterval(check);
         reject(new AuthTrapError(clean.slice(-300)));
+        return;
+      }
+
+      // The child died before ever becoming ready (e.g. `--resume <id>` for a
+      // session this machine doesn't have prints "No conversation found with
+      // session ID: …" and exits). Resolving on the timeout path here would
+      // hand the caller a corpse that reads as a ready session.
+      if (typeof handle.isAlive === "function" && !handle.isAlive()) {
+        clearInterval(check);
+        reject(new StartupExitError(clean.slice(-300)));
         return;
       }
 

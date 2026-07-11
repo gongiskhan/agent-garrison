@@ -280,6 +280,16 @@ export function turnStarted(handle) {
   return lines.some((l) => BUSY_MARKER.test(l) || SPINNER_DONE.test(l) || ASSISTANT_MARKER.test(l));
 }
 
+// The TUI accepted a submission but QUEUED it (a turn was still active, or the
+// editor was mid-state): it renders a "Press up to edit queued messages" hint.
+// A queued message runs when the TUI frees — it IS registered; resending it
+// would stack duplicate turns.
+const QUEUED_MARKER = /press up to edit queued messages|\d+\s+queued message/i;
+
+export function hasQueuedMessages(handle) {
+  return captureLines(handle).some((l) => QUEUED_MARKER.test(l));
+}
+
 /**
  * Wait for a turn to complete, reading the screen only.
  *

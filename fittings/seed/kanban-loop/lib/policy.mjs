@@ -156,18 +156,30 @@ export function gateKeyForPhase(phase) {
   return GATE_KEYS[phase] || phase;
 }
 
-function gateStatusFiles(cwd, runDir) {
+function gateStatusFiles(cwd, runDir, phase = null) {
   const out = [];
   try {
     const base = path.resolve(cwd || process.cwd(), runDir);
     const runLevel = path.join(base, "gate-status.json");
     if (existsSync(runLevel)) out.push(runLevel);
+    // Per-phase sidecar (gate-status.<phase>.json) — the shape an operative
+    // naturally writes when told "write this phase's gate-status entry" and no
+    // bound skill dictates the run-level layout. Its existence with parseable
+    // JSON is direct evidence the gate ran.
+    if (phase) {
+      const sidecar = path.join(base, `gate-status.${phase}.json`);
+      if (existsSync(sidecar)) out.push(sidecar);
+    }
     const slicesDir = path.join(base, "slices");
     if (existsSync(slicesDir)) {
       for (const entry of readdirSync(slicesDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const f = path.join(slicesDir, entry.name, "gate-status.json");
         if (existsSync(f)) out.push(f);
+        if (phase) {
+          const sf = path.join(slicesDir, entry.name, `gate-status.${phase}.json`);
+          if (existsSync(sf)) out.push(sf);
+        }
       }
     }
   } catch {
@@ -180,14 +192,21 @@ function gateStatusFiles(cwd, runDir) {
 // phase (any status — a FAILED entry is evidence too; the loop-back verdict
 // still transitions with proof the gate actually ran). Read-only, best-effort:
 // unreadable files count as no evidence.
+//
+// Key spelling is NOT part of the contract: the garrison-* skills write the
+// camelCase gate key (adversarialReview), while an unbound operative writes
+// the phase id as-is (adversarial-review) — both name the same gate, so both
+// count. Single-word phases (plan/implement/review) are identical either way.
 export function hasPhaseGateEvidence(cwd, runDir, phase) {
   if (!runDir || !phase) return false;
-  const key = gateKeyForPhase(phase);
-  for (const file of gateStatusFiles(cwd, runDir)) {
+  const keys = new Set([gateKeyForPhase(phase), phase]);
+  for (const file of gateStatusFiles(cwd, runDir, phase)) {
     try {
       const doc = JSON.parse(readFileSync(file, "utf8"));
+      // A parseable per-phase sidecar IS the phase's entry.
+      if (file.endsWith(`gate-status.${phase}.json`)) return true;
       const gates = doc?.gates && typeof doc.gates === "object" ? doc.gates : null;
-      if (gates && Object.prototype.hasOwnProperty.call(gates, key)) return true;
+      if (gates && [...keys].some((k) => Object.prototype.hasOwnProperty.call(gates, k))) return true;
       const phases = doc?.phases && typeof doc.phases === "object" ? doc.phases : null;
       if (phases && Object.prototype.hasOwnProperty.call(phases, phase)) return true;
     } catch {

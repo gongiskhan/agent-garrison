@@ -376,3 +376,74 @@ describe("claude-pty: warm pool", () => {
     expect(sessions.some((s) => s.disposed)).toBe(true);
   });
 });
+
+describe("claude-pty: liveness after child exit", () => {
+  function fakePtyImpl() {
+    const dataHandlers: Array<(d: string) => void> = [];
+    const exitHandlers: Array<(ev: { exitCode: number }) => void> = [];
+    const pty = {
+      pid: 4242,
+      onData(h: (d: string) => void) { dataHandlers.push(h); return { dispose() {} }; },
+      onExit(h: (ev: { exitCode: number }) => void) { exitHandlers.push(h); return { dispose() {} }; },
+      write(_d: string) {},
+      resize(_c: number, _r: number) {},
+      kill() {},
+      emitData(d: string) { for (const h of dataHandlers.slice()) h(d); },
+      emitExit(code: number) { for (const h of exitHandlers.slice()) h({ exitCode: code }); },
+    };
+    return { impl: () => pty, pty };
+  }
+
+  it("spawnClaudePty handle reports dead after the child exits", async () => {
+    const { spawnClaudePty } = await import(PKG);
+    const { impl, pty } = fakePtyImpl();
+    const handle = spawnClaudePty("claude", [], { spawnImpl: impl, cwd: os.tmpdir() });
+    expect(handle.isAlive()).toBe(true);
+    pty.emitExit(0);
+    expect(handle.isAlive()).toBe(false);
+    expect(handle.exitCode()).toBe(0);
+  });
+
+  it("waitForSessionReady rejects with StartupExitError when the child dies during startup", async () => {
+    const { spawnClaudePty, waitForSessionReady, StartupExitError } = await import(PKG);
+    const { impl, pty } = fakePtyImpl();
+    const handle = spawnClaudePty("claude", [], { spawnImpl: impl, cwd: os.tmpdir() });
+    pty.emitData("No conversation found with session ID: dead-beef\r\n");
+    const ready = waitForSessionReady(handle, {
+      projectDir: os.tmpdir(),
+      knownFiles: new Set<string>(),
+      timeoutMs: 5000,
+      pollMs: 20,
+    });
+    setTimeout(() => pty.emitExit(0), 30);
+    await expect(ready).rejects.toBeInstanceOf(StartupExitError);
+    await expect(ready).rejects.toThrow(/no conversation found/i);
+  });
+
+  it("runTurn fails fast on a dead handle instead of retrying for 30s", async () => {
+    const { OperativePtySession } = await import(PKG);
+    const deadHandle = {
+      isAlive: () => false,
+      exitCode: () => 0,
+      async sendInput(_t: string) {},
+      writeRaw(_b: string) {},
+    };
+    const session = new OperativePtySession({
+      handle: deadHandle,
+      compositionDir: os.tmpdir(),
+      claudeSessionId: "x",
+    });
+    const started = Date.now();
+    await expect(session.runTurn({ message: "hello" })).rejects.toThrow(/claude process exited/i);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+});
+
+describe("claude-pty: queued-message detection", () => {
+  it("hasQueuedMessages detects the TUI's queued hint", async () => {
+    const { hasQueuedMessages } = await import(PKG);
+    expect(hasQueuedMessages(fakeHandle(["❯ Press up to edit queued messages"]))).toBe(true);
+    expect(hasQueuedMessages(fakeHandle(["2 queued messages"]))).toBe(true);
+    expect(hasQueuedMessages(fakeHandle(["❯ ", "  default | main | 8%"]))).toBe(false);
+  });
+});

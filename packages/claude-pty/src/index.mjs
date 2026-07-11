@@ -25,7 +25,7 @@ export {
   findNewestJsonl,
   isCommandMessage,
 } from "./detection.mjs";
-export { waitForSessionReady, AuthTrapError } from "./readiness.mjs";
+export { waitForSessionReady, AuthTrapError, StartupExitError } from "./readiness.mjs";
 export { preTrustCwd } from "./trust.mjs";
 export {
   captureLines,
@@ -37,6 +37,7 @@ export {
   isWorking,
   isPromptReady,
   turnStarted,
+  hasQueuedMessages,
   waitForTurnComplete,
 } from "./screen.mjs";
 export {

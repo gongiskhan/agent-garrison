@@ -228,6 +228,9 @@ async function bootOrchestrator() {
       logEvent("stdout", { kind: "orchestrator-exit", code });
       state.status = code === 0 ? "completed" : "killed";
       registry.resolveWaiters(sessionUuid);
+      // Drop the handle so the next inbound turn reboots the orchestrator
+      // instead of queueing into a dead adapter forever.
+      if (orchestratorChild === state.child) orchestratorChild = null;
     }
   });
   state.status = "running";
@@ -236,6 +239,21 @@ async function bootOrchestrator() {
   await persistOrchestratorSessionId(sessionUuid);
   logEvent("stdout", { kind: "orchestrator-booted", session_id: sessionUuid, resume });
   return state;
+}
+
+// Reboot-on-demand: the orchestrator child can die (resume wedge, crash,
+// /exit) — any inbound turn first makes sure a live adapter exists. Single
+// boot at a time; concurrent turns await the same boot.
+let orchestratorBooting = null;
+async function ensureOrchestrator() {
+  if (orchestratorChild && !orchestratorChild.dead && !orchestratorChild.killed) return;
+  if (!orchestratorBooting) {
+    logEvent("stdout", { kind: "orchestrator-reboot", reason: orchestratorChild ? "dead" : "absent" });
+    orchestratorBooting = bootOrchestrator().finally(() => {
+      orchestratorBooting = null;
+    });
+  }
+  await orchestratorBooting;
 }
 
 function handleOrchestratorEvent(state, ev) {
@@ -458,6 +476,7 @@ function killSessionBySoul(soul) {
 const modeByChannel = new Map();
 
 async function forwardChatToOrchestrator({ origin, channel, message, body }) {
+  await ensureOrchestrator();
   if (!orchestratorChild || !orchestratorSessionId) {
     throw new Error("orchestrator not booted");
   }
@@ -519,9 +538,23 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
   const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending, routeHint });
   const orchState = registry.get(orchestratorSessionId);
   if (orchState) orchState.lastSummary = null;
-  writeUserTurn(orchestratorChild, turn);
-  // Caller may wait for result; otherwise fire-and-forget.
-  return orchState ? registry.addWaiter(orchestratorSessionId) : null;
+  // Honor an explicit per-turn timeout (the Kanban Loop sends a generous one:
+  // a real garrison-* phase turn runs far longer than the PTY's 5-min default).
+  const timeoutMs =
+    typeof body?.timeoutMs === "number" && Number.isFinite(body.timeoutMs) && body.timeoutMs > 0
+      ? body.timeoutMs
+      : undefined;
+  const turnPromise = writeUserTurn(orchestratorChild, turn, { timeoutMs });
+  if (!turnPromise) {
+    // The adapter died between ensureOrchestrator and the write — fail the
+    // request instead of handing back a waiter that can never resolve.
+    throw new Error("orchestrator is not accepting turns (operative process died)");
+  }
+  // PER-TURN correlation: resolve with THIS turn's own reply. The registry's
+  // session-scoped waiters cross replies whenever two turns are in flight
+  // (the Kanban tick dispatches several cards concurrently) — one card would
+  // receive another card's verdict.
+  return Promise.resolve(turnPromise).then((text) => ({ status: "completed", summary: text ?? "" }));
 }
 
 // ────────────────────────────────────────────────────────────── HTTP server
@@ -733,6 +766,13 @@ async function main() {
   soulsConfig = await loadSoulsConfig();
   await loadRoutingForSouls();
   mcpConfigPath = await writeSharedMcpConfig();
+  // Node's http.Server defaults requestTimeout to 5 min — that would abort a
+  // long /chat turn (a real Kanban garrison-* phase runs far longer) at the
+  // socket layer regardless of the caller's per-turn timeout. Long turns are
+  // governed by the turn/waiter lifecycle, not the HTTP server.
+  server.requestTimeout = 0;
+  server.headersTimeout = 0;
+  server.timeout = 0;
   server.listen(PORT, HOST, async () => {
     logEvent("stdout", {
       kind: "listening",
@@ -741,8 +781,10 @@ async function main() {
       mode: "orchestrator",
       composition_dir: COMPOSITION_DIR
     });
-    // Boot orchestrator after server is listening so /health works while it spins up.
-    try { await bootOrchestrator(); } catch (err) {
+    // Boot orchestrator after server is listening so /health works while it
+    // spins up. ensureOrchestrator so an early /chat shares this boot instead
+    // of racing a second one.
+    try { await ensureOrchestrator(); } catch (err) {
       logEvent("stderr", { kind: "orchestrator-boot-failed", error: err.message });
     }
   });

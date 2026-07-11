@@ -23,7 +23,7 @@
 // batching preserved as list mechanics (batched + its own beat).
 import path from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog, loadAllCards, loadCard } from "./board.mjs";
+import { saveCard, saveCardCAS, appendCardLog, writeCardLog, loadAllCards, loadCard, updateCardCAS } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -978,6 +978,41 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
 // for a Start press or the next scheduler tick. Stops when it lands on a manual /
 // interactive / scheduler-beat list, parks, or hits a safety guard. onChunk is passed
 // through to each turn's live log. The chain is fire-and-forget from the caller.
+// A card acquired as status:"running" whose dispatch died WITH this process
+// (server restart / crash mid-processChain) has nobody left to finish or revert
+// it — it would sit "running" forever: timer counting up, Run button hidden,
+// Watch tailing a log that will never grow. Swept at board-server boot: clear
+// the running state, KEEP the consumed iteration (a dispatch really happened),
+// and mark a retryable dispatch error so the UI offers Retry.
+export async function recoverInterruptedRuns(root, now = () => new Date().toISOString()) {
+  const cards = await loadAllCards(root);
+  const recovered = [];
+  for (const card of cards) {
+    if (card.status !== "running") continue;
+    const res = await updateCardCAS(root, card.id, (c) => {
+      if (c.status !== "running") return null; // raced: someone else already cleared it
+      return {
+        ...c,
+        status: "ok",
+        runningSince: null,
+        lastDispatchError: {
+          at: now(),
+          reason: "interrupted",
+          listId: c.list,
+          message: "The board server restarted while this run was in flight; the dispatch was lost. Run again to retry."
+        },
+        events: withEvent(c, {
+          at: now(),
+          kind: "recovered",
+          message: "Run interrupted by a board restart — cleared the stale running state (Run to retry)"
+        })
+      };
+    });
+    if (res) recovered.push(card.id);
+  }
+  return recovered;
+}
+
 export async function processChain({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd() }) {
   let current = card;
   let lastOutcome = { status: "skipped", reason: "noop" };

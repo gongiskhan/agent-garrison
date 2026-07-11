@@ -156,6 +156,31 @@ describe("durable gate evidence (D9)", () => {
     expect(hasPhaseGateEvidence(tmp, "missing", "test")).toBe(false);
   });
 
+  it("accepts the RAW phase id as a gates{} key (an unbound operative writes the phase name, not camelCase)", () => {
+    const runDir = path.join(tmp, "run-kebab");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(
+      path.join(runDir, "gate-status.json"),
+      JSON.stringify({ gates: { "adversarial-review": { status: "passed", verdict: "approve" } } })
+    );
+    expect(hasPhaseGateEvidence(tmp, "run-kebab", "adversarial-review")).toBe(true);
+    expect(hasPhaseGateEvidence(tmp, "run-kebab", "adversarial-test")).toBe(false);
+  });
+
+  it("accepts a per-phase sidecar file (gate-status.<phase>.json) as the phase's entry", () => {
+    const runDir = path.join(tmp, "run-sidecar");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(
+      path.join(runDir, "gate-status.adversarial-test.json"),
+      JSON.stringify({ phase: "adversarial-test", status: "complete", verdict: "pass" })
+    );
+    expect(hasPhaseGateEvidence(tmp, "run-sidecar", "adversarial-test")).toBe(true);
+    expect(hasPhaseGateEvidence(tmp, "run-sidecar", "walkthrough")).toBe(false);
+    // corrupt sidecar is NOT evidence
+    writeFileSync(path.join(runDir, "gate-status.walkthrough.json"), "{nope");
+    expect(hasPhaseGateEvidence(tmp, "run-sidecar", "walkthrough")).toBe(false);
+  });
+
   it("a verdict WITHOUT the phase's gate evidence parks the card in needs-attention", async () => {
     const board = seedBoard();
     const card = await makeCard(tmp, { list: "review", tier: "T1-standard" });

@@ -27,6 +27,7 @@ import {
   extractReply,
   parseStatus,
   captureLines,
+  hasQueuedMessages,
 } from "./screen.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -196,6 +197,11 @@ export class OperativePtySession {
 
     const registered = await this.#submitAndConfirm(req.message, req.settleMs);
     if (!registered) {
+      if (!this.handle.isAlive()) {
+        throw new Error(
+          `OperativePtySession: claude process exited (code ${this.handle.exitCode?.() ?? "unknown"}); cannot run a turn.`
+        );
+      }
       throw new Error("OperativePtySession: message never registered (claude did not accept input).");
     }
 
@@ -234,10 +240,17 @@ export class OperativePtySession {
     const deadline = Date.now() + 30_000;
     let first = true;
     while (Date.now() < deadline && !this.disposed) {
+      // A dead child never accepts input — bail immediately instead of
+      // clear+resend-looping against a frozen screen for the full deadline.
+      if (!this.handle.isAlive()) return false;
       if (!first) this.handle.writeRaw("\x15"); // Ctrl-U clear before resend
       first = false;
       await this.handle.sendInput(message, settleMs);
       if (await this.#waitTurnStarted(4000)) return true;
+      // Submission accepted but QUEUED (the TUI was still busy with something).
+      // The queued message runs when the TUI frees — it IS registered, and a
+      // resend would stack a duplicate turn on the queue.
+      if (hasQueuedMessages(this.handle)) return true;
     }
     return false;
   }
