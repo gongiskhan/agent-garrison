@@ -223,3 +223,11 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### GATE 2026-07-11T22:11:43Z — S7 CLOSED: passed · S8 CLOSED: passed · ALL 8 SLICES PASSED
 - S7: codex JSON-null crash fixed+re-verified; review medium (create-on-miss GET) fixed read-only; advtest pass. S8: committed gated live smoke (run live: PASSED); marker constant shared; refusal loudness fixed. Batched API advtest: 4/4 surfaces, 23/23. Run-level: deliberate-red ✓, mutation 8/8 ✓, isolated build ✓.
+
+### GATE 2026-07-11T22:18:32Z — FINAL PHASE COMPLETE
+- built-in security-review: CLEAN (completed by direct read of every security-critical surface — the identification sub-task hung on this session's agent-notification anomaly; documented). codex checkpoint: CLEAN (gpt-5.5 high, run-level over file/log I/O + server guards, 0 findings).
+- Final acceptance: tsc 0, lint 0, full vitest 1972 passed/0 failed/13 skipped, isolated production build green.
+- globalGate: PASSED (buildable-remaining 0, videos 2/2, gates-disabled none, model-fallbacks 0).
+
+### RUN-END 2026-07-11T22:18:32Z
+- GARRISON-RUNTIMES-V1: 8/8 slices passed, full-bar. Verdict printed to transcript.

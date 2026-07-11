@@ -115,7 +115,24 @@
   }
  },
  "globalGate": {
-  "status": "in-progress"
+  "status": "passed",
+  "decidedAt": "2026-07-11T22:18:32Z",
+  "profile": "build",
+  "buildableRemaining": 0,
+  "videos": "2/2 verified",
+  "gatesDisabled": "none",
+  "modelFallbacks": 0,
+  "securityReview": "clean (built-in, direct-read; identification sub-task hung \u2014 session agent-notification anomaly)",
+  "codexCheckpoint": "clean (gpt-5.5 high, run-level, 0 findings)",
+  "runLevel": {
+   "deliberateRed": "passed",
+   "mutation": "8/8 killed",
+   "batchedApiAdvtest": "pass 23/23",
+   "build": "passed (isolated)"
+  },
+  "summary": "All 8 slices passed full-bar. Runtime agnosticism shipped: claude-code-runtime Fitting + providers-as-policy + selectable primaryRuntime + descriptor-driven Quarters, with the Claude Code deep surface unchanged. tsc 0, lint 0, 1972 tests pass, both run-level security passes clean.",
+  "landing": "LANDING.md",
+  "runLog": "../../RUN_LOG.md"
  },
  "runLog": "../../RUN_LOG.md",
  "runSpec": "RUN_SPEC.md",
