@@ -1,0 +1,57 @@
+{
+  "slice": "S8",
+  "mode": "evidence",
+  "project": "agent-garrison",
+  "folder": "flow-v2/s8-improver-probe",
+  "title": "S8 - Improver Probe: tappable AskUserQuestion in the chat",
+  "video": "final.mp4",
+  "duration": 17.933,
+  "flagged": false,
+  "verifiedAt": "2026-07-11T01:50:25.770Z",
+  "beats": [
+    {
+      "beat": "ac1",
+      "criterionId": "AC1",
+      "caption": "AC1 - The probe renders tappable option buttons",
+      "expectedScreen": "the 'Did that go well?' question block with tappable option buttons in the chat",
+      "timestamp": 1.999,
+      "frame": "frames/beat-00-ac1.png",
+      "assert": {
+        "selector": "button:Went well",
+        "highlight": true
+      },
+      "result": "pass",
+      "visionVerified": true
+    },
+    {
+      "beat": "ac2",
+      "criterionId": "AC2",
+      "caption": "AC2 - Tapping an option locks the buttons and posts the choice",
+      "expectedScreen": "the chosen option 'Went well' highlighted and disabled, shown as the user's message",
+      "timestamp": 7.586,
+      "frame": "frames/beat-01-ac2.png",
+      "assert": {
+        "selector": ".cc-question-opt-chosen",
+        "text": "Went well",
+        "enabled": false,
+        "highlight": true
+      },
+      "result": "pass",
+      "visionVerified": true
+    },
+    {
+      "beat": "ac3",
+      "criterionId": "AC3",
+      "caption": "AC3 - The Other affordance reveals a free-text input",
+      "expectedScreen": "a free-text input with placeholder 'Type your answer' revealed after tapping Other",
+      "timestamp": 13.37,
+      "frame": "frames/beat-02-ac3.png",
+      "assert": {
+        "selector": "placeholder:Type your answer",
+        "highlight": true
+      },
+      "result": "pass",
+      "visionVerified": true
+    }
+  ]
+}

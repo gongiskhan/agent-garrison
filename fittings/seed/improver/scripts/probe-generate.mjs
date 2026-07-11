@@ -91,18 +91,20 @@ function main() {
     return 0;
   }
   const sessionId = payload.session_id || payload.sessionId || null;
+  if (!sessionId) return 0; // no session id → cannot key a pending or attribute a probe
   const stopActive = payload.stop_hook_active === true;
   const transcriptPath = payload.transcript_path || payload.transcriptPath || null;
 
-  // 1) sweep a stale pending → dismissed records, then pass through this Stop.
-  const sweep = store.sweepStalePending({ now });
+  // 1) sweep THIS session's stale pending → dismissed records, then pass through
+  //    (F1: never another session's — a background/pool Stop must not dismiss an
+  //    attended session's still-open question).
+  const sweep = store.sweepStalePending({ now, sessionId });
   if (sweep.swept) return 0;
-  // 2) a FRESH pending means we already asked this session — stay silent.
+  // 2) a FRESH pending means we already asked THIS session — stay silent.
   if (sweep.fresh) return 0;
 
   // 3) gates (fail-closed).
   if (stopActive) return 0; // loop guard: we are inside a block-driven continuation
-  if (!sessionId) return 0;
   if (store.isMutedToday(now)) return 0;
   if (hasGoalSentinel(sessionId, store.goalSentinelPaths(sessionId))) return 0; // goal loop owns this stop
   if (!isAttended(sessionId, store.readSessionsState())) return 0; // A10: attended only
@@ -130,6 +132,16 @@ function main() {
   const cards = store.collectCards();
 
   // 5) retrospective once/day at the first attended boundary (D25).
+  //
+  // F3 — why a multi-question retrospective is safe here: the retrospective emits
+  // up to 4 questions in ONE AskUserQuestion call, and one record per answered
+  // question depends on the capture reading EVERY answer. The PostToolUse capture
+  // (probe-capture.mjs) reads the whole tool_response.answers map, so it records
+  // all of them. The only surface that can TRIGGER a probe at all is an ATTENDED
+  // session (A10: dev-env-opened / native TUI), and that surface always runs the
+  // PostToolUse hook. The web-channel answer path handles only the first question,
+  // but the web channel is never attended-tagged, so it never reaches this code —
+  // D25 holds on the only surface that can fire it.
   let mode = "probe";
   let questions;
   if (!store.hasRetroFlagToday(now)) {

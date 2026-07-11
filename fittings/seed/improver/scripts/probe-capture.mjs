@@ -42,9 +42,11 @@ function main() {
   const answers = payload.tool_response?.answers || payload.tool_input?.answers || null;
   if (!answers || typeof answers !== "object") return 0;
 
-  const pending = store.readPending();
+  // Per-session pending (F1): read THIS session's file directly. A capture with no
+  // session_id cannot key a pending, so it no-ops.
+  if (!sessionId) return 0;
+  const pending = store.readPending(sessionId);
   if (!pending || !Array.isArray(pending.questions) || !pending.questions.length) return 0;
-  if (sessionId && pending.session_id && pending.session_id !== sessionId) return 0; // different session's probe
 
   const { answered, unanswered } = matchAnswers(pending, answers);
   if (!answered.length) return 0; // unrelated AskUserQuestion — leave pending for the sweeper
@@ -80,7 +82,7 @@ function main() {
       })
     );
   }
-  store.clearPending();
+  store.clearPending(pending.session_id);
   return 0;
 }
 

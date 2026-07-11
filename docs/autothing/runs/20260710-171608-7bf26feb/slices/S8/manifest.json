@@ -1,0 +1,46 @@
+{
+  "project": "agent-garrison",
+  "folder": "flow-v2/s8-improver-probe",
+  "title": "S8 - Improver Probe: tappable AskUserQuestion in the chat",
+  "createdAt": "2026-07-11T01:49:03.607Z",
+  "video": {
+    "width": 402,
+    "height": 844,
+    "fps": 30
+  },
+  "duration": 17.933,
+  "calibrationMs": 0,
+  "flagged": false,
+  "beats": [
+    {
+      "id": "ac1",
+      "segId": "clip-0-s8.mp4",
+      "caption": "AC1 - The probe renders tappable option buttons",
+      "expectedScreen": "the 'Did that go well?' question block with tappable option buttons in the chat",
+      "expectFailure": false,
+      "tStart": 0.599,
+      "tMid": 1.999,
+      "tEnd": 6.186
+    },
+    {
+      "id": "ac2",
+      "segId": "clip-0-s8.mp4",
+      "caption": "AC2 - Tapping an option locks the buttons and posts the choice",
+      "expectedScreen": "the chosen option 'Went well' highlighted and disabled, shown as the user's message",
+      "expectFailure": false,
+      "tStart": 6.186,
+      "tMid": 7.586,
+      "tEnd": 11.97
+    },
+    {
+      "id": "ac3",
+      "segId": "clip-0-s8.mp4",
+      "caption": "AC3 - The Other affordance reveals a free-text input",
+      "expectedScreen": "a free-text input with placeholder 'Type your answer' revealed after tapping Other",
+      "expectFailure": false,
+      "tStart": 11.97,
+      "tMid": 13.37,
+      "tEnd": 17.933
+    }
+  ]
+}

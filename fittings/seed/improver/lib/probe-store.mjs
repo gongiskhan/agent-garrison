@@ -36,8 +36,17 @@ export function queuePath() {
   return path.join(garrisonHome(), "improver", "feedback-queue.jsonl");
 }
 
-export function pendingPath() {
-  return path.join(dataDir(), "probe-pending.json");
+// Pending is keyed PER SESSION (F1). A single global pending file would let ANY
+// session's Stop (a background/pool session firing at T+91s) sweep an attended
+// session's still-open question as dismissed and drop the real answer. With a
+// per-session file a session only ever sweeps ITS OWN pending — which cannot be
+// stale while that session's own AskUserQuestion tool blocks its turn.
+function sanitizeSession(sessionId) {
+  return String(sessionId || "unknown").replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+export function pendingPath(sessionId) {
+  return path.join(dataDir(), `probe-pending-${sanitizeSession(sessionId)}.json`);
 }
 
 export function muteFlagPath(now) {
@@ -158,9 +167,9 @@ export function touchRetroFlag(now) {
   writeFileSync(retroFlagPath(now), new Date(now || Date.now()).toISOString(), "utf8");
 }
 
-// ── Pending lifecycle ────────────────────────────────────────────────────────
-export function readPending() {
-  const p = pendingPath();
+// ── Pending lifecycle (per-session, F1) ──────────────────────────────────────
+export function readPending(sessionId) {
+  const p = pendingPath(sessionId);
   if (!existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
@@ -169,16 +178,17 @@ export function readPending() {
   }
 }
 
+// The pending carries its own session_id, so the file key is derived from it.
 export function writePending(pending) {
   mkdirSync(dataDir(), { recursive: true });
-  const p = pendingPath();
+  const p = pendingPath(pending?.session_id);
   const tmp = `${p}.tmp-${process.pid}`;
   writeFileSync(tmp, JSON.stringify(pending, null, 2), "utf8");
   renameSync(tmp, p);
 }
 
-export function clearPending() {
-  const p = pendingPath();
+export function clearPending(sessionId) {
+  const p = pendingPath(sessionId);
   if (!existsSync(p)) return;
   try {
     rmSync(p, { force: true });
@@ -203,12 +213,16 @@ export function appendFeedbackSync(record, file = queuePath()) {
 }
 
 // ── Stale-pending sweep (D26 dismissed) ──────────────────────────────────────
-// A pending older than maxAgeMs (default 90s) means the AskUserQuestion was
-// dismissed / timed out (Escape yields no PostToolUse capture). Write ONE explicit
-// dismissed record per unanswered question so Escape is distinguishable from an
-// answer, then clear the pending. Returns the dismissed records (for logging/tests).
-export function sweepStalePending({ now, maxAgeMs = 90_000 } = {}) {
-  const pending = readPending();
+// Sweeps ONLY the given session's pending (F1). A pending older than maxAgeMs
+// (default 90s) means the AskUserQuestion was dismissed / timed out (Escape
+// yields no PostToolUse capture). Write ONE explicit dismissed record per
+// unanswered question so Escape is distinguishable from an answer, then clear the
+// pending. Returns the dismissed records (for logging/tests). Because a session's
+// own turn is BLOCKED inside its AskUserQuestion while the question is open, a
+// session never sweeps a question it is still waiting on — only its OWN pending
+// that the operator has already dismissed/moved past.
+export function sweepStalePending({ now, sessionId, maxAgeMs = 90_000 } = {}) {
+  const pending = readPending(sessionId);
   if (!pending || !pending.askedAt) return { swept: false, records: [] };
   const age = Date.parse(now || new Date().toISOString()) - Date.parse(pending.askedAt);
   if (!(age >= maxAgeMs)) return { swept: false, records: [], fresh: true };
@@ -228,7 +242,7 @@ export function sweepStalePending({ now, maxAgeMs = 90_000 } = {}) {
     appendFeedbackSync(rec);
     records.push(rec);
   }
-  clearPending();
+  clearPending(pending.session_id);
   return { swept: true, records };
 }
 

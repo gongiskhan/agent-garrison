@@ -29,16 +29,17 @@ export function jsonlFileSize(path) {
  */
 export function readJsonlFrom(filePath, offset) {
   if (!existsSync(filePath)) return { events: [], newOffset: offset };
+  // fd is closed in `finally` so a throw AFTER openSync (fstatSync / Buffer.alloc /
+  // readSync on e.g. a directory or a racing truncation) never leaks it — the
+  // 400ms AskUserQuestion watcher calls this on every tick, so a leak would
+  // exhaust fds fast.
+  let fd;
   try {
-    const fd = openSync(filePath, "r");
+    fd = openSync(filePath, "r");
     const size = fstatSync(fd).size;
-    if (size <= offset) {
-      closeSync(fd);
-      return { events: [], newOffset: offset };
-    }
+    if (size <= offset) return { events: [], newOffset: offset };
     const buf = Buffer.alloc(size - offset);
     readSync(fd, buf, 0, size - offset, offset);
-    closeSync(fd);
     const raw = buf.toString("utf8");
     // Only consume up to the last newline so a partial trailing record
     // (mid-write) is re-read next poll rather than dropped.
@@ -57,6 +58,14 @@ export function readJsonlFrom(filePath, offset) {
     return { events, newOffset };
   } catch {
     return { events: [], newOffset: offset };
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // already closed / invalid fd — nothing to release
+      }
+    }
   }
 }
 

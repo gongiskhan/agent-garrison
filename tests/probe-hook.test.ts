@@ -51,8 +51,11 @@ function readQueue(): any[] {
   if (!existsSync(f)) return [];
   return readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 }
-function readPending(): any | null {
-  const f = path.join(sb, "garrison", "improver", "probe-pending.json");
+function pendingFile(session = "attended-1"): string {
+  return path.join(sb, "garrison", "improver", `probe-pending-${session}.json`);
+}
+function readPending(session = "attended-1"): any | null {
+  const f = pendingFile(session);
   if (!existsSync(f)) return null;
   try {
     return JSON.parse(readFileSync(f, "utf8"));
@@ -186,7 +189,7 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
         { area: "orchestrator", question: "Q2?", options: ["a", "b"], classification: { kind: "docs-change", tier: null, plan: "implement-only-text" }, card_id: "c2" },
       ],
     };
-    writeFileSync(path.join(sb, "garrison", "improver", "probe-pending.json"), JSON.stringify(pending));
+    writeFileSync(pendingFile("attended-1"), JSON.stringify(pending));
     runCap({ session_id: "attended-1", tool_name: "AskUserQuestion", tool_response: { answers: { "operative's own question?": "whatever" } } });
     expect(readQueue()).toHaveLength(0);
     expect(readPending()).not.toBeNull(); // left for the sweeper
@@ -203,7 +206,7 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
         { area: "orchestrator", question: "Q2?", options: ["a", "b"], classification: { kind: "docs-change", tier: null, plan: "implement-only-text" }, card_id: "c2" },
       ],
     };
-    writeFileSync(path.join(sb, "garrison", "improver", "probe-pending.json"), JSON.stringify(pending));
+    writeFileSync(pendingFile("attended-1"), JSON.stringify(pending));
     runCap({ session_id: "attended-1", tool_name: "AskUserQuestion", tool_response: { answers: { "Q1?": "Should have run less" } } });
     const recs = readQueue();
     expect(recs).toHaveLength(2);
@@ -218,7 +221,7 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
   it("a stale pending (>90s) is swept into an explicit dismissed record on the next Stop", () => {
     const pending = seedProbe();
     pending.askedAt = "2026-07-11T11:58:00.000Z"; // 2 min old
-    writeFileSync(path.join(sb, "garrison", "improver", "probe-pending.json"), JSON.stringify(pending));
+    writeFileSync(pendingFile("attended-1"), JSON.stringify(pending));
     const t = writeTranscript(true);
     const out = runGen({ session_id: "attended-1", stop_hook_active: false, transcript_path: t });
     expect(out).toBe(""); // pass through, no re-ask
@@ -226,6 +229,61 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
     expect(recs).toHaveLength(1);
     expect(recs[0].answer).toBe("dismissed");
     expect(readPending()).toBeNull();
+  });
+});
+
+describe("probe — per-session pending isolation (F1)", () => {
+  // Two attended sessions coexist on the shared machine.
+  function twoAttended() {
+    writeSessions(path.join(sb, "garrison"), {
+      "sess-A": { claudeSessionId: "sess-A", source: "dev-env-open", openedInDevEnv: true },
+      "sess-B": { claudeSessionId: "sess-B", source: "dev-env-open", openedInDevEnv: true },
+    });
+  }
+
+  it("session B's Stop does NOT sweep session A's (even stale) pending", () => {
+    twoAttended();
+    // A has an OPEN, already-stale pending (its user has not answered yet).
+    const aPending = {
+      id: "p-A",
+      session_id: "sess-A",
+      mode: "probe",
+      askedAt: "2026-07-11T11:58:00.000Z", // 2 min old — would be swept if a foreign stop could
+      questions: [{ area: "went-well", question: "How did A go?", options: ["ok"], classification: { kind: "code", tier: "T1-standard", plan: null }, card_id: null }],
+    };
+    writeFileSync(pendingFile("sess-A"), JSON.stringify(aPending));
+
+    // B stops (a real completed task). B sweeps only ITS OWN pending (none).
+    const t = writeTranscript(true);
+    runGen({ session_id: "sess-B", stop_hook_active: false, transcript_path: t });
+
+    // A's pending survives untouched; no dismissed record was written for A.
+    expect(readPending("sess-A")).not.toBeNull();
+    expect(readQueue().some((r) => r.answer === "dismissed")).toBe(false);
+  });
+
+  it("A's answer arriving AFTER B's stop still records provenance probe (no false dismissed)", () => {
+    twoAttended();
+    // A is probed and writes its own pending (fresh).
+    const t = writeTranscript(true);
+    runGen({ session_id: "sess-A", stop_hook_active: false, transcript_path: t });
+    const aPending = readPending("sess-A");
+    expect(aPending).not.toBeNull();
+
+    // B stops in between (does not touch A's pending).
+    runGen({ session_id: "sess-B", stop_hook_active: false, transcript_path: t });
+    expect(readPending("sess-A")).not.toBeNull();
+
+    // A's user answers → the real answer is recorded, not a dismissed.
+    const q = aPending.questions[0].question;
+    runCap({ session_id: "sess-A", tool_name: "AskUserQuestion", tool_response: { answers: { [q]: "Went well" } } });
+    const recs = readQueue();
+    const answered = recs.filter((r) => r.session_id === "sess-A");
+    expect(answered).toHaveLength(1);
+    expect(answered[0].answer).toBe("Went well");
+    expect(answered[0].provenance).toBe("probe");
+    expect(recs.some((r) => r.answer === "dismissed")).toBe(false);
+    expect(readPending("sess-A")).toBeNull();
   });
 });
 

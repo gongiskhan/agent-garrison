@@ -1,0 +1,46 @@
+{
+  "project": "agent-garrison",
+  "folder": "flow-v2/s7-autonomy-collapse",
+  "title": "S7 - Autonomy collapse: Done quick-tasks strip + engine lock",
+  "createdAt": "2026-07-11T01:48:26.774Z",
+  "video": {
+    "width": 1280,
+    "height": 800,
+    "fps": 30
+  },
+  "duration": 16.767,
+  "calibrationMs": 0,
+  "flagged": false,
+  "beats": [
+    {
+      "id": "ac1",
+      "segId": "clip-0-s7.mp4",
+      "caption": "AC1 - Done groups quick tasks under a collapsed strip (count 3)",
+      "expectedScreen": "the Done column with a collapsed 'quick tasks' strip and a count badge reading 3",
+      "expectFailure": false,
+      "tStart": 0.722,
+      "tMid": 2.122,
+      "tEnd": 6.304
+    },
+    {
+      "id": "ac2",
+      "segId": "clip-0-s7.mp4",
+      "caption": "AC2 - Expanding the strip reveals the quick cards",
+      "expectedScreen": "the expanded quick-tasks strip listing the quick card 'Rename staleTimeout to idleTimeout'",
+      "expectFailure": false,
+      "tStart": 6.304,
+      "tMid": 7.704,
+      "tEnd": 11.107
+    },
+    {
+      "id": "ac3",
+      "segId": "clip-0-s7.mp4",
+      "caption": "AC3 - The engine card in Review is engine-owned (locked, no Move control)",
+      "expectedScreen": "the running card in Review showing an 'engine-owned' chip and a running pill, with only Watch/Open",
+      "expectFailure": false,
+      "tStart": 11.107,
+      "tMid": 12.507,
+      "tEnd": 16.767
+    }
+  ]
+}

@@ -75,6 +75,31 @@ describe("claude-pty: jsonl", () => {
     expect(r.newOffset).toBe(Buffer.byteLength(full, "utf8"));
   });
 
+  it("readJsonlFrom does not leak a file descriptor when the read throws (F4)", async () => {
+    const { readJsonlFrom } = await import(PKG);
+    // openSync(dir) succeeds on Linux but readSync(dir-fd) throws EISDIR — the
+    // exact "throws AFTER openSync" path. Without the finally the fd leaked on
+    // every call, and the 400ms watcher hammers this. Assert the open-fd count is
+    // stable across many calls (a leak would grow it ~1:1).
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cpty-fdleak-"));
+    const countFds = () => {
+      try {
+        return fs.readdirSync("/proc/self/fd").length;
+      } catch {
+        return -1; // non-Linux — skip the numeric assertion below
+      }
+    };
+    // The call must be safe (returns empty, never throws) regardless of platform.
+    expect(readJsonlFrom(dir, 0)).toEqual({ events: [], newOffset: 0 });
+    const before = countFds();
+    for (let i = 0; i < 200; i++) readJsonlFrom(dir, 0);
+    const after = countFds();
+    if (before !== -1 && after !== -1) {
+      // Generous slack for unrelated fd churn; a leak would be ~+200.
+      expect(after).toBeLessThanOrEqual(before + 15);
+    }
+  });
+
   it("extractLocalCommandOutput pulls slash-command stdout", async () => {
     const { extractLocalCommandOutput } = await import(PKG);
     const events = [
