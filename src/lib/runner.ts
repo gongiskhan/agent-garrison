@@ -321,7 +321,13 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       });
       if (projection.projected) {
         appendLog(compositionId, "runner", `Projected orchestrator prompt to ${projection.file}`);
-        appendLog(compositionId, "stderr", projection.warning ?? "");
+      }
+      // The warning prints on BOTH paths: the authority caveat when projected,
+      // and the PROJECTION REFUSED explanation when a hand-authored context
+      // file blocked it — a refused projection must never be silent, because
+      // the primary would run WITHOUT the orchestrator prompt.
+      if (projection.warning) {
+        appendLog(compositionId, "stderr", projection.warning);
       }
     }
 
