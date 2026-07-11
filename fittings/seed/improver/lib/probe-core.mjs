@@ -281,12 +281,27 @@ export function matchAnswers(pending, answers) {
       unanswered.push(q);
     }
   }
-  // Rephrase fallback: exactly one pending question, exactly one answer, no exact hit.
-  if (!answered.length && questions.length === 1 && keys.length === 1) {
+  // Rephrase fallback: exactly one pending question, exactly one answer, no
+  // exact hit - and the asked text must actually RESEMBLE the pending question
+  // (shared-word overlap), so an unrelated single-question AskUserQuestion open
+  // at the same time is never mis-attributed to the probe.
+  if (!answered.length && questions.length === 1 && keys.length === 1 && resemblesQuestion(questions[0].question, keys[0])) {
     answered.push({ q: questions[0], answer: map[keys[0]] });
     unanswered.length = 0;
   }
   return { answered, unanswered };
+}
+
+// True when the asked text shares at least half of the pending question's
+// meaningful words (>3 chars, case-insensitive) - a rephrase, not a stranger.
+function resemblesQuestion(pendingText, askedText) {
+  const words = (s) => new Set(String(s || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+  const p = words(pendingText);
+  if (!p.size) return false;
+  const a = words(askedText);
+  let shared = 0;
+  for (const w of p) if (a.has(w)) shared += 1;
+  return shared / p.size >= 0.5;
 }
 
 // ── D26 record builders (pure) ───────────────────────────────────────────────

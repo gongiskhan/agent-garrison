@@ -102,11 +102,18 @@ describe("matchAnswers — capture side", () => {
     expect(unanswered).toHaveLength(1);
     expect(unanswered[0].question).toBe("Q2");
   });
-  it("rephrase fallback: one pending question + one answer matches even without an exact key", () => {
-    const p = pending([{ question: "the exact question" }]);
-    const { answered } = core.matchAnswers(p, { "slightly rephrased?": "Yes" });
+  it("rephrase fallback: a genuine rephrase (shared words) matches without an exact key", () => {
+    const p = pending([{ question: "Was the work kind and phase plan right for this task?" }]);
+    const { answered } = core.matchAnswers(p, { "Were the work kind and phase plan right for the task?": "Yes" });
     expect(answered).toHaveLength(1);
     expect(answered[0].answer).toBe("Yes");
+  });
+
+  it("rephrase fallback: an UNRELATED single question never mis-attributes (resemblance gate)", () => {
+    const p = pending([{ question: "How did that building task go?" }]);
+    const { answered, unanswered } = core.matchAnswers(p, { "Pick a deployment region?": "eu-west" });
+    expect(answered).toHaveLength(0);
+    expect(unanswered).toHaveLength(1);
   });
   it("no match when none of the pending questions are answered (unrelated AskUserQuestion)", () => {
     const p = pending([{ question: "Q1" }, { question: "Q2" }]);
