@@ -127,3 +127,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ## DEVIATION (run 20260710-171608-7bf26feb) — be767f2 attribution sweep
 - The S9-findings commit used a broad git add and swept s6-composer's in-progress files under the S9 trailer (nothing lost; HEAD correct). Exactly the failure mode D5 fences+scoped-staging solve for engine-driven runs - the lead's own gate commits now switch to explicit pathspecs. S6's remaining work is committed under its own trailer.
+
+## GATE S6 (run 20260710-171608-7bf26feb) — COMPOSER_V2_OK
+- verdict: PASSED. implement (composer surfaces + try-it gates + improver coordination rule + D6 lease-union completion), wall clean, fences 8ec8762/0e559ae, review approve after 1 loop-back (apm.lock.yaml, dedup, union tests), design clean after 1 loop-back (em dashes), video verified 4-beat + S9 target-card fold, codexSliceReview degraded (recorded). Coordination is now ON in the production policy.
