@@ -429,7 +429,7 @@
   },
   {
     "id": "garrison-skills",
-    "name": "Autothing Skills",
+    "name": "Garrison Skills",
     "repo": "local:fittings/seed/garrison-skills",
     "localPath": "fittings/seed/garrison-skills",
     "summary": "The garrison family \u2014 the gated-build orchestrator doorway plus every phase verb skill \u2014 as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",

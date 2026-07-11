@@ -86,3 +86,13 @@ runs arm sentinels under `~/.garrison/sentinels/`, but the hooks honor BOTH
 `~/.garrison/sentinels/` and the legacy `~/.autothing/sentinels/` (and both
 verdict grammars) so an in-flight legacy run keeps looping until it finishes.
 The installer is additive and never removes a legacy autothing hook entry.
+
+**`hooks/prune-legacy.sh` is the other half of that transition** — the step that
+retires the legacy hooks once no legacy run can still be looping. It is gated,
+not unconditional: it REFUSES (exit 3) while any sentinel remains under
+`~/.autothing/sentinels/`, and when the gate is clear it removes exactly the
+legacy autothing Stop + SessionStart entries from `~/.claude/settings.json`
+(backing the file up first), leaves the garrison entries untouched, and is
+idempotent. `--check` reports without writing; `--remove-skill-dir` also deletes
+the retired `~/.claude/skills/autothing/` doorway. Run it after the last legacy
+run ends — that is the only moment the gate opens.
