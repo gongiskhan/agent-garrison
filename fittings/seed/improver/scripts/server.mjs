@@ -261,7 +261,7 @@ function assertStatusSlotFree() {
 
 export async function startServer(opts = {}) {
   const host = opts.host || process.env.IMPROVER_HOST || "127.0.0.1";
-  const port = Number(opts.port || process.env.IMPROVER_PORT || 7088);
+  const port = Number(opts.port || process.env.GARRISON_IMPROVER_PORT || process.env.IMPROVER_PORT || 7093);
   assertStatusSlotFree();
   await mkdir(DATA_DIR, { recursive: true });
 

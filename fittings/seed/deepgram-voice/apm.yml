@@ -17,7 +17,7 @@ x-garrison:
     - key: port
       type: integer
       default: 7085
-      description: HTTP port the voice server binds to. Falls back to the next free port if busy.
+      description: HTTP port the voice server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
       default: 127.0.0.1

@@ -26,9 +26,15 @@ const PROVISION_SCRIPT = path.resolve(HERE, "provision-outpost.sh");
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.OUTPOST_UI_PORT || 7082),
-    host: process.env.OUTPOST_UI_HOST || "127.0.0.1",
-    outpostHostUrl: process.env.OUTPOST_HOST_URL || "http://127.0.0.1:3702"
+    // GARRISON_* names are what the runner projects from composition config
+    // (ownPortConfigEnv); the bare names remain for standalone use.
+    port: Number(process.env.GARRISON_OUTPOSTTAILSCALEHOST_PORT || process.env.OUTPOST_UI_PORT || 7082),
+    host:
+      process.env.GARRISON_OUTPOSTTAILSCALEHOST_BIND_HOST || process.env.OUTPOST_UI_HOST || "127.0.0.1",
+    outpostHostUrl:
+      process.env.GARRISON_OUTPOSTTAILSCALEHOST_OUTPOST_HOST_URL ||
+      process.env.OUTPOST_HOST_URL ||
+      "http://127.0.0.1:3702"
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -320,20 +326,6 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
-  }
-  return null;
-}
-
 async function writeStatusFile(opts) {
   await mkdir(STATUS_ROOT, { recursive: true });
   await writeFile(STATUS_FILE, JSON.stringify({
@@ -353,9 +345,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
 
-  const free = await findFreePort(opts.port);
-  if (free === null) { console.error(`[outpost] no free port from ${opts.port}`); process.exit(1); }
-  const liveOpts = { ...opts, port: free };
+  const liveOpts = { ...opts };
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -388,6 +378,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   });
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(
+        `[outpost] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);

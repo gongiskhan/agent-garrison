@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-10T16:18:52.604732+00:00'
+generated_at: '2026-07-11T07:33:27.108975+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/automations
@@ -107,9 +107,27 @@ dependencies:
   deployed_files:
   - .claude/commands/orchestrator.md
   deployed_file_hashes:
-    .claude/commands/orchestrator.md: sha256:1f9431bac70c9b9a78381518a68da8cc4624ac8f585bf2e269680605b1b5476e
+    .claude/commands/orchestrator.md: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
   source: local
   local_path: ../../fittings/seed/orchestrator
+- repo_url: _local/outpost-tailscale-host
+  name: outpost-tailscale-host
+  version: 0.2.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/outpost-tailscale-host
+- repo_url: _local/ports-default
+  name: ports-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/ports-default
+- repo_url: _local/power-default
+  name: power-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/power-default
 - repo_url: _local/scheduler
   name: scheduler
   version: 0.1.0
@@ -133,6 +151,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/slack-channel
+- repo_url: _local/snapshots-default
+  name: snapshots-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/snapshots-default
 - repo_url: _local/trello
   name: trello
   version: 0.1.0

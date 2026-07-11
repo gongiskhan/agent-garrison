@@ -24,7 +24,7 @@ x-garrison:
     - key: port
       type: integer
       default: 7087
-      description: HTTP port the Orchestrator view + config API binds to. Falls back to next free port when in use.
+      description: HTTP port the Orchestrator view + config API binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
       default: 127.0.0.1

@@ -18,9 +18,13 @@ dependencies:
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/outpost-tailscale-host
+    - path: ../../fittings/seed/ports-default
+    - path: ../../fittings/seed/power-default
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
+    - path: ../../fittings/seed/snapshots-default
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
@@ -96,7 +100,9 @@ x-garrison:
             bind_host: 127.0.0.1
         - id: improver
           config:
-            port: 7088
+            # 7093, not 7088: ports-default's canonical port is 7088 (and the
+            # 8488 tailnet mapping points there). Own-port servers bind exactly.
+            port: 7093
             bind_host: 127.0.0.1
             cron: 30 3 * * *
             vault_dir: ~/ObsidianVault
@@ -124,6 +130,9 @@ x-garrison:
           config:
             cron: 0 4 * * *
             vault_dir: ~/ObsidianVault
+        - id: snapshots-default
+          config:
+            projects_root: ~/dev
       surfaces:
         - id: screen-share-default
           config: {}
@@ -135,6 +144,24 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
+        - id: ports-default
+          config:
+            port: 7088
+            bind_host: 127.0.0.1
+            scan_interval_ms: 5000
+        - id: power-default
+          config:
+            # 7092, not the historical 7090: automations holds 7090, and own-port
+            # servers bind exactly or exit 1 (no port shifting since 07ba683).
+            port: 7092
+            bind_host: 127.0.0.1
+            idle_minutes: 30
+            load_threshold: 1.0
+        - id: outpost-tailscale-host
+          config:
+            port: 7082
+            bind_host: 127.0.0.1
+            outpost_host_url: http://127.0.0.1:3702
       modes:
         - id: modes
           config:

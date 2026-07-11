@@ -13,7 +13,6 @@ import { spawn } from "node:child_process";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
@@ -33,12 +32,17 @@ const STATUS_FILE = path.join(STATUS_ROOT, "ports-default.json");
 const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
 const FITTING_ID = "ports-default";
 
+// The runner projects composition config as GARRISON_<ID>_<KEY> (ownPortConfigEnv).
+// Reading ONLY the bare PORTS_* names made the composition's `config:` block
+// decorative. The runner-projected name wins; the bare name stays for standalone use.
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.PORTS_PORT || 7088),
-    host: process.env.PORTS_BIND_HOST || "127.0.0.1",
+    port: Number(process.env.GARRISON_PORTSDEFAULT_PORT || process.env.PORTS_PORT || 7088),
+    host: process.env.GARRISON_PORTSDEFAULT_BIND_HOST || process.env.PORTS_BIND_HOST || "127.0.0.1",
     parentPid: Number(process.env.GARRISON_PARENT_PID || 0),
-    scanMs: Number(process.env.PORTS_SCAN_INTERVAL_MS || 5000)
+    scanMs: Number(
+      process.env.GARRISON_PORTSDEFAULT_SCAN_INTERVAL_MS || process.env.PORTS_SCAN_INTERVAL_MS || 5000
+    )
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -340,22 +344,6 @@ function serveStatic(req, res, distDir) {
 // ---------------------------------------------------------------------------
 // Port binding + status file
 // ---------------------------------------------------------------------------
-function findFreePort(startPort, host) {
-  return new Promise(async (resolve) => {
-    for (let port = startPort; port < startPort + 50; port++) {
-      // eslint-disable-next-line no-await-in-loop
-      const free = await new Promise((r) => {
-        const srv = net.createServer();
-        srv.once("error", () => r(false));
-        srv.once("listening", () => srv.close(() => r(true)));
-        srv.listen(port, host === "0.0.0.0" ? undefined : host);
-      });
-      if (free) return resolve(port);
-    }
-    resolve(null);
-  });
-}
-
 async function writeStatusFile(opts) {
   await mkdir(STATUS_ROOT, { recursive: true });
   await writeFile(STATUS_FILE, JSON.stringify({
@@ -377,12 +365,7 @@ async function clearStatusFile() {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
 
-  const chosen = await findFreePort(opts.port, opts.host);
-  if (chosen === null) {
-    console.error(`[ports] no free port found starting from ${opts.port}`);
-    process.exit(1);
-  }
-  const liveOpts = { ...opts, port: chosen };
+  const liveOpts = { ...opts };
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -413,6 +396,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   });
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(
+        `[ports] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
   server.listen(liveOpts.port, liveOpts.host, async () => {
     // Trust the OS-assigned port (handles port 0 / ephemeral). Handlers read
     // liveOpts.port at request time, so mutating it before any request lands

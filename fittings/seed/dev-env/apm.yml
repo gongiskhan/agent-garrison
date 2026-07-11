@@ -17,7 +17,7 @@ x-garrison:
     - key: port
       type: integer
       default: 7086
-      description: HTTP port the Dev Env UI binds to. Falls back to next free port (installed hooks keep POSTing to the baked default).
+      description: HTTP port the Dev Env UI binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports (installed hooks keep POSTing to the baked default).
     - key: bind_host
       type: string
       default: 127.0.0.1

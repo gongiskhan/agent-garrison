@@ -17,7 +17,7 @@ x-garrison:
     - key: port
       type: integer
       default: 7084
-      description: HTTP port the Browser Fitting binds to. Falls back to next free port.
+      description: HTTP port the Browser Fitting binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: persistent_profile
       type: boolean
       default: false

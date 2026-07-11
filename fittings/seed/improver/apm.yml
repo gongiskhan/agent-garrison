@@ -41,8 +41,8 @@ x-garrison:
       description: Nightly run schedule (registered via the scheduler CLI in setup.sh).
     - key: port
       type: integer
-      default: 7088
-      description: HTTP port the review-queue view + apply API binds to. Falls back to next free port when in use.
+      default: 7093
+      description: HTTP port the review-queue view + apply API binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
       default: 127.0.0.1

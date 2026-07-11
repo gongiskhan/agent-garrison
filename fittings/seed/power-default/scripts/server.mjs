@@ -61,8 +61,10 @@ const PRESENCE_RETENTION_MS = 24 * 3600 * 1000; // prune presence records older 
 
 const KEEP_AWAKE_HOURS = new Set([1, 4, 8]);
 
+// 7092, not 7090: the automations engine holds 7090 as its canonical port, and
+// own-port servers bind exactly or exit 1 (no findFreePort shift since 07ba683).
 const DEFAULT_CONFIG = {
-  port: 7090,
+  port: 7092,
   bind_host: "127.0.0.1",
   idle_minutes: 30,
   load_threshold: 1.0,
@@ -83,13 +85,26 @@ function parseArgs(argv) {
   return out;
 }
 
+// The runner projects composition config as GARRISON_<ID>_<KEY> (ownPortConfigEnv).
+// Reading ONLY the bare POWER_* names made the composition's `config:` block
+// decorative - the value was projected and then ignored. Both are accepted; the
+// runner-projected name wins, since it is the one the composition actually set.
 function envConfig() {
   const out = {};
-  if (process.env.POWER_PORT) out.port = Number(process.env.POWER_PORT);
-  if (process.env.POWER_BIND_HOST) out.bind_host = process.env.POWER_BIND_HOST;
-  if (process.env.POWER_IDLE_MINUTES) out.idle_minutes = Number(process.env.POWER_IDLE_MINUTES);
-  if (process.env.POWER_LOAD_THRESHOLD) out.load_threshold = Number(process.env.POWER_LOAD_THRESHOLD);
-  if (process.env.POWER_PAGE_URL) out.power_page_url = process.env.POWER_PAGE_URL;
+  const pick = (...names) => {
+    for (const n of names) if (process.env[n]) return process.env[n];
+    return undefined;
+  };
+  const port = pick("GARRISON_POWERDEFAULT_PORT", "POWER_PORT");
+  const bindHost = pick("GARRISON_POWERDEFAULT_BIND_HOST", "POWER_BIND_HOST");
+  const idle = pick("GARRISON_POWERDEFAULT_IDLE_MINUTES", "POWER_IDLE_MINUTES");
+  const load = pick("GARRISON_POWERDEFAULT_LOAD_THRESHOLD", "POWER_LOAD_THRESHOLD");
+  const pageUrl = pick("GARRISON_POWERDEFAULT_POWER_PAGE_URL", "POWER_PAGE_URL");
+  if (port) out.port = Number(port);
+  if (bindHost) out.bind_host = bindHost;
+  if (idle) out.idle_minutes = Number(idle);
+  if (load) out.load_threshold = Number(load);
+  if (pageUrl) out.power_page_url = pageUrl;
   return out;
 }
 
@@ -658,20 +673,6 @@ async function handleRequest(req, res, distDir, liveOpts) {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 
-async function findFreePort(startPort, host) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, host);
-    });
-    if (free) return port;
-  }
-  return null;
-}
-
 async function writeStatusFile(host, port) {
   await mkdir(STATUS_ROOT, { recursive: true });
   await writeFile(
@@ -706,12 +707,7 @@ export async function startServer() {
   runtime.countdown = { clearSince: null, remainingMs: runtime.config.idle_minutes * 60 * 1000, suspend: false };
 
   const host = runtime.config.bind_host;
-  const port = await findFreePort(runtime.config.port, host);
-  if (port === null) {
-    console.error(`[power] no free port from ${runtime.config.port}`);
-    process.exit(1);
-  }
-  runtime.config.port = port;
+  const port = runtime.config.port;
   const liveOpts = { host, port };
 
   const server = http.createServer((req, res) => {
@@ -725,6 +721,15 @@ export async function startServer() {
     });
   });
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(
+        `[power] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => {
     server.listen(port, host, resolve);
   });
