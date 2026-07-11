@@ -130,3 +130,11 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ## GATE S6 (run 20260710-171608-7bf26feb) — COMPOSER_V2_OK
 - verdict: PASSED. implement (composer surfaces + try-it gates + improver coordination rule + D6 lease-union completion), wall clean, fences 8ec8762/0e559ae, review approve after 1 loop-back (apm.lock.yaml, dedup, union tests), design clean after 1 loop-back (em dashes), video verified 4-beat + S9 target-card fold, codexSliceReview degraded (recorded). Coordination is now ON in the production policy.
+
+## DECISION (run 20260710-171608-7bf26feb) — S7 review loop-back (attempt 2)
+- adversarialReview needs-work: F1 MEDIUM stale session->card attach runs later significant work inline (pipeline bypass; console "web" key poisoning) - fix: attach-time liveness check + terminal release + scoped keys + regressions. F2 LOW override-regex false positive - tightened + negative cases. adversarialTest already PASS 5/5 independently.
+
+## GATE S7+S8 (run 20260710-171608-7bf26feb) — AUTONOMY_COLLAPSED_OK + IMPROVER_PROBE_OK
+- S7 PASSED: review approve after loop-back (stale-attach inline bypass fixed with liveness-gated attach + session-key scoping; override matcher imperative-only); independent test 5/5 (execution absent, quick->Done strip, override records, A5 hooks, in-flight survival); design clean; video 3/3 verified. Fences 1ee58c1/1ffe292.
+- S8 PASSED: review approve after loop-back (per-session pending kills the cross-session sweep race; fd-safe jsonl; picker path EMPIRICALLY confirmed - Down+Enter=B, Escape emits no PostToolUse validating absence-based dismissal); independent test 59/59 (+ rephrase resemblance gate); design clean (52px targets, no raw JSON); video 3/3 verified. Fences 8867ad1/1ace329/3a47ff9.
+- Run-level gates: deliberateRed 4/4 plants caught (secrets x2 leaks, worktree grep, rename grep, typecheck); mutation 3/3 killed (heavy-count killer test added after M1 survived - ratchet).

@@ -50,6 +50,14 @@
     "S6": {
       "status": "passed",
       "at": "2026-07-11T01:10:43Z"
+    },
+    "S7": {
+      "status": "passed",
+      "at": "2026-07-11T02:17:57Z"
+    },
+    "S8": {
+      "status": "passed",
+      "at": "2026-07-11T02:17:57Z"
     }
   },
   "globalGate": {

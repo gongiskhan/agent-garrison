@@ -1,0 +1,12 @@
+{
+  "slice": "S8", "kind": "mixed",
+  "implement": { "status": "passed", "summary": "probe (s8-probe: gates/generator/capture/retrospective/feedback-rule/garrison-control tool/policy cell) + shell (s8-shell: tool SSE event, ChatEvent variant, tappable QuestionBlock, picker key-sequence answer path)" },
+  "securityWall": { "gitleaks": 0, "semgrep": 0 },
+  "test": { "status": "passed", "exit": 0, "summary": "typecheck 0; full suite 1856; 70+ probe tests + 14 shell tests committed" },
+  "fence": { "sha": "8867ad1+1ace329+3a47ff9" },
+  "adversarialReview": { "verdict": "approve", "loopBacks": 1, "summary": "F1 cross-session sweep race (per-session pending) + F4 fd leak -> fixed -> RECHECK approve; F2 closed EMPIRICALLY (picker Down+Enter=B confirmed; Escape fires no PostToolUse)" },
+  "adversarialTest": { "verdict": "pass", "summary": "59/59 sandboxed assertions on gating/target-resolution/capture/dismissed/mute/retrospective; minor rephrase-fallback mis-attribution fixed with the resemblance gate (3a47ff9)" },
+  "codexSliceReview": { "status": "degraded", "reason": "codex-unavailable" },
+  "designAudit": { "verdict": "clean", "summary": "52px targets, Other affordance, disabled-after-answer, no raw JSON, both viewports" },
+  "video": { "status": "verified", "mode": "evidence", "beatsVerified": 3, "sha256": "12872e92785367026ee523c958e81a961328d61ac92e6f24e810b14f86615c7b", "path": "/home/ggomes/.walkthrough/runs/agent-garrison/flow-v2/s8-improver-probe/2026-07-11_02-48-41/final.mp4" }
+}

@@ -49,5 +49,5 @@ Final phase: built-in security-review, codex checkpoint (scopes: fence/revert gi
 | S5 | passed |
 | S9 | passed |
 | S6 | passed |
-| S7 | pending |
-| S8 | pending |
+| S7 | passed |
+| S8 | passed |
