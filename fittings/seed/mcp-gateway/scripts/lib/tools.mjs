@@ -3,7 +3,7 @@
 // GARRISON_COMPOSITION_DIR must be set before importing this module.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, appendFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -106,6 +106,31 @@ function callScript(scriptPath, input, timeoutMs) {
       reject(new Error(`spawn failed: ${err.message}`));
     });
   });
+}
+
+// ── Improver Probe capture-fallback (GARRISON-FLOW-V2 S8, D26/E13) ───────────
+// Append ONE probe answer to ~/.garrison/improver/feedback-queue.jsonl directly.
+// Same queue + D26 schema the PostToolUse capture and the gateway override writer
+// use; a single O_APPEND write per record keeps concurrent appends from
+// interleaving. This is the belt for surfaces without a PostToolUse hook.
+export async function callRecordImproverFeedback(input) {
+  const { session_id, area, question, answer } = input || {};
+  if (!area || !question || answer == null) {
+    throw new Error("record_improver_feedback requires area, question, answer");
+  }
+  const home = process.env.GARRISON_HOME ?? path.join(os.homedir(), ".garrison");
+  const file = path.join(home, "improver", "feedback-queue.jsonl");
+  const rec = {};
+  if (session_id != null && String(session_id).length) rec.session_id = String(session_id);
+  rec.area = String(area);
+  rec.question = String(question);
+  rec.answer = String(answer);
+  rec.timestamp = new Date().toISOString();
+  rec.provenance = "probe";
+  rec.classification = { kind: null, tier: null, plan: null };
+  mkdirSync(path.dirname(file), { recursive: true });
+  appendFileSync(file, JSON.stringify(rec) + "\n", { encoding: "utf8", flag: "a" });
+  return { recorded: true, queue: file };
 }
 
 export async function callClassifyTier(input) {

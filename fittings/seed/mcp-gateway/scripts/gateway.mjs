@@ -31,7 +31,8 @@ import {
   callListWorkdirs,
   automationsAvailable,
   callListAutomations,
-  callRunAutomation
+  callRunAutomation,
+  callRecordImproverFeedback
 } from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
@@ -88,6 +89,27 @@ async function discoverTools() {
       }
     );
   }
+
+  // Improver Probe capture-fallback (GARRISON-FLOW-V2 S8, D26/E13). Always
+  // available: it writes directly to ~/.garrison/improver/feedback-queue.jsonl, so
+  // it does not depend on garrison-control (the http gateway). The PostToolUse
+  // AskUserQuestion capture is the primary path; this tool is the belt for surfaces
+  // that carry no PostToolUse hook.
+  tools.push({
+    name: "record_improver_feedback",
+    description:
+      "Record one Improver Probe answer as evidence (fallback capture path). Appends a single record to the Improver feedback queue. Only for relaying a probe answer the user gave — never fabricate answers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string", description: "The Claude session id the probe was asked in." },
+        area: { type: "string", description: "orchestrator | went-well (the probe area)." },
+        question: { type: "string", description: "The exact question that was asked." },
+        answer: { type: "string", description: "The option label the user selected (or their free-text 'Other')." }
+      },
+      required: ["area", "question", "answer"]
+    }
+  });
 
   if (isGarrisonControlEnabled()) {
     tools.push(
@@ -161,6 +183,7 @@ async function discoverTools() {
 async function dispatchTool(name, input) {
   if (name === "classify_tier") return callClassifyTier(input);
   if (name === "run_tests") return callRunTests(input);
+  if (name === "record_improver_feedback") return callRecordImproverFeedback(input);
   if (name === "list_automations") return callListAutomations(input);
   if (name === "run_automation") return callRunAutomation(input);
   if (name === "talk_to") return callTalkTo(input);

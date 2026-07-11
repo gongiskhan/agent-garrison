@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { runImprover, upsertQueue } from "../lib/improver-core.mjs";
 import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
 import { runCoordinationRule } from "../lib/coordination-rule.mjs";
+import { runFeedbackRule } from "../lib/feedback-rule.mjs";
 import { runDreamPhase, chooseDreamRunTurn } from "../lib/memory-dream.mjs";
 import { scanSkillTelemetry, telemetryToJSON } from "../lib/skill-telemetry.mjs";
 import { loadProvenance } from "../lib/provenance.mjs";
@@ -357,6 +358,20 @@ async function runSkills() {
     console.log(`COORDINATION — proposals=${coordRule.proposals.length} (cards=${coordRule.inputs.cards})`);
   } catch (err) {
     console.error("coordination rule failed (skipped):", err?.message || err);
+  }
+  // ── feedback rule (GARRISON-FLOW-V2 S8, D27) ──
+  // Consumes the shared feedback queue (probe/retrospective/override records) as
+  // HIGH-WEIGHT evidence and proposes phase-plan / matrix / kind-matcher edits into
+  // the SAME queue — composer ghost edits, never auto-applied.
+  try {
+    const feedbackRule = runFeedbackRule({ now });
+    for (const p of feedbackRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(`FEEDBACK — proposals=${feedbackRule.proposals.length} (records=${feedbackRule.inputs.records})`);
+  } catch (err) {
+    console.error("feedback rule failed (skipped):", err?.message || err);
   }
   writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2), "utf8");
   writeFileSync(REPORT_FILE, JSON.stringify({ ...memRun.report, dream: dream.housekeeping }, null, 2), "utf8");

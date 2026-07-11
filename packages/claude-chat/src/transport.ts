@@ -12,12 +12,36 @@ export interface ClaudeStatus {
   busy?: boolean;
 }
 
+// AskUserQuestion (D28): the operative's interactive picker, surfaced to a
+// channel as tappable option buttons. `label` is load-bearing - the answer path
+// maps a tapped label back to its option index to drive the TUI picker.
+export interface ToolQuestionOption {
+  label: string;
+  description?: string;
+}
+export interface ToolQuestion {
+  question: string;
+  header?: string;
+  options: ToolQuestionOption[];
+  multiSelect?: boolean;
+}
+/** How a channel answers an AskUserQuestion: a chosen option label, free text
+ *  ("Other…"), or a dismiss. `toolUseId` targets the specific picker. */
+export interface QuestionAnswer {
+  toolUseId: string;
+  label?: string;
+  text?: string;
+  dismiss?: boolean;
+}
+
 export type ChatEvent =
   | { type: "hello"; mode: PermissionMode; status: ClaudeStatus; busy: boolean; assistant: string; screen: string[] }
   | { type: "assistant"; text: string }
   | { type: "status"; rows: string[]; mode: PermissionMode; contextPct: number | null; model: string | null }
   | { type: "turn"; active: boolean }
   | { type: "screen"; lines: string[] }
+  // Wire fields match the gateway payload (tool_use_id is snake_case on the wire).
+  | { type: "tool"; name: string; tool_use_id: string; questions: ToolQuestion[] }
   | { type: "error"; message: string }
   | { type: "connection"; state: "open" | "closed" | "reconnecting" };
 
@@ -50,6 +74,12 @@ export interface ChatTransport {
   setMode(mode: PermissionMode): Promise<{ mode: PermissionMode; reached: boolean }>;
   interrupt(): Promise<void>;
   fetchCommands(): Promise<SlashCommand[]>;
+  /**
+   * Answer an AskUserQuestion picker the operative raised (a tapped option label,
+   * free text, or a dismiss). The gateway drives the live TUI picker via
+   * keystrokes. Optional so transports that never surface `tool` events stay valid.
+   */
+  answerQuestion?(answer: QuestionAnswer): Promise<void>;
 }
 
 /** HTTP transport against a `<base>/claude/*` surface (default base "/api"). */
@@ -86,6 +116,7 @@ export function createHttpTransport(base = "/api"): ChatTransport {
         on("status");
         on("turn");
         on("screen");
+        on("tool");
         on("error");
         es.onerror = () => {
           onEvent({ type: "connection", state: "reconnecting" });
@@ -121,6 +152,15 @@ export function createHttpTransport(base = "/api"): ChatTransport {
     },
     async interrupt() {
       await post("interrupt");
+    },
+    async answerQuestion(answer) {
+      // Posts to <base>/claude/answer (the gateway resolves the picker + drives keys).
+      await post("answer", {
+        tool_use_id: answer.toolUseId,
+        ...(answer.label !== undefined ? { label: answer.label } : {}),
+        ...(answer.text !== undefined ? { text: answer.text } : {}),
+        ...(answer.dismiss ? { dismiss: true } : {}),
+      });
     },
     async fetchCommands() {
       const res = await fetch(`${b}/claude/commands`);

@@ -594,6 +594,42 @@ async function handleChat(req, res, opts) {
   }, payload, { threadId, userMessage: message });
 }
 
+// Answer an AskUserQuestion picker (a tapped option label / free text / dismiss).
+// Buffers the JSON and forwards to the gateway's POST /chat/answer, which drives
+// the live TUI picker. Same shape as handleClaudeProxy but on the /chat path.
+async function handleChatAnswer(req, res, opts) {
+  let payload;
+  try {
+    payload = JSON.stringify(await readJsonBody(req));
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  const target = new URL("/chat/answer", opts.gatewayUrl);
+  const upstream = http.request(
+    {
+      method: "POST",
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        Accept: "application/json"
+      }
+    },
+    (up) => {
+      res.statusCode = up.statusCode || 502;
+      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
+      up.pipe(res);
+    }
+  );
+  upstream.on("error", (err) => {
+    try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
+  });
+  upstream.write(payload);
+  upstream.end();
+}
+
 // ── Conversation threads (session list + history) ──────────────────────────
 // Generic, opaque-keyed transcript organizer over the one rolling operative. The
 // server persists each completed exchange itself (handleChat tees the upstream
@@ -784,6 +820,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
+      if (pathname === "/api/chat/answer" && method === "POST") return handleChatAnswer(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
       if (pathname === "/api/brief" && method === "GET") return handleBriefGet(res, parsed.query.path);
       if (pathname === "/api/brief" && method === "PUT") return handleBriefPut(req, res);
@@ -795,6 +832,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/claude/keys" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "keys", "POST");
       if (pathname === "/api/claude/mode" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "mode", "POST");
       if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
+      if (pathname === "/api/claude/answer" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "answer", "POST");
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;

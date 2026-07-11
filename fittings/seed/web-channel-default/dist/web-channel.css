@@ -149,6 +149,46 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* ── AskUserQuestion → tappable option buttons (D28) ── */
+.cc-question {
+  margin-top: 10px; padding: 12px; border: 1px solid var(--cc-border-strong);
+  background: var(--cc-bg-elev); border-radius: 10px;
+}
+.cc-question-title { font-size: 14px; font-weight: 600; color: var(--cc-fg); }
+.cc-question-sub { margin-top: 3px; font-size: 12px; color: var(--cc-fg-dim); }
+.cc-question-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.cc-question-opt {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left;
+  min-height: 44px; padding: 9px 12px; width: 100%;
+  border: 1px solid var(--cc-border-strong); border-radius: 8px;
+  background: var(--cc-bg); color: var(--cc-fg); cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.cc-question-opt:hover:not(:disabled) { border-color: var(--cc-accent); }
+.cc-question-opt:disabled { cursor: default; opacity: 0.72; }
+.cc-question-opt-chosen { border-color: var(--cc-accent); background: var(--cc-user-bg); color: var(--cc-user-fg); opacity: 1; }
+.cc-question-opt-label { font-size: 14px; font-weight: 550; }
+.cc-question-opt-desc { font-size: 12px; color: var(--cc-fg-dim); }
+.cc-question-opt-chosen .cc-question-opt-desc { color: var(--cc-user-fg); opacity: 0.85; }
+.cc-question-other {
+  min-height: 44px; padding: 9px 12px; width: 100%;
+  border: 1px dashed var(--cc-border-strong); border-radius: 8px;
+  background: transparent; color: var(--cc-fg-dim); cursor: pointer; font-size: 13px;
+}
+.cc-question-other:hover { border-color: var(--cc-accent); color: var(--cc-fg); }
+.cc-question-otherrow { display: flex; gap: 8px; margin-top: 8px; }
+.cc-question-otherinput {
+  flex: 1; min-height: 44px; padding: 8px 12px;
+  border: 1px solid var(--cc-border-strong); border-radius: 8px;
+  background: var(--cc-bg); color: var(--cc-fg); font-size: 14px;
+}
+.cc-question-othersend {
+  min-height: 44px; padding: 8px 16px; border: none; border-radius: 8px;
+  background: var(--cc-accent); color: var(--cc-accent-fg); cursor: pointer; font-size: 14px;
+}
+.cc-question-othersend:disabled { opacity: 0.5; cursor: default; }
+.cc-question-answer { margin-top: 10px; }
+
 /* ── Rich code block (custom marked renderer): header + highlighted body ── */
 .cc-codeblock { margin: 0 0 10px; border: 1px solid var(--cc-code-border); border-radius: 8px; overflow: hidden; }
 .cc-codehead {

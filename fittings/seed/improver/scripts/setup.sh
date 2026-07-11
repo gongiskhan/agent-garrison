@@ -39,6 +39,23 @@ cat >"$DATA_DIR/dream-config.json" <<JSON
 JSON
 echo "improver: dream-config.json written (memory_primary=${PRIMARY}, vault=${VAULT_DIR})"
 
+# ── Improver Probe hooks (GARRISON-FLOW-V2 S8) ───────────────────────────────
+# Register the Stop + PostToolUse(AskUserQuestion) hooks additively/idempotently
+# into ~/.claude/settings.json, then validate the probe-question target is
+# reachable from the compiled policy (loud, never fatal — `up` recompiles the
+# policy after setup, so an absent/stale cell must not abort the composition).
+chmod +x "$SELF_DIR/probe-stop-hook.sh" 2>/dev/null || true
+if node "$SELF_DIR/install-probe-hooks.mjs"; then
+  echo "improver: probe hooks registered (Stop + PostToolUse AskUserQuestion)"
+else
+  echo "improver: probe hook registration failed (non-fatal in dev)"
+fi
+if node "$SELF_DIR/probe-generate.mjs" --check-target; then
+  :
+else
+  echo "improver: probe-question target NOT yet reachable — see the warning above (Probe stays dormant until the policy compiles it)"
+fi
+
 if [ -f "$SCHEDULER" ]; then
   node "$SCHEDULER" remove improver-nightly >/dev/null 2>&1 || true
   # scheduler add is positional: add <id> <cron> <command...>

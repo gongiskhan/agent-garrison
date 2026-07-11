@@ -25,6 +25,7 @@
 
 import http from "node:http";
 import fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -36,9 +37,11 @@ import {
   keySequence,
   cycleMode,
   enumerateCommandsCached,
+  claudeProjectDirForCwd,
 } from "@garrison/claude-pty";
 import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
+import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -79,6 +82,92 @@ function broadcastRich(event, data) {
       /* client gone */
     }
   }
+}
+
+// ─────────────────────────────────────── AskUserQuestion (tappable picker, D28)
+// The operative's AskUserQuestion tool renders as a keyboard picker in the TUI. A
+// phone/web channel has no arrow keys, so a background watcher tails the session
+// JSONL, emits ONE `tool` SSE event per tool_use id (buttons on the client), and
+// the answer POST drives the picker via keySequence. See lib/ask-question.mjs.
+const pendingQuestions = new Map(); // tool_use_id -> { questions, at } (for label->index)
+const toolListeners = new Set(); // fn(payload) - sinks for the CURRENT /chat/stream turn
+let askWatcher = null;
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function broadcastTool(payload) {
+  if (payload?.tool_use_id) pendingQuestions.set(payload.tool_use_id, { questions: payload.questions, at: Date.now() });
+  broadcastRich("tool", payload); // rich /claude/stream observers
+  for (const fn of toolListeners) {
+    try {
+      fn(payload);
+    } catch {
+      /* listener gone */
+    }
+  }
+}
+
+// Start the JSONL AskUserQuestion watcher once the operative is ready. Idempotent.
+function startAskWatcher() {
+  if (askWatcher) return;
+  let projectDir;
+  try {
+    projectDir = claudeProjectDirForCwd(realpathSync(COMPOSITION_DIR));
+  } catch {
+    projectDir = claudeProjectDirForCwd(COMPOSITION_DIR);
+  }
+  askWatcher = createAskQuestionWatcher({
+    projectDir,
+    onQuestion: (payload) => {
+      logEvent("stdout", { kind: "ask-question", tool_use_id: payload.tool_use_id, questions: payload.questions?.length ?? 0 });
+      broadcastTool(payload);
+    },
+    logFn: (e) => logEvent("stderr", e),
+  });
+  askWatcher.start();
+}
+
+// Drive the live TUI picker with an ordered list of key names (down/enter/escape).
+// A short dwell between keys lets each keypress register in the picker.
+async function drivePicker(keyNames) {
+  for (const name of keyNames) {
+    const bytes = keySequence(name);
+    if (!bytes) continue;
+    session.writeKeys(bytes);
+    await sleepMs(140);
+  }
+}
+
+// Answer an AskUserQuestion picker for the channel. Body: { tool_use_id, label? ,
+// text?, dismiss? }. A matching option label drives arrow-down×index + Enter; a
+// free-text ("Other...") answer types the text + Enter (best-effort - the picker
+// may reject free text); dismiss sends Escape. Returns {status, body}.
+async function handleAnswer(body) {
+  const toolUseId = typeof body?.tool_use_id === "string" ? body.tool_use_id.trim() : "";
+  const label = typeof body?.label === "string" ? body.label : "";
+  const text = typeof body?.text === "string" ? body.text : "";
+  const dismiss = body?.dismiss === true;
+  if (!session || !session.isAlive()) return { status: 503, body: { error: "operative not ready" } };
+
+  if (dismiss) {
+    await drivePicker(["escape"]);
+    if (toolUseId) pendingQuestions.delete(toolUseId);
+    return { status: 200, body: { ok: true, action: "dismiss" } };
+  }
+  if (!label && text) {
+    session.writeKeys("\x15"); // Ctrl-U clear, in case the picker exposes a text field
+    session.writeKeys(text);
+    await sleepMs(140);
+    await drivePicker(["enter"]);
+    if (toolUseId) pendingQuestions.delete(toolUseId);
+    return { status: 200, body: { ok: true, action: "text" } };
+  }
+  const pending = toolUseId ? pendingQuestions.get(toolUseId) : null;
+  const question = pending?.questions?.[0] ?? null;
+  const index = question ? resolveOptionIndex(question, label) : -1;
+  if (index < 0) return { status: 404, body: { error: "unknown or expired question", tool_use_id: toolUseId } };
+  await drivePicker(answerKeySequence(index));
+  if (toolUseId) pendingQuestions.delete(toolUseId);
+  return { status: 200, body: { ok: true, action: "select", index, label } };
 }
 
 // Routing is ON whenever the model-router fitting is resolvable, unless
@@ -156,6 +245,7 @@ async function initRouting() {
   }
   ptyStatus = "ready";
   await markPriorSession();
+  startAskWatcher();
   logEvent("stdout", { kind: "routing-ready", model: MODEL, profile: router.config?.activeProfile });
   return true;
 }
@@ -248,6 +338,7 @@ async function spawnOperative({ resume = true } = {}) {
   }
   ptyStatus = "ready";
   await markPriorSession();
+  startAskWatcher();
   logEvent("stdout", { kind: "ready", session_id: session.getClaudeSessionId(), continued: continueSession });
   readyResolve();
 }
@@ -267,13 +358,18 @@ async function runRoutedTurn(message, onChunk, hints) {
   // already cards (the engine's own worker dispatches) — they run inline. A
   // follow-up turn about the same task attaches to the live card (no duplicate).
   let quickCard = null;
-  const sessionKey = hints?.sessionId || String(hints?.channel || "").toLowerCase() || "default";
+  // Attach follow-ups only within an IDENTIFIED conversation. When the surface
+  // sends no session id (e.g. the raw console web surface), we do NOT fall back to
+  // the channel literal ("web") — that key would collapse every console turn onto
+  // one card and cross-attach distinct tasks (S7 review F1c). No id → no attach →
+  // each task-shaped turn registers fresh.
+  const sessionKey = hints?.sessionId || null;
   {
     const cls = pre.classification || {};
     const origin = String(hints?.channel || "").toLowerCase();
     const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board" || origin === "garrison";
     if (!cardOriginated && router.isTaskShaped(cls)) {
-      const attached = router.attachedCard(sessionKey, cls);
+      const attached = sessionKey ? await router.attachedCard(sessionKey, cls) : null;
       if (attached) {
         logEvent("stdout", { kind: "card-attached", id: attached.cardId, taskType: cls.taskType });
       } else {
@@ -627,6 +723,17 @@ const server = http.createServer(async (request, response) => {
         }
       }, 15_000);
 
+      // Forward AskUserQuestion tool events on THIS stream while the turn runs, so
+      // the client renders tappable option buttons (answered via POST /chat/answer).
+      const onTool = (payload) => {
+        try {
+          sseWrite(response, "tool", payload);
+        } catch {
+          /* client gone */
+        }
+      };
+      toolListeners.add(onTool);
+
       try {
         await readyPromise;
         const result = await enqueueTurn(message, (text, replace) => {
@@ -647,9 +754,21 @@ const server = http.createServer(async (request, response) => {
         sseWrite(response, "error", { error: err.message });
         logEvent("stderr", { kind: "chat-stream-failed", error: err.message });
       } finally {
+        toolListeners.delete(onTool);
         clearInterval(heartbeat);
         response.end();
       }
+      return;
+    }
+
+    // Answer an AskUserQuestion picker the operative raised (tappable buttons on the
+    // client). Body: { session_id?, tool_use_id, label? | text? | dismiss? }.
+    if (request.method === "POST" && url.pathname === "/chat/answer") {
+      const body = await readJsonBody(request);
+      await readyPromise;
+      const r = await handleAnswer(body);
+      logEvent("stdout", { kind: "chat-answer", tool_use_id: body?.tool_use_id ?? null, action: r.body?.action ?? null, status: r.status });
+      sendJson(response, r.status, r.body);
       return;
     }
 
@@ -752,6 +871,11 @@ const server = http.createServer(async (request, response) => {
         session.writeKeys("\x1b");
         return sendJson(response, 200, { ok: true });
       }
+      if (request.method === "POST" && url.pathname === "/claude/answer") {
+        const body = await readJsonBody(request);
+        const r = await handleAnswer(body);
+        return sendJson(response, r.status, r.body);
+      }
     }
 
     sendJson(response, 404, { error: "not found", path: url.pathname });
@@ -814,6 +938,11 @@ async function shutdown(signal) {
     }
   } catch {
     /* best effort */
+  }
+  try {
+    askWatcher?.stop();
+  } catch {
+    /* ignore */
   }
   try {
     router?.shutdown();

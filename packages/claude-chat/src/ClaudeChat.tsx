@@ -15,7 +15,7 @@ import sql from "highlight.js/lib/languages/sql";
 import rust from "highlight.js/lib/languages/rust";
 import go from "highlight.js/lib/languages/go";
 import diff from "highlight.js/lib/languages/diff";
-import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
+import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand, ToolQuestion } from "./transport";
 import {
   getChatMode,
   resolvedChatScheme,
@@ -170,6 +170,91 @@ interface Turn {
   /** Hide the user bubble for this turn (e.g. a host kickoff that primes the operative
    *  but shouldn't be shown as a chat message — the reply still renders normally). */
   hideUser?: boolean;
+  /** An AskUserQuestion the operative raised during this turn (D28). Rendered as
+   *  tappable option buttons; answered via transport.answerQuestion. Only the first
+   *  question is answerable (the TUI picker is one widget). */
+  question?: { toolUseId: string; questions: ToolQuestion[] };
+  /** The label/text the user chose for `question` (set on tap; disables the buttons
+   *  and renders as the user's message). */
+  answered?: string;
+  /** True while the answer POST is in flight (buttons show a pending state). */
+  answering?: boolean;
+}
+
+// AskUserQuestion picker → tappable option buttons (D28). Pure + exported so the
+// render contract (one button per option, disabled-after-answer, no emoji,
+// 44px targets via .cc-question-opt) is unit-testable without a DOM. Only the
+// first question of a multi-question tool call is rendered/answerable.
+export function QuestionBlock({
+  q,
+  answered,
+  answering,
+  onSelect,
+  onOther,
+}: {
+  q: ToolQuestion;
+  answered?: string;
+  answering?: boolean;
+  onSelect: (label: string) => void;
+  onOther: (text: string) => void;
+}) {
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const locked = Boolean(answered) || Boolean(answering);
+  const title = q.header?.trim() || q.question?.trim() || "Choose an option";
+  const showSub = Boolean(q.question?.trim()) && q.question.trim() !== title;
+  return (
+    <div className="cc-question" role="group" aria-label={title}>
+      <div className="cc-question-title">{title}</div>
+      {showSub && <div className="cc-question-sub">{q.question}</div>}
+      <div className="cc-question-opts">
+        {q.options.map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            className={`cc-question-opt${answered === o.label ? " cc-question-opt-chosen" : ""}`}
+            disabled={locked}
+            aria-pressed={answered === o.label}
+            onClick={() => onSelect(o.label)}
+          >
+            <span className="cc-question-opt-label">{o.label}</span>
+            {o.description && <span className="cc-question-opt-desc">{o.description}</span>}
+          </button>
+        ))}
+        {!locked && !otherOpen && (
+          <button type="button" className="cc-question-other" onClick={() => setOtherOpen(true)}>
+            Other...
+          </button>
+        )}
+      </div>
+      {!locked && otherOpen && (
+        <div className="cc-question-otherrow">
+          <input
+            className="cc-question-otherinput"
+            value={otherText}
+            placeholder="Type your answer"
+            autoFocus
+            onChange={(e) => setOtherText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && otherText.trim()) {
+                e.preventDefault();
+                onOther(otherText.trim());
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="cc-question-othersend"
+            disabled={!otherText.trim()}
+            onClick={() => otherText.trim() && onOther(otherText.trim())}
+          >
+            Send
+          </button>
+        </div>
+      )}
+      {answered && <div className="cc-user cc-question-answer">{answered}</div>}
+    </div>
+  );
 }
 
 // ── Toolbar feature flags (all default OFF so web-channel is unaffected) ──
@@ -553,6 +638,19 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         case "screen":
           setScreen(ev.lines);
           break;
+        case "tool": {
+          // Attach an AskUserQuestion to the current (streaming) turn → tappable
+          // option buttons. Ignore other tools and malformed payloads.
+          if (ev.name !== "AskUserQuestion" || !Array.isArray(ev.questions) || ev.questions.length === 0) break;
+          setTurns((prev) => {
+            if (prev.length === 0) return prev;
+            const copy = prev.slice();
+            const last = copy[copy.length - 1];
+            copy[copy.length - 1] = { ...last, question: { toolUseId: ev.tool_use_id, questions: ev.questions } };
+            return copy;
+          });
+          break;
+        }
         case "connection":
           setConn(ev.state);
           break;
@@ -865,6 +963,25 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     [transport]
   );
 
+  // Answer an AskUserQuestion for a turn (a tapped option label or free text). The
+  // chosen value renders as the user's message and the buttons disable; the gateway
+  // drives the live TUI picker and the reply continues streaming into the same turn.
+  const answerQuestion = useCallback(
+    (turnId: string, toolUseId: string, choice: { label?: string; text?: string }) => {
+      const chosen = choice.label ?? choice.text ?? "";
+      setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answered: chosen, answering: true } : t)));
+      const fn = transport.answerQuestion;
+      if (!fn) {
+        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answering: false } : t)));
+        return;
+      }
+      Promise.resolve(fn.call(transport, { toolUseId, ...choice }))
+        .catch(() => {})
+        .finally(() => setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answering: false } : t))));
+    },
+    [transport]
+  );
+
   return (
     <div className="cc-root" data-theme={themeOn ? scheme : undefined}>
       <header className="cc-header">
@@ -911,7 +1028,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           return (
           <div className="cc-turn" key={t.id}>
             {!t.hideUser && <div className="cc-user">{t.user}</div>}
-            {(clean.text || t.streaming) && (
+            {(clean.text || t.streaming || t.question) && (
               <div className="cc-assistant">
                 <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(clean.text || "") as string }} />
                 {/* Streaming cursor once prose is arriving. */}
@@ -926,6 +1043,17 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                     <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
                     {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
                   </div>
+                )}
+                {/* AskUserQuestion → tappable option buttons (D28). Renders the first
+                    question of the tool call; answered via the answer path. */}
+                {t.question && t.question.questions[0] && (
+                  <QuestionBlock
+                    q={t.question.questions[0]}
+                    answered={t.answered}
+                    answering={t.answering}
+                    onSelect={(label) => answerQuestion(t.id, t.question!.toolUseId, { label })}
+                    onOther={(text) => answerQuestion(t.id, t.question!.toolUseId, { text })}
+                  />
                 )}
                 {/* Per-message actions: copy (always) + read-aloud (voice) + a subtle
                     routing chip (replaces the inline "[route: …]" badge). */}

@@ -1,4 +1,4 @@
-export { ClaudeChat, buildSendMeta } from "./ClaudeChat";
+export { ClaudeChat, buildSendMeta, QuestionBlock } from "./ClaudeChat";
 export type { ClaudeChatProps, ChatFeatures, ChatSendMeta } from "./ClaudeChat";
 export { createHttpTransport } from "./transport";
 export { createVoiceClient } from "./voice";
@@ -18,4 +18,7 @@ export type {
   ClaudeStatus,
   PermissionMode,
   SlashCommand,
+  ToolQuestion,
+  ToolQuestionOption,
+  QuestionAnswer,
 } from "./transport";

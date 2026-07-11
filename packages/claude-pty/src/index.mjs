@@ -15,6 +15,7 @@ export {
   parseEvents,
   emptyTurn,
   extractLocalCommandOutput,
+  extractAskUserQuestions,
 } from "./jsonl.mjs";
 export {
   waitForCompletion,

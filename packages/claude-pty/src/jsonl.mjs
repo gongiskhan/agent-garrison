@@ -162,6 +162,57 @@ export function parseEvents(events) {
   };
 }
 
+/**
+ * Extract AskUserQuestion tool_use payloads from either raw JSONL events or a
+ * parsed turn. Returns one entry per AskUserQuestion tool_use, in file order:
+ *   { tool_use_id, name: "AskUserQuestion", questions: [{ question, header,
+ *     options: [{ label, description }], multiSelect }] }
+ *
+ * The option `label`s are load-bearing: the channel renders them as tappable
+ * buttons and the answer path maps a tapped label back to its option INDEX to
+ * drive the TUI picker (see fittings/seed/http-gateway/scripts/lib/ask-question.mjs).
+ * Malformed / partial inputs are skipped defensively - a mid-write JSONL line
+ * can carry a half-serialised object.
+ */
+export function extractAskUserQuestions(eventsOrTurn) {
+  const toolUses = Array.isArray(eventsOrTurn)
+    ? parseEvents(eventsOrTurn).toolUses
+    : Array.isArray(eventsOrTurn?.toolUses)
+      ? eventsOrTurn.toolUses
+      : [];
+  const out = [];
+  for (const tu of toolUses) {
+    if (tu?.name !== "AskUserQuestion") continue;
+    const rawQuestions = Array.isArray(tu.input?.questions) ? tu.input.questions : [];
+    const questions = rawQuestions.map(normalizeQuestion).filter(Boolean);
+    if (questions.length === 0) continue;
+    out.push({
+      tool_use_id: typeof tu.tool_use_id === "string" ? tu.tool_use_id : null,
+      name: "AskUserQuestion",
+      questions,
+    });
+  }
+  return out;
+}
+
+function normalizeQuestion(q) {
+  if (!q || typeof q !== "object") return null;
+  const question = typeof q.question === "string" ? q.question : "";
+  const header = typeof q.header === "string" ? q.header : "";
+  const options = (Array.isArray(q.options) ? q.options : [])
+    .map((o) =>
+      o && typeof o === "object"
+        ? {
+            label: typeof o.label === "string" ? o.label : String(o.label ?? ""),
+            description: typeof o.description === "string" ? o.description : "",
+          }
+        : { label: String(o ?? ""), description: "" }
+    )
+    .filter((o) => o.label.length > 0);
+  if (!question && options.length === 0) return null;
+  return { question, header, options, multiSelect: q.multiSelect === true };
+}
+
 function localCommandFields(ev) {
   // Surface local-command-stdout payloads so command-only turns (Signal-C)
   // can produce a reply. Claude Code records slash-command output in a few
