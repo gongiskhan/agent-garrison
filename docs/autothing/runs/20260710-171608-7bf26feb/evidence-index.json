@@ -61,9 +61,43 @@
     }
   },
   "globalGate": {
-    "status": "in-progress"
+    "status": "completed-with-blockers",
+    "at": "2026-07-11T05:13:57Z",
+    "blockers": [
+      {
+        "gate": "codex-checkpoint",
+        "cause": "external: codex 401 Unauthorized - not logged in, no OPENAI_API_KEY, no ~/.codex/auth.json",
+        "failedCommand": "echo \"Reply OK\" | codex exec -s read-only -m gpt-5.5 -",
+        "remediation": "set an OpenAI API key with a budget cap, then re-run the checkpoint"
+      }
+    ],
+    "builtinSecurityReview": {
+      "status": "clean",
+      "findings": 0
+    },
+    "securityWall": {
+      "gitleaks": 0,
+      "semgrep": 0,
+      "depAudit": "12 pre-existing advisories, root deps unchanged by this run"
+    },
+    "deliberateRed": {
+      "plants": 4,
+      "caught": 4
+    },
+    "mutation": {
+      "mutants": 3,
+      "killed": 3,
+      "ratchet": "killer test added for the surviving mutant"
+    },
+    "suite": {
+      "tests": 1861,
+      "typecheck": 0
+    },
+    "slicesPassed": 9,
+    "videos": "9/9 verified"
   },
   "runLog": "../../../RUN_LOG.md",
   "runSpec": "RUN_SPEC.md",
-  "flowPlan": "FLOW_PLAN.md"
+  "flowPlan": "FLOW_PLAN.md",
+  "landing": "LANDING.md"
 }
