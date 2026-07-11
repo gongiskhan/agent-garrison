@@ -6,6 +6,7 @@ dependencies:
     - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
@@ -75,6 +76,8 @@ x-garrison:
           config:
             bind_host: 127.0.0.1
       runtimes:
+        - id: claude-code-runtime
+          config: {}
         - id: codex-runtime
           config: {}
         - id: gemini-runtime

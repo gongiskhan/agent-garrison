@@ -54,6 +54,19 @@ x-garrison:
   consumes:
     - kind: vault
       cardinality: optional-one
+  # D3 (GARRISON-RUNTIMES-V1): how a provider override is applied to this engine.
+  # The composer's target editor adapts its provider fields to this declaration.
+  provider_mechanism:
+    type: env
+    base_url_env: ANTHROPIC_BASE_URL
+    auth_env: ANTHROPIC_AUTH_TOKEN
+    model_arg: "--model"
+  # D5: which Quarters implementation configures this runtime. `deep` maps to the
+  # existing full claude-code Quarters surface (settings catalog, primitives,
+  # promote/park) registered as-is — never the generic descriptor tier.
+  quarters_descriptor:
+    tier: deep
+    id: claude-code
   verify:
     command: node apm_modules/_local/claude-code-runtime/scripts/probe.mjs --probe
     expect: ok

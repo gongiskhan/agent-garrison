@@ -320,6 +320,46 @@ export interface GarrisonMetadata {
   // ONLY these named secrets to the Fitting's process (see vault scoping),
   // replacing the historical all-or-nothing delivery to any kind:vault consumer.
   secret_scope?: string[];
+  // D3 (GARRISON-RUNTIMES-V1): how a provider override (base URL / auth
+  // credential / model) is applied to this runtime engine. Absent on
+  // non-runtime Fittings and on runtimes that take no provider overrides.
+  provider_mechanism?: ProviderMechanism;
+  // D5: the Quarters descriptor this runtime ships — deep (registered
+  // implementation by id) or generic (descriptor-rendered native-config surface).
+  quarters_descriptor?: QuartersDescriptor;
+}
+
+// D3: the declared provider-override mechanism of a runtime Fitting.
+export interface ProviderMechanism {
+  type: "env" | "config-file";
+  base_url_env?: string;
+  auth_env?: string;
+  model_arg?: string;
+  model_env?: string;
+  config_file?: string;
+  config_format?: "json" | "toml";
+  config_key?: string;
+  model_key?: string;
+  notes?: string;
+}
+
+// D5: one native settings file surfaced by the generic Quarters tier.
+export interface QuartersSettingsFile {
+  path: string;
+  format: "json" | "toml";
+  label?: string;
+}
+
+// D5: the Quarters descriptor a runtime Fitting ships.
+export interface QuartersDescriptor {
+  tier: "deep" | "generic";
+  id: string;
+  home_dir?: string;
+  settings_files?: QuartersSettingsFile[];
+  context_file?: string;
+  mcp_config?: { path: string; format: "json" | "toml"; key?: string };
+  log_paths?: string[];
+  categories?: string[];
 }
 
 export interface RatingInfo {

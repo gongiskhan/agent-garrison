@@ -79,3 +79,46 @@ describe("claude-code-runtime fitting (S1)", () => {
     expect(result.ok).toBe(true);
   });
 });
+
+// S1 (GARRISON-RUNTIMES-V1): the fitting declares its provider mechanism (D3)
+// and Quarters descriptor (D5), and the seed composition selects it so existing
+// setups resolve with claude-code as an explicit first-class runtime.
+describe("claude-code-runtime RUNTIMES-V1 metadata (S1)", () => {
+  it("declares the env provider mechanism (ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / --model)", async () => {
+    const m = await loadSeed("claude-code-runtime");
+    expect(m.provider_mechanism).toEqual({
+      type: "env",
+      base_url_env: "ANTHROPIC_BASE_URL",
+      auth_env: "ANTHROPIC_AUTH_TOKEN",
+      model_arg: "--model"
+    });
+  });
+
+  it("declares the deep claude-code Quarters descriptor", async () => {
+    const m = await loadSeed("claude-code-runtime");
+    expect(m.quarters_descriptor).toEqual({ tier: "deep", id: "claude-code" });
+  });
+
+  it("is selected in the default composition's runtimes faculty", async () => {
+    interface CompositionManifest {
+      dependencies?: { apm?: Array<{ path?: string }> };
+      "x-garrison"?: {
+        composition?: { selections?: Record<string, Array<{ id: string }>> };
+      };
+    }
+    const comp = await readYamlFile<CompositionManifest>(
+      path.resolve(__dirname, "..", "compositions", "default", "apm.yml")
+    );
+    expect(comp).toBeTruthy();
+    const deps = comp!.dependencies?.apm ?? [];
+    expect(
+      deps.some((d) => d.path === "../../fittings/seed/claude-code-runtime"),
+      "default composition should depend on the claude-code-runtime seed"
+    ).toBe(true);
+    const runtimes = comp!["x-garrison"]?.composition?.selections?.runtimes ?? [];
+    expect(
+      runtimes.some((r) => r.id === "claude-code-runtime"),
+      "default composition should select claude-code-runtime under runtimes"
+    ).toBe(true);
+  });
+});
