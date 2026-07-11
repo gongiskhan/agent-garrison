@@ -21,7 +21,7 @@ describe("autonomy axis (D8)", () => {
     expect(mod.classifyExecution({ channel: "board" })).toBe("autonomous");
   });
 
-  it("an explicit autonomous marker wins (web-channel toggle / autothing doorway)", async () => {
+  it("an explicit autonomous marker wins (web-channel toggle / garrison doorway)", async () => {
     const mod = await core();
     expect(mod.classifyExecution({ channel: "web", explicitAutonomous: true })).toBe("autonomous");
     expect(
@@ -147,7 +147,7 @@ describe("brain merge grep proofs (D6/D7, acceptance 10)", () => {
     expect(merged).toContain("[orchestrator-active]");
     expect(merged).toContain("current branch"); // garrison-orchestrator project-work flow (same-branch only, GARRISON-FLOW-V2 D10)
     expect(merged).toContain("origin: ui-tab"); // surface awareness
-    expect(merged).toContain("Autonomous work"); // autothing doctrine section
+    expect(merged).toContain("Autonomous work"); // garrison disciplined-build doctrine section
     expect(merged).toContain("5-attempt ceiling");
     expect(merged).toContain("No voluntary deferral");
     expect(merged).toContain("Self-unblock before blocking");

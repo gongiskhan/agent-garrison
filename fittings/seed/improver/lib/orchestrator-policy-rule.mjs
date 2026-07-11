@@ -2,8 +2,8 @@
 // policy (GARRISON-UNIFY-V1 S15, D38).
 //
 // Inputs (both read-only):
-//   • the autothing friction log(s) — docs/autothing/friction-log.md lines
-//     (the signal autothing writes and, until this rule, NOTHING read), and
+//   • the garrison friction log(s) — docs/autothing/friction-log.md lines
+//     (the signal garrison writes and, until this rule, NOTHING read), and
 //   • run outcomes — ~/.garrison/runs/<project>/<runId>/evidence-index.json
 //     (+ per-slice gate-status.json), the durable spine of every run.
 //
@@ -154,7 +154,7 @@ export function analyzeForPolicyProposals({ outcomes = [], frictionLines = [], a
     }
   }
 
-  // Friction → skill-binding review. Count mentions of [autothing-<verb>]
+  // Friction → skill-binding review. Count mentions of [garrison-<verb>]
   // (or any [skill-name]) in friction lines.
   const mentionCounts = new Map();
   for (const { line } of frictionLines) {

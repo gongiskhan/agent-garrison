@@ -387,7 +387,7 @@
     "name": "Kanban Loop",
     "repo": "local:fittings/seed/kanban-loop",
     "localPath": "fittings/seed/kanban-loop",
-    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :7089, embedded at /embed/kanban-loop). Full autothing-* pipeline: Backlog \u2192 To Do \u2192 Discuss \u2192 Plan \u2192 Implement \u2192 Review \u2192 Adv Review \u2192 Test \u2192 Adv Test \u2192 Walkthrough \u2192 Validate \u2192 Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their autothing-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
+    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :7089, embedded at /embed/kanban-loop). Full garrison-* pipeline: Backlog \u2192 To Do \u2192 Discuss \u2192 Plan \u2192 Implement \u2192 Review \u2192 Adv Review \u2192 Test \u2192 Adv Test \u2192 Walkthrough \u2192 Validate \u2192 Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their garrison-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
     "platforms": [
       "claude-code"
     ],
@@ -428,11 +428,11 @@
     }
   },
   {
-    "id": "autothing-skills",
+    "id": "garrison-skills",
     "name": "Autothing Skills",
-    "repo": "local:fittings/seed/autothing-skills",
-    "localPath": "fittings/seed/autothing-skills",
-    "summary": "The autothing family \u2014 the gated-build orchestrator doorway plus every phase verb skill \u2014 as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",
+    "repo": "local:fittings/seed/garrison-skills",
+    "localPath": "fittings/seed/garrison-skills",
+    "summary": "The garrison family \u2014 the gated-build orchestrator doorway plus every phase verb skill \u2014 as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",
     "platforms": [
       "claude-code"
     ],

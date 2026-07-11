@@ -81,7 +81,7 @@ describe("routing assembly (MR1b — assembly-ok)", () => {
   it("the compiled routing section carries the discipline + continuations policy, and it reaches the assembled prompt (foundation for discipline→skill mapping)", () => {
     const section = compileRouting(SEED, "balanced");
     // the discipline matrix (post-task duties by tier) + continuations are the
-    // policy the orchestrator turns into autothing-style gates (WS4).
+    // policy the orchestrator turns into garrison-style gates (WS4).
     expect(section).toContain("Discipline");
     expect(section).toContain("Continuations");
     const out = buildOrchestratorInstructions({

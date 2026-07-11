@@ -459,7 +459,7 @@ export function resolvePhaseTarget(policy, phase, tier) {
 // ── Autonomy axis (D8) ───────────────────────────────────────────────────────
 // preRoute output extends to {taskType, tier, execution}. Deterministic rules
 // first (pure): a card- or scheduler-originated turn is autonomous; an explicit
-// autonomous marker (the web-channel toggle, the autothing doorway) is
+// autonomous marker (the web-channel toggle, the garrison doorway) is
 // autonomous; a multi-step cross-app automation shape is autonomous; otherwise
 // THE CLASSIFIER decides (its reply now carries an `execution` field — see
 // buildClassifierPrompt), with Gary-mode conversation flooring to interactive.
@@ -469,7 +469,7 @@ export function resolvePhaseTarget(policy, phase, tier) {
 // diff" card-ifying an inline review). Ordinary chat work stays interactive
 // unless an origin, an explicit marker, or the classifier itself says
 // autonomous. Returns "interactive" | "autonomous".
-const AUTONOMOUS_CHANNELS = new Set(["kanban", "scheduler", "board", "autothing"]);
+const AUTONOMOUS_CHANNELS = new Set(["kanban", "scheduler", "board", "garrison"]);
 const AUTOMATION_SHAPE = /\b(then|after that|every day|each morning|on a schedule|and then|for each|across (all|both)|multi-step|automate|workflow)\b/i;
 const BUILD_VERBS = new Set([
   "plan", "implement", "test", "review", "adversarial-review", "adversarial-test",
@@ -494,7 +494,7 @@ export function classifyExecution({ channel, explicitAutonomous, mode, message, 
 }
 
 // Whether an AUTONOMOUS turn is "significant" enough to become a card+run
-// rather than run inline (the autothing scope test): a pipeline verb (reachable
+// rather than run inline (the garrison scope test): a pipeline verb (reachable
 // via explicit engine/doorway hints), or code/ops work above T0. Only consulted
 // AFTER execution resolved autonomous — it never makes something autonomous.
 export function isSignificantAutonomous(classification) {

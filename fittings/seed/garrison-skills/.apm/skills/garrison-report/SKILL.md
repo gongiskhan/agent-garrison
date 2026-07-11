@@ -1,9 +1,9 @@
 ---
-name: autothing-report
-description: Send a Slack notification when an autothing run finishes — a summary of the work, a Tailscale URL to the walkthrough video gallery, and Tailscale links to the session logs + run artifacts served IN PLACE (no duplication, via a small standing Node server). autothing calls this as its final step once the global gate is decided; also usable standalone to report on a finished run. Sends via a Slack incoming webhook (AUTOTHING_SLACK_WEBHOOK_URL), falling back to the Slack MCP when interactive. NOT for mid-run progress (that is the PROGRESS line) and NOT for recording the videos (that is autothing-walkthrough).
+name: garrison-report
+description: Send a Slack notification when a garrison run finishes — a summary of the work, a Tailscale URL to the walkthrough video gallery, and Tailscale links to the session logs + run artifacts served IN PLACE (no duplication, via a small standing Node server). garrison calls this as its final step once the global gate is decided; also usable standalone to report on a finished run. Sends via a Slack incoming webhook (AUTOTHING_SLACK_WEBHOOK_URL), falling back to the Slack MCP when interactive. NOT for mid-run progress (that is the PROGRESS line) and NOT for recording the videos (that is garrison-walkthrough).
 ---
 
-# autothing-report
+# garrison-report
 
 ## Policy-read preamble (soft - D5/D12)
 
@@ -23,10 +23,10 @@ At the start of every invocation, look for the compiled Orchestrator policy at
   writing gate-status/run artifacts, and skip any board/run-engine steps.
 
 
-Notifies the operator on Slack that an autothing run is done, with a work summary, the **walkthrough video gallery** (Tailscale URL), and the **session logs + run artifacts** as Tailscale links served **in place** (symlinked, never copied). The final step of an autothing run, and a standalone "report on this run" skill.
+Notifies the operator on Slack that a garrison run is done, with a work summary, the **walkthrough video gallery** (Tailscale URL), and the **session logs + run artifacts** as Tailscale links served **in place** (symlinked, never copied). The final step of a garrison run, and a standalone "report on this run" skill.
 
 ## When it runs
-- **In an autothing build:** Phase 5, AFTER the handover prose and AFTER `globalGate.status` is decided, but **BEFORE** the terminal `GLOBAL GATE:` line (that line releases the goal-loop hook and ends the session, so nothing after it runs). Sending the Slack message is a side-effect, so it is safe to do before that final print.
+- **In a garrison build:** Phase 5, AFTER the handover prose and AFTER `globalGate.status` is decided, but **BEFORE** the terminal `GLOBAL GATE:` line (that line releases the goal-loop hook and ends the session, so nothing after it runs). Sending the Slack message is a side-effect, so it is safe to do before that final print.
 - **Standalone:** invoke any time against a finished run dir to (re)send the report.
 
 ## Inputs
@@ -44,33 +44,33 @@ Notifies the operator on Slack that an autothing run is done, with a work summar
 ### 2. Publish the logs over Tailscale — WITHOUT duplicating them
 Build a per-run directory of **symlinks** to the real files (symlinks reference the originals — no content is copied), then start the standing server:
 ```bash
-mkdir -p ~/.autothing/report/<runId>
+mkdir -p ~/.garrison/report/<runId>
 # The evidence home is served DIRECTLY at /runs/ (D20) — no per-run symlink
 # needed for run artifacts; the canonical link is
 #   http://<tailnet>:8091/runs/<project>/<runId>/
-# (symlinks under ~/.autothing/report remain supported for extra artifacts)
+# (symlinks under ~/.garrison/report remain supported for extra artifacts)
 TRANSCRIPT="$(find ~/.claude/projects -name "$CLAUDE_CODE_SESSION_ID.jsonl" 2>/dev/null | head -1)"
-[ -n "$TRANSCRIPT" ] && ln -sfn "$TRANSCRIPT" ~/.autothing/report/<runId>/session-transcript.jsonl
-node ~/.claude/skills/autothing-report/scripts/serve.mjs   # prints the Tailscale base URL, e.g. http://100.x.y.z:8091/
+[ -n "$TRANSCRIPT" ] && ln -sfn "$TRANSCRIPT" ~/.garrison/report/<runId>/session-transcript.jsonl
+node ~/.claude/skills/garrison-report/scripts/serve.mjs   # prints the Tailscale base URL, e.g. http://100.x.y.z:8091/
 ```
 `serve.mjs` is **idempotent + standing** (self-daemonizes, reuses an already-running instance, survives the session so the links stay live). The per-run logs URL is `<base>/<runId>/`.
 - **Default to the curated `run/` artifacts** (plan + gate-status + evidence-index + friction-log — no raw secrets). Symlinking the **raw session transcript** is optional: it is the full session log but **may contain secrets** — only include it if that is acceptable on your tailnet, or redact (`sk-*` / `ghp_*` / `xoxb-*`) first.
 
 ### 3. Send the Slack notification
 ```bash
-node ~/.claude/skills/autothing-report/scripts/notify.mjs \
+node ~/.claude/skills/garrison-report/scripts/notify.mjs \
   --project "<project>" --status "<globalGate.status>" \
   --summary "<runDir>/report-summary.md" \
   --gallery-url "<gallery base URL>" \
   --report-url "<base>/<runId>/" \
   --landing-url "<base>/<runId>/run/LANDING.md"
 ```
-- Requires a **Slack incoming webhook** in `AUTOTHING_SLACK_WEBHOOK_URL` (env) or `~/.config/autothing/.env` (`AUTOTHING_SLACK_WEBHOOK_URL=...`). This is the headless-safe path (plain HTTPS POST, no MCP, PTY-safe).
+- Requires a **Slack incoming webhook** in `AUTOTHING_SLACK_WEBHOOK_URL` (env) or `~/.config/garrison/.env` (`AUTOTHING_SLACK_WEBHOOK_URL=...`). This is the headless-safe path (plain HTTPS POST, no MCP, PTY-safe).
 - **Fallback when no webhook is set AND you are interactive:** `notify.mjs` prints the composed Block Kit payload and exits 0; send that same content via the Slack MCP (`mcp__claude_ai_Slack__slack_send_message`). A missing webhook never fails the run.
 - **The completion message LINKS the run's `LANDING.md` — the audit packet.** Alongside the walkthrough gallery URL and the logs/artifacts link, the message carries a Tailscale link to `<runDir>/LANDING.md`, served in place at `<base>/<runId>/run/LANDING.md` (the `run/` symlink already exposes it — no extra copy). The operator opens one message and has the summary, the video gallery, the raw logs/artifacts, AND the full audit packet.
 
 ## Mid-run event notifications
-The completion message above is the end-of-run report. Beyond it, autothing-report also fires **immediate, lightweight alerts** the moment certain events happen mid-run — so the operator watching from Slack learns of a degradation the second it happens, not from a status bar at 1am, and never has to open a second session to find out what changed. These are **separate, lightweight notifications** over the SAME webhook / MCP-fallback path as the end-of-run one (a one-line message, not the full report) — and they are NOT the routine PROGRESS line (still not this skill's job); only these exceptional events fire one:
+The completion message above is the end-of-run report. Beyond it, garrison-report also fires **immediate, lightweight alerts** the moment certain events happen mid-run — so the operator watching from Slack learns of a degradation the second it happens, not from a status bar at 1am, and never has to open a second session to find out what changed. These are **separate, lightweight notifications** over the SAME webhook / MCP-fallback path as the end-of-run one (a one-line message, not the full report) — and they are NOT the routine PROGRESS line (still not this skill's job); only these exceptional events fire one:
 - **`ABORT`** — the run aborted; name the cause.
 - **A model-fallback** — a slice or phase dropped to a different model, **naming the cause**: usage limit, capacity, or classifier-redirect. This is the highest-value alert here — a mid-run model degradation reaches the operator the second it happens, not at the end.
 - **`PAUSED`** — a turn-cap landing (the run parked at its turn ceiling).
@@ -83,7 +83,7 @@ Each is a `notify.mjs` call carrying the event's one-liner (same webhook, same i
 ## Setup (one-time)
 Create a Slack incoming webhook (Slack app → Incoming Webhooks → Add to a channel) and store it (secret — never commit):
 ```bash
-mkdir -p ~/.config/autothing && printf 'AUTOTHING_SLACK_WEBHOOK_URL=%s\n' '<your webhook url>' >> ~/.config/autothing/.env
+mkdir -p ~/.config/garrison && printf 'AUTOTHING_SLACK_WEBHOOK_URL=%s\n' '<your webhook url>' >> ~/.config/garrison/.env
 ```
 
 ## Notes

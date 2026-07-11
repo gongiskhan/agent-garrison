@@ -544,14 +544,14 @@ async function handleBriefPut(req, res) {
 //   - context present          → adds `context` (forwarded untouched)
 //   - mode present (non-empty) → adds `mode`
 // `message` is required upstream; `channel` is always pinned to "web".
-export function buildGatewayChatBody({ message, context, mode, classification, autonomous } = {}) {
+export function buildGatewayChatBody({ message, context, mode, classification, sessionId } = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
   if (typeof mode === "string" && mode.trim()) body.mode = mode.trim();
-  // D21: the composer's Autonomous toggle — the explicit D8 marker. The
-  // gateway registers significant autonomous work as a card and replies with
-  // the card link.
-  if (autonomous === true) body.autonomous = true;
+  // D19: the conversation's thread id, forwarded as the gateway's session key so a
+  // multi-turn thread attaches to ONE card instead of registering a duplicate per
+  // turn. Absent → the gateway falls back to the channel name.
+  if (typeof sessionId === "string" && sessionId.trim()) body.sessionId = sessionId.trim();
   // Forward an explicit routing hint (the interactive Discuss path sends
   // { taskType, tier: "T0-trivial" } to keep extended thinking OFF — thinking on a
   // "design a process" prompt trips Anthropic's usage-policy classifier). The gateway
@@ -578,7 +578,7 @@ async function handleChat(req, res, opts) {
   const threadId = typeof body?.thread === "string" && body.thread.trim() ? body.thread.trim() : null;
   // Forward the opaque context + mode + optional routing hint through to the gateway.
   const payload = JSON.stringify(
-    buildGatewayChatBody({ message, context: body?.context, mode: body?.mode, classification: body?.classification, autonomous: body?.autonomous })
+    buildGatewayChatBody({ message, context: body?.context, mode: body?.mode, classification: body?.classification, sessionId: threadId })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
   pipeChatSse(req, res, {

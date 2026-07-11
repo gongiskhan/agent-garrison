@@ -54,10 +54,10 @@ reverse.**
 
 ## Seed bindings
 
-The verb skills are the seed bindings (`autothing-plan`,
-`autothing-implement`, `autothing-review`, `autothing-adversarial-review`,
-`autothing-test`, `autothing-adversarial-test`, `autothing-security-review`,
-`garrison-ux-qa`, `autothing-walkthrough`, `autothing-validate`,
-`autothing-codex-checkpoint`, `autothing-report`). Any work kind may
+The verb skills are the seed bindings (`garrison-plan`,
+`garrison-implement`, `garrison-review`, `garrison-adversarial-review`,
+`garrison-test`, `garrison-adversarial-test`, `garrison-security-review`,
+`garrison-ux-qa`, `garrison-walkthrough`, `garrison-validate`,
+`garrison-codex-checkpoint`, `garrison-report`). Any work kind may
 override any binding (e.g. a docs review bound to a different review skill
 than a feature review).

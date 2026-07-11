@@ -13,7 +13,7 @@ x-garrison:
   summary: >-
     The config home (GARRISON-UNIFY-V1 S8, D23). Holds the ~/.claude content that
     is not a Faculty-owned fitting: shared slash commands, subagents, hooks,
-    templates, mcp.json, and the settings fragments (including the autothing
+    templates, mcp.json, and the settings fragments (including the garrison
     goal-loop hooks). agent-garrison is now the single config home; claude-share
     is decommissioned (D24). The `garrison config` CLI (status | pull | commit)
     syncs the live ~/.claude against this payload and commits drift back into

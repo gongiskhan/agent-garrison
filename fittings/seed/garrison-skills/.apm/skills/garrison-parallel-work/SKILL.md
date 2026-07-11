@@ -1,9 +1,9 @@
 ---
-name: autothing-parallel-work
-description: Decide HOW to split multi-step work across agents and run it safely — agent teams vs dynamic workflows vs sequential, the disjoint-files rule, and which shared runtime must serialize. Use BEFORE fanning a batch of work out to subagents/teammates/workflows (new modules, multi-slice builds, verification/research/design-audit fan-out, migrations), or when deciding whether two units of work can run concurrently at all. Encodes the standing preference — agent teams whenever they fit, workflows where teams don't, sequential only for genuinely shared work. autothing uses this for its build loop; usable directly for any parallelizable task. When the coord stack (beads / agent-mail / coord-mcp) is present, use its planning gate + cross-session file leases for multi-session safety, falling back to the disjoint-files discipline when absent. Do NOT use for the actual editing/testing of a single unit (that is an area/testing skill) or for recording evidence (that is walkthrough).
+name: garrison-parallel-work
+description: Decide HOW to split multi-step work across agents and run it safely — agent teams vs dynamic workflows vs sequential, the disjoint-files rule, and which shared runtime must serialize. Use BEFORE fanning a batch of work out to subagents/teammates/workflows (new modules, multi-slice builds, verification/research/design-audit fan-out, migrations), or when deciding whether two units of work can run concurrently at all. Encodes the standing preference — agent teams whenever they fit, workflows where teams don't, sequential only for genuinely shared work. garrison uses this for its build loop; usable directly for any parallelizable task. When the coord stack (beads / agent-mail / coord-mcp) is present, use its planning gate + cross-session file leases for multi-session safety, falling back to the disjoint-files discipline when absent. Do NOT use for the actual editing/testing of a single unit (that is an area/testing skill) or for recording evidence (that is walkthrough).
 ---
 
-# autothing-parallel-work
+# garrison-parallel-work
 
 ## Policy-read preamble (soft - D5/D12)
 
@@ -25,7 +25,7 @@ At the start of every invocation, look for the compiled Orchestrator policy at
 
 Parallelize aggressively where it is SAFE; serialize only what genuinely must be. The lesson driving this skill: parallelism is blocked by **shared files** and **shared stateful runtime**, NOT by the agent mechanism. No mechanism makes two agents editing the same file safe — you EARN parallelism by decomposing work into disjoint file ownership.
 
-This is a standalone capability. `autothing` calls it to parallelize its build loop, but use it directly any time you are about to fan work out across subagents, teammates, or workflows.
+This is a standalone capability. `garrison` calls it to parallelize its build loop, but use it directly any time you are about to fan work out across subagents, teammates, or workflows.
 
 ## The one rule
 Parallelize a set of work units only when BOTH hold:
@@ -36,7 +36,7 @@ A monolith file housing several work units (e.g. one `screens.jsx` with prospect
 
 ## Decompose up front — this is how you get MORE parallelism
 - Map each work unit to the files it will edit. If two units touch the same file, either (a) split that file so each owns its piece, or (b) put them in one sequential group.
-- Record the chosen group per unit with a ONE-LINE reason ("group A: disjoint screen files"; "S1+S3 share screens-internal.jsx → serial until split"). The parallel-vs-serial choice must be EXPLICIT and logged — never a silent default. (In an autothing build this goes in `FLOW_PLAN.md`'s parallel-group column.)
+- Record the chosen group per unit with a ONE-LINE reason ("group A: disjoint screen files"; "S1+S3 share screens-internal.jsx → serial until split"). The parallel-vs-serial choice must be EXPLICIT and logged — never a silent default. (In a garrison build this goes in `FLOW_PLAN.md`'s parallel-group column.)
 - Bias toward arranging the work so more of it is parallelizable. If a prototype monolith is the only blocker, plan the split as an early unit of work.
 
 ## Pick the mechanism
@@ -77,9 +77,9 @@ Pattern: teammates/workers implement N disjoint-file units in parallel, then the
 The rules above govern ONE session fanning out. When **multiple Claude sessions** (or the orchestrator + worker sessions) may touch the same repo at once, the disjoint-files rule needs **cross-session** enforcement. If the Garrison **coord stack** is available, USE it; otherwise fall back to the discipline above — **never hard-block on it.** Detect availability cheaply: the coord-mcp + agent-mail MCP tools are registered/connected and `bd` is on PATH. On a machine without Garrison, or a session where the MCP servers aren't connected, proceed EXACTLY as today.
 
 Three layers, each independently optional:
-- **Planning gate — coord-mcp.** Before architectural planning, `begin_planning(repo, summary)`: GRANTED returns a read-bundle (last released plan + recent plans + in-flight intents) to plan against; **WAIT** means another session holds the repo's plan lock — honor the bounded wait, or (autonomous) park the task and surface it, never hang. `end_planning` when the plan is written. `autothing-plan` owns this for the build's plan step.
+- **Planning gate — coord-mcp.** Before architectural planning, `begin_planning(repo, summary)`: GRANTED returns a read-bundle (last released plan + recent plans + in-flight intents) to plan against; **WAIT** means another session holds the repo's plan lock — honor the bounded wait, or (autonomous) park the task and surface it, never hang. `end_planning` when the plan is written. `garrison-plan` owns this for the build's plan step.
 - **File leases + intent — agent-mail + coord-mcp.** When fanning out across sessions, each unit **claims its files as an advisory lease** (path + TTL + heartbeat + reason) before editing, and `declare_intent(area, files, reason)` records it so other sessions' digests surface conflicts. This is the disjoint-files rule made enforceable BETWEEN sessions. Check `coord_digest` first; if a lease/intent collides, treat those files as shared → serialize or pick a different unit. Release leases/intents when the unit is done.
-- **Work graph — beads (`bd`).** Track parallel work units as beads issues when present, so progress/blockers are visible across sessions and survive restarts (`bd` is primed each session). Optional — for an autothing build the durable FLOW_PLAN + gate-status files remain the source of truth.
+- **Work graph — beads (`bd`).** Track parallel work units as beads issues when present, so progress/blockers are visible across sessions and survive restarts (`bd` is primed each session). Optional — for a garrison build the durable FLOW_PLAN + gate-status files remain the source of truth.
 
 Precedence: the intra-session disjoint-files + serialize-runtime rules ALWAYS hold. The coord stack ADDS cross-session safety on top; it does not replace them. When the stack is absent, the intra-session rules alone are the contract.
 

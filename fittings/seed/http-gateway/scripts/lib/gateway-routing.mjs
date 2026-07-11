@@ -222,6 +222,11 @@ export class RoutedGateway {
     // The model/effort/provider the operative session currently sits on.
     this.currentTarget = opts.initialTarget ?? null;
     this.spawnFn = opts.spawnFn ?? null; // for off-primary respawn-resume
+    // D19: per-conversation card memory. A task-shaped turn registers a card; a
+    // follow-up turn about the SAME task (same session key + task type) attaches
+    // to it instead of registering a duplicate. Quick cards are forgotten the
+    // moment they auto-advance to Done, so the next task starts a fresh card.
+    this._sessionCards = new Map(); // sessionKey -> { cardId, quick, taskType }
     this.operative = null;
     this.classifier = null;
     this.switchLog = [];
@@ -454,12 +459,10 @@ export class RoutedGateway {
     return this.classifier.session;
   }
 
-  // D8: register significant autonomous work as a card in the Plan list via
-  // the board API — the run engine takes it from there; the caller replies
-  // with the card link. Discovery via the kanban-loop status file (URL-link
-  // contract, never a hardcoded port). Returns {id, url} or null (board down /
-  // not installed → the caller falls back inline; never hard-blocks).
-  async createAutonomousCard(message, classification, opts = {}) {
+  // Resolve the board's base URL from the kanban-loop status file (URL-link
+  // contract, never a hardcoded port — the same discovery the gateway uses for
+  // every fitting). Returns the base URL or null (board down / not installed).
+  _boardBase() {
     try {
       const statusFile = path.join(
         process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"),
@@ -467,7 +470,24 @@ export class RoutedGateway {
         "kanban-loop.json"
       );
       const status = JSON.parse(fs.readFileSync(statusFile, "utf8"));
-      const base = status.url || `http://127.0.0.1:${status.port}`;
+      return status.url || `http://127.0.0.1:${status.port}`;
+    } catch {
+      return null;
+    }
+  }
+
+  // D19: register a turn as a card on the board (POST + engine-context move,
+  // exactly as the engine does — x-garrison-engine). The default lands the card
+  // in Plan so the run engine dispatches it (significant work); a quick card
+  // (opts.quick) lands in Implement and carries quick:true, and the caller
+  // auto-advances it to Done at turn completion (completeQuickCard). Discovery
+  // via _boardBase. Returns {id, url} or null (board down / not installed → the
+  // caller falls back inline; never hard-blocks).
+  async createAutonomousCard(message, classification, opts = {}) {
+    const targetList = opts.targetList ?? "plan";
+    try {
+      const base = this._boardBase();
+      if (!base) throw new Error("kanban-loop status file not found");
       const payload = this.core.buildAutonomousCardPayload
         ? this.core.buildAutonomousCardPayload({
             brief: message,
@@ -478,6 +498,7 @@ export class RoutedGateway {
             tier: classification?.tier
           })
         : { description: message, goalMode: true };
+      if (opts.quick) payload.quick = true; // D19: mark trivial-plan cards for the Done quick-tasks strip
       const created = await fetch(`${base}/cards`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -487,20 +508,20 @@ export class RoutedGateway {
       const card = await created.json();
       const id = card.id || card.card?.id;
       if (!id) throw new Error("board POST /cards returned no id");
-      // Move to Plan so the engine dispatches it (engine-context move). The rev
-      // from the create response goes STALE almost immediately for no-project
-      // cards (the board fires project inference fire-and-forget, whose first
-      // act bumps the rev) — so on ANY failed move, re-GET the card for a
-      // fresh rev and retry, up to 3 times. A card left in Backlog would be
-      // silently stranded (Backlog is a manual list, never auto-dispatched),
-      // which is exactly the failure the retry exists to prevent.
+      // Move to the target list (engine-context move). The rev from the create
+      // response goes STALE almost immediately for no-project cards (the board
+      // fires project inference fire-and-forget, whose first act bumps the rev) —
+      // so on ANY failed move, re-GET the card for a fresh rev and retry, up to 3
+      // times. A card left in Backlog would be silently stranded (Backlog is a
+      // manual list, never auto-dispatched), which is exactly the failure the
+      // retry exists to prevent.
       let rev = card.rev ?? card.card?.rev ?? 0;
       let movedOk = false;
       for (let attempt = 0; attempt < 3 && !movedOk; attempt++) {
         const moved = await fetch(`${base}/cards/${id}`, {
           method: "PATCH",
           headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
-          body: JSON.stringify({ list: "plan", rev })
+          body: JSON.stringify({ list: targetList, rev })
         });
         if (moved.ok) { movedOk = true; break; }
         this.logFn({ kind: "autonomous-card-move-retry", id, attempt, status: moved.status });
@@ -511,7 +532,7 @@ export class RoutedGateway {
             const doc = await fresh.json();
             rev = doc.card?.rev ?? doc.rev ?? rev;
             const list = doc.card?.list ?? doc.list;
-            if (list === "plan") { movedOk = true; break; } // someone already moved it
+            if (list === targetList) { movedOk = true; break; } // someone already moved it
           }
         } catch { /* retry with the old rev */ }
         await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
@@ -519,15 +540,79 @@ export class RoutedGateway {
       if (!movedOk) {
         // The run would be invisible on a manual list — surface the failure to
         // the caller instead of claiming success.
-        throw new Error(`board move to plan failed after retries (card ${id} left in backlog)`);
+        throw new Error(`board move to ${targetList} failed after retries (card ${id} left in backlog)`);
       }
       const url = `${base}/#/cards/${id}`;
-      this.logFn({ kind: "autonomous-card-created", id, url, taskType: classification?.taskType, tier: classification?.tier });
+      this.logFn({ kind: "autonomous-card-created", id, url, list: targetList, quick: opts.quick === true, taskType: classification?.taskType, tier: classification?.tier });
       return { id, url };
     } catch (err) {
       this.logFn({ kind: "autonomous-card-failed", error: err?.message });
       return null;
     }
+  }
+
+  // D19: a quick card runs inline; at turn completion the gateway advances it
+  // Implement → Done (engine-context move). Re-GET for a fresh rev and retry the
+  // move — the board bumps the rev under us the same way it does on create.
+  // Returns true when the card reaches Done. Never throws (a stranded quick card
+  // is a visible board state, not a turn failure).
+  async completeQuickCard(id) {
+    try {
+      const base = this._boardBase();
+      if (!base || !id) return false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let rev = 0;
+        try {
+          const fresh = await fetch(`${base}/cards/${id}`);
+          if (fresh.ok) {
+            const doc = await fresh.json();
+            rev = doc.card?.rev ?? doc.rev ?? 0;
+            if ((doc.card?.list ?? doc.list) === "done") return true; // already there
+          }
+        } catch { /* fall through with rev 0 */ }
+        const moved = await fetch(`${base}/cards/${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+          body: JSON.stringify({ list: "done", rev })
+        });
+        if (moved.ok) {
+          this.logFn({ kind: "quick-card-done", id });
+          return true;
+        }
+        await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+      }
+      this.logFn({ kind: "quick-card-done-failed", id });
+      return false;
+    } catch (err) {
+      this.logFn({ kind: "quick-card-done-failed", id, error: err?.message });
+      return false;
+    }
+  }
+
+  // D19: a turn is "task-shaped" (worth a card) when its task type names real
+  // work — code / research / writing / image / video / ops. Plain conversation
+  // (`other`) and the engine's own pipeline verbs are NOT carded here (the latter
+  // arrive card-originated). Matches RUN_SPEC A14.
+  static TASK_SHAPED = new Set(["code", "research", "writing", "image", "video", "ops"]);
+  isTaskShaped(classification) {
+    return !!classification && RoutedGateway.TASK_SHAPED.has(classification.taskType);
+  }
+
+  // D19 session→card memory. A follow-up turn about the same task (same session
+  // key AND task type) attaches to the live card instead of registering a
+  // duplicate. Quick cards are forgotten on completion, so a matching entry is
+  // always a still-live card.
+  attachedCard(sessionKey, classification) {
+    const entry = this._sessionCards.get(sessionKey);
+    if (!entry) return null;
+    if (classification && entry.taskType && entry.taskType !== classification.taskType) return null;
+    return entry;
+  }
+  rememberCard(sessionKey, entry) {
+    if (sessionKey) this._sessionCards.set(sessionKey, entry);
+  }
+  forgetCard(sessionKey) {
+    if (sessionKey) this._sessionCards.delete(sessionKey);
   }
 
   // Stage A: ask the pinned warm classifier ONE question; code resolves.
@@ -576,20 +661,16 @@ export class RoutedGateway {
       validTask.includes(explicit.taskType) &&
       validTier.includes(explicit.tier)
     );
-    const classification = honored ? explicit : await this.classify(message);
+    const raw = honored ? explicit : await this.classify(message);
+    // D18: `execution` is no longer a classification axis. Where work runs is
+    // derived from the resolved phase plan — a multi-phase or cross-model plan is
+    // engine-dispatched, a trivial plan runs inline (see the D19 carding in
+    // gateway-pty) — never from a per-turn execution flag. The classifier parser
+    // still attaches a legacy `execution`; drop it here so it never re-enters the
+    // routed decision, the decisions.jsonl record, or the preRoute output.
+    const { execution: _legacyExecution, ...classification } = raw;
     if (honored) {
       this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });
-    }
-    // Autonomy axis (D8): the preRoute output extends to {taskType, tier,
-    // execution}. Deterministic origin rules first, then the classifier's read.
-    if (typeof this.core.classifyExecution === "function") {
-      classification.execution = this.core.classifyExecution({
-        channel: opts.channel,
-        explicitAutonomous: opts.autonomous === true || opts.execution === "autonomous",
-        mode: opts.mode,
-        message,
-        classification
-      });
     }
     const route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });
@@ -598,13 +679,11 @@ export class RoutedGateway {
     decision.runtime = route.target?.runtime ?? null;
     decision.provider = route.target?.provider ?? null;
     decision.model = route.target?.model ?? null;
-    decision.execution = classification.execution ?? null;
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
       kind: "route-resolved",
       taskType: classification.taskType,
       tier: classification.tier,
-      execution: classification.execution ?? null,
       role: route.role,
       target: route.targetId,
       runtime: decision.runtime,

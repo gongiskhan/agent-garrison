@@ -58,12 +58,15 @@ async function makeRouter(boardUrl: string, garrisonHome: string) {
   const mod = await import(
     pathToFileURL(path.join(ROOT, "fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs")).href
   );
-  // Minimal RoutedGateway-shaped receiver: createAutonomousCard only touches
-  // this.core + this.logFn, so borrow the prototype method.
+  // A RoutedGateway-shaped receiver: createAutonomousCard touches this.core,
+  // this.logFn and this._boardBase, so create it off the prototype (not a bare
+  // literal) so the helper methods resolve.
   const core = await import(pathToFileURL(path.join(ROOT, "fittings/seed/orchestrator/lib/routing-core.mjs")).href);
   const logs: unknown[] = [];
-  const self = { core, logFn: (e: unknown) => logs.push(e) };
-  const fn = mod.RoutedGateway.prototype.createAutonomousCard.bind(self);
+  const self: any = Object.create(mod.RoutedGateway.prototype);
+  self.core = core;
+  self.logFn = (e: unknown) => logs.push(e);
+  const fn = self.createAutonomousCard.bind(self);
   return { fn, logs };
 }
 

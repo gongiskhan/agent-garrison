@@ -1,9 +1,9 @@
 ---
-name: autothing-validate
-description: Validate a slice's Definition of Done from its durable gate markers and decide Done vs Implement — read the gate-status.json under a passed-in runDir + sliceId, check every DoD gate (tests/typecheck/lint/build/e2e exit 0, ux-qa gate clean-or-below-threshold for UI, fresh-context review approve, independent test pass, and a VERIFIED walkthrough video), write the durable `validated` gate record, and end with a parseable Done|Implement last line. Use for "validate the Definition of Done", "check the gate markers and decide Done or Implement", "write the durable gate record for this slice", or as the engine of the Kanban Validate list. NOT a test runner (that is autothing-test) and NOT a code review (that is autothing-review).
+name: garrison-validate
+description: Validate a slice's Definition of Done from its durable gate markers and decide Done vs Implement — read the gate-status.json under a passed-in runDir + sliceId, check every DoD gate (tests/typecheck/lint/build/e2e exit 0, ux-qa gate clean-or-below-threshold for UI, fresh-context review approve, independent test pass, and a VERIFIED walkthrough video), write the durable `validated` gate record, and end with a parseable Done|Implement last line. Use for "validate the Definition of Done", "check the gate markers and decide Done or Implement", "write the durable gate record for this slice", or as the engine of the Kanban Validate list. NOT a test runner (that is garrison-test) and NOT a code review (that is garrison-review).
 ---
 
-# autothing-validate
+# garrison-validate
 
 ## Policy-read preamble (soft - D5/D12)
 
@@ -36,7 +36,7 @@ steps already wrote and renders a deterministic verdict.
 
 ## What it reads
 - `<runDir>/slices/<sliceId>/gate-status.json` — the authoritative per-slice marker
-  (schema: `~/.claude/skills/autothing/assets/gate-status.example.json`).
+  (schema: `~/.claude/skills/garrison/assets/gate-status.example.json`).
 - `<runDir>/evidence-index.json` — read for context if present; non-fatal when absent.
 
 ## The DoD it checks (from `gate-status.gates`)
@@ -48,13 +48,13 @@ steps already wrote and renders a deterministic verdict.
   or verdict `issues` with every finding below threshold (clean-with-notes). A
   missing or `skipped` gate on a UI slice FAILS. Mirrors `garrison-ux-qa`.
 - `adversarialReview.verdict === "approve"` — the fresh-context Anthropic review
-  (`autothing-adversarial-review`; renamed from `codexReview` — this gate is no
+  (`garrison-adversarial-review`; renamed from `codexReview` — this gate is no
   longer a Codex call, see decisions.md). This is a per-slice DoD check only; the
-  run-level cross-model Codex checkpoint (`autothing-codex-checkpoint`) lives in
+  run-level cross-model Codex checkpoint (`garrison-codex-checkpoint`) lives in
   `evidence-index.json`'s `globalGate.codexCheckpoint` and is out of scope for a
   single slice's DoD.
 - `adversarialTest.result === "pass"` — the independent Anthropic test pass
-  (`autothing-adversarial-test`; renamed from `codexPwTest`) — required for
+  (`garrison-adversarial-test`; renamed from `codexPwTest`) — required for
   `ui`/`mixed`; `n/a` tolerated (no running app to drive), and n/a for a pure-CLI
   slice.
 - `video.status === "verified"` — REQUIRED. A `failed-but-unblocking` or missing
@@ -77,7 +77,7 @@ then a `VALIDATE verdict:` summary, and the **FINAL non-empty stdout line is EXA
 
 ## Invocation
 ```bash
-node ~/.claude/skills/autothing-validate/scripts/validate.mjs <runDir> <sliceId>
+node ~/.claude/skills/garrison-validate/scripts/validate.mjs <runDir> <sliceId>
 # flags also accepted: --run-dir <runDir> --slice <sliceId>
 # --strict additionally exits non-zero on a Fail (for standalone CLI use)
 ```
@@ -85,8 +85,8 @@ Exit code is 0 by default (the verdict is the last stdout line, not the exit cod
 `--strict` makes a failing DoD exit non-zero.
 
 ## Loop role
-- **In the Kanban pipeline:** this is the **Validate → autothing-validate** list. Its
+- **In the Kanban pipeline:** this is the **Validate → garrison-validate** list. Its
   `Done`|`Implement` last line is the next-list name — `Done` advances the card,
   `Implement` sends it back to be built again (the per-card iteration cap is the
-  guard; this skill does NOT replicate the autothing goal loop).
+  guard; this skill does NOT replicate the garrison goal loop).
 - **Standalone:** report the verdict and the failed reasons; do not run or fix gates.

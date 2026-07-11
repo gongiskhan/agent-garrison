@@ -64,7 +64,7 @@ function fakeBoard() {
       { id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual", validNext: ["todo"] },
       {
         id: "test", title: "Test", order: 1, kind: "agent", trigger: "scheduler-beat",
-        beatCron: "0 */5 * * *", skill: "autothing-test", mode: "joe", validNext: ["done"]
+        beatCron: "0 */5 * * *", skill: "garrison-test", mode: "joe", validNext: ["done"]
       },
       { id: "done", title: "Done", order: 2, kind: "manual", trigger: "manual", terminal: true, validNext: [] }
     ]
@@ -122,11 +122,11 @@ describe("discover — listProjects / listSkills (dev-env parity)", () => {
   });
   it("lists skills (dir with SKILL.md) and reads the frontmatter description", () => {
     const home = tmp("kanban-claude-");
-    mkdirSync(join(home, "skills", "autothing-plan"), { recursive: true });
-    writeFileSync(join(home, "skills", "autothing-plan", "SKILL.md"), "---\nname: autothing-plan\ndescription: Plan a slice.\n---\nbody");
+    mkdirSync(join(home, "skills", "garrison-plan"), { recursive: true });
+    writeFileSync(join(home, "skills", "garrison-plan", "SKILL.md"), "---\nname: garrison-plan\ndescription: Plan a slice.\n---\nbody");
     mkdirSync(join(home, "skills", "no-manifest"), { recursive: true }); // no SKILL.md → excluded
     const out = listSkills(home);
-    expect(out.map((s: any) => s.name)).toEqual(["autothing-plan"]);
+    expect(out.map((s: any) => s.name)).toEqual(["garrison-plan"]);
     expect(out[0].description).toBe("Plan a slice.");
   });
 });
@@ -135,9 +135,9 @@ describe("buildCardPrompt — no per-list mode lead (D15: mode is the gateway's 
   it("never leads with a mode name; the policy-bound skill line is injected instead", () => {
     const board = seedBoard();
     const list = board.lists.find((l: any) => l.id === "implement");
-    const prompt = buildCardPrompt({ list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"], skill: "autothing-implement", phase: "implement" });
+    const prompt = buildCardPrompt({ list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"], skill: "garrison-implement", phase: "implement" });
     expect(prompt.startsWith("# Work item:")).toBe(true);
-    expect(prompt).toContain("`autothing-implement`");
+    expect(prompt).toContain("`garrison-implement`");
     expect(prompt).toContain("gate-status entry");
   });
   it("omits the skill line when no policy binding resolves", () => {

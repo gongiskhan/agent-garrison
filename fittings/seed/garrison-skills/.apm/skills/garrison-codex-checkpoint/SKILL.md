@@ -1,9 +1,9 @@
 ---
-name: autothing-codex-checkpoint
-description: Targeted CROSS-MODEL security checkpoint — a small number of high-effort OpenAI Codex passes THROUGH THE codex-runtime DELEGATE BRIDGE (D14 — never a direct CLI call; the runtime fitting owns serialization) over the security-critical surfaces of the whole repo (authz/tenant/injection/secrets by default, auth middleware + session handling where present, plus any surface the run brief names, e.g. a shared contract package between services or an anonymisation/egress pipeline), each scoped to a narrow invariant rubric, not an open-ended review. Invoked ONCE by autothing's final phase (default ON). Real findings loop the affected scope back to autothing-implement as an ad-hoc fix. Standalone, run it against any repo and report the verdict per scope. Use for "run the codex checkpoint", "final security pass with Codex", "cross-model check before shipping", or as the run-level cross-model gate of a build. NOT the per-slice gate (per-slice cross-model security scrutiny is the opt-in autothing-security-review phase; this checkpoint is the run-level whole-repo pass) and NOT a general-purpose code review (Codex here only hunts the named invariants, never free-ranges).
+name: garrison-codex-checkpoint
+description: Targeted CROSS-MODEL security checkpoint — a small number of high-effort OpenAI Codex passes THROUGH THE codex-runtime DELEGATE BRIDGE (D14 — never a direct CLI call; the runtime fitting owns serialization) over the security-critical surfaces of the whole repo (authz/tenant/injection/secrets by default, auth middleware + session handling where present, plus any surface the run brief names, e.g. a shared contract package between services or an anonymisation/egress pipeline), each scoped to a narrow invariant rubric, not an open-ended review. Invoked ONCE by garrison's final phase (default ON). Real findings loop the affected scope back to garrison-implement as an ad-hoc fix. Standalone, run it against any repo and report the verdict per scope. Use for "run the codex checkpoint", "final security pass with Codex", "cross-model check before shipping", or as the run-level cross-model gate of a build. NOT the per-slice gate (per-slice cross-model security scrutiny is the opt-in garrison-security-review phase; this checkpoint is the run-level whole-repo pass) and NOT a general-purpose code review (Codex here only hunts the named invariants, never free-ranges).
 ---
 
-# autothing-codex-checkpoint
+# garrison-codex-checkpoint
 
 ## Policy-read preamble (soft - D5/D12)
 

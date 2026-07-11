@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// autothing-report: standing, Tailscale-reachable static file server for run logs.
+// garrison-report: standing, Tailscale-reachable static file server for run logs.
 //
 // Serves files IN PLACE by following symlinks the skill creates, so logs are
 // LINKED, never duplicated. Idempotent + self-daemonizing: the first call spawns
@@ -7,11 +7,11 @@
 // server and just print the URL. Read-only (GET), with a directory index.
 //
 // Usage:  node serve.mjs [--root <dir>] [--port <n>] [--runs-root <dir>]
-//   default root = ~/.autothing/report   default port = 8091
+//   default root = ~/.garrison/report   default port = 8091
 //   /runs/... additionally serves the evidence home (GARRISON-UNIFY-V1 S6/D20):
 //   default runs-root = ~/.garrison/runs — cards and the final report link
 //   http://<tailnet>:8091/runs/<project>/<runId>/...
-// Status file: ~/.autothing/report-serve.json  ({pid, port, root, runsRoot, url, startedAt})
+// Status file: ~/.garrison/report-serve.json  ({pid, port, root, runsRoot, url, startedAt})
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +20,7 @@ import { execSync, spawn } from 'node:child_process';
 
 const HOME = os.homedir();
 const argVal = (f) => { const i = process.argv.indexOf(f); return i >= 0 ? process.argv[i + 1] : null; };
-const ROOT = path.resolve(argVal('--root') || path.join(HOME, '.autothing', 'report'));
+const ROOT = path.resolve(argVal('--root') || path.join(HOME, '.garrison', 'report'));
 const RUNS_ROOT = path.resolve(argVal('--runs-root') || process.env.GARRISON_RUNS_DIR
   || path.join(process.env.GARRISON_HOME || path.join(HOME, '.garrison'), 'runs'));
 const PORT = parseInt(argVal('--port') || '8091', 10);
@@ -28,7 +28,7 @@ const PORT = parseInt(argVal('--port') || '8091', 10);
 // runs home, and the garrison home (where legit in-place log/artifact symlinks
 // point). realpath must land under one of these or the request is 403'd.
 const GARRISON_HOME_DIR = path.resolve(process.env.GARRISON_HOME || path.join(HOME, '.garrison'));
-const STATUS = path.join(HOME, '.autothing', 'report-serve.json');
+const STATUS = path.join(HOME, '.garrison', 'report-serve.json');
 // Bind to the tailnet interface (the documented reach), NOT 0.0.0.0 which also
 // exposes on any public interface (firewall-gated on a cloud box). Override with
 // REPORT_SERVE_HOST; tailscaleIP() falls back to the first non-internal IPv4,

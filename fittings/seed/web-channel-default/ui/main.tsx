@@ -139,8 +139,6 @@ function createOrchestratorTransport(base = "/api", threadId?: string): ChatTran
     const payload: Record<string, unknown> = { message: text };
     if (threadId) payload.thread = threadId;
     if (meta?.context !== undefined && meta.context !== null) payload.context = meta.context;
-    // D21: the chat's Autonomous toggle (toolbar chip) - the explicit D8 marker.
-    if (meta?.autonomous === true) payload.autonomous = true;
     if (typeof meta?.mode === "string" && meta.mode.trim()) {
       payload.mode = meta.mode.trim();
       // A mode-carrying turn is an interactive Discuss/design chat (Kanban / Automations
@@ -653,7 +651,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             key={activeId}
             transport={transport}
             title="Operative"
-            features={{ voice: true, autonomous: true }}
+            features={{ voice: true }}
             context={ctx}
             mode={mode}
             initialMessage={kickoff}
@@ -701,7 +699,7 @@ function App() {
 
   if (threaded) return <ThreadedApp url={url} />;
   // Explicit ?console=1: the rich operative console (live PTY surface).
-  return <ClaudeChat transport={createHttpTransport("/api")} title="Operative" features={{ voice: true, autonomous: true }} />;
+  return <ClaudeChat transport={createHttpTransport("/api")} title="Operative" features={{ voice: true }} />;
 }
 
 const root = createRoot(document.getElementById("root")!);

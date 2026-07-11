@@ -38,6 +38,7 @@ import {
   enumerateCommandsCached,
 } from "@garrison/claude-pty";
 import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
+import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -259,35 +260,94 @@ async function runRoutedTurn(message, onChunk, hints) {
   // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
   // skill + suppressContinuations controls. Absent hints → classify as before.
   const pre = await router.preRoute(message, hints || {}); // classify/honor + resolve + LOG + switch
-  // D8: significant autonomous work is never done inline — it becomes a card in
-  // the Plan list and the reply carries the card link. Card-/scheduler-originated
-  // turns (the run engine's own worker dispatches) run inline as before.
+  // D19: EVERY task-shaped turn is a card. A trivial plan runs INLINE under a
+  // `quick` card that auto-advances Implement→Done at completion; a multi-phase
+  // (significant) plan is dispatched to the run engine (the reply carries the card
+  // link, the turn does not run here). Card-/scheduler-/engine-originated turns are
+  // already cards (the engine's own worker dispatches) — they run inline. A
+  // follow-up turn about the same task attaches to the live card (no duplicate).
+  let quickCard = null;
+  const sessionKey = hints?.sessionId || String(hints?.channel || "").toLowerCase() || "default";
   {
     const cls = pre.classification || {};
     const origin = String(hints?.channel || "").toLowerCase();
-    const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board";
-    if (
-      cls.execution === "autonomous" &&
-      !cardOriginated &&
-      typeof router.core?.isSignificantAutonomous === "function" &&
-      router.core.isSignificantAutonomous(cls)
-    ) {
-      const card = await router.createAutonomousCard(message, cls, {
-        workKind: hints?.workKind ?? null,
-        phases: hints?.phases ?? null,
-        project: hints?.project ?? null,
-      });
-      if (card) {
-        const reply =
-          `Registered as an autonomous run — the board's run engine will drive it through the pipeline.\n` +
-          `Card: ${card.url}`;
-        broadcastRich("assistant", { text: reply });
-        logEvent("stdout", { kind: "autonomous-card", id: card.id, url: card.url });
-        return { reply, session_id: null, cost_usd: null, route: pre.route?.targetId ?? null, card: card.id, cardUrl: card.url };
+    const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board" || origin === "garrison";
+    if (!cardOriginated && router.isTaskShaped(cls)) {
+      const attached = router.attachedCard(sessionKey, cls);
+      if (attached) {
+        logEvent("stdout", { kind: "card-attached", id: attached.cardId, taskType: cls.taskType });
+      } else {
+        const cardOpts = { workKind: hints?.workKind ?? null, phases: hints?.phases ?? null, project: hints?.project ?? null };
+        const naturalSignificant =
+          typeof router.core?.isSignificantAutonomous === "function" && router.core.isSignificantAutonomous(cls);
+        // D20: a conversational override in the operator's words reclassifies the
+        // plan (full pipeline / just do it quickly / run in the background). When it
+        // FLIPS the natural resolution, the gateway records ONE override event to the
+        // Improver queue carrying both resolutions (agreement is never recorded).
+        const override = detectOverride(message);
+        let significant = naturalSignificant;
+        if (override) {
+          significant = override.plan === "full";
+          if (significant !== naturalSignificant) {
+            const resolution = (sig) => ({
+              taskType: cls.taskType,
+              tier: cls.tier,
+              workKind: hints?.workKind ?? null,
+              plan: sig ? "full" : "quick",
+            });
+            try {
+              await appendFeedback(
+                buildOverrideRecord({
+                  session_id: hints?.sessionId ?? null,
+                  answer: override.answer,
+                  original: resolution(naturalSignificant),
+                  applied: resolution(significant),
+                })
+              );
+              logEvent("stdout", { kind: "override-feedback", answer: override.answer, applied: significant ? "full" : "quick" });
+            } catch (err) {
+              logEvent("stderr", { kind: "override-feedback-failed", error: err.message });
+            }
+          }
+        }
+        if (significant) {
+          const card = await router.createAutonomousCard(message, cls, cardOpts);
+          if (card) {
+            router.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: cls.taskType });
+            const reply =
+              `Registered as a run — the board's run engine will drive it through the pipeline.\n` +
+              `Card: ${card.url}`;
+            broadcastRich("assistant", { text: reply });
+            logEvent("stdout", { kind: "run-card", id: card.id, url: card.url });
+            return { reply, session_id: null, cost_usd: null, route: pre.route?.targetId ?? null, card: card.id, cardUrl: card.url };
+          }
+          // board unavailable → fall through inline (never hard-block on the window)
+        } else {
+          const card = await router.createAutonomousCard(message, cls, { ...cardOpts, quick: true, targetList: "implement" });
+          if (card) {
+            quickCard = card;
+            router.rememberCard(sessionKey, { cardId: card.id, quick: true, taskType: cls.taskType });
+            logEvent("stdout", { kind: "quick-card", id: card.id, url: card.url });
+          }
+          // board unavailable → run inline without a card (never hard-block)
+        }
       }
-      // board unavailable → fall through inline (never hard-block on the window)
     }
   }
+  const result = await execRoutedTurn(pre, message, onChunk, hints);
+  // D19: a quick card runs inline; advance it Implement→Done now that the turn
+  // finished, and release the session slot so the next task starts a fresh card.
+  if (quickCard) {
+    await router.completeQuickCard(quickCard.id);
+    router.forgetCard(sessionKey);
+  }
+  return result;
+}
+
+/** Execute the resolved turn on its runtime (agent-sdk / secondary / workflow /
+ *  claude-code PTY) and return the channel-shaped result. Split out of
+ *  runRoutedTurn so the D19 quick-card completion runs on every runtime path. */
+async function execRoutedTurn(pre, message, onChunk, hints) {
   // Agent SDK runtime (non-Anthropic model via the Claude Agent SDK): the turn
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
@@ -432,20 +492,19 @@ function routeHintsFromBody(body) {
     classification,
     skill: typeof body?.skill === "string" ? body.skill : null,
     suppressContinuations: body?.suppressContinuations === true,
-    // D8 autonomy inputs: the channel name (kanban/scheduler dispatches run
-    // inline; other channels' significant autonomous work becomes a card), the
-    // explicit autonomous marker (web-channel toggle / autothing doorway), the
-    // resolved mode (Gary conversation floors interactive), and optional card
-    // fields (workKind / per-card phase toggles / project) for the created card.
+    // D19 carding inputs: the channel name (kanban/scheduler/board/garrison turns
+    // are engine dispatches and run inline; every other channel's task-shaped turn
+    // becomes a card), the per-conversation session id (so a multi-turn thread
+    // attaches to one card, D19), the resolved mode, and optional card fields
+    // (workKind / per-card phase toggles / project) for the created card.
     channel: typeof body?.channel === "string" ? body.channel : null,
-    autonomous: body?.autonomous === true,
-    execution: typeof body?.execution === "string" ? body.execution : undefined,
+    sessionId: typeof body?.sessionId === "string" && body.sessionId ? body.sessionId : null,
     mode: typeof body?.mode === "string" ? body.mode : undefined,
     workKind: typeof body?.workKind === "string" ? body.workKind : null,
     phases: body?.phases && typeof body.phases === "object" ? body.phases : null,
     project: typeof body?.project === "string" ? body.project : null,
     // An EXPLICIT per-turn timeout (ms). The Kanban Loop sends a generous one because a
-    // real autothing-* turn (plan/implement/review/…) runs far longer than the default
+    // real garrison-* turn (plan/implement/review/…) runs far longer than the default
     // 5-min turn timeout, which otherwise kills the turn → HTTP 500 → the card parks.
     // Absent (e.g. web chat) → session.runTurn uses its default, so other channels are
     // unaffected. Only honored when finite + positive.
@@ -618,6 +677,28 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    // D20: record a conversational override into the Improver evidence queue. The
+    // gateway also detects the example phrases deterministically at carding time;
+    // this endpoint is the explicit channel for the orchestrator (or a
+    // garrison-control tool) to record an override it applied on its own judgment.
+    // Body: { session_id?, answer, original?, applied? }. `answer` (the override) is
+    // required; original/applied are the prior/new resolutions.
+    if (request.method === "POST" && url.pathname === "/feedback/override") {
+      const body = await readJsonBody(request);
+      const answer = typeof body.answer === "string" ? body.answer.trim() : "";
+      if (!answer) return sendJson(response, 400, { error: "answer is required" });
+      const record = buildOverrideRecord({
+        session_id: typeof body.session_id === "string" ? body.session_id : undefined,
+        answer,
+        original: body.original ?? null,
+        applied: body.applied ?? null,
+      });
+      const file = await appendFeedback(record);
+      logEvent("stdout", { kind: "override-feedback", via: "endpoint", session_id: record.session_id ?? null });
+      sendJson(response, 200, { ok: true, recorded: true, path: file });
+      return;
+    }
+
     // ───────────────────────── rich chat surface (/claude/*)
     if (url.pathname.startsWith("/claude/")) {
       if (!session || !session.isAlive()) {
@@ -682,7 +763,7 @@ const server = http.createServer(async (request, response) => {
 
 async function main() {
   // Node's http.Server defaults requestTimeout to 5 min — that would abort a long
-  // /chat turn (a real Kanban autothing-* turn runs longer) at the socket layer,
+  // /chat turn (a real Kanban garrison-* turn runs longer) at the socket layer,
   // regardless of the per-turn timeout, surfacing to the caller as a dropped
   // connection. Disable the request/header socket timeouts here so a long-running
   // turn is governed ONLY by session.runTurn's (per-request) timeout, not the HTTP

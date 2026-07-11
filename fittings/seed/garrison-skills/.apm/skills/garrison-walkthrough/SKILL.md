@@ -1,9 +1,9 @@
 ---
-name: autothing-walkthrough
-description: Record self-verified video evidence that the current change works by invoking the walkthrough skill with the change's diff and acceptance context, then surface the scrubbable link. In an autothing build a walkthrough STUCK/ask-user return becomes failed-but-unblocking and the run continues; standalone it records the walkthrough and reports (including a STUCK). Use for "record a walkthrough/demo of this", "capture proof it works", or as the evidence step of a build. Delegates to the walkthrough skill (never rebuilds it).
+name: garrison-walkthrough
+description: Record self-verified video evidence that the current change works by invoking the walkthrough skill with the change's diff and acceptance context, then surface the scrubbable link. In a garrison build a walkthrough STUCK/ask-user return becomes failed-but-unblocking and the run continues; standalone it records the walkthrough and reports (including a STUCK). Use for "record a walkthrough/demo of this", "capture proof it works", or as the evidence step of a build. Delegates to the walkthrough skill (never rebuilds it).
 ---
 
-# autothing-walkthrough
+# garrison-walkthrough
 
 ## Policy-read preamble (soft - D5/D12)
 
@@ -23,7 +23,7 @@ At the start of every invocation, look for the compiled Orchestrator policy at
   writing gate-status/run artifacts, and skip any board/run-engine steps.
 
 
-Records self-verified evidence that the current change works, by invoking the **`walkthrough`** skill (never rebuilding it) with the change's context, and surfacing the scrubbable link. The evidence step of an autothing build, and a standalone "show it working" recorder.
+Records self-verified evidence that the current change works, by invoking the **`walkthrough`** skill (never rebuilding it) with the change's context, and surfacing the scrubbable link. The evidence step of a garrison build, and a standalone "show it working" recorder.
 
 ## What it does
 Invoke **`walkthrough`** on the change, passing the **diff + task context + acceptance** so its flow selection is accurate. **Always pass `mode: evidence` and the slice's acceptance-criteria list** — evidence mode records one lean per-criterion proof beat each (terse captions, short holds, no story arc, per-beat vision + inline asserts as the gate) rather than a marketing story; see the walkthrough skill's **Evidence mode**. walkthrough owns recording, captions, frame extraction, vision self-verification, its own retry ceiling, honest failure rendering, its notes file, and publishing the Tailscale link + gallery.
@@ -32,7 +32,7 @@ Invoke **`walkthrough`** on the change, passing the **diff + task context + acce
 After it returns, **confirm the gallery URL actually resolves** (the serve must be running); (re)start it if down, so the recorded link is live.
 
 ## Loop role + output
-- **In an autothing build:** a walkthrough **STUCK/ask-user return becomes `video.status: failed-but-unblocking`** — record the STUCK.md path + link (if any), append a blocker to `docs/decisions.md`, and **CONTINUE**; never wait for input. A genuine feature failure that walkthrough renders honestly (`flagged: true`) is recorded, not faked green. **Consume the emitted `evidence.json` into gate-status**: the per-slice `gates.video` records `mode: "evidence"` and an `evidence` pointer to that `evidence.json`, so Validate checks each acceptance criterion against the JSON **without watching the video**. An **`evidence-degraded`** return — a caption/legibility beat that still failed after its one re-record **while its functional `assert` PASSED** — is recorded as `video.status: evidence-degraded` with the reason; the criterion stays proven by its passing assert.
+- **In a garrison build:** a walkthrough **STUCK/ask-user return becomes `video.status: failed-but-unblocking`** — record the STUCK.md path + link (if any), append a blocker to `docs/decisions.md`, and **CONTINUE**; never wait for input. A genuine feature failure that walkthrough renders honestly (`flagged: true`) is recorded, not faked green. **Consume the emitted `evidence.json` into gate-status**: the per-slice `gates.video` records `mode: "evidence"` and an `evidence` pointer to that `evidence.json`, so Validate checks each acceptance criterion against the JSON **without watching the video**. An **`evidence-degraded`** return — a caption/legibility beat that still failed after its one re-record **while its functional `assert` PASSED** — is recorded as `video.status: evidence-degraded` with the reason; the criterion stays proven by its passing assert.
 - **Standalone:** record the walkthrough and report the link (rendering a STUCK honestly, not as success).
 
 Print the evidence status in the lead context; a build's terminal verdict counts it in `videos:<verified>/<total>`.

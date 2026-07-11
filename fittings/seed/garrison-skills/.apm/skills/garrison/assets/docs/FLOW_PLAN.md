@@ -1,6 +1,6 @@
 # Flow Plan
 
-<!-- The build plan for ONE run. autothing writes/updates this in Phase 1 (via autothing-plan) at docs/autothing/runs/<runId>/FLOW_PLAN.md — a per-run path, never a shared docs/FLOW_PLAN.md — and updates each slice's Status as it builds (durable resume — progress is re-read from here + gate-status files, never from memory). Keep the table current. -->
+<!-- The build plan for ONE run. garrison writes/updates this in Phase 1 (via garrison-plan) at docs/autothing/runs/<runId>/FLOW_PLAN.md — a per-run path, never a shared docs/FLOW_PLAN.md — and updates each slice's Status as it builds (durable resume — progress is re-read from here + gate-status files, never from memory). Keep the table current. -->
 
 ## Slices
 <!-- A slice = one user-facing flow or feature, small enough for a 60-90s walkthrough. Order by dependency; mark which can run in parallel. Kind: ui | api | mixed. Kind drives the kind-conditional gates (Part 8.2): ui/mixed get design-audit + walkthrough + a per-slice independent test; api slices keep asciinema evidence (no design audit) and their independent-test pass is batched at the run level. -->

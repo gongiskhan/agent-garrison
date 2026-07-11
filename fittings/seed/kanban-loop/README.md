@@ -2,7 +2,7 @@
 
 A workflow state machine wearing a Kanban board. **Cards** are work items; **lists**
 are pipeline states; an **agent-list**'s router-prompt is the transition function.
-It composes the orchestrator (preRoute), the autothing skills, and the scheduler — it
+It composes the orchestrator (preRoute), the garrison skills, and the scheduler — it
 does **not** become a runtime framework (compose, don't own). This is the V1b engine
 spine; the board UI is owned by other V1b slices.
 
@@ -21,7 +21,7 @@ membership is derived by scanning cards — never stored.**
 
 `Backlog → To Do → Discuss → Plan → Implement → Review → Adversarial Review → Test →
 Adversarial Test → Walkthrough → Validate → Done`, plus the `needs-attention` parking
-lane. Every agent list runs one `autothing-*` verb. The two adversarial lists are
+lane. Every agent list runs one `garrison-*` verb. The two adversarial lists are
 cross-model Codex passes via the `codex` CLI — **not** a higher tier (the operative
 stays modest).
 
@@ -30,14 +30,14 @@ stays modest).
 | backlog | manual | manual | — | — | todo |
 | todo | manual | manual | — | — | discuss, plan |
 | discuss | agent-interactive | manual | (James mode) | — | plan |
-| plan | agent | immediate | autothing-plan | code · T2-deep | implement |
-| implement | agent | immediate | autothing-implement | code · T2-deep | review |
-| review | agent | immediate | autothing-review | review · T1 | adversarial-review, implement |
-| adversarial-review | agent | immediate | autothing-adversarial-review | review · T1 | test, implement |
-| test | agent | scheduler-beat | autothing-test | code · T1 | adversarial-test, implement |
-| adversarial-test | agent | immediate | autothing-adversarial-test | code · T1 | walkthrough, implement |
-| walkthrough | agent | immediate | autothing-walkthrough | code · T1 | validate, implement |
-| validate | agent | immediate | autothing-validate | ops · T1 | done, implement |
+| plan | agent | immediate | garrison-plan | code · T2-deep | implement |
+| implement | agent | immediate | garrison-implement | code · T2-deep | review |
+| review | agent | immediate | garrison-review | review · T1 | adversarial-review, implement |
+| adversarial-review | agent | immediate | garrison-adversarial-review | review · T1 | test, implement |
+| test | agent | scheduler-beat | garrison-test | code · T1 | adversarial-test, implement |
+| adversarial-test | agent | immediate | garrison-adversarial-test | code · T1 | walkthrough, implement |
+| walkthrough | agent | immediate | garrison-walkthrough | code · T1 | validate, implement |
+| validate | agent | immediate | garrison-validate | ops · T1 | done, implement |
 | done | manual | manual | — | — | (terminal) |
 | needs-attention | manual | manual | — | — | todo, plan, implement |
 
@@ -62,7 +62,7 @@ On a card's **first** agent-list entry the engine mints `runId` (a ULID) and set
 `runDir = docs/autothing/runs/<runId>` (project-relative), persisted CAS-safely in the
 same acquire write so it is never minted twice. `runDir` (and `sliceId`) are threaded
 into **every** subsequent execute-prompt as literal text — the gateway `skill` field is
-inert, so the run dir must be IN the prompt for the autothing skill to write per-run.
+inert, so the run dir must be IN the prompt for the garrison skill to write per-run.
 
 ### Test batching (FINDING 7)
 The **Test** list runs batched **per project**: `processBatch` groups the project's

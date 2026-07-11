@@ -28,7 +28,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The full V1b pipeline (brief §"The pipeline and the lists" + v4 wireframe §5 — the
 // authoritative per-list table). Every agent list carries an explicit {taskType,tier}
 // classification (§10), a trigger (immediate | manual | scheduler-beat), a mode hint,
-// the single autothing-* verb skill, and validNext ids the router reply's last line
+// the single garrison-* verb skill, and validNext ids the router reply's last line
 // must exact-match. No per-list effort/model (the router decides); the two adversarial
 // lists are cross-model Codex passes, NOT a higher tier (the operative stays modest);
 // the architecture doc is handed to Implement so the generic writer reads doctrine

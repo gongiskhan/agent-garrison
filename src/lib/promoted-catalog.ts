@@ -70,7 +70,7 @@ export interface PromotedFitting {
 
 // ── The authored catalog ────────────────────────────────────────────────────
 // Grouped per the migration plan §2. Plugin membership is authoritative; strong
-// co-reference groups (autothing family, csg family, the coordination stack) are
+// co-reference groups (garrison family, csg family, the coordination stack) are
 // single Fittings; weak suspicions are kept separate and noted.
 
 export const PROMOTED_CATALOG: PromotedFitting[] = [
@@ -228,12 +228,12 @@ export const PROMOTED_CATALOG: PromotedFitting[] = [
 
   // ── Software Building (Dev) ───────────────────────────────────────────────
   {
-    id: "autothing",
+    id: "garrison",
     title: "Autonomous Software Building",
     descriptionPlain:
       "Lets the operative build a real piece of software from start to finish on its own — plan the work, write the code, test it, get a second opinion, and record a video proving it works — then keep going until it's genuinely done.",
     descriptionTechnical:
-      "The autothing orchestrator + its 12-step pipeline (plan/implement/test/review/adversarial-review/adversarial-test/ux-qa/walkthrough/report/validate/parallel-work/project-foundation) and the goal-loop hooks.",
+      "The garrison orchestrator + its 12-step pipeline (plan/implement/test/review/adversarial-review/adversarial-test/ux-qa/walkthrough/report/validate/parallel-work/project-foundation) and the goal-loop hooks.",
     faculty: "building",
     componentShape: ["skill", "hook"],
     provides: [{ kind: "capability", name: "autonomous-build" }],
@@ -243,24 +243,24 @@ export const PROMOTED_CATALOG: PromotedFitting[] = [
     ],
     setup: [],
     members: [
-      { surface: "skill", name: "autothing" },
-      { surface: "skill", name: "autothing-plan" },
-      { surface: "skill", name: "autothing-implement" },
-      { surface: "skill", name: "autothing-test" },
-      { surface: "skill", name: "autothing-review" },
-      { surface: "skill", name: "autothing-adversarial-review" },
-      { surface: "skill", name: "autothing-adversarial-test" },
+      { surface: "skill", name: "garrison" },
+      { surface: "skill", name: "garrison-plan" },
+      { surface: "skill", name: "garrison-implement" },
+      { surface: "skill", name: "garrison-test" },
+      { surface: "skill", name: "garrison-review" },
+      { surface: "skill", name: "garrison-adversarial-review" },
+      { surface: "skill", name: "garrison-adversarial-test" },
       { surface: "skill", name: "garrison-ux-qa" },
-      { surface: "skill", name: "autothing-walkthrough" },
-      { surface: "skill", name: "autothing-report" },
-      { surface: "skill", name: "autothing-validate" },
-      { surface: "skill", name: "autothing-parallel-work" },
-      { surface: "skill", name: "autothing-project-foundation" },
+      { surface: "skill", name: "garrison-walkthrough" },
+      { surface: "skill", name: "garrison-report" },
+      { surface: "skill", name: "garrison-validate" },
+      { surface: "skill", name: "garrison-parallel-work" },
+      { surface: "skill", name: "garrison-project-foundation" },
       { surface: "hook", name: "Stop" },
       { surface: "hook", name: "SessionStart" }
     ],
     notes:
-      "Grouped: the autothing orchestrator invokes its 12 sub-skills (shared name root + documented co-reference), plus the goal-loop Stop/SessionStart hooks it owns."
+      "Grouped: the garrison orchestrator invokes its 12 sub-skills (shared name root + documented co-reference), plus the goal-loop Stop/SessionStart hooks it owns."
   },
   {
     id: "walkthrough",

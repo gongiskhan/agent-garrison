@@ -134,7 +134,7 @@ describe("U1 — gateway Stage-A live routing (live-route-ok)", () => {
       // be HONORED → expert → cc-opus-high, regardless of the message keywords.
       const pre = await gw.preRoute("quick: what is 2 plus 2", {
         classification: { taskType: "code", tier: "T2-deep" },
-        skill: "autothing-implement",
+        skill: "garrison-implement",
       });
       expect(pre.route.targetId).toBe("cc-opus-high");
       expect(pre.route.role).toBe("expert");
@@ -169,6 +169,28 @@ describe("U1 — gateway Stage-A live routing (live-route-ok)", () => {
       const decisions = readDecisions(decisionsFile);
       expect(decisions).toHaveLength(2);
       expect(decisions[1].honored).toBe(false);
+    } finally {
+      gw.shutdown();
+    }
+  });
+});
+
+describe("D18 — execution has left the classification", () => {
+  it("preRoute output and the decisions.jsonl record carry NO execution field", async () => {
+    const { gw, decisionsFile } = await bootGateway();
+    try {
+      // The classifier parser still attaches a legacy `execution`; preRoute strips
+      // it, so neither the returned classification, the decision, nor the logged
+      // record surfaces an execution axis (D18: where work runs is derived from the
+      // phase plan, not a per-turn flag).
+      const pre = await gw.preRoute("fix the failing login unit test");
+      expect(pre.classification).not.toHaveProperty("execution");
+      expect(pre.decision).not.toHaveProperty("execution");
+      const decisions = readDecisions(decisionsFile);
+      expect(decisions).toHaveLength(1);
+      expect(decisions[0]).not.toHaveProperty("execution");
+      // the axis it REPLACED still resolves a target — routing is unaffected
+      expect(pre.route.targetId).toBe("cc-sonnet-med");
     } finally {
       gw.shutdown();
     }

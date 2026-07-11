@@ -1,13 +1,13 @@
 ---
-name: autothing-security-review
-description: OPT-IN per-slice security review - a single consolidated checklist that runs ONLY when the project is security-sensitive or the work kind explicitly asks for it (never fired automatically on a "security-boundary" heuristic). It applies the security-boundary rubric (authorization, injection, secret handling, tenant/org scoping, boundary input validation), decides whether the slice warrants a cross-model per-slice Codex pass, and checks the security-critical surfaces the run brief named. In an autothing build, real findings send the slice back to autothing-implement; standalone, report the verdict. Use for "security review this slice", or as the opt-in security-review gate of a build. NOT the universal deterministic secrets/SAST wall (that is autothing-test's securityWall, always on), NOT the fresh-context correctness review (autothing-adversarial-review), and NOT the run-level cross-model checkpoint (autothing-codex-checkpoint).
+name: garrison-security-review
+description: OPT-IN per-slice security review - a single consolidated checklist that runs ONLY when the project is security-sensitive or the work kind explicitly asks for it (never fired automatically on a "security-boundary" heuristic). It applies the security-boundary rubric (authorization, injection, secret handling, tenant/org scoping, boundary input validation), decides whether the slice warrants a cross-model per-slice Codex pass, and checks the security-critical surfaces the run brief named. In a garrison build, real findings send the slice back to garrison-implement; standalone, report the verdict. Use for "security review this slice", or as the opt-in security-review gate of a build. NOT the universal deterministic secrets/SAST wall (that is garrison-test's securityWall, always on), NOT the fresh-context correctness review (garrison-adversarial-review), and NOT the run-level cross-model checkpoint (garrison-codex-checkpoint).
 ---
 
-# autothing-security-review
+# garrison-security-review
 
 The opt-in security phase. Garrison's generic flow keeps exactly one piece of
 security scrutiny always ambient - the deterministic `securityWall`
-(gitleaks + semgrep + dependency-audit) in `autothing-test`, run on every slice
+(gitleaks + semgrep + dependency-audit) in `garrison-test`, run on every slice
 regardless of profile. Everything deeper - the security-boundary review
 rubric, the conditional per-slice cross-model Codex pass, and the
 security-critical surface list - lives HERE, and runs only when a run opts in.
@@ -78,9 +78,9 @@ invariants"), verdict recorded as `codexSliceReview: {verdict, by, actualModel,
 durationMs}`. A quota/auth/availability failure records
 `{status:"degraded", reason:"codex-unavailable"}`, is notified, and CONTINUES -
 never blocks, never fakes a verdict. All Codex calls serialize run-wide with the
-final-phase `autothing-codex-checkpoint`. Auth via API key (not ChatGPT
+final-phase `garrison-codex-checkpoint`. Auth via API key (not ChatGPT
 sign-in) with a budget cap. Full Codex mechanics:
-`autothing-codex-checkpoint/references/codex-checkpoint.md`.
+`garrison-codex-checkpoint/references/codex-checkpoint.md`.
 
 ### 3. Security-critical surfaces
 
@@ -98,7 +98,7 @@ do not exist is recorded `skipped (reason: not-applicable)`.
 
 - **`clean`** - no material, evidence-backed finding survives.
 - **`needs-work`** - at least one material finding, each citing a file:line or a
-  violated invariant. **Sends the slice back to `autothing-implement`**
+  violated invariant. **Sends the slice back to `garrison-implement`**
   (consumes the slice's existing retry ceiling); re-review after the fix.
 
 Write the phase's slot into the slice's `gate-status.json` under the runDir:
@@ -120,14 +120,14 @@ never a silent pass.
 
 ## Loop role + output
 
-- **In an autothing build:** report findings; real findings send the slice back
-  to `autothing-implement` (autothing owns the retry ceiling). Print exactly one
+- **In a garrison build:** report findings; real findings send the slice back
+  to `garrison-implement` (garrison owns the retry ceiling). Print exactly one
   `GATE security-review: <clean|needs-work|skipped> — <summary>` line in the lead
   context.
 - **Standalone:** report the verdict + findings and stop - do not auto-fix
   unless asked.
 
 Distinct from the always-on `securityWall` (deterministic secrets/SAST floor in
-`autothing-test`), the fresh-context correctness review
-(`autothing-adversarial-review`), and the run-level cross-model checkpoint
-(`autothing-codex-checkpoint`).
+`garrison-test`), the fresh-context correctness review
+(`garrison-adversarial-review`), and the run-level cross-model checkpoint
+(`garrison-codex-checkpoint`).

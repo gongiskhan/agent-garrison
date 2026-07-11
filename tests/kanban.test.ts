@@ -28,14 +28,14 @@ const board = {
   version: 2,
   lists: [
     {
-      id: "implement", title: "Implement", kind: "agent", trigger: "immediate", skill: "autothing-implement",
+      id: "implement", title: "Implement", kind: "agent", trigger: "immediate", skill: "garrison-implement",
       taskType: "code", tier: "T2-deep", executePrompt: "Implement it.", routerPrompt: "Choose next.",
       validNext: ["review"]
     },
     { id: "review", title: "Review", kind: "agent", trigger: "immediate", validNext: ["adversarial-review", "implement"] },
     { id: "todo", title: "To Do", kind: "manual", trigger: "manual", validNext: ["implement"] },
     {
-      id: "test", title: "Test", kind: "agent", trigger: "scheduler-beat", batched: true, skill: "autothing-test",
+      id: "test", title: "Test", kind: "agent", trigger: "scheduler-beat", batched: true, skill: "garrison-test",
       taskType: "code", tier: "T1-standard",
       executePrompt: "Test it.", routerPrompt: "verdict per card.",
       validNext: ["adversarial-test", "implement"]

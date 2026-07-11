@@ -47,14 +47,14 @@ describe("discipline → verb-skill mapping (s4 / deliverable #1)", () => {
     const t0 = section.split("\n").find((l: string) => l.includes("T0-trivial") && l.includes("review:"));
     expect(t0).toBeTruthy();
     expect(t0).toContain("testing: none");
-    expect(t0).not.toContain("autothing-test");
+    expect(t0).not.toContain("garrison-test");
   });
 
   it("the orchestrator prompt explains how to satisfy discipline via the skills + /goal", () => {
     expect(PROMPT).toContain("Satisfying discipline");
-    expect(PROMPT).toContain("autothing-plan");
-    expect(PROMPT).toContain("autothing-test");
-    expect(PROMPT).toContain("autothing-validate");
+    expect(PROMPT).toContain("garrison-plan");
+    expect(PROMPT).toContain("garrison-test");
+    expect(PROMPT).toContain("garrison-validate");
     expect(PROMPT).toContain("/goal");
     expect(PROMPT).toContain("FLOW_PLAN.md");
   });

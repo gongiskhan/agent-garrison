@@ -1,9 +1,9 @@
 ---
-name: autothing-adversarial-test
-description: Independent functional test — a FRESH-CONTEXT Anthropic session that has seen neither the diff nor autothing-test's committed spec drives the running app/feature through ONLY the slice's acceptance criteria, writing and executing its OWN Playwright probes, and returns pass/fail with a reproducible probe. In an autothing build a failure sends the slice back to autothing-implement; standalone, report what it observed. Use for "independent test this", "fresh-context functional test", "second test pass", or as the independent test gate of a build. NOT Claude's own committed test (use autothing-test) and NOT the cross-model Codex checkpoint (use autothing-codex-checkpoint).
+name: garrison-adversarial-test
+description: Independent functional test — a FRESH-CONTEXT Anthropic session that has seen neither the diff nor garrison-test's committed spec drives the running app/feature through ONLY the slice's acceptance criteria, writing and executing its OWN Playwright probes, and returns pass/fail with a reproducible probe. In a garrison build a failure sends the slice back to garrison-implement; standalone, report what it observed. Use for "independent test this", "fresh-context functional test", "second test pass", or as the independent test gate of a build. NOT Claude's own committed test (use garrison-test) and NOT the cross-model Codex checkpoint (use garrison-codex-checkpoint).
 ---
 
-# autothing-adversarial-test
+# garrison-adversarial-test
 
 ## Policy-read preamble (soft - D5/D12)
 
@@ -23,7 +23,7 @@ At the start of every invocation, look for the compiled Orchestrator policy at
   writing gate-status/run artifacts, and skip any board/run-engine steps.
 
 
-Independent functional test — decorrelated by **context and evidence**, not vendor. A session that has seen neither the diff nor `autothing-test`'s committed spec drives the *running* app through the acceptance itself, so it catches "the code and its test share the same wrong assumption" — the same failure mode the old cross-model Playwright pass targeted, without needing a second vendor to get it.
+Independent functional test — decorrelated by **context and evidence**, not vendor. A session that has seen neither the diff nor `garrison-test`'s committed spec drives the *running* app through the acceptance itself, so it catches "the code and its test share the same wrong assumption" — the same failure mode the old cross-model Playwright pass targeted, without needing a second vendor to get it.
 
 ## When it runs — kind-conditional (Part 8.2)
 - **`kind: ui` | `kind: mixed`** — runs **per-slice**, exactly as below.
@@ -33,11 +33,11 @@ The fresh-context / no-diff / no-committed-test / self-written-Playwright-probe 
 
 ## What it receives — and must NOT receive
 - **Receives ONLY:** the slice's acceptance criteria and the running app's URL/entry point.
-- **Must NOT receive:** the diff, `autothing-test`'s committed spec/assertions, or the implementer's notes. When spawned as a subagent/workflow, build its prompt from ONLY the acceptance + app URL — never paste the diff or the committed test file into it.
+- **Must NOT receive:** the diff, `garrison-test`'s committed spec/assertions, or the implementer's notes. When spawned as a subagent/workflow, build its prompt from ONLY the acceptance + app URL — never paste the diff or the committed test file into it.
 
 ## What it does
 1. Open the running app at the acceptance's entry point.
-2. Write its OWN Playwright probes (via `playwright-cli`, or a throwaway spec) that exercise the acceptance from scratch — it does not read or adapt `autothing-test`'s spec.
+2. Write its OWN Playwright probes (via `playwright-cli`, or a throwaway spec) that exercise the acceptance from scratch — it does not read or adapt `garrison-test`'s spec.
 3. Execute them; watch for console errors.
 4. Return `pass` only if every self-written assertion held with no console error.
 
@@ -45,12 +45,12 @@ The fresh-context / no-diff / no-committed-test / self-written-Playwright-probe 
 A `fail` verdict must carry either a failing probe (the exact Playwright script/commands that produced the failure) or the exact command sequence + observed output. "It felt broken" is not a finding.
 
 ## Loop role + output
-- **In an autothing build:** `fail` with a real defect **sends the slice back to `autothing-implement`** (consumes the slice retry ceiling); re-run after each fix. A flaky/env failure (not a product defect) is re-run, not counted as a fix-attempt.
+- **In a garrison build:** `fail` with a real defect **sends the slice back to `garrison-implement`** (consumes the slice retry ceiling); re-run after each fix. A flaky/env failure (not a product defect) is re-run, not counted as a fix-attempt.
 - **Standalone:** run the pass and report `pass|fail` + the reproducible probe.
 
-Print in the lead context: `GATE adversarial-test: <pass|fail> — <summary>`. Distinct from `autothing-test` (Claude's own committed test) and `autothing-codex-checkpoint` (the cross-model, final-phase check).
+Print in the lead context: `GATE adversarial-test: <pass|fail> — <summary>`. Distinct from `garrison-test` (Claude's own committed test) and `garrison-codex-checkpoint` (the cross-model, final-phase check).
 
-## Durable record (gate-status.json — schema: `~/.claude/skills/autothing/assets/gate-status.example.json`)
+## Durable record (gate-status.json — schema: `~/.claude/skills/garrison/assets/gate-status.example.json`)
 ```jsonc
 "adversarialTest": {
   "result": "pass",              // pass | fail

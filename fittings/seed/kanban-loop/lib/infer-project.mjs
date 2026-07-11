@@ -7,7 +7,7 @@
 
 // The tiny inference prompt. Deliberately constrained — one short slug or NONE, no
 // prose — so the parse is robust and the turn is fast (it must not tie up the
-// operative the way a real autothing-* turn does).
+// operative the way a real garrison-* turn does).
 export function buildInferencePrompt(card, knownProjects = []) {
   const known = knownProjects.length
     ? `\nProjects already in use (prefer one of these if it fits): ${knownProjects.join(", ")}.`

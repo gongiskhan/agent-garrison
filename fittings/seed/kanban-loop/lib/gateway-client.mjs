@@ -13,7 +13,7 @@
 // so the run retries once the gateway is back, instead of parking. Any other failure
 // (a real HTTP 4xx/5xx from a booted gateway) is a genuine run failure and DOES park.
 
-// A real autothing-* turn (plan/implement/review/…) runs far longer than the gateway's
+// A real garrison-* turn (plan/implement/review/…) runs far longer than the gateway's
 // default 5-min per-turn timeout, which otherwise kills the turn → HTTP 500 → the card
 // parks. The board sends an EXPLICIT generous per-turn timeout (default 25 min, override
 // via KANBAN_TURN_TIMEOUT_MS); the gateway honors it ONLY for these kanban turns, so web
@@ -21,7 +21,7 @@
 const KANBAN_TURN_TIMEOUT_MS = Number(process.env.KANBAN_TURN_TIMEOUT_MS) || 25 * 60 * 1000;
 
 // Project inference is a SHORT, low-stakes turn (one slug or NONE), not a real
-// autothing-* run, so it gets a tight timeout: it must never tie the operative up the
+// garrison-* run, so it gets a tight timeout: it must never tie the operative up the
 // way a Plan turn does. If the operative is mid-run it queues behind it; the abort
 // keeps a doomed inference from hanging the card-create path forever.
 const KANBAN_INFER_TIMEOUT_MS = Number(process.env.KANBAN_INFER_TIMEOUT_MS) || 90 * 1000;
@@ -68,7 +68,7 @@ export function inferenceRunFn(gatewayUrl) {
 // for callers that want to force one.
 export function gatewayRunFn(gatewayUrl) {
   return async ({ prompt, classification, list, skill, suppressContinuations, onChunk }) => {
-    // Dispatch over the STREAMING endpoint, not the blocking /chat. A real autothing-*
+    // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
     // abort a blocking /chat request before the reply ever arrives. /chat/stream sends an
     // `open` event immediately (headers fast → no headersTimeout) and a 15s keepalive

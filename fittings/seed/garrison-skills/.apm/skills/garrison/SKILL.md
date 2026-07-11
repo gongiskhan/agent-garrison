@@ -1,11 +1,11 @@
 ---
-name: autothing
-description: Autonomously implement a SIGNIFICANT piece of software work end-to-end and prove it with self-verified evidence — a new feature, page, module, service, or endpoint, a behavior change or multi-file refactor, OR a whole new app. ANY size of significant code work, NOT only whole projects; web and non-web (browser walkthrough for web, asciinema for CLI/TUI). THE THIN DOORWAY into the Garrison Orchestrator (GARRISON-UNIFY-V1 D13) — it registers the run as a card on the Kanban board and drives it through the run engine's gated phase pipeline; the orchestration doctrine itself lives in the merged Orchestrator prompt and the compiled policy, not here. Triggers on "implement/build/add X", "ship this feature", "refactor X", "build this project", or a resume ("--resume", "resume the run", "continue the autothing run", "pick up where it left off"). An EXPLICIT invocation ALWAYS runs — it scales via the policy's work kinds, never refusing. AUTO-invocation is SOFTWARE-ONLY: the model may self-trigger autothing ONLY when BOTH (a) the task implements or changes RUNNABLE SOFTWARE in a code project — primarily JS/TS/Node web apps and services, also Python — verifiable by build/tests/running the app; AND (b) it is NOT prose, documentation, markdown, configuration, data files, or Claude skills/agent instructions. The Do-NOT auto-trigger list (scope of AUTO-invocation ONLY, never a refusal list): bug fixes, one-line or small edits, single-function tweaks, formatting/renames, running the app, tests alone, or pure research.
+name: garrison
+description: Autonomously implement a SIGNIFICANT piece of software work end-to-end and prove it with self-verified evidence — a new feature, page, module, service, or endpoint, a behavior change or multi-file refactor, OR a whole new app. ANY size of significant code work, NOT only whole projects; web and non-web (browser walkthrough for web, asciinema for CLI/TUI). THE THIN DOORWAY into the Garrison Orchestrator (GARRISON-UNIFY-V1 D13) — it registers the run as a card on the Kanban board and drives it through the run engine's gated phase pipeline; the orchestration doctrine itself lives in the merged Orchestrator prompt and the compiled policy, not here. Triggers on "implement/build/add X", "ship this feature", "refactor X", "build this project", or a resume ("--resume", "resume the run", "continue the garrison run", "pick up where it left off"). An EXPLICIT invocation ALWAYS runs — it scales via the policy's work kinds, never refusing. AUTO-invocation is SOFTWARE-ONLY: the model may self-trigger garrison ONLY when BOTH (a) the task implements or changes RUNNABLE SOFTWARE in a code project — primarily JS/TS/Node web apps and services, also Python — verifiable by build/tests/running the app; AND (b) it is NOT prose, documentation, markdown, configuration, data files, or Claude skills/agent instructions. The Do-NOT auto-trigger list (scope of AUTO-invocation ONLY, never a refusal list): bug fixes, one-line or small edits, single-function tweaks, formatting/renames, running the app, tests alone, or pure research.
 ---
 
-# autothing — the thin doorway
+# garrison — the thin doorway
 
-autothing is a DOORWAY, not a brain. The orchestration doctrine (the phase
+garrison is a DOORWAY, not a brain. The orchestration doctrine (the phase
 pipeline, the retry ceilings, fix-forward, the honesty rules, the
 durable-markers contract, coordination duties) lives in the merged
 Orchestrator prompt; every routing knob (task
@@ -20,7 +20,7 @@ started from chat, the board, or this skill.
 Read `~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`). If
 the file is missing or unreadable, STOP IMMEDIATELY and print exactly:
 
-> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.
+> Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; garrison does not run standalone.
 
 No env-var override, no embedded default, no fallback model choice. The policy
 is the single authority for every phase's skill, model, effort, and runtime.
@@ -35,9 +35,9 @@ board API (discover it from `~/.garrison/ui-fittings/kanban-loop.json`; never
 hardcode a port):
 
 1. `POST <board>/cards` with `{description: <brief>, goalMode: true,
-   workKind, phases, tier, origin: "autothing-doorway", project: <cwd repo>}`.
+   workKind, phases, tier, origin: "garrison-doorway", project: <cwd repo>}`.
 2. `PATCH <board>/cards/<id>` with `{list: "plan", rev}` and the
-   `x-garrison-engine: autothing-doorway` header.
+   `x-garrison-engine: garrison-doorway` header.
 3. Tell the user the card URL (`<board>/#/cards/<id>`). The board is now the
    window on this run.
 
@@ -52,11 +52,11 @@ installed under the composition's `apm_modules/_local/kanban-loop/`). For each
 phase of the card's rail, in order:
 
 1. Arm the per-phase goal loop: write the per-session sentinel
-   (`~/.autothing/sentinels/$CLAUDE_CODE_SESSION_ID.json`) with the condition
+   (`~/.garrison/sentinels/$CLAUDE_CODE_SESSION_ID.json`) with the condition
    "loop until this phase's `GATE <phase>:` line prints" — the Stop hook
-   (`hooks/goal-stop.sh`, wired by `hooks/install.sh`) keeps the session
-   taking turns until the phase's gate line prints. The hook owns liveness
-   WITHIN a phase; the board owns progression BETWEEN phases.
+   (`hooks/garrison-goal-stop.sh`, wired by `hooks/install.sh`) keeps the
+   session taking turns until the phase's gate line prints. The hook owns
+   liveness WITHIN a phase; the board owns progression BETWEEN phases.
 2. Execute the phase through its policy-bound skill (the card's rail names
    it; the skill reads the policy for its own model/effort per the bindable
    phase-skill contract). The skill writes the phase's gate-status entry
@@ -73,10 +73,16 @@ The run survives session death: the card + its runDir are the durable state;
 any resumable card re-dispatches from the board (`--resume` = find the card,
 continue at its current list).
 
-## Hooks (mechanical, unchanged)
+## Hooks (mechanical)
 
-`hooks/install.sh` (idempotent) wires `hooks/goal-stop.sh` (Stop) +
-`hooks/goal-sessionstart.sh` (SessionStart) into `~/.claude/settings.json`;
-`hooks/probe.sh` is the liveness probe. Run the installer once at entry; if it
-reports `installed/repaired`, this session needs a one-time `/goal` (a fresh
-hook activates next session).
+`hooks/install.sh` (idempotent) wires `hooks/garrison-goal-stop.sh` (Stop) +
+`hooks/garrison-goal-sessionstart.sh` (SessionStart) into
+`~/.claude/settings.json`; `hooks/probe.sh` is the liveness probe. Run the
+installer once at entry; if it reports `installed/repaired`, this session needs
+a one-time `/goal` (a fresh hook activates next session).
+
+The goal hooks are transition-safe across the autothing→garrison rename: new
+runs arm sentinels under `~/.garrison/sentinels/`, but the hooks honor BOTH
+`~/.garrison/sentinels/` and the legacy `~/.autothing/sentinels/` (and both
+verdict grammars) so an in-flight legacy run keeps looping until it finishes.
+The installer is additive and never removes a legacy autothing hook entry.

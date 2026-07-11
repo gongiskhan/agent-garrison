@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// autothing-validate — deterministic Definition-of-Done checker for ONE slice.
+// garrison-validate — deterministic Definition-of-Done checker for ONE slice.
 //
 //   node validate.mjs <runDir> <sliceId>
 //   node validate.mjs --run-dir <runDir> --slice <sliceId> [--strict]
@@ -180,10 +180,10 @@ function run() {
     }
   }
 
-  // Fresh-context Anthropic review (autothing-adversarial-review) — 'approve' required.
+  // Fresh-context Anthropic review (garrison-adversarial-review) — 'approve' required.
   // Renamed from codexReview: this gate is no longer a Codex call (decorrelation is now
   // by fresh context, not vendor); the genuine cross-model check moved run-level to
-  // autothing-codex-checkpoint (evidence-index.json globalGate.codexCheckpoint), which
+  // garrison-codex-checkpoint (evidence-index.json globalGate.codexCheckpoint), which
   // is not part of a single slice's DoD and so is not checked here.
   {
     const v = gates.adversarialReview && gates.adversarialReview.verdict;
@@ -195,7 +195,7 @@ function run() {
     }
   }
 
-  // Independent Anthropic test pass (autothing-adversarial-test) — required for ui/mixed; tolerate n/a for pure-CLI.
+  // Independent Anthropic test pass (garrison-adversarial-test) — required for ui/mixed; tolerate n/a for pure-CLI.
   {
     const r = gates.adversarialTest && gates.adversarialTest.result;
     if (!wantsPwTest) {

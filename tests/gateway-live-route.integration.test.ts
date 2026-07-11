@@ -45,15 +45,19 @@ async function waitReady(port: number, timeoutMs = 20_000): Promise<void> {
   throw new Error("gateway did not become ready in time");
 }
 
-async function chat(port: number, message: string): Promise<{ reply: string; route?: string; honored?: boolean }> {
+async function chat(
+  port: number,
+  message: string,
+  extra: Record<string, unknown> = {}
+): Promise<{ reply: string; route?: string; honored?: boolean; card?: string }> {
   const r = await fetch(`http://127.0.0.1:${port}/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, ...extra }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!r.ok) throw new Error(`/chat ${r.status}: ${await r.text()}`);
-  return (await r.json()) as { reply: string; route?: string; honored?: boolean };
+  return (await r.json()) as { reply: string; route?: string; honored?: boolean; card?: string };
 }
 
 function readDecisions(file: string): any[] {
@@ -83,6 +87,9 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
         GARRISON_PERMISSION_MODE: "bypassPermissions",
         GARRISON_MODEL: "sonnet",
         GARRISON_GATEWAY_RUNTIME_STUB: STUB,
+        // Isolate the improver queue + board discovery from the ambient ~/.garrison
+        // so the D19 carding path never reaches a real board during the test.
+        GARRISON_HOME: tmp,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -105,7 +112,10 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
   });
 
   it("live-route-ok: classifies, resolves, logs, serves, and the reply honors the route", async () => {
-    const res = await chat(port, "fix the failing login unit test");
+    // Post-D19 a plain code turn from a channel becomes a card; to exercise the
+    // inline routing + honored-token path we drive it the way the run engine does
+    // — card-originated (channel: kanban) — so the turn runs on the operative.
+    const res = await chat(port, "fix the failing login unit test", { channel: "kanban" });
     // the operative reply ends with the resolved route token
     expect(res.reply).toContain("[route: cc-sonnet-med");
     expect(res.route).toBe("cc-sonnet-med");

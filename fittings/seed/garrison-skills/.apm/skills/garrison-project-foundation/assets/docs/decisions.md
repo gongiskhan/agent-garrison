@@ -4,7 +4,7 @@
 
 ## How to use
 - One entry per non-obvious decision OR logged blocker. Date it (absolute). Never rewrite history; supersede with a new entry.
-- Blockers logged here do not pause the build — autothing fixes forward and continues.
+- Blockers logged here do not pause the build — garrison fixes forward and continues.
 
 ---
 

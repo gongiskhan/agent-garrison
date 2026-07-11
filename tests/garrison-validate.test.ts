@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // Drives the real installed USER-scope skill script. The Kanban Validate list
 // invokes exactly this file, so the test exercises the shipped artifact, not a copy.
-const SCRIPT = path.join(os.homedir(), ".claude", "skills", "autothing-validate", "scripts", "validate.mjs");
+const SCRIPT = path.join(os.homedir(), ".claude", "skills", "garrison-validate", "scripts", "validate.mjs");
 
 let dir: string;
 
@@ -64,7 +64,7 @@ const PASSING_GATES = (sliceId: string) => ({
   }
 });
 
-describe("autothing-validate validate.mjs", () => {
+describe("garrison-validate validate.mjs", () => {
   it("ships the skill script", () => {
     expect(fs.existsSync(SCRIPT)).toBe(true);
   });

@@ -1082,3 +1082,58 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   opacity: 0.5;
   text-decoration: line-through;
 }
+
+/* D19 — the Done column groups quick cards (trivial-plan inline tasks the gateway
+   auto-advanced to Done) under a collapsed strip so the real runs stay legible.
+   Native <details>: the summary is the always-visible header; the body reveals on
+   expand. Field-manual idiom (mono label, sage rule, sharp corners, no emoji). */
+.quick-strip {
+  margin-top: 8px;
+  border-top: 1px dashed var(--rule-2);
+  padding-top: 8px;
+}
+.quick-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mute);
+  user-select: none;
+}
+.quick-strip-head::-webkit-details-marker {
+  display: none;
+}
+.quick-strip-head::before {
+  content: "\203A"; /* › — rotates to ⌄ when open */
+  display: inline-block;
+  transition: transform 0.12s ease;
+  color: var(--sage-2);
+  font-size: 12px;
+}
+.quick-strip[open] > .quick-strip-head::before {
+  transform: rotate(90deg);
+}
+.quick-strip-title {
+  color: var(--sage);
+  font-weight: 600;
+}
+.quick-strip-head .count {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--mute);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  padding: 1px 7px;
+  font-weight: 500;
+}
+.quick-strip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}

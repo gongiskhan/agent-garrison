@@ -1,6 +1,6 @@
 # Plan-mode prompt corpus (verbatim — blocks A2–A8)
 
-These are the community-reverse-engineered Claude Code plan-mode prompts (Piebald-AI extracts, the how-claude-code-works source analysis, Armin Ronacher's teardown). Wording shifts per release and contains runtime template placeholders — **treat the structure and the read-only discipline as authoritative; treat later-phase sentence wording as approximate.** Preserve all of it. `autothing-plan` reproduces these via prompts + real `Explore`/`Plan` subagents + a durable plan file + autothing's gate — it NEVER calls the native `EnterPlanMode`/`ExitPlanMode` tools.
+These are the community-reverse-engineered Claude Code plan-mode prompts (Piebald-AI extracts, the how-claude-code-works source analysis, Armin Ronacher's teardown). Wording shifts per release and contains runtime template placeholders — **treat the structure and the read-only discipline as authoritative; treat later-phase sentence wording as approximate.** Preserve all of it. `garrison-plan` reproduces these via prompts + real `Explore`/`Plan` subagents + a durable plan file + garrison's gate — it NEVER calls the native `EnterPlanMode`/`ExitPlanMode` tools.
 
 Table of contents:
 - A2 — the read-only "Plan mode is active" system-reminder (core clause)
@@ -11,7 +11,7 @@ Table of contents:
 - A7 — the ExitPlanMode tool description (the semantics of this skill's gate)
 - A8 — Anthropic's official recommended workflow
 
-> **Autonomous adaptation note (applies to A2 and A3):** in `autothing-plan`'s autonomous context, replace every "use AskUserQuestion to clarify" with "resolve with a recommended answer," and replace Phase 5 "call ExitPlanMode" with "hand the plan to autothing's gate." Never call `ExitPlanMode`.
+> **Autonomous adaptation note (applies to A2 and A3):** in `garrison-plan`'s autonomous context, replace every "use AskUserQuestion to clarify" with "resolve with a recommended answer," and replace Phase 5 "call ExitPlanMode" with "hand the plan to garrison's gate." Never call `ExitPlanMode`.
 
 ---
 
@@ -88,4 +88,4 @@ Invoke with a thoroughness hint, e.g. `Explore [target] (thoroughness: quick|med
 
 ## A8 — VERBATIM: Anthropic's official recommended workflow (the discipline this skill embodies)
 
-From Anthropic's "Best practices for Claude Code": "Letting Claude jump straight to coding can produce code that solves the wrong problem. Use plan mode to separate exploration from execution." The four phases: **Explore** (read files, understand, make no changes) → **Plan** (create a detailed implementation plan) → **Implement** (code, verifying against the plan) → **Commit**. Highest-leverage practice: give verifiable success criteria (runnable tests, screenshots, lint pass/fail). For small well-defined tasks, skip planning. `autothing-plan` covers Explore+Plan; autothing's build loop covers Implement+Commit with the verifiable-criteria discipline (its gates and sentinels).
+From Anthropic's "Best practices for Claude Code": "Letting Claude jump straight to coding can produce code that solves the wrong problem. Use plan mode to separate exploration from execution." The four phases: **Explore** (read files, understand, make no changes) → **Plan** (create a detailed implementation plan) → **Implement** (code, verifying against the plan) → **Commit**. Highest-leverage practice: give verifiable success criteria (runnable tests, screenshots, lint pass/fail). For small well-defined tasks, skip planning. `garrison-plan` covers Explore+Plan; garrison's build loop covers Implement+Commit with the verifiable-criteria discipline (its gates and sentinels).

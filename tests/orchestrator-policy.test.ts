@@ -91,7 +91,7 @@ describe("orchestrator policy core (S1)", () => {
     expect(full.phases.filter((p: { on: boolean }) => p.on).length).toBe(11);
     expect(full.phases.find((p: { id: string }) => p.id === "security-review").on).toBe(false);
     expect(full.evidence).toBe("video");
-    expect(full.phases.find((p: { id: string }) => p.id === "review").skill).toBe("autothing-review");
+    expect(full.phases.find((p: { id: string }) => p.id === "review").skill).toBe("garrison-review");
     // default kind
     expect(mod.railFor(cfg, null).workKind).toBe("full-feature");
   });

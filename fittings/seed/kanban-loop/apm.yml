@@ -1,6 +1,6 @@
 name: kanban-loop
 version: 0.2.0
-description: Kanban Loop V1b — a workflow state machine wearing a Kanban board. Cards are work items, lists are pipeline states, an agent-list's router-prompt is the transition function. The full autothing-* pipeline (Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate, plus Backlog/To Do/Discuss/Done/needs-attention). Composes the orchestrator (preRoute), the autothing skills, and the scheduler.
+description: Kanban Loop V1b — a workflow state machine wearing a Kanban board. Cards are work items, lists are pipeline states, an agent-list's router-prompt is the transition function. The full garrison-* pipeline (Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate, plus Backlog/To Do/Discuss/Done/needs-attention). Composes the orchestrator (preRoute), the garrison skills, and the scheduler.
 target: claude
 type: hybrid
 includes: auto

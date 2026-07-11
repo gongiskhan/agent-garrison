@@ -151,6 +151,10 @@ export function cardSummary(card) {
     tier: card.tier ?? null,
     origin: card.origin ?? null,
     outpost: card.outpost ?? null,
+    // D19: a quick card is a trivial-plan task the gateway ran inline and
+    // auto-advanced to Done. The Done column groups these under a collapsed
+    // "quick tasks" strip, and they are never engine-owned (operator-touchable).
+    quick: Boolean(card.quick),
     // The last dispatch failure (set by engine.processCard on transport defer
     // or run-failed, and by handlePatchCard when an auto-dispatch can't reach
     // the gateway). The UI renders a clear badge + Retry button when this is
@@ -848,6 +852,12 @@ async function handleCreateCard(req, res, opts) {
     origin: typeof body.origin === "string" ? body.origin : null,
     outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null
   });
+  // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
+  // createCard's field set is frozen, so stamp it via updateCard right after create.
+  if (body.quick === true) {
+    const q = await updateCard(opts.root, card.id, (c) => ({ ...c, quick: true }));
+    if (q) Object.assign(card, q);
+  }
   // Coordination (GARRISON-FLOW-V2 S1, Q2 point 1): when coordination is active and
   // this project already has other LIVE cards, record an honest provisional note.
   // A fresh card has no touch-set yet (its runDir is minted on first plan dispatch),
@@ -914,7 +924,12 @@ export function isEngineRequest(req) {
 // D16: cards on autonomous (agent-kind) lists are ENGINE-OWNED — the board API
 // rejects manual moves and edits on them. needs-attention is the one human
 // touchpoint on the autonomous side; interactive + manual lists stay editable.
-function isEngineOwned(board, card) {
+export function isEngineOwned(board, card) {
+  // D19: a quick card is never engine-run — the gateway ran it inline and parked
+  // it on an agent list only transiently (Implement → Done). The locked-list rules
+  // apply ONLY to engine-owned cards mid-run, so a quick card stays operator-editable
+  // wherever it sits.
+  if (card.quick === true) return false;
   const list = getList(board, card.list);
   return Boolean(list && list.kind === "agent" && !isInteractive(list));
 }
@@ -999,7 +1014,7 @@ async function handlePatchCard(req, res, opts, id) {
   // the background, the card flips to `running` and is watchable; the PATCH returns at
   // once). A manual / interactive (Discuss) / scheduler-beat (Test) target just moves.
   //
-  // BUT an ENGINE request (x-garrison-engine: the autothing doorway positioning the
+  // BUT an ENGINE request (x-garrison-engine: the garrison doorway positioning the
   // card, then driving it in-session via advanceCardPhase) must NOT also fire a
   // background processChain — that double-drives the card (background flow races the
   // in-session driver → invalid-verdict/park). The header now genuinely suppresses
@@ -1062,7 +1077,7 @@ async function handlePatchCard(req, res, opts, id) {
 //   - the card's own dir (cards/<id>/: card.json + every log-<n>.md) — always;
 //   - the run directory it produced (docs/autothing/runs/<runId>/: the plan + gate
 //     scratch) — only the card's OWN minted ULID runId, confined under the project's
-//     runs dir so it can never delete an unrelated/timestamped autothing run;
+//     runs dir so it can never delete an unrelated/timestamped garrison run;
 //   - its Discuss brief (card.briefPath) — confined under the briefs dir.
 // What is NEVER deleted: the Claude Code session transcripts (shared ~/.claude), the
 // external walkthrough video, and any code the operative committed to the repo (that

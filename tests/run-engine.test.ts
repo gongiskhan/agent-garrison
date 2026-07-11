@@ -102,8 +102,8 @@ describe("policy resolution (D15)", () => {
     expect(plan.tier).toBeUndefined();
     expect(plan.mode).toBeUndefined();
     const policy = loadPolicy();
-    expect(skillForPhase(policy, "plan", "full-feature")).toBe("autothing-plan");
-    expect(skillForPhase(policy, "review", "full-feature")).toBe("autothing-review");
+    expect(skillForPhase(policy, "plan", "full-feature")).toBe("garrison-plan");
+    expect(skillForPhase(policy, "review", "full-feature")).toBe("garrison-review");
     expect(classificationForPhase(policy, "implement", { tier: "T2-deep" })).toEqual({
       taskType: "implement",
       tier: "T2-deep"
@@ -116,7 +116,7 @@ describe("policy resolution (D15)", () => {
     const v2 = {
       version: 2,
       lists: [
-        { id: "plan", kind: "agent", skill: "autothing-plan", taskType: "code", tier: "T2-deep", mode: "james", validNext: ["implement"] },
+        { id: "plan", kind: "agent", skill: "garrison-plan", taskType: "code", tier: "T2-deep", mode: "james", validNext: ["implement"] },
         { id: "todo", kind: "manual", validNext: ["plan"] }
       ]
     };
@@ -139,10 +139,10 @@ describe("policy resolution (D15)", () => {
       list,
       card: { title: "x", runDir: "docs/autothing/runs/r1", goalMode: false },
       validNext: list.validNext,
-      skill: "autothing-review",
+      skill: "garrison-review",
       phase: "review"
     });
-    expect(prompt).toContain("`autothing-review`");
+    expect(prompt).toContain("`garrison-review`");
     expect(prompt).toContain("gate-status entry");
     expect(prompt).not.toContain("james,"); // per-list mode line is dead
   });

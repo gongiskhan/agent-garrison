@@ -1494,30 +1494,51 @@ function App() {
               </div>
               <div className="lbody">
                 {list.cards.length === 0 && <div className="lempty">empty</div>}
-                {list.cards.map((card) => (
-                  <Card
-                    key={card.id}
-                    card={card}
-                    list={list}
-                    busy={busyCard === card.id}
-                    onStart={onStart}
-                    onInfer={onInfer}
-                    onDiscuss={onDiscuss}
-                    onRevert={onRevert}
-                    onMove={(c) => {
-                      // One valid next list → just move (the server auto-dispatches if
-                      // it's an immediate agent list); only ASK when there's a choice.
-                      const tgts = list.validNext;
-                      if (tgts.length === 1) {
-                        void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch(() => load());
-                      } else {
-                        setOverlay({ kind: "move", card: c });
-                      }
-                    }}
-                    onWatch={(c) => setOverlay({ kind: "watch", card: c })}
-                    onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
-                  />
-                ))}
+                {(() => {
+                  const renderCard = (card: CardSummary) => (
+                    <Card
+                      key={card.id}
+                      card={card}
+                      list={list}
+                      busy={busyCard === card.id}
+                      onStart={onStart}
+                      onInfer={onInfer}
+                      onDiscuss={onDiscuss}
+                      onRevert={onRevert}
+                      onMove={(c) => {
+                        // One valid next list → just move (the server auto-dispatches if
+                        // it's an immediate agent list); only ASK when there's a choice.
+                        const tgts = list.validNext;
+                        if (tgts.length === 1) {
+                          void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch(() => load());
+                        } else {
+                          setOverlay({ kind: "move", card: c });
+                        }
+                      }}
+                      onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+                      onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                    />
+                  );
+                  // D19: the Done column groups quick cards (trivial-plan inline tasks)
+                  // under a collapsed "quick tasks" strip so the real runs stay legible.
+                  if (list.id !== "done") return list.cards.map(renderCard);
+                  const quickCards = list.cards.filter((c) => c.quick);
+                  const mainCards = list.cards.filter((c) => !c.quick);
+                  return (
+                    <>
+                      {mainCards.map(renderCard)}
+                      {quickCards.length > 0 && (
+                        <details className="quick-strip">
+                          <summary className="quick-strip-head">
+                            <span className="quick-strip-title">quick tasks</span>
+                            <span className="count">{quickCards.length}</span>
+                          </summary>
+                          <div className="quick-strip-body">{quickCards.map(renderCard)}</div>
+                        </details>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </section>
           ))}

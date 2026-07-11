@@ -38,12 +38,12 @@ function fakeBoard() {
       },
       {
         id: "plan", title: "Plan", order: 3, kind: "agent", trigger: "immediate",
-        skill: "autothing-plan", taskType: "code", tier: "T2-deep", mode: "james",
+        skill: "garrison-plan", taskType: "code", tier: "T2-deep", mode: "james",
         executePrompt: "old execute", routerPrompt: "old router", validNext: ["implement"]
       },
       {
         id: "implement", title: "Implement", order: 4, kind: "agent", trigger: "immediate",
-        skill: "autothing-implement", taskType: "code", tier: "T2-deep", mode: "joe",
+        skill: "garrison-implement", taskType: "code", tier: "T2-deep", mode: "joe",
         executePrompt: "impl execute", routerPrompt: "impl router", validNext: ["plan"]
       }
     ]
@@ -154,7 +154,7 @@ describe("applyListConfig — validation rejects", () => {
 
   it("rejects the skill key entirely (D15 — bindings live in the policy)", () => {
     const board = fakeBoard();
-    const { error } = applyListConfig(board, "plan", { skill: "autothing-plan:v2" });
+    const { error } = applyListConfig(board, "plan", { skill: "garrison-plan:v2" });
     expect(error).toContain("no longer a per-list setting");
   });
 
@@ -186,7 +186,7 @@ describe("applyListConfig — manual list is title + validNext only", () => {
 
   it("rejects editing skill on a manual list", () => {
     const board = fakeBoard();
-    expect(applyListConfig(board, "backlog", { skill: "autothing-plan" }).error).toMatch(/manual list/);
+    expect(applyListConfig(board, "backlog", { skill: "garrison-plan" }).error).toMatch(/manual list/);
   });
 
   it("rejects editing executePrompt / routerPrompt / trigger / mode / taskType / tier on a manual list", () => {

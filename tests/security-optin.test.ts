@@ -21,9 +21,9 @@ const PROMPT = readFileSync(
 describe("security opt-in (S4 / D13)", () => {
   const policy = compilePolicy(SEED, "balanced");
 
-  it("security-review is a bindable phase pointing at autothing-security-review", () => {
+  it("security-review is a bindable phase pointing at garrison-security-review", () => {
     expect(policy.phases).toContain("security-review");
-    expect(policy.phaseSkills.bindings["security-review"]).toBe("autothing-security-review");
+    expect(policy.phaseSkills.bindings["security-review"]).toBe("garrison-security-review");
   });
 
   it("security-review has a matrix cell mirroring adversarial-review's target", () => {

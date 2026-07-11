@@ -75,6 +75,10 @@ export interface CardSummary {
   phases?: Record<string, boolean> | null;
   tier?: string | null;
   origin?: string | null;
+  // D19: a quick card is a trivial-plan task the gateway ran inline and
+  // auto-advanced to Done. The Done column groups quick cards under a collapsed
+  // "quick tasks" strip.
+  quick?: boolean;
   // The last dispatch failure: set on a transport defer or a gateway-unreachable
   // auto-dispatch; null after a successful run. The UI shows a badge + Retry.
   lastDispatchError: DispatchError | null;

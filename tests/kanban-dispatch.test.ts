@@ -246,7 +246,7 @@ describe("v1d processChain — auto-runs the flow through immediate agent lists"
   });
 });
 
-// rev2-s567 S5-2 regression: the autothing doorway positions a card on the
+// rev2-s567 S5-2 regression: the garrison doorway positions a card on the
 // immediate agent list "plan" with the x-garrison-engine header, then drives it
 // in-session via advanceCardPhase. The PATCH handler must NOT ALSO fire a
 // background processChain for an engine request (double-drive → the background
@@ -260,13 +260,13 @@ describe("doorway double-drive suppression (S5-2)", () => {
     ]
   };
   it("isEngineRequest detects the x-garrison-engine header", () => {
-    expect(isEngineRequest({ headers: { "x-garrison-engine": "autothing-doorway" } })).toBe(true);
+    expect(isEngineRequest({ headers: { "x-garrison-engine": "garrison-doorway" } })).toBe(true);
     expect(isEngineRequest({ headers: {} })).toBe(false);
     expect(isEngineRequest({ headers: { "x-garrison-engine": "" } })).toBe(false);
   });
   it("a move to an immediate agent list auto-dispatches for a HUMAN request but NOT an engine one", () => {
     const human = { headers: {} };
-    const engine = { headers: { "x-garrison-engine": "autothing-doorway" } };
+    const engine = { headers: { "x-garrison-engine": "garrison-doorway" } };
     // the exact composed guard from handlePatchCard:
     const dispatches = (req: { headers: Record<string, string> }) =>
       shouldAutoDispatch(board, "plan") && !isEngineRequest(req);

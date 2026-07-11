@@ -29,7 +29,7 @@ const iso = (ms: number) => new Date(ms).toISOString();
 
 describe("classifyExecution boundaries (D8)", () => {
   it("each autonomous channel triggers, case-insensitively", () => {
-    for (const ch of ["kanban", "scheduler", "board", "autothing", "KANBAN", "Board"]) {
+    for (const ch of ["kanban", "scheduler", "board", "garrison", "KANBAN", "Board"]) {
       expect(classifyExecution({ channel: ch })).toBe("autonomous");
     }
     expect(classifyExecution({ channel: "web" })).toBe("interactive");
@@ -150,7 +150,7 @@ describe("rail fallbacks (kanban policy)", () => {
       full: { evidence: "video", phases: ["plan", "implement", "walkthrough"] },
       "implement-only": { evidence: "none", phases: ["implement"] }
     },
-    phaseSkills: { bindings: { implement: "autothing-implement" }, overrides: { "docs-change": { implement: "docs-writer" } } }
+    phaseSkills: { bindings: { implement: "garrison-implement" }, overrides: { "docs-change": { implement: "docs-writer" } } }
   };
 
   it("a card without a workKind falls back to the policy default", () => {
@@ -188,7 +188,7 @@ describe("rail fallbacks (kanban policy)", () => {
 
   it("skillForPhase: per-kind override beats the binding; neither means null", () => {
     expect(skillForPhase(policy, "implement", "docs-change")).toBe("docs-writer");
-    expect(skillForPhase(policy, "implement", "full-feature")).toBe("autothing-implement");
+    expect(skillForPhase(policy, "implement", "full-feature")).toBe("garrison-implement");
     expect(skillForPhase(policy, "plan", "full-feature")).toBeNull();
   });
 });

@@ -5,7 +5,7 @@ description: Validate a slice of {{PROJECT}} by exploring the REAL running app f
 
 # {{PROJECT}}-testing
 
-<!-- REFERENCE EXEMPLAR authored for a Next.js workspaces + vitest + @playwright/test stack. autothing-project-foundation adapts: the frontmatter name, the commands below, and the paths — to the target project's detected stack. Procedure (verbs) lives here; bars (nouns) live in docs/governance.md, referenced by path, never duplicated. -->
+<!-- REFERENCE EXEMPLAR authored for a Next.js workspaces + vitest + @playwright/test stack. garrison-project-foundation adapts: the frontmatter name, the commands below, and the paths — to the target project's detected stack. Procedure (verbs) lives here; bars (nouns) live in docs/governance.md, referenced by path, never duplicated. -->
 
 Definition of done for the bars this skill gates: `docs/governance.md`.
 

@@ -1,6 +1,6 @@
 ---
 name: garrison-ux-qa
-description: The UX QA gate - walks the ACTUAL RUNNING UI and judges its user experience and interface quality (navigation clarity, feedback and affordances, consistency, error and empty states, responsive and mobile usability, accessibility basics) against a fixed six-section checklist, taking desktop (1440x900) and mobile (390x844) screenshots as durable evidence. It measures contrast mechanically (4.5:1 / 3:1) and tap targets against a 24px floor / 44px comfort target. It is NOT a functional correctness test (use autothing-test / autothing-adversarial-test) and NOT a code review (use autothing-review / autothing-adversarial-review) - it never opens the diff to hunt bugs; it drives the app as a user would. In an autothing build, findings at or above the policy severity threshold send the slice back to autothing-implement; standalone, report the verdict and findings. Use for "ux qa", "review the UX/UI of this", "is this usable", "walk the UI", or as the ux-qa gate of a build. Skip for non-UI changes.
+description: The UX QA gate - walks the ACTUAL RUNNING UI and judges its user experience and interface quality (navigation clarity, feedback and affordances, consistency, error and empty states, responsive and mobile usability, accessibility basics) against a fixed six-section checklist, taking desktop (1440x900) and mobile (390x844) screenshots as durable evidence. It measures contrast mechanically (4.5:1 / 3:1) and tap targets against a 24px floor / 44px comfort target. It is NOT a functional correctness test (use garrison-test / garrison-adversarial-test) and NOT a code review (use garrison-review / garrison-adversarial-review) - it never opens the diff to hunt bugs; it drives the app as a user would. In a garrison build, findings at or above the policy severity threshold send the slice back to garrison-implement; standalone, report the verdict and findings. Use for "ux qa", "review the UX/UI of this", "is this usable", "walk the UI", or as the ux-qa gate of a build. Skip for non-UI changes.
 ---
 
 # garrison-ux-qa
@@ -8,8 +8,8 @@ description: The UX QA gate - walks the ACTUAL RUNNING UI and judges its user ex
 The user-experience and interface-quality gate. It does not read the diff to
 find bugs and it does not judge code - it opens the app the change produced and
 walks it the way a first-time user would, scoring what it sees against a fixed
-rubric. Correctness is owned by `autothing-test` / `autothing-adversarial-test`;
-code quality by `autothing-review` / `autothing-adversarial-review`; this gate
+rubric. Correctness is owned by `garrison-test` / `garrison-adversarial-test`;
+code quality by `garrison-review` / `garrison-adversarial-review`; this gate
 owns whether the thing is clear, consistent, responsive, and usable.
 
 ## Policy-read preamble (soft - D5/D12)
@@ -124,13 +124,13 @@ Severity order, high to low: **blocker > major > minor > note**. The loop-back
 threshold is `policy.uxQa.severityThreshold` (default **`major`**).
 
 - A finding whose severity is **at or above** the threshold is **blocking**: it
-  loops the slice back to `autothing-implement` exactly like a review finding
+  loops the slice back to `garrison-implement` exactly like a review finding
   (consumes the slice's retry ceiling); re-walk after the fix.
 - A finding **below** the threshold is recorded as a **note** - visible in the
   report and the gate slot, never silent, but it does **not** block. A slice
   whose only findings are below threshold is **clean-with-notes** and advances.
 
-This is the exact rule `autothing-validate` re-checks: for a `ui` slice the gate
+This is the exact rule `garrison-validate` re-checks: for a `ui` slice the gate
 passes when there is no blocking finding (verdict `clean`, or verdict `issues`
 with every finding below threshold), and fails when any finding is at or above
 threshold.
@@ -173,12 +173,12 @@ where `n` is the finding count. Example: `GATE ux-qa: issues(2) - 1 blocker
 
 ## Loop role + output
 
-- **In an autothing build:** write the gate slot + evidence, print the `GATE
-  ux-qa:` line. A blocking finding sends the slice back to `autothing-implement`
-  (autothing owns the retry ceiling); below-threshold notes advance the slice.
+- **In a garrison build:** write the gate slot + evidence, print the `GATE
+  ux-qa:` line. A blocking finding sends the slice back to `garrison-implement`
+  (garrison owns the retry ceiling); below-threshold notes advance the slice.
 - **Standalone:** report the verdict + findings (with concrete fixes) and the
   screenshot paths; do not auto-fix unless asked.
 
-Distinct from `autothing-review` / `autothing-adversarial-review` (code review),
-`autothing-test` / `autothing-adversarial-test` (functional correctness), and
-`autothing-security-review` (the opt-in security phase). No emoji; plain dashes.
+Distinct from `garrison-review` / `garrison-adversarial-review` (code review),
+`garrison-test` / `garrison-adversarial-test` (functional correctness), and
+`garrison-security-review` (the opt-in security phase). No emoji; plain dashes.

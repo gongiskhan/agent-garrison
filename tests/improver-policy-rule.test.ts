@@ -62,14 +62,14 @@ describe("orchestrator-policy rule (S15/D38)", () => {
   it("repeated friction mentions of a skill propose a binding review", async () => {
     const mod = ruleMod;
     const frictionLines = [
-      { project: "p", line: "- 2026-01-01T00:00:00Z [autothing-walkthrough] flaky capture → tighten retry" },
-      { project: "p", line: "- 2026-01-02T00:00:00Z [autothing-walkthrough] missed caption → fix prompt" },
-      { project: "p", line: "- 2026-01-03T00:00:00Z [autothing-walkthrough] gallery down → restart serve" }
+      { project: "p", line: "- 2026-01-01T00:00:00Z [garrison-walkthrough] flaky capture → tighten retry" },
+      { project: "p", line: "- 2026-01-02T00:00:00Z [garrison-walkthrough] missed caption → fix prompt" },
+      { project: "p", line: "- 2026-01-03T00:00:00Z [garrison-walkthrough] gallery down → restart serve" }
     ];
     const props = mod.analyzeForPolicyProposals({ frictionLines, at: "2026-01-01T00:00:00Z" });
     const binding = props.find((p: { id: string }) => p.id.startsWith("orchestrator-policy-binding-"));
     expect(binding).toBeTruthy();
-    expect(binding.claim).toContain("autothing-walkthrough");
+    expect(binding.claim).toContain("garrison-walkthrough");
     expect(binding.decision).toContain("Review/swap");
   });
 
@@ -77,7 +77,7 @@ describe("orchestrator-policy rule (S15/D38)", () => {
     const mod = ruleMod;
     const props = mod.analyzeForPolicyProposals({
       outcomes: [outcome("full-feature", { test: { status: "failed" } })],
-      frictionLines: [{ project: "p", line: "- ts [autothing-test] one-off → n/a" }],
+      frictionLines: [{ project: "p", line: "- ts [garrison-test] one-off → n/a" }],
       at: "2026-01-01T00:00:00Z"
     });
     expect(props).toEqual([]);

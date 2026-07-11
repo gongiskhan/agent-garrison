@@ -1,0 +1,62 @@
+[
+  {
+    "beat": "ac1-coordination",
+    "criterionId": "AC1",
+    "timestamp": 2.03,
+    "assert": {
+      "selector": ".lease-list",
+      "text": "apm.lock.yaml",
+      "highlight": true
+    },
+    "result": "pass",
+    "note": "Coordination surface exclusive-lease list shows apm.lock.yaml + package-lock.json, pnpm-lock.yaml, yarn.lock"
+  },
+  {
+    "beat": "ac2-security-not-included",
+    "criterionId": "AC2",
+    "timestamp": 12.289,
+    "assert": {
+      "selector": ".tryit-gates",
+      "text": "is not security-sensitive",
+      "highlight": true
+    },
+    "result": "pass",
+    "note": "ui-change dry run, project agent-garrison (not flagged): security-review NOT included"
+  },
+  {
+    "beat": "ac2-security-included",
+    "criterionId": "AC2",
+    "timestamp": 20.68,
+    "assert": {
+      "selector": ".tryit-gates",
+      "text": "is marked security-sensitive",
+      "highlight": true
+    },
+    "result": "pass",
+    "note": "same request after toggling agent-garrison security-sensitive ON: security-review NOW included (the flip)"
+  },
+  {
+    "beat": "ac3-uxqa-chip",
+    "criterionId": "AC3",
+    "timestamp": 26.491,
+    "assert": {
+      "selector": ".rail:has(.rail-kind:has-text(\"ui-change\"))",
+      "text": "ux-qa",
+      "highlight": true
+    },
+    "result": "pass",
+    "note": "ui-change work-kind rail contains the ux-qa phase chip (garrison-ux-qa)"
+  },
+  {
+    "beat": "ac4-target-auth",
+    "criterionId": "AC4",
+    "timestamp": 31.91,
+    "assert": {
+      "selector": ".tcard:has-text(\"cc-fable-xhigh\")",
+      "text": "subscription",
+      "highlight": true
+    },
+    "result": "pass",
+    "note": "fable target card shows runtime claude-code + auth mode subscription"
+  }
+]

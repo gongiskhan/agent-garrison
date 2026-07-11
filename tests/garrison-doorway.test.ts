@@ -6,10 +6,10 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 const ROOT = path.resolve(__dirname, "..");
-const FAMILY = path.join(ROOT, "fittings/seed/autothing-skills/.apm/skills");
+const FAMILY = path.join(ROOT, "fittings/seed/garrison-skills/.apm/skills");
 
 const D5_ERROR =
-  "Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; autothing does not run standalone.";
+  "Garrison Orchestrator policy not found at ~/.garrison/orchestrator/policy.json. Start Garrison; garrison does not run standalone.";
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -22,7 +22,7 @@ function walk(dir: string): string[] {
 }
 
 describe("thin doorway (D13)", () => {
-  const doorway = readFileSync(path.join(FAMILY, "autothing/SKILL.md"), "utf8");
+  const doorway = readFileSync(path.join(FAMILY, "garrison/SKILL.md"), "utf8");
 
   it("carries the mechanical entry steps and nothing doctrinal", () => {
     expect(doorway).toContain(D5_ERROR); // (a) read the policy
@@ -38,10 +38,10 @@ describe("thin doorway (D13)", () => {
   });
 
   it("keeps the goal-loop hooks as the intra-phase mechanism", () => {
-    for (const hook of ["goal-stop.sh", "goal-sessionstart.sh", "install.sh", "probe.sh"]) {
-      expect(existsSync(path.join(FAMILY, "autothing/hooks", hook))).toBe(true);
+    for (const hook of ["garrison-goal-stop.sh", "garrison-goal-sessionstart.sh", "install.sh", "probe.sh"]) {
+      expect(existsSync(path.join(FAMILY, "garrison/hooks", hook))).toBe(true);
     }
-    expect(doorway).toContain("goal-stop.sh");
+    expect(doorway).toContain("garrison-goal-stop.sh");
   });
 });
 
@@ -58,7 +58,7 @@ describe("one policy, one brain — grep proofs (D5/D14, acceptance 3+7)", () =>
 
   it("every verb skill carries the SOFT policy-read preamble; only the doorway hard-stops (D12)", () => {
     for (const dir of readdirSync(FAMILY)) {
-      if (dir === "autothing") continue; // the doorway legitimately hard-requires Garrison (see the doorway block)
+      if (dir === "garrison") continue; // the doorway legitimately hard-requires Garrison (see the doorway block)
       const skillMd = path.join(FAMILY, dir, "SKILL.md");
       if (!existsSync(skillMd)) continue;
       const s = readFileSync(skillMd, "utf8");
@@ -80,7 +80,7 @@ describe("one policy, one brain — grep proofs (D5/D14, acceptance 3+7)", () =>
   });
 
   it("the checkpoint routes through the codex-runtime delegate bridge only", () => {
-    const s = readFileSync(path.join(FAMILY, "autothing-codex-checkpoint/SKILL.md"), "utf8");
+    const s = readFileSync(path.join(FAMILY, "garrison-codex-checkpoint/SKILL.md"), "utf8");
     expect(s).toContain("bridge.mjs delegate");
     expect(s.replace(/\s+/g, " ")).toContain("NEVER fall back to a direct");
     expect(s).toContain("degraded (codex-unavailable)");
