@@ -30,7 +30,13 @@ const EXPAND_KEY = "quarters.sections.expanded";
 
 function readExpandState(): Record<string, boolean> {
   try {
-    return JSON.parse(window.localStorage.getItem(EXPAND_KEY) ?? "{}") as Record<string, boolean>;
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(EXPAND_KEY) ?? "{}");
+    // Shape-validate (S7 codex ratchet): JSON "null"/"42"/"[]" parse fine but
+    // are not usable maps — indexing null would crash the render.
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, boolean>;
+    }
+    return {};
   } catch {
     return {};
   }

@@ -46,6 +46,15 @@ test("multi-runtime: all sections collapsed by default; expand persists; deep gr
   );
 });
 
+test("corrupted expand-state localStorage (JSON null) never crashes the index", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("quarters.sections.expanded", "null"));
+  await page.goto("/quarters");
+  await expect(page.getByTestId("quarters-section-toggle-claude-code-runtime")).toBeVisible();
+  // still toggles fine
+  await page.getByTestId("quarters-section-toggle-claude-code-runtime").click();
+  await expect(page.getByTestId("quarters-grid")).toBeVisible();
+});
+
 test("single-runtime: the classic expanded index, no section chrome", async ({ page }) => {
   await page.goto("/quarters?composition=e2e-solo");
   await expect(page.getByRole("heading", { name: "Quarters", level: 1 })).toBeVisible();
