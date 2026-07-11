@@ -265,9 +265,11 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       );
     }
     const effectivePrimary = policyPrimary ?? legacyPrimary ?? undefined;
+    // The DEFAULT id keeps default semantics from EITHER source (policy or
+    // legacy key): claude-code is synthesizable without its fitting, so naming
+    // the default must never fail a composition that doesn't compose it.
     const primaryRuntime = resolvePrimaryRuntime({
-      primaryRuntimeId:
-        effectivePrimary === DEFAULT_PRIMARY_RUNTIME && policyPrimary ? undefined : effectivePrimary,
+      primaryRuntimeId: effectivePrimary === DEFAULT_PRIMARY_RUNTIME ? undefined : effectivePrimary,
       runtimeEntries: buildRuntimeEntries(soulEntries, composition.selections)
     });
     if (primaryRuntime.engine !== "claude-code") {

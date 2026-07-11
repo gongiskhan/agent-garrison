@@ -194,6 +194,7 @@ function usePolicyDraft() {
   const [config, setConfig] = useState<Cfg | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [errors, setErrors] = useState<string[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const baselineRef = useRef("");
   const lastGoodRef = useRef<Cfg | null>(null); // last server-confirmed draft (revert target)
   const draftRef = useRef<Cfg | null>(null); // current draft - source of truth for saves
@@ -253,6 +254,10 @@ function usePolicyDraft() {
     lastGoodRef.current = sent;
     savingRef.current = false;
     setErrors([]);
+    // A 200 can still carry warnings (e.g. primaryRuntime accepted WITHOUT
+    // installed-fitting validation because the composition is unknown) —
+    // degraded acceptance is surfaced, never dropped.
+    setWarnings(Array.isArray(j.warnings) ? j.warnings : []);
     setSaveState("saved");
     if (pendingRef.current) {
       pendingRef.current = false;
@@ -280,7 +285,16 @@ function usePolicyDraft() {
     [doPut]
   );
 
-  return { config, saveState, errors, commit, reload: load, dismissErrors: () => setSaveState("idle") };
+  return {
+    config,
+    saveState,
+    errors,
+    warnings,
+    commit,
+    reload: load,
+    dismissErrors: () => setSaveState("idle"),
+    dismissWarnings: () => setWarnings([])
+  };
 }
 
 // ── Installed runtime fittings (GARRISON-RUNTIMES-V1 P3/D3/D4) ───────────────
@@ -1490,7 +1504,7 @@ function StatusPill({ state }: { state: SaveState }) {
 
 // ── app ───────────────────────────────────────────────────────────────────────
 function App() {
-  const { config, saveState, errors, commit, reload, dismissErrors } = usePolicyDraft();
+  const { config, saveState, errors, warnings, commit, reload, dismissErrors, dismissWarnings } = usePolicyDraft();
   const runtimeFittings = useRuntimeFittings();
   const [inspector, setInspector] = useState<{ kind: string; phase: string } | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
@@ -1596,6 +1610,14 @@ function App() {
         <div className="banner bad">
           <span>Last edit rejected and reverted: {errors.join("; ")}</span>
           <button type="button" onClick={dismissErrors}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+      {warnings.length ? (
+        <div className="banner warn">
+          <span>Saved with warnings: {warnings.join("; ")}</span>
+          <button type="button" onClick={dismissWarnings}>
             Dismiss
           </button>
         </div>

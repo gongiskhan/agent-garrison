@@ -28894,6 +28894,7 @@ function usePolicyDraft() {
   const [config, setConfig] = (0, import_react5.useState)(null);
   const [saveState, setSaveState] = (0, import_react5.useState)("idle");
   const [errors, setErrors] = (0, import_react5.useState)([]);
+  const [warnings, setWarnings] = (0, import_react5.useState)([]);
   const baselineRef = (0, import_react5.useRef)("");
   const lastGoodRef = (0, import_react5.useRef)(null);
   const draftRef = (0, import_react5.useRef)(null);
@@ -28949,6 +28950,7 @@ function usePolicyDraft() {
     lastGoodRef.current = sent;
     savingRef.current = false;
     setErrors([]);
+    setWarnings(Array.isArray(j.warnings) ? j.warnings : []);
     setSaveState("saved");
     if (pendingRef.current) {
       pendingRef.current = false;
@@ -28974,7 +28976,16 @@ function usePolicyDraft() {
     },
     [doPut]
   );
-  return { config, saveState, errors, commit, reload: load, dismissErrors: () => setSaveState("idle") };
+  return {
+    config,
+    saveState,
+    errors,
+    warnings,
+    commit,
+    reload: load,
+    dismissErrors: () => setSaveState("idle"),
+    dismissWarnings: () => setWarnings([])
+  };
 }
 var DEFAULT_PRIMARY_ID = "claude-code-runtime";
 function useRuntimeFittings() {
@@ -29850,7 +29861,7 @@ function StatusPill({ state }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "status idle", children: "idle" });
 }
 function App() {
-  const { config, saveState, errors, commit, reload, dismissErrors } = usePolicyDraft();
+  const { config, saveState, errors, warnings, commit, reload, dismissErrors, dismissWarnings } = usePolicyDraft();
   const runtimeFittings = useRuntimeFittings();
   const [inspector, setInspector] = (0, import_react5.useState)(null);
   const [dragTarget, setDragTarget] = (0, import_react5.useState)(null);
@@ -29936,6 +29947,13 @@ function App() {
         errors.join("; ")
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", onClick: dismissErrors, children: "Dismiss" })
+    ] }) : null,
+    warnings.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "banner warn", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        "Saved with warnings: ",
+        warnings.join("; ")
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", onClick: dismissWarnings, children: "Dismiss" })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GhostEdits, { onApplied: reload }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DndContext, { sensors, collisionDetection: closestCenter, onDragStart, onDragEnd, children: [

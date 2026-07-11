@@ -288,10 +288,6 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           <OrchestratorGlobalConfig
             globalConfig={composition.globalConfig}
             onChange={(globalConfig) => void saveComposition({ globalConfig })}
-            runtimeOptions={(composition.selections.runtimes ?? []).map((sel) => ({
-              id: sel.id,
-              name: library.find((e) => e.id === sel.id)?.name ?? sel.id
-            }))}
             busy={busy}
           />
         ) : null}
@@ -760,12 +756,10 @@ function ConfigInput({
 function OrchestratorGlobalConfig({
   globalConfig,
   onChange,
-  runtimeOptions,
   busy
 }: {
   globalConfig: GlobalConfig;
   onChange: (g: GlobalConfig) => void;
-  runtimeOptions: { id: string; name: string }[];
   busy: string | null;
 }) {
   return (
