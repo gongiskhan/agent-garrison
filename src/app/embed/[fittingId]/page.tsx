@@ -100,8 +100,10 @@ export default function EmbedPage() {
       // Own-port views run on a different port (a distinct origin), so without
       // an explicit Permissions-Policy delegation the embedded page's
       // navigator.clipboard is blocked — which silently breaks copy in the
-      // dev-env terminal. Delegate clipboard read/write to the framed view.
-      allow="clipboard-read; clipboard-write"
+      // dev-env terminal. Same for microphone (web-channel push-to-talk:
+      // getUserMedia rejects with NotAllowedError before any prompt) and
+      // autoplay (read-aloud's auto-play after a turn is not a user gesture).
+      allow="clipboard-read; clipboard-write; microphone; autoplay"
       style={{
         width: "100%",
         height: "100vh",

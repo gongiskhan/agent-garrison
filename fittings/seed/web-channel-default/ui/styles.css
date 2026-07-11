@@ -623,12 +623,43 @@ html, body {
         to its content (field-sizing) and shrinks properly in flex.
    ============================================================================ */
 
-/* Column width: a hair wider on desktop, full-bleed under 900px (the side
-   hairlines only make sense when there is paper on both sides). */
-.cc-root { max-width: min(860px, 100%); }
-@media (max-width: 899px) {
-  .cc-root { max-width: 100%; border-left: none; border-right: none; }
+/* ── Width: the surface FILLS its container; the CONTENT is what's measured ──
+   The old rule capped .cc-root itself at 860px, so on a wide monitor the chat
+   sat in a narrow strip with dead paper on both sides and the chrome (header,
+   composer, toolbars) was capped with it. Instead the root now spans the full
+   pane and each row gets a symmetric gutter that centres a readable measure —
+   the column genuinely grows with the viewport up to --cc-measure, and beyond
+   that the header rules and composer still span edge to edge like a real app.
+   The gutter is a percentage of the ROOT's width (each row is its direct
+   block child), so it tracks the pane, not the viewport — correct with the
+   264px sessions sidebar in or out. */
+.cc-root {
+  --cc-measure: 1200px;
+  --cc-gutter: max(16px, calc((100% - var(--cc-measure)) / 2));
+  max-width: none;
+  width: 100%;
+  border-left: none;
+  border-right: none;
 }
+.cc-header,
+.cc-scroll,
+.cc-statusstrip,
+.cc-modes,
+.cc-toolbar,
+.cc-composer {
+  padding-left: var(--cc-gutter);
+  padding-right: var(--cc-gutter);
+}
+/* The slash menu is absolutely positioned against .cc-composer — align it to the
+   same measure instead of the composer's full padded box. */
+.cc-slashmenu { left: var(--cc-gutter); right: var(--cc-gutter); }
+/* Keep the mobile sidebar-toggle clearance (declared before this block). */
+@media (max-width: 899px) {
+  .wc-main .cc-header { padding-left: 50px; }
+}
+/* A user bubble is a bubble, not a banner: cap it in ch so it stays legible when
+   the column is wide, while still filling narrow screens. */
+.cc-user { max-width: min(86%, 70ch); margin-left: auto; }
 
 /* Header never overflows: the model chip ellipsizes instead of pushing the
    RAW toggle off-screen. */

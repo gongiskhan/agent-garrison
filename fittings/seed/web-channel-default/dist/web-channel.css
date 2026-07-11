@@ -242,6 +242,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   color: var(--cc-fg-dim); cursor: pointer; padding: 3px 7px; line-height: 0;
 }
 .cc-speak:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+/* The message currently being read aloud — its button is the play/pause control. */
+.cc-speak-active { color: var(--cc-accent); border-color: var(--cc-accent); }
 
 /* Subtle routing chip — replaces the inline "[route: …]" badge the model emits.
    Quiet by default, pushed to the right of the action row; the full route/rule/
@@ -298,6 +300,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 @keyframes cc-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
 .cc-chip-pulse { animation: cc-pulse 1.1s ease-in-out infinite; }
 
+/* ── Read-aloud playback transport (pause / resume / stop) ──
+   Mounted only while a read is running, so it never sits dead in the toolbar. */
+.cc-playback { display: inline-flex; align-items: center; gap: 4px; }
+@keyframes cc-spin { to { transform: rotate(360deg); } }
+.cc-playback-spin, .cc-mic-spin {
+  width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+  border: 1.5px solid currentColor; border-top-color: transparent;
+  animation: cc-spin 0.7s linear infinite;
+}
+.cc-mic-spin { width: 13px; height: 13px; }
+
 .cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 .cc-composerrow { display: flex; gap: 8px; align-items: flex-end; }
 .cc-input {
@@ -321,6 +334,22 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-mic:disabled { opacity: 0.4; cursor: not-allowed; }
 .cc-mic-rec { border-color: #f85149; color: #f85149; }
 .cc-mic-dot { width: 12px; height: 12px; border-radius: 50%; background: #f85149; display: inline-block; animation: cc-pulse 1s ease-in-out infinite; }
+.cc-mic-busy { color: var(--cc-accent); border-color: var(--cc-accent); }
+
+/* ── Voice failure strip (mic blocked, STT failed, playback blocked) ──
+   A blocked mic used to be a dead button; the reason now shows here. */
+.cc-voiceerr {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  padding: 5px 8px; border: 1px solid var(--cc-danger-border); border-radius: 6px;
+  background: color-mix(in srgb, var(--cc-danger-bg) 12%, transparent);
+  color: var(--cc-fg); font-size: 12px; line-height: 1.35;
+}
+.cc-voiceerr-msg { flex: 1; min-width: 0; }
+.cc-voiceerr-x {
+  flex-shrink: 0; background: transparent; border: 0; color: var(--cc-fg-dim);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.cc-voiceerr-x:hover { color: var(--cc-fg); }
 
 .cc-slashmenu {
   position: absolute; left: 8px; right: 8px; bottom: calc(100% - 2px);
@@ -971,12 +1000,43 @@ html, body {
         to its content (field-sizing) and shrinks properly in flex.
    ============================================================================ */
 
-/* Column width: a hair wider on desktop, full-bleed under 900px (the side
-   hairlines only make sense when there is paper on both sides). */
-.cc-root { max-width: min(860px, 100%); }
-@media (max-width: 899px) {
-  .cc-root { max-width: 100%; border-left: none; border-right: none; }
+/* ── Width: the surface FILLS its container; the CONTENT is what's measured ──
+   The old rule capped .cc-root itself at 860px, so on a wide monitor the chat
+   sat in a narrow strip with dead paper on both sides and the chrome (header,
+   composer, toolbars) was capped with it. Instead the root now spans the full
+   pane and each row gets a symmetric gutter that centres a readable measure —
+   the column genuinely grows with the viewport up to --cc-measure, and beyond
+   that the header rules and composer still span edge to edge like a real app.
+   The gutter is a percentage of the ROOT's width (each row is its direct
+   block child), so it tracks the pane, not the viewport — correct with the
+   264px sessions sidebar in or out. */
+.cc-root {
+  --cc-measure: 1200px;
+  --cc-gutter: max(16px, calc((100% - var(--cc-measure)) / 2));
+  max-width: none;
+  width: 100%;
+  border-left: none;
+  border-right: none;
 }
+.cc-header,
+.cc-scroll,
+.cc-statusstrip,
+.cc-modes,
+.cc-toolbar,
+.cc-composer {
+  padding-left: var(--cc-gutter);
+  padding-right: var(--cc-gutter);
+}
+/* The slash menu is absolutely positioned against .cc-composer — align it to the
+   same measure instead of the composer's full padded box. */
+.cc-slashmenu { left: var(--cc-gutter); right: var(--cc-gutter); }
+/* Keep the mobile sidebar-toggle clearance (declared before this block). */
+@media (max-width: 899px) {
+  .wc-main .cc-header { padding-left: 50px; }
+}
+/* A user bubble is a bubble, not a banner: cap it in ch so it stays legible when
+   the column is wide, while still filling narrow screens. */
+.cc-user { max-width: min(86%, 70ch); margin-left: auto; }
 
 /* Header never overflows: the model chip ellipsizes instead of pushing the
    RAW toggle off-screen. */

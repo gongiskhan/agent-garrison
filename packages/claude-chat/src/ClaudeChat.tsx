@@ -512,12 +512,24 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [voiceHealth, setVoiceHealth] = useState<VoiceHealth>({ available: false });
   const [readAloud, setReadAloud] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  // Playback state for read-aloud. `speaking` stays true for the whole playback
+  // SESSION (including while paused) so the transport controls remain mounted;
+  // `paused` distinguishes the two. `loading` covers the TTS round-trip, which
+  // can take seconds — without it the button looks dead after the click.
   const [speaking, setSpeaking] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  /** Turn id currently being read aloud (null = none / auto-read of the last turn). */
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  /** Last voice failure, surfaced to the user instead of being swallowed. */
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recBusyRef = useRef(false);
   const voiceMountedRef = useRef(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
   const lastSpokenRef = useRef<string>("");
 
   useEffect(() => {
@@ -777,30 +789,89 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     }
   }, [turns]);
 
-  // ── Voice: speak a single message's text via the /voice/tts proxy. ──
+  // ── Voice: speak a message's text via the /voice/tts proxy. Playback is a
+  // real transport (play / pause / resume / stop), not a fire-and-forget: a
+  // long reply read aloud has to be pausable. One <audio> at a time — starting a
+  // new read tears the previous one down (and revokes its object URL). ──
+  const teardownAudio = useCallback(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.onended = null;
+      a.onerror = null;
+      try { a.pause(); } catch { /* already detached */ }
+    }
+    audioRef.current = null;
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }, []);
+
   const speak = useCallback(
-    async (text: string) => {
+    async (text: string, turnId?: string) => {
       if (!voiceClient || !text.trim()) return;
+      teardownAudio();
+      setVoiceError(null);
+      setTtsLoading(true);
+      setSpeaking(true);
+      setPaused(false);
+      setSpeakingId(turnId ?? null);
       try {
-        setSpeaking(true);
         const blob = await voiceClient.tts(text);
+        if (!voiceMountedRef.current) return;
         const urlObj = URL.createObjectURL(blob);
-        if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+        audioUrlRef.current = urlObj;
         const audio = new Audio(urlObj);
         audioRef.current = audio;
-        audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
-        audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+        const finish = () => {
+          if (audioRef.current !== audio) return; // superseded by a newer read
+          teardownAudio();
+          setSpeaking(false);
+          setPaused(false);
+          setSpeakingId(null);
+        };
+        audio.onended = finish;
+        audio.onerror = () => { setVoiceError("Playback failed"); finish(); };
         await audio.play();
-      } catch {
+        setTtsLoading(false);
+      } catch (err) {
+        setTtsLoading(false);
         setSpeaking(false);
+        setPaused(false);
+        setSpeakingId(null);
+        teardownAudio();
+        // An autoplay block (no user gesture) and an upstream TTS failure are
+        // different problems — say which one happened rather than going quiet.
+        const name = (err as { name?: string } | null)?.name;
+        setVoiceError(
+          name === "NotAllowedError"
+            ? "Playback blocked by the browser — press Read aloud again"
+            : `Read-aloud failed: ${(err as Error)?.message ?? "unknown error"}`.slice(0, 120)
+        );
       }
     },
-    [voiceClient]
+    [voiceClient, teardownAudio]
   );
 
   const stopSpeaking = useCallback(() => {
-    if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+    teardownAudio();
     setSpeaking(false);
+    setPaused(false);
+    setTtsLoading(false);
+    setSpeakingId(null);
+  }, [teardownAudio]);
+
+  // Pause / resume the current read-aloud. No-op before the audio element
+  // exists (still fetching the TTS) — the button shows a loading state then.
+  const togglePause = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) {
+      a.play().then(() => setPaused(false)).catch(() => setPaused(true));
+    } else {
+      a.pause();
+      setPaused(true);
+    }
   }, []);
 
   // Persist each COMPLETED exchange into the host's thread store (when wired).
@@ -830,8 +901,8 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
-    void speak(text);
-  }, [readAloud, voiceUsable, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
+    void speak(text, latestAssistant.id);
+  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
 
   // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
   // and drop the transcript into the composer for review/edit. ──
@@ -842,7 +913,20 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     // (leaking a live mic). The ref stays set through the active recording and
     // clears on stop / bail / error.
     if (!voiceClient || recBusyRef.current) return;
+    // getUserMedia exists only in a secure context (https / localhost). Over a
+    // plain-http LAN origin `navigator.mediaDevices` is undefined and the old
+    // code threw a TypeError into an empty catch — the button did nothing, with
+    // no explanation. Say so instead.
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("Microphone needs a secure context (https or localhost)");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setVoiceError("This browser has no MediaRecorder — recording is unavailable");
+      return;
+    }
     recBusyRef.current = true;
+    setVoiceError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!voiceMountedRef.current) {
@@ -863,23 +947,45 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         if (!voiceMountedRef.current) return; // unmounted — don't touch state/network
         setRecording(false);
         const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-        if (!blob.size) return;
+        if (!blob.size) {
+          setVoiceError("Nothing was recorded — check the microphone input");
+          return;
+        }
+        setTranscribing(true);
         try {
           const transcript = await voiceClient.stt(blob);
-          if (transcript) {
+          if (!voiceMountedRef.current) return;
+          if (transcript.trim()) {
             setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
             taRef.current?.focus();
+          } else {
+            setVoiceError("No speech detected in the recording");
           }
-        } catch {
-          /* stt failed — leave composer untouched */
+        } catch (err) {
+          if (voiceMountedRef.current) {
+            setVoiceError(`Transcription failed: ${(err as Error)?.message ?? "unknown error"}`.slice(0, 140));
+          }
+        } finally {
+          if (voiceMountedRef.current) setTranscribing(false);
         }
       };
       recorderRef.current = rec;
       rec.start();
       setRecording(true);
-    } catch {
+    } catch (err) {
       recBusyRef.current = false;
       setRecording(false);
+      // The failure that actually bit us: an iframe without `allow="microphone"`
+      // rejects getUserMedia with NotAllowedError before any prompt is shown, so
+      // the click looked like a dead button. Name the cause.
+      const name = (err as { name?: string } | null)?.name;
+      setVoiceError(
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "Microphone blocked — allow mic access for this page (and reload)"
+          : name === "NotFoundError"
+            ? "No microphone found on this device"
+            : `Microphone error: ${(err as Error)?.message ?? "unknown"}`.slice(0, 140)
+      );
     }
   }, [voiceClient]);
 
@@ -899,6 +1005,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
       if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
       streamRef.current?.getTracks().forEach((t) => { try { t.stop(); } catch {} });
       streamRef.current = null;
+      // Kill any in-flight read-aloud too — a pane swap must not leave audio
+      // playing into a view the user has left (and must not leak the blob URL).
+      const a = audioRef.current;
+      if (a) { a.onended = null; a.onerror = null; try { a.pause(); } catch {} }
+      audioRef.current = null;
+      if (audioUrlRef.current) { URL.revokeObjectURL(audioUrlRef.current); audioUrlRef.current = null; }
     };
   }, []);
 
@@ -1067,20 +1179,46 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                     >
                       {copiedId === t.id ? "Copied" : "Copy"}
                     </button>
-                    {feat.voice && voiceUsable && (
-                      <button
-                        type="button"
-                        className="cc-speak"
-                        title="Read this response aloud"
-                        aria-label="Read this response aloud"
-                        onClick={() => void speak(clean.text)}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-                          <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
-                          <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                    )}
+                    {feat.voice && voiceUsable && (() => {
+                      // The same button is play / pause / resume for THIS message:
+                      // once it is the one being read, clicking toggles playback
+                      // rather than restarting the whole reply from the top.
+                      const isThis = speakingId === t.id;
+                      const playing = isThis && !paused && !ttsLoading;
+                      const label = !isThis
+                        ? "Read this response aloud"
+                        : ttsLoading
+                          ? "Preparing audio"
+                          : paused
+                            ? "Resume reading"
+                            : "Pause reading";
+                      return (
+                        <button
+                          type="button"
+                          className={`cc-speak${isThis ? " cc-speak-active" : ""}`}
+                          title={label}
+                          aria-label={label}
+                          aria-pressed={isThis}
+                          onClick={() => (isThis ? togglePause() : void speak(clean.text, t.id))}
+                        >
+                          {playing ? (
+                            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                              <rect x="4" y="3" width="3" height="10" fill="currentColor" />
+                              <rect x="9" y="3" width="3" height="10" fill="currentColor" />
+                            </svg>
+                          ) : isThis && paused ? (
+                            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M5 3l8 5-8 5z" fill="currentColor" />
+                            </svg>
+                          ) : (
+                            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+                              <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })()}
                     {routeLabel && (
                       <span className="cc-routechip" title={routeTitle}>{routeLabel}</span>
                     )}
@@ -1100,19 +1238,24 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         {status.rows.length > 0 ? status.rows.map((r, i) => <div key={i} className="cc-statusrow">{r}</div>) : <div className="cc-statusrow cc-dim">no status</div>}
       </div>
 
-      <div className="cc-modes">
-        {SWITCHABLE.map((m) => (
-          <button
-            key={m}
-            className={`cc-mode ${status.mode === m ? "cc-mode-active" : ""}`}
-            disabled={status.mode === "unknown"}
-            onClick={() => onSetMode(m)}
-            title={`Switch to ${MODE_LABELS[m]} mode`}
-          >
-            {MODE_LABELS[m]}
-          </button>
-        ))}
-      </div>
+      {/* Permission modes only exist when the transport actually reports one (a
+          live PTY). On the orchestrator transport `mode` stays "unknown", and the
+          row rendered four permanently-disabled buttons — dead chrome eating a
+          strip of the composer area. No mode, no row. */}
+      {status.mode !== "unknown" && (
+        <div className="cc-modes">
+          {SWITCHABLE.map((m) => (
+            <button
+              key={m}
+              className={`cc-mode ${status.mode === m ? "cc-mode-active" : ""}`}
+              onClick={() => onSetMode(m)}
+              title={`Switch to ${MODE_LABELS[m]} mode`}
+            >
+              {MODE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+      )}
 
       {(feat.model || feat.effort || feat.voice || feat.autonomous) && (
         <div className="cc-toolbar">
@@ -1185,12 +1328,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           {feat.voice && (
             <button
               type="button"
-              className={`cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking ? "cc-chip-pulse" : ""}`}
+              className={`cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking && !paused ? "cc-chip-pulse" : ""}`}
               disabled={!voiceUsable}
               aria-pressed={readAloud}
               title={
                 voiceUsable
-                  ? speaking ? "Speaking — click to stop auto-read" : "Read each new response aloud"
+                  ? readAloud ? "Auto-read is on — click to turn it off" : "Read each new response aloud"
                   : "Voice fitting not running"
               }
               onClick={() => {
@@ -1207,6 +1350,48 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
               </svg>
               Read aloud
             </button>
+          )}
+          {/* Playback transport — only while a read-aloud is actually running, so
+              the toolbar doesn't carry dead controls. Pause/Resume is the control
+              a long reply needs; Stop ends the read without turning auto-read off. */}
+          {feat.voice && voiceUsable && (speaking || ttsLoading) && (
+            <div className="cc-playback" role="group" aria-label="Read-aloud playback">
+              <button
+                type="button"
+                className={`cc-chip ${paused ? "" : "cc-chip-active"}`}
+                disabled={ttsLoading}
+                title={ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading"}
+                onClick={togglePause}
+              >
+                {ttsLoading ? (
+                  <>
+                    <span className="cc-playback-spin" aria-hidden="true" />
+                    Preparing
+                  </>
+                ) : paused ? (
+                  <>
+                    <svg className="cc-ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M5 3l8 5-8 5z" fill="currentColor" />
+                    </svg>
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <svg className="cc-ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                      <rect x="4" y="3" width="3" height="10" fill="currentColor" />
+                      <rect x="9" y="3" width="3" height="10" fill="currentColor" />
+                    </svg>
+                    Pause
+                  </>
+                )}
+              </button>
+              <button type="button" className="cc-chip" title="Stop reading" onClick={stopSpeaking}>
+                <svg className="cc-ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="3.5" y="3.5" width="9" height="9" fill="currentColor" />
+                </svg>
+                Stop
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -1227,22 +1412,41 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             ))}
           </div>
         )}
+        {feat.voice && voiceError && (
+          <div className="cc-voiceerr" role="status">
+            <span className="cc-voiceerr-msg">{voiceError}</span>
+            <button
+              type="button"
+              className="cc-voiceerr-x"
+              aria-label="Dismiss voice error"
+              onClick={() => setVoiceError(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div className="cc-composerrow">
           {composerAdornment}
           {feat.voice && (
             <button
               type="button"
-              className={`cc-mic ${recording ? "cc-mic-rec" : ""}`}
-              disabled={!voiceUsable}
+              className={`cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`}
+              disabled={!voiceUsable || transcribing}
               aria-pressed={recording}
               title={
-                voiceUsable
-                  ? recording ? "Stop recording and transcribe" : "Talk — record then transcribe into the composer"
-                  : "Voice fitting not running"
+                !voiceUsable
+                  ? "Voice fitting not running"
+                  : transcribing
+                    ? "Transcribing…"
+                    : recording
+                      ? "Stop recording and transcribe"
+                      : "Talk — record then transcribe into the composer"
               }
               onClick={() => (recording ? stopRecording() : void startRecording())}
             >
-              {recording ? (
+              {transcribing ? (
+                <span className="cc-mic-spin" aria-hidden="true" />
+              ) : recording ? (
                 <span className="cc-mic-dot" aria-hidden="true" />
               ) : (
                 <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">

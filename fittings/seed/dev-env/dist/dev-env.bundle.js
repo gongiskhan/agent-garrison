@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2437,7 +2437,7 @@ var require_react_dom_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment3 = 7;
+        var Fragment4 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -3594,7 +3594,7 @@ var require_react_dom_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment3:
+            case Fragment4:
               return "Fragment";
             case HostComponent:
               return type;
@@ -12023,7 +12023,7 @@ var require_react_dom_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current2, fragment, lanes, key) {
-            if (current2 === null || current2.tag !== Fragment3) {
+            if (current2 === null || current2.tag !== Fragment4) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -12426,7 +12426,7 @@ var require_react_dom_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment3) {
+                  if (child.tag === Fragment4) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17902,7 +17902,7 @@ var require_react_dom_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current2, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment3:
+            case Fragment4:
               return updateFragment(current2, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current2, workInProgress2, renderLanes2);
@@ -18174,7 +18174,7 @@ var require_react_dom_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment3:
+            case Fragment4:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22435,7 +22435,7 @@ var require_react_dom_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode3, lanes, key) {
-          var fiber = createFiber(Fragment3, elements, key, mode3);
+          var fiber = createFiber(Fragment4, elements, key, mode3);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/xterm/lib/xterm.js
+// node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
+// node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ../../../node_modules/highlight.js/lib/core.js
+// node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
+  "node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_react7 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// ui/terminal-theme.ts
+// fittings/seed/dev-env/ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_react3 = __toESM(require_react());
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// ../../../node_modules/marked/lib/marked.esm.js
+// node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// ../../../node_modules/highlight.js/es/core.js
+// node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// ../../../node_modules/highlight.js/es/languages/typescript.js
+// node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// ../../../node_modules/highlight.js/es/languages/javascript.js
+// node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/python.js
+// node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/bash.js
+// node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/json.js
+// node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/css.js
+// node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/xml.js
+// node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/markdown.js
+// node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/yaml.js
+// node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/sql.js
+// node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/rust.js
+// node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/go.js
+// node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/diff.js
+// node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,7 +39813,7 @@ function diff(hljs) {
   };
 }
 
-// ../../../packages/claude-chat/src/chat-theme.ts
+// packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -39880,7 +39880,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// ../../../packages/claude-chat/src/voice.ts
+// packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -39923,7 +39923,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// ../../../packages/claude-chat/src/sanitize.ts
+// packages/claude-chat/src/sanitize.ts
 var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
 var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
 var ORCH_RE_G = /\[orchestrator-active\]/gi;
@@ -39971,7 +39971,7 @@ function routeChipLabel(meta) {
   return route;
 }
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -40060,6 +40060,70 @@ md.use({
     }
   }
 });
+function QuestionBlock({
+  q,
+  answered,
+  answering,
+  onSelect,
+  onOther
+}) {
+  const [otherOpen, setOtherOpen] = (0, import_react2.useState)(false);
+  const [otherText, setOtherText] = (0, import_react2.useState)("");
+  const locked = Boolean(answered) || Boolean(answering);
+  const title = q.header?.trim() || q.question?.trim() || "Choose an option";
+  const showSub = Boolean(q.question?.trim()) && q.question.trim() !== title;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-question", role: "group", "aria-label": title, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-question-title", children: title }),
+    showSub && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-question-sub", children: q.question }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-question-opts", children: [
+      q.options.map((o) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+        "button",
+        {
+          type: "button",
+          className: `cc-question-opt${answered === o.label ? " cc-question-opt-chosen" : ""}`,
+          disabled: locked,
+          "aria-pressed": answered === o.label,
+          onClick: () => onSelect(o.label),
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-question-opt-label", children: o.label }),
+            o.description && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-question-opt-desc", children: o.description })
+          ]
+        },
+        o.label
+      )),
+      !locked && !otherOpen && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "cc-question-other", onClick: () => setOtherOpen(true), children: "Other..." })
+    ] }),
+    !locked && otherOpen && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-question-otherrow", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "input",
+        {
+          className: "cc-question-otherinput",
+          value: otherText,
+          placeholder: "Type your answer",
+          autoFocus: true,
+          onChange: (e) => setOtherText(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Enter" && otherText.trim()) {
+              e.preventDefault();
+              onOther(otherText.trim());
+            }
+          }
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "cc-question-othersend",
+          disabled: !otherText.trim(),
+          onClick: () => otherText.trim() && onOther(otherText.trim()),
+          children: "Send"
+        }
+      )
+    ] }),
+    answered && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-user cc-question-answer", children: answered })
+  ] });
+}
 var MODELS = [
   { id: "claude-opus-4-8", label: "Opus" },
   { id: "claude-sonnet-4-6", label: "Sonnet" },
@@ -40192,12 +40256,18 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
   const [voiceHealth, setVoiceHealth] = (0, import_react2.useState)({ available: false });
   const [readAloud, setReadAloud] = (0, import_react2.useState)(false);
   const [recording, setRecording] = (0, import_react2.useState)(false);
+  const [transcribing, setTranscribing] = (0, import_react2.useState)(false);
   const [speaking, setSpeaking] = (0, import_react2.useState)(false);
+  const [paused, setPaused] = (0, import_react2.useState)(false);
+  const [ttsLoading, setTtsLoading] = (0, import_react2.useState)(false);
+  const [speakingId, setSpeakingId] = (0, import_react2.useState)(null);
+  const [voiceError, setVoiceError] = (0, import_react2.useState)(null);
   const recorderRef = (0, import_react2.useRef)(null);
   const streamRef = (0, import_react2.useRef)(null);
   const recBusyRef = (0, import_react2.useRef)(false);
   const voiceMountedRef = (0, import_react2.useRef)(true);
   const audioRef = (0, import_react2.useRef)(null);
+  const audioUrlRef = (0, import_react2.useRef)(null);
   const lastSpokenRef = (0, import_react2.useRef)("");
   (0, import_react2.useEffect)(() => {
     if (!voiceOn || !voiceClient) return;
@@ -40298,6 +40368,17 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
         case "screen":
           setScreen(ev.lines);
           break;
+        case "tool": {
+          if (ev.name !== "AskUserQuestion" || !Array.isArray(ev.questions) || ev.questions.length === 0) break;
+          setTurns((prev) => {
+            if (prev.length === 0) return prev;
+            const copy = prev.slice();
+            const last = copy[copy.length - 1];
+            copy[copy.length - 1] = { ...last, question: { toolUseId: ev.tool_use_id, questions: ev.questions } };
+            return copy;
+          });
+          break;
+        }
         case "connection":
           setConn(ev.state);
           break;
@@ -40390,44 +40471,82 @@ ${t}` : t;
       window.setTimeout(() => setCopied(false), 1400);
     }
   }, [turns]);
-  const speak = (0, import_react2.useCallback)(
-    async (text) => {
-      if (!voiceClient || !text.trim()) return;
+  const teardownAudio = (0, import_react2.useCallback)(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.onended = null;
+      a.onerror = null;
       try {
-        setSpeaking(true);
-        const blob = await voiceClient.tts(text);
-        const urlObj = URL.createObjectURL(blob);
-        if (audioRef.current) {
-          try {
-            audioRef.current.pause();
-          } catch {
-          }
-        }
-        const audio = new Audio(urlObj);
-        audioRef.current = audio;
-        audio.onended = () => {
-          setSpeaking(false);
-          URL.revokeObjectURL(urlObj);
-        };
-        audio.onerror = () => {
-          setSpeaking(false);
-          URL.revokeObjectURL(urlObj);
-        };
-        await audio.play();
-      } catch {
-        setSpeaking(false);
-      }
-    },
-    [voiceClient]
-  );
-  const stopSpeaking = (0, import_react2.useCallback)(() => {
-    if (audioRef.current) {
-      try {
-        audioRef.current.pause();
+        a.pause();
       } catch {
       }
     }
+    audioRef.current = null;
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }, []);
+  const speak = (0, import_react2.useCallback)(
+    async (text, turnId) => {
+      if (!voiceClient || !text.trim()) return;
+      teardownAudio();
+      setVoiceError(null);
+      setTtsLoading(true);
+      setSpeaking(true);
+      setPaused(false);
+      setSpeakingId(turnId ?? null);
+      try {
+        const blob = await voiceClient.tts(text);
+        if (!voiceMountedRef.current) return;
+        const urlObj = URL.createObjectURL(blob);
+        audioUrlRef.current = urlObj;
+        const audio = new Audio(urlObj);
+        audioRef.current = audio;
+        const finish = () => {
+          if (audioRef.current !== audio) return;
+          teardownAudio();
+          setSpeaking(false);
+          setPaused(false);
+          setSpeakingId(null);
+        };
+        audio.onended = finish;
+        audio.onerror = () => {
+          setVoiceError("Playback failed");
+          finish();
+        };
+        await audio.play();
+        setTtsLoading(false);
+      } catch (err) {
+        setTtsLoading(false);
+        setSpeaking(false);
+        setPaused(false);
+        setSpeakingId(null);
+        teardownAudio();
+        const name = err?.name;
+        setVoiceError(
+          name === "NotAllowedError" ? "Playback blocked by the browser \u2014 press Read aloud again" : `Read-aloud failed: ${err?.message ?? "unknown error"}`.slice(0, 120)
+        );
+      }
+    },
+    [voiceClient, teardownAudio]
+  );
+  const stopSpeaking = (0, import_react2.useCallback)(() => {
+    teardownAudio();
     setSpeaking(false);
+    setPaused(false);
+    setTtsLoading(false);
+    setSpeakingId(null);
+  }, [teardownAudio]);
+  const togglePause = (0, import_react2.useCallback)(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) {
+      a.play().then(() => setPaused(false)).catch(() => setPaused(true));
+    } else {
+      a.pause();
+      setPaused(true);
+    }
   }, []);
   const persistedRef = (0, import_react2.useRef)(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
   const onTurnCompleteRef = (0, import_react2.useRef)(onTurnComplete);
@@ -40448,11 +40567,20 @@ ${t}` : t;
     const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
-    void speak(text);
-  }, [readAloud, voiceUsable, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
+    void speak(text, latestAssistant.id);
+  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
   const startRecording = (0, import_react2.useCallback)(async () => {
     if (!voiceClient || recBusyRef.current) return;
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("Microphone needs a secure context (https or localhost)");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setVoiceError("This browser has no MediaRecorder \u2014 recording is unavailable");
+      return;
+    }
     recBusyRef.current = true;
+    setVoiceError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!voiceMountedRef.current) {
@@ -40478,22 +40606,38 @@ ${t}` : t;
         if (!voiceMountedRef.current) return;
         setRecording(false);
         const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-        if (!blob.size) return;
+        if (!blob.size) {
+          setVoiceError("Nothing was recorded \u2014 check the microphone input");
+          return;
+        }
+        setTranscribing(true);
         try {
           const transcript = await voiceClient.stt(blob);
-          if (transcript) {
+          if (!voiceMountedRef.current) return;
+          if (transcript.trim()) {
             setInput((prev) => prev ? `${prev} ${transcript}` : transcript);
             taRef.current?.focus();
+          } else {
+            setVoiceError("No speech detected in the recording");
           }
-        } catch {
+        } catch (err) {
+          if (voiceMountedRef.current) {
+            setVoiceError(`Transcription failed: ${err?.message ?? "unknown error"}`.slice(0, 140));
+          }
+        } finally {
+          if (voiceMountedRef.current) setTranscribing(false);
         }
       };
       recorderRef.current = rec;
       rec.start();
       setRecording(true);
-    } catch {
+    } catch (err) {
       recBusyRef.current = false;
       setRecording(false);
+      const name = err?.name;
+      setVoiceError(
+        name === "NotAllowedError" || name === "SecurityError" ? "Microphone blocked \u2014 allow mic access for this page (and reload)" : name === "NotFoundError" ? "No microphone found on this device" : `Microphone error: ${err?.message ?? "unknown"}`.slice(0, 140)
+      );
     }
   }, [voiceClient]);
   const stopRecording = (0, import_react2.useCallback)(() => {
@@ -40523,6 +40667,20 @@ ${t}` : t;
         }
       });
       streamRef.current = null;
+      const a = audioRef.current;
+      if (a) {
+        a.onended = null;
+        a.onerror = null;
+        try {
+          a.pause();
+        } catch {
+        }
+      }
+      audioRef.current = null;
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
     };
   }, []);
   const pickCommand = (0, import_react2.useCallback)(
@@ -40578,6 +40736,20 @@ ${t}` : t;
     },
     [transport]
   );
+  const answerQuestion = (0, import_react2.useCallback)(
+    (turnId, toolUseId, choice) => {
+      const chosen = choice.label ?? choice.text ?? "";
+      setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answered: chosen, answering: true } : t));
+      const fn = transport.answerQuestion;
+      if (!fn) {
+        setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answering: false } : t));
+        return;
+      }
+      Promise.resolve(fn.call(transport, { toolUseId, ...choice })).catch(() => {
+      }).finally(() => setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answering: false } : t)));
+    },
+    [transport]
+  );
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-root", "data-theme": themeOn ? scheme : void 0, children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("header", { className: "cc-header", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-title", children: title ?? "Claude" }),
@@ -40615,7 +40787,7 @@ ${t}` : t;
         const routeTitle = clean.meta.route ? `routed via ${clean.meta.route}${clean.meta.rule ? ` \xB7 rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` \xB7 ${clean.meta.profile} profile` : ""}` : void 0;
         return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-turn", children: [
           !t.hideUser && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-user", children: t.user }),
-          (clean.text || t.streaming) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-assistant", children: [
+          (clean.text || t.streaming || t.question) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-assistant", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: md.parse(clean.text || "") } }),
             t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
             t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-working", role: "status", "aria-live": "polite", children: [
@@ -40628,6 +40800,16 @@ ${t}` : t;
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
               workingHint && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-hint", title: workingHint, children: workingHint })
             ] }),
+            t.question && t.question.questions[0] && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              QuestionBlock,
+              {
+                q: t.question.questions[0],
+                answered: t.answered,
+                answering: t.answering,
+                onSelect: (label) => answerQuestion(t.id, t.question.toolUseId, { label }),
+                onOther: (text) => answerQuestion(t.id, t.question.toolUseId, { text })
+              }
+            ),
             clean.text.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-msgactions", children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
                 "button",
@@ -40639,20 +40821,29 @@ ${t}` : t;
                   children: copiedId === t.id ? "Copied" : "Copy"
                 }
               ),
-              feat.voice && voiceUsable && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                "button",
-                {
-                  type: "button",
-                  className: "cc-speak",
-                  title: "Read this response aloud",
-                  "aria-label": "Read this response aloud",
-                  onClick: () => void speak(clean.text),
-                  children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
-                  ] })
-                }
-              ),
+              feat.voice && voiceUsable && (() => {
+                const isThis = speakingId === t.id;
+                const playing = isThis && !paused && !ttsLoading;
+                const label = !isThis ? "Read this response aloud" : ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading";
+                return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: `cc-speak${isThis ? " cc-speak-active" : ""}`,
+                    title: label,
+                    "aria-label": label,
+                    "aria-pressed": isThis,
+                    onClick: () => isThis ? togglePause() : void speak(clean.text, t.id),
+                    children: playing ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
+                    ] }) : isThis && paused ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                    ] })
+                  }
+                );
+              })(),
               routeLabel && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-routechip", title: routeTitle, children: routeLabel })
             ] })
           ] })
@@ -40661,11 +40852,10 @@ ${t}` : t;
       showRaw && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("pre", { className: "cc-raw", children: screen.join("\n") })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusstrip", title: "Claude Code status line", children: status.rows.length > 0 ? status.rows.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusrow", children: r }, i)) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusrow cc-dim", children: "no status" }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-modes", children: SWITCHABLE.map((m) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    status.mode !== "unknown" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-modes", children: SWITCHABLE.map((m) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       "button",
       {
         className: `cc-mode ${status.mode === m ? "cc-mode-active" : ""}`,
-        disabled: status.mode === "unknown",
         onClick: () => onSetMode(m),
         title: `Switch to ${MODE_LABELS[m]} mode`,
         children: MODE_LABELS[m]
@@ -40741,10 +40931,10 @@ ${t}` : t;
         "button",
         {
           type: "button",
-          className: `cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking ? "cc-chip-pulse" : ""}`,
+          className: `cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking && !paused ? "cc-chip-pulse" : ""}`,
           disabled: !voiceUsable,
           "aria-pressed": readAloud,
-          title: voiceUsable ? speaking ? "Speaking \u2014 click to stop auto-read" : "Read each new response aloud" : "Voice fitting not running",
+          title: voiceUsable ? readAloud ? "Auto-read is on \u2014 click to turn it off" : "Read each new response aloud" : "Voice fitting not running",
           onClick: () => {
             const next = !readAloud;
             setReadAloud(next);
@@ -40758,7 +40948,36 @@ ${t}` : t;
             "Read aloud"
           ]
         }
-      )
+      ),
+      feat.voice && voiceUsable && (speaking || ttsLoading) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-playback", role: "group", "aria-label": "Read-aloud playback", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          "button",
+          {
+            type: "button",
+            className: `cc-chip ${paused ? "" : "cc-chip-active"}`,
+            disabled: ttsLoading,
+            title: ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading",
+            onClick: togglePause,
+            children: ttsLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-playback-spin", "aria-hidden": "true" }),
+              "Preparing"
+            ] }) : paused ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }),
+              "Resume"
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
+              ] }),
+              "Pause"
+            ] })
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "cc-chip", title: "Stop reading", onClick: stopSpeaking, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "3.5", y: "3.5", width: "9", height: "9", fill: "currentColor" }) }),
+          "Stop"
+        ] })
+      ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-composer", children: [
       slashQuery !== null && filtered.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-slashmenu", children: filtered.map((c, i) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
@@ -40778,18 +40997,31 @@ ${t}` : t;
         },
         c.name
       )) }),
+      feat.voice && voiceError && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-voiceerr", role: "status", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-voiceerr-msg", children: voiceError }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          "button",
+          {
+            type: "button",
+            className: "cc-voiceerr-x",
+            "aria-label": "Dismiss voice error",
+            onClick: () => setVoiceError(null),
+            children: "\xD7"
+          }
+        )
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-composerrow", children: [
         composerAdornment,
         feat.voice && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "button",
           {
             type: "button",
-            className: `cc-mic ${recording ? "cc-mic-rec" : ""}`,
-            disabled: !voiceUsable,
+            className: `cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`,
+            disabled: !voiceUsable || transcribing,
             "aria-pressed": recording,
-            title: voiceUsable ? recording ? "Stop recording and transcribe" : "Talk \u2014 record then transcribe into the composer" : "Voice fitting not running",
+            title: !voiceUsable ? "Voice fitting not running" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk \u2014 record then transcribe into the composer",
             onClick: () => recording ? stopRecording() : void startRecording(),
-            children: recording ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+            children: transcribing ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }) : recording ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "5.5", y: "1.5", width: "5", height: "8", rx: "2.5", fill: "currentColor" }),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
             ] })
@@ -40817,7 +41049,7 @@ ${t}` : t;
   ] });
 }
 
-// ../../../packages/claude-chat/src/transport.ts
+// packages/claude-chat/src/transport.ts
 function createHttpTransport(base = "/api") {
   const b = base.replace(/\/$/, "");
   const post = async (path, body) => {
@@ -40849,6 +41081,7 @@ function createHttpTransport(base = "/api") {
         on("status");
         on("turn");
         on("screen");
+        on("tool");
         on("error");
         es.onerror = () => {
           onEvent({ type: "connection", state: "reconnecting" });
@@ -40880,6 +41113,14 @@ function createHttpTransport(base = "/api") {
     async interrupt() {
       await post("interrupt");
     },
+    async answerQuestion(answer) {
+      await post("answer", {
+        tool_use_id: answer.toolUseId,
+        ...answer.label !== void 0 ? { label: answer.label } : {},
+        ...answer.text !== void 0 ? { text: answer.text } : {},
+        ...answer.dismiss ? { dismiss: true } : {}
+      });
+    },
     async fetchCommands() {
       const res = await fetch(`${b}/claude/commands`);
       if (!res.ok) return [];
@@ -40889,7 +41130,7 @@ function createHttpTransport(base = "/api") {
   };
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react3.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -40903,7 +41144,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// ui/browser-pane.tsx
+// fittings/seed/dev-env/ui/browser-pane.tsx
 var import_react4 = __toESM(require_react());
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -41237,10 +41478,10 @@ function BrowserPane({
   ] });
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_react5 = __toESM(require_react());
 
-// ui/session-request.ts
+// fittings/seed/dev-env/ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "joe", label: "Joe \u2014 dev (default)" },
   { value: "gary", label: "Gary \u2014 assistant" },
@@ -41266,7 +41507,7 @@ function buildSessionRequest({
   return body;
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
@@ -41474,7 +41715,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "toast", children: message });
 }
 
-// ui/session-panels.tsx
+// fittings/seed/dev-env/ui/session-panels.tsx
 var import_react6 = __toESM(require_react());
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 function basename(p) {
@@ -41593,7 +41834,7 @@ function SessionsPanel({
   ] });
 }
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {
