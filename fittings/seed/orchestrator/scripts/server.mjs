@@ -251,7 +251,27 @@ async function handleGetRuntimeFittings(_req, res) {
   json(res, 200, readRuntimeFittings());
 }
 
+// PUT serialization (found by the S3 independent test): two concurrent PUTs
+// that both read the same baseline can interleave the routing/policy rename
+// pairs and transiently diverge the two files. All PUTs in this process (the
+// only writers — the composer UI and the Improver both talk to THIS server)
+// run through one promise-chain mutex, so the pair commits atomically per
+// request. The startup recompile stays as the cross-process heal.
+let putChain = Promise.resolve();
+
 async function handlePutRouting(req, res, query) {
+  const prev = putChain;
+  let release;
+  putChain = new Promise((r) => (release = r));
+  await prev;
+  try {
+    return await handlePutRoutingSerialized(req, res, query);
+  } finally {
+    release();
+  }
+}
+
+async function handlePutRoutingSerialized(req, res, query) {
   const raw = await loadConfigRaw();
   const currentSha = sha(raw);
   const baseline = query.get("baseline");
@@ -642,7 +662,20 @@ export async function startServer(opts = {}) {
   // Composition start (D4): compile the current config into policy.json so
   // consumers never read a stale policy after a config change made off-server.
   try {
-    await writeCompiledPolicy(JSON.parse(await loadConfigRaw()));
+    const startupConfig = JSON.parse(await loadConfigRaw());
+    await writeCompiledPolicy(startupConfig);
+    // Loud load-path check (RUNTIMES-V1): a hand-edited routing.json can name
+    // an uninstalled primary that the PUT guard never saw — flag it at the
+    // single policy.json producer instead of compiling it silently.
+    const desired = typeof startupConfig.primaryRuntime === "string" ? startupConfig.primaryRuntime.trim() : "";
+    if (desired && desired !== DEFAULT_PRIMARY_RUNTIME_ID) {
+      const rf = readRuntimeFittings();
+      if (rf.available && !rf.runtimes.some((r) => r.installed && r.id === desired)) {
+        console.error(
+          `[orchestrator] WARNING: routing.json names primaryRuntime "${desired}" but that fitting is NOT installed in this composition — the runner will fail loud at up(); compose it under the runtimes faculty or fix primaryRuntime in the composer`
+        );
+      }
+    }
   } catch (err) {
     console.error("[orchestrator] policy compile at startup failed:", err?.message || err);
   }

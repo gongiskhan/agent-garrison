@@ -202,3 +202,21 @@ describe("fitting-id path containment (S3 boundary ratchet)", () => {
     wf(join(COMP, "apm.yml"), compManifest(["codex-runtime", "ghost-runtime"]));
   });
 });
+
+// Ratchet for the S3 independent-test observation: concurrent PUTs must never
+// leave routing.json and policy.json compiled from different configs — the
+// in-process mutex commits each rename pair atomically per request.
+describe("concurrent PUT coherence (S3 advtest ratchet)", () => {
+  it("N racing PUTs settle with routing.json and policy.json in agreement", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { config, baselineSha } = await getRouting();
+    const puts = ["balanced", "economy", "premium"].filter((p) => config.profiles?.[p]).map((profile) =>
+      putRouting({ ...config, activeProfile: profile }, baselineSha)
+    );
+    await Promise.all(puts);
+    // whatever won, the two files agree
+    const routing = JSON.parse(readFileSync(CONFIG, "utf8"));
+    const policy = JSON.parse(readFileSync(POLICY, "utf8"));
+    expect(policy.activeProfile).toBe(routing.activeProfile);
+  });
+});
