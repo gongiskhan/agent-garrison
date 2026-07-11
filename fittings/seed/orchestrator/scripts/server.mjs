@@ -31,8 +31,10 @@ import {
   stableStringify,
   railFor,
   classifyExecution,
-  isV2
+  isV2,
+  DEFAULT_PRIMARY_RUNTIME_ID
 } from "../lib/routing-core.mjs";
+import { parse as parseYaml } from "yaml";
 import { readDecisions } from "../lib/routing-telemetry.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
@@ -169,6 +171,60 @@ async function handleGetRouting(_req, res) {
   json(res, 200, { config: JSON.parse(raw), baselineSha: sha(raw) });
 }
 
+// ── Installed runtime fittings (GARRISON-RUNTIMES-V1 P3/D3/D4) ──────────────
+// Feeds the composer's primary-runtime picker and the per-mechanism target
+// editor from the COMPOSITION on disk — pure file reads, works with the
+// gateway/operative down. Loud, not silent: no composition dir or an
+// unreadable manifest is an explicit warning in the payload, never an empty
+// list masquerading as "no runtimes".
+function readRuntimeFittings() {
+  const dir = process.env.GARRISON_COMPOSITION_DIR || null;
+  if (!dir) {
+    return {
+      available: false,
+      warning: "GARRISON_COMPOSITION_DIR is unset — installed runtime fittings unknown; primary-runtime validation degraded",
+      runtimes: []
+    };
+  }
+  let selections = [];
+  try {
+    const manifest = parseYaml(readFileSync(path.join(dir, "apm.yml"), "utf8"));
+    selections = manifest?.["x-garrison"]?.composition?.selections?.runtimes ?? [];
+  } catch (err) {
+    return {
+      available: false,
+      warning: `composition manifest unreadable at ${path.join(dir, "apm.yml")}: ${String(err?.message || err)}`,
+      runtimes: []
+    };
+  }
+  const runtimes = selections.map((sel) => {
+    const manifestPath = path.join(dir, "apm_modules", "_local", sel.id, "apm.yml");
+    let meta = null;
+    let warning;
+    try {
+      meta = parseYaml(readFileSync(manifestPath, "utf8"))?.["x-garrison"] ?? null;
+      if (!meta) warning = `no x-garrison block in ${manifestPath}`;
+    } catch (err) {
+      warning = `fitting manifest unreadable (selected but not installed?): ${manifestPath} — ${String(err?.message || err)}`;
+    }
+    const provides = Array.isArray(meta?.provides) ? meta.provides : [];
+    const engine = provides.find((p) => p && p.kind === "runtime")?.name ?? sel.id;
+    return {
+      id: sel.id,
+      engine,
+      installed: !!meta,
+      providerMechanism: meta?.provider_mechanism ?? null,
+      quartersDescriptor: meta?.quarters_descriptor ?? null,
+      ...(warning ? { warning } : {})
+    };
+  });
+  return { available: true, defaultPrimary: DEFAULT_PRIMARY_RUNTIME_ID, runtimes };
+}
+
+async function handleGetRuntimeFittings(_req, res) {
+  json(res, 200, readRuntimeFittings());
+}
+
 async function handlePutRouting(req, res, query) {
   const raw = await loadConfigRaw();
   const currentSha = sha(raw);
@@ -190,6 +246,32 @@ async function handlePutRouting(req, res, query) {
   if (!isV2(next)) return json(res, 422, { error: "invalid-config", errors: ["routing.json must be v2 (policyVersion 2); v1 configs are migrated at load, not accepted on PUT"] });
   const errors = validateRoutingConfig(next);
   if (errors.length) return json(res, 422, { error: "invalid-config", errors });
+  // Primary-runtime guard (P3/D4): an explicit non-default primaryRuntime must
+  // name an INSTALLED runtime fitting of the current composition — selecting an
+  // uninstalled runtime is impossible in the UI and loud in the file. The
+  // default id keeps default semantics (the claude-code engine is synthesized
+  // even when its fitting is not composed). When the composition is unknown
+  // (standalone server), the write is accepted and the degradation is reported.
+  let primaryWarning;
+  if (typeof next.primaryRuntime === "string" && next.primaryRuntime.trim().length) {
+    const desired = next.primaryRuntime.trim();
+    if (desired !== DEFAULT_PRIMARY_RUNTIME_ID) {
+      const rf = readRuntimeFittings();
+      if (rf.available) {
+        const installed = new Set(rf.runtimes.filter((r) => r.installed).map((r) => r.id));
+        if (!installed.has(desired)) {
+          return json(res, 422, {
+            error: "invalid-config",
+            errors: [
+              `primaryRuntime "${desired}" is not an installed runtime fitting of this composition — compose it under the runtimes faculty (installed: ${[...installed].join(", ") || "none"}), or leave primaryRuntime as ${DEFAULT_PRIMARY_RUNTIME_ID}`
+            ]
+          });
+        }
+      } else {
+        primaryWarning = `primaryRuntime "${desired}" accepted WITHOUT installed-fitting validation: ${rf.warning}`;
+      }
+    }
+  }
   // Compile the policy FIRST (D4/D12): a config that validates but cannot
   // compile must not be persisted — otherwise routing.json and policy.json
   // diverge silently. Only persist once both succeed.
@@ -222,7 +304,12 @@ async function handlePutRouting(req, res, query) {
   await writeFile(polTmp, policyBytes, "utf8");
   await rename(cfgTmp, configTarget);
   await rename(polTmp, policyTarget);
-  json(res, 200, { ok: true, baselineSha: sha(serialized), policyPath: policyTarget });
+  json(res, 200, {
+    ok: true,
+    baselineSha: sha(serialized),
+    policyPath: policyTarget,
+    ...(primaryWarning ? { warnings: [primaryWarning] } : {})
+  });
 }
 
 // Deterministic keyword heuristic for the composer dry-run strip — pure, no I/O,
@@ -496,6 +583,7 @@ export async function startServer(opts = {}) {
       if (pathname === "/health") return json(res, 200, { ok: true, port, pid: process.pid });
       if (pathname === "/routing" && req.method === "GET") return await handleGetRouting(req, res);
       if (pathname === "/routing" && req.method === "PUT") return await handlePutRouting(req, res, query);
+      if (pathname === "/runtime-fittings" && req.method === "GET") return await handleGetRuntimeFittings(req, res);
       if (pathname === "/simulate" && req.method === "POST") return await handleSimulate(req, res);
       if (pathname === "/telemetry" && req.method === "GET") return await handleTelemetry(req, res);
       // D38 ghost edits: same-origin proxy to the Improver's review queue. The

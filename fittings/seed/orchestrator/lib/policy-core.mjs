@@ -68,6 +68,21 @@ export const SEED_PROVIDERS = [
 
 export const PROVIDER_KINDS = ["anthropic-plan", "local", "cloud-oss"];
 
+// ── Primary runtime selection (GARRISON-RUNTIMES-V1 P3/D4) ──────────────────
+// The policy file names WHICH composed runtime fitting hosts the orchestrator
+// loop. Default: the Claude Code runtime. The composer writes this key; the
+// runner and the gateway pool read it. Validation of "is that fitting actually
+// composed/installed" happens where composition data exists (the own-port
+// server's PUT guard + the runner's resolvePrimaryRuntime) — the pure layer
+// only guards the shape.
+export const DEFAULT_PRIMARY_RUNTIME_ID = "claude-code-runtime";
+
+export function primaryRuntimeOf(config) {
+  const raw = config && typeof config === "object" ? config.primaryRuntime : undefined;
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  return trimmed || DEFAULT_PRIMARY_RUNTIME_ID;
+}
+
 // Migration shim: a config authored before the providers section gains the
 // seed entries (pure; the caller/writer logs the migration). A config that
 // already carries providers is returned untouched — the file owns the list.
@@ -336,6 +351,13 @@ export function validatePolicyConfig(config) {
   const taskTypes = config.taskTypes || TASK_TYPES_V2;
   const tiers = config.tiers || TIERS;
 
+  // Primary runtime (P3): shape-guard only — a non-string or empty explicit
+  // value is a config bug; whether the named fitting is composed is validated
+  // by the writer (server PUT) and the runner, which hold composition data.
+  if (config.primaryRuntime !== undefined && (typeof config.primaryRuntime !== "string" || !config.primaryRuntime.trim().length)) {
+    errors.push(`primaryRuntime must be a non-empty string when present (got ${JSON.stringify(config.primaryRuntime)})`);
+  }
+
   // Providers section (P2): entries well-formed, and every target that names a
   // provider names a KNOWN one — an unknown provider id must fail compile, not
   // surface as a launch-time lookup miss.
@@ -498,6 +520,9 @@ export function compilePolicy(config, profile) {
     // interface, so launch-env building reads providers from here — never from
     // a code constant. ensureProviders above guarantees the section exists.
     providers: cfg.providers,
+    // Primary runtime (P3/D4): which composed runtime fitting hosts the
+    // orchestrator loop. The gateway pool reads this at warm time.
+    primaryRuntime: primaryRuntimeOf(cfg),
     targets: targetsById,
     computeLadder: p.computeLadder || [],
     exceptions: (cfg.exceptions || []).map((e) => ({

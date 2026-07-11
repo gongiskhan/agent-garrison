@@ -24,6 +24,7 @@ import { readLibrary } from "./library";
 import { deriveViewProvisions } from "./view-instances";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
 import {
+  DEFAULT_PRIMARY_RUNTIME,
   resolvePrimaryRuntime,
   buildPrimaryRuntimeEnv,
   deriveRuntimeTargets,
@@ -241,8 +242,32 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // (ollama/deepseek/zai base-url swap) are threaded into the orchestrator
     // spawn. A non-claude-code engine as primary is not yet hosted as the
     // interactive orchestrator — fail loud rather than silently run claude-code.
+    // P3/D4: primary_runtime lives in the POLICY file (routing.json). The
+    // legacy composition globalConfig key is honored as a fallback with a
+    // deprecation warning; when both are set and differ, the policy wins —
+    // loudly, never silently. The DEFAULT id keeps default semantics (a
+    // composition without the claude-code fitting still synthesizes the
+    // claude-code engine); any OTHER explicit id must be composed or up()
+    // fails loud in resolvePrimaryRuntime.
+    const policyPrimary = await resolvePrimaryFromPolicy(composition.directory);
+    const legacyPrimary = (composition.globalConfig.primary_runtime ?? "").trim() || null;
+    if (policyPrimary && legacyPrimary && policyPrimary !== legacyPrimary) {
+      appendLog(
+        compositionId,
+        "stderr",
+        `primary_runtime conflict: policy file says "${policyPrimary}", composition global_config says "${legacyPrimary}" — the POLICY FILE wins. Remove global_config.primary_runtime (deprecated since RUNTIMES-V1).`
+      );
+    } else if (!policyPrimary && legacyPrimary) {
+      appendLog(
+        compositionId,
+        "stderr",
+        `global_config.primary_runtime is deprecated — set primaryRuntime in the Orchestrator composer (policy file) instead. Honoring "${legacyPrimary}" for this launch.`
+      );
+    }
+    const effectivePrimary = policyPrimary ?? legacyPrimary ?? undefined;
     const primaryRuntime = resolvePrimaryRuntime({
-      primaryRuntimeId: composition.globalConfig.primary_runtime,
+      primaryRuntimeId:
+        effectivePrimary === DEFAULT_PRIMARY_RUNTIME && policyPrimary ? undefined : effectivePrimary,
       runtimeEntries: buildRuntimeEntries(soulEntries, composition.selections)
     });
     if (primaryRuntime.engine !== "claude-code") {
@@ -883,6 +908,24 @@ const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/config
 
 export const MISSING_ROUTING_CONFIG_WARNING =
   "WARNING: orchestrator prompt has a {{routing}} placeholder but the routing section could not be built (see the routing diagnostics above) - the routing section will be empty";
+
+// The policy file's primary runtime (GARRISON-RUNTIMES-V1 P3/D4). Reads the
+// scoped-or-seed routing.json and returns the EXPLICIT primaryRuntime value
+// (trimmed) or null when absent — the caller decides default semantics, so an
+// unreadable policy file never silently changes which engine hosts the loop.
+export async function resolvePrimaryFromPolicy(compositionDir: string): Promise<string | null> {
+  const scoped = path.join(compositionDir, ".garrison", "routing.json");
+  for (const candidate of [scoped, SEED_ROUTING_PATH]) {
+    try {
+      const parsed = JSON.parse(await fs.readFile(candidate, "utf8")) as { primaryRuntime?: unknown };
+      const raw = typeof parsed.primaryRuntime === "string" ? parsed.primaryRuntime.trim() : "";
+      return raw.length ? raw : null;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return null;
+}
 
 // Providers are policy data (GARRISON-RUNTIMES-V1 P2): resolve the policy's
 // providers section for the primary-runtime launch env. Reads the same

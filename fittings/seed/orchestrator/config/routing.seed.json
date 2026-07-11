@@ -1,6 +1,7 @@
 {
   "version": 2,
   "activeProfile": "balanced",
+  "primaryRuntime": "claude-code-runtime",
   "taskTypes": [
     "plan",
     "implement",

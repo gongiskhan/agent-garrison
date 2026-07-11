@@ -283,6 +283,98 @@ function usePolicyDraft() {
   return { config, saveState, errors, commit, reload: load, dismissErrors: () => setSaveState("idle") };
 }
 
+// ── Installed runtime fittings (GARRISON-RUNTIMES-V1 P3/D3/D4) ───────────────
+// Feeds the primary-runtime picker and the per-mechanism provider editor from
+// the composition on disk (own-port server /runtime-fittings) — no gateway.
+interface RuntimeFittingInfo {
+  id: string;
+  engine: string;
+  installed: boolean;
+  providerMechanism: {
+    type?: string;
+    base_url_env?: string;
+    auth_env?: string;
+    model_arg?: string;
+    model_env?: string;
+    config_file?: string;
+    config_format?: string;
+    config_key?: string;
+    model_key?: string;
+  } | null;
+  quartersDescriptor: unknown;
+  warning?: string;
+}
+interface RuntimeFittingsState {
+  available: boolean;
+  defaultPrimary?: string;
+  warning?: string;
+  runtimes: RuntimeFittingInfo[];
+}
+
+const DEFAULT_PRIMARY_ID = "claude-code-runtime";
+
+function useRuntimeFittings(): RuntimeFittingsState | null {
+  const [state, setState] = useState<RuntimeFittingsState | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/runtime-fittings")
+      .then((r) => r.json())
+      .then((j) => alive && setState(j))
+      .catch(() =>
+        alive && setState({ available: false, warning: "/runtime-fittings unreachable — installed runtimes unknown", runtimes: [] })
+      );
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return state;
+}
+
+// The mechanism (if any) declared by the composed fitting providing this
+// target's engine — decides whether provider overrides are editable (D3).
+function mechanismForRuntime(rf: RuntimeFittingsState | null, engine: string | undefined) {
+  if (!rf?.available || !engine) return null;
+  const fit = rf.runtimes.find((r) => r.installed && r.engine === engine);
+  return fit?.providerMechanism ?? null;
+}
+
+function PrimaryRuntimePicker({
+  config,
+  rf,
+  commit
+}: {
+  config: Cfg;
+  rf: RuntimeFittingsState | null;
+  commit: (p: Producer) => void;
+}) {
+  const current = (config as { primaryRuntime?: string }).primaryRuntime?.trim() || DEFAULT_PRIMARY_ID;
+  const composed = rf?.available ? rf.runtimes : [];
+  const hasDefault = composed.some((r) => r.id === DEFAULT_PRIMARY_ID);
+  const set = (id: string) =>
+    commit((draft) => ({ ...(draft as Cfg), primaryRuntime: id } as Cfg));
+  return (
+    <div className="primary-picker" title="Which composed runtime hosts the Operative's orchestrator loop. Writes the policy file only — no operative needs to run.">
+      <label htmlFor="primary-runtime">Primary</label>
+      <select id="primary-runtime" value={current} onChange={(e) => set(e.target.value)}>
+        {!hasDefault ? (
+          <option value={DEFAULT_PRIMARY_ID}>Claude Code (default)</option>
+        ) : null}
+        {composed.map((r) => (
+          <option key={r.id} value={r.id} disabled={!r.installed} title={r.warning || r.engine}>
+            {r.id}
+            {!r.installed ? " (not installed)" : ""}
+          </option>
+        ))}
+      </select>
+      {rf && !rf.available ? (
+        <span className="primary-warn" title={rf.warning}>
+          !
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 // ── 1. TARGETS TRAY ───────────────────────────────────────────────────────────
 function EffortDial({ target, commit }: { target: AnyTarget; commit: (p: Producer) => void }) {
   const applicable = target.type === "runtime-target" || target.effort !== undefined;
@@ -310,7 +402,65 @@ function EffortDial({ target, commit }: { target: AnyTarget; commit: (p: Produce
   );
 }
 
-function TargetCard({ target, commit }: { target: AnyTarget; commit: (p: Producer) => void }) {
+// D3: the provider control renders ONLY when the target's engine is provided
+// by a composed fitting that declares a provider mechanism — a runtime with no
+// declared mechanism is still a target, just without provider overrides.
+function ProviderSelect({
+  target,
+  config,
+  rf,
+  commit
+}: {
+  target: AnyTarget;
+  config: Cfg;
+  rf: RuntimeFittingsState | null;
+  commit: (p: Producer) => void;
+}) {
+  const mech = mechanismForRuntime(rf, target.runtime);
+  if (!mech) return null;
+  const providers = ((config as { providers?: Array<{ id: string }> }).providers || []).map((p) => p.id);
+  if (!providers.length) return null;
+  const applyHint =
+    mech.type === "config-file"
+      ? `applies via ${mech.config_file}${mech.config_key ? ` [${mech.config_key}]` : ""}`
+      : `applies via ${[mech.base_url_env, mech.auth_env].filter(Boolean).join(" + ")}`;
+  const set = (p: string) =>
+    commit((draft) => {
+      const t = (draft.targets as AnyTarget[]).find((x) => x.id === target.id);
+      if (t) {
+        t.provider = p;
+        t.authMode = authModeFor(t);
+      }
+      return draft;
+    });
+  return (
+    <select
+      className="tcard-provider"
+      title={`provider — ${applyHint}`}
+      value={target.provider || "anthropic-plan"}
+      onPointerDown={(ev) => ev.stopPropagation()}
+      onChange={(e) => set(e.target.value)}
+    >
+      {providers.map((p) => (
+        <option key={p} value={p}>
+          {p}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function TargetCard({
+  target,
+  config,
+  rf,
+  commit
+}: {
+  target: AnyTarget;
+  config: Cfg;
+  rf: RuntimeFittingsState | null;
+  commit: (p: Producer) => void;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `target:${target.id}` });
   const g = glyphFor(target);
   return (
@@ -328,15 +478,22 @@ function TargetCard({ target, commit }: { target: AnyTarget; commit: (p: Produce
           </span>
         </span>
       </div>
+      <ProviderSelect target={target} config={config} rf={rf} commit={commit} />
       <EffortDial target={target} commit={commit} />
     </div>
   );
 }
 
-function AddTargetCard({ config, commit }: { config: Cfg; commit: (p: Producer) => void }) {
+function AddTargetCard({ config, rf, commit }: { config: Cfg; rf: RuntimeFittingsState | null; commit: (p: Producer) => void }) {
   const [open, setOpen] = useState(false);
   const [id, setId] = useState("");
-  const [runtime, setRuntime] = useState(RUNTIME_OPTIONS[0]);
+  // Engines come from the COMPOSED runtime fittings when known (plus the
+  // claude-code/ollama staples), so a newly fitted engine is addable without
+  // touching this file; the historical constant is only the offline fallback.
+  const runtimeOptions = rf?.available
+    ? Array.from(new Set(["claude-code", "ollama", ...rf.runtimes.filter((r) => r.installed).map((r) => r.engine)]))
+    : RUNTIME_OPTIONS;
+  const [runtime, setRuntime] = useState(runtimeOptions[0]);
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("medium");
   const existing = new Set((config.targets || []).map((t) => t.id));
@@ -376,7 +533,7 @@ function AddTargetCard({ config, commit }: { config: Cfg; commit: (p: Producer) 
     <div className="tcard add-form">
       <input placeholder="id (e.g. cc-opus-high)" value={id} onChange={(e) => setId(e.target.value)} />
       <select value={runtime} onChange={(e) => setRuntime(e.target.value)}>
-        {RUNTIME_OPTIONS.map((r) => (
+        {runtimeOptions.map((r) => (
           <option key={r} value={r}>
             {r}
           </option>
@@ -402,16 +559,16 @@ function AddTargetCard({ config, commit }: { config: Cfg; commit: (p: Producer) 
   );
 }
 
-function TargetsTray({ config, commit }: { config: Cfg; commit: (p: Producer) => void }) {
+function TargetsTray({ config, rf, commit }: { config: Cfg; rf: RuntimeFittingsState | null; commit: (p: Producer) => void }) {
   return (
     <section className="surface">
       <h2 className="surface-h">Targets</h2>
-      <p className="surface-hint">Drag a card onto a matrix cell, row, or column to assign it. Tap an effort segment to retune it.</p>
+      <p className="surface-hint">Drag a card onto a matrix cell, row, or column to assign it. Tap an effort segment to retune it; pick a provider where the runtime declares an override mechanism.</p>
       <div className="tray">
         {((config.targets || []) as AnyTarget[]).map((t) => (
-          <TargetCard key={t.id} target={t} commit={commit} />
+          <TargetCard key={t.id} target={t} config={config} rf={rf} commit={commit} />
         ))}
-        <AddTargetCard config={config} commit={commit} />
+        <AddTargetCard config={config} rf={rf} commit={commit} />
       </div>
     </section>
   );
@@ -1334,6 +1491,7 @@ function StatusPill({ state }: { state: SaveState }) {
 // ── app ───────────────────────────────────────────────────────────────────────
 function App() {
   const { config, saveState, errors, commit, reload, dismissErrors } = usePolicyDraft();
+  const runtimeFittings = useRuntimeFittings();
   const [inspector, setInspector] = useState<{ kind: string; phase: string } | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const sensors = useSensors(
@@ -1421,6 +1579,7 @@ function App() {
             </button>
           ))}
         </div>
+        <PrimaryRuntimePicker config={config} rf={runtimeFittings} commit={commit} />
         <div className="spacer" />
         <StatusPill state={saveState} />
       </header>
@@ -1446,7 +1605,7 @@ function App() {
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <main className="board">
-          <TargetsTray config={config} commit={commit} />
+          <TargetsTray config={config} rf={runtimeFittings} commit={commit} />
           <MatrixBoard config={config} commit={commit} />
           <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />
           <CoordinationSurface config={config} commit={commit} />

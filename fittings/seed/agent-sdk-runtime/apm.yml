@@ -43,6 +43,14 @@ x-garrison:
   consumes:
     - kind: vault
       cardinality: optional-one
+  # D3 (GARRISON-RUNTIMES-V1): the Agent SDK engine takes provider overrides
+  # through the same Anthropic-compatible env contract as Claude Code (the SDK
+  # reads ANTHROPIC_BASE_URL/AUTH_TOKEN); the model is a per-spawn argument.
+  provider_mechanism:
+    type: env
+    base_url_env: ANTHROPIC_BASE_URL
+    auth_env: ANTHROPIC_AUTH_TOKEN
+    model_env: GARRISON_MODEL
   setup:
     command: npm install --no-audit --no-fund
     idempotent: true

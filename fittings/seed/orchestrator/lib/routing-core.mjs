@@ -37,7 +37,9 @@ import {
   POLICY_VERSION,
   SEED_PROVIDERS,
   ensureProviders,
-  validateProviders
+  validateProviders,
+  DEFAULT_PRIMARY_RUNTIME_ID,
+  primaryRuntimeOf
 } from "./policy-core.mjs";
 
 // v2 policy API re-exported so dynamic importers (runner, gateway, server)
@@ -64,7 +66,9 @@ export {
   POLICY_VERSION,
   SEED_PROVIDERS,
   ensureProviders,
-  validateProviders
+  validateProviders,
+  DEFAULT_PRIMARY_RUNTIME_ID,
+  primaryRuntimeOf
 };
 
 export const ROLES = ["expert", "standard", "fast", "image", "video", "review"];

@@ -168,3 +168,32 @@ describe("runFittingSetup", () => {
     expect(result.stdout).not.toContain("should-not-run");
   });
 });
+
+// S3 (GARRISON-RUNTIMES-V1): the runner reads the policy file's primaryRuntime.
+describe("resolvePrimaryFromPolicy (S3)", () => {
+  it("returns the scoped routing.json's explicit primaryRuntime", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    await fs.mkdir(path.join(dir, ".garrison"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, ".garrison", "routing.json"),
+      JSON.stringify({ version: 2, primaryRuntime: "codex-runtime" })
+    );
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+    expect(await resolvePrimaryFromPolicy(dir)).toBe("codex-runtime");
+  });
+
+  it("falls back to the seed (which declares the default) when no scoped file exists", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+    // The seed routing config explicitly names the default primary.
+    expect(await resolvePrimaryFromPolicy(dir)).toBe("claude-code-runtime");
+  });
+
+  it("treats a blank scoped value as absent (null → caller default semantics)", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    await fs.mkdir(path.join(dir, ".garrison"), { recursive: true });
+    await fs.writeFile(path.join(dir, ".garrison", "routing.json"), JSON.stringify({ version: 2, primaryRuntime: "  " }));
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+    expect(await resolvePrimaryFromPolicy(dir)).toBeNull();
+  });
+});

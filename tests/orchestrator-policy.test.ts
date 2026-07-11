@@ -251,3 +251,34 @@ describe("orchestrator policy core (S1)", () => {
     expect(t0.evidence).toBe("none");
   });
 });
+
+// S3 (GARRISON-RUNTIMES-V1): primaryRuntime is policy data.
+describe("primaryRuntime in the policy (P3/D4)", () => {
+  it("the seed declares the default and it compiles into the policy", async () => {
+    const mod = await core();
+    const cfg = seedConfig();
+    expect(cfg.primaryRuntime).toBe("claude-code-runtime");
+    expect(mod.compilePolicy(cfg).primaryRuntime).toBe("claude-code-runtime");
+    // Absent key → same default (primaryRuntimeOf applies it at compile).
+    const { primaryRuntime: _drop, ...noKey } = cfg;
+    expect(mod.compilePolicy(noKey).primaryRuntime).toBe("claude-code-runtime");
+  });
+
+  it("carries an explicit primaryRuntime through compile", async () => {
+    const mod = await core();
+    const pol = mod.compilePolicy({ ...seedConfig(), primaryRuntime: "codex-runtime" });
+    expect(pol.primaryRuntime).toBe("codex-runtime");
+  });
+
+  it("rejects a non-string/empty primaryRuntime loudly", async () => {
+    const mod = await core();
+    expect(() => mod.compilePolicy({ ...seedConfig(), primaryRuntime: 42 })).toThrow(/primaryRuntime must be a non-empty string/);
+    expect(() => mod.compilePolicy({ ...seedConfig(), primaryRuntime: "   " })).toThrow(/primaryRuntime must be a non-empty string/);
+  });
+
+  it("compiled policy carries the providers section alongside (P2+P3 coherence)", async () => {
+    const mod = await core();
+    const pol = mod.compilePolicy(seedConfig());
+    expect(pol.providers.map((x: { id: string }) => x.id)).toEqual(["anthropic-plan", "anthropic", "ollama-local", "deepseek", "zai-glm"]);
+  });
+});

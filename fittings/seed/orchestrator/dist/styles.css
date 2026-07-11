@@ -538,3 +538,38 @@ button:focus-visible, .seg:focus-visible {
   padding: 6px 10px;
   box-shadow: 0 8px 24px -8px rgba(24, 33, 28, 0.3);
 }
+
+/* ── Primary runtime picker + per-target provider select (RUNTIMES-V1 P3) ── */
+.primary-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 14px;
+}
+.primary-picker label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft, #6b6558);
+}
+.primary-picker select {
+  width: auto;
+  min-width: 150px;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.primary-warn {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--rust, #a34c2b);
+  cursor: help;
+}
+.tcard-provider {
+  width: auto;
+  max-width: 128px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 6px;
+  margin-right: 6px;
+}

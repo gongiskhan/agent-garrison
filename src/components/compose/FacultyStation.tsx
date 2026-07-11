@@ -774,25 +774,18 @@ function OrchestratorGlobalConfig({
       <div style={{ border: "1px solid var(--rule)", background: "white", padding: "4px 18px" }}>
         <div className="field">
           <label>primary_runtime</label>
-          <select
-            className="text"
-            value={globalConfig.primary_runtime ?? ""}
-            onChange={(e) =>
-              onChange({ ...globalConfig, primary_runtime: e.target.value || undefined })
-            }
-            disabled={Boolean(busy)}
-          >
-            <option value="">Default — Claude Code runtime</option>
-            {runtimeOptions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
           <div className="hint">
-            Which composed runtime hosts the orchestrator. Leave as Default for the
-            Claude Code engine; other composed runtimes become Orchestrator routing targets.
-            Pick a runtime&apos;s provider on its own card to run it on Ollama / DeepSeek / Z.ai.
+            Moved to the Orchestrator composer (RUNTIMES-V1): the primary runtime is
+            policy data now — set it with the Primary picker in the composer view,
+            which validates against the installed runtime fittings and writes the
+            policy file only (no operative needs to run).
+            {globalConfig.primary_runtime ? (
+              <>
+                {" "}This composition still carries the deprecated
+                global_config.primary_runtime value &quot;{globalConfig.primary_runtime}&quot; —
+                the policy file wins when both are set; the runner logs the conflict.
+              </>
+            ) : null}
           </div>
         </div>
         <div className="field">

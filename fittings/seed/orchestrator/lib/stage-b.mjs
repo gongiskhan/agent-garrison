@@ -30,8 +30,17 @@ function resolveProviderSpec(providers, id) {
       `unknown provider "${id}" — not in the policy providers section (known: ${providers.map((e) => e && e.id).join(", ")})`
     );
   }
+  // ONLY an explicit kind "anthropic-plan" is the Max-OAuth no-launch path —
+  // a kindless entry with a null baseUrl is MALFORMED and throws (mirrors the
+  // 7e19e34 hardening of buildPrimaryRuntimeEnv; never silently the plan path).
+  const kind = p.kind ?? (p.baseUrl == null ? null : "cloud-oss");
+  if (kind === null) {
+    throw new Error(
+      `provider "${id}" is malformed: no kind and no baseUrl — declare kind "anthropic-plan" explicitly for the Max-OAuth path, or set a baseUrl`
+    );
+  }
   return {
-    kind: p.kind ?? (p.baseUrl == null ? "anthropic-plan" : "cloud-oss"),
+    kind,
     baseUrl: p.baseUrl ?? null,
     needsKey: !!p.vaultKey,
     vaultKey: p.vaultKey,

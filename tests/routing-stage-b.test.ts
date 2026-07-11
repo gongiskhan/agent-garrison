@@ -148,3 +148,22 @@ describe("providers as policy data (P2)", () => {
     expect(() => compilePolicy(bad)).toThrowError(/unknown provider "ghost"/);
   });
 });
+
+// Ratchet for the S2 fresh-review finding: the stage-b resolver must never
+// infer the Max-OAuth plan path from a kindless null-baseUrl entry (symmetry
+// with the buildPrimaryRuntimeEnv hardening in 7e19e34).
+describe("resolveProviderSpec malformed-entry loudness (S2 ratchet)", () => {
+  it("kindless null-baseUrl provider throws instead of masquerading as the plan path", () => {
+    const providers = [{ id: "mystery" }] as any[];
+    expect(() =>
+      buildLaunchEnv({ provider: "mystery" } as any, { baseEnv: {}, secrets: {}, providers })
+    ).toThrowError(/provider "mystery" is malformed: no kind and no baseUrl/);
+  });
+
+  it("an explicit anthropic-plan kind with null baseUrl remains the clean plan path", () => {
+    const providers = [{ id: "my-plan", kind: "anthropic-plan", baseUrl: null }] as any[];
+    const env = buildLaunchEnv({ provider: "my-plan" } as any, { baseEnv: { ANTHROPIC_API_KEY: "x" }, secrets: {}, providers });
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+});

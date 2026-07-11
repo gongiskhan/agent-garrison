@@ -28976,6 +28976,46 @@ function usePolicyDraft() {
   );
   return { config, saveState, errors, commit, reload: load, dismissErrors: () => setSaveState("idle") };
 }
+var DEFAULT_PRIMARY_ID = "claude-code-runtime";
+function useRuntimeFittings() {
+  const [state, setState] = (0, import_react5.useState)(null);
+  (0, import_react5.useEffect)(() => {
+    let alive = true;
+    fetch("/runtime-fittings").then((r) => r.json()).then((j) => alive && setState(j)).catch(
+      () => alive && setState({ available: false, warning: "/runtime-fittings unreachable \u2014 installed runtimes unknown", runtimes: [] })
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return state;
+}
+function mechanismForRuntime(rf, engine) {
+  if (!rf?.available || !engine) return null;
+  const fit = rf.runtimes.find((r) => r.installed && r.engine === engine);
+  return fit?.providerMechanism ?? null;
+}
+function PrimaryRuntimePicker({
+  config,
+  rf,
+  commit
+}) {
+  const current = config.primaryRuntime?.trim() || DEFAULT_PRIMARY_ID;
+  const composed = rf?.available ? rf.runtimes : [];
+  const hasDefault = composed.some((r) => r.id === DEFAULT_PRIMARY_ID);
+  const set = (id) => commit((draft) => ({ ...draft, primaryRuntime: id }));
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "primary-picker", title: "Which composed runtime hosts the Operative's orchestrator loop. Writes the policy file only \u2014 no operative needs to run.", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { htmlFor: "primary-runtime", children: "Primary" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { id: "primary-runtime", value: current, onChange: (e) => set(e.target.value), children: [
+      !hasDefault ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: DEFAULT_PRIMARY_ID, children: "Claude Code (default)" }) : null,
+      composed.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: r.id, disabled: !r.installed, title: r.warning || r.engine, children: [
+        r.id,
+        !r.installed ? " (not installed)" : ""
+      ] }, r.id))
+    ] }),
+    rf && !rf.available ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "primary-warn", title: rf.warning, children: "!" }) : null
+  ] });
+}
 function EffortDial({ target, commit }) {
   const applicable = target.type === "runtime-target" || target.effort !== void 0;
   if (!applicable) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dial-na", children: target.type || "secondary" });
@@ -28996,7 +29036,43 @@ function EffortDial({ target, commit }) {
     e
   )) });
 }
-function TargetCard({ target, commit }) {
+function ProviderSelect({
+  target,
+  config,
+  rf,
+  commit
+}) {
+  const mech = mechanismForRuntime(rf, target.runtime);
+  if (!mech) return null;
+  const providers = (config.providers || []).map((p) => p.id);
+  if (!providers.length) return null;
+  const applyHint = mech.type === "config-file" ? `applies via ${mech.config_file}${mech.config_key ? ` [${mech.config_key}]` : ""}` : `applies via ${[mech.base_url_env, mech.auth_env].filter(Boolean).join(" + ")}`;
+  const set = (p) => commit((draft) => {
+    const t = draft.targets.find((x) => x.id === target.id);
+    if (t) {
+      t.provider = p;
+      t.authMode = authModeFor(t);
+    }
+    return draft;
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    "select",
+    {
+      className: "tcard-provider",
+      title: `provider \u2014 ${applyHint}`,
+      value: target.provider || "anthropic-plan",
+      onPointerDown: (ev) => ev.stopPropagation(),
+      onChange: (e) => set(e.target.value),
+      children: providers.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p, children: p }, p))
+    }
+  );
+}
+function TargetCard({
+  target,
+  config,
+  rf,
+  commit
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `target:${target.id}` });
   const g = glyphFor(target);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { ref: setNodeRef, className: `tcard${isDragging ? " dragging" : ""}`, children: [
@@ -29014,13 +29090,15 @@ function TargetCard({ target, commit }) {
         ] })
       ] })
     ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProviderSelect, { target, config, rf, commit }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EffortDial, { target, commit })
   ] });
 }
-function AddTargetCard({ config, commit }) {
+function AddTargetCard({ config, rf, commit }) {
   const [open, setOpen] = (0, import_react5.useState)(false);
   const [id, setId] = (0, import_react5.useState)("");
-  const [runtime, setRuntime] = (0, import_react5.useState)(RUNTIME_OPTIONS[0]);
+  const runtimeOptions = rf?.available ? Array.from(/* @__PURE__ */ new Set(["claude-code", "ollama", ...rf.runtimes.filter((r) => r.installed).map((r) => r.engine)])) : RUNTIME_OPTIONS;
+  const [runtime, setRuntime] = (0, import_react5.useState)(runtimeOptions[0]);
   const [model, setModel] = (0, import_react5.useState)("");
   const [effort, setEffort] = (0, import_react5.useState)("medium");
   const existing = new Set((config.targets || []).map((t) => t.id));
@@ -29057,7 +29135,7 @@ function AddTargetCard({ config, commit }) {
     ] });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tcard add-form", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { placeholder: "id (e.g. cc-opus-high)", value: id, onChange: (e) => setId(e.target.value) }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: runtime, onChange: (e) => setRuntime(e.target.value), children: RUNTIME_OPTIONS.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: r, children: r }, r)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: runtime, onChange: (e) => setRuntime(e.target.value), children: runtimeOptions.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: r, children: r }, r)) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { placeholder: "model", value: model, onChange: (e) => setModel(e.target.value) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: effort, onChange: (e) => setEffort(e.target.value), children: EFFORTS.map((e) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: e, children: e }, e)) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "add-actions", children: [
@@ -29066,13 +29144,13 @@ function AddTargetCard({ config, commit }) {
     ] })
   ] });
 }
-function TargetsTray({ config, commit }) {
+function TargetsTray({ config, rf, commit }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "surface", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "surface-h", children: "Targets" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "surface-hint", children: "Drag a card onto a matrix cell, row, or column to assign it. Tap an effort segment to retune it." }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "surface-hint", children: "Drag a card onto a matrix cell, row, or column to assign it. Tap an effort segment to retune it; pick a provider where the runtime declares an override mechanism." }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tray", children: [
-      (config.targets || []).map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetCard, { target: t, commit }, t.id)),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AddTargetCard, { config, commit })
+      (config.targets || []).map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetCard, { target: t, config, rf, commit }, t.id)),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AddTargetCard, { config, rf, commit })
     ] })
   ] });
 }
@@ -29773,6 +29851,7 @@ function StatusPill({ state }) {
 }
 function App() {
   const { config, saveState, errors, commit, reload, dismissErrors } = usePolicyDraft();
+  const runtimeFittings = useRuntimeFittings();
   const [inspector, setInspector] = (0, import_react5.useState)(null);
   const [dragTarget, setDragTarget] = (0, import_react5.useState)(null);
   const sensors = useSensors(
@@ -29843,6 +29922,7 @@ function App() {
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "topbar", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Composer" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "profiles", role: "group", "aria-label": "profile", children: profiles.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: `seg${config.activeProfile === p ? " on" : ""}`, onClick: () => setProfile(p), children: p }, p)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PrimaryRuntimePicker, { config, rf: runtimeFittings, commit }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPill, { state: saveState })
     ] }),
@@ -29860,7 +29940,7 @@ function App() {
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GhostEdits, { onApplied: reload }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DndContext, { sensors, collisionDetection: closestCenter, onDragStart, onDragEnd, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "board", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetsTray, { config, commit }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetsTray, { config, rf: runtimeFittings, commit }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MatrixBoard, { config, commit }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RailsSurface, { config, commit, onInspect: (kind, phase) => setInspector({ kind, phase }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CoordinationSurface, { config, commit }),
