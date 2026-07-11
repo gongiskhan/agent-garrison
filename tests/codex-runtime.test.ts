@@ -97,3 +97,4 @@ describe("Codex runtime-bridge delegation (MRr-bridge / runtime-bridge-ok + seco
     await expect(h.run({ task: "x", model: "claude-opus" })).rejects.toMatchObject({ code: "invalid-task-spec" });
   });
 });
+

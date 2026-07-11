@@ -122,3 +122,33 @@ describe("claude-code-runtime RUNTIMES-V1 metadata (S1)", () => {
     ).toBe(true);
   });
 });
+
+// S6 (GARRISON-RUNTIMES-V1): codex + gemini ship generic Quarters descriptors
+// pointing at their REAL native surfaces (verified against the installed CLIs).
+describe("codex + gemini quarters descriptors (S6)", () => {
+  it("codex: generic tier over ~/.codex — config.toml (toml) + AGENTS.md + mcp_servers + logs", async () => {
+    const m = await loadSeed("codex-runtime");
+    const qd = m.quarters_descriptor!;
+    expect(qd.tier).toBe("generic");
+    if (qd.tier === "generic") {
+      expect(qd.home_dir).toBe("~/.codex");
+      expect(qd.settings_files?.[0]).toMatchObject({ path: "~/.codex/config.toml", format: "toml" });
+      expect(qd.context_file).toBe("AGENTS.md");
+      expect(qd.mcp_config).toMatchObject({ path: "~/.codex/config.toml", format: "toml", key: "mcp_servers" });
+      expect(qd.categories).toEqual(["settings", "context", "mcps", "logs"]);
+    }
+    expect(m.provider_mechanism).toMatchObject({ type: "config-file", config_key: "model_providers" });
+  });
+
+  it("gemini: generic tier over ~/.gemini — settings.json (json) + GEMINI.md + mcpServers + logs", async () => {
+    const m = await loadSeed("gemini-runtime");
+    const qd = m.quarters_descriptor!;
+    expect(qd.tier).toBe("generic");
+    if (qd.tier === "generic") {
+      expect(qd.home_dir).toBe("~/.gemini");
+      expect(qd.settings_files?.[0]).toMatchObject({ path: "~/.gemini/settings.json", format: "json" });
+      expect(qd.context_file).toBe("GEMINI.md");
+      expect(qd.mcp_config).toMatchObject({ path: "~/.gemini/settings.json", format: "json", key: "mcpServers" });
+    }
+  });
+});
