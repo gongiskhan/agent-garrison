@@ -10,9 +10,16 @@ test("Quarters: index lists categories over the real ~/.claude; surfaces resolve
     if (m.type() === "error") errors.push(m.text());
   });
 
-  // Index renders all 10 category cards with state.
+  // Index renders all 10 category cards with state. Since RUNTIMES-V1 (D6)
+  // the default composition selects several runtimes, so the index shows
+  // collapsible sections (all collapsed) — expand the Claude Code section to
+  // reach the classic deep grid, which is unchanged inside it.
   await page.goto("/quarters");
   await expect(page.getByRole("heading", { name: "Quarters", level: 1 })).toBeVisible();
+  const ccToggle = page.getByTestId("quarters-section-toggle-claude-code-runtime");
+  if (await ccToggle.isVisible().catch(() => false)) {
+    await ccToggle.click();
+  }
   await expect(page.getByTestId("quarters-grid")).toBeVisible();
   for (const slug of ["settings", "context", "skills", "hooks", "mcps", "plugins", "scripts", "plans", "logs", "sessions"]) {
     await expect(page.getByTestId(`quarters-card-${slug}`)).toBeVisible();
