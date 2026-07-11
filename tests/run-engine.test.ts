@@ -285,10 +285,16 @@ describe("in-process advance (D13)", () => {
     expect(parked.outcome.status).toBe("needs-attention");
     // with evidence → moves. Coordination is ON in the seed policy (S6), so the
     // plan advance also requires the plan's published touch-set (Q1 enforcement).
-    const card2 = await makeCard(tmp, { id: "01TESTCARD0000000000000002", list: "plan" });
+    // Coordination reads card.runDir AS-IS (production runDirs are absolute,
+    // D19), so this card gets an absolute runDir under the sandbox.
+    const card2 = await makeCard(tmp, {
+      id: "01TESTCARD0000000000000002",
+      list: "plan",
+      runDir: path.join(tmp, "runs", "01TESTCARD0000000000000002")
+    });
     writeGateEvidence(tmp, card2.runDir, "plan");
     writeFileSync(
-      path.join(path.resolve(tmp, card2.runDir), "touch-set.json"),
+      path.join(card2.runDir, "touch-set.json"),
       JSON.stringify({ version: 1, cardId: card2.id, files: ["src/x.ts"], dirs: [], surfaces: [], exclusive: [] }),
       "utf8"
     );
