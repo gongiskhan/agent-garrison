@@ -68,6 +68,8 @@ Top-level `x-garrison` fields:
 | `lifecycle` | enum | no | Own-port Fittings only: `operative-bound` (default; started/stopped with the operative) or `detached` (user-managed). |
 | `connector` | object | no | Connector Fittings only (`kind: connector`): auth method, action catalog, optional triggers. See the connector schema below. |
 | `secret_scope` | string array | no | The named Vault secrets this Fitting may read; the Vault delivers only these to the Fitting's process. |
+| `provider_mechanism` | object | no | Runtime Fittings only (GARRISON-RUNTIMES-V1 D3): HOW a provider override (base URL / auth credential / model) applies to this engine. Discriminated on `type`: `env` (any of `base_url_env`, `auth_env`, `model_arg`, `model_env` — at least one) or `config-file` (`config_file` + `config_format` [`json`\|`toml`] required; optional `config_key`, `model_key`). Strict: unknown keys fail the parse. A runtime without one is still a routing target, just without provider overrides. |
+| `quarters_descriptor` | object | no | Runtime Fittings only (D5): which Quarters surface configures this engine. `tier: deep` + `id` maps to a REGISTERED implementation (`claude-code` → the existing full surface, untouched). `tier: generic` renders the descriptor-driven tier and requires `home_dir`; optional `settings_files[{path,format,label?}]`, `context_file`, `mcp_config{path,format,key?}`, `log_paths[]`, `categories[]`. Strict; generic file I/O serves ONLY the declared files. |
 
 ### Back-compat aliases
 
