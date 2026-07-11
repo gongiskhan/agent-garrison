@@ -58,6 +58,18 @@ describe("scoreOverlap — grades", () => {
     expect(s.grade).toBe("heavy");
   });
 
+  it("heavy on the COUNT threshold alone, below the ratio (mutation killer)", () => {
+    // 3 shared of 10 -> ratio 0.3 < 0.5, but count 3 >= heavyFiles(3) -> heavy.
+    // Isolates the count path so a sabotaged heavyFiles threshold is caught.
+    const many = (p: string) => Array.from({ length: 7 }, (_, i) => `${p}${i}.ts`);
+    const s = scoreOverlap(
+      ts({ files: ["a.ts", "b.ts", "c.ts", ...many("left")] }),
+      ts({ files: ["a.ts", "b.ts", "c.ts", ...many("right")] })
+    );
+    expect(s.grade).toBe("heavy");
+    expect(s.sharedFiles.length).toBe(3);
+  });
+
   it("heavy on a shared exclusive lease regardless of file count", () => {
     const s = scoreOverlap(ts({ exclusive: ["package-lock.json"] }), ts({ exclusive: ["package-lock.json"] }));
     expect(s.grade).toBe("heavy");
