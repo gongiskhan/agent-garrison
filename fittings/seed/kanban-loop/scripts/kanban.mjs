@@ -31,8 +31,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the single garrison-* verb skill, and validNext ids the router reply's last line
 // must exact-match. No per-list effort/model (the router decides); the two adversarial
 // lists are cross-model Codex passes, NOT a higher tier (the operative stays modest);
-// the architecture doc is handed to Implement so the generic writer reads doctrine
-// from docs (Decision 3). Goal-mode cards prepend /goal; the guard is the iteration
+// the architecture doc pointer is OFFERED to Implement (a convention, never required -
+// a foreign project without one is normal, D12). Goal-mode cards prepend /goal; the guard is the iteration
 // cap, not a goal hook (Decision 7).
 const ARCH_DOC = "docs/architecture.md";
 
@@ -74,7 +74,7 @@ export function seedBoard() {
       {
         id: "implement", title: "Implement", order: 4, kind: "agent", trigger: "immediate", phase: "implement",
         executePrompt:
-          `Implement the planned slice end-to-end. Read the plan + acceptance from the run directory and the architecture doc at ${ARCH_DOC}; follow existing conventions; fix forward; write the implement phase's gate-status entry.`,
+          `Implement the planned slice end-to-end. Read the plan + acceptance from the run directory, and the project's architecture doc (${ARCH_DOC}) WHEN THE PROJECT HAS ONE - it is a convention, not a requirement, and a project without it is normal (GARRISON-FLOW-V2 D12: the flow is project-agnostic). Follow the project's existing conventions; fix forward; write the implement phase's gate-status entry.`,
         routerPrompt: "When the code is written and self-checks pass — or the change is already present and complete — end with `review` on its own final line.",
         validNext: ["review"]
       },
