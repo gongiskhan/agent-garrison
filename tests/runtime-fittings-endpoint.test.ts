@@ -159,6 +159,32 @@ describe("fitting-id path containment (S3 boundary ratchet)", () => {
     }
   });
 
+  it("non-string YAML ids (boolean, array) never satisfy the grammar via coercion", async () => {
+    wf(
+      join(COMP, "apm.yml"),
+      [
+        "name: test-comp",
+        "x-garrison:",
+        "  composition:",
+        "    id: test",
+        "    selections:",
+        "      runtimes:",
+        "        - id: true",
+        "          config: {}",
+        "        - id: [codex-runtime]",
+        "          config: {}",
+        "        - id: codex-runtime",
+        "          config: {}",
+        ""
+      ].join("\n")
+    );
+    const j = await (await fetch(`${base}/runtime-fittings`)).json();
+    const invalid = j.runtimes.filter((r: any) => r.warning?.includes("invalid fitting id"));
+    expect(invalid.length).toBe(2);
+    for (const r of invalid) expect(r.installed).toBe(false);
+    expect(j.runtimes.find((r: any) => r.id === "codex-runtime").installed).toBe(true);
+  });
+
   it("PROPERTY: any id outside the kebab-case slug grammar is never treated as installed", async () => {
     await fc.assert(
       fc.asyncProperty(

@@ -204,15 +204,20 @@ function readRuntimeFittings() {
   const FITTING_ID = /^[a-z][a-z0-9-]*$/;
   const modulesRoot = path.resolve(dir, "apm_modules", "_local");
   const runtimes = selections.map((sel) => {
-    const rawId = String(sel?.id ?? "");
+    // Type before grammar: YAML happily yields booleans/arrays for `id:`, and
+    // String() coercion would let e.g. `id: [codex-runtime]` satisfy the slug
+    // regex while the payload echoes a non-string id. Only a real string may
+    // even reach the grammar check.
+    const rawId = typeof sel?.id === "string" ? sel.id : "";
     if (!FITTING_ID.test(rawId)) {
+      const displayId = typeof sel?.id === "string" ? sel.id : JSON.stringify(sel?.id ?? null);
       return {
-        id: rawId,
-        engine: rawId,
+        id: displayId,
+        engine: displayId,
         installed: false,
         providerMechanism: null,
         quartersDescriptor: null,
-        warning: `invalid fitting id ${JSON.stringify(rawId)} in composition selections — ids are kebab-case; entry ignored`
+        warning: `invalid fitting id ${displayId} in composition selections — ids are kebab-case strings; entry ignored`
       };
     }
     const manifestPath = path.resolve(modulesRoot, rawId, "apm.yml");
