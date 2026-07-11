@@ -1,6 +1,6 @@
 // THE run engine (GARRISON-UNIFY-V1 S4, D9/D13/D15) — the transition function,
 // packaged as a LIBRARY callable both by the board's tick dispatcher and
-// in-process by a session (the autothing doorway). A run is a card.
+// in-process by a session (the garrison doorway). A run is a card.
 //
 // A manual list is a plain column. An AGENT list maps to a PHASE NAME and
 // nothing else (D15): its skill, model, effort, and runtime all resolve from
@@ -277,7 +277,7 @@ export function parseNextList(routerOutput, validNext) {
 
 // Combined execute + router prompt. goal-mode prepends /goal + acceptance; the card's
 // runDir is threaded in as literal text (the gateway `skill` field is inert, so the
-// run dir must be IN the prompt for the autothing skill to write per-run); the valid
+// run dir must be IN the prompt for the garrison skill to write per-run); the valid
 // next-list ids are injected so the router output can exact-match. D15: the per-list
 // mode line is GONE (mode is the gateway's job); the executing skill is resolved from
 // the compiled policy and named explicitly (the phase-skill binding, D3).
@@ -995,10 +995,10 @@ export async function processChain({ root, board, card, runFn, cap = 10, now = (
   return { card: current, outcome: lastOutcome };
 }
 
-// ── In-process run driving (D13 — the autothing doorway) ────────────────────
+// ── In-process run driving (D13 — the garrison doorway) ────────────────────
 //
 // The engine is a LIBRARY: a session that is itself doing the work (the thin
-// autothing doorway) advances its card through phases WITHOUT the board's tick
+// garrison doorway) advances its card through phases WITHOUT the board's tick
 // dispatching a gateway turn. The session does a phase's work, writes the
 // phase's gate-status entry under the card's runDir, then calls
 // advanceCardPhase — which enforces the SAME contract as the dispatched path:

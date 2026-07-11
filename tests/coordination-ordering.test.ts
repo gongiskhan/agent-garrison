@@ -29,7 +29,7 @@ import { createCard, loadCard, saveCard, deleteCard, loadAllCards } from "../fit
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
-import { reevaluateWaiting, serializeGate, coordinationAvailability, resetCoordinationCache } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
+import { reevaluateWaiting, serializeGate, coordinationAvailability, resetCoordinationCache, acquireLeases } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "coord-order-"));
@@ -260,6 +260,74 @@ describe("D9 degraded — serialize (broken substrate)", () => {
       expect(serializeGate(cards, younger, board).allowed).toBe(false);
     } finally {
       process.env.GARRISON_POLICY_PATH = prev;
+      resetCoordinationCache();
+    }
+  });
+});
+
+describe("D6 exclusive-lease union from policy", () => {
+  it("a card whose claims COVER a policy exclusiveLease WAITS when it is held (empty exclusive[])", async () => {
+    const root = tmp();
+    const repoDir = mkdtempSync(join(tmpdir(), "lease-repo-"));
+    const board = { ...seedBoard(), projects: { proj: { path: repoDir } } };
+    const polDir = mkdtempSync(join(tmpdir(), "lease-pol-"));
+    const pol = join(polDir, "policy.json");
+    writeFileSync(pol, JSON.stringify({ coordination: { enabled: true, exclusiveLeases: ["package-lock.json"] } }));
+    const prev = process.env.GARRISON_POLICY_PATH;
+    process.env.GARRISON_POLICY_PATH = pol;
+    resetCoordinationCache();
+    try {
+      // Card A already holds the lockfile lease (established directly).
+      const holder = { id: "01LEASEHOLDERAAAAAAAAAAAA", runId: "01RLEASEA" };
+      expect(acquireLeases({ repoPath: repoDir, card: holder, paths: ["package-lock.json"] }).ok).toBe(true);
+
+      // Card B: on Implement, claims the lockfile via files[] but with exclusive[] EMPTY.
+      let b = await createCard(root, { title: "B", project: "proj", list: "implement" });
+      const bDir = join(root, "runs", "leaseB");
+      mkdirSync(bDir, { recursive: true });
+      writeFileSync(join(bDir, "touch-set.json"), JSON.stringify({ version: 1, files: ["package-lock.json"], dirs: [], surfaces: [], exclusive: [] }));
+      b = await saveCard(root, { ...b, runId: "01LEASEBBBBBBBBBBBBBBBBBB", runDir: bDir });
+
+      let called = false;
+      const runFn = async () => { called = true; return { reply: "review" }; };
+      const { outcome } = await processCard({ root, board, card: b, runFn, cap: 10 });
+      expect(outcome.status).toBe("waiting");
+      expect(outcome.reason).toBe("lease"); // the POLICY list forced the lease, not the prediction
+      expect(called).toBe(false); // never dispatched
+      expect((await loadCard(root, b.id)).waitingOn.until).toBe("lease");
+    } finally {
+      if (prev === undefined) delete process.env.GARRISON_POLICY_PATH;
+      else process.env.GARRISON_POLICY_PATH = prev;
+      resetCoordinationCache();
+    }
+  });
+
+  it("a card whose claims do NOT cover the policy lease dispatches freely", async () => {
+    const root = tmp();
+    const repoDir = mkdtempSync(join(tmpdir(), "lease-repo2-"));
+    const board = { ...seedBoard(), projects: { proj: { path: repoDir } } };
+    const polDir = mkdtempSync(join(tmpdir(), "lease-pol2-"));
+    const pol = join(polDir, "policy.json");
+    writeFileSync(pol, JSON.stringify({ coordination: { enabled: true, exclusiveLeases: ["package-lock.json"] } }));
+    const prev = process.env.GARRISON_POLICY_PATH;
+    process.env.GARRISON_POLICY_PATH = pol;
+    resetCoordinationCache();
+    try {
+      // Even with the lockfile leased by someone else, a card that does not claim
+      // it is unaffected.
+      acquireLeases({ repoPath: repoDir, card: { id: "01OTHERHOLDER0000000000AA", runId: "01RH" }, paths: ["package-lock.json"] });
+      let c = await createCard(root, { title: "C", project: "proj", list: "implement" });
+      const cDir = join(root, "runs", "leaseC");
+      mkdirSync(cDir, { recursive: true });
+      writeFileSync(join(cDir, "touch-set.json"), JSON.stringify({ version: 1, files: ["src/other.ts"], dirs: [], surfaces: [], exclusive: [] }));
+      c = await saveCard(root, { ...c, runId: "01LEASECCCCCCCCCCCCCCCCCC", runDir: cDir });
+      const runFn = async () => ({ reply: "review" });
+      const { outcome } = await processCard({ root, board, card: c, runFn, cap: 10 });
+      expect(outcome.status).toBe("moved");
+      expect(outcome.to).toBe("review");
+    } finally {
+      if (prev === undefined) delete process.env.GARRISON_POLICY_PATH;
+      else process.env.GARRISON_POLICY_PATH = prev;
       resetCoordinationCache();
     }
   });

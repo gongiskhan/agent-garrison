@@ -168,15 +168,27 @@ export function analyzeCoordinationProposals({
   const outOfSetHits = new Map(); // file -> prediction-miss count
   let interferenceEvents = 0;
 
+  // The engine records every collision/ordering on BOTH cards (victim +
+  // offender, waiter + blocker) with the same timestamp. Count each real
+  // event ONCE by identity, or every proposal double-counts its evidence.
+  const seen = new Set();
   for (const card of cards) {
     const events = Array.isArray(card?.events) ? card.events : [];
     for (const ev of events) {
       if (ev?.kind === "interference") {
+        const key = `i|${ev.at || ""}|${interferenceFiles(ev).sort().join(",")}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         interferenceEvents += 1;
         for (const f of interferenceFiles(ev)) bump(interferenceHits, f);
       } else if (ev?.kind === "coordination") {
         const s = coordinationSignal(ev);
-        if (s.grade === "heavy" || s.grade === "medium") for (const f of s.files) bump(heavyOverlapHits, f);
+        if (s.grade === "heavy" || s.grade === "medium") {
+          const key = `c|${ev.at || ""}|${s.grade}|${[...s.files].sort().join(",")}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          for (const f of s.files) bump(heavyOverlapHits, f);
+        }
       } else if (ev?.kind === "fence") {
         for (const f of outOfSetFiles(ev)) bump(outOfSetHits, f);
       }

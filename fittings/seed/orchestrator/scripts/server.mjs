@@ -277,7 +277,7 @@ function tryItGates(config, baseRail, workKind, projectLabel) {
   const byPlanUx = phaseOn("ux-qa");
   const severityThreshold = (config.uxQa && config.uxQa.severityThreshold) || "major";
   const uxReason = byPlanUx
-    ? `the ${kindLabel} plan includes ux-qa — findings at or above "${severityThreshold}" loop the slice back; below are recorded as notes`
+    ? `the ${kindLabel} plan includes ux-qa - findings at or above "${severityThreshold}" loop the slice back; below are recorded as notes`
     : `the ${kindLabel} plan omits ux-qa`;
 
   return {

@@ -95,7 +95,7 @@ function runtimeLabel(t: AnyTarget | null | undefined): string {
 // targets still display a mode (cc-* / anthropic → subscription, ollama → local,
 // codex/gemini/third-party → API key).
 function authModeFor(t: AnyTarget | null | undefined): string {
-  if (!t) return "—";
+  if (!t) return "-";
   if (t.authMode) return t.authMode;
   if (t.provider === "ollama-local" || t.provider === "ollama") return "local";
   if (t.runtime === "codex" || t.runtime === "gemini") return "api-key";

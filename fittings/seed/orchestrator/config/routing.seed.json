@@ -212,18 +212,18 @@
   "defaultWorkKind": "full-feature",
   "phaseSkills": {
     "bindings": {
-      "plan": "autothing-plan",
-      "implement": "autothing-implement",
-      "review": "autothing-review",
-      "adversarial-review": "autothing-adversarial-review",
-      "security-review": "autothing-security-review",
-      "test": "autothing-test",
-      "adversarial-test": "autothing-adversarial-test",
+      "plan": "garrison-plan",
+      "implement": "garrison-implement",
+      "review": "garrison-review",
+      "adversarial-review": "garrison-adversarial-review",
+      "security-review": "garrison-security-review",
+      "test": "garrison-test",
+      "adversarial-test": "garrison-adversarial-test",
       "ux-qa": "garrison-ux-qa",
-      "walkthrough": "autothing-walkthrough",
-      "validate": "autothing-validate",
-      "codex-checkpoint": "autothing-codex-checkpoint",
-      "report": "autothing-report"
+      "walkthrough": "garrison-walkthrough",
+      "validate": "garrison-validate",
+      "codex-checkpoint": "garrison-codex-checkpoint",
+      "report": "garrison-report"
     },
     "overrides": {}
   },
@@ -241,7 +241,7 @@
   "coordination": {
     "enabled": true,
     "thresholds": { "heavyFiles": 3, "heavyRatio": 0.5 },
-    "exclusiveLeases": ["apm.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
+    "exclusiveLeases": ["apm.lock.yaml", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
     "fences": { "enabled": true, "trailer": "Garrison-Card" },
     "leaseTtlMinutes": 60,
     "serializeWhenUnavailable": true

@@ -10,8 +10,9 @@ import path from "node:path";
 // @ts-ignore - pure .mjs
 import * as ruleMod from "../fittings/seed/improver/lib/coordination-rule.mjs";
 
-const interference = (files: string[]) => ({
+const interference = (files: string[], at?: string) => ({
   kind: "interference",
+  ...(at ? { at } : {}),
   message: "Interference: Review failed due to card Foo (abc123)'s commits - waiting for its fix (iteration refunded to 0)",
   detail: `broken by card 01FOO (Foo) - commits a1b2c3d4e5, f6a7b8c9d0 touching ${files.join(", ")}`
 });
@@ -41,9 +42,12 @@ describe("coordination rule (S6/D17)", () => {
   });
 
   it("recurrent interference (>=3 events) with heavyFiles above the floor proposes a threshold down-step", () => {
+    // Three DISTINCT interference events (distinct timestamps, as the engine
+    // writes them) — the dedup keys on (kind, at, files), so identical-file
+    // events must carry distinct `at` to count separately.
     const cards = [
-      card("c1", [interference(["a.ts"]), interference(["a.ts"])]),
-      card("c2", [interference(["b.ts"])])
+      card("c1", [interference(["a.ts"], "t1"), interference(["a.ts"], "t2")]),
+      card("c2", [interference(["b.ts"], "t3")])
     ];
     const props = ruleMod.analyzeCoordinationProposals({ cards, current: { heavyFiles: 3, exclusiveLeases: [] }, at: "t" });
     const th = props.find((p: any) => p.id.startsWith("coordination-threshold-"));
@@ -107,6 +111,39 @@ describe("coordination rule (S6/D17)", () => {
       if (prev === undefined) delete process.env.GARRISON_POLICY_PATH;
       else process.env.GARRISON_POLICY_PATH = prev;
     }
+  });
+
+  // The engine writes each interference collision to BOTH the victim and the
+  // offender card with an identical (kind, at, files) signature. The analyzer
+  // must count that as ONE collision, not two, or every proposal double-counts.
+  it("counts a both-sides interference collision ONCE (dedup by kind/at/files)", () => {
+    const AT = "2026-07-11T00:00:00Z";
+    const file = "package-lock.json";
+    // victim copy ("… touching <file>") and offender copy ("<file> - it is waiting …")
+    const victimEv = {
+      kind: "interference",
+      at: AT,
+      message: "Interference: Review failed due to card Off (aa11bb)'s commits - waiting for its fix (iteration refunded to 0)",
+      detail: `broken by card 01OFF (Off) - commits a1b2c3d4e5, f6a7b8c9d0 touching ${file}`
+    };
+    const offenderEv = {
+      kind: "interference",
+      at: AT,
+      message: "Your commits broke card 01VIC (Vic) at review",
+      detail: `${file} - it is waiting for your next fence (fix).`
+    };
+    const cards = [card("victim", [victimEv]), card("offender", [offenderEv])];
+
+    // Below the default threshold once deduped (1 < 2) -> NO lease proposal.
+    const props = ruleMod.analyzeCoordinationProposals({ cards, current: { exclusiveLeases: [] }, at: AT });
+    expect(props.find((p: any) => p.id === `coordination-lease-${short(file)}`)).toBeUndefined();
+
+    // With the threshold lowered to 1, the single proposal reports collisions=1
+    // (not 2) — proving the both-sides pair was deduped to one real event.
+    const props1 = ruleMod.analyzeCoordinationProposals({ cards, current: { exclusiveLeases: [] }, at: AT, minInterference: 1 });
+    const lease = props1.find((p: any) => p.id === `coordination-lease-${short(file)}`);
+    expect(lease).toBeTruthy();
+    expect(lease.evidence.collisions).toBe(1);
   });
 });
 

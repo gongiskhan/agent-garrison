@@ -23,7 +23,7 @@ describe("coordination policy (S6 seed + compiler)", () => {
     expect(c.thresholds).toEqual({ heavyFiles: 3, heavyRatio: 0.5 });
     // Seeded lockfile leases (D6) — two runs must never rewrite these at once.
     expect(c.exclusiveLeases).toEqual(
-      expect.arrayContaining(["apm.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"])
+      expect.arrayContaining(["apm.lock.yaml", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"])
     );
   });
 

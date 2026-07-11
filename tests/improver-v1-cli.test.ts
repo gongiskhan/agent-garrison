@@ -92,11 +92,13 @@ describe("Improver v1 skills CLI — hermetic acceptance (MR5c)", () => {
       // A card whose review failed twice due to another card's commits touching
       // the same file — the interference the coordination rule watches for.
       const detail = "broken by card 01FOO (Foo) - commits a1b2c3d4e5, f6a7b8c9d0 touching src/lib/hot-path.ts";
+      // Distinct timestamps: the analyzer dedups by (kind, at, files) because
+      // the engine writes each real collision to BOTH cards with one `at`.
       const card = {
         id: "01CARDINTERFERE0000000000",
         events: [
-          { kind: "interference", message: "Interference: Review failed", detail },
-          { kind: "interference", message: "Interference: Review failed again", detail }
+          { kind: "interference", at: "2026-07-10T10:00:00Z", message: "Interference: Review failed", detail },
+          { kind: "interference", at: "2026-07-10T11:00:00Z", message: "Interference: Review failed again", detail }
         ]
       };
       mkdirSync(join(kanban, "cards", card.id), { recursive: true });

@@ -28825,7 +28825,7 @@ function runtimeLabel(t) {
   return t.runtime || t.type || "target";
 }
 function authModeFor(t) {
-  if (!t) return "\u2014";
+  if (!t) return "-";
   if (t.authMode) return t.authMode;
   if (t.provider === "ollama-local" || t.provider === "ollama") return "local";
   if (t.runtime === "codex" || t.runtime === "gemini") return "api-key";
