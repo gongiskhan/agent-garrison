@@ -137,3 +137,51 @@ export async function projectOrchestrator(opts: {
 export function orchestratorAppendSystemPrompt(instructions: string): string {
   return instructions;
 }
+
+// ── Per-primary projection (GARRISON-RUNTIMES-V1 P8/D7) ─────────────────────
+// FINDING-E7 established there is NO pre-existing AGENTS.md/GEMINI.md
+// projection path in the repo, so THIS module is the single writer for
+// non-claude primaries: the assembled orchestrator prompt is projected to the
+// primary engine's native context-file convention (codex reads AGENTS.md from
+// its cwd; gemini reads GEMINI.md). claude-code keeps the existing rules
+// projection + append-system-prompt path untouched; the agent-sdk primary
+// receives the prompt through the SDK systemPrompt mechanism (wired at the
+// gateway warm seam), so neither writes a context file here.
+//
+// The marker matches src/lib/quarters-runtimes.ts PROJECTION_MARKER, so the
+// generic Quarters tier shows provenance and refuses raw edits over it.
+export const PRIMARY_CONTEXT_FILES: Record<string, string> = {
+  codex: "AGENTS.md",
+  gemini: "GEMINI.md"
+};
+
+export interface PrimaryProjectionResult {
+  projected: boolean;
+  file?: string;
+  /** The printed authority warning (D7: weaker prompt authority than claude-code). */
+  warning?: string;
+}
+
+export async function projectPrimaryContext(opts: {
+  engine: string;
+  instructions: string;
+  targetDir: string;
+}): Promise<PrimaryProjectionResult> {
+  const fileName = PRIMARY_CONTEXT_FILES[opts.engine];
+  if (!fileName) return { projected: false };
+  const target = path.join(opts.targetDir, fileName);
+  const header =
+    `<!-- GARRISON-PROJECTED source=orchestrator engine=${opts.engine} -->\n` +
+    `<!-- Managed by Garrison (RUNTIMES-V1 P8): the assembled Orchestrator prompt projected to the ${opts.engine} ` +
+    `primary's native context convention. Edit the Orchestrator prompt / composer, not this file. -->\n\n`;
+  await fsp.mkdir(opts.targetDir, { recursive: true });
+  await fsp.writeFile(target, header + opts.instructions, "utf8");
+  return {
+    projected: true,
+    file: target,
+    warning:
+      `PROMPT AUTHORITY WARNING: the ${opts.engine} primary receives the orchestrator prompt via ${fileName} ` +
+      `(context-file convention) — weaker authority than the claude-code append-system-prompt path; ` +
+      `the engine may weigh it like any other context file.`
+  };
+}

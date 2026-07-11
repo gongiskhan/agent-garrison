@@ -168,3 +168,39 @@ describe("log containment hardening (S5 codex ratchet)", () => {
     }
   });
 });
+
+// S8 (P8/D7): the per-primary projection writes the engine's native context
+// file with the SAME marker the generic Quarters tier refuses to clobber —
+// one writer, ownership respected end to end.
+import { projectPrimaryContext, PRIMARY_CONTEXT_FILES } from "@/lib/orchestrator-projection";
+
+describe("per-primary orchestrator projection (S8)", () => {
+  it("codex → AGENTS.md, gemini → GEMINI.md, marker + instructions + printed warning", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gar-proj-"));
+    const res = await projectPrimaryContext({ engine: "codex", instructions: "ROUTE-MARKER [gateway-route: …]\nbe the orchestrator", targetDir: dir });
+    expect(res.projected).toBe(true);
+    expect(res.file).toBe(join(dir, "AGENTS.md"));
+    expect(res.warning).toMatch(/PROMPT AUTHORITY WARNING/);
+    const { readFileSync } = await import("node:fs");
+    const written = readFileSync(join(dir, "AGENTS.md"), "utf8");
+    expect(written).toContain(PROJECTION_MARKER);
+    expect(written).toContain("ROUTE-MARKER");
+    const g = await projectPrimaryContext({ engine: "gemini", instructions: "x", targetDir: dir });
+    expect(g.file).toBe(join(dir, "GEMINI.md"));
+    expect(PRIMARY_CONTEXT_FILES["codex"]).toBe("AGENTS.md");
+  });
+
+  it("claude-code and agent-sdk do NOT project (their prompt paths are stronger)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gar-proj-"));
+    expect((await projectPrimaryContext({ engine: "claude-code", instructions: "x", targetDir: dir })).projected).toBe(false);
+    expect((await projectPrimaryContext({ engine: "agent-sdk", instructions: "x", targetDir: dir })).projected).toBe(false);
+  });
+
+  it("the projected file is REFUSED by the generic-tier raw editor (one writer)", async () => {
+    const { home, d } = sandboxDescriptor();
+    await projectPrimaryContext({ engine: "codex", instructions: "orchestrator text", targetDir: home });
+    const v = await readRuntimeFile(d, join(home, "AGENTS.md"));
+    expect(v.projected).toBe(true);
+    await expect(writeRuntimeFile(d, join(home, "AGENTS.md"), "clobber", v.sha)).rejects.toThrow(/Garrison-managed projection/);
+  });
+});

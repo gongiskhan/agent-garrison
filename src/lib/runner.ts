@@ -33,6 +33,7 @@ import {
   type RuntimeEntry
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
+import { projectPrimaryContext } from "./orchestrator-projection";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
 import { resolveCapabilities } from "./capabilities";
@@ -304,6 +305,24 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         "runner",
         `Primary runtime ${primaryRuntime.runtimeId} on provider ${primaryEnv.GARRISON_PROVIDER} (${primaryEnv.ANTHROPIC_BASE_URL})`
       );
+    }
+
+    // P8/D7: per-primary orchestrator prompt delivery. claude-code keeps the
+    // existing append-system-prompt path (untouched); agent-sdk consumes the
+    // prompt through the SDK systemPrompt mechanism at the gateway warm seam;
+    // a codex/gemini primary gets the assembled prompt PROJECTED to its native
+    // context-file convention, with the authority warning PRINTED, not hidden.
+    if (primaryRuntime.engine === "codex" || primaryRuntime.engine === "gemini") {
+      const assembled = await fs.readFile(promptPath, "utf8");
+      const projection = await projectPrimaryContext({
+        engine: primaryRuntime.engine,
+        instructions: assembled,
+        targetDir: composition.directory
+      });
+      if (projection.projected) {
+        appendLog(compositionId, "runner", `Projected orchestrator prompt to ${projection.file}`);
+        appendLog(compositionId, "stderr", projection.warning ?? "");
+      }
     }
 
     const gateway = await resolveGatewayFitting(compositionId);
