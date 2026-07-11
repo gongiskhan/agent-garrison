@@ -373,12 +373,18 @@ function PrimaryRuntimePicker({
         {!hasDefault ? (
           <option value={DEFAULT_PRIMARY_ID}>Claude Code (default)</option>
         ) : null}
-        {composed.map((r) => (
-          <option key={r.id} value={r.id} disabled={!r.installed} title={r.warning || r.engine}>
-            {r.id}
-            {!r.installed ? " (not installed)" : ""}
-          </option>
-        ))}
+        {composed.map((r) => {
+          // The DEFAULT id is ALWAYS selectable: the claude-code engine is
+          // synthesized even when its fitting is not installed, and disabling
+          // it would leave no way back to the default from a non-claude pick.
+          const isDefault = r.id === DEFAULT_PRIMARY_ID;
+          return (
+            <option key={r.id} value={r.id} disabled={!r.installed && !isDefault} title={r.warning || r.engine}>
+              {r.id}
+              {!r.installed ? (isDefault ? " (engine built-in)" : " (not installed)") : ""}
+            </option>
+          );
+        })}
       </select>
       {rf && !rf.available ? (
         <span className="primary-warn" title={rf.warning}>

@@ -29019,10 +29019,13 @@ function PrimaryRuntimePicker({
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { htmlFor: "primary-runtime", children: "Primary" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { id: "primary-runtime", value: current, onChange: (e) => set(e.target.value), children: [
       !hasDefault ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: DEFAULT_PRIMARY_ID, children: "Claude Code (default)" }) : null,
-      composed.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: r.id, disabled: !r.installed, title: r.warning || r.engine, children: [
-        r.id,
-        !r.installed ? " (not installed)" : ""
-      ] }, r.id))
+      composed.map((r) => {
+        const isDefault = r.id === DEFAULT_PRIMARY_ID;
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: r.id, disabled: !r.installed && !isDefault, title: r.warning || r.engine, children: [
+          r.id,
+          !r.installed ? isDefault ? " (engine built-in)" : " (not installed)" : ""
+        ] }, r.id);
+      })
     ] }),
     rf && !rf.available ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "primary-warn", title: rf.warning, children: "!" }) : null
   ] });

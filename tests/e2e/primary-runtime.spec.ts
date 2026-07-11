@@ -76,6 +76,8 @@ test.beforeAll(async () => {
       "          config: {}",
       "        - id: ghost-runtime",
       "          config: {}",
+      "        - id: claude-code-runtime",
+      "          config: {}",
       ""
     ].join("\n")
   );
@@ -126,6 +128,11 @@ test("primary picker: installed runtimes selectable, uninstalled disabled, choic
   await expect(picker.locator("option", { hasText: "codex-runtime" })).toHaveCount(1);
   const ghost = picker.locator("option", { hasText: "ghost-runtime" });
   await expect(ghost).toBeDisabled();
+  // The DEFAULT id stays selectable even when its fitting is composed but not
+  // installed — the claude-code engine is built-in; there must always be a way
+  // back to the default from a non-claude pick.
+  const dflt = picker.locator("option", { hasText: "claude-code-runtime" });
+  await expect(dflt).toBeEnabled();
 
   // Pick the installed runtime — autosave (debounced PUT) recompiles policy.json.
   await picker.selectOption("codex-runtime");
