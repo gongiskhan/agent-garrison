@@ -137,3 +137,34 @@ describe("registry + home expansion (S5)", () => {
     expect(expandHome("/abs/x")).toBe("/abs/x");
   });
 });
+
+// Ratchets for the S5 codex findings: root-itself tails refused; symlink
+// escapes caught by realpath; API errors never enumerate the allowlist.
+import { symlinkSync } from "node:fs";
+
+describe("log containment hardening (S5 codex ratchet)", () => {
+  it("refuses to tail the declared root itself ('' / '.')", async () => {
+    const { home, d } = sandboxDescriptor();
+    await expect(tailRuntimeLog(d, join(home, "logs"), ".")).rejects.toThrow(/escapes the declared root/);
+    await expect(tailRuntimeLog(d, join(home, "logs"), "")).rejects.toThrow(/escapes the declared root/);
+  });
+
+  it("a symlink inside the log dir cannot walk outside the declared root", async () => {
+    const { home, d } = sandboxDescriptor();
+    writeFileSync(join(home, "outside-secret.txt"), "SECRET\n");
+    symlinkSync(join(home, "outside-secret.txt"), join(home, "logs", "sneaky.log"));
+    await expect(tailRuntimeLog(d, join(home, "logs"), "sneaky.log")).rejects.toThrow(/resolves outside the declared root .*\(symlink\)/);
+  });
+
+  it("undeclared-path errors carry a count, never the allowlist", async () => {
+    const { home, d } = sandboxDescriptor();
+    try {
+      await readRuntimeFile(d, join(home, "nope.txt"));
+      expect.unreachable();
+    } catch (err) {
+      const s = String(err);
+      expect(s).toMatch(/not declared/);
+      expect(s).not.toContain("config.toml"); // no enumeration
+    }
+  });
+});

@@ -122,12 +122,13 @@ export function declaredFiles(descriptor: QuartersDescriptor): DeclaredFile[] {
 }
 
 function findDeclared(descriptor: QuartersDescriptor, declaredPath: string): DeclaredFile {
-  const match = declaredFiles(descriptor).find((f) => f.path === declaredPath);
+  const files = declaredFiles(descriptor);
+  const match = files.find((f) => f.path === declaredPath);
   if (!match) {
+    // No allowlist enumeration in the error: the list is manifest data the UI
+    // shows anyway, but an API error needs only the refusal, not a map.
     throw new Error(
-      `path ${JSON.stringify(declaredPath)} is not declared by the ${descriptor.id} quarters descriptor — served files: ${declaredFiles(descriptor)
-        .map((f) => f.path)
-        .join(", ")}`
+      `path ${JSON.stringify(declaredPath)} is not declared by the ${descriptor.id} quarters descriptor (${files.length} declared file(s) are served)`
     );
   }
   return match;
@@ -272,10 +273,17 @@ export async function tailRuntimeLog(
   }
   const rootAbs = path.resolve(expandHome(declaredRoot));
   const abs = path.resolve(rootAbs, rel);
-  if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) {
+  // STRICTLY inside the root — never the root entry itself (a root that is a
+  // file/symlink would otherwise be tailed as a whole), and never lexical-only:
+  // realpath both ends so a symlink planted inside the log dir cannot walk out.
+  if (!abs.startsWith(rootAbs + path.sep)) {
     throw new Error(`log path ${JSON.stringify(rel)} escapes the declared root ${declaredRoot}`);
   }
-  const handle = await fs.open(abs, "r");
+  const [realRoot, realAbs] = await Promise.all([fs.realpath(rootAbs), fs.realpath(abs)]);
+  if (!realAbs.startsWith(realRoot + path.sep)) {
+    throw new Error(`log path ${JSON.stringify(rel)} resolves outside the declared root ${declaredRoot} (symlink)`);
+  }
+  const handle = await fs.open(realAbs, "r");
   try {
     const stat = await handle.stat();
     const start = Math.max(0, stat.size - LOG_TAIL_BYTES);
