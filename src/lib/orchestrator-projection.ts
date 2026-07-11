@@ -9,6 +9,7 @@ import {
 } from "./global-composition";
 import { writeYamlFile } from "./yaml";
 import { hashFile } from "./claude-scan";
+import { writeFileAtomic } from "./atomic-write";
 import { recordWritten } from "./provenance";
 import { substituteCapabilitiesPlaceholder, substituteRoutingPlaceholder } from "./runner";
 import type { ApmRunner } from "./apm-exec";
@@ -170,12 +171,32 @@ export async function projectPrimaryContext(opts: {
   const fileName = PRIMARY_CONTEXT_FILES[opts.engine];
   if (!fileName) return { projected: false };
   const target = path.join(opts.targetDir, fileName);
+  // Ownership check BEFORE writing: a pre-existing file WITHOUT our marker is
+  // hand-authored — refuse to clobber it and say exactly what to do instead.
+  // Only our own prior projection (marker present) or a missing file is
+  // overwritten (reprojection at every up(), stale prompts never survive).
+  let existing: string | null = null;
+  try {
+    existing = await fsp.readFile(target, "utf8");
+  } catch {
+    /* absent — fine */
+  }
+  if (existing !== null && !existing.includes("GARRISON-PROJECTED")) {
+    return {
+      projected: false,
+      file: target,
+      warning:
+        `PROJECTION REFUSED: ${target} already exists and is hand-authored (no GARRISON-PROJECTED marker). ` +
+        `The ${opts.engine} primary will NOT receive the orchestrator prompt through it. Move or merge your ` +
+        `${fileName}, or fold its content into the Orchestrator prompt, then run up again.`
+    };
+  }
   const header =
     `<!-- GARRISON-PROJECTED source=orchestrator engine=${opts.engine} -->\n` +
     `<!-- Managed by Garrison (RUNTIMES-V1 P8): the assembled Orchestrator prompt projected to the ${opts.engine} ` +
     `primary's native context convention. Edit the Orchestrator prompt / composer, not this file. -->\n\n`;
   await fsp.mkdir(opts.targetDir, { recursive: true });
-  await fsp.writeFile(target, header + opts.instructions, "utf8");
+  await writeFileAtomic(target, header + opts.instructions);
   return {
     projected: true,
     file: target,

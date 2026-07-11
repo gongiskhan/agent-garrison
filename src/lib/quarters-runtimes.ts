@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { parse as parseToml } from "smol-toml";
+import { writeFileAtomic } from "./atomic-write";
 import { readComposition } from "./compositions";
 import { readLibrary } from "./library";
 import type { QuartersDescriptor, QuartersSettingsFile } from "./types";
@@ -211,7 +212,9 @@ export async function writeRuntimeFile(
   }
   const abs = expandHome(decl.path);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, content, "utf8");
+  // Atomic (temp+rename): a crash mid-write must never leave a truncated
+  // native config (review minor — matches the repo-wide write discipline).
+  await writeFileAtomic(abs, content);
   return readRuntimeFile(descriptor, declaredPath);
 }
 

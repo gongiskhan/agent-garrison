@@ -34,6 +34,8 @@ export function RuntimeFileEditor({
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   const shaRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savingRef = useRef(false);
+  const pendingRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/quarters/runtime/${encodeURIComponent(rid)}/file?path=${encodeURIComponent(declaredPath)}`);
@@ -56,12 +58,21 @@ export function RuntimeFileEditor({
       if (timerRef.current) clearTimeout(timerRef.current);
       setState("saving");
       timerRef.current = setTimeout(async () => {
+        // Serialize PUTs (review minor): a save fired while one is in flight
+        // queues the LATEST content and replays it after — the sha chain stays
+        // linear, so the guard never rejects our own racing write.
+        if (savingRef.current) {
+          pendingRef.current = content;
+          return;
+        }
+        savingRef.current = true;
         const r = await fetch(`/api/quarters/runtime/${encodeURIComponent(rid)}/file`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ path: declaredPath, content, baselineSha: shaRef.current })
         });
         const j = await r.json();
+        savingRef.current = false;
         if (!r.ok) {
           // invalid format or stale sha — surfaced, edit kept in the editor
           setError(j.error ?? "save rejected");
@@ -71,6 +82,11 @@ export function RuntimeFileEditor({
         shaRef.current = j.sha;
         setError(null);
         setState("saved");
+        if (pendingRef.current !== null) {
+          const queued = pendingRef.current;
+          pendingRef.current = null;
+          save(queued);
+        }
       }, 800);
     },
     [rid, declaredPath]

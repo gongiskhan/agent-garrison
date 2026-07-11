@@ -198,9 +198,34 @@ describe("per-primary orchestrator projection (S8)", () => {
 
   it("the projected file is REFUSED by the generic-tier raw editor (one writer)", async () => {
     const { home, d } = sandboxDescriptor();
+    // The sandbox pre-writes a hand-authored AGENTS.md; the projection guard
+    // (S8 ratchet) rightly refuses those — clear it so THIS test exercises a
+    // clean projection then the editor-refusal path.
+    const { rmSync } = await import("node:fs");
+    rmSync(join(home, "AGENTS.md"));
     await projectPrimaryContext({ engine: "codex", instructions: "orchestrator text", targetDir: home });
     const v = await readRuntimeFile(d, join(home, "AGENTS.md"));
     expect(v.projected).toBe(true);
     await expect(writeRuntimeFile(d, join(home, "AGENTS.md"), "clobber", v.sha)).rejects.toThrow(/Garrison-managed projection/);
+  });
+});
+
+// Ratchet for the S8 codex finding: a hand-authored context file is NEVER
+// silently clobbered by the projection — refusal is loud and names the fix.
+describe("projection never clobbers hand-authored files (S8 ratchet)", () => {
+  it("refuses when AGENTS.md exists without the marker; overwrites its own prior projection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gar-proj-own-"));
+    writeFileSync(join(dir, "AGENTS.md"), "# my hand-written agents file\n");
+    const refused = await projectPrimaryContext({ engine: "codex", instructions: "orch", targetDir: dir });
+    expect(refused.projected).toBe(false);
+    expect(refused.warning).toMatch(/PROJECTION REFUSED.*hand-authored/s);
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toContain("hand-written"); // untouched
+    // Our own projection IS overwritten on reprojection (stale prompt never survives).
+    const dir2 = mkdtempSync(join(tmpdir(), "gar-proj-own-"));
+    await projectPrimaryContext({ engine: "codex", instructions: "v1", targetDir: dir2 });
+    const again = await projectPrimaryContext({ engine: "codex", instructions: "v2", targetDir: dir2 });
+    expect(again.projected).toBe(true);
+    expect(readFileSync(join(dir2, "AGENTS.md"), "utf8")).toContain("v2");
   });
 });
