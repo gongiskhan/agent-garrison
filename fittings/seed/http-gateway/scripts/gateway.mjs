@@ -46,8 +46,10 @@ import { resolveProjectPath } from "./lib/project-source.mjs";
 import { buildOrchestratorTurn } from "./lib/orchestrator-prefix.mjs";
 import { resolveMode, buildSwitchEntry, appendSwitchLog } from "./lib/mode-resolver.mjs";
 import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
-import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
+import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir, classifyByKeywords } from "./lib/gateway-routing.mjs";
 import { resolveSoulsHint } from "./lib/souls-route.mjs";
+import { CardRegistrar, isTaskShaped, isCardOriginatedChannel, heuristicClassify } from "./lib/autonomous-cards.mjs";
+import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -77,6 +79,12 @@ let mcpConfigPath = null;
 // model-router fitting is absent (hint is then ignored, exact prior behavior).
 let routingConfig = null;
 let resolveRouteFn = null;
+// The whole routing-core module (isSignificantAutonomous, buildAutonomousCardPayload)
+// for D19 carding in souls mode. Null when the model-router fitting is absent.
+let routingCore = null;
+// D19 board client + per-conversation card memory (souls mode). Constructed at
+// boot; works without the model-router (heuristic classification, default payload).
+const cardRegistrar = new CardRegistrar({ logFn: (e) => logEvent("stdout", e) });
 
 // ───────────────────────────────────────────────────────── HTTP plumbing
 
@@ -138,12 +146,119 @@ async function loadRoutingForSouls() {
     const core = await loadRoutingCore(COMPOSITION_DIR);
     routingConfig = loadRoutingConfig(COMPOSITION_DIR, core.dir);
     resolveRouteFn = core.resolveRoute;
+    routingCore = core;
+    // The card payload builder rides the same core (D8 card creation).
+    cardRegistrar.buildPayload = core.buildAutonomousCardPayload ?? null;
     logEvent("stdout", { kind: "souls-routing-loaded", active_profile: routingConfig?.activeProfile ?? null });
   } catch (err) {
     routingConfig = null;
     resolveRouteFn = null;
+    routingCore = null;
     logEvent("stderr", { kind: "souls-routing-load-failed", error: err.message });
   }
+}
+
+// ─────────────────────────────────────────────── D19 carding (souls mode)
+
+// D19: "EVERY task-shaped turn is a card" — the souls-mode twin of the carding
+// block in gateway-pty.mjs runRoutedTurn. Souls mode has no warm LLM classifier,
+// so classification is deterministic: an explicit valid {taskType,tier} hint is
+// honored first, then the routing config's keyword exceptions, then the
+// heuristic fallback. Returns:
+//   null                                → not a card turn; forward as usual
+//   { handled: true, reply, card }      → significant run registered; reply with
+//                                         the card link, do NOT forward the turn
+//   { handled: false, quickCardId, sessionKey }
+//                                       → quick card registered; forward inline,
+//                                         then completeQuickTurnCard() at the end
+async function maybeCardChannelTurn({ channel, body, message }) {
+  // Engine dispatches + system beats are already cards; a context-bearing turn
+  // is anchored to a host fitting's object (the Kanban Discuss thread, an
+  // Automations run) — neither registers a new card here.
+  if (isCardOriginatedChannel(channel)) return null;
+  if (body?.context !== undefined && body.context !== null) return null;
+
+  let classification = null;
+  const hint = routingConfig && resolveRouteFn ? resolveSoulsHint(body, routingConfig, resolveRouteFn) : null;
+  if (hint) classification = hint.classification;
+  if (!classification && routingConfig) classification = classifyByKeywords(message, routingConfig);
+  if (!classification) classification = heuristicClassify(message);
+  if (!isTaskShaped(classification)) return null;
+
+  // Attach follow-ups only within an IDENTIFIED conversation (S7 review F1c):
+  // no session id → no attach → each task-shaped turn registers fresh.
+  const sessionKey = typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : null;
+  const attached = sessionKey ? await cardRegistrar.attachedCard(sessionKey, classification) : null;
+  if (attached) {
+    logEvent("stdout", { kind: "card-attached", id: attached.cardId, taskType: classification.taskType });
+    return null; // the turn continues the live card's conversation inline
+  }
+
+  const naturalSignificant =
+    typeof routingCore?.isSignificantAutonomous === "function" && routingCore.isSignificantAutonomous(classification);
+  // D20: a conversational override in the operator's words reclassifies the plan.
+  // When it FLIPS the natural resolution, record ONE override event to the
+  // Improver queue carrying both resolutions (agreement is never recorded).
+  const override = detectOverride(message);
+  let significant = naturalSignificant;
+  if (override) {
+    significant = override.plan === "full";
+    if (significant !== naturalSignificant) {
+      const resolution = (sig) => ({
+        taskType: classification.taskType,
+        tier: classification.tier,
+        workKind: null,
+        plan: sig ? "full" : "quick"
+      });
+      try {
+        await appendFeedback(
+          buildOverrideRecord({
+            session_id: sessionKey,
+            answer: override.answer,
+            original: resolution(naturalSignificant),
+            applied: resolution(significant)
+          })
+        );
+        logEvent("stdout", { kind: "override-feedback", answer: override.answer, applied: significant ? "full" : "quick" });
+      } catch (err) {
+        logEvent("stderr", { kind: "override-feedback-failed", error: err.message });
+      }
+    }
+  }
+
+  if (significant) {
+    const card = await cardRegistrar.createAutonomousCard(message, classification, {});
+    if (card) {
+      cardRegistrar.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: classification.taskType });
+      logEvent("stdout", { kind: "run-card", id: card.id, url: card.url });
+      const reply =
+        `Registered as a run — the board's run engine will drive it through the pipeline.\n` +
+        `Card: ${card.url}`;
+      return { handled: true, reply, card };
+    }
+    return null; // board unavailable → fall through inline (never hard-block)
+  }
+  const card = await cardRegistrar.createAutonomousCard(message, classification, { quick: true, targetList: "implement" });
+  if (card) {
+    cardRegistrar.rememberCard(sessionKey, { cardId: card.id, quick: true, taskType: classification.taskType });
+    logEvent("stdout", { kind: "quick-card", id: card.id, url: card.url });
+    return { handled: false, quickCardId: card.id, sessionKey };
+  }
+  return null; // board unavailable → run inline without a card
+}
+
+// D19: a quick card runs inline; advance it Implement → Done when the turn
+// finished HONESTLY (an "[operative error]" reply leaves the card visible in
+// Implement instead of lying Done), and release the session slot so the next
+// task starts a fresh card.
+async function completeQuickTurnCard(carded, replyText) {
+  if (!carded?.quickCardId) return;
+  if (typeof replyText === "string" && replyText.startsWith("[operative error]")) {
+    logEvent("stdout", { kind: "quick-card-left-open", id: carded.quickCardId, reason: "operative error reply" });
+    return;
+  }
+  await cardRegistrar.completeQuickCard(carded.quickCardId);
+  cardRegistrar.forgetCard(carded.sessionKey);
 }
 
 async function writeSharedMcpConfig() {
@@ -582,9 +697,17 @@ const server = http.createServer(async (request, response) => {
       if (!message) return sendJson(response, 400, { error: "message is required" });
       const origin = (request.headers["x-garrison-origin"] ?? "channel").toString();
       const channel = String(body.channel ?? "main");
+      // D19: a task-shaped channel turn is a card. Significant → registered for
+      // the run engine, reply carries the card link (the turn does not run here).
+      const carded = await maybeCardChannelTurn({ channel, body, message });
+      if (carded?.handled) {
+        sendJson(response, 200, { reply: carded.reply, session_id: orchestratorSessionId, card: carded.card.id, cardUrl: carded.card.url });
+        return;
+      }
       const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
       if (waiter) {
         const result = await waiter;
+        await completeQuickTurnCard(carded, result.summary);
         sendJson(response, 200, { reply: result.summary, session_id: orchestratorSessionId });
       } else {
         sendJson(response, 200, { ack: true, session_id: orchestratorSessionId });
@@ -622,10 +745,18 @@ const server = http.createServer(async (request, response) => {
       });
 
       try {
-        const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
-        if (waiter) {
-          const result = await waiter;
-          sseWrite(response, "done", { reply: result.summary });
+        // D19: a task-shaped channel turn is a card (same contract as /chat).
+        const carded = await maybeCardChannelTurn({ channel, body, message });
+        if (carded?.handled) {
+          sseWrite(response, "chunk", { text: carded.reply });
+          sseWrite(response, "done", { reply: carded.reply, card: carded.card.id, cardUrl: carded.card.url });
+        } else {
+          const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
+          if (waiter) {
+            const result = await waiter;
+            await completeQuickTurnCard(carded, result.summary);
+            sseWrite(response, "done", { reply: result.summary });
+          }
         }
       } catch (err) {
         sseWrite(response, "error", { error: err.message });

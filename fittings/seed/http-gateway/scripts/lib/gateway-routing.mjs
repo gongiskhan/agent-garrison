@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { MultiRuntimePool, ClaudeCodeAdapter } from "@garrison/claude-pty";
+import * as cards from "./autonomous-cards.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -462,140 +463,36 @@ export class RoutedGateway {
   // Resolve the board's base URL from the kanban-loop status file (URL-link
   // contract, never a hardcoded port — the same discovery the gateway uses for
   // every fitting). Returns the base URL or null (board down / not installed).
+  // Implementation shared with souls mode: lib/autonomous-cards.mjs.
   _boardBase() {
-    try {
-      const statusFile = path.join(
-        process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"),
-        "ui-fittings",
-        "kanban-loop.json"
-      );
-      const status = JSON.parse(fs.readFileSync(statusFile, "utf8"));
-      return status.url || `http://127.0.0.1:${status.port}`;
-    } catch {
-      return null;
-    }
+    return cards.boardBase();
   }
 
-  // D19: register a turn as a card on the board (POST + engine-context move,
-  // exactly as the engine does — x-garrison-engine). The default lands the card
-  // in Plan so the run engine dispatches it (significant work); a quick card
-  // (opts.quick) lands in Implement and carries quick:true, and the caller
-  // auto-advances it to Done at turn completion (completeQuickCard). Discovery
-  // via _boardBase. Returns {id, url} or null (board down / not installed → the
-  // caller falls back inline; never hard-blocks).
+  // D19: register a turn as a card on the board. Thin wrapper over the shared
+  // implementation (lib/autonomous-cards.mjs) — deps resolve at CALL time from
+  // this.core/this.logFn so prototype-created receivers (tests) keep working.
   async createAutonomousCard(message, classification, opts = {}) {
-    const targetList = opts.targetList ?? "plan";
-    try {
-      const base = this._boardBase();
-      if (!base) throw new Error("kanban-loop status file not found");
-      const payload = this.core.buildAutonomousCardPayload
-        ? this.core.buildAutonomousCardPayload({
-            brief: message,
-            project: opts.project ?? null,
-            workKind: opts.workKind ?? null,
-            phases: opts.phases ?? null,
-            taskType: classification?.taskType,
-            tier: classification?.tier
-          })
-        : { description: message, goalMode: true };
-      if (opts.quick) payload.quick = true; // D19: mark trivial-plan cards for the Done quick-tasks strip
-      const created = await fetch(`${base}/cards`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!created.ok) throw new Error(`board POST /cards → ${created.status}`);
-      const card = await created.json();
-      const id = card.id || card.card?.id;
-      if (!id) throw new Error("board POST /cards returned no id");
-      // Move to the target list (engine-context move). The rev from the create
-      // response goes STALE almost immediately for no-project cards (the board
-      // fires project inference fire-and-forget, whose first act bumps the rev) —
-      // so on ANY failed move, re-GET the card for a fresh rev and retry, up to 3
-      // times. A card left in Backlog would be silently stranded (Backlog is a
-      // manual list, never auto-dispatched), which is exactly the failure the
-      // retry exists to prevent.
-      let rev = card.rev ?? card.card?.rev ?? 0;
-      let movedOk = false;
-      for (let attempt = 0; attempt < 3 && !movedOk; attempt++) {
-        const moved = await fetch(`${base}/cards/${id}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
-          body: JSON.stringify({ list: targetList, rev })
-        });
-        if (moved.ok) { movedOk = true; break; }
-        this.logFn({ kind: "autonomous-card-move-retry", id, attempt, status: moved.status });
-        // refresh the rev (409 = changed under us; anything else → re-read too)
-        try {
-          const fresh = await fetch(`${base}/cards/${id}`);
-          if (fresh.ok) {
-            const doc = await fresh.json();
-            rev = doc.card?.rev ?? doc.rev ?? rev;
-            const list = doc.card?.list ?? doc.list;
-            if (list === targetList) { movedOk = true; break; } // someone already moved it
-          }
-        } catch { /* retry with the old rev */ }
-        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
-      }
-      if (!movedOk) {
-        // The run would be invisible on a manual list — surface the failure to
-        // the caller instead of claiming success.
-        throw new Error(`board move to ${targetList} failed after retries (card ${id} left in backlog)`);
-      }
-      const url = `${base}/#/cards/${id}`;
-      this.logFn({ kind: "autonomous-card-created", id, url, list: targetList, quick: opts.quick === true, taskType: classification?.taskType, tier: classification?.tier });
-      return { id, url };
-    } catch (err) {
-      this.logFn({ kind: "autonomous-card-failed", error: err?.message });
-      return null;
-    }
+    return cards.createAutonomousCard({
+      message,
+      classification,
+      opts,
+      buildPayload: this.core?.buildAutonomousCardPayload ?? null,
+      logFn: (e) => this.logFn(e)
+    });
   }
 
-  // D19: a quick card runs inline; at turn completion the gateway advances it
-  // Implement → Done (engine-context move). Re-GET for a fresh rev and retry the
-  // move — the board bumps the rev under us the same way it does on create.
-  // Returns true when the card reaches Done. Never throws (a stranded quick card
-  // is a visible board state, not a turn failure).
+  // D19: advance a quick card Implement → Done at turn completion (shared impl).
   async completeQuickCard(id) {
-    try {
-      const base = this._boardBase();
-      if (!base || !id) return false;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        let rev = 0;
-        try {
-          const fresh = await fetch(`${base}/cards/${id}`);
-          if (fresh.ok) {
-            const doc = await fresh.json();
-            rev = doc.card?.rev ?? doc.rev ?? 0;
-            if ((doc.card?.list ?? doc.list) === "done") return true; // already there
-          }
-        } catch { /* fall through with rev 0 */ }
-        const moved = await fetch(`${base}/cards/${id}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
-          body: JSON.stringify({ list: "done", rev })
-        });
-        if (moved.ok) {
-          this.logFn({ kind: "quick-card-done", id });
-          return true;
-        }
-        await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
-      }
-      this.logFn({ kind: "quick-card-done-failed", id });
-      return false;
-    } catch (err) {
-      this.logFn({ kind: "quick-card-done-failed", id, error: err?.message });
-      return false;
-    }
+    return cards.completeQuickCard({ id, logFn: (e) => this.logFn(e) });
   }
 
   // D19: a turn is "task-shaped" (worth a card) when its task type names real
   // work — code / research / writing / image / video / ops. Plain conversation
   // (`other`) and the engine's own pipeline verbs are NOT carded here (the latter
   // arrive card-originated). Matches RUN_SPEC A14.
-  static TASK_SHAPED = new Set(["code", "research", "writing", "image", "video", "ops"]);
+  static TASK_SHAPED = cards.TASK_SHAPED;
   isTaskShaped(classification) {
-    return !!classification && RoutedGateway.TASK_SHAPED.has(classification.taskType);
+    return cards.isTaskShaped(classification);
   }
 
   // D19 session→card memory. A follow-up turn about the same task (same session
@@ -620,21 +517,9 @@ export class RoutedGateway {
   // True only when the card is STILL an active engine run: it exists and sits on
   // a non-terminal, non-parked pipeline list with no abandonment revert prepared.
   // A fetch failure counts as NOT live (safe: the caller registers fresh).
+  // Implementation shared with souls mode: lib/autonomous-cards.mjs.
   async _cardIsLive(cardId) {
-    try {
-      const base = this._boardBase();
-      if (!base || !cardId) return false;
-      const r = await fetch(`${base}/cards/${cardId}`);
-      if (!r.ok) return false; // absent / deleted
-      const doc = await r.json();
-      const card = doc.card ?? doc;
-      const list = card.list;
-      if (!list || list === "done" || list === "needs-attention") return false; // terminal / parked
-      if (card.preparedRevert) return false; // abandoned (revert prepared)
-      return true;
-    } catch {
-      return false;
-    }
+    return cards.cardIsLive(cardId);
   }
 
   rememberCard(sessionKey, entry) {
