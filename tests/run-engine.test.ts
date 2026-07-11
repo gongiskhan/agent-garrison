@@ -283,9 +283,15 @@ describe("in-process advance (D13)", () => {
     // no gate evidence → parks
     const parked = await advanceCardPhase({ root: tmp, board, card, verdict: "implement", cwd: tmp });
     expect(parked.outcome.status).toBe("needs-attention");
-    // with evidence → moves
+    // with evidence → moves. Coordination is ON in the seed policy (S6), so the
+    // plan advance also requires the plan's published touch-set (Q1 enforcement).
     const card2 = await makeCard(tmp, { id: "01TESTCARD0000000000000002", list: "plan" });
     writeGateEvidence(tmp, card2.runDir, "plan");
+    writeFileSync(
+      path.join(path.resolve(tmp, card2.runDir), "touch-set.json"),
+      JSON.stringify({ version: 1, cardId: card2.id, files: ["src/x.ts"], dirs: [], surfaces: [], exclusive: [] }),
+      "utf8"
+    );
     const ok = await advanceCardPhase({ root: tmp, board, card: card2, verdict: "implement", cwd: tmp });
     expect(ok.outcome.status).toBe("moved");
     expect(ok.card.list).toBe("implement");
