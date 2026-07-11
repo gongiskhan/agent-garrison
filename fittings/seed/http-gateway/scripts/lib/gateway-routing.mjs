@@ -747,9 +747,17 @@ export async function probeRuntimeBridge(dir, engine, opts = {}) {
     }, timeoutMs);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
+    // A spawn-level error (e.g. ENOENT) means the child never ran — there is
+    // nothing to reap and no stderr; rejecting here is correct. If an error
+    // ever fires post-spawn, the promise's single-settle semantics make the
+    // race with `close` benign (first settle wins). Same remediation text.
     child.on("error", (e) => {
       clearTimeout(timer);
-      reject(new Error(`${engine} bridge probe failed to start: ${String(e?.message || e)}`));
+      reject(
+        new Error(
+          `${engine} bridge probe failed to start: ${String(e?.message || e)} — install/authenticate the ${engine} CLI, or switch primaryRuntime back to claude-code-runtime in the composer`
+        )
+      );
     });
     child.on("close", (code) => {
       clearTimeout(timer);
