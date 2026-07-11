@@ -330,18 +330,27 @@ export interface GarrisonMetadata {
 }
 
 // D3: the declared provider-override mechanism of a runtime Fitting.
-export interface ProviderMechanism {
-  type: "env" | "config-file";
-  base_url_env?: string;
-  auth_env?: string;
-  model_arg?: string;
-  model_env?: string;
-  config_file?: string;
-  config_format?: "json" | "toml";
-  config_key?: string;
-  model_key?: string;
-  notes?: string;
-}
+// Discriminated on `type` so consumers (the composer target editor, the launch
+// wiring) get the arm-specific required fields without re-validating. The env
+// arm's "declares at least one override channel" rule is enforced by the zod
+// refinement only — TS cannot express it without an unusable union explosion.
+export type ProviderMechanism =
+  | {
+      type: "env";
+      base_url_env?: string;
+      auth_env?: string;
+      model_arg?: string;
+      model_env?: string;
+      notes?: string;
+    }
+  | {
+      type: "config-file";
+      config_file: string;
+      config_format: "json" | "toml";
+      config_key?: string;
+      model_key?: string;
+      notes?: string;
+    };
 
 // D5: one native settings file surfaced by the generic Quarters tier.
 export interface QuartersSettingsFile {
@@ -350,17 +359,31 @@ export interface QuartersSettingsFile {
   label?: string;
 }
 
-// D5: the Quarters descriptor a runtime Fitting ships.
-export interface QuartersDescriptor {
-  tier: "deep" | "generic";
-  id: string;
-  home_dir?: string;
-  settings_files?: QuartersSettingsFile[];
-  context_file?: string;
-  mcp_config?: { path: string; format: "json" | "toml"; key?: string };
-  log_paths?: string[];
-  categories?: string[];
-}
+// D5: the Quarters descriptor a runtime Fitting ships. Discriminated on `tier`:
+// the generic tier is rendered FROM the descriptor, so its home_dir is required
+// (the zod refinement enforces it at parse time; the union carries it to
+// consumers so the generic renderer never null-checks its anchor directory).
+export type QuartersDescriptor =
+  | {
+      tier: "deep";
+      id: string;
+      home_dir?: string;
+      settings_files?: QuartersSettingsFile[];
+      context_file?: string;
+      mcp_config?: { path: string; format: "json" | "toml"; key?: string };
+      log_paths?: string[];
+      categories?: string[];
+    }
+  | {
+      tier: "generic";
+      id: string;
+      home_dir: string;
+      settings_files?: QuartersSettingsFile[];
+      context_file?: string;
+      mcp_config?: { path: string; format: "json" | "toml"; key?: string };
+      log_paths?: string[];
+      categories?: string[];
+    };
 
 export interface RatingInfo {
   github_stars_url?: string;

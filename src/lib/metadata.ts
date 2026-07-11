@@ -109,31 +109,38 @@ const connectorSpecSchema = z.object({
 // routing target, just without provider overrides. Strict: an unknown key here
 // is a manifest bug and fails the parse loudly rather than being dropped.
 const providerMechanismSchema = z
-  .object({
-    type: z.enum(["env", "config-file"]),
-    base_url_env: z.string().min(1).optional(),
-    auth_env: z.string().min(1).optional(),
-    model_arg: z.string().min(1).optional(),
-    model_env: z.string().min(1).optional(),
-    config_file: z.string().min(1).optional(),
-    config_format: z.enum(["json", "toml"]).optional(),
-    config_key: z.string().min(1).optional(),
-    model_key: z.string().min(1).optional(),
-    notes: z.string().optional()
-  })
-  .strict()
+  .discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("env"),
+        base_url_env: z.string().min(1).optional(),
+        auth_env: z.string().min(1).optional(),
+        model_arg: z.string().min(1).optional(),
+        model_env: z.string().min(1).optional(),
+        notes: z.string().optional()
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("config-file"),
+        config_file: z
+          .string({ required_error: "provider_mechanism type 'config-file' requires config_file and config_format" })
+          .min(1),
+        config_format: z.enum(["json", "toml"], {
+          required_error: "provider_mechanism type 'config-file' requires config_file and config_format"
+        }),
+        config_key: z.string().min(1).optional(),
+        model_key: z.string().min(1).optional(),
+        notes: z.string().optional()
+      })
+      .strict()
+  ])
   .superRefine((m, context) => {
     if (m.type === "env" && !m.base_url_env && !m.auth_env && !m.model_arg && !m.model_env) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
           "provider_mechanism type 'env' declares none of base_url_env/auth_env/model_arg/model_env — declare at least one or omit the block"
-      });
-    }
-    if (m.type === "config-file" && (!m.config_file || !m.config_format)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "provider_mechanism type 'config-file' requires config_file and config_format"
       });
     }
   });
@@ -150,33 +157,49 @@ const quartersSettingsFileSchema = z
 // registered deep implementation by id (claude-code today); tier "generic"
 // drives the descriptor-rendered generic surface and therefore must say where
 // the runtime's native config lives. Strict for the same loudness reason.
-const quartersDescriptorSchema = z
+const quartersMcpConfigSchema = z
   .object({
-    tier: z.enum(["deep", "generic"]),
-    id: z.string().regex(/^[a-z][a-z0-9-]*$/, "quarters_descriptor id must be kebab-case"),
-    home_dir: z.string().min(1).optional(),
-    settings_files: z.array(quartersSettingsFileSchema).optional(),
-    context_file: z.string().min(1).optional(),
-    mcp_config: z
-      .object({
-        path: z.string().min(1),
-        format: z.enum(["json", "toml"]),
-        key: z.string().min(1).optional()
-      })
-      .strict()
-      .optional(),
-    log_paths: z.array(z.string().min(1)).optional(),
-    categories: z.array(z.string().min(1)).optional()
+    path: z.string().min(1),
+    format: z.enum(["json", "toml"]),
+    key: z.string().min(1).optional()
   })
-  .strict()
-  .superRefine((d, context) => {
-    if (d.tier === "generic" && !d.home_dir) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "quarters_descriptor tier 'generic' requires home_dir (the runtime's native config directory)"
-      });
-    }
-  });
+  .strict();
+
+const quartersDescriptorIdSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/, "quarters_descriptor id must be kebab-case");
+
+const quartersDescriptorSchema = z.discriminatedUnion("tier", [
+  z
+    .object({
+      tier: z.literal("deep"),
+      id: quartersDescriptorIdSchema,
+      home_dir: z.string().min(1).optional(),
+      settings_files: z.array(quartersSettingsFileSchema).optional(),
+      context_file: z.string().min(1).optional(),
+      mcp_config: quartersMcpConfigSchema.optional(),
+      log_paths: z.array(z.string().min(1)).optional(),
+      categories: z.array(z.string().min(1)).optional()
+    })
+    .strict(),
+  z
+    .object({
+      tier: z.literal("generic"),
+      id: quartersDescriptorIdSchema,
+      home_dir: z
+        .string({
+          required_error:
+            "quarters_descriptor tier 'generic' requires home_dir (the runtime's native config directory)"
+        })
+        .min(1),
+      settings_files: z.array(quartersSettingsFileSchema).optional(),
+      context_file: z.string().min(1).optional(),
+      mcp_config: quartersMcpConfigSchema.optional(),
+      log_paths: z.array(z.string().min(1)).optional(),
+      categories: z.array(z.string().min(1)).optional()
+    })
+    .strict()
+]);
 
 const spawnConfigSchema = z.object({
   preset: z.enum(["claude_code", "none"]).default("claude_code"),

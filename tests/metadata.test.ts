@@ -341,8 +341,11 @@ describe("provider_mechanism block (D3)", () => {
         model_arg: "--model"
       }
     });
-    expect(m.provider_mechanism?.type).toBe("env");
-    expect(m.provider_mechanism?.base_url_env).toBe("ANTHROPIC_BASE_URL");
+    const pm = m.provider_mechanism!;
+    expect(pm.type).toBe("env");
+    if (pm.type === "env") {
+      expect(pm.base_url_env).toBe("ANTHROPIC_BASE_URL");
+    }
   });
 
   it("parses a config-file mechanism (codex shape)", () => {
@@ -357,7 +360,11 @@ describe("provider_mechanism block (D3)", () => {
         model_key: "model"
       }
     });
-    expect(m.provider_mechanism?.config_format).toBe("toml");
+    const pm = m.provider_mechanism!;
+    expect(pm.type).toBe("config-file");
+    if (pm.type === "config-file") {
+      expect(pm.config_format).toBe("toml");
+    }
   });
 
   it("is optional (a runtime with no mechanism is still a target)", () => {
@@ -449,5 +456,36 @@ describe("quarters_descriptor block (D5)", () => {
         quarters_descriptor: { tier: "deep", id: "Claude Code" }
       })
     ).toThrow(/kebab-case/);
+  });
+});
+
+// Determinism-ratchet guard for the S1 codex finding: the parsed types must
+// narrow on their discriminants. If the TS unions drift loose again (or the
+// zod schemas stop inferring the arms), the `const cf: string` / `const hd:
+// string` assignments below become compile errors and tsc fails the wall.
+describe("discriminated narrowing guard (S1 ratchet)", () => {
+  it("narrows provider_mechanism and quarters_descriptor on their discriminants", () => {
+    const m = parseGarrisonMetadata({
+      ...baseMetadata,
+      faculty: "runtimes" as const,
+      component_shape: "cli-skill" as const,
+      provides: [{ kind: "runtime", name: "codex" }],
+      provider_mechanism: { type: "config-file", config_file: "~/.codex/config.toml", config_format: "toml" },
+      quarters_descriptor: { tier: "generic", id: "codex", home_dir: "~/.codex" }
+    });
+    const pm = m.provider_mechanism!;
+    expect(pm.type).toBe("config-file");
+    if (pm.type === "config-file") {
+      const cf: string = pm.config_file;
+      const fmt: "json" | "toml" = pm.config_format;
+      expect(cf).toContain("config.toml");
+      expect(fmt).toBe("toml");
+    }
+    const qd = m.quarters_descriptor!;
+    expect(qd.tier).toBe("generic");
+    if (qd.tier === "generic") {
+      const hd: string = qd.home_dir;
+      expect(hd).toBe("~/.codex");
+    }
   });
 });
