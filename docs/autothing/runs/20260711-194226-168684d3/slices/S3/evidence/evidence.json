@@ -1,0 +1,44 @@
+[
+ {
+  "beat": "ac1",
+  "criterionId": "AC-1 picker lists composition runtimes (disk feed)",
+  "assert": "functional assert + highlight (see storyboard)",
+  "result": "pass"
+ },
+ {
+  "beat": "ac2",
+  "criterionId": "AC-2 uninstalled runtime disabled",
+  "assert": "functional assert + highlight (see storyboard)",
+  "result": "pass"
+ },
+ {
+  "beat": "ac3",
+  "criterionId": "AC-3 codex pick autosaves",
+  "assert": "functional assert + highlight (see storyboard)",
+  "result": "pass"
+ },
+ {
+  "beat": "ac3-file",
+  "criterionId": "AC-3 policy.json carries codex-runtime",
+  "assert": "functional assert + highlight (see storyboard)",
+  "result": "pass"
+ },
+ {
+  "beat": "ac4",
+  "criterionId": "AC-4 switch back restores default",
+  "assert": "functional assert + highlight (see storyboard)",
+  "result": "pass"
+ },
+ {
+  "beat": "ac5",
+  "criterionId": "AC-5 provider select only on mechanism-bearing target",
+  "assert": "functional assert + highlight (see storyboard)",
+  "result": "pass"
+ },
+ {
+  "beat": "ac4-file",
+  "criterionId": "AC-4 policy.json restored to claude-code-runtime",
+  "assert": "functional assert + highlight (see storyboard)",
+  "result": "pass"
+ }
+]

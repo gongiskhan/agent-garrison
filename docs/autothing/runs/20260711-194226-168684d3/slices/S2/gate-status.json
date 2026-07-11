@@ -1,0 +1,64 @@
+{
+ "slice": "S2-providers-policy",
+ "kind": "api",
+ "commits": [
+  "c79627d",
+  "7e19e34",
+  "ef59f8e (minor fix)"
+ ],
+ "attempts": 2,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "full vitest 1929 passed/12 skipped post-fix; S2 suites 72/72 + 3 ratchet tests"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "gitleaks clean, semgrep auto clean on changed files"
+  },
+  "codexSliceReview": {
+   "verdict": "needs-work->fixed",
+   "by": "codex exec (isolated CODEX_HOME)",
+   "actualModel": "gpt-5.5 high",
+   "detail": "2 confirmed: providers check skipped on default path; null-baseUrl non-plan entry masqueraded as plan path -> fixed in 7e19e34; re-verify resolved:true",
+   "ratchetGuard": "tests/runtime-selection.test.ts 'buildPrimaryRuntimeEnv loud paths (S2 ratchet)'"
+  },
+  "adversarialReview": {
+   "verdict": "approve",
+   "by": "fresh-context agent review-s2",
+   "actualModel": "claude-fable-5",
+   "evidence": {
+    "tsc": "0",
+    "vitest": "full 1929/0 + targeted 75/75"
+   },
+   "minorAccepted": "stage-b resolveProviderSpec kindless null-baseUrl masquerade -> fixed in ef59f8e with ratchet test (symmetry with 7e19e34)"
+  },
+  "adversarialTest": {
+   "status": "skipped",
+   "reason": "kind-conditional (api; batched run-level pass)"
+  },
+  "design": {
+   "status": "skipped",
+   "reason": "kind-conditional (api)"
+  },
+  "walkthrough": {
+   "status": "skipped",
+   "reason": "kind-conditional (api; asciinema evidence)"
+  }
+ },
+ "evidence": {
+  "cast": "s2-gates.cast",
+  "castSha256": "e6a38097c9dfcb559a6f085f19ec3358537565f0a470f8b36f46c2a0c780bff9",
+  "castBytes": 618
+ },
+ "sentinel": "PROVIDERS-POLICY-OK",
+ "status": "passed"
+}

@@ -1,0 +1,84 @@
+{
+ "slice": "S3-primary-select-composer",
+ "kind": "mixed",
+ "commits": [
+  "ef59f8e",
+  "ec6e30d",
+  "3732dfe",
+  "9cac6dc",
+  "39e8427",
+  "0b1640b",
+  "f40ab53"
+ ],
+ "attempts": 3,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "full vitest 1945+/0; committed e2e tests/e2e/primary-runtime.spec.ts (gateway-down acceptance, all-viewport 13 passed/1 documented-skip); endpoint suite 7/7 incl. fast-check property"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "gitleaks clean, semgrep clean; path-containment boundary hardened with property tests"
+  },
+  "codexSliceReview": {
+   "verdict": "needs-work->fixed",
+   "by": "codex exec (isolated CODEX_HOME)",
+   "actualModel": "gpt-5.5 high",
+   "detail": "1 confirmed: fitting-id path traversal in readRuntimeFittings -> slug grammar + containment backstop (3732dfe); re-verify resolved:true + 1 new minor (String coercion) -> fixed (9cac6dc)",
+   "ratchetGuard": "tests/runtime-fittings-endpoint.test.ts containment describe (examples + fc property)"
+  },
+  "adversarialReview": {
+   "verdict": "approve",
+   "by": "fresh-context review-s3",
+   "actualModel": "claude-fable-5",
+   "detail": "3 minors accepted -> fixed in 39e8427 (default-id symmetry, dead prop, surfaced 200-warnings)",
+   "evidence": {
+    "tsc": "0",
+    "vitest": "full 1945/0",
+    "e2e": "2 passed, only own-port server booted"
+   }
+  },
+  "adversarialTest": {
+   "verdict": "pass",
+   "by": "fresh-context advtest-s3 (own probes, file side-channel)",
+   "detail": "all 5 acceptance clauses verified independently; robustness probes passed (traversal, type-guards, restart-heal, debounce); 2 observations hardened same-run (PUT mutex f40ab53 + loud load-path check)"
+  },
+  "design": {
+   "verdict": "clean-with-notes",
+   "by": "ux-qa capture (lead)",
+   "detail": "contrast picker 16.49:1, label 4.97:1 (both pass 4.5:1); select h=28px (above 24px floor, below 44px comfort - matches app compact idiom; note only); mobile 390px no h-overflow, graceful wrap; found+fixed a REAL blocker during capture (default primary unselectable when composed-but-uninstalled, 0b1640b)",
+   "evidence": {
+    "s3-desktop-1440.png": {
+     "sha256": "361a50b972742409",
+     "bytes": 88714
+    },
+    "s3-desktop-saved.png": {
+     "sha256": "88a4c46475f9019d",
+     "bytes": 89033
+    },
+    "s3-mobile-390.png": {
+     "sha256": "51040cade7693e50",
+     "bytes": 41725
+    }
+   }
+  },
+  "walkthrough": {
+   "status": "verified",
+   "mode": "evidence",
+   "video": "/home/ggomes/.walkthrough/runs/agent-garrison/runtimes-v1/2026-07-11_22-23-51/final.mp4",
+   "gallery": "http://100.88.165.46:8099/",
+   "beats": "7/7 pass (3rd recording; first two failed on storyboard probe bugs, classified test-bug)",
+   "evidence": "evidence/evidence.json"
+  }
+ },
+ "sentinel": "PRIMARY-SELECT-OK",
+ "status": "passed"
+}

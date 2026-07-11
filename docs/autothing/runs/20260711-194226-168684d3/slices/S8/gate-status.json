@@ -1,0 +1,60 @@
+{
+ "slice": "S8-projection-per-primary",
+ "kind": "api",
+ "commits": [
+  "3c9d625",
+  "184cac0",
+  "273168a",
+  "9872333 (review round)"
+ ],
+ "attempts": 3,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "projection unit tests + ratchets; COMMITTED gated live smoke (codex-primary-smoke.integration.test.ts) run live once: PASSED (real codex session, [route:] token asserted)"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "gitleaks+semgrep clean"
+  },
+  "codexSliceReview": {
+   "verdict": "needs-work->fixed",
+   "by": "codex exec (inline diff)",
+   "actualModel": "gpt-5.5 high",
+   "detail": "clobber guard (184cac0); re-verify raised silent-refusal at up() -> fixed 273168a"
+  },
+  "adversarialReview": {
+   "verdict": "needs-work->fixed",
+   "by": "fresh-context review-s7s8",
+   "detail": "medium: smoke not committed -> committed gated integration test (9872333, live-verified); high-remediated: silent refusal (already 273168a); low: marker literal drift -> shared constant"
+  },
+  "adversarialTest": {
+   "verdict": "pass",
+   "by": "run-level batched advtest-api",
+   "detail": "projection surface: marker+content written, no-op engines, hand-authored refusal with file untouched (23/23 probes overall)"
+  },
+  "design": {
+   "status": "skipped",
+   "reason": "kind-conditional (api)"
+  },
+  "walkthrough": {
+   "status": "skipped",
+   "reason": "kind-conditional (api; asciinema cast slices/S8/s8-gates.cast holds the live-smoke transcript)"
+  }
+ },
+ "evidence": {
+  "cast": "s8-gates.cast",
+  "castSha256": "6a6114931847ae9237cd9f57891b3690a14701dc403aa9fbe7d2087f29d171a5",
+  "castBytes": 578
+ },
+ "sentinel": "PROJECTION-PRIMARY-OK",
+ "status": "passed"
+}

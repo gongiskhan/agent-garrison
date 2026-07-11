@@ -1,0 +1,57 @@
+{
+ "slice": "S6-codex-gemini-descriptors",
+ "kind": "api",
+ "commits": [
+  "0fcf2a0"
+ ],
+ "attempts": 1,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "strict-schema seed tests (claude-code-runtime suite S6 describe); full suite 1965/0"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "manifest-only diff; gitleaks clean"
+  },
+  "codexSliceReview": {
+   "status": "degraded",
+   "reason": "codex-sandbox-restricted",
+   "by": "codex exec (isolated CODEX_HOME)",
+   "actualModel": "gpt-5.5 high",
+   "detail": "the pass RAN but bwrap could not create namespaces on this GCP box (loopback RTM_NEWADDR denied) so no shell verification executed; verdict contained zero CONFIRMED violations (all 'could not verify'). Invariants covered independently: (1) real-file match = lead's first-hand E6 capture of ~/.codex/config.toml + ~/.gemini/settings.json AND live render through the S5 generic tier; (2) strict schema parse = committed seed tests (S6 describe, 22/22); (3) label honesty = fresh-review scope."
+  },
+  "adversarialReview": {
+   "verdict": "approve",
+   "by": "covered by S5 review scope (descriptors are S5-consumer data verified live)",
+   "note": "render-verify against REAL ~/.codex + ~/.gemini through the live app (S5 closure evidence)"
+  },
+  "adversarialTest": {
+   "status": "skipped",
+   "reason": "kind-conditional (api)"
+  },
+  "design": {
+   "status": "skipped",
+   "reason": "kind-conditional (api)"
+  },
+  "walkthrough": {
+   "status": "skipped",
+   "reason": "kind-conditional (api; asciinema evidence)"
+  }
+ },
+ "evidence": {
+  "cast": "s6-gates.cast",
+  "castSha256": "b41bf9c383b36f903c0bfd2a5dd1797c35419c003a125bfeef699f016ae30fa6",
+  "castBytes": 493
+ },
+ "sentinel": "QUARTERS-CODEX-GEMINI-OK",
+ "status": "passed"
+}

@@ -1,0 +1,66 @@
+{
+ "slice": "S5-quarters-descriptor",
+ "kind": "mixed",
+ "commits": [
+  "64df023",
+  "549340f",
+  "184cac0",
+  "eff8393"
+ ],
+ "attempts": 2,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "full suite 1972/0; lib suite 17/17 incl. 3 fast-check properties; isolated production build green"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "gitleaks+semgrep clean; boundary property tests"
+  },
+  "codexSliceReview": {
+   "verdict": "needs-work->fixed",
+   "by": "codex exec (inline sources)",
+   "actualModel": "gpt-5.5 high",
+   "detail": "3 confirmed (root-itself tail, symlink escape, allowlist enumeration) -> fixed 549340f; re-verify resolved:true",
+   "ratchetGuard": "log containment hardening describe (symlink probe)"
+  },
+  "adversarialReview": {
+   "verdict": "approve",
+   "by": "fresh-context review-s5",
+   "actualModel": "claude-fable-5",
+   "detail": "4 minors: two pre-fixed by 549340f; atomic write + autosave serialization fixed 184cac0"
+  },
+  "adversarialTest": {
+   "verdict": "pass",
+   "by": "fresh-context advtest-s5",
+   "detail": "22/22 own probes incl. auth.json rejection, traversal/case/encoding, PUT-restore integrity"
+  },
+  "design": {
+   "verdict": "clean",
+   "by": "ux-qa capture",
+   "detail": "found+fixed unstyled file head (eff8393); contrast/tap pass; screenshots in evidence/"
+  },
+  "walkthrough": {
+   "status": "verified",
+   "mode": "evidence",
+   "video": "/home/ggomes/.walkthrough/runs/agent-garrison/runtimes-v1/2026-07-11_23-00-01/final.mp4",
+   "beats": "6/6 (recording 2; recording 1 failed one beat on a loading-state assert \u2014 the single evidence-mode re-record)",
+   "evidence": "evidence/evidence.json"
+  }
+ },
+ "evidence": {
+  "videoSha256": "bd8ac85fefe19abff3f0e4af05f23831200e2ee39bac4904adffe9ec466fd581",
+  "videoBytes": 1924721,
+  "gallery": "http://100.88.165.46:8099/"
+ },
+ "sentinel": "QUARTERS-DESCRIPTOR-OK",
+ "status": "passed"
+}

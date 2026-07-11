@@ -1,0 +1,63 @@
+{
+ "slice": "S1-claude-code-runtime-fitting",
+ "kind": "api",
+ "commits": [
+  "ea871d7",
+  "fa7e46c"
+ ],
+ "attempts": 2,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "full vitest 1921 passed/12 skipped after fix; targeted suites 87/87; committed re-runnable (metadata + claude-code-runtime suites)"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "gitleaks clean (staged+HEAD), semgrep auto clean on changed files"
+  },
+  "codexSliceReview": {
+   "verdict": "needs-work->fixed",
+   "by": "codex exec",
+   "actualModel": "gpt-5.5 high",
+   "detail": "2 confirmed invariant-2 violations (interfaces looser than schemas) -> discriminated unions in fa7e46c; re-verify resolved:true, new_violations:[]; first call discarded (MCP-flailing inconsistent verdict) and its basic-memory side-effect remediated (see RUN_LOG DEVIATION)",
+   "ratchetGuard": "tests/metadata.test.ts 'discriminated narrowing guard (S1 ratchet)'"
+  },
+  "adversarialReview": {
+   "verdict": "approve",
+   "by": "fresh-context agent review-s1b",
+   "actualModel": "claude-fable-5",
+   "evidence": {
+    "tsc": "0",
+    "vitest": "66/66 across metadata+claude-code-runtime+capabilities+composition-invariants"
+   },
+   "note": "first reviewer (review-s1) never returned a verdict (session-wide agent-notification failure; see RUN_LOG); verdict from the second fresh-context reviewer via file side-channel"
+  },
+  "adversarialTest": {
+   "status": "skipped",
+   "reason": "kind-conditional (api slice; batched run-level pass covers API surface)"
+  },
+  "design": {
+   "status": "skipped",
+   "reason": "kind-conditional (api slice)"
+  },
+  "walkthrough": {
+   "status": "skipped",
+   "reason": "kind-conditional (api slice; asciinema evidence recorded instead)"
+  }
+ },
+ "evidence": {
+  "cast": "s1-gates.cast",
+  "castSha256": "6b055e4e3f58bcfd7e6b1cff9e5f0a20dca06f0b1449fc2c890416a2b1b3aec2",
+  "castBytes": 723
+ },
+ "sentinel": "RUNTIME-CC-FIT-OK",
+ "status": "passed"
+}
