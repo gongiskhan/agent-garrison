@@ -217,3 +217,33 @@ describe("mergeRuntimeTargets (S3)", () => {
     expect(merged.targets.map((t) => t.id)).toEqual(["cc-opus-high", "fitted-agent-sdk-runtime"]);
   });
 });
+
+// Ratchet guards for the S2 codex findings: the loud paths must stay loud.
+describe("buildPrimaryRuntimeEnv loud paths (S2 ratchet)", () => {
+  it("throws on a missing providers section EVEN for the default anthropic-plan path", () => {
+    const d = resolvePrimaryRuntime({ primaryRuntimeId: undefined, runtimeEntries: [ccRuntime] });
+    expect(() => buildPrimaryRuntimeEnv(d, () => undefined, [] as PolicyProvider[])).toThrow(
+      /no providers section supplied/
+    );
+  });
+
+  it("a malformed non-plan provider with null baseUrl throws (never silently the plan path)", () => {
+    const d = resolvePrimaryRuntime({
+      primaryRuntimeId: "claude-code-runtime",
+      runtimeEntries: [{ ...ccRuntime, config: { provider: "broken-cloud" } }]
+    });
+    const providers: PolicyProvider[] = [{ id: "broken-cloud", kind: "cloud-oss", baseUrl: null }];
+    expect(() => buildPrimaryRuntimeEnv(d, () => undefined, providers)).toThrow(/requires a base URL/);
+  });
+
+  it("an explicit base_url override rescues a configurable entry", () => {
+    const d = resolvePrimaryRuntime({
+      primaryRuntimeId: "claude-code-runtime",
+      runtimeEntries: [{ ...ccRuntime, config: { provider: "broken-cloud", base_url: "http://proxy:4000" } }]
+    });
+    const providers: PolicyProvider[] = [{ id: "broken-cloud", kind: "cloud-oss", baseUrl: null, dummyToken: "t" }];
+    const { env, providerLaunch } = buildPrimaryRuntimeEnv(d, () => undefined, providers);
+    expect(providerLaunch).toBe(true);
+    expect(env.ANTHROPIC_BASE_URL).toBe("http://proxy:4000");
+  });
+});

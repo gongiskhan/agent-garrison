@@ -143,17 +143,22 @@ export function buildPrimaryRuntimeEnv(
     env.GARRISON_MODEL = String(config.model);
   }
 
+  // The providers section is REQUIRED on every path — including the default
+  // anthropic-plan one, which needs no provider data but must still fail loud
+  // when the call-site plumbing is broken (matching stage-b's buildLaunchEnv;
+  // a silent default-path pass would mask the bug until a provider flip).
+  if (!Array.isArray(providers) || !providers.length) {
+    throw new Error(
+      `primary runtime ${descriptor.runtimeId}: no providers section supplied — ` +
+        `pass the policy's providers (providers are policy data, P2).`
+    );
+  }
+
   const provider = String(config.provider ?? "anthropic-plan");
   if (provider === "anthropic-plan") {
     return { env, providerLaunch: false };
   }
 
-  if (!Array.isArray(providers) || !providers.length) {
-    throw new Error(
-      `provider "${provider}" for primary runtime ${descriptor.runtimeId} cannot be resolved: ` +
-        `no providers section supplied — pass the policy's providers (providers are policy data, P2).`
-    );
-  }
   const entry = providers.find((p) => p && p.id === provider);
   if (!entry) {
     throw new Error(
@@ -161,12 +166,12 @@ export function buildPrimaryRuntimeEnv(
         `expected one of ${providers.map((p) => p.id).join(", ")}.`
     );
   }
-  // A policy entry with a null baseUrl is the Max-OAuth path under another id
-  // (e.g. the agent-sdk "anthropic" spelling) — same early return as the plan.
-  if (entry.kind === "anthropic-plan" || entry.baseUrl == null) {
-    if (entry.baseUrl == null && !(config.base_url && String(config.base_url).trim().length)) {
-      return { env, providerLaunch: false };
-    }
+  // ONLY an explicit anthropic-plan kind is the Max-OAuth no-launch path (e.g.
+  // the agent-sdk "anthropic" spelling). A null baseUrl on any OTHER kind is a
+  // malformed entry and falls through to the requires-a-base-URL throw below —
+  // never silently treated as the plan path.
+  if (entry.kind === "anthropic-plan") {
+    return { env, providerLaunch: false };
   }
   const spec = {
     baseUrl: entry.baseUrl ?? null,
