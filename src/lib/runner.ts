@@ -272,12 +272,18 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       primaryRuntimeId: effectivePrimary === DEFAULT_PRIMARY_RUNTIME ? undefined : effectivePrimary,
       runtimeEntries: buildRuntimeEntries(soulEntries, composition.selections)
     });
+    // P4 (GARRISON-RUNTIMES-V1): a non-claude primary is HOSTED now — the
+    // gateway pool warms the named engine's RuntimeAdapter as the operative
+    // session (GARRISON_PRIMARY_ENGINE, set by buildPrimaryRuntimeEnv below).
+    // The historical hard throw is gone; the switch is logged loudly so a
+    // primary flip never happens silently.
     if (primaryRuntime.engine !== "claude-code") {
-      throw new Error(
-        `primary runtime "${primaryRuntime.runtimeId}" (engine ${primaryRuntime.engine}) cannot host ` +
-          `the orchestrator yet — only the Claude Code runtime is supported as primary. Set ` +
-          `primary_runtime to claude-code-runtime (or leave it unset); other runtimes are available ` +
-          `as model-router targets.`
+      appendLog(
+        compositionId,
+        "runner",
+        `PRIMARY RUNTIME SWITCH: the operative session will be hosted by the "${primaryRuntime.engine}" engine ` +
+          `(fitting ${primaryRuntime.runtimeId}) via its RuntimeAdapter — an experiment path (D8): surfaces that ` +
+          `assume Claude Code (Quarters deep tier, plans, session transcripts) degrade gracefully.`
       );
     }
     const primaryEntry = soulEntries.find((entry) => entry.id === primaryRuntime.runtimeId);

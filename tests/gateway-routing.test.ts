@@ -231,3 +231,59 @@ describe("U1 — gateway in-place switch (live-switch-ok)", () => {
     }
   });
 });
+
+// S4 (GARRISON-RUNTIMES-V1 P4): the pool warms the adapter named by the
+// policy's primary — resolved to an engine by the runner and handed down as
+// primaryEngine. Stub adapters prove WHICH adapter backs the operative entry;
+// loud-error paths prove a missing fitting or unknown engine never silently
+// falls back to claude-code.
+// @ts-ignore — pure .mjs routing layer
+import { resolvePrimaryAdapter } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+
+describe("primary runtime warm seam (S4)", () => {
+  const baseCtx = (extra: any = {}) => ({
+    compositionDir: mkdtempSync(join(tmpdir(), "gar-p4-")),
+    spawnFn: null,
+    operativeSpawnConfig: { compositionDir: "/tmp/x", model: "sonnet", appendSystemPromptFile: undefined },
+    opts: { probeExecPrimaries: false, ...extra }
+  });
+
+  it("claude-code returns the historical ClaudeCodeAdapter construction", async () => {
+    const p = await resolvePrimaryAdapter("claude-code", baseCtx());
+    expect(p.claude).toBe(true);
+    expect(p.adapter?.constructor?.name).toBe("ClaudeCodeAdapter");
+    expect(p.spawnConfig.model).toBe("sonnet");
+  });
+
+  it("agent-sdk uses the injected adapter and full prompt mode", async () => {
+    const fake = { spawn: async () => ({}) };
+    const p = await resolvePrimaryAdapter("agent-sdk", baseCtx({ agentSdkAdapter: fake }));
+    expect(p.adapter).toBe(fake);
+    expect(p.spawnConfig.promptMode).toBe("full");
+    expect(p.spawnConfig.provider).toBe("anthropic");
+  });
+
+  it("agent-sdk primary resolves via the dev-checkout fallback (documented) but FAILS LOUD on an unreadable assembled prompt", async () => {
+    // In a dev checkout resolveAgentSdkDir's repo fallback always resolves —
+    // the not-installed throw is only reachable in a real deployment. The
+    // reachable loud path here: a prompt FILE that cannot be read must throw
+    // (the SDK needs the bytes, not the path), never spawn promptless.
+    const ctx = baseCtx();
+    ctx.operativeSpawnConfig.appendSystemPromptFile = "/nonexistent/assembled-system-prompt.md" as any;
+    await expect(resolvePrimaryAdapter("agent-sdk", ctx)).rejects.toThrow(
+      /assembled system prompt unreadable at \/nonexistent/
+    );
+  });
+
+  it("codex primary uses an injected secondary adapter without probing", async () => {
+    const fake = { spawn: async () => ({}) };
+    const p = await resolvePrimaryAdapter("codex", baseCtx({ secondaryAdapters: new Map([["codex", fake]]) }));
+    expect(p.adapter).toBe(fake);
+  });
+
+  it("an unknown engine FAILS LOUD naming the known set and the fix", async () => {
+    await expect(resolvePrimaryAdapter("opencode", baseCtx())).rejects.toThrow(
+      /unknown primary engine "opencode".*claude-code, agent-sdk, codex, gemini.*composer/
+    );
+  });
+});

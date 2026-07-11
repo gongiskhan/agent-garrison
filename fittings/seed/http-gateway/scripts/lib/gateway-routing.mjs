@@ -718,6 +718,122 @@ export class RoutedGateway {
   }
 }
 
+// ── Primary-runtime warm seam (GARRISON-RUNTIMES-V1 P4/D4) ──────────────────
+// The pool warms the adapter named by the policy's primaryRuntime as the
+// operative session. The runner resolves fitting-id → engine at up() (the one
+// resolution point, loud there) and hands the engine down via
+// GARRISON_PRIMARY_ENGINE; tests may pass opts.primaryEngine directly. A
+// missing fitting or a failed CLI probe at warm time is a LOUD startup error
+// naming the fix — never a silent fall back to claude-code.
+const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini"];
+
+// Probe an exec-engine's CLI via the fitting's own bridge (`--probe` prints
+// "ok") — the same contract the fitting's verify hook uses.
+export async function probeRuntimeBridge(dir, engine, opts = {}) {
+  const { spawn } = await import("node:child_process");
+  const script = path.join(dir, "scripts", "bridge.mjs");
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, "--probe"], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`${engine} bridge probe timed out after ${opts.timeoutMs ?? 20000}ms (${script})`));
+    }, opts.timeoutMs ?? 20000);
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(new Error(`${engine} bridge probe failed to start: ${String(e?.message || e)}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0 && out.trim().includes("ok")) return resolve(true);
+      reject(
+        new Error(
+          `${engine} runtime probe FAILED (exit ${code}): ${(err || out).trim().slice(0, 300)} — install/authenticate the ${engine} CLI, or switch primaryRuntime back to claude-code-runtime in the composer`
+        )
+      );
+    });
+  });
+}
+
+// Resolve the adapter + spawn config that back the OPERATIVE pool entry for a
+// primary engine. claude-code returns exactly the historical construction.
+export async function resolvePrimaryAdapter(engine, ctx) {
+  const { compositionDir, spawnFn, operativeSpawnConfig, opts } = ctx;
+  if (engine === "claude-code") {
+    return {
+      adapter: new ClaudeCodeAdapter(spawnFn ? { spawnFn } : {}),
+      spawnConfig: operativeSpawnConfig,
+      claude: true
+    };
+  }
+  if (engine === "agent-sdk") {
+    let adapter = opts.agentSdkAdapter ?? null;
+    if (!adapter) {
+      const dir = resolveAgentSdkDir(compositionDir);
+      if (!dir) {
+        throw new Error(
+          "primaryRuntime names the agent-sdk engine but the agent-sdk-runtime fitting is not installed — compose it under the runtimes faculty (apm install), or switch primaryRuntime back to claude-code-runtime"
+        );
+      }
+      const mod = await import(pathToFileURL(path.join(dir, "lib", "agent-sdk-adapter.mjs")).href);
+      adapter = new mod.AgentSdkAdapter();
+    }
+    // The SDK consumes the prompt as an in-memory STRING (systemPrompt.append),
+    // not a file path — read the assembled prompt bytes here (P8 wires the
+    // per-primary projection; this is the warm-seam plumbing for it).
+    let appendSystemPrompt;
+    const promptFile = operativeSpawnConfig.appendSystemPromptFile;
+    if (promptFile) {
+      try {
+        appendSystemPrompt = fs.readFileSync(promptFile, "utf8");
+      } catch (err) {
+        throw new Error(
+          `agent-sdk primary: assembled system prompt unreadable at ${promptFile}: ${String(err?.message || err)}`
+        );
+      }
+    }
+    return {
+      adapter,
+      spawnConfig: {
+        provider: "anthropic",
+        model: operativeSpawnConfig.model,
+        promptMode: "full",
+        compositionDir,
+        ...(appendSystemPrompt ? { appendSystemPrompt } : {})
+      },
+      claude: false
+    };
+  }
+  if (engine === "codex" || engine === "gemini") {
+    let adapter = opts.secondaryAdapters?.get?.(engine) ?? null;
+    let dir = null;
+    if (!adapter) {
+      dir = resolveSecondaryDir(compositionDir, engine);
+      if (!dir) {
+        throw new Error(
+          `primaryRuntime names the ${engine} engine but the ${engine}-runtime fitting is not installed — compose it under the runtimes faculty (apm install), or switch primaryRuntime back to claude-code-runtime`
+        );
+      }
+      const cls = engine === "codex" ? "CodexAdapter" : "GeminiAdapter";
+      const mod = await import(pathToFileURL(path.join(dir, "lib", `${engine}-adapter.mjs`)).href);
+      adapter = new mod[cls]();
+      // Warm-time CLI probe — fail the startup loudly, not the first turn.
+      if (opts.probeExecPrimaries !== false) await probeRuntimeBridge(dir, engine);
+    }
+    return {
+      adapter,
+      spawnConfig: { compositionDir, env: process.env },
+      claude: false
+    };
+  }
+  throw new Error(
+    `unknown primary engine "${engine}" — expected one of ${KNOWN_PRIMARY_ENGINES.join(", ")}. Fix primaryRuntime in the composer (policy file).`
+  );
+}
+
 // Build a RoutedGateway wired to the real claude runtime (or an injected stub).
 // spawnFn lets a test swap the leaf session factory (the documented test seam
 // GARRISON_GATEWAY_RUNTIME_STUB in gateway-pty.mjs); production passes none and
@@ -740,14 +856,25 @@ export async function createRoutedGateway(opts = {}) {
     permissionMode: opts.permissionMode ?? "bypassPermissions",
   };
 
-  const adapter = new ClaudeCodeAdapter(spawnFn ? { spawnFn } : {});
+  // P4: which engine hosts the operative. Default (unset/claude-code) is
+  // byte-for-byte the historical path. The CLASSIFIER always stays on the
+  // cheap claude-code haiku session regardless of primary.
+  const primaryEngine =
+    (opts.primaryEngine ?? process.env.GARRISON_PRIMARY_ENGINE ?? "claude-code").trim() || "claude-code";
+  const primary = await resolvePrimaryAdapter(primaryEngine, {
+    compositionDir,
+    spawnFn,
+    operativeSpawnConfig,
+    opts
+  });
+  const claudeAdapter = primary.claude ? primary.adapter : new ClaudeCodeAdapter(spawnFn ? { spawnFn } : {});
   const pool =
     opts.pool ??
     new MultiRuntimePool({
       maxTotal: opts.maxTotal ?? 4,
       runtimes: [
-        { id: "operative", adapter, role: "primary", size: 1, spawnConfig: operativeSpawnConfig },
-        { id: "classifier", adapter, role: "secondary", size: 1, spawnConfig: classifierSpawnConfig },
+        { id: "operative", adapter: primary.adapter, role: "primary", size: 1, spawnConfig: primary.spawnConfig },
+        { id: "classifier", adapter: claudeAdapter, role: "secondary", size: 1, spawnConfig: classifierSpawnConfig },
       ],
     });
 
