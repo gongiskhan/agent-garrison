@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "runId": "01KX7RCN0NSE1TGS40CNDBC1K8",
+  "cardId": "01KX7RCN0FRGY4SFB7GEKDJ2JT",
+  "project": "flow-scratch",
+  "repo": "/home/ggomes/dev/flow-scratch",
+  "slice": "S1",
+  "artifacts": {
+    "plan": "FLOW_PLAN.md",
+    "touchSet": "touch-set.json",
+    "gateStatus": "slices/S1/gate-status.json",
+    "evidence": [
+      "evidence/evidence.md"
+    ]
+  },
+  "gates": {
+    "plan": "pass",
+    "implement": "pass",
+    "review": "approve",
+    "adversarialReview": "approve",
+    "test": "pass",
+    "adversarialTest": "pass",
+    "walkthrough": "pass"
+  },
+  "fences": [
+    {
+      "phase": "plan",
+      "sha": "531ba56f2135746a551ca2151007c1eb8137b66f",
+      "empty": true
+    },
+    {
+      "phase": "implement",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "empty": false
+    },
+    {
+      "phase": "review",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "empty": true
+    },
+    {
+      "phase": "adversarial-review",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "empty": true
+    },
+    {
+      "phase": "test",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "empty": true
+    },
+    {
+      "phase": "adversarial-test",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "empty": true
+    },
+    {
+      "phase": "walkthrough",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "empty": true
+    }
+  ]
+}

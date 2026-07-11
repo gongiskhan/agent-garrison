@@ -1,0 +1,74 @@
+{
+  "slice": "S1",
+  "gates": {
+    "plan": {
+      "at": "2026-07-11T04:53:51.257Z",
+      "status": "pass",
+      "plan": "FLOW_PLAN.md",
+      "touchSet": "touch-set.json"
+    },
+    "implement": {
+      "at": "2026-07-11T04:53:51.300Z",
+      "status": "pass",
+      "files": [
+        "src/multiply.mjs",
+        "test/multiply.test.mjs"
+      ],
+      "selfCheck": "node --check src/multiply.mjs -> exit 0"
+    },
+    "review": {
+      "at": "2026-07-11T04:53:51.335Z",
+      "status": "approve",
+      "verdict": "approve",
+      "findings": [],
+      "diffStat": "(new untracked files)"
+    },
+    "adversarialReview": {
+      "at": "2026-07-11T04:53:51.382Z",
+      "status": "approve",
+      "verdict": "approve",
+      "evidence": "export probe -> exit 0"
+    },
+    "test": {
+      "at": "2026-07-11T04:53:51.802Z",
+      "status": "pass",
+      "command": "npm test (node --test)",
+      "exitCode": 0,
+      "lintExitCode": 0,
+      "output": "# Subtest: multiply handles zero\nok 3 - multiply handles zero\n  ---\n  duration_ms: 0.15004\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 70.567473"
+    },
+    "adversarialTest": {
+      "at": "2026-07-11T04:53:51.853Z",
+      "status": "pass",
+      "probe": "node -e independent acceptance probe (not the committed test)",
+      "exitCode": 0,
+      "output": "acceptance holds: multiply(3,4)=12 multiply(7,0)=0"
+    },
+    "walkthrough": {
+      "at": "2026-07-11T04:53:51.872Z",
+      "status": "pass",
+      "evidence": [
+        "evidence/evidence.md"
+      ],
+      "video": null,
+      "reason": "headless library change — evidence.md log, no video warranted"
+    },
+    "validate": {
+      "at": "2026-07-11T04:53:51.886Z",
+      "status": "pass",
+      "dodGates": {
+        "plan": "pass",
+        "implement": "pass",
+        "review": "approve",
+        "adversarialReview": "approve",
+        "test": "pass",
+        "adversarialTest": "pass",
+        "walkthrough": "pass"
+      },
+      "evidenceBundle": "evidence/evidence.md",
+      "railOff": [
+        "security-review"
+      ]
+    }
+  }
+}

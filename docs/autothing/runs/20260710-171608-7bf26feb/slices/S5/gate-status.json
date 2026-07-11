@@ -46,5 +46,123 @@
     "sha256_16": "984ea75f478ea9fa",
     "evidence": "evidence.json",
     "path": "/home/ggomes/.walkthrough/runs/agent-garrison/flow-v2/s5-ux-qa/2026-07-10_23-44-30/final.mp4"
+  },
+  "uxQa": {
+    "verdict": "issues(11)",
+    "severityThreshold": "major",
+    "blockingCount": 6,
+    "target": "kanban-loop board UI (sandboxed instance; not the S5 diff — see ux-qa/findings.md scope note)",
+    "viewports": [
+      "1440x900",
+      "390x844",
+      "375px",
+      "768px",
+      "1024px"
+    ],
+    "report": "ux-qa/findings.md",
+    "screenshots": "ux-qa/screenshots/",
+    "loopbackProof": "ux-qa/loopback-proof.txt",
+    "findings": [
+      {
+        "id": "uxqa-1",
+        "section": "Accessibility basics",
+        "severity": "blocker",
+        "screenshot": "ux-qa/screenshots/mobile-board.png",
+        "what": "every interactive control is below the 44px touch comfort target on the phone-first board: list config gear 28x28, all card actions (Advance/Move/Watch/Open/Run/Discuss) 31px tall; the 24x24 WCAG floor is met so this is a comfort/HIG failure, escalated per the checklist's touch-surface clause",
+        "where": "board at 390x844 — button.gear (13 lists) and .card .btns .btn",
+        "fix": "at @media (max-width:600px) set .card .btns .btn { min-height:44px } and .list .lname .gear { width:44px; height:44px } (keep the 28px glyph, grow the hit area with padding)"
+      },
+      {
+        "id": "uxqa-2",
+        "section": "Accessibility basics",
+        "severity": "major",
+        "screenshot": "ux-qa/screenshots/desktop-card-detail.png",
+        "what": "modal sheets never take focus: 12 consecutive Tabs from the open card-detail sheet all land on controls on the board BEHIND the overlay (sheet.contains(activeElement)===false for all 12), so a keyboard user can never reach Close / Abandon / Delete and the focus ring is drawn on visually obscured controls",
+        "where": "card-detail sheet (and the New-card sheet) — the shared Sheet component in ui/main.tsx",
+        "fix": "role=dialog + aria-modal=true; focus the sheet container (tabIndex=-1) or Close on mount; cycle Tab/Shift+Tab within the sheet; restore focus to the invoker on close; mark the board inert while a sheet is open"
+      },
+      {
+        "id": "uxqa-3",
+        "section": "Accessibility basics",
+        "severity": "major",
+        "screenshot": "ux-qa/screenshots/desktop-empty-lists.png",
+        "what": "five text styles fail 4.5:1 against their composited backgrounds: .chip.goal 2.79:1, .list.codex .lname-text 3.10:1, .list .lkind .cdx 3.10:1, .chip.waiting 3.39:1, .card .state-callout.waiting 3.39:1 — all trace to --brass #b4862a and --warn #b07215 used as text on --paper #fbf8f1 / --warn-soft #f6ecd0; none qualify as large text",
+        "where": "board — goalMode/waiting chips, adversarial list titles + phase line, the waiting callout",
+        "fix": "darken the text tokens: #8a6410 measures 4.56:1 on --warn-soft and 5.06:1 on --paper (#7d5a0e for margin); add --brass-ink/--warn-ink for text usages, keep --brass for the left-edge accent"
+      },
+      {
+        "id": "uxqa-4",
+        "section": "Responsive & mobile usability",
+        "severity": "major",
+        "screenshot": "ux-qa/screenshots/mobile-new-card-form.png",
+        "what": "mobile type is under the 16px floor — body 14px, card title 13px, chips 10px — and every New-card control is 13.5px (#nc-title, #nc-desc, #nc-project, #nc-kind), which makes iOS Safari auto-zoom the page on focus",
+        "where": "board + New-card sheet at 390x844",
+        "fix": "at the mobile breakpoint set body { font-size:16px } and input, select, textarea { font-size:16px } (this is the line that suppresses the iOS zoom); raise the card title to >=16px and chips to >=12px"
+      },
+      {
+        "id": "uxqa-5",
+        "section": "Error & empty states",
+        "severity": "major",
+        "screenshot": "ux-qa/screenshots/desktop-empty-lists.png",
+        "what": "an empty list renders a bare muted lowercase word 'empty' at the top of an otherwise blank ~1000px column — no heading, no explanation of what belongs there, no next-step CTA",
+        "where": "Adversarial Review and Adversarial Test columns — div.lempty, ui/main.tsx:1496",
+        "fix": "replace with an empty-state block: heading ('No cards'), one sentence naming how cards arrive here (derivable from the list's phase/validNext), and an inline 'New card' CTA on manual lists"
+      },
+      {
+        "id": "uxqa-6",
+        "section": "Error & empty states",
+        "severity": "major",
+        "screenshot": "ux-qa/screenshots/desktop-new-card-validation-error.png",
+        "what": "the New-card validation message is good prose and passes contrast (6.04:1) but renders ONLY as a generic .banner at the bottom of the sheet, 335px below the Title field it is about (banner y=629, title y=253); no aria-invalid on the fields, no role=alert/aria-live on the banner, and on 390px it sits below the fold so the press appears to do nothing",
+        "where": "New-card sheet — submit with Title and Description both empty",
+        "fix": "render the message inline under the Title/Description fields, set aria-invalid + aria-describedby on them, add role=alert to the banner; keep the wording"
+      },
+      {
+        "id": "uxqa-7",
+        "section": "Navigation clarity",
+        "severity": "minor",
+        "screenshot": "ux-qa/screenshots/desktop-board.png",
+        "what": "on a manual list with exactly one valid next list (Backlog -> todo), Advance and Move sit side by side and do the same thing (Move short-circuits to a direct PATCH, ui/main.tsx:1508-1516; verified live: Backlog 1->0, To Do 1->2 with no picker), and neither label names the destination",
+        "where": "card front on Backlog / any single-validNext manual list",
+        "fix": "label the destination ('Advance -> To Do') and hide Move when validNext.length === 1; keep Move ('Move...') only where a choice exists"
+      },
+      {
+        "id": "uxqa-8",
+        "section": "Consistency",
+        "severity": "minor",
+        "screenshot": "ux-qa/screenshots/desktop-advance-notice.png",
+        "what": "after Advance the notice reads 'Moved to todo' — the internal list id — while every other surface (column header, Move picker, activity log) calls the same list 'To Do'",
+        "where": "notice banner after Advance — onStart, ui/main.tsx:1381",
+        "fix": "resolve the id to the list title before rendering: board.lists.find(l => l.id === res.advanced)?.title"
+      },
+      {
+        "id": "uxqa-9",
+        "section": "Consistency",
+        "severity": "minor",
+        "screenshot": "ux-qa/screenshots/mobile-board.png",
+        "what": "at 390px the topbar wraps: the brand becomes 'Kanban / Loop', the count chip '11 / CARDS', and the primary CTA wraps to two lines inside its own button ('New / card')",
+        "where": "topbar at 390x844",
+        "fix": "white-space: nowrap on .topbar .btn.primary and the count chip; drop the 'WORKFLOW BOARD' eyebrow and tighten topbar padding at the mobile breakpoint"
+      },
+      {
+        "id": "uxqa-10",
+        "section": "Error & empty states",
+        "severity": "minor",
+        "screenshot": "ux-qa/screenshots/desktop-card-detail.png",
+        "what": "on a card with no run, the artifact table shows seven rows (PLAN, BRIEF, SESSIONS, GATE MARKERS, EVIDENCE INDEX, VIDEO, LOGS) each with a bare em dash and no explanation of when they fill — while the adjacent DECISION LOG section does explain ('No runs recorded yet.'), so the screen is inconsistent with itself",
+        "where": "card-detail sheet for a Backlog card",
+        "fix": "mirror the DECISION LOG treatment: one line of group context ('No artifacts yet - these fill in as the card moves through Plan, Implement and Walkthrough'), keeping per-row dashes only once a run exists"
+      },
+      {
+        "id": "uxqa-11",
+        "section": "Navigation clarity",
+        "severity": "note",
+        "screenshot": "ux-qa/screenshots/mobile-board.png",
+        "what": "13 lists in a horizontal scroller at 390px with no pagination dots, list switcher or position indicator; reaching Needs attention from Backlog takes ~12 swipes. Conventional mobile-kanban behaviour (hence a note), but the convention normally ships with a jump affordance",
+        "where": "board at 390x844",
+        "fix": "optional - add a compact list switcher (a select of the 13 lists that scrolls the chosen column into view) or pagination dots to the mobile topbar"
+      }
+    ],
+    "at": "2026-07-11T05:06:08Z"
   }
 }

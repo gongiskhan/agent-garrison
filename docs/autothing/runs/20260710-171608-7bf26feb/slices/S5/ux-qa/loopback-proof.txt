@@ -1,0 +1,102 @@
+ux-qa loop-back rule — mechanical proof
+=======================================
+
+Claim under test (garrison-ux-qa, 'Severity threshold + loop-back (A8)'):
+  a finding AT OR ABOVE policy.uxQa.severityThreshold is BLOCKING and loops the
+  slice back to garrison-implement; a finding BELOW it is a note and advances.
+
+Mechanism: the DoD checker that the Kanban Validate list runs, which parses the
+verdict from its LAST stdout line (Done | Implement).
+  validator: fittings/seed/garrison-skills/.apm/skills/garrison-validate/scripts/validate.mjs
+  node:      v20.19.4
+  run at:    2026-07-11T05:06:52Z
+
+Method: two synthetic kind=ui slices, IDENTICAL in every gate (tests/typecheck/lint/
+build/e2e exit 0; adversarialReview approve; adversarialTest pass; video verified),
+differing ONLY in the severity of the uxQa findings. severityThreshold = major in both.
+
+-----------------------------------------------------------------------
+CASE A — ONE above-threshold finding (severity: major, threshold: major)
+-----------------------------------------------------------------------
+input  $RUNDIR/slices/UI-ABOVE/gate-status.json (uxQa slot):
+    {
+      "verdict": "issues(1)",
+      "severityThreshold": "major",
+      "findings": [
+        {
+          "id": "uxqa-1",
+          "section": "Accessibility basics",
+          "severity": "major",
+          "what": "one above-threshold finding (synthetic)",
+          "fix": "n/a"
+        }
+      ]
+    }
+
+$ node validate.mjs $RUNDIR UI-ABOVE
+    VALIDATE check evidence-index: note — absent (non-fatal)
+    VALIDATE check kind: ok — ui
+    VALIDATE check tests: ok — exit=0
+    VALIDATE check typecheck: ok — exit=0
+    VALIDATE check lint: ok — exit=0
+    VALIDATE check build: ok — exit=0
+    VALIDATE check e2e: ok — exit=0
+    VALIDATE check uxQa: FAIL — 1 finding(s) >= major (verdict="issues(1)")
+    VALIDATE check adversarialReview: ok — approve
+    VALIDATE check adversarialTest: ok — pass
+    VALIDATE check video: ok — verified
+    VALIDATE check validated-marker: ok — persisted
+    VALIDATE verdict: Implement — failed: uxQa 1 finding(s) >= major
+    Implement
+
+EXPECTED: Implement (loops back)   ACTUAL: Implement
+
+-----------------------------------------------------------------------
+CASE B — only BELOW-threshold findings (severity: minor + note)
+-----------------------------------------------------------------------
+input  $RUNDIR/slices/UI-BELOW/gate-status.json (uxQa slot):
+    {
+      "verdict": "issues(2)",
+      "severityThreshold": "major",
+      "findings": [
+        {
+          "id": "uxqa-1",
+          "section": "Consistency",
+          "severity": "minor",
+          "what": "below-threshold (synthetic)",
+          "fix": "n/a"
+        },
+        {
+          "id": "uxqa-2",
+          "section": "Navigation clarity",
+          "severity": "note",
+          "what": "below-threshold (synthetic)",
+          "fix": "n/a"
+        }
+      ]
+    }
+
+$ node validate.mjs $RUNDIR UI-BELOW
+    VALIDATE check evidence-index: note — absent (non-fatal)
+    VALIDATE check kind: ok — ui
+    VALIDATE check tests: ok — exit=0
+    VALIDATE check typecheck: ok — exit=0
+    VALIDATE check lint: ok — exit=0
+    VALIDATE check build: ok — exit=0
+    VALIDATE check e2e: ok — exit=0
+    VALIDATE check uxQa: ok — clean-with-notes (2 finding(s), all below major)
+    VALIDATE check adversarialReview: ok — approve
+    VALIDATE check adversarialTest: ok — pass
+    VALIDATE check video: ok — verified
+    VALIDATE check validated-marker: ok — persisted
+    VALIDATE verdict: Done — all checks passed
+    Done
+
+EXPECTED: Done (clean-with-notes, advances)   ACTUAL: Done
+
+=======================================================================
+RESULT: PROVEN. The single variable is the finding severity:
+  major (>= threshold) -> 'VALIDATE check uxQa: FAIL - 1 finding(s) >= major' -> Implement
+  minor+note (< thr.)  -> 'VALIDATE check uxQa: ok - clean-with-notes'        -> Done
+A verdict of 'issues' does NOT by itself block: CASE B is 'issues(2)' and still
+reaches Done. Blocking is decided by severity vs threshold, exactly as specified.
