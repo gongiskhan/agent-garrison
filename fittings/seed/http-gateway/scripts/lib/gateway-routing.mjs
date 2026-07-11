@@ -732,14 +732,19 @@ const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini"];
 export async function probeRuntimeBridge(dir, engine, opts = {}) {
   const { spawn } = await import("node:child_process");
   const script = path.join(dir, "scripts", "bridge.mjs");
+  const timeoutMs = opts.timeoutMs ?? 20000;
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, "--probe"], { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
+    let timedOut = false;
+    // On timeout: kill, then let the close event do the single reject — the
+    // child is reaped before the failure returns, and the message carries the
+    // captured stderr plus the remediation (same loudness as a failed exit).
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGKILL");
-      reject(new Error(`${engine} bridge probe timed out after ${opts.timeoutMs ?? 20000}ms (${script})`));
-    }, opts.timeoutMs ?? 20000);
+    }, timeoutMs);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => {
@@ -748,10 +753,11 @@ export async function probeRuntimeBridge(dir, engine, opts = {}) {
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code === 0 && out.trim().includes("ok")) return resolve(true);
+      if (!timedOut && code === 0 && out.trim().includes("ok")) return resolve(true);
+      const cause = timedOut ? `timed out after ${timeoutMs}ms` : `exit ${code}`;
       reject(
         new Error(
-          `${engine} runtime probe FAILED (exit ${code}): ${(err || out).trim().slice(0, 300)} — install/authenticate the ${engine} CLI, or switch primaryRuntime back to claude-code-runtime in the composer`
+          `${engine} runtime probe FAILED (${cause}): ${(err || out).trim().slice(0, 300) || "(no output)"} — install/authenticate the ${engine} CLI, or switch primaryRuntime back to claude-code-runtime in the composer`
         )
       );
     });

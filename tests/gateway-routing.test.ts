@@ -287,3 +287,30 @@ describe("primary runtime warm seam (S4)", () => {
     );
   });
 });
+
+// Ratchet for the S4 codex findings: the probe's TIMEOUT path reaps the child
+// before rejecting and its error names the cause, the stderr context, and the
+// remediation — same loudness contract as a failed exit.
+// @ts-ignore — pure .mjs routing layer
+import { probeRuntimeBridge } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { mkdirSync as mkd, writeFileSync as wfs } from "node:fs";
+
+describe("probeRuntimeBridge timeout loudness (S4 ratchet)", () => {
+  it("a hanging bridge times out with cause + remediation in the error, after the child closes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gar-probe-"));
+    mkd(join(dir, "scripts"), { recursive: true });
+    wfs(join(dir, "scripts", "bridge.mjs"), "console.error('warming up'); setInterval(() => {}, 1000);\n");
+    await expect(probeRuntimeBridge(dir, "codex", { timeoutMs: 1500 })).rejects.toThrow(
+      /codex runtime probe FAILED \(timed out after 1500ms\).*warming up.*switch primaryRuntime back to claude-code-runtime/s
+    );
+  });
+
+  it("a failing bridge rejects with exit code + stderr + remediation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gar-probe-"));
+    mkd(join(dir, "scripts"), { recursive: true });
+    wfs(join(dir, "scripts", "bridge.mjs"), "console.error('cli not authenticated'); process.exit(3);\n");
+    await expect(probeRuntimeBridge(dir, "gemini", { timeoutMs: 5000 })).rejects.toThrow(
+      /gemini runtime probe FAILED \(exit 3\).*cli not authenticated.*install\/authenticate/s
+    );
+  });
+});
