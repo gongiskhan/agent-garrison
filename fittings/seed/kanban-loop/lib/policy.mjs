@@ -197,6 +197,50 @@ function gateStatusFiles(cwd, runDir, phase = null) {
 // camelCase gate key (adversarialReview), while an unbound operative writes
 // the phase id as-is (adversarial-review) — both name the same gate, so both
 // count. Single-word phases (plan/implement/review) are identical either way.
+
+// The phase's own DURABLE verdict (D9 backstop, 2026-07-11): when the chat
+// reply loses the next-step token (observed: a Workflow completion banner
+// swallowing the operative's final line), the gate record the phase skill
+// wrote is the stronger signal — it already names next_phase. Returns the
+// recorded next list id iff it is one of validNext, else null. A FAILED gate
+// naming a loop-back target (review → implement) is honored too: the record
+// is proof the gate ran, and validNext constrains the transition.
+export function gateEvidenceNextList(cwd, runDir, phase, validNext) {
+  if (!runDir || !phase || !Array.isArray(validNext) || validNext.length === 0) return null;
+  const keys = new Set([gateKeyForPhase(phase), phase]);
+  const pickNext = (entry) => {
+    if (!entry || typeof entry !== "object") return null;
+    const raw = entry.next_phase ?? entry.nextPhase ?? entry.next ?? null;
+    const next = typeof raw === "string" ? raw.trim().toLowerCase() : null;
+    return next && validNext.includes(next) ? next : null;
+  };
+  for (const file of gateStatusFiles(cwd, runDir, phase)) {
+    try {
+      const doc = JSON.parse(readFileSync(file, "utf8"));
+      if (file.endsWith(`gate-status.${phase}.json`)) {
+        const next = pickNext(doc);
+        if (next) return next;
+        continue;
+      }
+      const gates = doc?.gates && typeof doc.gates === "object" ? doc.gates : null;
+      if (gates) {
+        for (const k of keys) {
+          const next = pickNext(gates[k]);
+          if (next) return next;
+        }
+      }
+      const phases = doc?.phases && typeof doc.phases === "object" ? doc.phases : null;
+      if (phases) {
+        const next = pickNext(phases[phase]);
+        if (next) return next;
+      }
+    } catch {
+      /* skip unreadable */
+    }
+  }
+  return null;
+}
+
 export function hasPhaseGateEvidence(cwd, runDir, phase) {
   if (!runDir || !phase) return false;
   const keys = new Set([gateKeyForPhase(phase), phase]);

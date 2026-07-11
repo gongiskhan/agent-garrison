@@ -56,7 +56,8 @@ import {
   classificationForPhase,
   railForCard,
   phaseOnForCard,
-  hasPhaseGateEvidence
+  hasPhaseGateEvidence,
+  gateEvidenceNextList
 } from "./policy.mjs";
 
 // Does this card's run dir actually contain tangible evidence? A list flagged
@@ -656,6 +657,19 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // iteration), only fires when the first reply had no valid verdict, and still parks
   // honestly if the nudge also fails to produce one.
   let nudged = false;
+  // DURABLE VERDICT first (D9 backstop, 2026-07-11): before spending an LLM
+  // nudge turn, read the verdict from the phase's own gate record — the phase
+  // skill writes next_phase there, and it survives reply-capture loss (the
+  // observed case: a Workflow completion banner as the operative's final line).
+  if (!next) {
+    const durable = gateEvidenceNextList(cwd, runningCard.runDir, phase, validNext);
+    if (durable) {
+      next = durable;
+      nudged = true; // same accounting as the nudge: a rescued verdict, not a first-line one
+      if (!snippet) snippet = `verdict from durable gate evidence: ${durable}`;
+      await appendCardLog(root, card.id, iteration, `\n_(verdict from durable gate evidence: ${durable})_\n`);
+    }
+  }
   if (!next) {
     try {
       const nudgePrompt =
