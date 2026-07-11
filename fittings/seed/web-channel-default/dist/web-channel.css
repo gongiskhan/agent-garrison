@@ -845,7 +845,7 @@ html, body {
 }
 .wc-back:hover { background: var(--wc-accent-soft, #eef3ec); border-color: var(--wc-accent, #6f8f6a); }
 .wc-backbar-spacer { flex: 1; }
-@media (min-width: 721px) { .wc-backbar { padding-left: 12px; } }
+@media (min-width: 900px) { .wc-backbar { padding-left: 12px; } }
 
 /* Brief button (right side of the top bar) */
 .wc-briefbtn {
@@ -913,11 +913,13 @@ html, body {
   font-size: 14px;
 }
 
-/* ── Mobile toggle + scrim (desktop: sidebar inline, these hidden) ── */
+/* ── Mobile / tablet toggle + scrim (wide: sidebar inline, these hidden) ──
+   The overlay breakpoint is 900px: below it the 264px sidebar would squeeze
+   the chat column under ~600px, so the sidebar becomes a slide-over. */
 .wc-sidebar-toggle { display: none; }
 .wc-sidebar-scrim { display: none; }
 
-@media (max-width: 719px) {
+@media (max-width: 899px) {
   .wc-sidebar {
     position: fixed;
     top: 0;
@@ -957,5 +959,65 @@ html, body {
     cursor: pointer;
   }
   .wc-main .cc-header { padding-left: 50px; }
+}
+
+/* ============================================================================
+   Responsive refit (2026-07-11) — the web channel is the primary way to start
+   tasks, from a phone as much as from a desktop. Three rules:
+     1. The chat column uses the available width gracefully at every size.
+     2. The pre-composer control rows never stack into a wall: dead strips are
+        removed, chip rows scroll horizontally instead of wrapping.
+     3. The composer never grows scrollbar artifacts: the textarea autosizes
+        to its content (field-sizing) and shrinks properly in flex.
+   ============================================================================ */
+
+/* Column width: a hair wider on desktop, full-bleed under 900px (the side
+   hairlines only make sense when there is paper on both sides). */
+.cc-root { max-width: min(860px, 100%); }
+@media (max-width: 899px) {
+  .cc-root { max-width: 100%; border-left: none; border-right: none; }
+}
+
+/* Header never overflows: the model chip ellipsizes instead of pushing the
+   RAW toggle off-screen. */
+.cc-header { min-width: 0; }
+.cc-model { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Dead strip removal: the status strip's own "no status" placeholder row
+   (cc-dim) means there is nothing to show — drop the whole strip. */
+.cc-statusstrip:has(> .cc-statusrow.cc-dim:only-child) { display: none; }
+.cc-statusrow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Chip rows: one line each, horizontal scroll instead of wrapping, no visible
+   scrollbar. Keeps the bottom chrome to a predictable height on phones. */
+.cc-modes, .cc-toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.cc-modes::-webkit-scrollbar, .cc-toolbar::-webkit-scrollbar { display: none; }
+.cc-mode, .cc-chip { flex-shrink: 0; white-space: nowrap; }
+.cc-tool-group { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Composer: the textarea sizes to its content (no scrollbar artifact from a
+   wrapped placeholder), shrinks properly, and the buttons keep their feet. */
+.cc-input {
+  min-width: 0;
+  field-sizing: content;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.cc-send, .cc-stop, .cc-mic { flex-shrink: 0; }
+
+/* Phone-tight spacing (<= 600px): the same chrome, less air. */
+@media (max-width: 600px) {
+  .cc-scroll { padding: 14px 12px; }
+  .cc-composer { padding: 8px 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .cc-modes, .cc-toolbar { padding: 6px 10px; gap: 5px; }
+  .cc-mode, .cc-chip { padding: 4px 8px; font-size: 9.5px; }
+  .cc-send, .cc-stop { padding: 0 14px; font-size: 13.5px; }
+  .cc-statusstrip { padding: 4px 12px; }
+  .cc-backbar { padding-top: 6px; padding-bottom: 6px; }
 }
 

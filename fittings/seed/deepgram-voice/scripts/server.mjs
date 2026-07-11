@@ -68,15 +68,192 @@ function handleHealth(res, opts) {
 }
 
 function handleStatusPage(res, opts) {
+  const hasKey = Boolean(opts.apiKey);
+
+  // API-key state as a status chip: sage square + CONFIGURED when present,
+  // alarm square + remediation copy when absent.
+  const keyChip = hasKey
+    ? `<span class="chip chip-ok"><span class="sq sq-ok"></span>CONFIGURED</span>`
+    : `<span class="chip chip-alarm"><span class="sq sq-alarm"></span>MISSING - set DEEPGRAM_API_KEY in the vault</span>`;
+
+  // Real endpoints this server serves; /stream is the live WebSocket path.
+  const endpoints = [
+    ["POST", "/stt", "audio in, transcript out"],
+    ["POST", "/tts", "text in, audio bytes out"],
+    ["WS", "/stream", "live streaming transcription"],
+    ["GET", "/health", "liveness probe (JSON)"]
+  ];
+  const rows = endpoints
+    .map(
+      ([method, epPath, desc]) =>
+        `<tr><td><span class="method">${method}</span></td>` +
+        `<td><span class="path">${epPath}</span></td>` +
+        `<td class="desc">${desc}</td></tr>`
+    )
+    .join("");
+
+  const runtime = [
+    ["PORT", String(opts.port)],
+    ["HOST", opts.host],
+    ["STT MODEL", opts.sttModel],
+    ["TTS MODEL", opts.ttsModel]
+  ]
+    .map(
+      ([label, value]) =>
+        `<div class="meta"><div class="meta-label">${label}</div>` +
+        `<div class="meta-value">${value}</div></div>`
+    )
+    .join("");
+
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/html");
-  res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Voice — Deepgram</title>
-<style>body{font-family:system-ui,sans-serif;background:#0b0d10;color:#e6e9ef;margin:0;padding:2rem;line-height:1.5}
-code{background:#1a1f26;padding:.15rem .4rem;border-radius:4px}h1{font-size:1.1rem}.k{color:${opts.apiKey ? "#46d18a" : "#e06a6a"}}</style></head>
-<body><h1>Voice Fitting — Deepgram</h1>
-<p>Speech I/O backend on port ${opts.port}. API key: <span class="k">${opts.apiKey ? "configured" : "MISSING (set DEEPGRAM_API_KEY in the vault)"}</span></p>
-<p>Endpoints: <code>POST /stt</code> (audio → transcript), <code>POST /tts</code> (text → audio), <code>GET /health</code>.</p>
-<p>This Fitting has no interactive UI — channels (e.g. the web channel) consume it for voice in/out.</p></body></html>`);
+  res.end(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#fbf8f1" />
+<title>Voice Fitting - Deepgram</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --paper:#fbf8f1; --paper-2:#f4ede0; --paper-3:#ece2cc;
+  --ink:#18211c; --ink-2:#2a342e; --mute:#66695f; --mute-2:#7d8077;
+  --sage:#2f4a3a; --sage-2:#3d6249; --sage-soft:#eaf1e7;
+  --brass:#b4862a; --rule:#d6cdba; --rule-2:#c4b89f;
+  --alarm:#9b362d; --alarm-soft:#f7eae6;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --serif:"Source Serif 4",Georgia,serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;background:var(--paper);-webkit-text-size-adjust:100%;}
+body{
+  font-family:var(--sans); font-size:15px; line-height:1.55; color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh; padding:40px 20px;
+  display:flex; align-items:flex-start; justify-content:center;
+}
+.card{
+  width:100%; max-width:620px; background:var(--paper);
+  border:1px solid var(--rule); border-radius:2px; overflow:hidden;
+}
+.card-head{
+  display:flex; align-items:center; gap:12px;
+  padding:22px 24px; border-bottom:1px solid var(--rule);
+  background:var(--paper-2);
+}
+.mark{ flex-shrink:0; color:var(--sage-2); }
+.head-text{ min-width:0; }
+.kicker{
+  font-family:var(--mono); font-size:10px; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--brass); margin-bottom:4px;
+}
+.title{
+  font-family:var(--serif); font-weight:600; font-size:22px;
+  letter-spacing:-0.01em; color:var(--ink); line-height:1.15;
+}
+.subtitle{ font-size:13px; color:var(--mute); margin-top:3px; }
+.section{ padding:20px 24px; border-bottom:1px solid var(--rule); }
+.section:last-child{ border-bottom:0; }
+.label{
+  font-family:var(--mono); font-size:10px; letter-spacing:0.08em;
+  text-transform:uppercase; color:var(--mute); margin-bottom:12px;
+}
+/* status chip */
+.chip{
+  display:inline-flex; align-items:center; gap:9px;
+  font-family:var(--mono); font-size:11px; font-weight:500;
+  letter-spacing:0.04em; padding:7px 12px;
+  border:1px solid var(--rule); border-radius:2px; color:var(--ink);
+}
+.chip-ok{ background:var(--sage-soft); border-color:#cfdcc9; }
+.chip-alarm{ background:var(--alarm-soft); border-color:#e6cbc6; color:var(--alarm); }
+.sq{ width:7px; height:7px; flex-shrink:0; }
+.sq-ok{ background:var(--sage-2); box-shadow:0 0 0 3px rgba(61,98,73,0.14); }
+.sq-alarm{ background:var(--alarm); box-shadow:0 0 0 3px rgba(155,54,45,0.14); }
+/* endpoints table */
+table{ width:100%; border-collapse:collapse; }
+td{
+  padding:10px 12px 10px 0; border-bottom:1px solid var(--rule);
+  vertical-align:middle; font-size:13.5px;
+}
+tr:last-child td{ border-bottom:0; }
+td:last-child{ padding-right:0; }
+.method{
+  display:inline-block; min-width:42px; text-align:center;
+  font-family:var(--mono); font-size:9.5px; font-weight:600;
+  letter-spacing:0.08em; color:var(--sage-2);
+  background:var(--sage-soft); border:1px solid #cfdcc9;
+  border-radius:2px; padding:2px 6px;
+}
+.path{
+  font-family:var(--mono); font-size:12.5px; color:var(--ink);
+  background:var(--paper-3); border-radius:2px; padding:2px 7px;
+}
+.desc{ color:var(--mute); font-size:12.5px; }
+/* runtime meta grid */
+.meta-grid{
+  display:grid; grid-template-columns:repeat(2,1fr); gap:14px 20px;
+}
+.meta-label{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em;
+  text-transform:uppercase; color:var(--mute-2); margin-bottom:3px;
+}
+.meta-value{
+  font-family:var(--mono); font-size:13px; color:var(--ink-2);
+  font-variant-numeric:tabular-nums; word-break:break-word;
+}
+/* footer note */
+.note{
+  padding:18px 24px; background:var(--paper-2);
+  font-size:12.5px; color:var(--mute); line-height:1.5;
+}
+@media (max-width:460px){
+  body{ padding:20px 12px; }
+  .card-head{ padding:18px 16px; }
+  .section{ padding:16px; }
+  .note{ padding:16px; }
+  .title{ font-size:19px; }
+  .desc{ display:none; }
+  .meta-grid{ gap:12px 16px; }
+}
+</style>
+</head>
+<body>
+<main class="card">
+  <header class="card-head">
+    <svg class="mark" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+      <path d="M4 10v4" /><path d="M8 6v12" /><path d="M12 3v18" /><path d="M16 6v12" /><path d="M20 10v4" />
+    </svg>
+    <div class="head-text">
+      <div class="kicker">Garrison Fitting</div>
+      <div class="title">Voice Fitting</div>
+      <div class="subtitle">Deepgram speech I/O backend</div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="label">API Key</div>
+    ${keyChip}
+  </section>
+
+  <section class="section">
+    <div class="label">Endpoints</div>
+    <table><tbody>${rows}</tbody></table>
+  </section>
+
+  <section class="section">
+    <div class="label">Runtime</div>
+    <div class="meta-grid">${runtime}</div>
+  </section>
+
+  <p class="note">This Fitting has no interactive UI. Channels (e.g. the web channel) consume it for voice input and output.</p>
+</main>
+</body>
+</html>`);
 }
 
 async function readBinaryBody(req, limit = 25 * 1024 * 1024) {

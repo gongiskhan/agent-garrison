@@ -1,12 +1,52 @@
+/* ============================================================================
+   Garrison Browser - own-port UI skinned to the Garrison editorial language.
+
+   Warm cream "paper", ink text, 1px "rule" hairlines, restrained sage-green
+   accent, uppercase letter-spaced mono micro-labels, Source Serif headings,
+   sharp (zero-radius) chrome. Mirrors src/app/globals.css and the web-channel
+   skin so this Fitting stops reading as a generic dark dashboard inside the
+   shell iframe. Dark is reserved only for the remote page's own content, which
+   renders onto the <canvas> and is whatever the visited site is.
+   ============================================================================ */
+
+:root {
+  --paper:      #fbf8f1;
+  --paper-2:    #f4ede0;
+  --paper-3:    #ece2cc;
+  --ink:        #18211c;
+  --ink-2:      #2a342e;
+  --ink-mute:   #3a423d;
+  --sage:       #2f4a3a;
+  --sage-2:     #3d6249;
+  --sage-soft:  #eaf1e7;
+  --brass:      #b4862a;
+  --brass-2:    #d8a82e;
+  --rule:       #d6cdba;
+  --rule-2:     #c4b89f;
+  --mute:       #66695f;
+  --mute-2:     #7d8077;
+  --alarm:      #9b362d;
+  --alarm-soft: #f7eae6;
+  --warn:       #b07215;
+  --warn-soft:  #f6ecd0;
+
+  --sans:  "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --serif: "Source Serif 4", Georgia, serif;
+  --mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 * { box-sizing: border-box; }
 
 html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #1a1a1a;
-  color: #e0e0e0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -15,64 +55,83 @@ html, body, #root {
 .tabs-list {
   max-width: 720px;
   margin: 0 auto;
-  padding: 32px 16px;
+  padding: 44px 20px 32px;
 }
 
 .tabs-list h1 {
-  font-size: 18px;
-  font-weight: 500;
-  margin: 0 0 16px;
-  color: #fafafa;
+  font-family: var(--serif);
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+.tabs-list h1::before {
+  content: "GARRISON";
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--brass);
+  margin-bottom: 8px;
 }
 
 .tabs-list .new-tab-form {
   display: flex;
   gap: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 .tabs-list .new-tab-form input {
   flex: 1;
-  padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 4px;
-  color: #fafafa;
-  font-size: 14px;
-  font-family: inherit;
+  min-width: 0;
+  padding: 10px 13px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-family: var(--mono);
 }
+.tabs-list .new-tab-form input:focus {
+  outline: 2px solid var(--brass);
+  outline-offset: -1px;
+  border-color: var(--rule-2);
+}
+.tabs-list .new-tab-form input::placeholder { color: var(--mute-2); }
 
-.tabs-list .new-tab-form button,
-.tabs-list .tab-row a,
-.tabs-list .tab-row button {
-  padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 4px;
-  color: #fafafa;
+/* Primary action - solid ink button, paper text. */
+.tabs-list .new-tab-form button {
+  padding: 10px 16px;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  color: var(--paper);
   font-size: 13px;
-  font-family: inherit;
+  font-weight: 600;
+  font-family: var(--sans);
   cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
+  white-space: nowrap;
 }
+.tabs-list .new-tab-form button:hover { background: var(--ink-2); border-color: var(--ink-2); }
+.tabs-list .new-tab-form button:disabled { opacity: 0.45; cursor: default; }
 
-.tabs-list .tab-row a:hover,
-.tabs-list .tab-row button:hover,
-.tabs-list .new-tab-form button:hover {
-  background: #353535;
-}
-
+/* Tab rows - hairline-collapsed list of panels. */
 .tabs-list .tab-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: #232323;
-  border: 1px solid #2e2e2e;
-  border-radius: 4px;
-  margin-bottom: 6px;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  margin-bottom: -1px;
+  position: relative;
 }
+.tabs-list .tab-row:hover { background: var(--paper-2); z-index: 1; }
 
 .tabs-list .tab-row .meta {
   flex: 1;
@@ -80,27 +139,55 @@ html, body, #root {
 }
 
 .tabs-list .tab-row .title {
-  font-size: 13px;
-  color: #fafafa;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tabs-list .tab-row .url {
+  margin-top: 2px;
   font-size: 11px;
-  color: #888;
+  color: var(--mute);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
 }
 
+/* Ghost row actions (View / DevTools); Close carries a danger tint. */
+.tabs-list .tab-row a,
+.tabs-list .tab-row button {
+  padding: 6px 11px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  white-space: nowrap;
+}
+.tabs-list .tab-row a:hover { border-color: var(--ink); background: var(--paper-3); }
+.tabs-list .tab-row button { color: var(--alarm); }
+.tabs-list .tab-row button:hover { border-color: var(--alarm); background: var(--alarm-soft); }
+
+/* Empty state - intentional mono micro-label panel. */
 .tabs-list .empty {
   text-align: center;
-  color: #777;
-  padding: 32px;
-  font-size: 13px;
+  color: var(--mute);
+  padding: 44px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
 }
 
 /* ─── Canvas page (/canvas/:tabId) ──────────────────────────── */
@@ -110,137 +197,152 @@ html, body, #root {
   inset: 0;
   display: flex;
   flex-direction: column;
-  background: #0e0e0e;
+  background: var(--paper);
 }
 
 .urlbar {
   display: flex;
-  gap: 4px;
-  padding: 6px 8px;
-  background: #232323;
-  border-bottom: 1px solid #1a1a1a;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
   align-items: center;
   flex-shrink: 0;
 }
 
 .urlbar button {
-  padding: 6px 10px;
-  background: #2e2e2e;
-  border: 1px solid #3a3a3a;
-  border-radius: 3px;
-  color: #fafafa;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--ink);
   font-size: 12px;
-  font-family: inherit;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+  line-height: 1;
   cursor: pointer;
 }
-
-.urlbar button:hover { background: #383838; }
-.urlbar button:active { background: #404040; }
+.urlbar button:hover { border-color: var(--ink); background: var(--paper); }
+.urlbar button:active { background: var(--paper-3); }
 
 .urlbar form {
   flex: 1;
   display: flex;
+  min-width: 0;
 }
 
 .urlbar input {
   flex: 1;
   min-width: 0;
-  padding: 6px 10px;
-  background: #1a1a1a;
-  border: 1px solid #3a3a3a;
-  border-radius: 3px;
-  color: #fafafa;
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 7px 11px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-family: var(--mono);
 }
+.urlbar input:focus {
+  outline: 2px solid var(--brass);
+  outline-offset: -1px;
+  border-color: var(--rule-2);
+}
+.urlbar input::placeholder { color: var(--mute-2); }
 
-/* Anchor styled like a button — used by Open native. */
+/* Anchor styled like a button - used by Open native. */
 .urlbar a.opt {
-  padding: 6px 10px;
-  background: #2e2e2e;
-  border: 1px solid #3a3a3a;
-  border-radius: 3px;
-  color: #fafafa;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--ink);
   font-size: 12px;
-  font-family: inherit;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+  line-height: 1;
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
 }
-.urlbar a.opt:hover { background: #383838; }
-.urlbar a.opt:active { background: #404040; }
-.urlbar a.native-link { color: #9ec5ff; }
+.urlbar a.opt:hover { border-color: var(--ink); background: var(--paper); }
+.urlbar a.native-link { color: var(--sage-2); }
+.urlbar a.native-link:hover { color: var(--sage); border-color: var(--sage-2); }
 
-/* Selection controls (point the agent at an element / region). */
+/* Selection controls (point the agent at an element / region) - sage active. */
 .urlbar .select-toggle {
   display: inline-flex;
-  gap: 4px;
+  gap: 6px;
 }
-.urlbar .select-toggle button.opt.active {
-  background: #1f6e64;
-  border-color: #29b6a8;
-  color: #eafffb;
+.urlbar button.opt.active {
+  background: var(--sage-soft);
+  border-color: var(--sage-2);
+  color: var(--sage);
 }
 .urlbar .selection-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  min-width: 0;
   max-width: 260px;
-  padding: 4px 6px 4px 8px;
-  background: #16302d;
-  border: 1px solid #29b6a8;
-  border-radius: 3px;
-  color: #cdeee9;
+  padding: 4px 7px 4px 9px;
+  background: var(--sage-soft);
+  border: 1px solid var(--sage-2);
+  border-radius: 0;
+  color: var(--sage);
   font-size: 11px;
+  font-family: var(--mono);
 }
 .urlbar .selection-badge .sel-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #29b6a8;
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+  background: var(--sage-2);
+  box-shadow: 0 0 0 3px rgba(61, 98, 73, 0.14);
   flex: 0 0 auto;
 }
 .urlbar .selection-badge .sel-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
 }
 .urlbar .selection-badge .sel-clear {
   border: 0;
   background: transparent;
-  color: #8fd6cd;
+  color: var(--sage-2);
   font-size: 14px;
   line-height: 1;
   padding: 0 2px;
   cursor: pointer;
 }
-.urlbar .selection-badge .sel-clear:hover { color: #eafffb; }
+.urlbar .selection-badge .sel-clear:hover { color: var(--sage); }
 
-/* Quality segmented control. */
+/* Quality segmented control - ink-active, mono micro-labels. */
 .urlbar .quality-toggle {
   display: inline-flex;
-  border: 1px solid #3a3a3a;
-  border-radius: 3px;
+  border: 1px solid var(--rule);
+  border-radius: 0;
   overflow: hidden;
 }
 .urlbar .quality-toggle button.quality-btn {
-  padding: 6px 8px;
+  padding: 7px 8px;
   border: 0;
   border-radius: 0;
-  background: #2e2e2e;
-  color: #cfcfcf;
-  font-size: 10px;
+  background: var(--paper);
+  color: var(--mute);
+  font-family: var(--mono);
+  font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
+.urlbar .quality-toggle button.quality-btn:hover { color: var(--ink); background: var(--paper-2); }
 .urlbar .quality-toggle button.quality-btn + button.quality-btn {
-  border-left: 1px solid #1a1a1a;
+  border-left: 1px solid var(--rule);
 }
 .urlbar .quality-toggle button.quality-btn.active {
-  background: #4a6b3e;
-  color: #fafafa;
+  background: var(--ink);
+  color: var(--paper);
 }
 
 /* At narrow widths, hide non-essential buttons so the URL stays readable. */
@@ -248,14 +350,14 @@ html, body, #root {
   .urlbar button.opt,
   .urlbar a.opt,
   .urlbar .quality-toggle { display: none; }
-  .urlbar button { padding: 6px 8px; font-size: 11px; }
+  .urlbar button { padding: 7px 8px; font-size: 11px; }
 }
 
 .canvas-wrapper {
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #fff;
+  background: var(--paper-3);
   touch-action: none;
 }
 
@@ -263,7 +365,7 @@ html, body, #root {
   display: block;
   width: 100%;
   height: 100%;
-  background: #fff;
+  background: var(--paper-3);
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
@@ -272,13 +374,13 @@ html, body, #root {
 /* While a selection mode is active, the canvas reads as "aim here". */
 .canvas-wrapper.selecting canvas { cursor: crosshair; }
 
-/* Element-pick highlight — follows the hovered element (teal, devtools-like). */
+/* Element-pick highlight - follows the hovered element (sage, devtools-like). */
 .canvas-wrapper .pick-overlay {
   position: absolute;
   pointer-events: none;
-  border: 2px solid #29b6a8;
-  background: rgba(41, 182, 168, 0.16);
-  border-radius: 2px;
+  border: 2px solid var(--sage-2);
+  background: rgba(61, 98, 73, 0.16);
+  border-radius: 0;
   z-index: 5;
 }
 .canvas-wrapper .pick-overlay .pick-label {
@@ -286,24 +388,22 @@ html, body, #root {
   top: -20px;
   left: 0;
   max-width: 320px;
-  padding: 1px 6px;
-  background: #1f6e64;
-  color: #eafffb;
-  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 6px;
+  background: var(--sage);
+  color: var(--paper);
+  font: 11px var(--mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-radius: 2px;
+  border-radius: 0;
 }
-/* Keep the label on-screen when the element sits at the very top. */
-.canvas-wrapper .pick-overlay .pick-label { top: -20px; }
 
 /* Region draw rectangle. */
 .canvas-wrapper .region-overlay {
   position: absolute;
   pointer-events: none;
-  border: 2px dashed #29b6a8;
-  background: rgba(41, 182, 168, 0.12);
+  border: 2px dashed var(--sage-2);
+  background: rgba(61, 98, 73, 0.12);
   z-index: 5;
 }
 
@@ -318,50 +418,43 @@ html, body, #root {
   font-size: 16px; /* prevent iOS zoom on focus */
 }
 
-.canvas-overlay {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.canvas-overlay.visible { opacity: 1; }
-
+/* Connection / load overlays - paper scrim, ink text, alarm for errors. */
 .conn-overlay {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(14, 14, 14, 0.78);
-  color: #e0e0e0;
-  font-size: 13px;
+  background: rgba(251, 248, 241, 0.86);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   pointer-events: none;
   text-align: center;
   padding: 24px;
 }
 
-.conn-overlay.error {
-  background: rgba(14, 14, 14, 0.92);
-}
+.conn-overlay.error { background: rgba(251, 248, 241, 0.95); }
 
 .conn-overlay .title {
-  font-size: 15px;
-  color: #fafafa;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
   margin-bottom: 6px;
 }
+.conn-overlay.error .title { color: var(--alarm); }
 
 .conn-overlay .subtitle {
-  font-size: 12px;
-  color: #aaa;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--mute);
 }
 
 .conn-overlay.reconnect {
@@ -375,10 +468,10 @@ html, body, #root {
   position: fixed;
   inset: 0;
   display: flex;
-  background: #1a1a1a;
+  background: var(--paper);
 }
 
-/* CanvasPage is position:fixed full-viewport on /canvas — contain it to the
+/* CanvasPage is position:fixed full-viewport on /canvas - contain it to the
    shell's left pane instead. */
 .devtools-shell .canvas-page {
   position: relative;
@@ -395,13 +488,14 @@ html, body, #root {
   width: 5px;
   flex: none;
   cursor: col-resize;
-  background: #2a2a2a;
+  background: var(--paper-3);
+  border-left: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
 }
 
-.devtools-shell .shell-divider:hover {
-  background: #444;
-}
+.devtools-shell .shell-divider:hover { background: var(--rule-2); }
 
+/* The right pane is Chrome's own DevTools frontend - keep it on white. */
 .devtools-shell .shell-right {
   flex: 1;
   min-width: 0;

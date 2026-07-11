@@ -905,7 +905,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
             className={`conn-overlay ${connState === "closed" ? "reconnect" : ""}`}
             onClick={connState === "closed" ? () => connect() : undefined}
           >
-            {connState === "connecting" ? "Connecting…" : "Disconnected — tap to reconnect"}
+            {connState === "connecting" ? "Connecting…" : "Disconnected - tap to reconnect"}
           </div>
         )}
         {connState === "open" && loadError && (

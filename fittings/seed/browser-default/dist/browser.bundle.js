@@ -5,7 +5,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -25298,7 +25302,7 @@ function CanvasPage({ initialTabId, inShell = false }) {
         {
           className: `conn-overlay ${connState === "closed" ? "reconnect" : ""}`,
           onClick: connState === "closed" ? () => connect() : void 0,
-          children: connState === "connecting" ? "Connecting\u2026" : "Disconnected \u2014 tap to reconnect"
+          children: connState === "connecting" ? "Connecting\u2026" : "Disconnected - tap to reconnect"
         }
       ),
       connState === "open" && loadError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "conn-overlay error", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
