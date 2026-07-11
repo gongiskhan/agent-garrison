@@ -18,7 +18,7 @@ const ROOT = path.resolve(__dirname, "..");
 // the rev; GET returns the current rev+list. Records every POST body + PATCH move
 // so a test can assert what the gateway sent (quick flag, target list).
 function stubBoard() {
-  const state: { rev: number; list: string } = { rev: 0, list: "backlog" };
+  const state: { rev: number; list: string; absent?: boolean; preparedRevert?: unknown } = { rev: 0, list: "backlog" };
   const posts: any[] = [];
   const patches: { list: string; engine: boolean }[] = [];
   const server = http.createServer((req, res) => {
@@ -36,7 +36,10 @@ function stubBoard() {
       return;
     }
     if (req.method === "GET" && req.url?.startsWith("/cards/")) {
-      return send(200, { card: { id: "01STUBCARD00000000000000AA", rev: state.rev, list: state.list } });
+      if (state.absent) return send(404, { error: "card not found" });
+      return send(200, {
+        card: { id: "01STUBCARD00000000000000AA", rev: state.rev, list: state.list, preparedRevert: state.preparedRevert ?? null },
+      });
     }
     if (req.method === "PATCH" && req.url?.startsWith("/cards/")) {
       let raw = "";
@@ -141,18 +144,55 @@ describe("completeQuickCard — auto-advance Implement→Done at completion", ()
   });
 });
 
-describe("session→card memory — a follow-up about the same task attaches", () => {
-  it("reuses the card for the same task type and forgets it on completion", async () => {
-    const gw = await makeGateway("http://127.0.0.1:1", home);
-    gw.rememberCard("thread-1", { cardId: "C1", quick: false, taskType: "code" });
-    // same session + same task type → attaches to the live card (no duplicate)
-    expect(gw.attachedCard("thread-1", { taskType: "code" })?.cardId).toBe("C1");
-    // a different task type in the same session is a new task → no attach
-    expect(gw.attachedCard("thread-1", { taskType: "research" })).toBeNull();
-    // a different session never attaches
-    expect(gw.attachedCard("thread-2", { taskType: "code" })).toBeNull();
-    // completion releases the slot → next task starts fresh
-    gw.forgetCard("thread-1");
-    expect(gw.attachedCard("thread-1", { taskType: "code" })).toBeNull();
+describe("session→card memory — liveness-gated attach (D19 + review F1)", () => {
+  const CARD = "01STUBCARD00000000000000AA";
+
+  async function withBoard(list: string, extra: Partial<{ absent: boolean; preparedRevert: unknown }> = {}) {
+    const board = stubBoard();
+    board.state.list = list;
+    if (extra.absent) board.state.absent = true;
+    if (extra.preparedRevert) board.state.preparedRevert = extra.preparedRevert;
+    await new Promise<void>((r) => board.server.listen(0, "127.0.0.1", () => r()));
+    const addr = board.server.address() as { port: number };
+    const gw = await makeGateway(`http://127.0.0.1:${addr.port}`, home);
+    return { board, gw };
+  }
+
+  it("attaches to a LIVE card of the same task type; a different task type does not", async () => {
+    const { board, gw } = await withBoard("implement");
+    gw.rememberCard("thread-1", { cardId: CARD, quick: false, taskType: "code" });
+    expect((await gw.attachedCard("thread-1", { taskType: "code" }))?.cardId).toBe(CARD);
+    expect(await gw.attachedCard("thread-1", { taskType: "research" })).toBeNull();
+    board.server.close();
+  });
+
+  it("F1: a stale/completed (done) card is forgotten → attach returns null so a new turn registers fresh", async () => {
+    const { board, gw } = await withBoard("done");
+    gw.rememberCard("thread-2", { cardId: CARD, quick: false, taskType: "code" });
+    expect(await gw.attachedCard("thread-2", { taskType: "code" })).toBeNull();
+    // and it was forgotten — a second look is still null even if the board went live again
+    board.state.list = "implement";
+    expect(await gw.attachedCard("thread-2", { taskType: "code" })).toBeNull();
+    board.server.close();
+  });
+
+  it("F1: parked, abandoned, and absent cards are all treated as non-live (forgotten)", async () => {
+    for (const scenario of [
+      { list: "needs-attention" },
+      { list: "implement", extra: { preparedRevert: { state: "prepared", commits: [] } } },
+      { list: "implement", extra: { absent: true } },
+    ]) {
+      const { board, gw } = await withBoard(scenario.list, (scenario as any).extra || {});
+      gw.rememberCard("t", { cardId: CARD, quick: false, taskType: "code" });
+      expect(await gw.attachedCard("t", { taskType: "code" })).toBeNull();
+      board.server.close();
+    }
+  });
+
+  it("F1c: a null session key never attaches (no-session-id surface never cross-attaches)", async () => {
+    const { board, gw } = await withBoard("implement");
+    gw.rememberCard(null, { cardId: CARD, quick: false, taskType: "code" }); // no-op
+    expect(await gw.attachedCard(null, { taskType: "code" })).toBeNull();
+    board.server.close();
   });
 });

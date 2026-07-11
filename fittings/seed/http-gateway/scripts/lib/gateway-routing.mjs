@@ -600,14 +600,43 @@ export class RoutedGateway {
 
   // D19 session→card memory. A follow-up turn about the same task (same session
   // key AND task type) attaches to the live card instead of registering a
-  // duplicate. Quick cards are forgotten on completion, so a matching entry is
-  // always a still-live card.
-  attachedCard(sessionKey, classification) {
+  // duplicate. The attach is LIVENESS-GATED against the board: a stale card
+  // (done / parked / abandoned / absent) is forgotten so a genuinely new
+  // same-type turn registers + dispatches FRESH rather than running inline and
+  // bypassing the engine pipeline (S7 review F1). Poll at attach-time — no timer.
+  // Returns the entry to attach, or null (caller registers a new card).
+  async attachedCard(sessionKey, classification) {
+    if (!sessionKey) return null; // no conversation identity → never attach (F1c)
     const entry = this._sessionCards.get(sessionKey);
     if (!entry) return null;
     if (classification && entry.taskType && entry.taskType !== classification.taskType) return null;
+    if (!(await this._cardIsLive(entry.cardId))) {
+      this.forgetCard(sessionKey);
+      return null;
+    }
     return entry;
   }
+
+  // True only when the card is STILL an active engine run: it exists and sits on
+  // a non-terminal, non-parked pipeline list with no abandonment revert prepared.
+  // A fetch failure counts as NOT live (safe: the caller registers fresh).
+  async _cardIsLive(cardId) {
+    try {
+      const base = this._boardBase();
+      if (!base || !cardId) return false;
+      const r = await fetch(`${base}/cards/${cardId}`);
+      if (!r.ok) return false; // absent / deleted
+      const doc = await r.json();
+      const card = doc.card ?? doc;
+      const list = card.list;
+      if (!list || list === "done" || list === "needs-attention") return false; // terminal / parked
+      if (card.preparedRevert) return false; // abandoned (revert prepared)
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   rememberCard(sessionKey, entry) {
     if (sessionKey) this._sessionCards.set(sessionKey, entry);
   }

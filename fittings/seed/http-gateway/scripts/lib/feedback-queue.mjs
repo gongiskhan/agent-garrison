@@ -23,28 +23,35 @@ export function improverQueuePath() {
   return path.join(home, "improver", "feedback-queue.jsonl");
 }
 
-// The three example override phrases (and close variants) the brief names, mapped
-// to the plan they force: "full"/"engine" → multi-phase engine-dispatched run;
-// "quick" → trivial plan, run inline. Deterministic so the gateway records the
-// SAME override the operator's words describe, immune to classifier drift.
+// IMPERATIVE override phrasings (the brief's examples + close variants), mapped to
+// the plan they force: "full" → multi-phase engine-dispatched run; "quick" →
+// trivial plan, run inline. Deterministic so the gateway records the SAME override
+// the operator's words describe, immune to classifier drift. Kept to directive
+// phrasings — NOT loose adverbs like "quickly just" that false-positive on
+// narration ("I quickly just realized …", S7 review F2).
 const OVERRIDE_RULES = [
-  { plan: "full", re: /\b(full pipeline|the full pipeline|full build|run the full|do the full)\b/i },
+  { plan: "full", re: /\b(run (this|it|that) with )?the full pipeline\b/i },
+  { plan: "full", re: /\bfull pipeline\b/i },
   { plan: "full", re: /\brun (this|it|that)?\s*in the background\b/i },
-  { plan: "full", re: /\bkick off (a|the) build\b/i },
+  { plan: "full", re: /\bkick off (a|the) (full )?build\b/i },
   { plan: "quick", re: /\b(just )?do it quickly\b/i },
-  { plan: "quick", re: /\b(just )?(keep it|make it|do it) quick\b/i },
-  { plan: "quick", re: /\bquick(ly)?,? just\b/i },
+  { plan: "quick", re: /\b(just )?keep it quick\b/i },
+  { plan: "quick", re: /\bskip the (ceremony|pipeline|gates)\b/i },
 ];
 
 // Detect a conversational override in the operator's message. Returns
 // { answer, plan } (plan: "quick" | "full") or null when no phrase matches.
-// `answer` is the matched phrase verbatim — the human-readable override the
-// Improver reads.
+// `answer` is the matched phrase verbatim. Guarded so an override only fires when
+// the phrase is DIRECTED at the task — a short directive message OR the phrase in
+// the leading clause — never mid-narrative in a long sentence (F2).
+const DIRECTIVE_MAX_LEN = 120; // a short imperative, not a paragraph
+const LEADING_WINDOW = 40; // "actually, run the full pipeline" — phrase near the front
 export function detectOverride(message) {
   const text = String(message || "");
+  const short = text.trim().length <= DIRECTIVE_MAX_LEN;
   for (const rule of OVERRIDE_RULES) {
     const m = text.match(rule.re);
-    if (m) return { answer: m[0], plan: rule.plan };
+    if (m && (short || m.index <= LEADING_WINDOW)) return { answer: m[0], plan: rule.plan };
   }
   return null;
 }

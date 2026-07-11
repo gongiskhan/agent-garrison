@@ -53,6 +53,24 @@ describe("detectOverride — the three example phrases + close variants", () => 
     expect(detectOverride("add a login form to the settings page")).toBeNull();
     expect(detectOverride("")).toBeNull();
   });
+  it("F2: does NOT false-positive on narrative sentences (the reviewer's example)", async () => {
+    const { detectOverride } = await lib();
+    // the old loose /quick(ly)? just/ rule matched this — it must not any more
+    expect(detectOverride("I quickly just realized the tests already pass")).toBeNull();
+    expect(detectOverride("she quickly, just before lunch, fixed the bug")).toBeNull();
+  });
+  it("F2: does NOT fire on a long narrative that merely mentions the phrase late", async () => {
+    const { detectOverride } = await lib();
+    const narrative =
+      "I was thinking about how, once the design settles and the whole team has agreed on the approach, " +
+      "we could eventually run the full pipeline on the auth refactor to be safe";
+    expect(detectOverride(narrative)).toBeNull(); // >120 chars AND phrase not leading
+  });
+  it("F2: DOES fire on a short directive or a leading override clause", async () => {
+    const { detectOverride } = await lib();
+    expect(detectOverride("actually, run the full pipeline on this")?.plan).toBe("full");
+    expect(detectOverride("skip the ceremony")?.plan).toBe("quick");
+  });
   it("returns the matched phrase verbatim as the answer", async () => {
     const { detectOverride } = await lib();
     const d = detectOverride("please run the full pipeline");
