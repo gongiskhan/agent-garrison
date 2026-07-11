@@ -631,6 +631,18 @@ export class RoutedGateway {
       slashInjectWorks: this.slashInjectWorks,
     });
     if (plan.path === "slash-inject") {
+      // D8 guard (S4 review): slash-inject assumes a Claude PTY session. A
+      // non-claude primary's session has no writeKeys — state what is needed
+      // and skip, never crash with an opaque TypeError. Full non-PTY turn
+      // wiring is the P8 slice.
+      if (typeof this.operative?.session?.writeKeys !== "function") {
+        this.logFn({
+          kind: "route-switch-skipped",
+          reason: `slash-inject needs a Claude PTY operative; the current primary session has no writeKeys — model/effort stay launch-fixed until the P8 non-PTY turn wiring (target ${route.targetId})`
+        });
+        this.switchLog.push({ path: "skipped-non-pty", injections: [], target: route.targetId, reasons: plan.reasons });
+        return plan;
+      }
       for (const inj of plan.injections) {
         this.operative.session.writeKeys(inj + "\r");
         await sleep(this.injectSettleMs ?? 250);
@@ -874,7 +886,8 @@ export async function createRoutedGateway(opts = {}) {
   // byte-for-byte the historical path. The CLASSIFIER always stays on the
   // cheap claude-code haiku session regardless of primary.
   const primaryEngine =
-    (opts.primaryEngine ?? process.env.GARRISON_PRIMARY_ENGINE ?? "claude-code").trim() || "claude-code";
+    (opts.primaryEngine ?? process.env.GARRISON_PRIMARY_ENGINE ?? "claude-code").trim().toLowerCase() ||
+    "claude-code";
   const primary = await resolvePrimaryAdapter(primaryEngine, {
     compositionDir,
     spawnFn,
