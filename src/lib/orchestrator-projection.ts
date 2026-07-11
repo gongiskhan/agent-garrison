@@ -10,6 +10,7 @@ import {
 import { writeYamlFile } from "./yaml";
 import { hashFile } from "./claude-scan";
 import { writeFileAtomic } from "./atomic-write";
+import { PROJECTION_MARKER } from "./quarters-runtimes";
 import { recordWritten } from "./provenance";
 import { substituteCapabilitiesPlaceholder, substituteRoutingPlaceholder } from "./runner";
 import type { ApmRunner } from "./apm-exec";
@@ -181,7 +182,7 @@ export async function projectPrimaryContext(opts: {
   } catch {
     /* absent — fine */
   }
-  if (existing !== null && !existing.includes("GARRISON-PROJECTED")) {
+  if (existing !== null && !existing.includes(PROJECTION_MARKER)) {
     return {
       projected: false,
       file: target,
@@ -192,7 +193,7 @@ export async function projectPrimaryContext(opts: {
     };
   }
   const header =
-    `<!-- GARRISON-PROJECTED source=orchestrator engine=${opts.engine} -->\n` +
+    `<!-- ${PROJECTION_MARKER} source=orchestrator engine=${opts.engine} -->\n` +
     `<!-- Managed by Garrison (RUNTIMES-V1 P8): the assembled Orchestrator prompt projected to the ${opts.engine} ` +
     `primary's native context convention. Edit the Orchestrator prompt / composer, not this file. -->\n\n`;
   await fsp.mkdir(opts.targetDir, { recursive: true });

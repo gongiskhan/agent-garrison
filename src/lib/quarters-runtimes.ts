@@ -12,6 +12,7 @@
 // nonexistent home dir, an undeclared path, or a malformed payload is an
 // explicit error, never a fallback.
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -52,6 +53,18 @@ export function expandHome(p: string): string {
 // Runtimes without a descriptor are simply absent (a runtime is not obliged to
 // be configurable); malformed situations surface as warnings on the entry.
 export async function resolveRuntimeQuarters(compositionId?: string): Promise<RuntimeQuartersEntry[]> {
+  // READ-ONLY guard (S7 review): readComposition ensure-creates a composition
+  // dir on miss — a GET must never materialize state from a typo'd
+  // ?composition= param. Unknown ids fail loud instead.
+  if (compositionId !== undefined) {
+    if (!/^[a-z][a-z0-9-]*$/.test(compositionId)) {
+      throw new Error(`invalid composition id ${JSON.stringify(compositionId)}`);
+    }
+    const manifest = path.join(process.cwd(), "compositions", compositionId, "apm.yml");
+    if (!existsSync(manifest)) {
+      throw new Error(`composition "${compositionId}" does not exist`);
+    }
+  }
   const [composition, library] = await Promise.all([readComposition(compositionId), readLibrary()]);
   const byId = new Map(library.map((entry) => [entry.id, entry]));
   const out: RuntimeQuartersEntry[] = [];

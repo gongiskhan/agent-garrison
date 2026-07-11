@@ -61,7 +61,13 @@ export function QuartersIndex() {
         else setModel(d as StateModel);
       })
       .catch((e) => active && setError(e instanceof Error ? e.message : String(e)));
-    fetch(`/api/quarters/runtimes${typeof window !== "undefined" ? window.location.search : ""}`)
+    fetch(
+      `/api/quarters/runtimes${(() => {
+        if (typeof window === "undefined") return "";
+        const c = new URLSearchParams(window.location.search).get("composition");
+        return c ? `?composition=${encodeURIComponent(c)}` : "";
+      })()}`
+    )
       .then((r) => r.json())
       .then((d) => active && setRuntimes(Array.isArray(d) ? (d as RuntimeQuartersEntry[]) : []))
       .catch(() => active && setRuntimes([]));
@@ -89,6 +95,7 @@ export function QuartersIndex() {
   // glance without scrolling past a fully expanded Claude Code surface.
   const sections = runtimes ?? [];
   const multi = sections.length > 1;
+  const loading = runtimes === null;
 
   return (
     <main>
@@ -110,9 +117,12 @@ export function QuartersIndex() {
           </div>
         ) : null}
 
-        {!multi ? (
-          // Single runtime (or the runtimes feed still loading): the classic
-          // claude-code index, exactly as before.
+        {loading ? (
+          // No flash (S7 review): don't paint the classic grid before the
+          // runtimes feed decides single-vs-multi.
+          <div className="quarters-note">loading…</div>
+        ) : !multi ? (
+          // Single runtime: the classic claude-code index, exactly as before.
           <div
             style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}
             data-testid="quarters-grid"
