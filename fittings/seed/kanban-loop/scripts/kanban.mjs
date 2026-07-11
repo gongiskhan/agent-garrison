@@ -219,7 +219,19 @@ async function probe() {
 // Exported so the board server's manual "Run" can drive a batched list (Test) through
 // the SAME batch wire shape the scheduler beat uses (one session per project).
 export function batchGatewayRunFn(gatewayUrl) {
-  return async ({ project, cards, list, classification, skill, suppressContinuations }) => {
+  // Delegate the wire to the SAME transport-aware streaming client the per-card
+  // path uses (gateway-client.mjs): /chat/stream + the generous kanban per-turn
+  // timeout + err.transport classification. The old blocking /chat had NO
+  // timeoutMs (the gateway capped a real batched test run at the 5-min PTY
+  // default) and died at the HTTP client's ~5-min headersTimeout — either way
+  // a legitimate long batch parked its whole project group.
+  const streamRunFn = gatewayRunFn(gatewayUrl);
+  return async ({ project, cards, list, classification, skill, suppressContinuations, nudge }) => {
+    // A verdict NUDGE (engine backstop) replaces the roster prompt: same
+    // session, ask for nothing but the per-card verdict lines.
+    if (nudge) {
+      return streamRunFn({ prompt: nudge, classification, skill, suppressContinuations: suppressContinuations ?? true });
+    }
     const roster = cards
       .map((c) => `- ${c.id} :: title="${c.title}" runDir=${c.runDir || "(none)"} slice=${c.sliceId || "(none)"}`)
       .join("\n");
@@ -236,20 +248,7 @@ export function batchGatewayRunFn(gatewayUrl) {
       `Emit ONE verdict line per card, each on its own line, EXACTLY in the form \`<cardId> <next-list>\` where <next-list> is one of: ${list.validNext.join(", ")}.`,
       list.routerPrompt || ""
     ].join("\n");
-    const res = await fetch(`${gatewayUrl}/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
-      body: JSON.stringify({
-        channel: "kanban",
-        message: prompt,
-        classification: classification ?? null,
-        skill: skill ?? null,
-        suppressContinuations: suppressContinuations ?? true
-      })
-    });
-    if (!res.ok) throw new Error(`kanban batch dispatch failed: HTTP ${res.status}`);
-    const data = await res.json().catch(() => ({}));
-    return { reply: data.reply ?? data.text ?? "" };
+    return streamRunFn({ prompt, classification, skill, suppressContinuations: suppressContinuations ?? true });
   };
 }
 

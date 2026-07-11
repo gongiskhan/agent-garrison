@@ -14,12 +14,12 @@
     <string>ABS_PATH_TO/scheduler.mjs</string>
     <string>daemon</string>
     <string>--health-port</string>
-    <string>7088</string>
+    <string>7099</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>GARRISON_SCHEDULER_HEALTH_PORT</key>
-    <string>7088</string>
+    <string>7099</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

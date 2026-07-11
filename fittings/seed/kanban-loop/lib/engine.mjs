@@ -1404,7 +1404,37 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     try {
       out = await batchRunFn({ project, cards: runningCards, list, classification, skill, suppressContinuations: true });
     } catch (err) {
-      // The whole batch session failed — park every acquired card with the reason.
+      if (err?.transport) {
+        // A TRANSPORT failure (gateway down/restarting, stream dropped) is not
+        // the cards' fault — REVERT every acquire (status + iteration restored)
+        // so the batch retries on the next beat/Run, exactly like processCard's
+        // per-card defer. Parking here stranded a whole project group whenever
+        // the gateway hiccupped.
+        for (const a of acquired) {
+          const res = await saveCardCAS(root, {
+            ...a.running,
+            status: a.original.status ?? "ok",
+            iterations: a.original.iterations || 0,
+            runningSince: null,
+            lastDispatchError: {
+              at: now(),
+              reason: "gateway-unavailable",
+              listId,
+              message: String(err?.message || err)
+            },
+            events: withEvent(a.running, {
+              at: now(),
+              kind: "deferred",
+              message: `Gateway unavailable on ${listTitle} (batched) — left in place, will retry`,
+              detail: String(err?.message || err)
+            })
+          }, a.running.rev, now());
+          await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
+          outcomes.push({ id: a.original.id, status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err), project });
+        }
+        continue;
+      }
+      // A real (non-transport) batch failure — park every acquired card with the reason.
       for (const a of acquired) {
         const failReason = `The ${listTitle} batch run for ${project} errored: ${String(err?.message || err)}. Parked — open the log, then move it back to retry.`;
         const res = await saveCardCAS(root, {
@@ -1420,9 +1450,31 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       continue;
     }
 
-    const reply = out?.reply ?? out?.text ?? String(out ?? "");
+    let reply = out?.reply ?? out?.text ?? String(out ?? "");
+    let verdicts = parseBatchVerdicts(reply, runningCards, board);
+    // VERDICT NUDGE (same backstop as processCard). A batch turn that did the
+    // work but ended narrating — or returned an empty screen-scrape — leaves
+    // ZERO verdict lines and would park the whole group. One bounded follow-up
+    // asks for nothing but the verdict lines, in the same session.
+    if (!Object.values(verdicts).some(Boolean)) {
+      try {
+        const nudgePrompt =
+          `Your previous reply did not include the required per-card verdict lines, so the workflow can't advance. ` +
+          `Based ONLY on the batched test work you just completed, reply with NOTHING but one verdict line per card, ` +
+          `each EXACTLY in the form \`<cardId> <next-list>\` where <next-list> is one of: ${validNext.join(", ")}. The cards: ` +
+          runningCards.map((c) => c.id).join(", ") + ".";
+        const nout = await batchRunFn({ project, cards: runningCards, list, classification, skill, suppressContinuations: true, nudge: nudgePrompt });
+        const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
+        const nudged = parseBatchVerdicts(nudgeReply, runningCards, board);
+        if (Object.values(nudged).some(Boolean)) {
+          verdicts = nudged;
+          if (!reply.trim()) reply = nudgeReply;
+        }
+      } catch {
+        // Nudge failed — fall through and handle with the original (empty) verdicts.
+      }
+    }
     const snippet = replySnippet(reply);
-    const verdicts = parseBatchVerdicts(reply, runningCards, board);
     for (const a of acquired) {
       let next = verdicts[a.original.id];
       await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\nverdict: ${next ?? "(none)"}\n${reply}\n`);

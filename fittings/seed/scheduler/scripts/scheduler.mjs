@@ -43,7 +43,7 @@ const TICK_INTERVAL_MS = 60_000;
 // Default port for the daemon's /health endpoint. Override with
 // GARRISON_SCHEDULER_HEALTH_PORT or `daemon --health-port <n>`; a busy port is
 // tolerated (logged, daemon continues without /health).
-const DEFAULT_HEALTH_PORT = 7088;
+const DEFAULT_HEALTH_PORT = 7099;
 
 async function loadJobs() {
   try {

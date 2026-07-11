@@ -6,12 +6,12 @@ module.exports = {
     {
       name: "garrison-scheduler",
       script: process.env.SCHEDULER || require("path").resolve(__dirname, "..", "..", "scripts", "scheduler.mjs"),
-      args: ["daemon", "--health-port", process.env.GARRISON_SCHEDULER_HEALTH_PORT || "7088"],
+      args: ["daemon", "--health-port", process.env.GARRISON_SCHEDULER_HEALTH_PORT || "7099"],
       interpreter: "node",
       autorestart: true,
       kill_timeout: 10000,
       env: {
-        GARRISON_SCHEDULER_HEALTH_PORT: process.env.GARRISON_SCHEDULER_HEALTH_PORT || "7088"
+        GARRISON_SCHEDULER_HEALTH_PORT: process.env.GARRISON_SCHEDULER_HEALTH_PORT || "7099"
       }
     }
   ]

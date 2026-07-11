@@ -402,6 +402,41 @@ describe("kanban engine — Test batching (FINDING 7)", () => {
     expect(byId[ok.id].status).toBe("needs-attention");
     expect(byId[ok.id].reason).toBe("no-exact-match");
   });
+
+  it("processBatch DEFERS (reverts acquires) on a transport failure instead of parking the group", async () => {
+    const root = tmp();
+    const a = await createCard(root, { title: "A", list: "test", project: "p1" });
+    const batchRunFn = async () => {
+      const err: any = new Error("gateway unreachable: fetch failed");
+      err.transport = true;
+      throw err;
+    };
+    const all = await loadAllCards(root);
+    const { outcomes } = await processBatch({ root, board, listId: "test", cards: all, batchRunFn, cap: 10 });
+    expect(outcomes[0].status).toBe("deferred");
+    expect(outcomes[0].reason).toBe("gateway-unavailable");
+    const after = await loadCard(root, a.id);
+    expect(after.list).toBe("test"); // left in place
+    expect(after.status).toBe(a.status ?? "ok"); // acquire reverted
+    expect(after.iterations).toBe(a.iterations || 0); // iteration un-consumed
+    expect(after.lastDispatchError?.reason).toBe("gateway-unavailable");
+  });
+
+  it("processBatch nudges ONCE when the batch reply has zero verdicts, then advances on the nudge's lines", async () => {
+    const root = tmp();
+    const a = await createCard(root, { title: "A", list: "test", project: "p1" });
+    const calls: string[] = [];
+    const batchRunFn = async ({ cards, nudge }: { cards: any[]; nudge?: string }) => {
+      calls.push(nudge ? "nudge" : "batch");
+      if (!nudge) return { reply: "All green, wrapping up the batch now." }; // narration, no verdict lines
+      return { reply: cards.map((x) => `${x.id} adversarial-test`).join("\n") };
+    };
+    const all = await loadAllCards(root);
+    const { outcomes } = await processBatch({ root, board, listId: "test", cards: all, batchRunFn, cap: 10 });
+    expect(calls).toEqual(["batch", "nudge"]);
+    expect(outcomes[0].to).toBe("adversarial-test");
+    expect((await loadCard(root, a.id)).list).toBe("adversarial-test");
+  });
 });
 
 describe("kanban seed board (FINDING 2 — full pipeline)", () => {
