@@ -38,7 +38,8 @@ import {
   acquireLeases,
   renewLeases,
   releaseLeases,
-  reregisterTouchSetIfGrown
+  reregisterTouchSetIfGrown,
+  claimCovers
 } from "./coordination.mjs";
 import { commitFence, attributeBreakage } from "./fences.mjs";
 import { sendCoordMail } from "./coord-mail.mjs";
@@ -458,7 +459,13 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // blocked card never burns a run.
   if (coordActive && phase === "implement" && card.runDir) {
     const ts = readTouchSet(card.runDir);
-    const excl = ts?.exclusive || [];
+    const excl = [...(ts?.exclusive || [])];
+    // D6: union in the policy's always-exclusive list for every path this
+    // card's claims COVER - a lockfile under a claimed dir is exclusive even
+    // when the prediction forgot to mark it.
+    for (const p of coordCfg.exclusiveLeases || []) {
+      if (!excl.includes(p) && ts && claimCovers(ts, p)) excl.push(p);
+    }
     if (excl.length) {
       const repoPath = repoPathForProject(card.project, board);
       if (repoPath) {

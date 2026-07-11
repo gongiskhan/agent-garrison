@@ -50,7 +50,12 @@ export const DEFAULT_COORDINATION = {
   thresholds: { heavyFiles: 3, heavyRatio: 0.5 },
   fences: { enabled: true, trailer: "Garrison-Card" },
   leaseTtlMinutes: 60,
-  serializeWhenUnavailable: true
+  serializeWhenUnavailable: true,
+  // Always-exclusive paths (D6): any card whose touch-set covers one of these
+  // must hold its exclusive lease even when the prediction forgot to list it.
+  // The real list is policy-seeded (composer-owned); the code default keeps an
+  // un-recompiled policy safe.
+  exclusiveLeases: []
 };
 
 // Merge policy.coordination (if any) over the code defaults. A null/garbage

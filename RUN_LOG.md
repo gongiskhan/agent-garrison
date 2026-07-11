@@ -124,3 +124,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - S5 PASSED (UX_QA_OK): review approve; GATE_KEYS cross-boundary fix; evidence panels 3/3. Fence 9c0d22d.
 - S9 PASSED (RUNTIME_FREEDOM_OK, UI beat folded into S6, e2e retarget deferred to final walk): review approve; key-mask + badge + short-flag fixes; remote-dispatch claude -p exception DEVIATION recorded. Fences 2090809/be767f2/dec1461.
 - codexSliceReview: degraded (codex-unavailable) on all four - recorded, never faked.
+
+## DEVIATION (run 20260710-171608-7bf26feb) — be767f2 attribution sweep
+- The S9-findings commit used a broad git add and swept s6-composer's in-progress files under the S9 trailer (nothing lost; HEAD correct). Exactly the failure mode D5 fences+scoped-staging solve for engine-driven runs - the lead's own gate commits now switch to explicit pathspecs. S6's remaining work is committed under its own trailer.
