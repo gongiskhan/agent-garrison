@@ -122,3 +122,57 @@ describe("PUT /routing primaryRuntime guard (P3/D4)", () => {
     expect(r.status).toBe(200);
   });
 });
+
+// Boundary ratchet for the S3 codex finding: fitting ids from the
+// user-editable composition manifest must NEVER traverse outside the
+// composition's modules dir. The endpoint re-reads apm.yml per request, so
+// these properties drive the REAL endpoint with adversarial ids.
+import { writeFileSync as wf } from "node:fs";
+import fc from "fast-check";
+
+function compManifest(ids: string[]): string {
+  return [
+    "name: test-comp",
+    "x-garrison:",
+    "  composition:",
+    "    id: test",
+    "    selections:",
+    "      runtimes:",
+    ...ids.flatMap((id) => [`        - id: ${JSON.stringify(id)}`, "          config: {}"]),
+    ""
+  ].join("\n");
+}
+
+describe("fitting-id path containment (S3 boundary ratchet)", () => {
+  const hostile = ["../escape", "../../../../etc", "..", "a/../../b", "/etc", "a\\..\\b", ".hidden", "UPPER", "", "  ", "a b"];
+
+  it("hostile ids are reported invalid/uninstalled — never read outside the modules dir", async () => {
+    for (const id of hostile) {
+      wf(join(COMP, "apm.yml"), compManifest([id, "codex-runtime"]));
+      const j = await (await fetch(`${base}/runtime-fittings`)).json();
+      const entry = j.runtimes.find((r: any) => r.id === id);
+      expect(entry, `entry for ${JSON.stringify(id)}`).toBeTruthy();
+      expect(entry.installed).toBe(false);
+      expect(entry.warning).toMatch(/invalid fitting id|resolves outside|unreadable/);
+      // The well-formed sibling keeps working alongside the hostile entry.
+      expect(j.runtimes.find((r: any) => r.id === "codex-runtime").installed).toBe(true);
+    }
+  });
+
+  it("PROPERTY: any id outside the kebab-case slug grammar is never treated as installed", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.string({ minLength: 1, maxLength: 40 }).filter((s) => !/^[a-z][a-z0-9-]*$/.test(s)),
+        async (id) => {
+          wf(join(COMP, "apm.yml"), compManifest([id]));
+          const j = await (await fetch(`${base}/runtime-fittings`)).json();
+          const entry = j.runtimes.find((r: any) => r.id === id) ?? j.runtimes[0];
+          return entry ? entry.installed === false : true;
+        }
+      ),
+      { numRuns: 25 }
+    );
+    // restore the canonical sandbox manifest for any later test
+    wf(join(COMP, "apm.yml"), compManifest(["codex-runtime", "ghost-runtime"]));
+  });
+});

@@ -197,15 +197,36 @@ function readRuntimeFittings() {
       runtimes: []
     };
   }
+  // Fitting ids are kebab-case slugs — the id comes from a user-editable
+  // manifest, so it is validated BEFORE any path is built (path containment:
+  // a crafted id like "../.." must never read outside the composition), with
+  // a resolved-prefix backstop in case the pattern ever loosens.
+  const FITTING_ID = /^[a-z][a-z0-9-]*$/;
+  const modulesRoot = path.resolve(dir, "apm_modules", "_local");
   const runtimes = selections.map((sel) => {
-    const manifestPath = path.join(dir, "apm_modules", "_local", sel.id, "apm.yml");
+    const rawId = String(sel?.id ?? "");
+    if (!FITTING_ID.test(rawId)) {
+      return {
+        id: rawId,
+        engine: rawId,
+        installed: false,
+        providerMechanism: null,
+        quartersDescriptor: null,
+        warning: `invalid fitting id ${JSON.stringify(rawId)} in composition selections — ids are kebab-case; entry ignored`
+      };
+    }
+    const manifestPath = path.resolve(modulesRoot, rawId, "apm.yml");
     let meta = null;
     let warning;
-    try {
-      meta = parseYaml(readFileSync(manifestPath, "utf8"))?.["x-garrison"] ?? null;
-      if (!meta) warning = `no x-garrison block in ${manifestPath}`;
-    } catch (err) {
-      warning = `fitting manifest unreadable (selected but not installed?): ${manifestPath} — ${String(err?.message || err)}`;
+    if (!manifestPath.startsWith(modulesRoot + path.sep)) {
+      warning = `fitting id ${JSON.stringify(rawId)} resolves outside the composition modules dir — entry ignored`;
+    } else {
+      try {
+        meta = parseYaml(readFileSync(manifestPath, "utf8"))?.["x-garrison"] ?? null;
+        if (!meta) warning = `no x-garrison block in ${manifestPath}`;
+      } catch (err) {
+        warning = `fitting manifest unreadable (selected but not installed?): ${manifestPath} — ${String(err?.message || err)}`;
+      }
     }
     const provides = Array.isArray(meta?.provides) ? meta.provides : [];
     const engine = provides.find((p) => p && p.kind === "runtime")?.name ?? sel.id;
