@@ -12,16 +12,16 @@
       "spotlight": true
     },
     {
+      "id": "tiers",
+      "caption": "Fittings are grouped by tier. The agent tier holds the everyday Operative's core roles.",
+      "selector": "testid:tier-section-agent",
+      "spotlight": true
+    },
+    {
       "id": "search",
       "caption": "One search box spans every Faculty at once. Watch it filter by capability.",
       "selector": "raw-css:input[aria-label=\"Search Fittings across all Faculties\"]",
       "action": { "type": "fill", "value": "orchestrator" },
-      "spotlight": true
-    },
-    {
-      "id": "tiers",
-      "caption": "Fittings are grouped by tier. The agent tier holds the everyday Operative's core roles.",
-      "selector": "testid:tier-section-agent",
       "spotlight": true
     }
   ]
