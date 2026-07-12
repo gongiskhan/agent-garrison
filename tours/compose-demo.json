@@ -1,13 +1,13 @@
 {
   "name": "compose-demo",
-  "title": "Compose — station Fittings into Faculties",
+  "title": "Compose - station Fittings into Faculties",
   "route": "/compose",
   "fitting": "compose",
   "mode": "demo",
   "steps": [
     {
       "id": "intro",
-      "caption": "This is Compose — where you station Fittings into the Operative's Faculties.",
+      "caption": "This is Compose - where you station Fittings into the Operative's Faculties.",
       "selector": "raw-css:h1",
       "spotlight": true
     },

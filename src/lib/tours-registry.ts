@@ -138,7 +138,7 @@ function synthesizeDefaultTour(entry: FittingSource): TourDescriptor {
     steps: [
       {
         id: "overview",
-        caption: `${label}${entry.summary ? ` — ${entry.summary}` : ""}. ${
+        caption: `${label}${entry.summary ? ` - ${entry.summary}` : ""}. ${
           view ? `Its view lives at ${view.route}.` : "This is its place in Garrison."
         }`,
         selector: "raw-css:h1, main, .app-shell",
