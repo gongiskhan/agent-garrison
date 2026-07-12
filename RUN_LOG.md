@@ -301,3 +301,8 @@ FULL RUN STATE (post-compaction resume reads THIS):
 ### DECISION 2026-07-12T19:12:24Z (S2b codex verdicts)
 - codex needs-work: two REAL I3 loud-failure violations (empty/malformed run output silently accepted; terminal error swallowed after partial text) → fix dispatched to impl-s2b-2. Live delegate round-trip earlier PROVED the transport (bridge→opencode→ollama→{summary,artifacts}); 3B model quality noted for degradations doc.
 - S2b was ultimately a TWO-AGENT convergence (original impl-s2b woke, contributed tests + CLI findings incl. v2-API-can't-carry-model, impl-s2b-2 shipped the stateless design); coordination cost logged to friction.
+
+### GATE 2026-07-12T19:20:37Z — S2b (WS2b opencode-runtime)
+- green: suite 2024 · review APPROVE (live flag audit) · codex 2 findings→fixed→resolved · live delegate round-trip through local ollama proven twice · asciinema sha 1daf66eb391d95cad1f1161d144a221635b5a03d840ce19d178446d1a1ed8b5a
+- design decision: stateless run-subprocess (sibling parity; v2 HTTP API can't carry per-call model/variant); server-first variant preserved under slices/S2b/server-first-variant/
+- model: fable-5 lead + 2 impl agents + fresh reviewer + gpt-5.5 codex · duration ~110 min (incl. stall takeover)

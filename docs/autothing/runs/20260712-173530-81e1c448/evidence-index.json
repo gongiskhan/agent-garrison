@@ -40,6 +40,14 @@
    "videoSha256": "b2f00c22ca73f84c2b2d3c5d704b1cc566958e457ea6832bc6fb4f5cc1a72ef6",
    "videoBytes": 1551917,
    "evidenceMode": "asciinema"
+  },
+  "S2b": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS2B OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2b/gate-status.json",
+   "videoSha256": "1daf66eb391d95cad1f1161d144a221635b5a03d840ce19d178446d1a1ed8b5a",
+   "videoBytes": 890,
+   "evidenceMode": "asciinema"
   }
  },
  "globalGate": {
