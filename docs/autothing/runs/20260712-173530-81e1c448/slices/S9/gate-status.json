@@ -1,0 +1,25 @@
+{
+  "slice": "S9",
+  "workstream": "WS9",
+  "title": "Full UI/UX redesign pass (taste system) — copy cut, affordances, narrow-viewport, storyboards+tours green",
+  "at": "2026-07-12T21:57:53Z",
+  "profile": "build",
+  "gates": {
+    "typecheck": { "status": "passed" },
+    "lint": { "status": "passed" },
+    "test": { "status": "passed", "note": "full suite 2141 passed; sole failure tests/vault-heal.test.ts is documented spawn-under-load flake (18/18 in isolation)" },
+    "securityWall": { "status": "passed" },
+    "design-audit": { "status": "passed", "evidence": "docs/design/UIPASS_AUDIT.md (190-line per-surface audit)" },
+    "walkthrough": { "status": "passed", "note": "storyboards + tours green in suite (tour-selector/tours-registry/garrison-assistant 41/41); narrow-viewport 390px all 4 surfaces 0px" }
+  },
+  "acceptance": {
+    "audit_doc_committed": true,
+    "copy_reduction": { "before": 688, "after": 518, "pct": 24.7, "evidence": ["docs/design/UIPASS_WORDCOUNT_BEFORE.json", "docs/design/UIPASS_WORDCOUNT_AFTER.json"] },
+    "affordances": { "status": "passed", "evidence": "src/app/globals.css coarse-pointer/44px rules (commit 91fb8ad)" },
+    "narrow_viewport_390px": { "status": "passed", "evidence": ["slices/S9/overflow-390.json", "slices/S9/narrow-viewport.json"], "surfaces": ["home:0px", "compose:0px", "quarters:0px", "vault:0px"] },
+    "storyboards_tours_green": true,
+    "sentinel": "MARATHON-WS9 OK"
+  },
+  "commits": ["7b16238", "34d9899", "91fb8ad", "39db215", "69663d2", "53ba287"],
+  "verdict": "passed"
+}

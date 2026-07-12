@@ -509,6 +509,10 @@ table.simple th {
   font-weight: 500;
 }
 table.simple tr:last-child td { border-bottom: none; }
+/* Let long unbreakable tokens (paths, `AES-256-GCM`) wrap so the table fits
+   narrow (phone) widths instead of forcing horizontal page overflow. Scoped to
+   <code> so short label words (PHASE, runtime) keep clean word-wrapping. */
+table.simple code { overflow-wrap: anywhere; }
 table.simple td.mono { font-family: var(--font-mono), 'JetBrains Mono', monospace; font-size: 11.5px; }
 table.simple td.ok { color: var(--sage); font-weight: 500; }
 table.simple td.bad { color: var(--alarm); font-weight: 500; }

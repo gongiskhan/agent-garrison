@@ -98,6 +98,28 @@
    "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S6/gate-status.json",
    "videoSha256": "90f18a2acd528b7de862ca5b296acdceb31610023aad789be1044909d09e557e",
    "videoBytes": 1796492
+  },
+  "S9": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS9 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S9/gate-status.json",
+   "impl": "docs/autothing/runs/20260712-173530-81e1c448/slices/S9/impl.md",
+   "copyReduction": {
+    "before": 688,
+    "after": 518,
+    "pct": 24.7
+   },
+   "narrowViewport": "docs/autothing/runs/20260712-173530-81e1c448/slices/S9/overflow-390.json",
+   "screenshots": [
+    "home-390.png",
+    "compose-390.png",
+    "quarters-390.png",
+    "vault-390.png",
+    "narrow-home.png",
+    "narrow-compose.png",
+    "narrow-quarters.png",
+    "narrow-vault.png"
+   ]
   }
  },
  "globalGate": {
