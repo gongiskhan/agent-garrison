@@ -53,6 +53,23 @@
    "status": "passed",
    "sentinel": "MARATHON-WS2C OK",
    "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2c/gate-status.json"
+  },
+  "S3": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS3 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S3/gate-status.json",
+   "videoSha256": "d2ba644a42c9482b3f79c41a935389fa2d69f756d358d5b9e4ac40124d8d4ad3"
+  },
+  "S4": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS4 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S4/gate-status.json",
+   "videoSha256": "d2ba644a42c9482b3f79c41a935389fa2d69f756d358d5b9e4ac40124d8d4ad3"
+  },
+  "S2d": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS2D OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2d/gate-status.json"
   }
  },
  "globalGate": {

@@ -311,3 +311,10 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: full 3-primary matrix run zero unexplained failures (every primary booted RoutedGateway + served live turn); harness + tests committed; codex proto-key finding fixed 412128e→resolved; full suite 2068
 - notable: found+fixed a real agnosticism bug (resolvePrimaryAdapter had no opencode branch)
 - model: fable-5 lead + impl-s2c + gpt-5.5 codex · matrix run driven by impl-s2c
+
+### GATE 2026-07-12T20:12:02Z — S3+S4+S2d (WS3 clone / WS4 switch / WS2d degradations)
+- S3: clone+edit round trip, review approve, 3 codex findings fixed→resolved (6fe735a), 14/14 tests
+- S4: composition switching, review approve, 1 codex finding fixed→resolved (0b721ed), 25/25 tests
+- S2d: RUNTIME_DEGRADATIONS.md + degradation module + /api/runtime/active + compose advisory notice, 4/4 tests
+- shared evidence: combined S3+S4 walkthrough (sha d2ba644a42c9482b, flagged=false, 6 beats, vision-verified switcher)
+- coordination: parallel fan-out (impl-s2c/s3/s4) was CPU-starved on this box — slow but productive; lead committed several stalled-at-commit deliverables + wrote S2d directly (friction-logged)

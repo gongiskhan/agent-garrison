@@ -1,0 +1,13 @@
+{
+  "slice": "S3", "kind": "mixed", "status": "passed",
+  "gates": {
+    "test": { "status": "passed", "at": "2026-07-12T20:12:02Z", "evidence": "clone 14/14; full suite 2068 green" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T20:12:02Z" },
+    "adversarialReview": { "status": "passed", "verdict": "approve", "at": "2026-07-12T20:12:02Z", "evidence": "slices/S3/review.md — fresh reviewer ran full suite + live HTTP round-trips" },
+    "codexSliceReview": { "status": "passed", "verdict": "needs-work->fixed->resolved", "actualModel": "gpt-5.5", "at": "2026-07-12T20:12:02Z", "evidence": "3 findings (symlink createFile, fs.cp symlinks, library race) → 6fe735a → resolved" },
+    "adversarialTest": { "status": "passed", "at": "2026-07-12T20:12:02Z", "evidence": "fresh reviewer drove live HTTP endpoints independently (review-s3s4)" },
+    "design": { "status": "passed", "at": "2026-07-12T20:12:02Z", "evidence": "existing compose/shell components; no new design tropes; taste pass sweeps in WS9" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T20:12:02Z", "video": { "mode": "browser", "path": "/home/ggomes/.walkthrough/runs/agent-garrison/marathon-s3s4/2026-07-12_21-09-33/final.mp4", "sha256": "d2ba644a42c9482b3f79c41a935389fa2d69f756d358d5b9e4ac40124d8d4ad3", "bytes": 857985, "verified": "flagged=false, 0 failures, 6 beats; switcher(S4) + clone-status(S3) + provenance + run-evidence panels all passed; vision-confirmed frame f-2 shows the composition switcher" } }
+  },
+  "sentinel": "MARATHON-WS3 OK"
+}

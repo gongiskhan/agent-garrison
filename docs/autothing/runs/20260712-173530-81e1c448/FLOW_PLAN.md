@@ -17,9 +17,9 @@ commit + its sentinel printed and appended to `~/.garrison/marathon/ledger.md`.
 | S2a2 | WS2a Stage-B moves via adapter (setModel/setEffort) + non-Claude primary boot/serve smoke | api | http-gateway + agent-sdk-runtime; committed smoke test | g2 | passed |
 | S2b | WS2b opencode-runtime Fitting: serve-based bridge, delegate(), primary-capable, descriptor, status surface; installs ollama+qwen | mixed | fittings/seed/opencode-runtime + library.json + quarters | g2 | passed |
 | S2c | WS2c matrix harness + full run: every composition Fitting × {claude-code, codex, opencode}; fix agnosticism bugs | api | scripts/matrix-harness + docs matrix doc | g2 | passed |
-| S2d | WS2d degradations doc + UI surfacing on non-Claude primaries | mixed | docs/RUNTIME_DEGRADATIONS.md + compose/run UI badge | g2 | pending |
-| S3 | WS3 clone+edit: Armory Clone action → fittings/local/ copy, cloned_from provenance, drift vs pinned upstream, Monaco create-file, composer+run round trip | mixed | library.ts/fitting-files.ts/compose UI | g3 | pending |
-| S4 | WS4 composition switching: active_composition pointer, shell switcher (down/re-resolve/up, error-blocked), CLI flag, evidence id+hash | mixed | src/lib/compositions+runner, AppShell, scripts CLI | g4 | pending |
+| S2d | WS2d degradations doc + UI surfacing on non-Claude primaries | mixed | docs/RUNTIME_DEGRADATIONS.md + compose/run UI badge | g2 | passed |
+| S3 | WS3 clone+edit: Armory Clone action → fittings/local/ copy, cloned_from provenance, drift vs pinned upstream, Monaco create-file, composer+run round trip | mixed | library.ts/fitting-files.ts/compose UI | g3 | passed |
+| S4 | WS4 composition switching: active_composition pointer, shell switcher (down/re-resolve/up, error-blocked), CLI flag, evidence id+hash | mixed | src/lib/compositions+runner, AppShell, scripts CLI | g4 | passed |
 | S5a | WS5 assistant Fitting + Answer mode (docs+fitting index, 3 grounded answers w/ sources) | mixed | fittings/seed/garrison-assistant | g5 | pending |
 | S5b | WS5 Guide (launch tours by name) + Build/interview → ≥1 skill + ≥1 automation proposal, provenance `assistant`, approvable in Improver UI | mixed | garrison-assistant + improver queue | g5 | pending |
 | S6a | WS6 tour engine: ui.tours metadata block + in-app DOM executor (same storyboard schema) + Demo player w/ highlights + captions | ui | src/lib/metadata + src/components/tours | g6 | pending |
