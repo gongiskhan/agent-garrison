@@ -26,6 +26,7 @@ dependencies:
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/snapshots-default
+    - path: ../../fittings/seed/taste
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
@@ -79,6 +80,9 @@ x-garrison:
             model: ''
             promptMode: full
             maxTurns: 12
+      design:
+        - id: taste
+          config: {}
       memory:
         - id: basic-memory
           config:

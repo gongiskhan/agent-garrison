@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-12T15:15:01.482282+00:00'
+generated_at: '2026-07-12T18:04:37.870876+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -163,6 +163,24 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/snapshots-default
+- repo_url: _local/taste
+  name: taste
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/design-taste-frontend
+  - .claude/skills/design-taste-frontend/LICENSE
+  - .claude/skills/design-taste-frontend/SKILL.md
+  - .claude/skills/redesign-existing-projects
+  - .claude/skills/redesign-existing-projects/LICENSE
+  - .claude/skills/redesign-existing-projects/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/design-taste-frontend/LICENSE: sha256:4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df
+    .claude/skills/design-taste-frontend/SKILL.md: sha256:aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89
+    .claude/skills/redesign-existing-projects/LICENSE: sha256:4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df
+    .claude/skills/redesign-existing-projects/SKILL.md: sha256:98ad3e5b051bfb71b2795f7e8a6aa0d32b51ee095606c098a4b2822ac07926c9
+  source: local
+  local_path: ../../fittings/seed/taste
 - repo_url: _local/trello
   name: trello
   version: 0.1.0

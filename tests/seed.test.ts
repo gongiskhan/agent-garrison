@@ -26,7 +26,8 @@ const seedIds = [
   "monitor-default",
   "browser-default",
   "file-browser",
-  "garrison-orchestrator"
+  "garrison-orchestrator",
+  "taste"
 ] as const;
 
 interface RawManifest {

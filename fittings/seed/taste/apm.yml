@@ -1,0 +1,34 @@
+name: taste
+version: 0.1.0
+description: Design-taste skills (design-taste-frontend v2 + redesign-existing-projects) vendored from Leonxlnx/taste-skill (MIT) at a pinned upstream commit.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: design
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - all
+  summary: >-
+    Owns the design-taste skill pair as Quarters-owned artifacts:
+    design-taste-frontend (v2 anti-slop frontend design taste) and
+    redesign-existing-projects (audit-first redesign protocol for existing
+    UIs). Vendored from Leonxlnx/taste-skill at the commit pinned in
+    upstream.json (MIT, license included alongside each skill). Plain SKILL.md
+    files — usable by any runtime, agnostic by construction. Run
+    scripts/check-upstream.mjs to compare the vendored copies against the
+    pinned upstream commit and report whether upstream has moved ahead.
+  provides: []
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/taste/.apm/skills/design-taste-frontend/SKILL.md && test -f apm_modules/_local/taste/.apm/skills/redesign-existing-projects/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Two design skills are installed under ~/.claude/skills and load in any
+    runtime that reads SKILL.md files. Invoke design-taste-frontend when
+    building new frontend UI that must avoid generic AI aesthetics; invoke
+    redesign-existing-projects to audit-then-upgrade an existing surface
+    (audit first, then apply — never a blind rewrite). Upstream is pinned in
+    the fitting's upstream.json; treat local edits as drift.
