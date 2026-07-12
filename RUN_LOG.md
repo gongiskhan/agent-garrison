@@ -321,3 +321,8 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DECISION 2026-07-12T20:15:14Z (S5 stall takeover)
 - impl-s5 produced zero durable output in 23 min (no scaffold dir, no commit, no ping reply) — hard stall. Lead takes over WS5 directly, building serially.
+
+### DECISION 2026-07-12T20:28:57Z (S5 build + codex verdicts)
+- WS5 built by the LEAD after impl-s5 stalled 23 min at zero output (takeover); impl-s5 later revived, validated the build green, flagged 2 real own-port gaps (status file + config-env normalization).
+- codex needs-work: 3 findings (I2 index symlink escape, I4 malformed /interview 500, I5 queue-clobber on corrupt) → dispatched to impl-s5 alongside its 2 own-port gaps (5 fixes total).
+- assistant: Answer grounds 3 Qs with real sources; Guide launches tours by name (fails loud); Build adaptive interview ≥4 Qs files 2 provenance-assistant proposals into the real improver queue (pending/approvable). full suite 2086 green.
