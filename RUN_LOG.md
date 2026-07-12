@@ -272,3 +272,9 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: RUN_SPEC.md + FLOW_PLAN.md written (19 slices, all ≤8 points)
 - evidence: docs/autothing/runs/20260712-173530-81e1c448/RUN_SPEC.md, docs/autothing/runs/20260712-173530-81e1c448/FLOW_PLAN.md
 - model: session (claude-fable-5)
+
+### GATE 2026-07-12T18:00:21Z — S0 (WS0 governor)
+- green: governor check/wait-if-needed/banner-watch working; real check 12.5% resets 19:00Z; simulated pause/resume pair printed; banner matcher validated on the known fixture + hard-limit shapes
+- decision: governor + tests live outside the repo per brief D2 (single-run tooling); adversarial gates recorded skipped no-repo-diff
+- evidence: docs/autothing/runs/20260712-173530-81e1c448/slices/S0/gate-status.json; ~/.garrison/marathon/ledger.md governor lines
+- model: claude-fable-5 · duration ~8 min
