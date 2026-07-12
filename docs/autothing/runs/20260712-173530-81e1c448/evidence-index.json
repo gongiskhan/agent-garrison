@@ -84,6 +84,13 @@
    "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S7/gate-status.json",
    "videoSha256": "5e899ecb71b956baa1bc1be2645f6bb2f3ce5a1eac3ab77542692cd26aef5342",
    "evidenceMode": "asciinema"
+  },
+  "S8": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS8 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S8/gate-status.json",
+   "videoSha256": "147533b97f06b35fd3c78b1c5d917a949fc2a40ae12fce579578f05f8311222a",
+   "evidenceMode": "asciinema"
   }
  },
  "globalGate": {

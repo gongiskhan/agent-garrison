@@ -346,3 +346,8 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DECISION 2026-07-12T21:04:35Z (S8 stall takeover)
 - impl-s8 produced zero output in 30 min (no improver changes, no findings doc); lead takes over WS8. impl-s6 (WS6 UI) continues.
+
+### GATE 2026-07-12T21:22:19Z — S8 (WS8 shadcn/improve patterns)
+- green: 4 patterns live (evidence+confidence, vet drops planted FP, rejection ledger suppresses across runs, reconcile); full suite 2142; codex 2 findings + 1 residual → all resolved (corrupt-ledger throw, path+symlink containment)
+- build: lead-built after impl-s8 stall; impl-s8 concurred with the citations schema + repoRoot containment
+- model: fable-5 lead + gpt-5.5 codex
