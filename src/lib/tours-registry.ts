@@ -1,0 +1,148 @@
+// tours-registry.ts — server-side discovery of in-app tours (WS6). Tours come
+// from three sources, in precedence order:
+//   1. inline metadata:   a fitting's x-garrison.ui.tours[]
+//   2. beside the fitting: <fitting.localPath>/tours/*.json
+//   3. repo-root tours:    <repo>/tours/*.json  (shell / cross-surface tours not
+//                          owned by any single fitting — e.g. the Compose demo)
+// For every library fitting that HAS a UI surface (ui.views) but ships no
+// explicit tour, a minimal "what is this" tour is synthesized from its views so
+// the "every seed Fitting ships >=1 tour" invariant holds without hand-authoring
+// one per fitting.
+//
+// Node-only (reads the filesystem). The client never imports this — the UI
+// fetches descriptors through /api/tours.
+import fs from "node:fs/promises";
+import path from "node:path";
+import { ROOT_DIR } from "./paths";
+import { readLibrary } from "./library";
+import { tourDescriptorSchema, type TourDescriptor } from "./metadata";
+import type { LibraryEntry } from "./types";
+
+export interface TourSummary {
+  name: string;
+  title: string;
+  route: string;
+  fitting?: string;
+  mode?: "demo" | "guided";
+  steps: number;
+  synthesized?: boolean;
+}
+
+async function readJsonDir(dir: string): Promise<unknown[]> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: unknown[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      out.push(JSON.parse(await fs.readFile(path.join(dir, name), "utf8")));
+    } catch {
+      // Skip malformed files rather than failing the whole registry — a bad
+      // tour on disk must not blank out every other tour.
+    }
+  }
+  return out;
+}
+
+// Validate a raw descriptor, stamping the owning fitting id when the author
+// omitted it. Returns null (and warns) on an invalid descriptor.
+function coerceTour(raw: unknown, fitting?: string): TourDescriptor | null {
+  const withFitting =
+    raw && typeof raw === "object" && fitting && !(raw as Record<string, unknown>).fitting
+      ? { ...(raw as Record<string, unknown>), fitting }
+      : raw;
+  const parsed = tourDescriptorSchema.safeParse(withFitting);
+  if (!parsed.success) {
+    console.warn(
+      `[garrison] skipping invalid tour${fitting ? ` for ${fitting}` : ""}: ${parsed.error.message}`
+    );
+    return null;
+  }
+  return parsed.data;
+}
+
+// The auto-generated "what is this" tour: one spotlight step on the fitting's
+// per-fitting overview page. Deliberately minimal — it exists so every UI
+// fitting is at least discoverable by tour, not to teach a flow.
+function synthesizeDefaultTour(entry: LibraryEntry): TourDescriptor {
+  const view = entry.metadata.ui?.views?.[0];
+  const label = entry.name || entry.id;
+  return {
+    name: `${entry.id}-overview`,
+    title: `What is ${label}?`,
+    route: `/fitting/${entry.id}`,
+    fitting: entry.id,
+    mode: "guided",
+    steps: [
+      {
+        id: "overview",
+        caption: `${label}${entry.summary ? ` — ${entry.summary}` : ""}. ${
+          view ? `Its view lives at ${view.route}.` : "This is its place in Garrison."
+        }`,
+        selector: "raw-css:h1, main, .app-shell",
+        spotlight: true
+      }
+    ]
+  };
+}
+
+// Load every discoverable tour, de-duplicated by name (explicit tours from any
+// source win over a synthesized default of the same name).
+export async function loadTours(): Promise<TourDescriptor[]> {
+  const byName = new Map<string, TourDescriptor>();
+
+  const add = (tour: TourDescriptor | null) => {
+    if (tour && !byName.has(tour.name)) byName.set(tour.name, tour);
+  };
+
+  // 3. Repo-root tours (shell / cross-surface). Loaded first so a shell tour can
+  //    claim a name a synthesized default would otherwise take.
+  for (const raw of await readJsonDir(path.join(ROOT_DIR, "tours"))) {
+    add(coerceTour(raw));
+  }
+
+  const entries = await readLibrary().catch(() => [] as LibraryEntry[]);
+  for (const entry of entries) {
+    // 1. Inline metadata tours.
+    for (const raw of entry.metadata.ui?.tours ?? []) {
+      add(coerceTour(raw, entry.id));
+    }
+    // 2. tours/*.json beside the fitting.
+    if (entry.localPath) {
+      for (const raw of await readJsonDir(path.join(ROOT_DIR, entry.localPath, "tours"))) {
+        add(coerceTour(raw, entry.id));
+      }
+    }
+  }
+
+  // Synthesize a default for every UI fitting that still has no tour.
+  for (const entry of entries) {
+    if (!entry.metadata.ui?.views?.length) continue;
+    const hasExplicit = Array.from(byName.values()).some((tour) => tour.fitting === entry.id);
+    if (!hasExplicit) add(synthesizeDefaultTour(entry));
+  }
+
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listTours(): Promise<TourSummary[]> {
+  const tours = await loadTours();
+  return tours.map((tour) => ({
+    name: tour.name,
+    title: tour.title,
+    route: tour.route,
+    fitting: tour.fitting,
+    mode: tour.mode,
+    steps: tour.steps.length,
+    synthesized: tour.name.endsWith("-overview")
+  }));
+}
+
+export async function getTour(name: string): Promise<TourDescriptor | undefined> {
+  const tours = await loadTours();
+  return tours.find((tour) => tour.name === name);
+}

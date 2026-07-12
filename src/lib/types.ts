@@ -1,3 +1,7 @@
+// WS6: the in-app tour descriptor's canonical TS type is the zod-inferred one
+// from metadata.ts. Type-only import — erased at runtime, so no import cycle.
+import type { TourDescriptor } from "./metadata";
+
 // Faculties are ROLES only (the Quarters pivot). Skills/Hooks/MCPs/Plugins/
 // Scripts/Settings are no longer faculties — they are platform primitives
 // surfaced in Quarters. The own-port runtime residue (dev-env, screen-share,
@@ -290,6 +294,8 @@ export interface GarrisonMetadata {
   };
   ui?: {
     views: UiView[];
+    // WS6: optional in-app tours declared inline on the fitting (additive).
+    tours?: TourDescriptor[];
   };
   tasks?: {
     source: string;

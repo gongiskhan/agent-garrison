@@ -210,6 +210,69 @@ const spawnConfigSchema = z.object({
   mcp: z.array(z.string()).optional()
 });
 
+// WS6 (D8): the in-app TOUR descriptor — a runnable SUBSET of the .walkthrough
+// storyboard schema (the same beat/action/assert/selector vocabulary), executed
+// DOM-side by the tour engine (src/components/tours) rather than by Playwright.
+// The `selector` field uses the SAME mini-language as storyboards; the resolver
+// lives in src/lib/tour-selector.ts. A tour ships either inline as
+// x-garrison.ui.tours[] or as a tours/*.json file beside the fitting.
+const tourActionSchema = z
+  .object({
+    // The engine performs this on the step's resolved element in DEMO mode.
+    // navigate is the exception — it drives the router with `path`, no element.
+    type: z.enum(["click", "fill", "select", "navigate"]),
+    value: z.string().optional(),
+    path: z.string().optional()
+  })
+  .strict();
+
+const tourAssertSchema = z
+  .object({
+    selector: z.string().min(1).optional(),
+    text: z.string().optional(),
+    state: z.enum(["visible", "enabled", "disabled", "checked", "expanded"]).optional(),
+    // url gates on the current pathname (startsWith) — the natural assert for a
+    // GUIDED step whose action navigates to another route.
+    url: z.string().min(1).optional()
+  })
+  .strict()
+  .refine((assert) => Boolean(assert.selector) || Boolean(assert.url), {
+    message: "tour assert requires either a selector or a url"
+  });
+
+const tourStepSchema = z
+  .object({
+    id: z.string().min(1),
+    caption: z.string().min(1),
+    selector: z.string().min(1),
+    action: tourActionSchema.optional(),
+    assert: tourAssertSchema.optional(),
+    spotlight: z.boolean().optional()
+  })
+  .strict();
+
+export const tourDescriptorSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .regex(/^[a-z][a-z0-9-]*$/, "tour name must be kebab-case"),
+    title: z.string().min(1),
+    route: z.string().min(1),
+    // fitting is derived from the owning fitting id when a tour is discovered;
+    // authors may omit it in inline/beside-fitting descriptors.
+    fitting: z.string().min(1).optional(),
+    // Default player when no ?mode= override is present. Absent → guided.
+    mode: z.enum(["demo", "guided"]).optional(),
+    steps: z.array(tourStepSchema).min(1, "a tour needs at least one step")
+  })
+  .strict();
+
+export type TourAction = z.infer<typeof tourActionSchema>;
+export type TourAssert = z.infer<typeof tourAssertSchema>;
+export type TourStep = z.infer<typeof tourStepSchema>;
+export type TourDescriptor = z.infer<typeof tourDescriptorSchema>;
+
 export const garrisonMetadataSchema = z.object({
   faculty: z.enum(facultyIds),
   cardinality_hint: z.enum(["single", "multi"]),
@@ -255,7 +318,11 @@ export const garrisonMetadataSchema = z.object({
             chrome: z.enum(["default", "full-bleed"]).optional()
           })
         )
-        .min(1, "ui.views must contain at least one view")
+        .min(1, "ui.views must contain at least one view"),
+      // WS6: optional in-app tours declared inline on the fitting. Additive —
+      // existing manifests without it are unaffected; the tours registry also
+      // discovers tours/*.json shipped beside the fitting.
+      tours: z.array(tourDescriptorSchema).optional()
     })
     .optional(),
   tasks: z
