@@ -71,12 +71,15 @@ function claudeHome() {
   return o && o.length ? o : path.join(os.homedir(), ".claude");
 }
 
-// Parse a MEMORY.md index into {title, hook} entries (shared shape with harvest).
+// Parse a MEMORY.md index into {title, hook, line} entries (shared shape with
+// harvest). `line` is the 1-based source line — carried so the Improver can cite
+// a real file:line in a proposal's evidence (shadcn/improve pattern 1).
 function parseMemory(md) {
   const out = [];
-  for (const line of String(md).split("\n")) {
-    const m = line.match(/^\s*-\s*\[([^\]]+)\]\(([^)]+)\)\s*(?:—|-)?\s*(.*)$/);
-    if (m) out.push({ title: m[1].trim(), hook: (m[3] || "").trim() });
+  const rows = String(md).split("\n");
+  for (let i = 0; i < rows.length; i++) {
+    const m = rows[i].match(/^\s*-\s*\[([^\]]+)\]\(([^)]+)\)\s*(?:—|-)?\s*(.*)$/);
+    if (m) out.push({ title: m[1].trim(), hook: (m[3] || "").trim(), line: i + 1 });
   }
   return out;
 }
@@ -493,8 +496,19 @@ async function main() {
     console.log("ok");
     return 0;
   }
+  if (args[0] === "reconcile") {
+    // shadcn/improve pattern 4 — reconcile the review queue against reality:
+    // verify applied entries still hold, refresh drifted pending, retire stale.
+    const { loadQueue, saveQueue } = await import("../lib/review-queue.mjs");
+    const { reconcile } = await import("../lib/shadcn-patterns.mjs");
+    const queue = await loadQueue(QUEUE_FILE);
+    const r = reconcile(queue, { repoRoot: resolveCompositionDir(), now: new Date().toISOString() });
+    await saveQueue(QUEUE_FILE, r.queue);
+    return 0;
+  }
+
   if (args[0] !== "run-now") {
-    console.error("usage: improver.mjs run-now [improver-nightly] | --probe");
+    console.error("usage: improver.mjs run-now [improver-nightly] | reconcile | --probe");
     return 2;
   }
 

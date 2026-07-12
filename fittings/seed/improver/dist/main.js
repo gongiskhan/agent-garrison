@@ -5,7 +5,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -24523,8 +24527,24 @@ function ProposalCard({ p, onApply, onReject }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: p.rule }),
       " \xB7 target ",
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: p.targetClass }),
-      " \xB7 ",
+      p.confidence && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        " ",
+        "\xB7 confidence ",
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { "data-testid": `confidence-${p.id}`, children: p.confidence })
+      ] }),
+      " ",
+      "\xB7 ",
       p.decision
+    ] }),
+    p.citations && p.citations.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "evidence", "data-testid": `citations-${p.id}`, children: [
+      "evidence:",
+      " ",
+      p.citations.map((c, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("code", { children: [
+        c.file,
+        ":",
+        c.line,
+        i < p.citations.length - 1 ? ", " : ""
+      ] }, i))
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => setOpen((o) => !o), "data-testid": `toggle-diff-${p.id}`, children: open ? "Hide diff" : "Show diff" }),
     open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DiffView, { diff: p.diff }),
@@ -24557,7 +24577,9 @@ function QueuePane({ data, refresh }) {
   );
   const onReject = (0, import_react.useCallback)(
     async (id) => {
-      await postJSON(`/api/proposals/${encodeURIComponent(id)}/reject`);
+      const reason = typeof window !== "undefined" ? window.prompt("Reason for rejecting (recorded so it won't come back):") : null;
+      if (reason === null) return;
+      await postJSON(`/api/proposals/${encodeURIComponent(id)}/reject`, { reason });
       refresh();
     },
     [refresh]

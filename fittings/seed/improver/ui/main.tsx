@@ -14,9 +14,13 @@ type Proposal = {
   claim: string;
   diff?: string;
   decision?: string;
-  status: "pending" | "applied" | "rejected" | "reapply-failed";
+  status: "pending" | "applied" | "rejected" | "reapply-failed" | "retired";
   evidence?: { bytes: number; sha: string; targetFile: string };
   reapplyFailureReason?: string;
+  // shadcn/improve pattern 1 — file:line evidence + a confidence grade.
+  citations?: Array<{ file: string; line: number; snippet?: string }>;
+  confidence?: "high" | "medium" | "low";
+  rejectionReason?: string;
 };
 type RuleState = { autonomy: "manual" | "auto"; streak: number; accepted: number; rejected: number; reverted: number };
 type Queue = { queue: Proposal[]; autonomy: Record<string, RuleState>; promotionThreshold: number };
@@ -78,8 +82,25 @@ function ProposalCard({ p, onApply, onReject }: { p: Proposal; onApply: (id: str
         </span>
       </div>
       <div className="meta">
-        rule <strong>{p.rule}</strong> · target <strong>{p.targetClass}</strong> · {p.decision}
+        rule <strong>{p.rule}</strong> · target <strong>{p.targetClass}</strong>
+        {p.confidence && (
+          <>
+            {" "}· confidence <strong data-testid={`confidence-${p.id}`}>{p.confidence}</strong>
+          </>
+        )}
+        {" "}· {p.decision}
       </div>
+      {p.citations && p.citations.length > 0 && (
+        <div className="evidence" data-testid={`citations-${p.id}`}>
+          evidence:{" "}
+          {p.citations.map((c, i) => (
+            <code key={i}>
+              {c.file}:{c.line}
+              {i < p.citations!.length - 1 ? ", " : ""}
+            </code>
+          ))}
+        </div>
+      )}
       <button onClick={() => setOpen((o) => !o)} data-testid={`toggle-diff-${p.id}`}>
         {open ? "Hide diff" : "Show diff"}
       </button>
@@ -116,7 +137,11 @@ function QueuePane({ data, refresh }: { data: Queue; refresh: () => void }) {
   );
   const onReject = useCallback(
     async (id: string) => {
-      await postJSON(`/api/proposals/${encodeURIComponent(id)}/reject`);
+      // shadcn/improve pattern 3 — capture WHY, so the finding is recorded in
+      // the rejection ledger and does not reappear next run.
+      const reason = typeof window !== "undefined" ? window.prompt("Reason for rejecting (recorded so it won't come back):") : null;
+      if (reason === null) return; // cancelled — do not reject
+      await postJSON(`/api/proposals/${encodeURIComponent(id)}/reject`, { reason });
       refresh();
     },
     [refresh]

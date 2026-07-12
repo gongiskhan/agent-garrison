@@ -40,6 +40,12 @@ export function enqueue(queue, proposal) {
       applyVia: proposal.applyVia,
       status: "pending",
       at: proposal.at,
+      // shadcn/improve pattern 1 — evidence discipline. A proposal may carry
+      // file:line `citations` + a `confidence` grade; both are preserved so the
+      // UI can show them and the vet pass can re-read the cited locations.
+      // Optional for backward compatibility (legacy proposals carry neither).
+      ...(proposal.citations !== undefined ? { citations: proposal.citations } : {}),
+      ...(proposal.confidence !== undefined ? { confidence: proposal.confidence } : {}),
     },
   ];
 }
@@ -52,8 +58,15 @@ export function markApplied(queue, id, evidence, at) {
   return queue.map((p) => (p.id === id ? { ...p, status: "applied", appliedAt: at, evidence } : p));
 }
 
-export function markRejected(queue, id, at) {
-  return queue.map((p) => (p.id === id ? { ...p, status: "rejected", rejectedAt: at } : p));
+// shadcn/improve pattern 3 — a reject STORES A REASON so it can be recorded in
+// the rejection ledger and suppressed next run. `reason` is optional (legacy
+// callers pass none); when given it is persisted on the proposal.
+export function markRejected(queue, id, at, reason) {
+  return queue.map((p) =>
+    p.id === id
+      ? { ...p, status: "rejected", rejectedAt: at, ...(reason ? { rejectionReason: reason } : {}) }
+      : p
+  );
 }
 
 // An "applied" entry whose target content lost its marker (e.g. clobbered by an

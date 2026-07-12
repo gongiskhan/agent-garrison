@@ -28,6 +28,7 @@ import { runImprover } from "../lib/improver-core.mjs";
 import { parseMemory, computeDream } from "./improver.mjs";
 import { applyWithRetry } from "../lib/apply-core.mjs";
 import { readEcosystemUpdateLog } from "../lib/ecosystem-update.mjs";
+import { recordRejection, reconcile as reconcileQueue, vetProposals, suppressRejected } from "../lib/shadcn-patterns.mjs";
 import { readReapplySweepLog } from "../lib/reapply-sweep.mjs";
 import { runEcosystemPhases } from "../lib/ecosystem-phases.mjs";
 import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
@@ -136,7 +137,18 @@ async function doRunNow() {
   let queue = await loadQueue(QUEUE_FILE);
   let autonomy = await loadAutonomy(AUTONOMY_FILE);
   const autoApplied = [];
-  for (const p of result.proposals) {
+  // shadcn/improve patterns 2 + 3, applied BEFORE enqueue: re-vet every fresh
+  // proposal's cited evidence (drop false positives), then suppress any that
+  // match a prior rejection (a rejected finding never reappears).
+  const vetted = vetProposals(result.proposals, { repoRoot: resolveCompositionDir() });
+  let toEnqueue;
+  try {
+    toEnqueue = suppressRejected(vetted.kept).kept;
+  } catch (e) {
+    console.error(`run: rejection-ledger read skipped — ${e.message}`);
+    toEnqueue = vetted.kept;
+  }
+  for (const p of toEnqueue) {
     queue = enqueue(queue, p);
     // a rule set `auto` applies immediately, no streak (autonomy-direct). The
     // dream rule applies to vault note paths through the hosted authoring API
@@ -199,7 +211,7 @@ async function doApply(id) {
   };
 }
 
-async function doReject(id) {
+async function doReject(id, reason) {
   let queue = await loadQueue(QUEUE_FILE);
   let autonomy = await loadAutonomy(AUTONOMY_FILE);
   const proposal = findProposal(queue, id);
@@ -211,7 +223,16 @@ async function doReject(id) {
   // silently demote an auto rule or reset its promotion streak for reasons
   // unrelated to the rule's actual quality.
   const wasPending = proposal.status === "pending";
-  queue = markRejected(queue, id, new Date().toISOString());
+  queue = markRejected(queue, id, new Date().toISOString(), reason);
+  // shadcn/improve pattern 3 — record the rejection (with its reason) in the
+  // ledger so the SAME finding is suppressed on later runs, not re-enqueued.
+  try {
+    recordRejection(proposal, reason ?? null, new Date().toISOString());
+  } catch (e) {
+    // a corrupt ledger must be surfaced, not silently ignored, but must not
+    // block the reject itself (the queue write is the source of truth).
+    console.error(`reject: rejection-ledger write skipped — ${e.message}`);
+  }
   let autonomyEvent = null;
   if (wasPending) {
     const out = applyOutcome(autonomy, proposal.rule, "reject"); // reject of an auto rule demotes instantly
@@ -220,7 +241,17 @@ async function doReject(id) {
     await saveAutonomy(AUTONOMY_FILE, autonomy);
   }
   await saveQueue(QUEUE_FILE, queue);
-  return { code: 200, body: { ok: true, status: "rejected", autonomyEvent } };
+  return { code: 200, body: { ok: true, status: "rejected", reason: reason ?? null, autonomyEvent } };
+}
+
+// shadcn/improve pattern 4 — reconcile the queue against reality: verify applied
+// entries still hold, refresh drifted pending, retire stale pending. Returns the
+// counts; the queue is persisted.
+async function doReconcile() {
+  const queue = await loadQueue(QUEUE_FILE);
+  const r = reconcileQueue(queue, { repoRoot: resolveCompositionDir(), now: new Date().toISOString() });
+  await saveQueue(QUEUE_FILE, r.queue);
+  return { code: 200, body: { verified: r.verified, refreshed: r.refreshed, retired: r.retired } };
 }
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".map": "application/json", ".svg": "image/svg+xml" };
@@ -288,7 +319,12 @@ export async function startServer(opts = {}) {
       }
       const reject = pathname.match(/^\/api\/proposals\/([^/]+)\/reject$/);
       if (reject && req.method === "POST") {
-        const r = await doReject(decodeURIComponent(reject[1]));
+        const body = await readBody(req).catch(() => ({}));
+        const r = await doReject(decodeURIComponent(reject[1]), typeof body?.reason === "string" ? body.reason : undefined);
+        return json(res, r.code, r.body);
+      }
+      if (pathname === "/api/reconcile" && req.method === "POST") {
+        const r = await doReconcile();
         return json(res, r.code, r.body);
       }
       if (pathname === "/api/autonomy" && req.method === "GET") {

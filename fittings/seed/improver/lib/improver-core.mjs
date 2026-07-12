@@ -11,7 +11,7 @@
 // hints + decisions.jsonl, and proposes consolidating recurring hints into the
 // vault as canonical conventions. Returns a reviewable proposal (claim + evidence
 // + a diff + one decision), the presentation standard for ALL proposals.
-export function proposeMemoryConsolidation({ memoryEntries = [], decisions = [], at = null }) {
+export function proposeMemoryConsolidation({ memoryEntries = [], decisions = [], at = null, memoryPath = null }) {
   if (!memoryEntries.length) return null;
   // Recurrence is the validation signal: a hint that appears as a learned note is
   // a candidate; we propose promoting the top candidates to canonical conventions.
@@ -19,12 +19,24 @@ export function proposeMemoryConsolidation({ memoryEntries = [], decisions = [],
   const diff = candidates
     .map((e) => `+ ## ${e.title}\n+ ${e.hook || "(learned hint)"}`)
     .join("\n");
+  // shadcn/improve pattern 1 — evidence discipline. Cite each promoted note at
+  // its real MEMORY.md file:line (the note title is the snippet the vet pass
+  // re-reads). When the memory file path is unknown (pure/legacy callers), fall
+  // back to a snippet-only citation so a note that has since been edited out is
+  // still caught by vet. Confidence is `medium`: recurrence is a soft signal.
+  const evidence = memoryPath
+    ? candidates
+        .filter((e) => Number.isFinite(e.line))
+        .map((e) => ({ file: memoryPath, line: e.line, snippet: e.title }))
+    : candidates.map((e) => ({ file: "MEMORY.md", snippet: e.title }));
   return {
     id: `memory-consolidation-${candidates.length}`,
     rule: "memory-consolidation",
     targetClass: "memory/vault",
     claim: `${candidates.length} learned note(s) in MEMORY.md are stable enough to promote to canonical vault conventions.`,
-    evidence: { memoryNotes: candidates.length, decisionsConsidered: decisions.length },
+    evidence,
+    confidence: "medium",
+    signal: { memoryNotes: candidates.length, decisionsConsidered: decisions.length },
     diff,
     decision: "Promote these notes into the vault?",
     applyVia: "POST /api/quarters file.update (vault)",
@@ -93,11 +105,11 @@ export function applyPromotion(state) {
 // checkpoints), so the CLI/server compute it and pass the canonical proposals
 // here, keeping this function pure + backward-compatible (default []).
 // Returns { skipped?, proposals[], report }.
-export function runImprover({ decisions = [], memoryEntries = [], vaultLocked = false, serverUp = true, at = null, skillProposals = [], dreamProposals = [] } = {}) {
+export function runImprover({ decisions = [], memoryEntries = [], vaultLocked = false, serverUp = true, at = null, skillProposals = [], dreamProposals = [], memoryPath = null } = {}) {
   if (vaultLocked) return { skipped: "vault locked", proposals: [], report: { at, skipped: "vault locked" } };
   if (!serverUp) return { skipped: "next server down", proposals: [], report: { at, skipped: "next server down" } };
   const proposals = [];
-  const mem = proposeMemoryConsolidation({ memoryEntries, decisions, at });
+  const mem = proposeMemoryConsolidation({ memoryEntries, decisions, at, memoryPath });
   if (mem) proposals.push(mem);
   for (const dp of dreamProposals || []) if (dp) proposals.push(dp);
   for (const sp of skillProposals || []) if (sp) proposals.push(sp);
