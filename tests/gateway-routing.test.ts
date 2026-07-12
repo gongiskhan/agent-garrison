@@ -321,6 +321,14 @@ describe("primary runtime warm seam (S4)", () => {
       /unknown primary engine "mistral-cli".*claude-code, agent-sdk, codex, gemini, opencode.*composer/
     );
   });
+
+  it("a JS prototype key as the engine still FAILS LOUD (no prototype-pollution bypass) (S2c codex finding)", async () => {
+    // "toString" is a key on Object.prototype; a plain-object lookup would treat
+    // it as a known exec engine. Object.hasOwn keeps it on the unknown-engine path.
+    await expect(resolvePrimaryAdapter("toString", baseCtx())).rejects.toThrow(
+      /unknown primary engine "toString"/
+    );
+  });
 });
 
 // Ratchet for the S4 codex findings: the probe's TIMEOUT path reaps the child

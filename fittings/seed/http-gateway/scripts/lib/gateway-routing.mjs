@@ -947,7 +947,11 @@ export async function resolvePrimaryAdapter(engine, ctx) {
       claude: false
     };
   }
-  const execCls = EXEC_PRIMARY_ADAPTER_CLASS[engine];
+  // Object.hasOwn guards against prototype keys (e.g. engine === "toString")
+  // slipping past the explicit unknown-engine throw below into exec resolution.
+  const execCls = Object.hasOwn(EXEC_PRIMARY_ADAPTER_CLASS, engine)
+    ? EXEC_PRIMARY_ADAPTER_CLASS[engine]
+    : undefined;
   if (execCls) {
     let adapter = opts.secondaryAdapters?.get?.(engine) ?? null;
     let dir = null;
