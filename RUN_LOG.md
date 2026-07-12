@@ -289,3 +289,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DECISION 2026-07-12T18:47:50Z (S2b stall takeover)
 - impl-s2b produced no durable output in 65+ min and was silent through two pings — replaced with impl-s2b-2 under a tightened, commit-early brief. impl-s2a alive (live smoke surfaced follow-up edit in progress in gateway-routing.mjs).
+
+### DECISION 2026-07-12T18:54:00Z (S2a codex verdicts)
+- codex needs-work: I3 REAL (adapter-resume never releases old pool checkout → double-teardown at shutdown; teardown throw swallowed) → sent back to impl-s2a with fix spec. I4 REBUTTED: claudeCodeResolvable boolean/function opts are a test-injection seam, no production caller passes them (grep verified); a doc comment requested.
