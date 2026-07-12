@@ -115,11 +115,32 @@ if (process.argv.includes("--probe")) {
   }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain && !process.argv.includes("--probe")) {
+// Bind the CONFIGURED port or exit non-zero. No findFreePort auto-shift: a
+// collision must fail loud (a shifted port orphans the status-file slot and
+// hides the collision) — the own-port canonical-port contract.
+export function startServer() {
   const port = Number(process.env.PORT || process.env.GARRISON_ASSISTANT_PORT || 7095);
   const host = process.env.BIND_HOST || "127.0.0.1";
-  createServer().listen(port, host, () => {
-    process.stdout.write(`garrison-assistant listening on http://${host}:${port}\n`);
+  const server = createServer();
+  return new Promise((resolve, reject) => {
+    server.on("error", (err) => {
+      if (err && err.code === "EADDRINUSE") {
+        process.stderr.write(`[garrison-assistant] port ${port} is in use — refusing to start (no auto-shift)\n`);
+        process.exit(1);
+      }
+      reject(err);
+    });
+    server.listen(port, host, () => {
+      process.stdout.write(`garrison-assistant listening on http://${host}:${port}\n`);
+      resolve(server);
+    });
+  });
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain && !process.argv.includes("--probe")) {
+  startServer().catch((err) => {
+    process.stderr.write(`[garrison-assistant] start failed: ${err.message}\n`);
+    process.exit(1);
   });
 }
