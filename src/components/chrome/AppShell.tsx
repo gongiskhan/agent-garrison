@@ -35,6 +35,7 @@ export interface AppShellState {
   error: string | null;
   // mutators
   refreshAll: () => Promise<void>;
+  refreshLibrary: () => Promise<void>;
   refreshRunnerState: () => Promise<void>;
   saveComposition: (next: Partial<{
     name: string;
@@ -181,6 +182,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     void refreshAll();
   }, [refreshAll]);
 
+  // Refetch just the Fitting registry — used after a Clone so the new local
+  // Fitting appears in its Faculty without re-selecting the active composition.
+  const refreshLibrary = useCallback(async () => {
+    try {
+      const res = await fetch("/api/library");
+      const data = await res.json();
+      setLibrary(data.library ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
   const refreshRunnerState = useCallback(async () => {
     if (!composition?.id) return;
     try {
@@ -311,6 +324,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       busy,
       error,
       refreshAll,
+      refreshLibrary,
       refreshRunnerState,
       saveComposition,
       runAction,
@@ -335,6 +349,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       busy,
       error,
       refreshAll,
+      refreshLibrary,
       refreshRunnerState,
       saveComposition,
       runAction,

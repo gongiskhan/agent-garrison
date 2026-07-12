@@ -24,6 +24,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
     library,
     runnerState,
     saveComposition,
+    refreshLibrary,
     busy,
     openFittingEditor
   } = useAppShell();
@@ -119,6 +120,18 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
       delete selections[faculty!.id];
     }
     void saveComposition({ selections });
+  }
+
+  // Clone a library Fitting into the local namespace. On success the registry
+  // is refetched so the new copy appears as its own selectable card in the same
+  // Faculty. Throws on failure so the card can surface the error inline.
+  async function cloneEntry(entry: LibraryEntry): Promise<void> {
+    const res = await fetch(`/api/fittings/${encodeURIComponent(entry.id)}/clone`, {
+      method: "POST"
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `Clone failed (${res.status})`);
+    await refreshLibrary();
   }
 
   function updateConfig(
@@ -265,6 +278,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
                   }
                   onRemove={() => removeSelection(entry.id)}
                   onEdit={() => openFittingEditor(entry)}
+                  onClone={() => cloneEntry(entry)}
                 />
               );
             })}
@@ -480,7 +494,8 @@ function FittingCard({
   library,
   onSelect,
   onRemove,
-  onEdit
+  onEdit,
+  onClone
 }: {
   entry: LibraryEntry;
   selected: boolean;
@@ -491,8 +506,24 @@ function FittingCard({
   onSelect: () => void;
   onRemove: () => void;
   onEdit: () => void;
+  onClone: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [cloning, setCloning] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
+
+  async function handleClone() {
+    if (cloning) return;
+    setCloning(true);
+    setCloneError(null);
+    try {
+      await onClone();
+    } catch (err) {
+      setCloneError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCloning(false);
+    }
+  }
   return (
     <article
       style={{
@@ -529,6 +560,25 @@ function FittingCard({
             >
               {entry.metadata.component_shape}
             </span>
+            {entry.cloned_from ? (
+              <span
+                className="font-mono"
+                title={`Cloned from ${entry.cloned_from}`}
+                style={{
+                  marginLeft: 6,
+                  fontSize: 10,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "var(--brass)",
+                  border: "1px solid var(--brass)",
+                  padding: "2px 6px",
+                  fontWeight: 500,
+                  verticalAlign: "middle"
+                }}
+              >
+                clone
+              </span>
+            ) : null}
           </div>
           <p style={{ color: "var(--mute)", fontSize: 13, lineHeight: 1.5, marginTop: 4, maxWidth: 540 }}>
             {entry.summary}
@@ -594,6 +644,21 @@ function FittingCard({
               ) : null}
             </>
           )}
+          {entry.localPath ? (
+            <button
+              className="btn small ghost"
+              onClick={handleClone}
+              disabled={cloning}
+              title="Copy this Fitting into a local, editable copy"
+            >
+              {cloning ? "Cloning…" : "Clone"}
+            </button>
+          ) : null}
+          {cloneError ? (
+            <span style={{ fontSize: 10.5, color: "var(--alarm)", maxWidth: 180, textAlign: "right" }}>
+              {cloneError}
+            </span>
+          ) : null}
         </div>
       </div>
       <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--rule)", display: "flex", alignItems: "center", gap: 12 }}>
