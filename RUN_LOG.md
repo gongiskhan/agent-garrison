@@ -351,3 +351,8 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: 4 patterns live (evidence+confidence, vet drops planted FP, rejection ledger suppresses across runs, reconcile); full suite 2142; codex 2 findings + 1 residual → all resolved (corrupt-ledger throw, path+symlink containment)
 - build: lead-built after impl-s8 stall; impl-s8 concurred with the citations schema + repoRoot containment
 - model: fable-5 lead + gpt-5.5 codex
+
+### GATE 2026-07-12T21:34:02Z — S6 (WS6 tour engine)
+- green: Demo + Guided players live-verified (impl-s6 17/17 Playwright + lead walkthrough flagged=false, vision-confirmed Demo overlay); ui.tours schema; per-fitting tours; Escape exits; Assistant Guide launches by name+mode; 42 tour tests; full suite 2142
+- build: impl-s6 (engine/players/registry) + lead (D6 assistant wiring + evidence)
+- model: fable-5 lead + impl-s6

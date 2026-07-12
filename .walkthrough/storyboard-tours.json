@@ -1,0 +1,111 @@
+{
+  "title": "Walkthrough: in-app tour engine \u2014 Demo + Guided + Escape",
+  "project": "agent-garrison",
+  "folder": "marathon-s6",
+  "video": {
+    "width": 1440,
+    "height": 900,
+    "fps": 30
+  },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "In-app tours",
+      "subtitle": "One engine, two players: Demo performs the steps; Guided spotlights and waits. Escape exits.",
+      "duration": 2.6
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/compose?tour=compose-demo&mode=demo",
+      "beats": [
+        {
+          "id": "demo",
+          "caption": "DEMO player on Compose \u2014 the engine spotlights each element and performs the step itself",
+          "expectedScreen": "the Compose page with a dimmed tour overlay, a spotlight cutout, and a caption card",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "testid:tour-counter"
+            }
+          ],
+          "assert": {
+            "selector": "[data-testid=\"tour-spotlight\"]",
+            "highlight": true
+          },
+          "hold": 3400
+        },
+        {
+          "id": "demo-caption",
+          "caption": "Each step shows a caption + a step counter; the Demo auto-advances",
+          "expectedScreen": "a tour caption card and a step counter over the Compose page",
+          "assert": {
+            "selector": "[data-testid=\"tour-counter\"]",
+            "highlight": true
+          },
+          "hold": 3000
+        },
+        {
+          "id": "guided",
+          "caption": "GUIDED player on Quarters \u2014 the engine spotlights the target and waits for the user, validating via the step assert",
+          "expectedScreen": "the Quarters page with a tour spotlight and caption",
+          "actions": [
+            {
+              "type": "goto",
+              "path": "/quarters?tour=quarters-guided&mode=guided"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:tour-counter"
+            }
+          ],
+          "assert": {
+            "selector": "[data-testid=\"tour-caption\"]",
+            "highlight": true
+          },
+          "hold": 3400
+        },
+        {
+          "id": "escape",
+          "caption": "Escape exits any tour cleanly \u2014 the overlay is gone",
+          "expectedScreen": "the Quarters page with NO tour overlay",
+          "actions": [
+            {
+              "type": "press",
+              "selector": "body",
+              "key": "Escape"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1000
+            }
+          ],
+          "assert": {
+            "selector": "body"
+          },
+          "hold": 2800
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "registry",
+      "command": "cd /home/ggomes/dev/garrison && npx tsx -e 'import {listTours} from \"./src/lib/tours-registry.ts\"; listTours().then(t=>console.log(JSON.stringify(t.map(x=>({name:x.name,mode:x.mode,synthesized:!!x.synthesized})),null,1)))'",
+      "highlight": {
+        "match": "compose-demo",
+        "note": "2 explicit tours (demo + guided) + a synthesized tour per UI Fitting"
+      },
+      "hold": 3400
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "MARATHON-WS6",
+      "subtitle": "Demo + Guided players, a tour per Fitting, Escape exits, Assistant Guide launches by name",
+      "duration": 2.2
+    }
+  ]
+}

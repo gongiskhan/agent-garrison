@@ -22,8 +22,8 @@ commit + its sentinel printed and appended to `~/.garrison/marathon/ledger.md`.
 | S4 | WS4 composition switching: active_composition pointer, shell switcher (down/re-resolve/up, error-blocked), CLI flag, evidence id+hash | mixed | src/lib/compositions+runner, AppShell, scripts CLI | g4 | passed |
 | S5a | WS5 assistant Fitting + Answer mode (docs+fitting index, 3 grounded answers w/ sources) | mixed | fittings/seed/garrison-assistant | g5 | passed |
 | S5b | WS5 Guide (launch tours by name) + Build/interview → ≥1 skill + ≥1 automation proposal, provenance `assistant`, approvable in Improver UI | mixed | garrison-assistant + improver queue | g5 | passed |
-| S6a | WS6 tour engine: ui.tours metadata block + in-app DOM executor (same storyboard schema) + Demo player w/ highlights + captions | ui | src/lib/metadata + src/components/tours | g6 | pending |
-| S6b | WS6 Guided player (spotlight/wait/assert/advance) + a tour per seed Fitting + Escape exit + Assistant Guide launch | ui | tours descriptors per fitting + engine | g6 | pending |
+| S6a | WS6 tour engine: ui.tours metadata block + in-app DOM executor (same storyboard schema) + Demo player w/ highlights + captions | ui | src/lib/metadata + src/components/tours | g6 | passed |
+| S6b | WS6 Guided player (spotlight/wait/assert/advance) + a tour per seed Fitting + Escape exit + Assistant Guide launch | ui | tours descriptors per fitting + engine | g6 | passed |
 | S7 | WS7 probe revival: probe-question policy row (S9 fast-target seed), local-model question generation via ollama-local, acceptance checks → IMPROVER-PROBE OK | mixed | improver + orchestrator policy + agent-sdk provider | g7 | passed |
 | S8a | WS8 shadcn/improve findings doc + evidence discipline (file:line + confidence) + vet pass (planted false positive dropped) | api | fittings/seed/improver | g8 | passed |
 | S8b | WS8 rejection ledger (reason + suppression across runs) + reconcile mode (verify/refresh/retire) demonstrated | mixed | improver + its UI reject flow | g8 | passed |
