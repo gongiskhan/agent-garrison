@@ -286,3 +286,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: wall 15/15+tc+lint+securityWall · fresh review approve · codex needs-work→fixed (dcb24c7) · advtest 13/13 · video verified (29.3s, 6 beats, unflagged, sha 74c2bc42…)
 - design gate skipped: no-ui-delta. Evidence third-take after 2 storyboard authoring bugs (title duration units; evidence file field) — friction-logged.
 - model: fable-5 lead + fresh-context subagents + gpt-5.5 codex · duration ~55 min
+
+### DECISION 2026-07-12T18:47:50Z (S2b stall takeover)
+- impl-s2b produced no durable output in 65+ min and was silent through two pings — replaced with impl-s2b-2 under a tightened, commit-early brief. impl-s2a alive (live smoke surfaced follow-up edit in progress in gateway-routing.mjs).
