@@ -134,4 +134,19 @@ describe("hardening (S8 codex findings)", () => {
     // a proposal whose only citation escapes is vetted out
     expect(proposalEvidenceHolds({ citations: [{ file: "/etc/passwd", line: 1 }] }, repoRoot)).toBe(false);
   });
+
+  it("I4b: a SYMLINK inside the repo pointing OUTSIDE is not read (realpath containment)", async () => {
+    const { evidenceHolds } = await patterns();
+    const { writeFileSync, symlinkSync, mkdtempSync } = await import("node:fs");
+    const os2 = await import("node:os");
+    const p2 = await import("node:path");
+    const outside = mkdtempSync(p2.join(os2.tmpdir(), "outside-"));
+    writeFileSync(p2.join(outside, "secret.txt"), "OUTSIDE_SECRET line");
+    let symlinked = false;
+    try { symlinkSync(p2.join(outside, "secret.txt"), p2.join(repoRoot, "inside-link.txt")); symlinked = true; } catch { /* no symlink support */ }
+    if (symlinked) {
+      // the symlink is lexically inside repoRoot but its realpath is outside → must NOT hold
+      expect(evidenceHolds({ file: "inside-link.txt", line: 1, snippet: "OUTSIDE_SECRET" }, repoRoot)).toBe(false);
+    }
+  });
 });
