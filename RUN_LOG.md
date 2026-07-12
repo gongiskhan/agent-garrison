@@ -318,3 +318,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - S2d: RUNTIME_DEGRADATIONS.md + degradation module + /api/runtime/active + compose advisory notice, 4/4 tests
 - shared evidence: combined S3+S4 walkthrough (sha d2ba644a42c9482b, flagged=false, 6 beats, vision-verified switcher)
 - coordination: parallel fan-out (impl-s2c/s3/s4) was CPU-starved on this box — slow but productive; lead committed several stalled-at-commit deliverables + wrote S2d directly (friction-logged)
+
+### DECISION 2026-07-12T20:15:14Z (S5 stall takeover)
+- impl-s5 produced zero durable output in 23 min (no scaffold dir, no commit, no ping reply) — hard stall. Lead takes over WS5 directly, building serially.
