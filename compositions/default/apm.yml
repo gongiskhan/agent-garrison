@@ -12,6 +12,7 @@ dependencies:
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/file-browser
+    - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
@@ -122,6 +123,10 @@ x-garrison:
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *
       sessions:
+        - id: garrison-assistant
+          config:
+            port: 7095
+            bind_host: 127.0.0.1
         - id: dev-env
           config:
             port: 7086

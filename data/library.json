@@ -509,5 +509,19 @@
   ],
   "ratings": {},
   "cloned_from": "taste@0.1.0"
+ },
+ {
+  "id": "garrison-assistant",
+  "name": "Garrison Assistant",
+  "repo": "local:fittings/seed/garrison-assistant",
+  "localPath": "fittings/seed/garrison-assistant",
+  "summary": "Answer, Guide, Build \u2014 grounded Q&A over docs+Fittings, guided-tour launcher, and an interview that files review-queue proposals (provenance assistant). Never edits artifacts directly.",
+  "platforms": [
+   "all"
+  ],
+  "ratings": {
+   "global": 4.5,
+   "claude_code": 4.5
+  }
  }
 ]

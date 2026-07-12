@@ -1,0 +1,65 @@
+name: garrison-assistant
+version: 0.1.0
+description: The Garrison Assistant — answer, guide, and build. A grounded Q&A + guided-tour launcher + interview-driven proposal drafter that never edits artifacts directly.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: single
+  component_shape: plugin
+  own_port: true
+  default_port: 7095
+  lifecycle: operative-bound
+  platforms:
+    - all
+  summary: >-
+    The Garrison Assistant surfaces three modes over its own port. ANSWER:
+    grounded Q&A over docs/ plus every installed Fitting's SKILL/instructions,
+    indexed at setup and re-indexable on composition change, answering with the
+    sources it drew on. GUIDE: step-by-step usage help that launches WS6 tours by
+    name. BUILD: drafts briefs, skills, and automations — its interview loop asks
+    one adaptive question at a time and, when it has enough, files each candidate
+    as a proposal into the Improver review queue with provenance `assistant`. The
+    Assistant NEVER edits an artifact directly; every change flows through the
+    Improver's propose-then-approve queue. Model calls (optional) use the local
+    ollama-local provider, never an Anthropic endpoint.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7095
+      description: HTTP port for the Assistant's own-port server.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind host (localhost only).
+    - key: docs_root
+      type: string
+      default: docs
+      description: The docs directory indexed for Answer mode (relative to the repo root).
+    - key: model
+      type: string
+      default: ollama-local/qwen2.5:3b
+      description: Optional local model for Answer synthesis (provider/model); never an Anthropic endpoint.
+  provides: []
+  consumes:
+    - kind: memory-store
+      cardinality: optional-one
+  ui:
+    views:
+      - id: garrison-assistant
+        placement: faculty-tab
+        entry: ./dist/index.html
+        route: /
+  verify:
+    command: node apm_modules/_local/garrison-assistant/scripts/server.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The Garrison Assistant answers questions about Garrison grounded in the
+    installed docs + Fittings (with sources), guides usage and launches tours by
+    name, and turns an interview into review-queue proposals (provenance
+    `assistant`) — it never edits artifacts itself. Endpoints on its own port:
+    POST /answer {question} -> {answer, sources[]}; GET /guide?topic=…;
+    POST /guide/launch-tour {name} -> {launch}; POST /interview/next {answers[]}
+    -> {question|done, proposals?}. To ask it something, POST to /answer.
