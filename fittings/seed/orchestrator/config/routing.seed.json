@@ -187,6 +187,15 @@
       "effort": "low",
       "pinned": true,
       "authMode": "subscription"
+    },
+    {
+      "id": "sdk-ollama-probe",
+      "type": "runtime-target",
+      "runtime": "agent-sdk",
+      "provider": "ollama-local",
+      "model": "qwen2.5:3b",
+      "promptMode": "lean",
+      "effort": "low"
     }
   ],
   "profiles": {
@@ -254,7 +263,7 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "agent-sdk-haiku-fast",
+            "default": "sdk-ollama-probe",
             "cells": {}
           },
           "code": {
@@ -366,7 +375,7 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "agent-sdk-haiku-fast",
+            "default": "sdk-ollama-probe",
             "cells": {}
           },
           "code": {
@@ -485,7 +494,7 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "agent-sdk-haiku-fast",
+            "default": "sdk-ollama-probe",
             "cells": {}
           },
           "code": {

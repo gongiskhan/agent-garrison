@@ -10,10 +10,10 @@ import { describe, expect, it } from "vitest";
 const REPO = path.resolve(__dirname, "..");
 const ROUTING_CORE = path.join(REPO, "fittings/seed/orchestrator/lib/routing-core.mjs");
 const PROBE_CORE = path.join(REPO, "fittings/seed/improver/lib/probe-core.mjs");
-const COMP_ROUTING = path.join(REPO, "compositions/default/.garrison/routing.json");
+const COMP_ROUTING = path.join(REPO, "fittings/seed/orchestrator/config/routing.seed.json");
 
 describe("probe-question routes to the LOCAL model (never Anthropic) — WS7", () => {
-  it("the composition routing seeds a probe-question row → an ollama-local agent-sdk target", async () => {
+  it("the seed routing config seeds a probe-question row → an ollama-local agent-sdk target", async () => {
     const core = await import(pathToFileURL(ROUTING_CORE).href);
     const cfg = JSON.parse(readFileSync(COMP_ROUTING, "utf8"));
     expect(cfg.taskTypes).toContain("probe-question");
