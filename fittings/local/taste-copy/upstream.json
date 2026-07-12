@@ -1,0 +1,16 @@
+{
+  "repo": "https://github.com/Leonxlnx/taste-skill",
+  "commit": "b17742737e796305d829b3ad39eda3add0d79060",
+  "license": "MIT",
+  "vendoredAt": "2026-07-12T18:05:00Z",
+  "files": {
+    ".apm/skills/design-taste-frontend/SKILL.md": {
+      "sha256": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89",
+      "upstreamPath": "skills/taste-skill/SKILL.md"
+    },
+    ".apm/skills/redesign-existing-projects/SKILL.md": {
+      "sha256": "98ad3e5b051bfb71b2795f7e8a6aa0d32b51ee095606c098a4b2822ac07926c9",
+      "upstreamPath": "skills/redesign-skill/SKILL.md"
+    }
+  }
+}

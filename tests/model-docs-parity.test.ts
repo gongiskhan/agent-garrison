@@ -91,12 +91,16 @@ describe("model/docs parity", () => {
     expect(pkg.license).toBe("MIT");
   });
 
-  it("every library-registered seed Fitting parses with a non-empty summary", async () => {
+  it("every library-registered Fitting parses with a non-empty summary", async () => {
     const entries = readLibrary();
     expect(entries.length).toBeGreaterThan(0);
     for (const entry of entries) {
-      const manifestPath = path.join(SEED_DIR, entry.id, "apm.yml");
-      expect(fs.existsSync(manifestPath), `library entry "${entry.id}" has no seed apm.yml`).toBe(
+      // A Fitting's manifest lives at its localPath (seed Fittings under
+      // fittings/seed/<id>, clones under fittings/local/<id>); fall back to the
+      // seed-dir convention when no localPath is recorded.
+      const fittingDir = entry.localPath ? path.join(ROOT, entry.localPath) : path.join(SEED_DIR, entry.id);
+      const manifestPath = path.join(fittingDir, "apm.yml");
+      expect(fs.existsSync(manifestPath), `library entry "${entry.id}" has no apm.yml`).toBe(
         true
       );
       const manifest = await readYamlFile<RawManifest>(manifestPath);
