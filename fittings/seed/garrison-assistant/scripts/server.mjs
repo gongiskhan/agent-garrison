@@ -9,6 +9,7 @@
 // review queue with provenance `assistant` (proposals.mjs) — never edits an
 // artifact directly. Local-only; no Anthropic endpoint.
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildIndex, answer as answerFrom } from "../lib/index-store.mjs";
@@ -20,7 +21,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FITTING_DIR = path.resolve(__dirname, "..");
 const TOURS_DIR = path.join(FITTING_DIR, "tours");
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+
+const FITTING_ID = "garrison-assistant";
+const DEFAULT_PORT = 7095;
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+const STATUS_DIR = path.join(GARRISON_HOME, "ui-fittings");
+const STATUS_FILE = path.join(STATUS_DIR, `${FITTING_ID}.json`);
+let SERVER_PORT = DEFAULT_PORT;
+
 // Repo root: walk up from the installed dir to the first dir containing both
 // docs/ and fittings/ (works from fittings/seed/<id> and apm_modules/_local/<id>).
 function repoRoot() {
@@ -61,7 +70,7 @@ export function createServer() {
     const url = new URL(req.url, "http://localhost");
     try {
       if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/")) {
-        return send(res, 200, { ok: true, modes: ["answer", "guide", "build"], index: ensureIndex().size });
+        return send(res, 200, { ok: true, port: SERVER_PORT, pid: process.pid, modes: ["answer", "guide", "build"], index: ensureIndex().size });
       }
       if (req.method === "POST" && url.pathname === "/answer") {
         const { question } = await readBody(req);
@@ -115,12 +124,58 @@ if (process.argv.includes("--probe")) {
   }
 }
 
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (err) { return Boolean(err && err.code === "EPERM"); }
+}
+
+// Register at ~/.garrison/ui-fittings/<id>.json so the sidebar Views live-link
+// and the runner's lifecycle stop can find this instance. Never steal the slot
+// from a live sibling (the Monitor/file-browser status-file contract).
+function claimStatusFile(port, host) {
+  try {
+    const tracked = JSON.parse(readFileSync(STATUS_FILE, "utf8"));
+    const pid = Number(tracked?.pid);
+    if (pid !== process.pid && pidAlive(pid)) {
+      process.stderr.write(`[garrison-assistant] ${STATUS_FILE} tracks live pid ${pid}; running untracked\n`);
+      return false;
+    }
+  } catch { /* absent or unreadable status file is claimable */ }
+  mkdirSync(STATUS_DIR, { recursive: true });
+  writeFileSync(
+    STATUS_FILE,
+    JSON.stringify(
+      {
+        fittingId: FITTING_ID,
+        port,
+        url: `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`,
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        route: "/",
+        views: [{ id: FITTING_ID, title: "Assistant", route: "/" }]
+      },
+      null,
+      2
+    )
+  );
+  return true;
+}
+
 // Bind the CONFIGURED port or exit non-zero. No findFreePort auto-shift: a
 // collision must fail loud (a shifted port orphans the status-file slot and
-// hides the collision) — the own-port canonical-port contract.
+// hides the collision) — the own-port canonical-port contract. The config
+// port/host arrive as GARRISON_GARRISONASSISTANT_PORT / _BIND_HOST (the runner's
+// ownPortConfigEnv projection, same as ports-default/power-default).
 export function startServer() {
-  const port = Number(process.env.PORT || process.env.GARRISON_ASSISTANT_PORT || 7095);
-  const host = process.env.BIND_HOST || "127.0.0.1";
+  const port = Number(
+    process.env.GARRISON_GARRISONASSISTANT_PORT ||
+      process.env.GARRISON_ASSISTANT_PORT ||
+      process.env.PORT ||
+      DEFAULT_PORT
+  );
+  const host = process.env.GARRISON_GARRISONASSISTANT_BIND_HOST || process.env.BIND_HOST || "127.0.0.1";
+  SERVER_PORT = port;
+  const size = ensureIndex().size; // build the grounding index up front
   const server = createServer();
   return new Promise((resolve, reject) => {
     server.on("error", (err) => {
@@ -131,7 +186,15 @@ export function startServer() {
       reject(err);
     });
     server.listen(port, host, () => {
-      process.stdout.write(`garrison-assistant listening on http://${host}:${port}\n`);
+      const owns = claimStatusFile(port, host);
+      const shutdown = () => {
+        if (owns) { try { unlinkSync(STATUS_FILE); } catch { /* already gone */ } }
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(0), 2000).unref();
+      };
+      process.on("SIGTERM", shutdown);
+      process.on("SIGINT", shutdown);
+      process.stdout.write(`garrison-assistant listening on http://${host}:${port} (indexed ${size} sections)\n`);
       resolve(server);
     });
   });

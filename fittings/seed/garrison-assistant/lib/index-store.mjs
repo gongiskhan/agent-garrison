@@ -48,7 +48,10 @@ function sectionsOf(markdown) {
 function walkMarkdown(dir, out, repoRoot) {
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
-    if (name === "node_modules" || name === ".git" || name === "apm_modules") continue;
+    // Skip build/vendor dirs and the ephemeral autothing run logs — the latter
+    // are transient per-run evidence, not durable docs, and would drown grounded
+    // answers in run-specific noise (and bloat the index).
+    if (name === "node_modules" || name === ".git" || name === "apm_modules" || name === "autothing") continue;
     const abs = path.join(dir, name);
     let st;
     try { st = statSync(abs); } catch { continue; }
