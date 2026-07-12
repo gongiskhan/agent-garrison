@@ -57,6 +57,15 @@ export class MultiRuntimePool {
     return [...this.pools.keys()];
   }
 
+  // The RuntimeAdapter that backs a warmed runtime id (primary vs classifier vs a
+  // secondary). Lets a caller that holds only a checkout record reach the adapter
+  // driving that session — e.g. the gateway routing Stage-B moves / resume through
+  // the operative's own adapter instead of assuming a Claude PTY. Null when the
+  // runtime was never warmed.
+  adapterFor(runtimeId) {
+    return this.pools.get(runtimeId)?.adapter ?? null;
+  }
+
   shutdown() {
     for (const { pool } of this.pools.values()) {
       try {

@@ -223,6 +223,12 @@ export class RoutedGateway {
     // The model/effort/provider the operative session currently sits on.
     this.currentTarget = opts.initialTarget ?? null;
     this.spawnFn = opts.spawnFn ?? null; // for off-primary respawn-resume
+    // The RuntimeAdapter that backs the operative session. Threaded from
+    // createRoutedGateway (the resolved primary adapter); Stage-B moves + resume
+    // route through it so a non-Claude primary is driven by its own adapter
+    // rather than assuming a Claude PTY. Falls back to the pool's adapterFor when
+    // not injected.
+    this._operativeAdapter = opts.operativeAdapter ?? null;
     // D19: per-conversation card memory. A task-shaped turn registers a card; a
     // follow-up turn about the SAME task (same session key + task type) attaches
     // to it instead of registering a duplicate. Quick cards are forgotten the
@@ -258,6 +264,18 @@ export class RoutedGateway {
 
   getOperativeSession() {
     return this.operative?.session ?? null;
+  }
+
+  // The adapter driving the operative session. Injected reference wins (the
+  // resolved primary adapter); else the pool knows which adapter backs each
+  // warmed runtime id. Null when neither is available (treated as the Claude PTY
+  // path by callers, the safe historical default).
+  operativeAdapter() {
+    if (this._operativeAdapter) return this._operativeAdapter;
+    if (typeof this.pool?.adapterFor === "function") {
+      return this.pool.adapterFor(this.operativeRuntimeId) ?? null;
+    }
+    return null;
   }
 
   // True when the resolved route runs on the agent-sdk runtime (any model via the
@@ -631,14 +649,36 @@ export class RoutedGateway {
       slashInjectWorks: this.slashInjectWorks,
     });
     if (plan.path === "slash-inject") {
-      // D8 guard (S4 review): slash-inject assumes a Claude PTY session. A
-      // non-claude primary's session has no writeKeys — state what is needed
-      // and skip, never crash with an opaque TypeError. Full non-PTY turn
-      // wiring is the P8 slice.
+      // slash-inject assumes a Claude PTY session (writeKeys). A non-claude
+      // primary's session has none — but its ADAPTER can apply the same model /
+      // effort moves through setModel/setEffort. Route through the adapter when it
+      // implements them; only skip (with the historical log) when it does not.
       if (typeof this.operative?.session?.writeKeys !== "function") {
+        const adapter = this.operativeAdapter();
+        if (adapter && typeof adapter.setModel === "function" && typeof adapter.setEffort === "function") {
+          const session = this.operative?.session;
+          const model = route.target?.model ?? null;
+          const effort = route.target?.effort ?? null;
+          // Apply exactly the moves planSwitch planned (model and/or effort), with
+          // the values taken from the resolved target.
+          const moved = [];
+          for (const inj of plan.injections) {
+            if (inj.startsWith("/model")) {
+              await adapter.setModel(session, model);
+              moved.push(inj);
+            } else if (inj.startsWith("/effort")) {
+              await adapter.setEffort(session, effort);
+              moved.push(inj);
+            }
+          }
+          this.currentTarget = route.target;
+          this.switchLog.push({ path: "adapter-moves", injections: moved, target: route.targetId, reasons: plan.reasons });
+          this.logFn({ kind: "route-switch", path: "adapter-moves", injections: moved, target: route.targetId, runtime: adapter.id });
+          return plan;
+        }
         this.logFn({
           kind: "route-switch-skipped",
-          reason: `slash-inject needs a Claude PTY operative; the current primary session has no writeKeys — model/effort stay launch-fixed until the P8 non-PTY turn wiring (target ${route.targetId})`
+          reason: `slash-inject needs a Claude PTY operative or an adapter with setModel/setEffort; the current primary session has neither — model/effort stay launch-fixed (target ${route.targetId})`
         });
         this.switchLog.push({ path: "skipped-non-pty", injections: [], target: route.targetId, reasons: plan.reasons });
         return plan;
@@ -661,6 +701,42 @@ export class RoutedGateway {
   // Provider/soul change → fresh spawn with the target's launch env, context
   // preserved via --continue (buildRespawnOpts). Off the warm primary pool.
   async respawnOperative(target) {
+    // A NON-claude primary resumes through its OWN adapter (the SDK/Codex/Gemini
+    // resume contract), not the claude-specific spawnFn + --continue path. The
+    // config mirrors what the adapter's spawn takes (provider/model/effort/cwd).
+    const adapter = this.operativeAdapter();
+    if (adapter && adapter.id !== "claude-code" && typeof adapter.resume === "function") {
+      const config = {
+        compositionDir: this.compositionDir,
+        provider: target?.provider,
+        model: target?.model,
+        effort: target?.effort ?? null,
+        appendSystemPromptFile: this.appendSystemPromptFile,
+        secrets: this.secrets ?? null,
+        permissionMode: "bypassPermissions",
+        // carry the prior conversation id where the adapter tracks one (SDK resume)
+        sessionId: this.operative?.session?.sessionId ?? null,
+      };
+      const fresh = await adapter.resume(config);
+      try {
+        await adapter.teardown?.(this.operative?.session);
+      } catch {
+        /* ignore */
+      }
+      this.operative = {
+        id: `respawn:${target?.id}`,
+        session: fresh,
+        release: () => {
+          try {
+            adapter.teardown?.(fresh);
+          } catch {
+            /* ignore */
+          }
+        },
+      };
+      this.logFn({ kind: "route-respawn", path: "adapter-resume", target: target?.id, runtime: adapter.id });
+      return;
+    }
     if (!this.spawnFn) {
       this.logFn({ kind: "respawn-skip", reason: "no spawnFn injected", target: target?.id });
       return;
@@ -684,6 +760,7 @@ export class RoutedGateway {
     }
     // Re-wrap as a checkout-shaped record so getOperativeSession keeps working.
     this.operative = { id: `respawn:${target.id}`, session: fresh, release: () => fresh.dispose?.() };
+    this.logFn({ kind: "route-respawn", path: "spawn-continue", target: target?.id });
   }
 
   // After gateway-pty has run the turn, diff the reply's [route:] token.
@@ -860,6 +937,75 @@ export async function resolvePrimaryAdapter(engine, ctx) {
   );
 }
 
+// Is the claude-code runtime resolvable (its CLI installed / a stub standing in
+// for it)? The classifier stays on the cheap claude-code haiku session whenever
+// this is true — the default, byte-identical to before. Only a NON-claude primary
+// with claude-code genuinely absent falls the classifier back to the primary.
+export function claudeCodeResolvable(ctx = {}) {
+  const o = ctx.opts ?? {};
+  // Explicit override wins (the runner / tests force it without probing a CLI).
+  if (typeof o.claudeCodeResolvable === "boolean") return o.claudeCodeResolvable;
+  if (typeof o.claudeCodeResolvable === "function") return !!o.claudeCodeResolvable();
+  // A stub spawnFn stands in for the real claude binary (tests + the dev seam).
+  if (ctx.spawnFn) return true;
+  return isClaudeBinaryPresent();
+}
+
+// Cheap PATH probe for the claude CLI — no spawn, no new deps. Honors CLAUDE_BINARY
+// (absolute path → stat it; bare name → search PATH).
+function isClaudeBinaryPresent() {
+  const bin = process.env.CLAUDE_BINARY || "claude";
+  const isExec = (p) => {
+    try {
+      fs.accessSync(p, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (bin.includes(path.sep) || bin.includes("/")) return isExec(bin);
+  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
+    if (dir && isExec(path.join(dir, bin))) return true;
+  }
+  return false;
+}
+
+// The classifier spawn config for a fallback to the primary adapter: reuse the
+// primary's spawn config, dropping to a cheaper model only when an override is
+// supplied AND the config carries a model field.
+function classifierFallbackConfig(primarySpawnConfig, opts = {}) {
+  const cheap = opts.classifierFallbackModel ?? null;
+  if (cheap && primarySpawnConfig && "model" in primarySpawnConfig) {
+    return { ...primarySpawnConfig, model: cheap };
+  }
+  return primarySpawnConfig;
+}
+
+// Resolve the { adapter, spawnConfig } that back the CLASSIFIER pool entry.
+// Default (claude-code resolvable): the cheap claude-code haiku session, exactly
+// as before. Non-claude primary + claude-code ABSENT: fall back to the primary
+// adapter and log the fallback loudly.
+export function resolveClassifierAdapter(ctx) {
+  const { primary, primaryEngine, spawnFn, classifierSpawnConfig, opts, logFn } = ctx;
+  if (primary.claude) {
+    // claude-code primary → the operative adapter also serves the classifier.
+    return { adapter: primary.adapter, spawnConfig: classifierSpawnConfig };
+  }
+  if (claudeCodeResolvable({ spawnFn, primaryEngine, opts })) {
+    // non-claude primary but claude-code IS resolvable → keep the cheap haiku
+    // classifier on its own ClaudeCodeAdapter (byte-identical to before).
+    return { adapter: new ClaudeCodeAdapter(spawnFn ? { spawnFn } : {}), spawnConfig: classifierSpawnConfig };
+  }
+  // non-claude primary AND claude-code absent → the primary adapter classifies.
+  (logFn ?? (() => {}))({
+    kind: "classifier-fallback",
+    from: "claude-code",
+    to: primaryEngine,
+    reason: "claude-code runtime not resolvable (CLI absent); classifying on the primary adapter instead of the cheap claude-code haiku session",
+  });
+  return { adapter: primary.adapter, spawnConfig: classifierFallbackConfig(primary.spawnConfig, opts) };
+}
+
 // Build a RoutedGateway wired to the real claude runtime (or an injected stub).
 // spawnFn lets a test swap the leaf session factory (the documented test seam
 // GARRISON_GATEWAY_RUNTIME_STUB in gateway-pty.mjs); production passes none and
@@ -894,14 +1040,24 @@ export async function createRoutedGateway(opts = {}) {
     operativeSpawnConfig,
     opts
   });
-  const claudeAdapter = primary.claude ? primary.adapter : new ClaudeCodeAdapter(spawnFn ? { spawnFn } : {});
+  // The classifier stays on the cheap claude-code haiku session by default; only a
+  // non-claude primary with claude-code genuinely absent falls it back to the
+  // primary adapter (logged loudly). See resolveClassifierAdapter.
+  const classifier = resolveClassifierAdapter({
+    primary,
+    primaryEngine,
+    spawnFn,
+    classifierSpawnConfig,
+    opts,
+    logFn: opts.logFn,
+  });
   const pool =
     opts.pool ??
     new MultiRuntimePool({
       maxTotal: opts.maxTotal ?? 4,
       runtimes: [
         { id: "operative", adapter: primary.adapter, role: "primary", size: 1, spawnConfig: primary.spawnConfig },
-        { id: "classifier", adapter: claudeAdapter, role: "secondary", size: 1, spawnConfig: classifierSpawnConfig },
+        { id: "classifier", adapter: classifier.adapter, role: "secondary", size: 1, spawnConfig: classifier.spawnConfig },
       ],
     });
 
@@ -918,6 +1074,9 @@ export async function createRoutedGateway(opts = {}) {
     initialTarget: opts.initialTarget ?? { provider: "anthropic-plan", model: operativeSpawnConfig.model, effort: null },
     spawnFn,
     agentSdkAdapter: opts.agentSdkAdapter, // injectable (tests); production lazy-loads from disk
+    // The resolved primary adapter drives the operative session; Stage-B moves +
+    // resume route through it (a non-claude primary is driven by its own adapter).
+    operativeAdapter: primary.adapter,
   });
   gw.secrets = opts.secrets ?? null;
   return gw;
