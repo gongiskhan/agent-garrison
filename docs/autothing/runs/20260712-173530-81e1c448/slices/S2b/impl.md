@@ -116,6 +116,32 @@ No live model turn was run (no opencode credentials; ollama not confirmed up). T
 live delegate round-trip is a later gate, not this slice — the tests mock the run
 transport (injected `runExec`), so they need neither a live opencode server nor ollama.
 
+## Future upgrade path: server-first variant (preserved, not shipped)
+
+Endorsed stateless-first for v1 (sibling consistency with codex/gemini, no server
+lifecycle, and `delegate()` is one-shot semantics anyway). The richer **server-first**
+design explored during this slice is preserved so it isn't lost, under
+`server-first-variant/` next to this file (`apm.yml` + `lib/opencode-adapter.mjs` +
+`scripts/bridge.mjs`, inert reference — not imported/compiled/tested).
+
+It runs a standing `opencode serve` on `127.0.0.1`, addresses sessions by id, and posts
+prompts over the HTTP session API. Verified viable live against opencode 1.17.15 (booted
+a real server, round-tripped `POST /session`, `/global/health`, basic auth). Revive it
+when the run-subprocess transport's one-shot ceiling starts to hurt - the server buys:
+
+- **Persistent, warmer sessions** - one long-lived process instead of a fresh subprocess
+  per turn (lower per-turn latency, provider connection reuse).
+- **SSE / streaming** - incremental token/event streaming off the server's event stream,
+  rather than parsing a whole `--format json` NDJSON dump after the turn ends.
+- **Permission-replies** - interactive permission prompts answered mid-turn over the API,
+  instead of the blunt headless `--auto` auto-approve.
+- **v2 vs legacy body caveat (already recorded above):** per-call `model`/`variant` ride
+  only the legacy send-and-await `POST /session/{id}/message`; the v2
+  `POST /api/session/{id}/prompt` body is `{text, files, agents}` only. A server-first
+  revival should keep the legacy send-and-await path primary (or pin the model into the
+  scoped server config) so `setModel`/`setEffort` keep working per the RuntimeAdapter
+  contract. (Source: E15 research + live `GET /doc` OpenAPI.)
+
 ## Commits
 
 - `a0953a9` — test(opencode-runtime): committed run-adapter + delegate-bridge + seed-manifest tests, runtime-peer enumeration (S2b)
