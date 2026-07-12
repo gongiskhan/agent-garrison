@@ -1,1 +1,2 @@
 - 2026-07-12T19:09:54Z http-gateway soul-spawn + improver ECONNREFUSED spawn tests: 2 one-off failures under concurrent-agent load (multiple vitest full-suite runs at once); did not reproduce on a clean run. Suspect port/spawn contention, not code.
+- 2026-07-12T21:51:35Z tests/vault-heal.test.ts "pid mismatch — restarted outside Garrison" waitFor timeout under full-suite concurrent load (spawns real subprocesses, races status-file writes); passes 18/18 in isolation. Same flake class as runner-eager-lifecycle / own-port spawn under load.
