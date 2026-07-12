@@ -8,15 +8,30 @@ export interface DispatchError {
   message: string;
 }
 
+// Per-turn routing attribution (the gateway's `done` event surfaces which
+// runtime/model/tier actually served a routed phase turn; null in souls mode). Stamped
+// on a `routed` event by the engine and surfaced on the card front as `lastRoute`.
+// Every field is nullable — attribution is best-effort, never load-bearing.
+export interface RouteStamp {
+  targetId: string | null;
+  runtime: string | null;
+  provider: string | null;
+  model: string | null;
+  tier: string | null;
+  phase?: string | null;
+}
+
 // One entry on a card's execution timeline (the Activity feed). `kind` drives the
 // icon + accent: created | moved | recovered | dispatch | routed | parked | deferred |
 // failed | inference. `detail` is the long form (e.g. the operative's full reply on a
-// parked event).
+// parked event). `route` is present on a `routed` event when the turn routed (runtime/
+// model attribution shown in the Activity timeline).
 export interface CardEvent {
   at: string;
   kind: string;
   message: string;
   detail?: string | null;
+  route?: RouteStamp | null;
 }
 
 // The wait a card sits under while an earlier overlapping run stabilises/finishes
@@ -109,6 +124,10 @@ export interface CardSummary {
   description?: string;
   lastReply?: string | null;
   lastEvent?: CardEvent | null;
+  // Per-phase runtime/model attribution for the card front: the most recent routed
+  // event's route stamp, or null when no turn has routed yet / souls mode. The board
+  // renders a small "<phase> @ <model>" chip from it.
+  lastRoute?: RouteStamp | null;
   eventCount?: number;
   runningSince?: string | null;
   liveTail?: string | null;

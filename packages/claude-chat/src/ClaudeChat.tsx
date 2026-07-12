@@ -15,7 +15,7 @@ import sql from "highlight.js/lib/languages/sql";
 import rust from "highlight.js/lib/languages/rust";
 import go from "highlight.js/lib/languages/go";
 import diff from "highlight.js/lib/languages/diff";
-import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand, ToolQuestion } from "./transport";
+import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, RouteAttribution, SlashCommand, ToolQuestion } from "./transport";
 import {
   getChatMode,
   resolvedChatScheme,
@@ -24,7 +24,7 @@ import {
   type ChatThemeMode,
 } from "./chat-theme";
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
-import { sanitizeAssistantText, routeChipLabel } from "./sanitize";
+import { sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
 
 // A PRIVATE marked instance for the chat. We deliberately do NOT mutate the
 // process-wide `marked` singleton: the chat-specific link/code renderers
@@ -179,6 +179,10 @@ interface Turn {
   answered?: string;
   /** True while the answer POST is in flight (buttons show a pending state). */
   answering?: boolean;
+  /** Structured runtime attribution for this turn's reply (gateway `done`
+   *  payload → transport `route` event). The enriched routing chip prefers this
+   *  over the model-emitted "[route: …]" text badge lifted into the reply. */
+  route?: RouteAttribution;
 }
 
 // AskUserQuestion picker → tappable option buttons (D28). Pure + exported so the
@@ -663,6 +667,19 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           });
           break;
         }
+        case "route": {
+          // Attach the settled turn's runtime attribution to the current turn
+          // (same last-turn attach as `tool`). Rendered as an enriched routing chip.
+          const { type: _type, ...attribution } = ev;
+          setTurns((prev) => {
+            if (prev.length === 0) return prev;
+            const copy = prev.slice();
+            const last = copy[copy.length - 1];
+            copy[copy.length - 1] = { ...last, route: attribution };
+            return copy;
+          });
+          break;
+        }
         case "connection":
           setConn(ev.state);
           break;
@@ -1133,10 +1150,16 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           // counters, thinking blocks) and lift the router status badge out of the
           // prose into a compact chip. Cheap + pure, so per-render is fine.
           const clean = sanitizeAssistantText(t.assistant);
-          const routeLabel = routeChipLabel(clean.meta);
-          const routeTitle = clean.meta.route
+          // Prefer the STRUCTURED runtime attribution the gateway sends on the
+          // settled turn (runtime/model/tier); fall back to the model-emitted
+          // "[route: …]" text badge lifted into clean.meta when it is absent.
+          const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
+          const metaLabel = routeChipLabel(clean.meta);
+          const metaTitle = clean.meta.route
             ? `routed via ${clean.meta.route}${clean.meta.rule ? ` · rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` · ${clean.meta.profile} profile` : ""}`
             : undefined;
+          const routeLabel = structuredChip?.label ?? metaLabel;
+          const routeTitle = structuredChip ? structuredChip.title : metaTitle;
           return (
           <div className="cc-turn" key={t.id}>
             {!t.hideUser && <div className="cc-user">{t.user}</div>}
@@ -1220,7 +1243,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                       );
                     })()}
                     {routeLabel && (
-                      <span className="cc-routechip" title={routeTitle}>{routeLabel}</span>
+                      <span
+                        className={`cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`}
+                        title={routeTitle}
+                      >
+                        {routeLabel}
+                      </span>
                     )}
                   </div>
                 )}

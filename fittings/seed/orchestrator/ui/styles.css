@@ -573,3 +573,6 @@ button:focus-visible, .seg:focus-visible {
   padding: 3px 6px;
   margin-right: 6px;
 }
+
+/* Click-to-assign: the armed tray card (click to arm, click a cell/row to assign) */
+.tcard.armed { outline: 2px solid var(--sage-2); outline-offset: 2px; box-shadow: 0 0 0 4px var(--sage-soft); }

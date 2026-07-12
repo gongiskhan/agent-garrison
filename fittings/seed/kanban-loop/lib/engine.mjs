@@ -233,6 +233,33 @@ export function replySnippet(reply, max = 280) {
   return text.length > max ? text.slice(0, max).trimEnd() + "…" : text;
 }
 
+// Fold the gateway's per-turn route metadata (from the `done` SSE event, surfaced by
+// gateway-client.routeFromDone) into the compact stamp we persist on a `routed` event —
+// { targetId, runtime, provider, model, tier, phase } — plus a human SUFFIX
+// ("· claude-code/opus (T2-deep)") appended to the event message. `phase` is the
+// engine's own phase name (always known) so the card-front chip can read "plan @ opus"
+// even when the gateway's own taskType echo is null. Returns { route: null, suffix: "" }
+// when NO routing metadata flowed (souls mode / a non-routed turn) — a run must NEVER
+// fail, and an event must never grow noise, for want of attribution that isn't there.
+export function routeStamp(route, phase = null) {
+  if (!route || typeof route !== "object") return { route: null, suffix: "" };
+  const targetId = route.targetId ?? null;
+  const runtime = route.runtime ?? null;
+  const provider = route.provider ?? null;
+  const model = route.model ?? null;
+  const tier = route.tier ?? null;
+  if (targetId == null && runtime == null && provider == null && model == null && tier == null) {
+    return { route: null, suffix: "" };
+  }
+  const stamp = { targetId, runtime, provider, model, tier, phase: phase ?? null };
+  // "runtime/model" (runtime preferred, provider as fallback), then "(tier)".
+  const idPart = [runtime || provider, model].filter(Boolean).join("/");
+  let suffix = "";
+  if (idPart) suffix = ` · ${idPart}`;
+  if (tier) suffix += suffix ? ` (${tier})` : ` · (${tier})`;
+  return { route: stamp, suffix };
+}
+
 // Park a card in the needs-attention COLUMN (a real list move, not just a status
 // flag) so stuck work LEAVES the pipeline and shows up where the user looks for it —
 // carrying WHY it parked (attentionReason) and WHERE it came from (parkedFrom) so the
@@ -322,6 +349,30 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
     if (card.sliceId) parts.push(`Slice id: ${card.sliceId}`);
     parts.push("");
   }
+  // The durable-gate CONTRACT, spelled out (D9). Operatives that skip the phase
+  // skill tend to hand-write a gate record in a shape the engine does not accept
+  // (observed: {"plan": …} at top level) and the card parks despite real work.
+  // State the exact accepted shapes so even a direct write can satisfy the gate.
+  if (phase && card.runDir && list.kind === AGENT_KIND) {
+    parts.push(
+      `Durable gate record (REQUIRED to advance, D9): before choosing the next list, write ` +
+        `${path.join(card.runDir, `gate-status.${phase}.json`)} — JSON like ` +
+        `{"status":"passed|failed","next_phase":"<one of: ${validNext.join(", ")}>","notes":"…"} — ` +
+        `or add the same object under the "gates" key as {"gates":{"${phase}":{…}}} in ` +
+        `${path.join(card.runDir, "gate-status.json")}. A top-level {"${phase}":{…}} shape is NOT accepted. ` +
+        `A verdict without this record parks the card.`,
+      ""
+    );
+  }
+  // Retry-with-reason: a recovered card re-runs the SAME phase with the SAME prompt,
+  // so without feedback it repeats the exact failure that parked it. Surface the most
+  // recent park from this phase so the retry can fix the specific miss.
+  const lastPark = Array.isArray(card.events)
+    ? [...card.events].reverse().find((e) => e && e.kind === "parked" && typeof e.message === "string" && e.message.startsWith(`Parked from ${list.title || list.id}`))
+    : null;
+  if (lastPark) {
+    parts.push(`A previous attempt at this phase parked: ${lastPark.message}. Address that specifically this time.`, "");
+  }
   // D3/D15: name the policy-bound skill for this phase so the operative executes
   // the phase through it (the binding is configuration — swapping it in the
   // composer changes this line with zero code changes). The skill itself
@@ -332,6 +383,13 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
         `Orchestrator policy binds it for this phase). The skill reads ` +
         `~/.garrison/orchestrator/policy.json for its execution parameters and MUST write ` +
         `this phase's gate-status entry under the run directory before you choose the next list.`,
+      // D13 guard: this dispatch IS an engine-owned Kanban card already. Without
+      // this line, "implement/add X" wording auto-triggers the full `garrison`
+      // skill in the operative, which registers a SECOND card for the same work
+      // (observed live: duplicate cards racing each other through the pipeline).
+      `This dispatch is already an engine-owned Kanban card — do NOT invoke the \`garrison\` ` +
+        `skill and do NOT register or create any new card for this work; run only the ` +
+        `\`${skill}\` phase skill above.`,
       ""
     );
   }
@@ -641,6 +699,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
 
   const reply = out?.reply ?? out?.text ?? String(out ?? "");
+  // Per-turn routing attribution (the gateway's `done` event surfaces which
+  // runtime/model/tier actually served THIS phase turn; null in souls mode / a
+  // non-routed turn). Fall the tier back to the card's own tier so the stamp reflects
+  // the routed tier even when the gateway omits its echo. Never load-bearing — a
+  // missing route just means no attribution stamp on the routed event.
+  const routeMeta = out?.route
+    ? { ...out.route, tier: out.route.tier ?? runningCard.tier ?? null }
+    : null;
   // Final clean log (overwrites any partial live-streamed content with the
   // authoritative reply the operative returned).
   await writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${reply}\n`);
@@ -870,11 +936,16 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         const grown = reregisterTouchSetIfGrown({ repoPath: coordRepoPath, card: runningCard, touchSet: myTouchSet, now });
         if (grown.grown) fenceEvents = fenceEvents.concat([{ at: now(), kind: "coordination", message: `Touch-set grew during ${phase} - re-registered (added ${grown.added.join(", ")})` }]);
       }
+      // Per-phase runtime/model attribution: stamp the route object + append a
+      // "· claude-code/opus (T2-deep)" suffix to the human message when the gateway
+      // reported a route for this turn (inert in souls mode).
+      const { route: routeObj, suffix: routeSuffix } = routeStamp(routeMeta, phase);
       let events = withEvent(runningCard, {
         at: now(),
         kind: "routed",
-        message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}${nudged ? " (verdict via follow-up)" : ""}`,
-        detail: snippet || null
+        message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}${nudged ? " (verdict via follow-up)" : ""}${routeSuffix}`,
+        detail: snippet || null,
+        ...(routeObj ? { route: routeObj } : {})
       });
       for (const ev of offEvents) events = withEvent({ events }, ev);
       if (stab) events = withEvent({ events }, stab.event);
@@ -1563,7 +1634,14 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
             events: withEvent(a.running, interference.selfEvent)
           };
         } else {
-          let events = withEvent(a.running, { at: now(), kind: "routed", message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}`, detail: snippet || null });
+          // Per-phase attribution at the batch seam too — one route served the whole
+          // batched session, so every card in the group carries the same stamp; the
+          // tier falls back to each card's own tier when the gateway omits its echo.
+          const { route: routeObj, suffix: routeSuffix } = routeStamp(
+            out?.route ? { ...out.route, tier: out.route.tier ?? a.running.tier ?? null } : null,
+            phase
+          );
+          let events = withEvent(a.running, { at: now(), kind: "routed", message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}${routeSuffix}`, detail: snippet || null, ...(routeObj ? { route: routeObj } : {}) });
           for (const ev of offEvents) events = withEvent({ events }, ev);
           // Stability point (Q3) at the batch seam too — parity across all three seams.
           const stab = stabilityFields(a.running, phase, effectiveNext, now);

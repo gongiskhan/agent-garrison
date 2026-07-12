@@ -3,6 +3,7 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
+    - path: ../../fittings/seed/agent-sdk-runtime
     - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
@@ -15,10 +16,9 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
-    - path: ../../fittings/seed/mcp-gateway
-    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
@@ -61,19 +61,10 @@ x-garrison:
             port: 7083
             bind_host: 127.0.0.1
             gateway_url: ''
-        - id: deepgram-voice
-          config:
-            port: 7085
-            bind_host: 127.0.0.1
-            stt_model: nova-2
-            tts_model: aura-asteria-en
       gateway:
         - id: http-gateway
           config:
             port: 4777
-            bind_host: 127.0.0.1
-        - id: mcp-gateway
-          config:
             bind_host: 127.0.0.1
       runtimes:
         - id: claude-code-runtime
@@ -82,6 +73,12 @@ x-garrison:
           config: {}
         - id: gemini-runtime
           config: {}
+        - id: agent-sdk-runtime
+          config:
+            provider: ollama-local
+            model: ''
+            promptMode: full
+            maxTurns: 12
       memory:
         - id: basic-memory
           config:
@@ -103,8 +100,6 @@ x-garrison:
             bind_host: 127.0.0.1
         - id: improver
           config:
-            # 7093, not 7088: ports-default's canonical port is 7088 (and the
-            # 8488 tailnet mapping points there). Own-port servers bind exactly.
             port: 7093
             bind_host: 127.0.0.1
             cron: 30 3 * * *
@@ -154,12 +149,10 @@ x-garrison:
             scan_interval_ms: 5000
         - id: power-default
           config:
-            # 7092, not the historical 7090: automations holds 7090, and own-port
-            # servers bind exactly or exit 1 (no port shifting since 07ba683).
             port: 7092
             bind_host: 127.0.0.1
             idle_minutes: 30
-            load_threshold: 1.0
+            load_threshold: 1
         - id: outpost-tailscale-host
           config:
             port: 7082
@@ -171,6 +164,12 @@ x-garrison:
             briefs_path: ./briefs/
             default_mode: gary
       connectors:
+        - id: deepgram-voice
+          config:
+            port: 7085
+            bind_host: 127.0.0.1
+            stt_model: nova-2
+            tts_model: aura-asteria-en
         - id: trello
           config:
             board_id: vl1Z8KFH

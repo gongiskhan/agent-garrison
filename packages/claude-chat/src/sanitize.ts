@@ -1,3 +1,5 @@
+import type { RouteAttribution } from "./transport";
+
 // Render-time cleanup for assistant replies that were SCRAPED off the Claude Code
 // TUI screen (the gateway reads the headless xterm mirror — see @garrison/claude-pty).
 // Screen scraping is lossy: a reply can carry transient TUI noise that is not part
@@ -117,4 +119,38 @@ export function routeChipLabel(meta: AssistantRouteMeta): string | null {
   const m = /(opus|sonnet|haiku|gpt|codex|gemini)/i.exec(route);
   if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
   return route;
+}
+
+/**
+ * Build the enriched routing-chip label + tooltip from the STRUCTURED per-turn
+ * attribution the gateway sends on a settled turn (RouteAttribution), which
+ * carries the actual runtime/model/tier rather than depending on the model
+ * emitting the "[route: …]" text badge. Returns null when there is nothing worth
+ * showing, so the caller can fall back to the text-badge-derived meta chip.
+ *
+ * Label: "<runtime>/<model> · <tier>", dropping any missing part —
+ *   "agent-sdk/claude-haiku-4-5 · T0-trivial", "claude-code/opus" (no tier), or
+ *   the friendly model-family label (routeChipLabel) when neither runtime nor
+ *   model is known but a target id is.
+ * Title: "target <route> · rule <ruleId> · profile <profile>", plus
+ *   "honored: yes/no" when the router reported it.
+ */
+export function routeChipFromAttribution(
+  route: RouteAttribution
+): { label: string; title?: string } | null {
+  const s = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const idParts = [s(route.runtime), s(route.model)].filter(Boolean);
+  let label = idParts.join("/");
+  if (!label) label = routeChipLabel({ route: s(route.route) || undefined }) ?? "";
+  const tier = s(route.tier);
+  if (label && tier) label = `${label} · ${tier}`;
+  if (!label) return null;
+
+  const titleParts: string[] = [];
+  if (s(route.route)) titleParts.push(`target ${s(route.route)}`);
+  if (s(route.ruleId)) titleParts.push(`rule ${s(route.ruleId)}`);
+  if (s(route.profile)) titleParts.push(`profile ${s(route.profile)}`);
+  if (typeof route.honored === "boolean") titleParts.push(`honored: ${route.honored ? "yes" : "no"}`);
+  const title = titleParts.join(" · ");
+  return { label, title: title || undefined };
 }

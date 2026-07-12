@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
 import { restartOwnPortFitting, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
+import { operativeEnvForFitting } from "@/lib/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +19,11 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     if (!entry) {
       return NextResponse.json({ error: `fitting ${params.id} not in library` }, { status: 404 });
     }
-    // Vault may be locked on this manual path; vaultEnvForEntry returns {} and
-    // the Fitting restarts without its secrets rather than failing.
-    const extraEnv = await vaultEnvForEntry(entry);
+    // Same env parity as the start route: a running composition's env
+    // (gateway URL, composition id, selection config, vault) when available,
+    // vault-only otherwise (may be locked; then {} — the Fitting restarts
+    // without its secrets rather than failing).
+    const extraEnv = (await operativeEnvForFitting(params.id)) ?? (await vaultEnvForEntry(entry));
     const result = await restartOwnPortFitting(entry, extraEnv);
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? "restart failed" }, { status: result.status ?? 500 });

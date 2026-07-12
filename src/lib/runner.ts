@@ -380,7 +380,8 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // Eager-toggled views also boot with the operative (not just with the
     // server): covers detached-lifecycle fittings and the case where the
     // server-start boot was missed. runEagerBoot skips anything already
-    // running, so operative-bound fittings just started above are untouched.
+    // running, so eager operative-bound fittings just started above are
+    // untouched (non-eager ones were not started at all — Views UI on demand).
     // It receives the same env the runner just projected (per-fitting where
     // known, gateway URL + composition id otherwise) so an eager respawn is
     // never gatewayless. Best-effort - a failed eager boot must not fail the
@@ -513,7 +514,13 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
   return rt.reconciliation;
 }
 
-async function startOperativeBoundFittings(
+// Exported for the eager-lifecycle vitest gate; the app reaches this through
+// up(). Builds the runner env for EVERY operative-bound own-port fitting but
+// STARTS only the eager-toggled ones — views no longer mass-boot with the
+// operative. A non-eager view starts on demand from the Views UI
+// (/api/fittings/[id]/start hands it this same env via operativeEnvForFitting)
+// and still stops with the operative at down().
+export async function startOperativeBoundFittings(
   compositionId: string
 ): Promise<Map<string, Record<string, string>>> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
@@ -535,8 +542,11 @@ async function startOperativeBoundFittings(
   }
   // Returned so the in-up eager boot reuses the EXACT same env per fitting -
   // a different env there would drift the fingerprint and double-drive the
-  // fitting through a needless heal-restart.
+  // fitting through a needless heal-restart. The map covers every
+  // operative-bound fitting (started here or not) for the same reason.
+  const prefs = await readEagerBootPrefs();
   const envByFitting = new Map<string, Record<string, string>>();
+  const notAutoStarted: string[] = [];
   for (const entry of entries) {
     if (!isOperativeBound(entry)) continue;
     // Project the ACTIVE composition id into every operative-bound own-port fitting so a
@@ -547,9 +557,22 @@ async function startOperativeBoundFittings(
       ...(await vaultEnvForEntry(entry)),
       ...ownPortConfigEnv(entry.id, configById.get(entry.id) ?? {}),
       GARRISON_COMPOSITION_ID: compositionId,
+      // Project the composition's absolute dir too (the same value spawnGateway
+      // hands the gateway as GARRISON_COMPOSITION_DIR): the orchestrator own-port
+      // server keys routing.json off it. Without it that server falls back to
+      // ~/.garrison/orchestrator/routing.json while the gateway/runner read the
+      // composition's .garrison/routing.json — a config split-brain.
+      GARRISON_COMPOSITION_DIR: composition.directory,
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
     envByFitting.set(entry.id, extraEnv);
+    // Only eager-toggled views boot with the operative: mass-booting every
+    // own-port view at up() surprised more than it helped. Non-eager views
+    // are on-demand (Views UI start), and down() still stops any running.
+    if (!prefs.eager[entry.id]) {
+      notAutoStarted.push(entry.id);
+      continue;
+    }
     const result = await startOwnPortFitting(entry, extraEnv, { healOnEnvDrift: true });
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
@@ -566,7 +589,48 @@ async function startOperativeBoundFittings(
       appendLog(compositionId, "runner", `own-port ${entry.id} started${result.pid ? ` (pid ${result.pid})` : ""}`);
     }
   }
+  if (notAutoStarted.length > 0) {
+    appendLog(
+      compositionId,
+      "runner",
+      `own-port views not auto-started (eager off): ${notAutoStarted.join(", ")} — start them from Views when needed`
+    );
+  }
   return envByFitting;
+}
+
+// The runner-projected env for ONE fitting of a RUNNING composition — exactly
+// what startOperativeBoundFittings would hand it at up (vault secrets,
+// selection config, GARRISON_COMPOSITION_ID, live GARRISON_GATEWAY_URL). The
+// manual Views start/restart routes use this so an on-demand view still
+// reaches the live gateway instead of booting gatewayless — the normal path
+// now that up() only auto-starts eager views. Returns null when no running
+// composition selects the fitting (callers fall back to plain vault env).
+export async function operativeEnvForFitting(fittingId: string): Promise<Record<string, string> | null> {
+  for (const [compositionId, record] of runtime().records) {
+    if (record.state.status !== "running") continue;
+    const composition = await readCompositionWithDerivedTasks(compositionId);
+    const entries = await selectedLibraryEntries(composition.selections);
+    const entry = entries.find((e) => e.id === fittingId);
+    if (!entry || !isOperativeBound(entry)) continue;
+    let config: Record<string, unknown> = {};
+    for (const items of Object.values(composition.selections)) {
+      const item = (items ?? []).find((i) => i.id === fittingId);
+      if (item) config = (item.config ?? {}) as Record<string, unknown>;
+    }
+    const gatewayBaseUrl = record.gateway?.baseUrl;
+    return {
+      ...(await vaultEnvForEntry(entry)),
+      ...ownPortConfigEnv(entry.id, config),
+      GARRISON_COMPOSITION_ID: compositionId,
+      // Same composition-dir projection as the up() path (see
+      // startOperativeBoundFittings) so an on-demand Views start keys its
+      // routing.json off the composition, not ~/.garrison/orchestrator.
+      GARRISON_COMPOSITION_DIR: composition.directory,
+      ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
+    };
+  }
+  return null;
 }
 
 // Exported for the eager-lifecycle vitest gate; the app reaches this through

@@ -253,6 +253,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   border-radius: 999px; padding: 1px 8px; cursor: default; white-space: nowrap;
 }
 .cc-routechip:hover { color: var(--cc-fg); border-color: var(--cc-border-strong); }
+/* Enriched chip (structured runtime attribution, e.g. "agent-sdk/claude-haiku-4-5
+   · T0-trivial") — longer than the model-family label, so cap its width and
+   ellipsize rather than let it overflow the action row on narrow screens. The
+   full route/rule/profile stays in the title tooltip. */
+.cc-routechip-rich { max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 
 .cc-raw {
   background: var(--cc-bg-sunk); border: 1px solid var(--cc-border); border-radius: 8px; color: var(--cc-fg-dim);

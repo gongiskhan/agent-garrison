@@ -467,7 +467,21 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       provider: r.provider,
       model: r.model,
     });
-    return { reply: r.reply, session_id: r.session_id, cost_usd: null, route: pre.route.targetId, runtime: "agent-sdk", model: r.model };
+    return {
+      reply: r.reply,
+      session_id: r.session_id,
+      cost_usd: null,
+      route: pre.route.targetId,
+      runtime: "agent-sdk",
+      provider: r.provider ?? null,
+      model: r.model,
+      // Routing attribution for channels/kanban (null-safe — a missing decision
+      // must never throw): what the classifier decided and which rule matched.
+      taskType: pre.decision?.taskType ?? null,
+      tier: pre.decision?.tier ?? null,
+      ruleId: pre.decision?.ruleId ?? null,
+      profile: pre.decision?.profile ?? null,
+    };
   }
   // Secondary runtime (gpt/codex or gemini): the orchestrator delegates this step
   // to the secondary; the gateway executes it directly (not the PTY operative).
@@ -491,7 +505,20 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       provider: r.provider,
       model: r.model,
     });
-    return { reply: r.reply, session_id: null, cost_usd: null, route: pre.route.targetId, runtime: r.runtime, model: r.model };
+    return {
+      reply: r.reply,
+      session_id: null,
+      cost_usd: null,
+      route: pre.route.targetId,
+      runtime: r.runtime,
+      provider: r.provider ?? null,
+      model: r.model,
+      // Routing attribution for channels/kanban (null-safe).
+      taskType: pre.decision?.taskType ?? null,
+      tier: pre.decision?.tier ?? null,
+      ruleId: pre.decision?.ruleId ?? null,
+      profile: pre.decision?.profile ?? null,
+    };
   }
   session = router.getOperativeSession();
   // A resolved `workflow` target runs the named Claude Code workflow ON the
@@ -542,6 +569,16 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     cost_usd: null,
     route: pre.route.targetId,
     honored: honored.honored,
+    // Runtime + routing attribution for channels/kanban. The claude-code path
+    // carries none of these natively (unlike the agent-sdk/secondary branches),
+    // so add them here off the resolved route/decision (null-safe, never throws).
+    runtime: "claude-code",
+    provider: pre.route?.target?.provider ?? null,
+    model: pre.route?.target?.model ?? null,
+    taskType: pre.decision?.taskType ?? null,
+    tier: pre.decision?.tier ?? null,
+    ruleId: pre.decision?.ruleId ?? null,
+    profile: pre.decision?.profile ?? null,
   };
 }
 
@@ -908,16 +945,40 @@ async function main() {
       composition_dir: COMPOSITION_DIR,
     });
     (async () => {
-      try {
+      const attempt = async () => {
         if (ROUTING_ENABLED && (await initRouting())) {
           readyResolve();
           return;
         }
         await spawnOperative({ resume: true }); // calls readyResolve internally
+      };
+      try {
+        await attempt();
       } catch (err) {
+        let finalErr = err;
+        // Stale-marker wedge, exit flavor: `claude --continue` can EXIT during
+        // startup (not just render the in-TUI banner the initRouting wedge check
+        // catches) when the marker says continue but this machine/cwd has no
+        // conversation. Same heal: clear the marker, retry ONCE without --continue.
+        if (/No conversation found to continue/i.test(String(err.message || ""))) {
+          logEvent("stderr", {
+            kind: "continue-wedge",
+            message: "claude exited with 'No conversation found to continue' - clearing the stale session marker and respawning fresh",
+          });
+          try { router?.shutdown(); } catch { /* best effort */ }
+          router = null;
+          session = null;
+          try { await clearPriorSessionMarker(); } catch { /* best effort */ }
+          try {
+            await attempt();
+            return;
+          } catch (err2) {
+            finalErr = err2;
+          }
+        }
         ptyStatus = "failed";
-        ptyError = err.message;
-        logEvent("stderr", { kind: "spawn-failed", error: err.message });
+        ptyError = finalErr.message;
+        logEvent("stderr", { kind: "spawn-failed", error: finalErr.message });
         // Unblock waiters so pending /chat calls fail fast instead of hanging.
         readyResolve();
       }

@@ -34,6 +34,27 @@ export interface QuestionAnswer {
   dismiss?: boolean;
 }
 
+/**
+ * Per-turn runtime attribution the gateway attaches to a settled turn (the POST
+ * /chat response + the /chat/stream `done` SSE frame). Every field is optional /
+ * nullable: an older gateway path, or a turn the router could not attribute, sends
+ * a subset (or none). The web channel lifts this onto the just-finished turn to
+ * render an enriched routing chip. `route` is the resolved target id; `runtime`
+ * the execution engine that ran it (e.g. "agent-sdk", "claude-code"); `honored`
+ * whether the router honored a client classification hint.
+ */
+export interface RouteAttribution {
+  route?: string | null;
+  runtime?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  taskType?: string | null;
+  tier?: string | null;
+  ruleId?: string | null;
+  profile?: string | null;
+  honored?: boolean | null;
+}
+
 export type ChatEvent =
   | { type: "hello"; mode: PermissionMode; status: ClaudeStatus; busy: boolean; assistant: string; screen: string[] }
   | { type: "assistant"; text: string }
@@ -42,6 +63,9 @@ export type ChatEvent =
   | { type: "screen"; lines: string[] }
   // Wire fields match the gateway payload (tool_use_id is snake_case on the wire).
   | { type: "tool"; name: string; tool_use_id: string; questions: ToolQuestion[] }
+  // Structured runtime attribution for the just-finished turn — the web channel's
+  // orchestrator transport emits this from the `done` frame before it idles the turn.
+  | ({ type: "route" } & RouteAttribution)
   | { type: "error"; message: string }
   | { type: "connection"; state: "open" | "closed" | "reconnecting" };
 

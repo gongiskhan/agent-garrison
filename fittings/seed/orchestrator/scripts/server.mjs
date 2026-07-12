@@ -32,9 +32,10 @@ import {
   railFor,
   classifyExecution,
   isV2,
+  migrateRoutingConfig,
   DEFAULT_PRIMARY_RUNTIME_ID
 } from "../lib/routing-core.mjs";
-import { parse as parseYaml } from "yaml";
+import jsYaml from "js-yaml";
 import { readDecisions } from "../lib/routing-telemetry.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
@@ -154,6 +155,42 @@ async function loadConfigRaw() {
   return seed;
 }
 
+// v1→v2 migrate-at-load (one-shot, at startup). The composer UI renders v2 only,
+// and a hand-written or pre-pivot routing.json on disk can still be v1 (role-
+// based). Migrate it ONCE here: preserve the original as <path>.v1.bak (never
+// clobbering an existing backup), write the v2 shape back to the SAME path
+// atomically (tmp + rename, like the PUT commit), and recompile policy.json from
+// the migrated config so the derived cache matches. A fresh box has no file yet —
+// loadConfigRaw seeds it from the v2 seed — so this fires only on an existing v1.
+async function migrateConfigFileIfV1() {
+  const p = configPath();
+  if (!existsSync(p)) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return; // corrupt/unreadable — the startup recompile reports it loudly
+  }
+  if (isV2(parsed)) return;
+  let migrated;
+  try {
+    migrated = migrateRoutingConfig(parsed);
+  } catch (err) {
+    console.error(`[orchestrator] routing.json at ${p} is not v2 and cannot be migrated: ${String(err?.message || err)} — leaving it untouched`);
+    return;
+  }
+  const bak = `${p}.v1.bak`;
+  if (!existsSync(bak)) await writeFile(bak, JSON.stringify(parsed, null, 2) + "\n", "utf8");
+  const serialized = JSON.stringify(migrated, null, 2) + "\n";
+  const uniq = `${process.pid}-${randomBytes(6).toString("hex")}`;
+  const tmp = `${p}.tmp-${uniq}`;
+  await writeFile(tmp, serialized, "utf8");
+  const { rename } = await import("node:fs/promises");
+  await rename(tmp, p);
+  await writeCompiledPolicy(migrated);
+  console.log(`[orchestrator] migrated v1 routing.json → v2 at ${p} (original preserved at ${bak}); policy.json recompiled`);
+}
+
 function json(res, code, body) {
   const s = JSON.stringify(body);
   res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(s) });
@@ -168,7 +205,12 @@ async function readBody(req) {
 
 async function handleGetRouting(_req, res) {
   const raw = await loadConfigRaw();
-  json(res, 200, { config: JSON.parse(raw), baselineSha: sha(raw) });
+  const parsed = JSON.parse(raw);
+  // Serve v2 even if the file drifted back to v1 externally (startup migration
+  // owns the write-back; the GET path never persists). baselineSha stays over the
+  // RAW bytes so the PUT baseline guard still matches what is actually on disk.
+  const config = isV2(parsed) ? parsed : migrateRoutingConfig(parsed);
+  json(res, 200, { config, baselineSha: sha(raw) });
 }
 
 // ── Installed runtime fittings (GARRISON-RUNTIMES-V1 P3/D3/D4) ──────────────
@@ -188,7 +230,7 @@ function readRuntimeFittings() {
   }
   let selections = [];
   try {
-    const manifest = parseYaml(readFileSync(path.join(dir, "apm.yml"), "utf8"));
+    const manifest = jsYaml.load(readFileSync(path.join(dir, "apm.yml"), "utf8"));
     selections = manifest?.["x-garrison"]?.composition?.selections?.runtimes ?? [];
   } catch (err) {
     return {
@@ -227,7 +269,7 @@ function readRuntimeFittings() {
       warning = `fitting id ${JSON.stringify(rawId)} resolves outside the composition modules dir — entry ignored`;
     } else {
       try {
-        meta = parseYaml(readFileSync(manifestPath, "utf8"))?.["x-garrison"] ?? null;
+        meta = jsYaml.load(readFileSync(manifestPath, "utf8"))?.["x-garrison"] ?? null;
         if (!meta) warning = `no x-garrison block in ${manifestPath}`;
       } catch (err) {
         warning = `fitting manifest unreadable (selected but not installed?): ${manifestPath} — ${String(err?.message || err)}`;
@@ -662,6 +704,9 @@ export async function startServer(opts = {}) {
   // Composition start (D4): compile the current config into policy.json so
   // consumers never read a stale policy after a config change made off-server.
   try {
+    // Bring a v1 routing.json up to v2 on disk FIRST (the composer renders v2
+    // only), then recompile from the migrated shape below.
+    await migrateConfigFileIfV1();
     const startupConfig = JSON.parse(await loadConfigRaw());
     await writeCompiledPolicy(startupConfig);
     // Loud load-path check (RUNTIMES-V1): a hand-edited routing.json can name

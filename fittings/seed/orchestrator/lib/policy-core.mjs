@@ -177,7 +177,7 @@ export function migrateRoutingConfig(v1) {
     target: mapRole(activeRoleMap, e.role)
   }));
 
-  return ensureProviders({
+  const migrated = ensureProviders({
     version: 2,
     activeProfile,
     taskTypes: Array.from(new Set([...(v1.taskTypes || GENERAL_TASK_TYPES), ...TASK_TYPES_V2])),
@@ -197,6 +197,19 @@ export function migrateRoutingConfig(v1) {
     defaultWorkKind: null,
     phaseSkills: { bindings: {}, overrides: {} }
   });
+  // v1 targets could carry informational provider ids (e.g. secondary targets
+  // with "google"/"openai") that the v2 providers section does not know — the
+  // v2 validator rejects those at compile. Secondaries auth CLI-natively, so a
+  // provider id with no providers-section entry is dropped, not invented.
+  const knownProviders = new Set((migrated.providers || []).map((p) => p && p.id));
+  migrated.targets = (migrated.targets || []).map((t) => {
+    if (t && t.provider !== undefined && t.provider !== null && !knownProviders.has(t.provider)) {
+      const { provider: _dropped, ...rest } = t;
+      return rest;
+    }
+    return t;
+  });
+  return migrated;
 }
 
 // ── Profile access ───────────────────────────────────────────────────────────

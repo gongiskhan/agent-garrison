@@ -1,0 +1,129 @@
+{
+  "title": "Evidence: Quarters runtime dimension (S5+S7)",
+  "project": "agent-garrison",
+  "folder": "runtimes-v1",
+  "video": {
+    "width": 1280,
+    "height": 800,
+    "fps": 30
+  },
+  "segments": [
+    {
+      "type": "browser",
+      "id": "sections",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/quarters",
+      "beats": [
+        {
+          "id": "s7-collapsed",
+          "caption": "S7-1 \u2014 one section per composed runtime, ALL collapsed by default",
+          "expectedScreen": "the Quarters page with three collapsed sections: claude-code (full surface), codex and gemini (generic tier)",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "[data-testid=quarters-section-toggle-claude-code-runtime]"
+            }
+          ],
+          "assert": {
+            "selector": "[data-testid=quarters-section-toggle-codex-runtime]",
+            "highlight": true
+          },
+          "hold": 2000
+        },
+        {
+          "id": "s7-expand",
+          "caption": "S7-2 \u2014 expanding claude-code reveals the UNCHANGED deep grid",
+          "expectedScreen": "the claude-code section open with the classic category grid (Settings, Context, Skills, Hooks\u2026) inside",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "[data-testid=quarters-section-toggle-claude-code-runtime]"
+            },
+            {
+              "type": "waitFor",
+              "selector": "[data-testid=quarters-card-settings]"
+            }
+          ],
+          "assert": {
+            "selector": "[data-testid=quarters-grid]",
+            "highlight": true
+          },
+          "hold": 2400
+        },
+        {
+          "id": "s5-settings",
+          "caption": "S5-1 \u2014 the codex generic tier: the REAL config.toml in a raw editor",
+          "expectedScreen": "the codex settings page with a Monaco editor showing toml content (model, mcp_servers)",
+          "actions": [
+            {
+              "type": "goto",
+              "path": "/quarters/codex-runtime/settings"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".runtime-file-editor"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "assert": {
+            "selector": ".runtime-file-path",
+            "highlight": true
+          },
+          "hold": 2400
+        },
+        {
+          "id": "s5-logs",
+          "caption": "S5-2 \u2014 descriptor-declared log roots, tailed read-only",
+          "expectedScreen": "the codex logs page listing real log/session files from ~/.codex with sizes and dates",
+          "actions": [
+            {
+              "type": "goto",
+              "path": "/quarters/codex-runtime/logs"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".runtime-log-list li",
+              "timeout": 20000
+            }
+          ],
+          "assert": {
+            "selector": ".runtime-log-list",
+            "highlight": true
+          },
+          "hold": 2200
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "s5-validation",
+      "command": "curl -s -X PUT http://127.0.0.1:7777/api/quarters/runtime/codex-runtime/file -H 'content-type: application/json' -d '{\"path\":\"~/.codex/config.toml\",\"content\":\"model = [broken\",\"baselineSha\":\"stale\"}'",
+      "source": "PUT /api/quarters/runtime/codex-runtime/file (malformed toml)",
+      "caption": "S5-3 \u2014 malformed TOML is rejected loudly; the native file is never touched",
+      "expectedScreen": "a JSON error response with 'toml invalid' highlighted",
+      "highlight": {
+        "match": "toml invalid",
+        "note": "format-validated server-side before any write \u2014 loud, never silent"
+      },
+      "kind": "json",
+      "hold": 2600
+    },
+    {
+      "type": "evidence",
+      "id": "s5-containment",
+      "command": "curl -s 'http://127.0.0.1:7777/api/quarters/runtime/codex-runtime/file?path=~/.codex/auth.json'",
+      "source": "GET an UNDECLARED file (auth.json \u2014 credentials)",
+      "caption": "S5-4 \u2014 undeclared files are unreachable: the allowlist is the API",
+      "expectedScreen": "a JSON error response with 'not declared' highlighted",
+      "highlight": {
+        "match": "not declared",
+        "note": "only descriptor-declared files are served \u2014 auth.json is not among them"
+      },
+      "kind": "json",
+      "hold": 2600
+    }
+  ]
+}

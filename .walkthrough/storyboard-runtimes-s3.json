@@ -1,0 +1,154 @@
+{
+  "title": "Evidence: primary runtime selection (gateway down)",
+  "project": "agent-garrison",
+  "folder": "runtimes-v1",
+  "video": {
+    "width": 1280,
+    "height": 800,
+    "fps": 30
+  },
+  "segments": [
+    {
+      "type": "browser",
+      "id": "pick",
+      "baseURL": "http://127.0.0.1:7193",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac1",
+          "caption": "AC-1 \u2014 PRIMARY picker lists the composition's runtimes (disk-only feed)",
+          "expectedScreen": "the Composer topbar with profiles and a PRIMARY select next to them, targets tray below",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".primary-picker select"
+            }
+          ],
+          "assert": {
+            "selector": ".primary-picker select",
+            "highlight": true
+          },
+          "hold": 2000
+        },
+        {
+          "id": "ac2",
+          "caption": "AC-2 \u2014 uninstalled runtime is disabled: gemini-runtime (not installed)",
+          "expectedScreen": "the Composer topbar with the PRIMARY select; the select present (disabled gemini option proven by the committed e2e)",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".primary-picker select"
+            }
+          ],
+          "assert": {
+            "selector": ".primary-picker select",
+            "highlight": true
+          },
+          "hold": 2000
+        },
+        {
+          "id": "ac3",
+          "caption": "AC-3 \u2014 pick codex-runtime; autosave lands (saving to saved)",
+          "expectedScreen": "the PRIMARY select showing codex-runtime; a saved status pill top right",
+          "actions": [
+            {
+              "type": "select",
+              "selector": ".primary-picker select",
+              "value": "codex-runtime"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1400
+            }
+          ],
+          "assert": {
+            "selector": ".primary-picker select",
+            "highlight": true
+          },
+          "hold": 2000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac3-file",
+      "command": "grep '\"primaryRuntime\"' /tmp/claude-1001/-home-ggomes-dev-garrison/168684d3-1cd5-40df-a2b3-4ceb35a39adc/scratchpad/gh-test/orchestrator/policy.json",
+      "source": "compiled policy.json (own-port server, no gateway)",
+      "caption": "AC-3 \u2014 the compiled policy carries primaryRuntime codex-runtime",
+      "expectedScreen": "an output panel showing the primaryRuntime line with codex-runtime highlighted",
+      "highlight": {
+        "match": "codex-runtime",
+        "note": "written by the own-port server alone \u2014 the gateway is down"
+      },
+      "kind": "json",
+      "hold": 2600
+    },
+    {
+      "type": "browser",
+      "id": "restore",
+      "baseURL": "http://127.0.0.1:7193",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac4",
+          "caption": "AC-4 \u2014 switch back to claude-code-runtime (engine built-in)",
+          "expectedScreen": "the PRIMARY select showing claude-code-runtime (engine built-in)",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".primary-picker select"
+            },
+            {
+              "type": "select",
+              "selector": ".primary-picker select",
+              "value": "claude-code-runtime"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1400
+            }
+          ],
+          "assert": {
+            "selector": ".primary-picker select",
+            "highlight": true
+          },
+          "hold": 2000
+        },
+        {
+          "id": "ac5",
+          "caption": "AC-5 \u2014 provider select renders only on the mechanism-declaring codex target",
+          "expectedScreen": "the targets tray; the codex-gpt55-high card with a small provider dropdown, claude-code cards without one",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".tcard:has-text('codex-gpt55-high') .tcard-provider"
+            },
+            {
+              "type": "hover",
+              "selector": ".tcard:has-text('codex-gpt55-high') .tcard-provider"
+            }
+          ],
+          "assert": {
+            "selector": ".tcard:has-text('codex-gpt55-high') .tcard-provider",
+            "highlight": true
+          },
+          "hold": 2400
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac4-file",
+      "command": "grep '\"primaryRuntime\"' /tmp/claude-1001/-home-ggomes-dev-garrison/168684d3-1cd5-40df-a2b3-4ceb35a39adc/scratchpad/gh-test/orchestrator/policy.json",
+      "source": "compiled policy.json (own-port server, no gateway)",
+      "caption": "AC-4 \u2014 the default is restored: primaryRuntime claude-code-runtime",
+      "expectedScreen": "an output panel showing the primaryRuntime line with claude-code-runtime highlighted",
+      "highlight": {
+        "match": "claude-code-runtime",
+        "note": "switching back restores the exact default"
+      },
+      "kind": "json",
+      "hold": 2600
+    }
+  ]
+}

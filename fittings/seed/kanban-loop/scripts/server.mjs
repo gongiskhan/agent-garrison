@@ -203,6 +203,11 @@ export function cardSummary(card) {
     description: typeof card.description === "string" ? card.description : "",
     lastReply: card.lastReply ?? null,
     lastEvent: lastEventOf(card),
+    // Per-phase runtime/model attribution for the card front: the most recent routed
+    // event's route stamp ({ targetId, runtime, provider, model, tier, phase }), or
+    // null when no turn has routed yet / souls mode. The board renders a small
+    // "<phase> @ <model>" chip from it.
+    lastRoute: lastRouteOf(card),
     eventCount: Array.isArray(card.events) ? card.events.length : 0,
     runningSince: card.runningSince ?? null,
     // Project-inference state for a no-project card: running | done | none | skipped |
@@ -217,6 +222,18 @@ export function cardSummary(card) {
 function lastEventOf(card) {
   const ev = Array.isArray(card.events) ? card.events : [];
   return ev.length ? ev[ev.length - 1] : null;
+}
+
+// The most recent routed event's route stamp (or null) — the card front's per-phase
+// attribution chip reads from it. Scans BACK through the timeline because a later
+// fence / coordination event can sit on top of the routed one, so lastEventOf alone
+// would miss it.
+function lastRouteOf(card) {
+  const ev = Array.isArray(card.events) ? card.events : [];
+  for (let i = ev.length - 1; i >= 0; i--) {
+    if (ev[i] && ev[i].route && typeof ev[i].route === "object") return ev[i].route;
+  }
+  return null;
 }
 
 // The last few non-empty lines of a running card's current iteration log — the live

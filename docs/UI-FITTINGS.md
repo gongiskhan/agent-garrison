@@ -20,7 +20,7 @@ Coupling between UI Fittings would re-introduce the problem composability solves
 
 Each UI Fitting has three pieces:
 
-1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `7077`. Optionally add `lifecycle: detached` to opt out of the operative-bound default — without it, Garrison's runner starts and stops the Fitting alongside the operative's `up` / `down` lifecycle (it reads the PID from the status file when stopping; it never grep's `lsof`). Use `detached` for Fittings the user expects to manage out-of-band (long-running watchers, etc.).
+1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `7077`. Optionally add `lifecycle: detached` to opt out of the operative-bound default — without it, the Fitting stops with the operative's `down` (the runner reads the PID from the status file when stopping; it never grep's `lsof`) and boots with `up` only when toggled eager; otherwise it starts on demand from the Views UI, which hands it the running composition's env (gateway URL, composition id, selection config, vault) via `operativeEnvForFitting`. Use `detached` for Fittings the user expects to manage out-of-band (long-running watchers, etc.).
 2. **Server.** At startup, the Fitting tries to bind the declared port. If the port is taken, it falls back via the next-free-port helper. The actual chosen port is written to a status file:
 
    ```

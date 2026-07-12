@@ -29085,25 +29085,37 @@ function TargetCard({
   target,
   config,
   rf,
-  commit
+  commit,
+  armed,
+  onArm
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `target:${target.id}` });
   const g = glyphFor(target);
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { ref: setNodeRef, className: `tcard${isDragging ? " dragging" : ""}`, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tcard-grab", ...attributes, ...listeners, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `glyph ${g.cls}`, title: g.title, children: g.mark }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-main", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-model", children: target.model || target.runtime || target.id }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-id", children: [
-          target.id,
-          target.pinned ? " \xB7 pinned" : ""
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-meta", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-runtime", title: "runtime", children: runtimeLabel(target) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-auth", title: "auth mode", children: authModeLabel(authModeFor(target)) })
-        ] })
-      ] })
-    ] }),
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { ref: setNodeRef, className: `tcard${isDragging ? " dragging" : ""}${armed ? " armed" : ""}`, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "div",
+      {
+        className: "tcard-grab",
+        ...attributes,
+        ...listeners,
+        onClick: () => onArm?.(target.id),
+        title: armed ? "armed \u2014 click a matrix cell or row to assign; click again to disarm" : "drag onto the matrix, or click to arm for click-assign",
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `glyph ${g.cls}`, title: g.title, children: g.mark }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-main", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-model", children: target.model || target.runtime || target.id }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-id", children: [
+              target.id,
+              target.pinned ? " \xB7 pinned" : ""
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tcard-meta", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-runtime", title: "runtime", children: runtimeLabel(target) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "tcard-auth", title: "auth mode", children: authModeLabel(authModeFor(target)) })
+            ] })
+          ] })
+        ]
+      }
+    ),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProviderSelect, { target, config, rf, commit }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EffortDial, { target, commit })
   ] });
@@ -29158,17 +29170,17 @@ function AddTargetCard({ config, rf, commit }) {
     ] })
   ] });
 }
-function TargetsTray({ config, rf, commit }) {
+function TargetsTray({ config, rf, commit, armed, onArm }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "surface", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "surface-h", children: "Targets" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "surface-hint", children: "Drag a card onto a matrix cell, row, or column to assign it. Tap an effort segment to retune it; pick a provider where the runtime declares an override mechanism." }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "surface-hint", children: "Drag a card onto a matrix cell, row, or column to assign it \u2014 or click a card to arm it, then click cells/rows. Tap an effort segment to retune it; pick a provider where the runtime declares an override mechanism." }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tray", children: [
-      (config.targets || []).map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetCard, { target: t, config, rf, commit }, t.id)),
+      (config.targets || []).map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetCard, { target: t, config, rf, commit, armed: armed === t.id, onArm }, t.id)),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AddTargetCard, { config, rf, commit })
     ] })
   ] });
 }
-function MatrixCell({ config, tt, tier, commit }) {
+function MatrixCell({ config, tt, tier, commit, armed }) {
   const { setNodeRef, isOver } = useDroppable({ id: `cell:${tt}:${tier}` });
   const r = resolveRoute2(config, config.activeProfile, { taskType: tt, tier });
   const explicit = r.via === "cell";
@@ -29177,18 +29189,25 @@ function MatrixCell({ config, tt, tier, commit }) {
     if (rows[tt] && rows[tt].cells) delete rows[tt].cells[tier];
     return draft;
   });
+  const assign = () => commit((draft) => {
+    const rows = draft.profiles[config.activeProfile].matrix.rows = draft.profiles[config.activeProfile].matrix.rows || {};
+    const row = rows[tt] = rows[tt] || { cells: {} };
+    row.cells = row.cells || {};
+    row.cells[tier] = armed;
+    return draft;
+  });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
     "td",
     {
       ref: setNodeRef,
       className: `cell${isOver ? " over" : ""}${explicit ? " explicit" : " inherited"}`,
-      onClick: explicit ? clear : void 0,
-      title: explicit ? "tap to clear (revert to inherited)" : `inherited \xB7 ${r.ruleId}`,
+      onClick: armed ? assign : explicit ? clear : void 0,
+      title: armed ? `click to assign ${armed}` : explicit ? "tap to clear (revert to inherited)" : `inherited \xB7 ${r.ruleId}`,
       children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Token, { config, targetId: r.targetId, faded: !explicit, rule: r.ruleId })
     }
   );
 }
-function RowHeader({ config, tt, commit }) {
+function RowHeader({ config, tt, commit, armed }) {
   const { setNodeRef, isOver } = useDroppable({ id: `row:${tt}` });
   const row = (config.profiles[config.activeProfile].matrix.rows || {})[tt];
   const def = row?.default || null;
@@ -29197,10 +29216,26 @@ function RowHeader({ config, tt, commit }) {
     if (r) delete r.default;
     return draft;
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("th", { ref: setNodeRef, className: `rowhead${isOver ? " over" : ""}`, scope: "row", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "rh-name", children: tt }),
-    def ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "rh-def", onClick: clear, title: `row default ${def} - tap to clear`, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Token, { config, targetId: def, rule: "row-default" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "rh-inherit", children: "inherits" })
-  ] });
+  const assign = () => commit((draft) => {
+    const rows = draft.profiles[config.activeProfile].matrix.rows = draft.profiles[config.activeProfile].matrix.rows || {};
+    const r = rows[tt] = rows[tt] || { cells: {} };
+    r.default = armed;
+    return draft;
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+    "th",
+    {
+      ref: setNodeRef,
+      className: `rowhead${isOver ? " over" : ""}`,
+      scope: "row",
+      onClick: armed ? assign : void 0,
+      title: armed ? `click to set ${armed} as the ${tt} row default` : void 0,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "rh-name", children: tt }),
+        def ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "rh-def", onClick: armed ? void 0 : clear, title: armed ? void 0 : `row default ${def} - tap to clear`, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Token, { config, targetId: def, rule: "row-default" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "rh-inherit", children: "inherits" })
+      ]
+    }
+  );
 }
 function ColHeader({ config, tier, commit }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${tier}` });
@@ -29226,7 +29261,7 @@ function GlobalDefaultCorner({ config }) {
     ] })
   ] });
 }
-function MatrixBoard({ config, commit }) {
+function MatrixBoard({ config, commit, armed }) {
   const taskTypes = config.taskTypes || [];
   const tiers = config.tiers || [];
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "surface", children: [
@@ -29238,8 +29273,8 @@ function MatrixBoard({ config, commit }) {
         tiers.map((tier) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ColHeader, { config, tier, commit }, tier))
       ] }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: taskTypes.map((tt) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RowHeader, { config, tt, commit }),
-        tiers.map((tier) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MatrixCell, { config, tt, tier, commit }, tier))
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RowHeader, { config, tt, commit, armed }),
+        tiers.map((tier) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MatrixCell, { config, tt, tier, commit, armed }, tier))
       ] }, tt)) })
     ] }) })
   ] });
@@ -29868,6 +29903,7 @@ function App() {
   const runtimeFittings = useRuntimeFittings();
   const [inspector, setInspector] = (0, import_react5.useState)(null);
   const [dragTarget, setDragTarget] = (0, import_react5.useState)(null);
+  const [armedTarget, setArmedTarget] = (0, import_react5.useState)(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } })
@@ -29959,19 +29995,29 @@ function App() {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", onClick: dismissWarnings, children: "Dismiss" })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GhostEdits, { onApplied: reload }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DndContext, { sensors, collisionDetection: closestCenter, onDragStart, onDragEnd, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "board", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetsTray, { config, rf: runtimeFittings, commit }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MatrixBoard, { config, commit }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RailsSurface, { config, commit, onInspect: (kind, phase) => setInspector({ kind, phase }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CoordinationSurface, { config, commit }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SecuritySurface, { config, commit }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QaSurface, { config, commit }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TryItStrip, { config }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RecentDecisions, {})
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DragOverlay, { children: dragTarget ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "drag-ghost", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Token, { config, targetId: dragTarget }) }) : null })
-    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      DndContext,
+      {
+        sensors,
+        collisionDetection: closestCenter,
+        onDragStart,
+        onDragEnd,
+        measuring: { droppable: { strategy: MeasuringStrategy.Always } },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "board", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TargetsTray, { config, rf: runtimeFittings, commit, armed: armedTarget, onArm: (id) => setArmedTarget((cur) => cur === id ? null : id) }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MatrixBoard, { config, commit, armed: armedTarget }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RailsSurface, { config, commit, onInspect: (kind, phase) => setInspector({ kind, phase }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CoordinationSurface, { config, commit }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SecuritySurface, { config, commit }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QaSurface, { config, commit }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TryItStrip, { config }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RecentDecisions, {})
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DragOverlay, { children: dragTarget ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "drag-ghost", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Token, { config, targetId: dragTarget }) }) : null })
+        ]
+      }
+    ),
     inspector ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Inspector, { config, target: inspector, commit, onClose: () => setInspector(null) }) : null
   ] });
 }

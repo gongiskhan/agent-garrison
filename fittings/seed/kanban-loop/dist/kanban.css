@@ -338,6 +338,8 @@ body {
 .chip.fence { color: var(--mute); background: var(--paper); border-color: var(--rule); }
 /* an "applied" / success tag — sage, distinct from the alarm/attn tags */
 .chip.ok { border-color: rgba(61,98,73,0.4); color: var(--sage); background: var(--sage-soft); }
+/* per-phase runtime/model attribution ("plan @ opus") — brass, subtle, mono */
+.chip.route { border-color: rgba(180,134,42,0.4); color: var(--brass); background: var(--warn-soft); }
 
 .card .dispatch-err {
   margin-top: 7px;
@@ -1030,6 +1032,14 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   font-size: 9.5px;
   letter-spacing: 0.04em;
   color: var(--mute);
+}
+/* per-phase attribution under a routed event ("claude-code/opus · T2-deep") */
+.tl-route {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--brass);
 }
 .tl-toggle {
   margin-top: 4px;

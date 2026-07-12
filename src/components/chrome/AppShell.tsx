@@ -192,6 +192,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [composition?.id]);
 
+  // Poll the runner state so status pills track transitions live. Without this
+  // the pill only updates when a runAction POST resolves — an in-tab Restart
+  // holds that POST open for the whole up() (~2 min), so STARTING/VERIFYING
+  // were never visible and an up/down triggered from another surface never
+  // showed at all. Cheap local GET; skipped while the tab is hidden.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refreshRunnerState();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [refreshRunnerState]);
+
   const saveComposition = useCallback<AppShellState["saveComposition"]>(
     async (next) => {
       if (!composition) return;

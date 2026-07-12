@@ -269,7 +269,10 @@ export function aggregateSessions() {
         title: session?.title ?? null,
         source: session?.source ?? "state",
         panesClosed: session?.panesClosed ?? null,
-        openedInDevEnv: session?.openedInDevEnv === true
+        openedInDevEnv: session?.openedInDevEnv === true,
+        // Orchestrator placement attribution ({mode, model, role, targetId, runtime}),
+        // stamped at session creation. Additive/optional — old records have none.
+        placement: session?.placement ?? null
       });
     }
   }
@@ -831,6 +834,33 @@ export async function setPaneClosed(id, role, closed) {
     if (closed) panes[role] = true;
     else delete panes[role];
     session.panesClosed = panes;
+    await writeStateAtomic(state);
+    return session;
+  });
+}
+
+// Stamp orchestrator-placement attribution onto a session record. The Dev Env
+// calls this right after a successful orchestrated placement so the tab strip
+// (and any consumer of GET /sessions) can show what the session was placed as.
+// Additive: a null/omitted placement leaves old records valid. Read-modify-write
+// under the state mutex, mirroring setPaneClosed.
+export async function setSessionPlacement(id, placement) {
+  return withStateWrite(async () => {
+    const found = findSessionById(id);
+    if (!found) return null;
+    const state = readStateFile();
+    const session = state?.projects?.[found.projectPath]?.sessions?.[found.key];
+    if (!session) return null;
+    session.placement =
+      placement && typeof placement === "object"
+        ? {
+            mode: placement.mode ?? null,
+            model: placement.model ?? null,
+            role: placement.role ?? null,
+            targetId: placement.targetId ?? null,
+            runtime: placement.runtime ?? null
+          }
+        : null;
     await writeStateAtomic(state);
     return session;
   });

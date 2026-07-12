@@ -62,6 +62,34 @@ export function inferenceRunFn(gatewayUrl) {
   };
 }
 
+// The gateway's `done` SSE event carries per-turn ROUTING metadata whenever the turn
+// actually routed (PTY routed mode): { route: <targetId>, runtime, provider, model,
+// taskType, tier, ruleId, profile, honored } — EVERY field possibly null. In souls
+// mode `done` carries only { reply } (no routing happened). Fold whatever is present
+// into a compact object the engine can stamp onto the card, or null when NOTHING
+// routing-related flowed — so a caller never invents attribution it wasn't given. The
+// wire field `route` is the TARGET id; we surface it as `targetId` to free the name
+// `route` for the engine's own stamp object.
+export function routeFromDone(done) {
+  if (!done || typeof done !== "object") return null;
+  const targetId = done.route ?? null;
+  const runtime = done.runtime ?? null;
+  const provider = done.provider ?? null;
+  const model = done.model ?? null;
+  const taskType = done.taskType ?? null;
+  const tier = done.tier ?? null;
+  const ruleId = done.ruleId ?? null;
+  const profile = done.profile ?? null;
+  const honored = done.honored ?? null;
+  if (
+    targetId == null && runtime == null && provider == null && model == null &&
+    taskType == null && tier == null && ruleId == null && profile == null && honored == null
+  ) {
+    return null;
+  }
+  return { targetId, runtime, provider, model, taskType, tier, ruleId, profile, honored };
+}
+
 // The board/tick pass `classification: null` here (the engine no longer pins a per-list
 // {taskType,tier}): the gateway then classifies the turn itself and routes it, biased by
 // the mode the prompt leads with. A non-null classification is still forwarded verbatim
@@ -166,6 +194,9 @@ export function gatewayRunFn(gatewayUrl) {
       e.transport = true;
       throw e;
     }
-    return { reply: done.reply ?? done.text ?? "" };
+    // Return the reply text AND the per-turn route metadata (null in souls mode). The
+    // shape stays an object every call site already destructures (`out?.reply`), so
+    // adding `route` is inert for callers that ignore it.
+    return { reply: done.reply ?? done.text ?? "", route: routeFromDone(done) };
   };
 }

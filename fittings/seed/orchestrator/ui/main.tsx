@@ -20,6 +20,7 @@ import { createRoot } from "react-dom/client";
 import {
   DndContext,
   DragOverlay,
+  MeasuringStrategy,
   PointerSensor,
   TouchSensor,
   closestCenter,
@@ -474,18 +475,32 @@ function TargetCard({
   target,
   config,
   rf,
-  commit
+  commit,
+  armed,
+  onArm
 }: {
   target: AnyTarget;
   config: Cfg;
   rf: RuntimeFittingsState | null;
   commit: (p: Producer) => void;
+  armed?: boolean;
+  onArm?: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `target:${target.id}` });
   const g = glyphFor(target);
   return (
-    <div ref={setNodeRef} className={`tcard${isDragging ? " dragging" : ""}`}>
-      <div className="tcard-grab" {...attributes} {...listeners}>
+    <div ref={setNodeRef} className={`tcard${isDragging ? " dragging" : ""}${armed ? " armed" : ""}`}>
+      <div
+        className="tcard-grab"
+        {...attributes}
+        {...listeners}
+        // Click-to-assign: a plain click (PointerSensor needs 6px of travel to
+        // start a drag, so clicks stay free) ARMS this target; clicking a matrix
+        // cell / row header then assigns it. Deterministic alternative to drag —
+        // works with scrolling, touch screens, and automation alike.
+        onClick={() => onArm?.(target.id)}
+        title={armed ? "armed — click a matrix cell or row to assign; click again to disarm" : "drag onto the matrix, or click to arm for click-assign"}
+      >
         <span className={`glyph ${g.cls}`} title={g.title}>
           {g.mark}
         </span>
@@ -579,14 +594,14 @@ function AddTargetCard({ config, rf, commit }: { config: Cfg; rf: RuntimeFitting
   );
 }
 
-function TargetsTray({ config, rf, commit }: { config: Cfg; rf: RuntimeFittingsState | null; commit: (p: Producer) => void }) {
+function TargetsTray({ config, rf, commit, armed, onArm }: { config: Cfg; rf: RuntimeFittingsState | null; commit: (p: Producer) => void; armed?: string | null; onArm?: (id: string) => void }) {
   return (
     <section className="surface">
       <h2 className="surface-h">Targets</h2>
-      <p className="surface-hint">Drag a card onto a matrix cell, row, or column to assign it. Tap an effort segment to retune it; pick a provider where the runtime declares an override mechanism.</p>
+      <p className="surface-hint">Drag a card onto a matrix cell, row, or column to assign it — or click a card to arm it, then click cells/rows. Tap an effort segment to retune it; pick a provider where the runtime declares an override mechanism.</p>
       <div className="tray">
         {((config.targets || []) as AnyTarget[]).map((t) => (
-          <TargetCard key={t.id} target={t} config={config} rf={rf} commit={commit} />
+          <TargetCard key={t.id} target={t} config={config} rf={rf} commit={commit} armed={armed === t.id} onArm={onArm} />
         ))}
         <AddTargetCard config={config} rf={rf} commit={commit} />
       </div>
@@ -595,7 +610,7 @@ function TargetsTray({ config, rf, commit }: { config: Cfg; rf: RuntimeFittingsS
 }
 
 // ── 2. MATRIX BOARD ───────────────────────────────────────────────────────────
-function MatrixCell({ config, tt, tier, commit }: { config: Cfg; tt: string; tier: string; commit: (p: Producer) => void }) {
+function MatrixCell({ config, tt, tier, commit, armed }: { config: Cfg; tt: string; tier: string; commit: (p: Producer) => void; armed?: string | null }) {
   const { setNodeRef, isOver } = useDroppable({ id: `cell:${tt}:${tier}` });
   const r = resolveRoute(config, config.activeProfile, { taskType: tt, tier });
   const explicit = r.via === "cell";
@@ -605,19 +620,27 @@ function MatrixCell({ config, tt, tier, commit }: { config: Cfg; tt: string; tie
       if (rows[tt] && rows[tt].cells) delete rows[tt].cells[tier as keyof typeof rows[typeof tt]["cells"]];
       return draft;
     });
+  const assign = () =>
+    commit((draft) => {
+      const rows = (draft.profiles[config.activeProfile].matrix.rows = draft.profiles[config.activeProfile].matrix.rows || {});
+      const row = (rows[tt] = rows[tt] || { cells: {} });
+      row.cells = row.cells || {};
+      (row.cells as Record<string, string>)[tier] = armed as string;
+      return draft;
+    });
   return (
     <td
       ref={setNodeRef}
       className={`cell${isOver ? " over" : ""}${explicit ? " explicit" : " inherited"}`}
-      onClick={explicit ? clear : undefined}
-      title={explicit ? "tap to clear (revert to inherited)" : `inherited · ${r.ruleId}`}
+      onClick={armed ? assign : explicit ? clear : undefined}
+      title={armed ? `click to assign ${armed}` : explicit ? "tap to clear (revert to inherited)" : `inherited · ${r.ruleId}`}
     >
       <Token config={config} targetId={r.targetId} faded={!explicit} rule={r.ruleId} />
     </td>
   );
 }
 
-function RowHeader({ config, tt, commit }: { config: Cfg; tt: string; commit: (p: Producer) => void }) {
+function RowHeader({ config, tt, commit, armed }: { config: Cfg; tt: string; commit: (p: Producer) => void; armed?: string | null }) {
   const { setNodeRef, isOver } = useDroppable({ id: `row:${tt}` });
   const row = (config.profiles[config.activeProfile].matrix.rows || {})[tt];
   const def = row?.default || null;
@@ -627,11 +650,24 @@ function RowHeader({ config, tt, commit }: { config: Cfg; tt: string; commit: (p
       if (r) delete r.default;
       return draft;
     });
+  const assign = () =>
+    commit((draft) => {
+      const rows = (draft.profiles[config.activeProfile].matrix.rows = draft.profiles[config.activeProfile].matrix.rows || {});
+      const r = (rows[tt] = rows[tt] || { cells: {} });
+      r.default = armed as string;
+      return draft;
+    });
   return (
-    <th ref={setNodeRef} className={`rowhead${isOver ? " over" : ""}`} scope="row">
+    <th
+      ref={setNodeRef}
+      className={`rowhead${isOver ? " over" : ""}`}
+      scope="row"
+      onClick={armed ? assign : undefined}
+      title={armed ? `click to set ${armed} as the ${tt} row default` : undefined}
+    >
       <span className="rh-name">{tt}</span>
       {def ? (
-        <span className="rh-def" onClick={clear} title={`row default ${def} - tap to clear`}>
+        <span className="rh-def" onClick={armed ? undefined : clear} title={armed ? undefined : `row default ${def} - tap to clear`}>
           <Token config={config} targetId={def} rule="row-default" />
         </span>
       ) : (
@@ -676,7 +712,7 @@ function GlobalDefaultCorner({ config }: { config: Cfg }) {
   );
 }
 
-function MatrixBoard({ config, commit }: { config: Cfg; commit: (p: Producer) => void }) {
+function MatrixBoard({ config, commit, armed }: { config: Cfg; commit: (p: Producer) => void; armed?: string | null }) {
   const taskTypes = config.taskTypes || [];
   const tiers = config.tiers || [];
   return (
@@ -699,9 +735,9 @@ function MatrixBoard({ config, commit }: { config: Cfg; commit: (p: Producer) =>
           <tbody>
             {taskTypes.map((tt) => (
               <tr key={tt}>
-                <RowHeader config={config} tt={tt} commit={commit} />
+                <RowHeader config={config} tt={tt} commit={commit} armed={armed} />
                 {tiers.map((tier) => (
-                  <MatrixCell key={tier} config={config} tt={tt} tier={tier} commit={commit} />
+                  <MatrixCell key={tier} config={config} tt={tt} tier={tier} commit={commit} armed={armed} />
                 ))}
               </tr>
             ))}
@@ -1514,6 +1550,9 @@ function App() {
   const runtimeFittings = useRuntimeFittings();
   const [inspector, setInspector] = useState<{ kind: string; phase: string } | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
+  // Click-to-assign: the armed target id (click a tray card to arm, click a
+  // matrix cell / row header to assign, click the card again to disarm).
+  const [armedTarget, setArmedTarget] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } })
@@ -1631,10 +1670,20 @@ function App() {
 
       <GhostEdits onApplied={reload} />
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        // Droppable rects are measured once at drag start by default, so a drop
+        // target that was OUTSIDE the viewport when the drag began (a matrix row
+        // below the fold — the page scrolls mid-drag) could never register a
+        // drop. Always re-measure so drag-to-scrolled-row works for real users.
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      >
         <main className="board">
-          <TargetsTray config={config} rf={runtimeFittings} commit={commit} />
-          <MatrixBoard config={config} commit={commit} />
+          <TargetsTray config={config} rf={runtimeFittings} commit={commit} armed={armedTarget} onArm={(id) => setArmedTarget((cur) => (cur === id ? null : id))} />
+          <MatrixBoard config={config} commit={commit} armed={armedTarget} />
           <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />
           <CoordinationSurface config={config} commit={commit} />
           <SecuritySurface config={config} commit={commit} />

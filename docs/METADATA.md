@@ -65,7 +65,7 @@ Top-level `x-garrison` fields:
 | `tasks` | object | no | Optional declaration that this Fitting backs the derived Tasks surface. |
 | `own_port` | boolean | no | The Fitting serves its own UI/backend on its own HTTP port and registers at runtime via `~/.garrison/ui-fittings/<id>.json`. |
 | `default_port` | integer | no | Informational default port for an own-port Fitting; the runtime status file is authoritative. |
-| `lifecycle` | enum | no | Own-port Fittings only: `operative-bound` (default; started/stopped with the operative) or `detached` (user-managed). |
+| `lifecycle` | enum | no | Own-port Fittings only: `operative-bound` (default; stopped with the operative at `down`, auto-started at `up` only when eager-toggled — otherwise on demand from Views) or `detached` (user-managed). |
 | `connector` | object | no | Connector Fittings only (`kind: connector`): auth method, action catalog, optional triggers. See the connector schema below. |
 | `secret_scope` | string array | no | The named Vault secrets this Fitting may read; the Vault delivers only these to the Fitting's process. |
 | `provider_mechanism` | object | no | Runtime Fittings only (GARRISON-RUNTIMES-V1 D3): HOW a provider override (base URL / auth credential / model) applies to this engine. Discriminated on `type`: `env` (any of `base_url_env`, `auth_env`, `model_arg`, `model_env` — at least one) or `config-file` (`config_file` + `config_format` [`json`\|`toml`] required; optional `config_key`, `model_key`). Strict: unknown keys fail the parse. A runtime without one is still a routing target, just without provider overrides. |

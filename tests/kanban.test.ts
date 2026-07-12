@@ -20,7 +20,9 @@ import { ulid } from "../fittings/seed/kanban-loop/lib/ulid.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, saveCard, saveCardCAS, deriveMembership, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { parseNextList, buildCardPrompt, classificationFor, processCard, processBatch, getList, validNextFor, triggerFor, isInteractive, mintRunFields, resolveBacklogInference, groupCardsByProject, parseBatchVerdicts } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { parseNextList, buildCardPrompt, classificationFor, processCard, processBatch, getList, validNextFor, triggerFor, isInteractive, mintRunFields, resolveBacklogInference, groupCardsByProject, parseBatchVerdicts, routeStamp } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+// @ts-ignore — pure .mjs
+import { routeFromDone } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
@@ -288,6 +290,56 @@ describe("kanban engine — transitions (FINDING 5)", () => {
     const manual = await createCard(root, { title: "M", list: "todo" });
     const skipped = await processCard({ root, board, card: manual, runFn: async () => ({ reply: "implement" }) });
     expect(skipped.outcome.status).toBe("skipped");
+  });
+
+  it("stamps per-phase route attribution onto the routed event when the gateway reports a route", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "T", list: "implement" });
+    // A fake runFn returning the SAME { reply, route } shape gatewayRunFn now returns
+    // (route folded from the gateway's `done` event by routeFromDone).
+    const runFn = async () => ({
+      reply: "wrote code\nreview",
+      route: { targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", taskType: "code", tier: "T2-deep", ruleId: "r1", profile: "p", honored: true }
+    });
+    const { card: updated, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
+    expect(outcome.status).toBe("moved");
+    const routed = (updated.events ?? []).filter((e: any) => e.kind === "routed").pop();
+    expect(routed).toBeTruthy();
+    // The route object carries the {targetId, runtime, provider, model, tier} stamp
+    // (+ the engine's own phase name for the card-front chip).
+    expect(routed.route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", tier: "T2-deep", phase: "implement" });
+    // The human message carries the compact "· runtime/model (tier)" suffix.
+    expect(routed.message).toContain("· claude-code/opus (T2-deep)");
+  });
+
+  it("adds NO route to the routed event in souls mode (runFn returns no route)", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "T", list: "implement" });
+    // Souls mode: gatewayRunFn returns { reply, route: null } — never a stamp, never noise.
+    const runFn = async () => ({ reply: "wrote code\nreview", route: null });
+    const { card: updated } = await processCard({ root, board, card, runFn, cap: 10 });
+    const routed = (updated.events ?? []).filter((e: any) => e.kind === "routed").pop();
+    expect(routed).toBeTruthy();
+    expect(routed.route).toBeUndefined();
+    expect(routed.message).not.toContain("·");
+  });
+});
+
+describe("kanban route attribution — routeStamp / routeFromDone (per-phase D-attrib)", () => {
+  it("routeFromDone folds a routed `done` payload; null in souls mode", () => {
+    expect(routeFromDone({ reply: "x" })).toBeNull();
+    expect(routeFromDone(null)).toBeNull();
+    const r = routeFromDone({ reply: "x", route: "claude-code", runtime: "claude-code", model: "opus", tier: "T2-deep", honored: true });
+    expect(r).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", tier: "T2-deep", honored: true });
+  });
+
+  it("routeStamp builds the compact stamp + human suffix, and no-ops on empty metadata", () => {
+    const { route, suffix } = routeStamp({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", tier: "T2-deep" }, "plan");
+    expect(route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", tier: "T2-deep", phase: "plan" });
+    expect(suffix).toBe(" · claude-code/opus (T2-deep)");
+    // No metadata → no stamp, no suffix (never fail a run for want of attribution).
+    expect(routeStamp(null, "plan")).toEqual({ route: null, suffix: "" });
+    expect(routeStamp({ targetId: null, runtime: null, provider: null, model: null, tier: null }, "plan")).toEqual({ route: null, suffix: "" });
   });
 });
 

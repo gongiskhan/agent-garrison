@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeAssistantText, routeChipLabel } from "../packages/claude-chat/src/sanitize";
+import {
+  sanitizeAssistantText,
+  routeChipLabel,
+  routeChipFromAttribution,
+} from "../packages/claude-chat/src/sanitize";
 
 describe("claude-chat: sanitizeAssistantText", () => {
   it("lifts the trailing [route: …] badge into meta and removes it from the prose", () => {
@@ -105,5 +109,48 @@ describe("claude-chat: routeChipLabel", () => {
   it("falls back to the raw target id and null when absent", () => {
     expect(routeChipLabel({ route: "some-custom-target" })).toBe("some-custom-target");
     expect(routeChipLabel({})).toBeNull();
+  });
+});
+
+describe("claude-chat: routeChipFromAttribution", () => {
+  it("formats runtime/model · tier with the full route/rule/profile/honored tooltip", () => {
+    const chip = routeChipFromAttribution({
+      route: "cc-haiku-low",
+      runtime: "agent-sdk",
+      model: "claude-haiku-4-5",
+      tier: "T0-trivial",
+      ruleId: "cell:other/T0-trivial",
+      profile: "balanced",
+      honored: true,
+    });
+    expect(chip?.label).toBe("agent-sdk/claude-haiku-4-5 · T0-trivial");
+    expect(chip?.title).toBe(
+      "target cc-haiku-low · rule cell:other/T0-trivial · profile balanced · honored: yes"
+    );
+  });
+
+  it("omits missing parts gracefully (runtime/model, no tier)", () => {
+    const chip = routeChipFromAttribution({ runtime: "claude-code", model: "opus" });
+    expect(chip?.label).toBe("claude-code/opus");
+    expect(chip?.title).toBeUndefined();
+  });
+
+  it("renders honored: no when the router declined the hint", () => {
+    const chip = routeChipFromAttribution({ runtime: "codex", model: "gpt-5", honored: false });
+    expect(chip?.label).toBe("codex/gpt-5");
+    expect(chip?.title).toBe("honored: no");
+  });
+
+  it("falls back to the model-family label when only the target id is known", () => {
+    const chip = routeChipFromAttribution({ route: "cc-sonnet-med" });
+    expect(chip?.label).toBe("Sonnet");
+    expect(chip?.title).toBe("target cc-sonnet-med");
+  });
+
+  it("returns null when there is nothing to show (all fields empty/null)", () => {
+    expect(routeChipFromAttribution({})).toBeNull();
+    expect(
+      routeChipFromAttribution({ route: null, runtime: null, model: null, tier: "  " })
+    ).toBeNull();
   });
 });

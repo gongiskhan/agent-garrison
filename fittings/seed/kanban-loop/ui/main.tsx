@@ -17,6 +17,7 @@ import {
   type CardSummary,
   type CardDetail,
   type CardEvent,
+  type RouteStamp,
   type ListView,
   type ListConfig,
   type ListConfigPatch,
@@ -103,6 +104,41 @@ function Elapsed({ since }: { since: string | null | undefined }): React.ReactEl
 // Per-event-kind dot colour on the timeline.
 function eventDotClass(kind: string): string {
   return `ev-dot ev-${kind || "generic"}`;
+}
+
+// ── per-phase runtime/model attribution helpers ───────────────────────────────
+// The "who ran it" identity — the model, falling back to the runtime then provider.
+function routeWho(r: RouteStamp): string {
+  return r.model || r.runtime || r.provider || "";
+}
+
+// The card-front attribution chip text: "<phase> @ <model>" (e.g. "plan @ opus"),
+// dropping the phase when unknown. "" when there is nothing worth showing.
+function routeChipText(r: RouteStamp): string {
+  const who = routeWho(r);
+  if (!who) return "";
+  const ph = (r.phase || "").trim();
+  return ph ? `${ph} @ ${who}` : who;
+}
+
+// The full-attribution tooltip for the card-front chip.
+function routeTitle(r: RouteStamp): string {
+  const parts = [
+    r.phase ? `phase: ${r.phase}` : null,
+    r.runtime ? `runtime: ${r.runtime}` : null,
+    r.provider ? `provider: ${r.provider}` : null,
+    r.model ? `model: ${r.model}` : null,
+    r.tier ? `tier: ${r.tier}` : null,
+    r.targetId ? `route: ${r.targetId}` : null
+  ].filter(Boolean);
+  return parts.length ? `routed to ${parts.join(", ")}` : "routed";
+}
+
+// A compact one-liner for a routed event in the Activity timeline:
+// "claude-code/opus · T2-deep". "" when no attribution fields are present.
+function routeLine(r: RouteStamp): string {
+  const idPart = [r.runtime || r.provider, r.model].filter(Boolean).join("/");
+  return [idPart, r.tier].filter(Boolean).join(" · ");
 }
 
 // A short, legible label for the card a wait is blocked on: its title plus the
@@ -196,6 +232,9 @@ function Card({
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
         {card.workKind && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.workKind}</span>}
+        {card.lastRoute && routeChipText(card.lastRoute) && (
+          <span className="chip route" title={routeTitle(card.lastRoute)}>{routeChipText(card.lastRoute)}</span>
+        )}
         {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
         {card.fences?.sha && (
           <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
@@ -668,6 +707,9 @@ function TimelineEvent({ ev }: { ev: CardEvent }): React.ReactElement {
           <span className="tl-msg">{ev.message}</span>
           <span className="tl-when" title={ev.at}>{fmtRelative(ev.at)}</span>
         </div>
+        {ev.route && routeLine(ev.route) && (
+          <div className="tl-route" title={routeTitle(ev.route)}>{routeLine(ev.route)}</div>
+        )}
         {hasDetail && (
           <>
             <button className="tl-toggle" onClick={() => setOpen((o) => !o)}>

@@ -78,6 +78,25 @@ export function createOrchestratorTransport(base = "/api", threadId?: string): C
         if (!sawReply) {
           listener?.({ type: "assistant", text: "_The operative returned an empty reply. Try sending again._" });
         }
+        // Runtime attribution the gateway carries on the settled turn (route /
+        // runtime / model / tier / …). Emit it BEFORE idling the turn so the UI can
+        // attach it to the just-finished turn's reply. Fired only when the payload
+        // actually carries routing info; every field is forwarded defensively as the
+        // contract makes them all optional/nullable.
+        if (data.route != null || data.runtime != null || data.model != null) {
+          listener?.({
+            type: "route",
+            route: data.route ?? null,
+            runtime: data.runtime ?? null,
+            provider: data.provider ?? null,
+            model: data.model ?? null,
+            taskType: data.taskType ?? null,
+            tier: data.tier ?? null,
+            ruleId: data.ruleId ?? null,
+            profile: data.profile ?? null,
+            honored: typeof data.honored === "boolean" ? data.honored : null,
+          });
+        }
         listener?.({ type: "turn", active: false });
       } else if (name === "error") {
         listener?.({ type: "error", message: String(data.error ?? "stream error") });

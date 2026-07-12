@@ -131,8 +131,39 @@ interface DevEnvSession {
   liveProcess?: boolean;
   openedInDevEnv?: boolean;
   claudeClosed: boolean;
+  placement?: SessionPlacement | null;
   claudePty: PtySummary;
   terminals: TerminalSummary[];
+}
+
+// Orchestrator-placement attribution stamped on the record at session creation
+// (server-side, from POST /api/orchestrator/place). Null on plain/unorchestrated
+// sessions and on records that predate placement.
+interface SessionPlacement {
+  mode: string | null;
+  model: string | null;
+  role: string | null;
+  targetId: string | null;
+  runtime: string | null;
+}
+
+// Compact "<mode> · <model>" label for the placement chip (e.g. "james · sonnet").
+// Falls back to whichever half is present; returns null when neither is.
+function placementLabel(p: SessionPlacement | null | undefined): string | null {
+  if (!p) return null;
+  const parts = [p.mode, p.model].filter((x): x is string => typeof x === "string" && x.length > 0);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+// Tooltip detail for the placement chip: runtime · target · role, each shown
+// only when present.
+function placementTitle(p: SessionPlacement | null | undefined): string {
+  if (!p) return "";
+  const bits: string[] = [];
+  if (p.runtime) bits.push(`runtime ${p.runtime}`);
+  if (p.targetId) bits.push(`target ${p.targetId}`);
+  if (p.role) bits.push(`role ${p.role}`);
+  return bits.join(" · ");
 }
 
 const LS_SELECTED = "garrison.devenv.selected";
@@ -745,6 +776,11 @@ function SessionWorkspace({
                 Chat
               </button>
             </div>
+            {placementLabel(session.placement) && (
+              <span className="pane-placement" title={placementTitle(session.placement)}>
+                {placementLabel(session.placement)}
+              </span>
+            )}
             {claudeView === "terminal" && (
               <QuickPromptBar
                 sessionId={session.id}
@@ -1396,6 +1432,11 @@ function App() {
               {s.lastStatus === "working" && <span className="spinner" aria-hidden="true" />}
               {s.lastStatus === "waiting" && <span className="badge-waiting" aria-hidden="true" />}
               <span className="tab-label">{tabLabel(s)}</span>
+              {placementLabel(s.placement) && (
+                <span className="tab-placement" title={placementTitle(s.placement)}>
+                  {placementLabel(s.placement)}
+                </span>
+              )}
               {s.dirty === true && <span className="dirty-dot" title="Uncommitted changes" />}
               <span
                 className="close"

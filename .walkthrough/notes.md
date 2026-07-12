@@ -1,5 +1,39 @@
 # Walkthrough notes — agent-garrison
 
+## 2026-07-12 — runtimes-routing full walkthrough learnings
+- dnd-kit drags proved unrecordable reliably (ghost-anchor offsets + stale droppable
+  rects drop 1+ rows off); the durable answer was adding CLICK-TO-ASSIGN to the composer
+  (arm a card, click cells/rows) — clicks are immune to all drag physics. Prefer
+  click-paths over drag-paths in storyboards wherever the UI offers one.
+- Island splice: when one continuity island fails its gate (segments that neither
+  continue from nor into their neighbors), re-record JUST the island with the same beat
+  ids, swap the clips in work/, re-concat, and recompute manifest timestamps from real
+  clip durations — avoids a full 90-min re-roll. Evidence stills + title cards can be
+  re-rendered in place the same way (recordEvidenceSegment/titleCardHtml + pngToClip).
+- The dev-env terminal pane does NOT visibly render claude's work (alt-screen quirk);
+  film the session's CHAT VIEW (Claude view toggle) for visible streaming work.
+- waitBefore timeouts must fit INSIDE the segment's runTimeoutMs or the segment runner
+  is killed with "produced no parseable result".
+- The dashboard status pill needed real polling (AppShell 5s interval) before
+  restart beats could ever be reliable.
+- The recorder now supports a `drag {selector, target, steps?}` action (dnd-kit-compatible:
+  down → 6px activation jiggle → hop-glide with edge-parking for autoscroll → drop). Built for
+  the orchestrator Composer's matrix; validated live (routing.json actually changed).
+- Filming the ROUTING pipeline requires PTY routed mode: souls mode (modes fitting + mcp-gateway
+  both composed) never writes decisions.jsonl and never executes agent-sdk/codex/gemini targets.
+  Deselect mcp-gateway (keep modes installed — dev-env placement still needs modes.json) AND
+  rm apm_modules/_local/mcp-gateway (the runner checks DISK, not selections).
+- Composition restarts survive: eager-toggled own-port fittings (orchestrator/web-channel/dev-env/
+  kanban) keep serving through an on-camera Restart — no dead panes mid-video.
+- Kanban filming: tighten the Test list beat first (PATCH /lists/test {"beatCron":"*/3 * * * *"});
+  cards can park honestly (D9) — a bounded off-camera recover watcher (PATCH back to plan/implement)
+  keeps a long waitBefore segment alive without faking anything on screen.
+- decisions.jsonl is shared history: evidence beats must grep for the specific record
+  (runtime/taskType), never tail -n blind — chat turns get auto-carded (D19) and append extra rows.
+- Strip pre-routed matrix cells before filming Composer drags, or a drag lands the same text the
+  cell already showed (faded inherited vs solid explicit is invisible to assert.text; use the
+  glyph text SDK/CC or td.cell.explicit in the assert).
+
 ## Flows that matter
 - Quarters config-plane surfaces over the real `~/.claude` (Settings, Context, Skills, Logs, Sessions, …).
 - Read-only surfaces (Logs, Sessions) are the safest to film — they never mutate state.

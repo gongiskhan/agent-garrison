@@ -86,6 +86,62 @@ describe("orchestrator transport: AskUserQuestion", () => {
   });
 });
 
+describe("orchestrator transport: runtime attribution", () => {
+  it("emits a `route` ChatEvent from a done frame carrying routing fields, before idling the turn", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      sseResponse([
+        `event: chunk\ndata: ${JSON.stringify({ type: "chunk", text: "Done." })}\n\n`,
+        `event: done\ndata: ${JSON.stringify({
+          reply: "Done.",
+          route: "cc-haiku-low",
+          runtime: "agent-sdk",
+          model: "claude-haiku-4-5",
+          taskType: "other",
+          tier: "T0-trivial",
+          ruleId: "cell:other/T0-trivial",
+          profile: "balanced",
+          honored: true,
+        })}\n\n`,
+      ])
+    ) as unknown as typeof fetch;
+
+    const t = createOrchestratorTransport("/api", "thread-r");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("hello");
+
+    const routeIdx = events.findIndex((e) => e.type === "route");
+    expect(routeIdx).toBeGreaterThanOrEqual(0);
+    expect(events[routeIdx]).toMatchObject({
+      type: "route",
+      route: "cc-haiku-low",
+      runtime: "agent-sdk",
+      model: "claude-haiku-4-5",
+      tier: "T0-trivial",
+      ruleId: "cell:other/T0-trivial",
+      profile: "balanced",
+      honored: true,
+    });
+    // The route event precedes the turn-idle event so the UI can attach it to the
+    // just-finished turn.
+    const idleIdx = events.findIndex((e) => e.type === "turn" && (e as any).active === false);
+    expect(routeIdx).toBeLessThan(idleIdx);
+  });
+
+  it("does not emit a `route` event when the done frame carries no routing fields", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      sseResponse([`event: done\ndata: ${JSON.stringify({ reply: "Plain." })}\n\n`])
+    ) as unknown as typeof fetch;
+
+    const t = createOrchestratorTransport("/api", "thread-p");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("hi");
+
+    expect(events.some((e) => e.type === "route")).toBe(false);
+  });
+});
+
 describe("createHttpTransport (rich path): answerQuestion", () => {
   it("POSTs the answer to <base>/claude/answer", async () => {
     const calls: { url: string; body: any }[] = [];

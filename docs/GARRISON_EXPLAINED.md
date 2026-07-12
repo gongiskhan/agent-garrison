@@ -619,9 +619,10 @@ The runner (`src/lib/runner.ts`) is the most important new piece in Garrison. It
    │     ├─ refuses silent success (no verify hook → hard failure)   │
    │     └─ verify failure marks the Operative broken                │
    │                                                                 │
-   │  5. start operative-bound own-port Fittings                     │
-   │     ├─ spawn each lifecycle: operative-bound Fitting            │
+   │  5. start eager-toggled own-port Fittings                       │
+   │     ├─ spawn only the operative-bound Fittings toggled eager    │
    │     ├─ they bind ports, write status files, serve /health       │
+   │     ├─ non-eager Fittings wait for a Views-UI start (on demand) │
    │     └─ detached Fittings are skipped (user manages them)        │
    │                                                                 │
    │  6. assemble the system prompt                                  │

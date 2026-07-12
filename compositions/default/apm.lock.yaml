@@ -1,7 +1,13 @@
 lockfile_version: '1'
-generated_at: '2026-07-11T07:33:27.108975+00:00'
+generated_at: '2026-07-12T15:15:01.482282+00:00'
 apm_version: 0.24.0
 dependencies:
+- repo_url: _local/agent-sdk-runtime
+  name: agent-sdk-runtime
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/agent-sdk-runtime
 - repo_url: _local/automations
   name: automations
   version: 0.1.0
@@ -30,6 +36,12 @@ dependencies:
     .claude/skills/garrison-browser/SKILL.md: sha256:8725c4e7d290536f264c1671d9d46cb9b920695797cc861310e55b48b32baed5
   source: local
   local_path: ../../fittings/seed/browser-default
+- repo_url: _local/claude-code-runtime
+  name: claude-code-runtime
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/claude-code-runtime
 - repo_url: _local/codex-runtime
   name: codex-runtime
   version: 0.1.0
@@ -82,12 +94,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/kanban-loop
-- repo_url: _local/mcp-gateway
-  name: garrison-mcp-gateway
-  version: 0.2.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/mcp-gateway
 - repo_url: _local/modes
   name: modes
   version: 0.1.0

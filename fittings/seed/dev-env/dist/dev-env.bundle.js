@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/@xterm/xterm/lib/xterm.js
+// ../../../node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// node_modules/@xterm/addon-fit/lib/addon-fit.js
+// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// node_modules/highlight.js/lib/core.js
+// ../../../node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "node_modules/highlight.js/lib/core.js"(exports, module) {
+  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_react7 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// fittings/seed/dev-env/ui/terminal-theme.ts
+// ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_react3 = __toESM(require_react());
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// node_modules/marked/lib/marked.esm.js
+// ../../../node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// node_modules/highlight.js/es/core.js
+// ../../../node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// node_modules/highlight.js/es/languages/typescript.js
+// ../../../node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// node_modules/highlight.js/es/languages/javascript.js
+// ../../../node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/python.js
+// ../../../node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/bash.js
+// ../../../node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/json.js
+// ../../../node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/css.js
+// ../../../node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/xml.js
+// ../../../node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/markdown.js
+// ../../../node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/yaml.js
+// ../../../node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/sql.js
+// ../../../node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/rust.js
+// ../../../node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/go.js
+// ../../../node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/diff.js
+// ../../../node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,7 +39813,7 @@ function diff(hljs) {
   };
 }
 
-// packages/claude-chat/src/chat-theme.ts
+// ../../../packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -39880,7 +39880,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// packages/claude-chat/src/voice.ts
+// ../../../packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -39923,7 +39923,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// packages/claude-chat/src/sanitize.ts
+// ../../../packages/claude-chat/src/sanitize.ts
 var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
 var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
 var ORCH_RE_G = /\[orchestrator-active\]/gi;
@@ -39970,8 +39970,24 @@ function routeChipLabel(meta) {
   if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
   return route;
 }
+function routeChipFromAttribution(route) {
+  const s = (v) => typeof v === "string" ? v.trim() : "";
+  const idParts = [s(route.runtime), s(route.model)].filter(Boolean);
+  let label = idParts.join("/");
+  if (!label) label = routeChipLabel({ route: s(route.route) || void 0 }) ?? "";
+  const tier = s(route.tier);
+  if (label && tier) label = `${label} \xB7 ${tier}`;
+  if (!label) return null;
+  const titleParts = [];
+  if (s(route.route)) titleParts.push(`target ${s(route.route)}`);
+  if (s(route.ruleId)) titleParts.push(`rule ${s(route.ruleId)}`);
+  if (s(route.profile)) titleParts.push(`profile ${s(route.profile)}`);
+  if (typeof route.honored === "boolean") titleParts.push(`honored: ${route.honored ? "yes" : "no"}`);
+  const title = titleParts.join(" \xB7 ");
+  return { label, title: title || void 0 };
+}
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -40375,6 +40391,17 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
             const copy = prev.slice();
             const last = copy[copy.length - 1];
             copy[copy.length - 1] = { ...last, question: { toolUseId: ev.tool_use_id, questions: ev.questions } };
+            return copy;
+          });
+          break;
+        }
+        case "route": {
+          const { type: _type, ...attribution } = ev;
+          setTurns((prev) => {
+            if (prev.length === 0) return prev;
+            const copy = prev.slice();
+            const last = copy[copy.length - 1];
+            copy[copy.length - 1] = { ...last, route: attribution };
             return copy;
           });
           break;
@@ -40783,8 +40810,11 @@ ${t}` : t;
       turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
       turns.map((t) => {
         const clean = sanitizeAssistantText(t.assistant);
-        const routeLabel = routeChipLabel(clean.meta);
-        const routeTitle = clean.meta.route ? `routed via ${clean.meta.route}${clean.meta.rule ? ` \xB7 rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` \xB7 ${clean.meta.profile} profile` : ""}` : void 0;
+        const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
+        const metaLabel = routeChipLabel(clean.meta);
+        const metaTitle = clean.meta.route ? `routed via ${clean.meta.route}${clean.meta.rule ? ` \xB7 rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` \xB7 ${clean.meta.profile} profile` : ""}` : void 0;
+        const routeLabel = structuredChip?.label ?? metaLabel;
+        const routeTitle = structuredChip ? structuredChip.title : metaTitle;
         return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-turn", children: [
           !t.hideUser && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-user", children: t.user }),
           (clean.text || t.streaming || t.question) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-assistant", children: [
@@ -40844,7 +40874,14 @@ ${t}` : t;
                   }
                 );
               })(),
-              routeLabel && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-routechip", title: routeTitle, children: routeLabel })
+              routeLabel && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "span",
+                {
+                  className: `cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`,
+                  title: routeTitle,
+                  children: routeLabel
+                }
+              )
             ] })
           ] })
         ] }, t.id);
@@ -41049,7 +41086,7 @@ ${t}` : t;
   ] });
 }
 
-// packages/claude-chat/src/transport.ts
+// ../../../packages/claude-chat/src/transport.ts
 function createHttpTransport(base = "/api") {
   const b = base.replace(/\/$/, "");
   const post = async (path, body) => {
@@ -41130,7 +41167,7 @@ function createHttpTransport(base = "/api") {
   };
 }
 
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react3.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -41144,7 +41181,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// fittings/seed/dev-env/ui/browser-pane.tsx
+// ui/browser-pane.tsx
 var import_react4 = __toESM(require_react());
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -41478,10 +41515,10 @@ function BrowserPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_react5 = __toESM(require_react());
 
-// fittings/seed/dev-env/ui/session-request.ts
+// ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "joe", label: "Joe \u2014 dev (default)" },
   { value: "gary", label: "Gary \u2014 assistant" },
@@ -41507,7 +41544,7 @@ function buildSessionRequest({
   return body;
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
@@ -41715,7 +41752,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "toast", children: message });
 }
 
-// fittings/seed/dev-env/ui/session-panels.tsx
+// ui/session-panels.tsx
 var import_react6 = __toESM(require_react());
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 function basename(p) {
@@ -41834,7 +41871,7 @@ function SessionsPanel({
   ] });
 }
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {
@@ -41903,6 +41940,19 @@ function TermThemeToggle() {
     },
     opt.mode
   )) });
+}
+function placementLabel(p) {
+  if (!p) return null;
+  const parts = [p.mode, p.model].filter((x) => typeof x === "string" && x.length > 0);
+  return parts.length ? parts.join(" \xB7 ") : null;
+}
+function placementTitle(p) {
+  if (!p) return "";
+  const bits = [];
+  if (p.runtime) bits.push(`runtime ${p.runtime}`);
+  if (p.targetId) bits.push(`target ${p.targetId}`);
+  if (p.role) bits.push(`role ${p.role}`);
+  return bits.join(" \xB7 ");
 }
 var LS_SELECTED = "garrison.devenv.selected";
 var LS_SPLIT_RATIO = "garrison.devenv.splitRatio";
@@ -42331,6 +42381,7 @@ function SessionWorkspace({
                       }
                     )
                   ] }),
+                  placementLabel(session.placement) && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "pane-placement", title: placementTitle(session.placement), children: placementLabel(session.placement) }),
                   claudeView === "terminal" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
                     QuickPromptBar,
                     {
@@ -42942,6 +42993,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
               s.lastStatus === "working" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "spinner", "aria-hidden": "true" }),
               s.lastStatus === "waiting" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "badge-waiting", "aria-hidden": "true" }),
               /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tab-label", children: tabLabel(s) }),
+              placementLabel(s.placement) && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tab-placement", title: placementTitle(s.placement), children: placementLabel(s.placement) }),
               s.dirty === true && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "dirty-dot", title: "Uncommitted changes" }),
               /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
                 "span",

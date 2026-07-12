@@ -70,6 +70,7 @@ import {
   setDirtyCheckTtl,
   setPaneClosed,
   setSessionOpen,
+  setSessionPlacement,
   writeDevRoot
 } from "./state.mjs";
 import { listHistory } from "./claude-sessions.mjs";
@@ -269,6 +270,7 @@ function assembleSessions() {
       liveProcess: hasLiveClaudeProcess(row.projectPath, row.claudeSessionId),
       openedInDevEnv: row.openedInDevEnv === true,
       claudeClosed: Boolean(row.panesClosed?.claude),
+      placement: row.placement ?? null,
       claudePty,
       terminals
     });
@@ -593,6 +595,7 @@ async function handleCreateSession(req, res) {
       // still falls back cleanly to a bare session — Garrison's own failures
       // must be debuggable from inside dev-env.
       let orchestrated = null;
+      let placementSpec = null;
       const wantPlain = body.plain === true;
       if (wantPlain) {
         console.log(`[dev-env] PLAIN session requested for ${session.projectPath} (unorchestrated escape hatch, D22) — logged`);
@@ -609,6 +612,7 @@ async function handleCreateSession(req, res) {
           // failure.
           if (spec && typeof spec.promptPath === "string" && isReadableFile(spec.promptPath)) {
             orchestrated = { appendPromptFiles: [spec.promptPath], model: spec.model || null };
+            placementSpec = spec; // stamp attribution onto the record below (chip source)
           }
         } catch {
           orchestrated = null; // graceful fallback to a bare session
@@ -624,6 +628,23 @@ async function handleCreateSession(req, res) {
         resumeId: session.claudeSessionId || null,
         orchestrated
       });
+      // Persist placement attribution ONLY when the session was actually
+      // orchestrated (a readable mode prompt was threaded in). The bare-session
+      // fallback leaves placement null → no chip, matching the silent-fallback
+      // contract. Best-effort: a state-write failure must not fail the session.
+      if (orchestrated && placementSpec) {
+        try {
+          await setSessionPlacement(session.id, {
+            mode: placementSpec.mode ?? null,
+            model: placementSpec.model ?? null,
+            role: placementSpec.role ?? null,
+            targetId: placementSpec.targetId ?? null,
+            runtime: placementSpec.runtime ?? null
+          });
+        } catch (err) {
+          console.warn(`[dev-env] failed to persist placement for ${session.id}: ${err?.message ?? err}`);
+        }
+      }
     }
     // No default shell terminal — the deck starts empty; the user opens
     // terminals on demand via the + button.
