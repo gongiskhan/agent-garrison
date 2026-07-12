@@ -195,7 +195,8 @@
       "provider": "ollama-local",
       "model": "qwen2.5:3b",
       "promptMode": "lean",
-      "effort": "low"
+      "effort": "low",
+      "authMode": "local"
     }
   ],
   "profiles": {
