@@ -5,6 +5,12 @@
 //
 //   node scripts/check-upstream.mjs            # drift vs pin (offline) + upstream HEAD (network)
 //   node scripts/check-upstream.mjs --offline  # drift vs pin only
+//
+// Exit codes: 0 = vendored files match the pin and upstream is at the pin;
+// 1 = LOCAL drift (vendored files differ from upstream.json hashes — the
+// fail-closed case); 2 = clean locally but upstream HEAD has moved past the
+// pin (informational: an update is available; pinned vendoring means this is
+// never an error by itself).
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -22,6 +28,7 @@ for (const [rel, meta] of Object.entries(pin.files)) {
   console.log(`${ok ? "clean" : "DRIFTED"} ${rel}`);
 }
 
+let upstreamAhead = false;
 if (!process.argv.includes("--offline")) {
   try {
     const m = pin.repo.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
@@ -30,14 +37,15 @@ if (!process.argv.includes("--offline")) {
     });
     const head = (await res.json())[0]?.sha;
     if (head) {
+      upstreamAhead = head !== pin.commit;
       console.log(
-        head === pin.commit
-          ? `upstream: at pin (${pin.commit.slice(0, 7)})`
-          : `upstream: moved ahead — pin ${pin.commit.slice(0, 7)}, HEAD ${head.slice(0, 7)}`,
+        upstreamAhead
+          ? `upstream: moved ahead — pin ${pin.commit.slice(0, 7)}, HEAD ${head.slice(0, 7)}`
+          : `upstream: at pin (${pin.commit.slice(0, 7)})`,
       );
     }
   } catch (e) {
     console.log(`upstream: check skipped (${e.message})`);
   }
 }
-process.exit(drifted ? 1 : 0);
+process.exit(drifted ? 1 : upstreamAhead ? 2 : 0);
