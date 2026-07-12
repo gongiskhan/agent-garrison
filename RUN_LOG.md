@@ -356,3 +356,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: Demo + Guided players live-verified (impl-s6 17/17 Playwright + lead walkthrough flagged=false, vision-confirmed Demo overlay); ui.tours schema; per-fitting tours; Escape exits; Assistant Guide launches by name+mode; 42 tour tests; full suite 2142
 - build: impl-s6 (engine/players/registry) + lead (D6 assistant wiring + evidence)
 - model: fable-5 lead + impl-s6
+
+### DECISION 2026-07-12T21:37:33Z (S9 stall takeover)
+- impl-s9 produced zero output in 20 min; lead takes over WS9 (last slice) directly — focused, measurable copy+affordance pass.
