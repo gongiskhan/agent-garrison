@@ -264,3 +264,11 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - evidence: docs/autothing/runs/20260712-173530-81e1c448/phase0-findings.md + phase0-e*.md side-channel reports
 - models: explorers on session model; E12 spike drove claude-code 2.1.207 + haiku child
 - duration: ~35 min wall-clock
+
+### DECISION 2026-07-12T17:58:01Z (plan sizing)
+- 19 slices (S0..S9c), profile=build (replaces pending-sizing), turnCap 250 → 1520 (max(300, 80×19)), deliberateRed+mutation ON. RUN_SPEC assumptions A1–A12 (probe spec = shipped S8 + amendments; global composition activated in WS1; opencode default provider = local ollama; lead sliced directly, D1–D12 pre-decided).
+
+### GATE 2026-07-12T17:58:01Z — plan
+- green: RUN_SPEC.md + FLOW_PLAN.md written (19 slices, all ≤8 points)
+- evidence: docs/autothing/runs/20260712-173530-81e1c448/RUN_SPEC.md, docs/autothing/runs/20260712-173530-81e1c448/FLOW_PLAN.md
+- model: session (claude-fable-5)

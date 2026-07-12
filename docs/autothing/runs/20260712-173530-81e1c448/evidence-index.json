@@ -1,0 +1,12 @@
+{
+  "runId": "20260712-173530-81e1c448",
+  "project": "agent-garrison",
+  "brief": "GARRISON-MARATHON-V1",
+  "profile": "build",
+  "gatesConfig": { "test": true, "adversarialReview": true, "adversarialTest": true, "codexSliceReview": true, "design": true, "walkthrough": true, "deliberateRed": true, "mutation": true, "report": true, "foundation": true, "codexCheckpoint": true, "askQuestions": false },
+  "runLog": "RUN_LOG.md",
+  "runSpec": "docs/autothing/runs/20260712-173530-81e1c448/RUN_SPEC.md",
+  "plan": "docs/autothing/runs/20260712-173530-81e1c448/FLOW_PLAN.md",
+  "slices": {},
+  "globalGate": { "status": "in-progress" }
+}
