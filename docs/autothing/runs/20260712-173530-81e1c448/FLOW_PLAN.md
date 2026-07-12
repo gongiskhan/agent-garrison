@@ -12,7 +12,7 @@ commit + its sentinel printed and appended to `~/.garrison/marathon/ledger.md`.
 | id | title | kind | route/area | group | status |
 |---|---|---|---|---|---|
 | S0 | WS0 governor: ccusage check/wait-if-needed + banner watcher | api | ~/.garrison/marathon/governor.mjs (uncommitted tooling) + proof | g0 | passed |
-| S1 | WS1 taste Fitting: vendor 2 MIT skills, activate global composition, owned+drift in Quarters | mixed | fittings/seed/taste + global-composition + /quarters | g1 | pending |
+| S1 | WS1 taste Fitting: vendor 2 MIT skills, activate global composition, owned+drift in Quarters | mixed | fittings/seed/taste + global-composition + /quarters | g1 | passed |
 | S2a1 | WS2a classifier+resume abstraction: classifier via primary-agnostic adapter path; resume via adapter.resume | api | http-gateway gateway-routing/stage-b + claude-pty runtime adapters | g2 | pending |
 | S2a2 | WS2a Stage-B moves via adapter (setModel/setEffort) + non-Claude primary boot/serve smoke | api | http-gateway + agent-sdk-runtime; committed smoke test | g2 | pending |
 | S2b | WS2b opencode-runtime Fitting: serve-based bridge, delegate(), primary-capable, descriptor, status surface; installs ollama+qwen | mixed | fittings/seed/opencode-runtime + library.json + quarters | g2 | pending |

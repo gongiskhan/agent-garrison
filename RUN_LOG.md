@@ -281,3 +281,8 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DECISION 2026-07-12T18:34:22Z (S1 evidence re-record)
 - First recording invalid: title duration authored in ms against a seconds-unit schema (4827s video); one beat flagged (click action superfluous). Storyboard fixed (2.6s/2.2s titles, pure-assert beats), re-recording. advtest-s1 independent PASS 13/13 (own probe, DOM + API); fresh-context review approve; codex slice finding fixed (dcb24c7).
+
+### GATE 2026-07-12T18:37:06Z — S1 (WS1 taste Fitting)
+- green: wall 15/15+tc+lint+securityWall · fresh review approve · codex needs-work→fixed (dcb24c7) · advtest 13/13 · video verified (29.3s, 6 beats, unflagged, sha 74c2bc42…)
+- design gate skipped: no-ui-delta. Evidence third-take after 2 storyboard authoring bugs (title duration units; evidence file field) — friction-logged.
+- model: fable-5 lead + fresh-context subagents + gpt-5.5 codex · duration ~55 min

@@ -25,6 +25,13 @@
    "status": "passed",
    "sentinel": "MARATHON-WS0 OK",
    "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S0/gate-status.json"
+  },
+  "S1": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS1 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S1/gate-status.json",
+   "videoSha256": "74c2bc427cdd1a61dce875f2f6d28d5c0ac995c7d7b5ed6ae41ee91d3e752730",
+   "videoBytes": 1160009
   }
  },
  "globalGate": {
