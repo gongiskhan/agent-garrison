@@ -332,3 +332,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - build: lead built after impl-s5 stalled 23min@0 output; impl-s5 revived, finalized own-port status file + config-env + impl.md
 - evidence: asciinema b8905952638f16f7d7a01e9ce99b4f331d783f88a90480848561286e5be30259
 - model: fable-5 lead + impl-s5 + fresh reviewer + gpt-5.5 codex
+
+### DECISION 2026-07-12T20:48:52Z (S7 stall takeover)
+- impl-s7 produced zero output in 30 min; lead takes over WS7 (contained config+recompile+verify). impl-s6 (WS6 UI) continues.
