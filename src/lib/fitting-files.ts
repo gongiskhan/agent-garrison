@@ -104,6 +104,10 @@ async function assertNoSymlinkEscape(root: string, target: string): Promise<void
 export async function listDirectory(id: string, userPath = ""): Promise<DirectoryListing> {
   const { root } = await resolveLocalFitting(id);
   const target = safeResolve(root, userPath);
+  // Read-side containment: a crafted Fitting could carry a symlink `out -> /etc`
+  // that safeResolve (lexical) admits; realpath the ancestor chain so a listing
+  // never escapes the fitting root the way the write paths already guard.
+  await assertNoSymlinkEscape(root, target);
 
   let stat;
   try {
@@ -155,6 +159,10 @@ export async function readFile(id: string, userPath: string): Promise<FileConten
   }
   const { root } = await resolveLocalFitting(id);
   const target = safeResolve(root, userPath);
+  // Read-side containment: without this a Fitting-carried symlink `leak.md ->
+  // /etc/passwd` would pass the lexical safeResolve and fs.readFile would follow
+  // it off-root. Match the write paths' realpath guard.
+  await assertNoSymlinkEscape(root, target);
 
   let stat;
   try {

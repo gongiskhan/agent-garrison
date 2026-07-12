@@ -59,6 +59,10 @@ function sectionsOf(markdown) {
 
 function walkMarkdown(dir, out, repoRoot) {
   if (!existsSync(dir)) return;
+  // Guard the ROOT arg too, not just its children: if `docs` (or a fitting dir)
+  // is itself a symlink to an out-of-repo tree, readdirSync would follow it. The
+  // per-entry isRealPath below only protects descendants.
+  if (!isRealPath(dir)) return;
   for (const name of readdirSync(dir)) {
     // Skip build/vendor dirs and the ephemeral autothing run logs — the latter
     // are transient per-run evidence, not durable docs, and would drown grounded

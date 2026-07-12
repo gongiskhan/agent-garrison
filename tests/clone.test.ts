@@ -236,6 +236,23 @@ describe("codex hardening — symlink safety + write serialization", () => {
     expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
   });
 
+  it("refuses to clone a source carrying a symlink that escapes its root (dereference exfil)", async () => {
+    // codex-checkpoint finding 4: with dereference:true a source `secret ->
+    // /etc/...` would copy off-root host bytes INTO the clone. Reject up front.
+    const src = await cloneTemp(SOURCE_ID, "s3ct-escsrc");
+    const srcRoot = path.join(LOCAL_DIR, src.id);
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-escape-"));
+    try {
+      await fs.writeFile(path.join(outside, "host-secret.txt"), "SECRET", "utf8");
+      await fs.symlink(path.join(outside, "host-secret.txt"), path.join(srcRoot, "secret.txt"), "file");
+      await expect(cloneFitting(src.id, { newId: "s3ct-escclone" })).rejects.toMatchObject({ status: 400 });
+      // No half-made clone dir survives the rejection.
+      await expect(fs.access(path.join(LOCAL_DIR, "s3ct-escclone"))).rejects.toBeTruthy();
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("serializes concurrent library appends so no entry is lost", async () => {
     const ids = ["s3ct-conc-a", "s3ct-conc-b"];
     for (const id of ids) createdIds.push(id);

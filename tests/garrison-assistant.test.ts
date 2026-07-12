@@ -141,6 +141,29 @@ describe("hardening (S5 codex findings)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("I2b: the index never follows the docs ROOT itself when it is a symlink", async () => {
+    // codex-checkpoint finding 8: the per-entry symlink skip protected children
+    // but not the top-level `docs` arg. If `docs` itself is a symlink to an
+    // out-of-repo tree, buildIndex must not index through it.
+    const { buildIndex } = await importMjs("lib/index-store.mjs");
+    const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } = await import("node:fs");
+    const os = await import("node:os");
+    const p = await import("node:path");
+    const root = mkdtempSync(p.join(os.tmpdir(), "idxroot-"));
+    mkdirSync(p.join(root, "fittings", "seed"), { recursive: true });
+    const outside = mkdtempSync(p.join(os.tmpdir(), "outside-"));
+    writeFileSync(p.join(outside, "secret.md"), "# secret\ntoken sekritrootvalue leak");
+    let symlinked = true;
+    try { symlinkSync(outside, p.join(root, "docs"), "dir"); } catch { symlinked = false; }
+    if (symlinked) {
+      const index = buildIndex({ repoRoot: root });
+      const joined = index.records.map((r: {body:string}) => r.body).join("|");
+      expect(joined).not.toMatch(/sekritrootvalue/); // docs-root symlink not followed
+    }
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
   it("I5: fileProposals refuses to overwrite a corrupt queue (never data-loss)", async () => {
     const { fileProposals } = await importMjs("lib/proposals.mjs");
     const { mkdtempSync, writeFileSync, readFileSync } = await import("node:fs");

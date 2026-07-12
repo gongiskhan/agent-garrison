@@ -83,6 +83,38 @@ async function walkFiles(root: string, rel = ""): Promise<string[]> {
   return out;
 }
 
+// `fs.cp(..., { dereference: true })` copies a symlink's TARGET bytes. That is
+// intentional for INTERNAL links (a self-contained clone), but a source Fitting
+// carrying `secret -> /etc/passwd` would get off-root host bytes copied into the
+// clone (then readable via the file browser). Walk the source and reject if any
+// symlink resolves outside the source root before we copy anything.
+async function assertNoEscapingSymlinks(root: string): Promise<void> {
+  const realRoot = await fs.realpath(root);
+  const walk = async (dir: string): Promise<void> => {
+    const dirents = await fs.readdir(dir, { withFileTypes: true });
+    for (const dirent of dirents) {
+      if (COPY_SKIP.has(dirent.name)) continue;
+      const abs = path.join(dir, dirent.name);
+      if (dirent.isSymbolicLink()) {
+        let real: string;
+        try {
+          real = await fs.realpath(abs);
+        } catch {
+          // A dangling link resolves to nothing off-root; cp would fail loudly
+          // on it anyway, so let the copy surface that rather than block here.
+          continue;
+        }
+        if (real !== realRoot && !real.startsWith(`${realRoot}${path.sep}`)) {
+          throw new CloneError(400, `Source contains a symlink escaping the fitting: ${path.relative(root, abs)}`);
+        }
+      } else if (dirent.isDirectory()) {
+        await walk(abs);
+      }
+    }
+  };
+  await walk(root);
+}
+
 async function hashTree(root: string): Promise<Record<string, string>> {
   const files = await walkFiles(root);
   const out: Record<string, string> = {};
@@ -147,6 +179,7 @@ export async function cloneFitting(
     throw new CloneError(400, `Fitting ${sourceId} is not local — nothing to clone`);
   }
   const srcAbs = path.resolve(ROOT_DIR, source.localPath);
+  await assertNoEscapingSymlinks(srcAbs);
 
   const newId = await resolveNewId(sourceId, opts.newId);
   const destRel = `${LOCAL_FITTINGS_SUBDIR}/${newId}`;

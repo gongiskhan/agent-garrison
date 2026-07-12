@@ -1,0 +1,8 @@
+Final cross-model correctness+security checkpoint on a finished run in agent-garrison. Per-slice reviews already ran; report ONLY real surviving defects (a concrete input/state producing a wrong result, crash, hang, data loss, or containment escape). No style/speculation. Read these files in full and reason about edge cases:
+
+1. src/lib/clone.ts and src/lib/fitting-files.ts - Fitting clone into fittings/local + createFile. Check: symlink escape, path traversal on the new-file name, TOCTOU, partial-clone leaving a half-written registry entry.
+2. src/lib/composition-switch.ts and src/lib/active-composition.ts - active_composition pointer + switch. Check: external-pointer injection, switching to a non-existent/unresolvable composition, race between down and re-resolve.
+3. fittings/seed/improver/lib/shadcn-patterns.mjs - evidenceHolds/vetProposals/recordRejection/reconcile. Check: citation file:line path traversal, corrupt rejection-ledger handling, realpath containment.
+4. fittings/seed/garrison-assistant/lib/index-store.mjs - buildIndex/answer. Check: symlink following while indexing, unbounded read, prototype pollution from indexed content.
+
+For each REAL defect: file:line, the concrete failing input, the wrong outcome, confidence HIGH/MED/LOW. If nothing real: print exactly "NO REAL DEFECTS FOUND". Be terse.
