@@ -13,7 +13,11 @@ const SEED = {
   "quarters-basics": { fitting: "quarters", title: "Quarters basics", route: "/quarters" },
   "compose-a-fitting": { fitting: "compose", title: "Compose a Fitting", route: "/compose" },
   "clone-a-fitting": { fitting: "compose", title: "Clone a Fitting", route: "/compose" },
-  "switch-composition": { fitting: "shell", title: "Switch the active composition", route: "/" }
+  "switch-composition": { fitting: "shell", title: "Switch the active composition", route: "/" },
+  // The WS6 in-app tour engine's committed tours (tours/*.json). Guide launches
+  // these by name; each carries its player mode so the engine opens the right one.
+  "compose-demo": { fitting: "compose", title: "Compose, demonstrated", route: "/compose", mode: "demo" },
+  "quarters-guided": { fitting: "quarters", title: "Quarters, guided", route: "/quarters", mode: "guided" }
 };
 
 export function listTours(toursDir) {
@@ -43,15 +47,16 @@ export function launchTour(name, toursDir) {
     err.known = Object.keys(tours);
     throw err;
   }
-  // The launch directive the UI shell consumes to start the tour (WS6 wires the
-  // engine to it). `mode` defaults to guided; the caller may request demo.
+  // The launch directive the WS6 tour engine consumes (it watches
+  // ?tour=<name>&mode=<demo|guided>). The tour's own mode wins; default guided.
+  const mode = tour.mode === "demo" ? "demo" : "guided";
   return {
     launch: true,
     name,
     title: tour.title,
     route: tour.route,
     fitting: tour.fitting,
-    mode: "guided",
-    url: `${tour.route}?tour=${encodeURIComponent(name)}`
+    mode,
+    url: `${tour.route}?tour=${encodeURIComponent(name)}&mode=${mode}`
   };
 }
