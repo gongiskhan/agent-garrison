@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CloneError, cloneDrift, cloneFitting, readCloneProvenance } from "@/lib/clone";
-import { FittingFileError, createFile } from "@/lib/fitting-files";
+import { FittingFileError, createFile, writeFile } from "@/lib/fitting-files";
 import { getLibraryEntry, readRawLibrary } from "@/lib/library";
 import { readYamlFile } from "@/lib/yaml";
 import { ROOT_DIR } from "@/lib/paths";
@@ -181,6 +182,70 @@ describe("createFile", () => {
     await expect(createFile("s3ct-blocked", ".apm/skills/evil/SKILL.md", "x")).rejects.toBeInstanceOf(
       FittingFileError
     );
+  });
+});
+
+describe("codex hardening — symlink safety + write serialization", () => {
+  it("createFile refuses to write through a symlinked directory that escapes the root", async () => {
+    const clone = await cloneTemp(SOURCE_ID, "s3ct-symdir");
+    const cloneRoot = path.join(LOCAL_DIR, clone.id);
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-outside-"));
+    try {
+      // A crafted clone could carry `out -> /somewhere/outside`.
+      await fs.symlink(outside, path.join(cloneRoot, "out"), "dir");
+      await expect(createFile(clone.id, "out/pwn.md", "x")).rejects.toMatchObject({ status: 400 });
+      // The write never escaped.
+      await expect(fs.access(path.join(outside, "pwn.md"))).rejects.toBeTruthy();
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("writeFile refuses to overwrite through a symlink that escapes the root", async () => {
+    const clone = await cloneTemp(SOURCE_ID, "s3ct-symfile");
+    const cloneRoot = path.join(LOCAL_DIR, clone.id);
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-outside-"));
+    try {
+      const outsideFile = path.join(outside, "secret.txt");
+      await fs.writeFile(outsideFile, "ORIGINAL", "utf8");
+      await fs.symlink(outsideFile, path.join(cloneRoot, "link.txt"), "file");
+      await expect(writeFile(clone.id, "link.txt", "HACKED")).rejects.toMatchObject({ status: 400 });
+      expect(await fs.readFile(outsideFile, "utf8")).toBe("ORIGINAL");
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("clones symlinked source content as real, independent bytes (dereference)", async () => {
+    const src = await cloneTemp(SOURCE_ID, "s3ct-derefsrc");
+    const srcRoot = path.join(LOCAL_DIR, src.id);
+    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "TARGET BYTES", "utf8");
+    await fs.symlink("real-target.txt", path.join(srcRoot, "linked.txt"), "file");
+
+    const clone = await cloneTemp(src.id, "s3ct-derefclone");
+    const cloneLinked = path.join(LOCAL_DIR, clone.id, "linked.txt");
+
+    // In the clone it is a REAL file, not a symlink, carrying the target's bytes.
+    const stat = await fs.lstat(cloneLinked);
+    expect(stat.isSymbolicLink()).toBe(false);
+    expect(stat.isFile()).toBe(true);
+    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+
+    // Independent: mutating the upstream target does not change the clone.
+    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "MOVED ON", "utf8");
+    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+  });
+
+  it("serializes concurrent library appends so no entry is lost", async () => {
+    const ids = ["s3ct-conc-a", "s3ct-conc-b"];
+    for (const id of ids) createdIds.push(id);
+    await Promise.all([
+      cloneFitting(SOURCE_ID, { newId: ids[0] }),
+      cloneFitting(SOURCE_ID, { newId: ids[1] })
+    ]);
+    const raw = await readRawLibrary();
+    expect(raw.find((e) => e.id === "s3ct-conc-a"), "first concurrent clone survived").toBeTruthy();
+    expect(raw.find((e) => e.id === "s3ct-conc-b"), "second concurrent clone survived").toBeTruthy();
   });
 });
 

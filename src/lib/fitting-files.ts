@@ -71,6 +71,36 @@ function rejectBlockedSegments(root: string, target: string): void {
   }
 }
 
+// safeResolve is LEXICAL only, so a real symlink INSIDE the fitting (e.g.
+// `out -> /tmp/outside`, which a crafted source could carry) would let a
+// lexically-contained path write THROUGH the link to outside the root. Resolve
+// the realpath of the deepest EXISTING ancestor of the target and require it to
+// stay within the realpath'd root. The not-yet-existing tail is created later as
+// real dirs (mkdir never traverses a symlink it just made), so only the existing
+// ancestor chain can smuggle in a symlink — and realpath collapses that chain.
+async function assertNoSymlinkEscape(root: string, target: string): Promise<void> {
+  const realRoot = await fs.realpath(root);
+  let ancestor = target;
+  for (;;) {
+    let real: string;
+    try {
+      real = await fs.realpath(ancestor);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        const parent = path.dirname(ancestor);
+        if (parent === ancestor) return; // hit fs root without an existing symlink
+        ancestor = parent;
+        continue;
+      }
+      throw error;
+    }
+    if (real !== realRoot && !real.startsWith(`${realRoot}${path.sep}`)) {
+      throw new FittingFileError(400, "Path escapes the fitting directory (symlinked ancestor)");
+    }
+    return;
+  }
+}
+
 export async function listDirectory(id: string, userPath = ""): Promise<DirectoryListing> {
   const { root } = await resolveLocalFitting(id);
   const target = safeResolve(root, userPath);
@@ -157,6 +187,7 @@ export async function writeFile(id: string, userPath: string, content: string): 
   const { root } = await resolveLocalFitting(id);
   const target = safeResolve(root, userPath);
   rejectBlockedSegments(root, target);
+  await assertNoSymlinkEscape(root, target);
 
   let existing;
   try {
@@ -195,10 +226,11 @@ export async function createFile(
     throw new FittingFileError(400, "path is required");
   }
   rejectBlockedSegments(root, target);
+  await assertNoSymlinkEscape(root, target);
 
   let existing;
   try {
-    existing = await fs.stat(target);
+    existing = await fs.lstat(target);
   } catch {
     existing = null;
   }

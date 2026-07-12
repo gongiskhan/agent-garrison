@@ -41,15 +41,32 @@ export async function writeRawLibrary(entries: RawLibraryEntry[]): Promise<void>
   await writeFileAtomic(LIBRARY_PATH, json);
 }
 
+// Serialize read-modify-write of the registry. writeRawLibrary is atomic, so a
+// reader never sees a torn file, but two concurrent appends could each read the
+// pre-write registry and the second rename would drop the first's entry (lost
+// update). This in-process queue makes each append's read+write one critical
+// section. (Single-process app; a cross-process guard would need a file lock.)
+let libraryWriteQueue: Promise<unknown> = Promise.resolve();
+function withLibraryWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = libraryWriteQueue.then(fn, fn);
+  libraryWriteQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 // Append a new entry (idempotent by id — a duplicate id throws so a clone can
 // never silently overwrite an existing registry entry).
 export async function appendRawLibraryEntry(entry: RawLibraryEntry): Promise<void> {
-  const entries = await readRawLibrary();
-  if (entries.some((e) => e.id === entry.id)) {
-    throw new Error(`Library already has an entry with id ${entry.id}`);
-  }
-  entries.push(entry);
-  await writeRawLibrary(entries);
+  return withLibraryWriteLock(async () => {
+    const entries = await readRawLibrary();
+    if (entries.some((e) => e.id === entry.id)) {
+      throw new Error(`Library already has an entry with id ${entry.id}`);
+    }
+    entries.push(entry);
+    await writeRawLibrary(entries);
+  });
 }
 
 export async function readLibrary(): Promise<LibraryEntry[]> {

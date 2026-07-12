@@ -156,8 +156,12 @@ export async function cloneFitting(
   try {
     // Recursive copy; the filter skips build/VCS artifacts (a skipped directory
     // takes its whole subtree with it). Authored `.apm/` content is preserved.
+    // dereference: true copies symlink TARGETS as real bytes, so the clone is
+    // genuinely independent — a later upstream edit can't change what the clone
+    // reads through a shared link.
     await fs.cp(srcAbs, destAbs, {
       recursive: true,
+      dereference: true,
       filter: (src) => !COPY_SKIP.has(path.basename(src))
     });
 
