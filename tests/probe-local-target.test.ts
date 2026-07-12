@@ -44,10 +44,15 @@ describe("probe-question routes to the LOCAL model (never Anthropic) — WS7", (
     expect(t.runtime).toBe("agent-sdk");
   });
 
-  it("ollama-local resolves to a localhost base URL (the default-deny fence keeps it off remote endpoints)", async () => {
+  it("ollama-local resolves to a LOOPBACK base URL and never a remote/Anthropic host (the default-deny fence)", async () => {
     const providers = await import(pathToFileURL(path.join(REPO, "fittings/seed/agent-sdk-runtime/lib/providers.mjs")).href);
     const spec = providers.SDK_PROVIDERS["ollama-local"];
-    expect(spec.baseUrl).toMatch(/localhost|127\.0\.0\.1/);
-    expect(spec.baseUrl).not.toMatch(/anthropic\.com/);
+    // The real fence invariant: the probe host is loopback (localhost === 127.0.0.1)
+    // and is NEVER a remote endpoint — so probe questions can only reach the local
+    // ollama, never Anthropic (or any other off-box host).
+    const url = new URL(spec.baseUrl);
+    expect(["localhost", "127.0.0.1", "[::1]"]).toContain(url.hostname);
+    expect(url.hostname).not.toMatch(/anthropic|\.com$|\.ai$|\.io$/);
+    expect(url.protocol).toBe("http:"); // plain local http, not a TLS remote
   });
 });
