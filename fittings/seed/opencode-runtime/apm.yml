@@ -1,0 +1,114 @@
+name: opencode-runtime
+version: 0.1.0
+description: OpenCode runtime (Runtime Faculty) - a secondary runtime that proves multi-provider coding delegation. Drives `opencode run` (non-interactive, prompt via stdin, JSON event stream) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A secondary Runtime fitting. Implements the RuntimeAdapter contract over
+    `opencode run` (clean non-PTY channel - the prompt travels via stdin, never
+    argv; `--format json` machine-readable event stream) and ships a
+    runtime-bridge exposing the uniform delegate(task_spec) -> {summary,
+    artifacts} tool. The orchestrator routes `secondary:opencode` tasks here; the
+    primary calls the bridge, OpenCode does the work in its own loop against any
+    configured provider (hosted `opencode/*` catalog or a local Ollama), and
+    returns a self-contained result + artifact paths. Multi-turn continuity comes
+    from OpenCode's own `-s <sessionId>` resume - no standing server needed.
+  config_schema:
+    - key: model
+      type: string
+      default: ollama-local/qwen2.5:3b
+      description: >-
+        Default OpenCode model for delegated tasks, in provider/model form (e.g.
+        ollama-local/qwen2.5:3b, opencode/deepseek-v4-flash-free). The provider
+        half must exist in ~/.config/opencode/opencode.json.
+  provides:
+    - kind: runtime
+      name: opencode
+  consumes: []
+  # D3 (GARRISON-RUNTIMES-V1): provider/model overrides for the OpenCode engine
+  # apply through its native JSON config, not env - the top-level `provider`
+  # table (custom @ai-sdk providers) plus the top-level `model` key
+  # ("provider/model") in ~/.config/opencode/opencode.json.
+  provider_mechanism:
+    type: config-file
+    config_file: ~/.config/opencode/opencode.json
+    config_format: json
+    config_key: provider
+    model_key: model
+  # D5/P6: the generic Quarters tier renders the OpenCode engine's native config
+  # surfaces from this descriptor - honest labels for what each file IS, as
+  # verified against the real installed CLI (opencode 1.17.15): opencode.json is
+  # the settings + provider + MCP surface (the `mcp` table), AGENTS.md is the
+  # context-file convention, ~/.local/share/opencode/log holds the tailable output.
+  quarters_descriptor:
+    tier: generic
+    id: opencode
+    home_dir: ~/.config/opencode
+    settings_files:
+      - path: ~/.config/opencode/opencode.json
+        format: json
+        label: opencode.json - providers, default model, agents, MCP servers
+    context_file: AGENTS.md
+    mcp_config:
+      path: ~/.config/opencode/opencode.json
+      format: json
+      key: mcp
+    log_paths:
+      - ~/.local/share/opencode/log
+    categories:
+      - settings
+      - context
+      - mcps
+      - logs
+  setup:
+    command: echo opencode-runtime-ready
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/opencode-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    OpenCode-as-secondary. When the orchestrator resolves a task to
+    `secondary:opencode`, the primary calls this fitting's runtime-bridge tool:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON: task, paths, constraints, model, cwd, expectedSchema) is
+    passed via STDIN (never argv). Per turn the bridge runs a stateless
+    `opencode run --format json --auto -m <provider/model>` subprocess with the
+    prompt on stdin, capturing the minted session id so follow-up turns resume it
+    with `-s`. `model` is provider/model (e.g. ollama-local/qwen2.5:3b); the
+    provider half must be configured in ~/.config/opencode/opencode.json. Full
+    output lands in the Artifact Store; the return is a schema-validated summary +
+    artifact paths; every delegation is appended to decisions.jsonl. No
+    machine-wide lock is needed - OpenCode has no shared-token revocation issue.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   -> prints "ok"
+
+    Provider wiring (opencode.json). OpenCode ships hosted models (the
+    `opencode/*` catalog, some free) and speaks to any OpenAI-compatible endpoint
+    via @ai-sdk/openai-compatible. The default `ollama-local` provider below
+    points at a local Ollama daemon - no credentials, fully offline:
+
+        {
+          "$schema": "https://opencode.ai/config.json",
+          "provider": {
+            "ollama-local": {
+              "npm": "@ai-sdk/openai-compatible",
+              "name": "Ollama (local)",
+              "options": { "baseURL": "http://127.0.0.1:11434/v1" },
+              "models": { "qwen2.5:3b": { "name": "Qwen2.5 3B (local)" } }
+            }
+          },
+          "model": "ollama-local/qwen2.5:3b"
+        }
+
+    Swap `model` (or pass task_spec.model) to any provider/model you have
+    configured - a hosted `opencode/*` model, an Anthropic/OpenAI key-backed
+    provider, or another local endpoint.
