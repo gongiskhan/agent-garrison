@@ -82,6 +82,21 @@ export async function switchComposition(
     return { ok: false, error: "no target composition given" };
   }
 
+  // External pointers are NOT runnable in v1. The runner resolves a composition
+  // by id under compositions/, so an external apm.yml path would either fail to
+  // run (no matching in-repo dir) or, worse, SILENTLY run a DIFFERENT in-repo
+  // composition whose directory name collides with the external basename (and
+  // record that in-repo composition's hash in run-evidence). Reject explicitly,
+  // before touching any state, rather than running the wrong thing. Computed from
+  // the pointer string itself (not the injectable resolver) so the guard cannot
+  // be bypassed. The id-or-inside-compositions-path pointer contract is unchanged.
+  if (resolveCompositionPointer(pointer).external) {
+    return {
+      ok: false,
+      error: `Cannot switch to "${pointer}" - external composition paths are not runnable in v1. Copy it under compositions/<id>/apm.yml first, then switch by id.`
+    };
+  }
+
   // 1. RESOLVE FIRST — nothing has changed yet.
   let resolution: TargetResolution;
   try {

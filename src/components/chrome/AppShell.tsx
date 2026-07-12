@@ -156,6 +156,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       const activePointerVal: string | null =
         typeof activeData?.pointer === "string" ? activeData.pointer : null;
       const activeId: string | null = typeof activeData?.id === "string" ? activeData.id : null;
+      // An external pointer's id is a bare basename that may COLLIDE with an
+      // in-repo composition id; never treat it as that in-repo composition.
+      const activeExternalVal = Boolean(activeData?.external);
       const states = await Promise.all(
         allCompositions.map(async (c) => {
           try {
@@ -171,14 +174,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       // Active pointer wins (WS4 / D6); fall back to the legacy running-else-first
       // heuristic for back-compat when no pointer resolves to a listed composition.
       const next =
-        (activeId ? allCompositions.find((c) => c.id === activeId) : undefined) ??
+        (activeId && !activeExternalVal ? allCompositions.find((c) => c.id === activeId) : undefined) ??
         (running && allCompositions.find((c) => c.id === running.id)) ??
         (allCompositions[0] as Composition | undefined) ??
         null;
       setLibrary(libraryData.library ?? []);
       setCompositions(allCompositions);
       setActivePointer(activePointerVal);
-      setActiveExternal(Boolean(activeData?.external));
+      setActiveExternal(activeExternalVal);
       setComposition(next ?? null);
       setVaultUnlocked(Boolean(vaultData.unlocked));
       setVaultNeedsPassword(Boolean(vaultData.needsPassword));

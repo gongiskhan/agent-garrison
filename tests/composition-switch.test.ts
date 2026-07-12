@@ -185,6 +185,67 @@ describe("switchComposition — resolve-first discipline", () => {
   });
 });
 
+describe("switchComposition — external pointers are not runnable (S4 codex finding)", () => {
+  it("rejects an external apm.yml path whose basename collides with an in-repo comp, touching no state", async () => {
+    // basename "default" deliberately collides with the in-repo default comp —
+    // the bait-and-switch case: without the guard, up() would run the in-repo
+    // "default" while the external file was the one validated.
+    const extDir = path.join(sandbox, "default");
+    await fs.mkdir(extDir, { recursive: true });
+    const extManifest = path.join(extDir, "apm.yml");
+    await fs.writeFile(extManifest, "name: default\nversion: 9\n", "utf8");
+
+    await setActiveComposition("router-v4"); // real sandbox pointer
+
+    const order: string[] = [];
+    const result = await switchComposition(extManifest, {
+      // A resolver that WOULD succeed — proves the external guard fires FIRST,
+      // before resolve, so it cannot be bypassed by the injectable resolver.
+      resolveTarget: async () => ({
+        resolved: { id: "default", dir: extDir, manifestPath: extManifest, external: true },
+        issues: []
+      }),
+      setActive: async (p) => {
+        order.push(`setActive:${p}`);
+      },
+      up: async (id) => {
+        order.push(`up:${id}`);
+      },
+      down: async (id) => {
+        order.push(`down:${id}`);
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("external composition paths are not runnable");
+    // No down/up on the colliding in-repo "default", and the pointer never flipped.
+    expect(order).toEqual([]);
+    expect(await getActiveComposition()).toBe("router-v4");
+  });
+
+  it("still accepts a plain in-repo id (guard does not over-reach)", async () => {
+    const order: string[] = [];
+    const result = await switchComposition("default", {
+      resolveTarget: async () => ({
+        resolved: { id: "default", dir: "/x", manifestPath: "/x/apm.yml", external: false },
+        issues: []
+      }),
+      getActive: async () => "router-v4",
+      setActive: async (p) => {
+        order.push(`setActive:${p}`);
+      },
+      up: async (id) => {
+        order.push(`up:${id}`);
+      },
+      down: async (id) => {
+        order.push(`down:${id}`);
+      }
+    });
+    expect(result).toEqual({ ok: true, id: "default" });
+    expect(order).toEqual(["down:router-v4", "setActive:default", "up:default"]);
+  });
+});
+
 describe("resolveTargetComposition — real resolver over an on-disk manifest", () => {
   it("resolves the default composition to an issues array", async () => {
     const { resolved, issues } = await resolveTargetComposition("default");
