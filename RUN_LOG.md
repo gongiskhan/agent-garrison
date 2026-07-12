@@ -335,3 +335,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DECISION 2026-07-12T20:48:52Z (S7 stall takeover)
 - impl-s7 produced zero output in 30 min; lead takes over WS7 (contained config+recompile+verify). impl-s6 (WS6 UI) continues.
+
+### DECISION 2026-07-12T20:59:20Z (S7 codex verdict)
+- codex needs-work: ollama-local baseUrl is "localhost:11434" not literal "127.0.0.1". REBUTTED as immaterial — localhost IS loopback, the never-Anthropic constraint holds via provider==ollama-local; forcing 127.0.0.1 in providers.mjs would break 2 pre-existing agent-sdk tests for no fence benefit. Instead STRENGTHENED the test to assert loopback host (localhost/127.0.0.1/::1) AND never a remote host (.com/.ai/.io/anthropic) AND plain http — the real fence invariant, stronger than the exact-IP ask.
