@@ -834,7 +834,16 @@ export class RoutedGateway {
 // GARRISON_PRIMARY_ENGINE; tests may pass opts.primaryEngine directly. A
 // missing fitting or a failed CLI probe at warm time is a LOUD startup error
 // naming the fix — never a silent fall back to claude-code.
-const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini"];
+const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode"];
+
+// Exec-style runtimes (a stateless `run`/`exec` subprocess per turn) that can ALSO
+// host the PRIMARY: same resolveSecondaryDir + bridge-probe warm shape, only the
+// adapter class name differs. opencode joined codex/gemini in S2c (the
+// runtime-agnosticism matrix) — the uniform RuntimeAdapter contract is exactly what
+// lets a non-Claude primary boot identically regardless of which exec engine it is,
+// so leaving opencode out of this map (while it is a first-class runtime fitting)
+// was an agnosticism gap, not a design choice.
+const EXEC_PRIMARY_ADAPTER_CLASS = { codex: "CodexAdapter", gemini: "GeminiAdapter", opencode: "OpenCodeAdapter" };
 
 // Probe an exec-engine's CLI via the fitting's own bridge (`--probe` prints
 // "ok") — the same contract the fitting's verify hook uses.
@@ -938,7 +947,8 @@ export async function resolvePrimaryAdapter(engine, ctx) {
       claude: false
     };
   }
-  if (engine === "codex" || engine === "gemini") {
+  const execCls = EXEC_PRIMARY_ADAPTER_CLASS[engine];
+  if (execCls) {
     let adapter = opts.secondaryAdapters?.get?.(engine) ?? null;
     let dir = null;
     if (!adapter) {
@@ -948,17 +958,21 @@ export async function resolvePrimaryAdapter(engine, ctx) {
           `primaryRuntime names the ${engine} engine but the ${engine}-runtime fitting is not installed — compose it under the runtimes faculty (apm install), or switch primaryRuntime back to claude-code-runtime`
         );
       }
-      const cls = engine === "codex" ? "CodexAdapter" : "GeminiAdapter";
       const mod = await import(pathToFileURL(path.join(dir, "lib", `${engine}-adapter.mjs`)).href);
-      adapter = new mod[cls]();
+      adapter = new mod[execCls]();
       // Warm-time CLI probe — fail the startup loudly, not the first turn.
       if (opts.probeExecPrimaries !== false) await probeRuntimeBridge(dir, engine);
     }
-    return {
-      adapter,
-      spawnConfig: { compositionDir, env: process.env },
-      claude: false
-    };
+    // codex/gemini take their model from their own CLI config, so the historical
+    // spawnConfig is left byte-identical (operativeSpawnConfig intentionally NOT
+    // threaded). OpenCode has no built-in default model and its native config may
+    // omit a top-level `model`, so a provider/model MUST be threaded from the
+    // operative spawn config for it to run a turn at all.
+    const spawnConfig = { compositionDir, env: process.env };
+    if (engine === "opencode" && typeof operativeSpawnConfig?.model === "string" && operativeSpawnConfig.model.includes("/")) {
+      spawnConfig.model = operativeSpawnConfig.model;
+    }
+    return { adapter, spawnConfig, claude: false };
   }
   throw new Error(
     `unknown primary engine "${engine}" — expected one of ${KNOWN_PRIMARY_ENGINES.join(", ")}. Fix primaryRuntime in the composer (policy file).`

@@ -281,9 +281,44 @@ describe("primary runtime warm seam (S4)", () => {
     expect(p.adapter).toBe(fake);
   });
 
+  // S2c — opencode is a first-class exec-style PRIMARY engine (agnosticism):
+  // resolvePrimaryAdapter must resolve it via the same injected-adapter seam as
+  // codex/gemini, NOT reject it as unknown.
+  it("opencode primary uses an injected secondary adapter without probing (S2c agnosticism)", async () => {
+    const fake = { spawn: async () => ({}), id: "opencode" };
+    const p = await resolvePrimaryAdapter("opencode", baseCtx({ secondaryAdapters: new Map([["opencode", fake]]) }));
+    expect(p.adapter).toBe(fake);
+    expect(p.claude).toBe(false);
+  });
+
+  // OpenCode has no built-in default model + its native config may omit `model`,
+  // so a provider/model MUST thread from the operative spawn config; codex/gemini
+  // stay byte-identical (no model threaded).
+  it("opencode primary threads a provider/model spawnConfig; codex does NOT (S2c)", async () => {
+    const fake = { spawn: async () => ({}), id: "opencode" };
+    const withModel = baseCtx({ secondaryAdapters: new Map([["opencode", fake]]) });
+    withModel.operativeSpawnConfig = { compositionDir: "/tmp/x", model: "ollama-local/qwen2.5:3b" } as any;
+    const p = await resolvePrimaryAdapter("opencode", withModel);
+    expect(p.spawnConfig.model).toBe("ollama-local/qwen2.5:3b");
+
+    // A bare (non provider/model) model like the createRoutedGateway "sonnet"
+    // default is NOT threaded — opencode falls back to its own config default.
+    const bare = baseCtx({ secondaryAdapters: new Map([["opencode", fake]]) });
+    bare.operativeSpawnConfig = { compositionDir: "/tmp/x", model: "sonnet" } as any;
+    const p2 = await resolvePrimaryAdapter("opencode", bare);
+    expect(p2.spawnConfig.model).toBeUndefined();
+
+    // codex ignores operativeSpawnConfig.model entirely (historical spawnConfig).
+    const codexFake = { spawn: async () => ({}), id: "codex" };
+    const codexCtx = baseCtx({ secondaryAdapters: new Map([["codex", codexFake]]) });
+    codexCtx.operativeSpawnConfig = { compositionDir: "/tmp/x", model: "ollama-local/qwen2.5:3b" } as any;
+    const pc = await resolvePrimaryAdapter("codex", codexCtx);
+    expect(pc.spawnConfig.model).toBeUndefined();
+  });
+
   it("an unknown engine FAILS LOUD naming the known set and the fix", async () => {
-    await expect(resolvePrimaryAdapter("opencode", baseCtx())).rejects.toThrow(
-      /unknown primary engine "opencode".*claude-code, agent-sdk, codex, gemini.*composer/
+    await expect(resolvePrimaryAdapter("mistral-cli", baseCtx())).rejects.toThrow(
+      /unknown primary engine "mistral-cli".*claude-code, agent-sdk, codex, gemini, opencode.*composer/
     );
   });
 });
