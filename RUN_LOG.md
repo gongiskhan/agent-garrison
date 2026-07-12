@@ -326,3 +326,9 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - WS5 built by the LEAD after impl-s5 stalled 23 min at zero output (takeover); impl-s5 later revived, validated the build green, flagged 2 real own-port gaps (status file + config-env normalization).
 - codex needs-work: 3 findings (I2 index symlink escape, I4 malformed /interview 500, I5 queue-clobber on corrupt) → dispatched to impl-s5 alongside its 2 own-port gaps (5 fixes total).
 - assistant: Answer grounds 3 Qs with real sources; Guide launches tours by name (fails loud); Build adaptive interview ≥4 Qs files 2 provenance-assistant proposals into the real improver queue (pending/approvable). full suite 2086 green.
+
+### GATE 2026-07-12T20:41:19Z — S5 (WS5 Garrison Assistant)
+- green: 3 modes work live (Answer grounded w/ real sources · Guide launches tours by name · Build adaptive interview → 2 provenance-assistant proposals pending/approvable); review APPROVE; codex 3 findings + 1 residual → all resolved; full suite 2089
+- build: lead built after impl-s5 stalled 23min@0 output; impl-s5 revived, finalized own-port status file + config-env + impl.md
+- evidence: asciinema b8905952638f16f7d7a01e9ce99b4f331d783f88a90480848561286e5be30259
+- model: fable-5 lead + impl-s5 + fresh reviewer + gpt-5.5 codex

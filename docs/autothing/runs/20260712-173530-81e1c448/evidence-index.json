@@ -70,6 +70,13 @@
    "status": "passed",
    "sentinel": "MARATHON-WS2D OK",
    "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2d/gate-status.json"
+  },
+  "S5": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS5 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S5/gate-status.json",
+   "videoSha256": "b8905952638f16f7d7a01e9ce99b4f331d783f88a90480848561286e5be30259",
+   "evidenceMode": "asciinema"
   }
  },
  "globalGate": {

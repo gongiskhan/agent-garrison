@@ -20,8 +20,8 @@ commit + its sentinel printed and appended to `~/.garrison/marathon/ledger.md`.
 | S2d | WS2d degradations doc + UI surfacing on non-Claude primaries | mixed | docs/RUNTIME_DEGRADATIONS.md + compose/run UI badge | g2 | passed |
 | S3 | WS3 clone+edit: Armory Clone action → fittings/local/ copy, cloned_from provenance, drift vs pinned upstream, Monaco create-file, composer+run round trip | mixed | library.ts/fitting-files.ts/compose UI | g3 | passed |
 | S4 | WS4 composition switching: active_composition pointer, shell switcher (down/re-resolve/up, error-blocked), CLI flag, evidence id+hash | mixed | src/lib/compositions+runner, AppShell, scripts CLI | g4 | passed |
-| S5a | WS5 assistant Fitting + Answer mode (docs+fitting index, 3 grounded answers w/ sources) | mixed | fittings/seed/garrison-assistant | g5 | pending |
-| S5b | WS5 Guide (launch tours by name) + Build/interview → ≥1 skill + ≥1 automation proposal, provenance `assistant`, approvable in Improver UI | mixed | garrison-assistant + improver queue | g5 | pending |
+| S5a | WS5 assistant Fitting + Answer mode (docs+fitting index, 3 grounded answers w/ sources) | mixed | fittings/seed/garrison-assistant | g5 | passed |
+| S5b | WS5 Guide (launch tours by name) + Build/interview → ≥1 skill + ≥1 automation proposal, provenance `assistant`, approvable in Improver UI | mixed | garrison-assistant + improver queue | g5 | passed |
 | S6a | WS6 tour engine: ui.tours metadata block + in-app DOM executor (same storyboard schema) + Demo player w/ highlights + captions | ui | src/lib/metadata + src/components/tours | g6 | pending |
 | S6b | WS6 Guided player (spotlight/wait/assert/advance) + a tour per seed Fitting + Escape exit + Assistant Guide launch | ui | tours descriptors per fitting + engine | g6 | pending |
 | S7 | WS7 probe revival: probe-question policy row (S9 fast-target seed), local-model question generation via ollama-local, acceptance checks → IMPROVER-PROBE OK | mixed | improver + orchestrator policy + agent-sdk provider | g7 | pending |
