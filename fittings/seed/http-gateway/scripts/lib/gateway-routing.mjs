@@ -718,15 +718,16 @@ export class RoutedGateway {
         sessionId: this.operative?.session?.sessionId ?? null,
       };
       const fresh = await adapter.resume(config);
-      try {
-        await adapter.teardown?.(this.operative?.session);
-      } catch {
-        /* ignore */
-      }
+      const old = this.operative;
+      // Install the fresh session FIRST so a slow/throwing teardown of the old one
+      // never leaves the gateway operative-less — resume has already succeeded.
+      // The wrapper's release honors {evict:true} (already retired below, just
+      // forget) vs a bare shutdown() call (tear the live session down).
       this.operative = {
         id: `respawn:${target?.id}`,
         session: fresh,
-        release: () => {
+        release: (opts = {}) => {
+          if (opts.evict) return;
           try {
             adapter.teardown?.(fresh);
           } catch {
@@ -734,6 +735,25 @@ export class RoutedGateway {
           }
         },
       };
+      // Retire the OLD operative exactly once: tear its session down through the
+      // adapter (loud on failure — a swallowed throw could orphan a running
+      // session), then evict its pool checkout WITHOUT a second dispose (the
+      // adapter already tore it down), so gw.shutdown() cannot double-teardown it.
+      try {
+        await adapter.teardown?.(old?.session);
+      } catch (error) {
+        this.logFn({
+          kind: "route-respawn-teardown-failed",
+          error: String(error?.message ?? error),
+          target: target?.id,
+          runtime: adapter.id,
+        });
+      }
+      try {
+        old?.release?.({ evict: true });
+      } catch {
+        /* ignore */
+      }
       this.logFn({ kind: "route-respawn", path: "adapter-resume", target: target?.id, runtime: adapter.id });
       return;
     }
@@ -951,7 +971,10 @@ export async function resolvePrimaryAdapter(engine, ctx) {
 // with claude-code genuinely absent falls the classifier back to the primary.
 export function claudeCodeResolvable(ctx = {}) {
   const o = ctx.opts ?? {};
-  // Explicit override wins (the runner / tests force it without probing a CLI).
+  // TEST-INJECTION SEAM ONLY — the boolean/function override exists so unit tests
+  // (and, if ever needed, the runner) can force resolvability without probing a
+  // real CLI. Production leaves it unset and takes the isClaudeBinaryPresent()
+  // path below; do NOT wire this to user/config input.
   if (typeof o.claudeCodeResolvable === "boolean") return o.claudeCodeResolvable;
   if (typeof o.claudeCodeResolvable === "function") return !!o.claudeCodeResolvable();
   // A stub spawnFn stands in for the real claude binary (tests + the dev seam).

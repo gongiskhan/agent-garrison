@@ -151,3 +151,53 @@ to honor `operativeSpawnConfig.provider` / `.promptMode` (defaulting to
 `resolvePrimaryAdapter` tests) and thread the per-target `baseUrl` / `leanPrompt` /
 `secrets` through to `AgentSdkAdapter.spawn`. This is the plumbing that makes "a
 non-Claude primary serves sessions cleanly end-to-end" actually true off-Anthropic.
+
+---
+
+# S2a codex finding — evict old operative checkout on adapter-resume; loud teardown failures
+
+Codex slice review returned one real finding (the other was rebutted as a
+test-injection seam — see below). The adapter-resume path added in S2a
+(`respawnOperative`) tore down the old operative session via `adapter.teardown`
+but never released its pool checkout, so `WarmPtySessionPool.checkedOut` kept
+holding it. Consequences: (a) `gw.shutdown()` → `pool.shutdown()` disposed the old
+session a SECOND time (double-teardown for any adapter whose teardown frees the
+session), and the checkedOut map leaked a stale record per respawn; (b) a thrown
+`adapter.teardown()` was silently swallowed, potentially orphaning a running
+session.
+
+Fix (`fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs:720-746`):
+- Install the fresh session on `this.operative` FIRST, so a slow/throwing teardown
+  never leaves the gateway operative-less (resume has already succeeded).
+- Tear the old session down through the adapter exactly once, logging failures
+  loudly as `{ kind: "route-respawn-teardown-failed", error, target, runtime }`
+  instead of the bare `catch`.
+- Evict the old pool checkout via `old.release({ evict: true })` — a new pool mode
+  (`packages/claude-pty/src/warm-pool.mjs:103-110`, `#release`): it deletes the
+  record from `checkedOut` and returns WITHOUT a second dispose (the adapter
+  already tore the session down), so `shutdown()` can never double-teardown it.
+  The respawn wrapper's own `release` honors `{ evict: true }` (forget) vs a bare
+  `shutdown()` call (tear the live session down), so chained respawns don't
+  double-teardown either.
+
+Test-injection seam comment (rebutted finding): added a one-line note at
+`claudeCodeResolvable` (`gateway-routing.mjs:974-978`) marking the boolean/function
+`opts.claudeCodeResolvable` override as a TEST-INJECTION SEAM ONLY — production
+leaves it unset and takes the real `isClaudeBinaryPresent()` PATH probe; it must
+not be wired to user/config input.
+
+Regression tests (`tests/gateway-runtime-adapter-routing.test.ts`, describe
+`S2a.2b`, 2 tests, real `MultiRuntimePool`):
+- `evicts the old pool checkout exactly once — torn down via the adapter, never
+  pool-disposed, no double on shutdown` — asserts `checkedOut` drops to 0, the old
+  session is torn down exactly once (adapter, not pool-dispose), and `shutdown()`
+  does not dispose/re-teardown it.
+- `a throwing teardown during resume logs route-respawn-teardown-failed loudly and
+  resume still succeeds` — teardown throws → loud log emitted, `resolves`, fresh
+  session installed, `route-respawn/adapter-resume` still logged.
+
+Failing-before/passing-after: stashing the two source files leaves `S2a.2b` at
+2 failed; with the fix, 8 passed in the file. Full suite green
+(`npm test` = 2019 passed | 14 skipped), typecheck exit 0, lint clean on touched
+files. Committed as `fix(gateway): evict old operative checkout on adapter-resume;
+loud teardown failures (S2a codex finding)`.

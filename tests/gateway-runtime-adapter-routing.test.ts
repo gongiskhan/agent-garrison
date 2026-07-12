@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { RoutedGateway, createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs
 import { planSwitch } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
+// @ts-ignore — pure .mjs package
+import { MultiRuntimePool } from "../packages/claude-pty/src/index.mjs";
 
 // S2a — the http-gateway's three Claude-specific mechanisms route through the
 // RuntimeAdapter interface so a NON-claude primary boots and serves sessions
@@ -153,6 +155,105 @@ describe("S2a.2 — respawn-resume routes through the operative adapter", () => 
     expect(gw.getOperativeSession()).toBe(freshSession);
     expect(events.some((e) => e.kind === "route-respawn" && e.path === "spawn-continue")).toBe(true);
     expect(events.some((e) => e.kind === "route-respawn" && e.path === "adapter-resume")).toBe(false);
+  });
+});
+
+describe("S2a.2b — adapter-resume retires the old operative cleanly (codex finding)", () => {
+  it("evicts the old pool checkout exactly once — torn down via the adapter, never pool-disposed, no double on shutdown", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-evict-"));
+    const teardowns: string[] = [];
+    const disposes: string[] = [];
+    let n = 0;
+    const makeSession = (id: string) => ({
+      id,
+      alive: true,
+      sessionId: id,
+      dispose() {
+        disposes.push(id);
+        this.alive = false;
+      },
+      isAlive() {
+        return this.alive;
+      },
+      isDisposed() {
+        return !this.alive;
+      },
+    });
+    const resumed = makeSession("resumed");
+    const adapter: any = {
+      id: "agent-sdk",
+      spawn: async () => makeSession(`warm-${++n}`),
+      resume: async () => resumed,
+      // adapter teardown is NOT session.dispose (the real non-claude adapters set alive=false)
+      teardown: async (s: any) => {
+        teardowns.push(s?.id);
+        if (s) s.alive = false;
+      },
+    };
+    const pool: any = new MultiRuntimePool({
+      maxTotal: 2,
+      runtimes: [{ id: "operative", adapter, role: "primary", size: 1, spawnConfig: {} }],
+    });
+    await pool.start();
+    const events: any[] = [];
+    const gw: any = new RoutedGateway({
+      core: {},
+      config: {},
+      compositionDir: tmp,
+      logFn: (e: any) => events.push(e),
+      operativeAdapter: adapter,
+      pool,
+      operativeRuntimeId: "operative",
+    });
+    gw.operative = await pool.checkout("operative");
+    const oldId = gw.operative.session.id;
+    expect(pool.status().operative.checkedOut).toBe(1);
+
+    await gw.respawnOperative({ id: "t-ollama", provider: "ollama-local", model: "qwen2.5:3b" });
+
+    // fresh session installed; the old checkout is evicted from the pool accounting
+    expect(gw.getOperativeSession()).toBe(resumed);
+    expect(pool.status().operative.checkedOut).toBe(0);
+    // the old session was torn down EXACTLY ONCE (via the adapter), never pool-disposed
+    expect(teardowns.filter((id) => id === oldId)).toHaveLength(1);
+    expect(disposes).not.toContain(oldId);
+
+    // shutdown must NOT dispose or re-teardown the retired old session (no double)
+    gw.shutdown();
+    expect(disposes).not.toContain(oldId);
+    expect(teardowns.filter((id) => id === oldId)).toHaveLength(1);
+  });
+
+  it("a throwing teardown during resume logs route-respawn-teardown-failed loudly and resume still succeeds", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-teardown-throw-"));
+    const resumed = { id: "resumed", alive: true, sessionId: "resumed" };
+    const adapter: any = {
+      id: "agent-sdk",
+      resume: async () => resumed,
+      teardown: async () => {
+        throw new Error("stuck pipe");
+      },
+    };
+    const events: any[] = [];
+    const gw: any = new RoutedGateway({
+      core: {},
+      config: {},
+      compositionDir: tmp,
+      logFn: (e: any) => events.push(e),
+      operativeAdapter: adapter,
+    });
+    gw.operative = { id: "op", session: { id: "old", sessionId: "old" }, release: () => {} };
+
+    // resume must not reject even though teardown throws
+    await expect(gw.respawnOperative({ id: "t", provider: "ollama-local", model: "x" })).resolves.toBeUndefined();
+
+    // resume succeeded despite the teardown throw
+    expect(gw.getOperativeSession()).toBe(resumed);
+    // the failure was logged loudly, not swallowed
+    const failed = events.find((e) => e.kind === "route-respawn-teardown-failed");
+    expect(failed).toMatchObject({ error: "stuck pipe", runtime: "agent-sdk" });
+    // the switch still logged success
+    expect(events.some((e) => e.kind === "route-respawn" && e.path === "adapter-resume")).toBe(true);
   });
 });
 
