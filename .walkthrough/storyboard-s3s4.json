@@ -1,0 +1,83 @@
+{
+  "title": "Walkthrough: clone a Fitting + switch compositions",
+  "project": "agent-garrison",
+  "folder": "marathon-s3s4",
+  "video": {
+    "width": 1440,
+    "height": 900,
+    "fps": 30
+  },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Clone & Switch",
+      "subtitle": "WS3 clone a Fitting into the local namespace; WS4 switch the active composition",
+      "duration": 2.6
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "switcher",
+          "caption": "The composition switcher in the shell \u2014 the active composition is a persisted pointer",
+          "expectedScreen": "the Garrison shell",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "#composition-switcher"
+            }
+          ],
+          "assert": {
+            "selector": "#composition-switcher",
+            "highlight": true
+          },
+          "hold": 3400
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "clone-status",
+      "command": "curl -s http://127.0.0.1:7777/api/fittings/taste-copy/clone-status",
+      "json": true,
+      "highlight": {
+        "match": "taste@0.1.0",
+        "note": "taste-copy clone: cloned_from + drift (garrison-notes.md was created via Monaco)"
+      },
+      "hold": 3600
+    },
+    {
+      "type": "evidence",
+      "id": "provenance",
+      "file": "fittings/local/taste-copy/clone.json",
+      "highlight": {
+        "match": "taste@0.1.0",
+        "note": "per-file drift baseline snapshotted at clone time"
+      },
+      "hold": 3200
+    },
+    {
+      "type": "evidence",
+      "id": "runevidence",
+      "file": "docs/autothing/runs/20260712-173530-81e1c448/slices/S4/impl.md",
+      "highlight": {
+        "match": "6d1d802e",
+        "note": "run evidence: two composition ids, each with its apm.yml sha256"
+      },
+      "hold": 3400,
+      "lineRange": "57-68"
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "MARATHON-WS3 + WS4",
+      "subtitle": "clone round trip + composition switch, both proven",
+      "duration": 2.2
+    }
+  ]
+}
