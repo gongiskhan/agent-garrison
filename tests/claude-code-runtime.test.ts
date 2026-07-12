@@ -62,10 +62,10 @@ describe("claude-code-runtime fitting (S1)", () => {
     expect(entry!.localPath).toBe("fittings/seed/claude-code-runtime");
   });
 
-  it("the Runtime-Faculty peer set is all selectable in the library (claude-code/agent-sdk/codex/gemini)", async () => {
+  it("the Runtime-Faculty peer set is all selectable in the library (claude-code/agent-sdk/codex/gemini/opencode)", async () => {
     const lib = await readLibrary();
     const ids = new Set(lib.map((e) => e.id));
-    for (const peer of ["claude-code-runtime", "agent-sdk-runtime", "codex-runtime", "gemini-runtime"]) {
+    for (const peer of ["claude-code-runtime", "agent-sdk-runtime", "codex-runtime", "gemini-runtime", "opencode-runtime"]) {
       expect(ids.has(peer), `${peer} should be a selectable runtime in data/library.json`).toBe(true);
     }
   });
