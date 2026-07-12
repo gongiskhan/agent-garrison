@@ -901,10 +901,18 @@ export async function resolvePrimaryAdapter(engine, ctx) {
     return {
       adapter,
       spawnConfig: {
-        provider: "anthropic",
+        // The agent-sdk primary defaults to the Anthropic Max subscription (D29),
+        // byte-identical when the operative spawn config names no provider. A
+        // non-anthropic provider (ollama-local / z.ai / …) is honored when named,
+        // threading its per-target baseUrl + vault secrets so the primary can run
+        // off-Anthropic (e.g. a free local ollama operative).
+        provider: operativeSpawnConfig.provider ?? "anthropic",
         model: operativeSpawnConfig.model,
-        promptMode: "full",
+        promptMode: operativeSpawnConfig.promptMode ?? "full",
         compositionDir,
+        ...(operativeSpawnConfig.baseUrl ? { baseUrl: operativeSpawnConfig.baseUrl } : {}),
+        ...(operativeSpawnConfig.leanPrompt ? { leanPrompt: operativeSpawnConfig.leanPrompt } : {}),
+        ...(operativeSpawnConfig.secrets ? { secrets: operativeSpawnConfig.secrets } : {}),
         ...(appendSystemPrompt ? { appendSystemPrompt } : {})
       },
       claude: false

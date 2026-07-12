@@ -110,3 +110,44 @@ All use injected fakes — no live CLI, no real model.
   reuses the primary's spawn config verbatim and only lowers the model when an
   explicit `opts.classifierFallbackModel` override is supplied and the config has a
   `model` field.
+
+---
+
+# S2a2 — gated live smoke: agent-sdk primary over ollama serves a turn + adapter-moves switch
+
+`tests/agent-sdk-primary-smoke.integration.test.ts` — a COMMITTED, gated live
+smoke (pattern: `describe.skipIf(!LIVE)` on `GARRISON_INTEGRATION === "1"`, like
+`codex-primary-smoke.integration.test.ts`). It boots the REAL `RoutedGateway`
+with an **agent-sdk primary over the free local ollama-local provider**
+(qwen2.5:3b, `promptMode: "lean"` for a fast pure-chat turn), then:
+1. asserts the **classifier fell back** to the primary adapter (claude-code forced
+   unresolvable via `claudeCodeResolvable: false`) — exercising S2a change 3 live;
+2. **serves one real turn** on the operative's own adapter
+   (`adapter.sendTurn`/`awaitResponse`) and asserts a non-empty ollama reply;
+3. `applySwitch` to a different model+effort on the same agent-sdk runtime and
+   asserts the switch took the **adapter-moves** path (change 1) with no
+   `route-switch-skipped`, and that the adapter recorded the move on the live
+   session (`session.model` / `session.effort` / `currentTarget`).
+
+## Real output (GARRISON_INTEGRATION=1, one live run) — PASS
+`1 passed`, 38.6s (< 90s budget). Captured evidence:
+```
+[S2a2] classifier-fallback: {"kind":"classifier-fallback","from":"claude-code","to":"agent-sdk","reason":"claude-code runtime not resolvable (CLI absent); classifying on the primary adapter instead of the cheap claude-code haiku session"}
+[S2a2] ollama reply: "pong"
+[S2a2] adapter-moves log: {"kind":"route-switch","path":"adapter-moves","injections":["/model qwen2.5:1.5b","/effort high"],"target":"ollama-switch","runtime":"agent-sdk"}
+```
+The qwen2.5:3b operative really answered ("pong"); the non-PTY switch really took
+`adapter-moves` (not the old skip). Gated: skipped in the normal suite
+(`npm test` = 2007 passed | 14 skipped).
+
+## Real gateway bug found + fixed in this slice
+Booting an agent-sdk primary over ollama surfaced that
+`resolvePrimaryAdapter()` (`fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs:903-919`)
+**hardcoded `provider: "anthropic"` and `promptMode: "full"`** for the agent-sdk
+primary — so a non-Anthropic agent-sdk operative was impossible (it would have
+billed the Anthropic Max endpoint instead of running on free local ollama). Fixed
+to honor `operativeSpawnConfig.provider` / `.promptMode` (defaulting to
+`anthropic` / `full` — byte-identical when unset, proven by the unchanged S4
+`resolvePrimaryAdapter` tests) and thread the per-target `baseUrl` / `leanPrompt` /
+`secrets` through to `AgentSdkAdapter.spawn`. This is the plumbing that makes "a
+non-Claude primary serves sessions cleanly end-to-end" actually true off-Anthropic.
