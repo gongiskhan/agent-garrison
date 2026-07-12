@@ -13,10 +13,11 @@
 // fetches descriptors through /api/tours.
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ROOT_DIR } from "./paths";
+import { ROOT_DIR, SEED_FITTINGS_DIR } from "./paths";
 import { readLibrary } from "./library";
-import { tourDescriptorSchema, type TourDescriptor } from "./metadata";
-import type { LibraryEntry } from "./types";
+import { readYamlFile } from "./yaml";
+import { parseGarrisonMetadata, tourDescriptorSchema, type TourDescriptor } from "./metadata";
+import type { GarrisonMetadata, LibraryEntry } from "./types";
 
 export interface TourSummary {
   name: string;
@@ -26,6 +27,63 @@ export interface TourSummary {
   mode?: "demo" | "guided";
   steps: number;
   synthesized?: boolean;
+}
+
+// A fitting we can discover tours for — unified across the curated library and
+// the raw seed directory (so a seed fitting not listed in library.json is still
+// covered by the "every UI fitting ships a tour" invariant).
+interface FittingSource {
+  id: string;
+  name: string;
+  summary: string;
+  localPath?: string;
+  ui?: GarrisonMetadata["ui"];
+}
+
+// Union of library entries + seed dirs, de-duplicated by id (the library's
+// resolved metadata wins when a fitting appears in both).
+async function readFittingSources(): Promise<FittingSource[]> {
+  const byId = new Map<string, FittingSource>();
+
+  const library = await readLibrary().catch(() => [] as LibraryEntry[]);
+  for (const entry of library) {
+    byId.set(entry.id, {
+      id: entry.id,
+      name: entry.name,
+      summary: entry.summary,
+      localPath: entry.localPath,
+      ui: entry.metadata.ui
+    });
+  }
+
+  let seedDirs: string[] = [];
+  try {
+    seedDirs = await fs.readdir(SEED_FITTINGS_DIR);
+  } catch {
+    seedDirs = [];
+  }
+  for (const id of seedDirs) {
+    if (byId.has(id)) continue;
+    const manifestPath = path.join(SEED_FITTINGS_DIR, id, "apm.yml");
+    try {
+      const manifest = await readYamlFile<{ name?: string; description?: string; "x-garrison"?: unknown }>(
+        manifestPath
+      );
+      if (!manifest) continue;
+      const metadata = parseGarrisonMetadata(manifest["x-garrison"]);
+      byId.set(id, {
+        id,
+        name: manifest.name ?? id,
+        summary: manifest.description ?? "",
+        localPath: path.relative(ROOT_DIR, path.join(SEED_FITTINGS_DIR, id)),
+        ui: metadata.ui
+      });
+    } catch {
+      // A seed that doesn't parse (parked/legacy id) simply isn't a tour source.
+    }
+  }
+
+  return Array.from(byId.values());
 }
 
 async function readJsonDir(dir: string): Promise<unknown[]> {
@@ -68,8 +126,8 @@ function coerceTour(raw: unknown, fitting?: string): TourDescriptor | null {
 // The auto-generated "what is this" tour: one spotlight step on the fitting's
 // per-fitting overview page. Deliberately minimal — it exists so every UI
 // fitting is at least discoverable by tour, not to teach a flow.
-function synthesizeDefaultTour(entry: LibraryEntry): TourDescriptor {
-  const view = entry.metadata.ui?.views?.[0];
+function synthesizeDefaultTour(entry: FittingSource): TourDescriptor {
+  const view = entry.ui?.views?.[0];
   const label = entry.name || entry.id;
   return {
     name: `${entry.id}-overview`,
@@ -105,25 +163,25 @@ export async function loadTours(): Promise<TourDescriptor[]> {
     add(coerceTour(raw));
   }
 
-  const entries = await readLibrary().catch(() => [] as LibraryEntry[]);
-  for (const entry of entries) {
+  const sources = await readFittingSources();
+  for (const source of sources) {
     // 1. Inline metadata tours.
-    for (const raw of entry.metadata.ui?.tours ?? []) {
-      add(coerceTour(raw, entry.id));
+    for (const raw of source.ui?.tours ?? []) {
+      add(coerceTour(raw, source.id));
     }
     // 2. tours/*.json beside the fitting.
-    if (entry.localPath) {
-      for (const raw of await readJsonDir(path.join(ROOT_DIR, entry.localPath, "tours"))) {
-        add(coerceTour(raw, entry.id));
+    if (source.localPath) {
+      for (const raw of await readJsonDir(path.join(ROOT_DIR, source.localPath, "tours"))) {
+        add(coerceTour(raw, source.id));
       }
     }
   }
 
   // Synthesize a default for every UI fitting that still has no tour.
-  for (const entry of entries) {
-    if (!entry.metadata.ui?.views?.length) continue;
-    const hasExplicit = Array.from(byName.values()).some((tour) => tour.fitting === entry.id);
-    if (!hasExplicit) add(synthesizeDefaultTour(entry));
+  for (const source of sources) {
+    if (!source.ui?.views?.length) continue;
+    const hasExplicit = Array.from(byName.values()).some((tour) => tour.fitting === source.id);
+    if (!hasExplicit) add(synthesizeDefaultTour(source));
   }
 
   return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));

@@ -100,6 +100,16 @@ describe("tours registry", () => {
     expect(tours.some((t) => t.name.endsWith("-overview"))).toBe(true);
   });
 
+  it("covers a valid seed UI fitting that is not listed in library.json", async () => {
+    // vault-sync declares ui.views and parses cleanly but is not in the curated
+    // library — the seed-directory scan must still cover it. (documents /
+    // tier-classifier declare views too but use parked pre-pivot faculty ids the
+    // parser rejects, so they are correctly excluded — dead seeds, not tours.)
+    const tours = await loadTours();
+    const byFitting = new Set(tours.map((t) => t.fitting));
+    expect(byFitting.has("vault-sync")).toBe(true);
+  });
+
   it("returns undefined for an unknown tour name", async () => {
     expect(await getTour("does-not-exist")).toBeUndefined();
   });
