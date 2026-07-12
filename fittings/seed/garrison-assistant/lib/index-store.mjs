@@ -4,8 +4,20 @@
 // best-matching sections WITH their source paths. No embeddings, no network —
 // deterministic keyword+section retrieval so Answer is cheap, offline, and
 // re-indexable on composition change.
-import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, lstatSync, existsSync } from "node:fs";
 import path from "node:path";
+
+// Skip symlinks entirely (I2 containment): a symlink inside docs/ or a Fitting
+// could point at an out-of-repo file (e.g. ~/.ssh/config) and leak it into a
+// grounded answer. lstat does not follow the link, so a symlink is never
+// indexed. Returns true when the entry is a real (non-symlink) path.
+function isRealPath(abs) {
+  try {
+    return !lstatSync(abs).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
 
 const STOP = new Set([
   "the","a","an","of","to","in","is","it","and","or","for","on","with","as",
@@ -53,6 +65,7 @@ function walkMarkdown(dir, out, repoRoot) {
     // answers in run-specific noise (and bloat the index).
     if (name === "node_modules" || name === ".git" || name === "apm_modules" || name === "autothing") continue;
     const abs = path.join(dir, name);
+    if (!isRealPath(abs)) continue; // never follow a symlink out of the repo
     let st;
     try { st = statSync(abs); } catch { continue; }
     if (st.isDirectory()) walkMarkdown(abs, out, repoRoot);
@@ -85,9 +98,10 @@ export function buildIndex({ repoRoot, docsRoot = "docs", fittingsDir = "fitting
       const fpath = path.join(fdir, id);
       let st; try { st = statSync(fpath); } catch { continue; }
       if (!st.isDirectory()) continue;
+      if (!isRealPath(fpath)) continue; // skip a symlinked fitting dir
       // apm.yml summary
       const apm = path.join(fpath, "apm.yml");
-      if (existsSync(apm)) {
+      if (existsSync(apm) && isRealPath(apm)) {
         const y = readFileSync(apm, "utf8");
         const sm = /summary:\s*([\s\S]*?)(?:\n\s{2}\w|\n\w)/.exec(y);
         add(`${fittingsDir}/${id}/apm.yml`, `${id} (Fitting)`, sm ? sm[1] : y.slice(0, 600));

@@ -99,7 +99,17 @@ export function createServer() {
       }
       if (req.method === "POST" && url.pathname === "/interview/next") {
         const { answers } = await readBody(req);
-        const step = nextStep(Array.isArray(answers) ? answers : []);
+        // I4: validate the shape before nextStep dereferences a.id. A malformed
+        // answers[] (non-array, or an element that isn't {id,text}) is a 400
+        // client error, not a 500 — never let bad input throw uncaught.
+        if (answers !== undefined && !Array.isArray(answers)) {
+          return send(res, 400, { error: "answers must be an array of {id, text}" });
+        }
+        const arr = Array.isArray(answers) ? answers : [];
+        if (!arr.every((a) => a && typeof a === "object" && typeof a.id === "string")) {
+          return send(res, 400, { error: "each answer must be an object with a string id" });
+        }
+        const step = nextStep(arr);
         if (!step.done) return send(res, 200, { done: false, question: step.question });
         const at = new Date(Date.parse(url.searchParams.get("at") || "") || 0).toISOString();
         const filed = fileProposals(step.proposals, process.env.GARRISON_NOW || at);

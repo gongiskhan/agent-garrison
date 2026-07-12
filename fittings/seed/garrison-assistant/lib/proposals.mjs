@@ -20,12 +20,21 @@ function proposalsDir() {
 function loadQueue() {
   const f = queueFile();
   if (!existsSync(f)) return [];
+  // I5: an existing-but-unreadable queue must NOT be treated as empty — writing
+  // over it would destroy prior proposals. Refuse loudly instead of clobbering.
+  const raw = readFileSync(f, "utf8");
+  let parsed;
   try {
-    const parsed = JSON.parse(readFileSync(f, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
+    parsed = JSON.parse(raw);
   } catch {
-    return [];
+    throw new Error(
+      `review-queue.json exists but is not valid JSON — refusing to overwrite it (fix or move it first): ${f}`
+    );
   }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`review-queue.json is not a JSON array — refusing to overwrite it: ${f}`);
+  }
+  return parsed;
 }
 
 function atomicWriteJson(file, data) {

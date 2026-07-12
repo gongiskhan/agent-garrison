@@ -119,3 +119,65 @@ describe("Build interview is adaptive and files provenance-assistant proposals",
     expect(step.question.q).toMatch(/report|reads it/i);
   });
 });
+
+describe("hardening (S5 codex findings)", () => {
+  it("I2: the index never follows a symlink out of the repo", async () => {
+    const { buildIndex } = await importMjs("lib/index-store.mjs");
+    const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } = await import("node:fs");
+    const os = await import("node:os");
+    const p = await import("node:path");
+    const root = mkdtempSync(p.join(os.tmpdir(), "idx-"));
+    mkdirSync(p.join(root, "docs"));
+    mkdirSync(p.join(root, "fittings", "seed"), { recursive: true });
+    writeFileSync(p.join(root, "docs", "real.md"), "# Real\nlegit content here indexed");
+    const secret = p.join(root, "SECRET.md");
+    writeFileSync(secret, "# secret\ntoken sekritvalue leak");
+    try { symlinkSync(secret, p.join(root, "docs", "leak.md")); } catch { /* platform w/o symlink */ }
+    const index = buildIndex({ repoRoot: root });
+    const joined = index.records.map((r: {source:string}) => r.source).join("|");
+    expect(joined).toContain("docs/real.md");
+    expect(joined).not.toContain("leak.md"); // the symlink was skipped
+    expect(index.records.some((r: {body:string}) => /sekritvalue/.test(r.body))).toBe(false);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("I5: fileProposals refuses to overwrite a corrupt queue (never data-loss)", async () => {
+    const { fileProposals } = await importMjs("lib/proposals.mjs");
+    const { mkdtempSync, writeFileSync, readFileSync } = await import("node:fs");
+    const os = await import("node:os");
+    const p = await import("node:path");
+    const dir = mkdtempSync(p.join(os.tmpdir(), "q-"));
+    process.env.IMPROVER_DATA = dir;
+    const qf = p.join(dir, "review-queue.json");
+    writeFileSync(qf, "{ this is not json");
+    const candidate = { kind: "skill", targetClass: "quarters/skill", title: "x", claim: "x", draft: { name: "x" } };
+    expect(() => fileProposals([candidate], "2026-07-12T00:00:00Z")).toThrow(/refusing to overwrite/);
+    // the corrupt file is untouched (not clobbered)
+    expect(readFileSync(qf, "utf8")).toBe("{ this is not json");
+    delete process.env.IMPROVER_DATA;
+  });
+});
+
+describe("I4: malformed interview input is a 400, never an uncaught 500", () => {
+  it("rejects a non-array and a bad element with 400", async () => {
+    const { createServer } = await importMjs("scripts/server.mjs");
+    const http = await import("node:http");
+    const server = createServer();
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+
+    const post = (body: string): Promise<number> =>
+      new Promise((resolve) => {
+        const req = http.request(
+          { host: "127.0.0.1", port, path: "/interview/next", method: "POST", headers: { "content-type": "application/json" } },
+          (res) => { res.resume(); resolve(res.statusCode ?? 0); }
+        );
+        req.end(body);
+      });
+
+    expect(await post('{"answers":[null]}')).toBe(400);
+    expect(await post('{"answers":"x"}')).toBe(400);
+    expect(await post('{"answers":[]}')).toBe(200); // valid empty → first question
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+});
