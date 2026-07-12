@@ -231,3 +231,36 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### RUN-END 2026-07-11T22:18:32Z
 - GARRISON-RUNTIMES-V1: 8/8 slices passed, full-bar. Verdict printed to transcript.
+
+## RUN-START 2026-07-12T17:36:11Z
+- runId: 20260712-173530-81e1c448
+- brief: GARRISON-MARATHON-V1 — 10 workstreams (governor, taste fitting, runtime agnosticism + matrix, clone/edit fittings, composition switching, assistant, tours, improver probe, shadcn/improve patterns, UI/UX pass)
+- model: claude-fable-5 · effort: session-inherited
+- gatesConfig: all-true (no operator flags)
+- profile: pending-sizing
+- host: dev-madrid
+- preflight:
+  - node=v20.19.4
+  - npm=10.8.2
+  - tsx=MISSING
+  - ffmpeg=
+  - asciinema=asciinema 2.4.0
+  - agg=agg 1.9.0
+  - codex=codex-cli 0.144.1
+  - gitleaks=gitleaks version 8.30.1
+  - semgrep=1.168.0
+  - ollama=MISSING
+  - opencode=1.17.15
+  - playwright=Version 1.61.1
+
+### DECISION 2026-07-12T17:38:51Z
+- coord-agentmail server unreachable (connection error on macro_start_session); coord-mcp planning-gate tools absent from this session. Proceeding without cross-session coordination per skill contract (never hard-block); falling back to disjoint-files discipline. Will retry agent-mail once mid-run.
+
+### DECISION 2026-07-12T17:45:05Z (E12 spike)
+- AskUserQuestion available in Claude Code 2.1.207. PostToolUse hook with matcher "AskUserQuestion" RECEIVES the selected answer: tool_response.answers = {"<question>": "<label>"}, plus session_id, tool_input (full question structure), tool_use_id. Probe capture path = PostToolUse hook (primary path per D9/E12); garrison-control fallback tool NOT needed.
+
+### GATE 2026-07-12T17:53:27Z — phase-0 (explore)
+- green: all 15 FINDING-E items answered (5 parallel explorers + 2 live spikes)
+- evidence: docs/autothing/runs/20260712-173530-81e1c448/phase0-findings.md + phase0-e*.md side-channel reports
+- models: explorers on session model; E12 spike drove claude-code 2.1.207 + haiku child
+- duration: ~35 min wall-clock
