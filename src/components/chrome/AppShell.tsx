@@ -11,6 +11,7 @@ import {
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { FittingEditor } from "@/components/FittingEditor";
+import { TourEngine } from "@/components/tours/TourEngine";
 import type {
   Composition,
   FittingSelectionMap,
@@ -434,6 +435,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           onClose={() => setEditingFitting(null)}
         />
       ) : null}
+      {/* WS6: the in-app tour engine — watches ?tour=<name>&mode= and overlays
+          the demo/guided player on the current surface. */}
+      <TourEngine />
     </Ctx.Provider>
   );
 }
