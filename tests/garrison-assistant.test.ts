@@ -7,7 +7,7 @@ import { readYamlFile } from "@/lib/yaml";
 
 // The fitting ships as pure .mjs (runs under plain node); import via absolute path.
 const FIT = path.resolve(__dirname, "..", "fittings", "seed", "garrison-assistant");
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line
 const importMjs = (rel: string): Promise<any> => import(path.join(FIT, rel));
 
 const REPO_ROOT = path.resolve(__dirname, "..");
