@@ -191,10 +191,9 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           <div className="banner alarm">
             <span className="glyph">!</span>
             <div>
-              <h5>This station is empty — the Operative is running on a stub</h5>
+              <h5>Station empty — running on a stub</h5>
               <p>
-                v1 of Garrison ships without a reference Orchestrator Fitting. Until the Runtime SDK
-                milestone lands one, the runner concatenates a minimal default. See{" "}
+                No reference Orchestrator Fitting ships in v1; the runner uses a minimal default. See{" "}
                 <code>fittings/seed/README.md</code>.
               </p>
             </div>
@@ -247,11 +246,10 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
             }}
           >
             <div className="font-display" style={{ fontWeight: 600, fontSize: 18, marginBottom: 4 }}>
-              No Fittings curated for this Faculty yet
+              No Fittings curated for {faculty.name} yet
             </div>
             <p style={{ color: "var(--mute)", fontSize: 13, margin: "0 0 14px" }}>
-              The registry doesn&apos;t have an entry for {faculty.name} in v1. Add one through{" "}
-              <code>CONTRIBUTING.md</code>, or search the Composition for Fittings in other Faculties.
+              Add one through <code>CONTRIBUTING.md</code>, or search for Fittings in other Faculties.
             </p>
             <Link className="btn ghost small" href="/compose">
               Search all Fittings →
@@ -834,15 +832,11 @@ function OrchestratorGlobalConfig({
         <div className="field">
           <label>primary_runtime</label>
           <div className="hint">
-            Moved to the Orchestrator composer (RUNTIMES-V1): the primary runtime is
-            policy data now — set it with the Primary picker in the composer view,
-            which validates against the installed runtime fittings and writes the
-            policy file only (no operative needs to run).
+            Set in the Orchestrator composer&apos;s Primary picker now, not here.
             {globalConfig.primary_runtime ? (
               <>
-                {" "}This composition still carries the deprecated
-                global_config.primary_runtime value &quot;{globalConfig.primary_runtime}&quot; —
-                the policy file wins when both are set; the runner logs the conflict.
+                {" "}This composition still carries a deprecated value
+                (&quot;{globalConfig.primary_runtime}&quot;); the policy file wins.
               </>
             ) : null}
           </div>

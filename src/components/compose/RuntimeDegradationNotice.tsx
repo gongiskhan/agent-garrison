@@ -49,8 +49,7 @@ export function RuntimeDegradationNotice() {
         Advisory on {active.engine}
       </div>
       <div className="hint" style={{ marginBottom: 6 }}>
-        This composition runs a non-Claude primary runtime. The enforcement plane
-        degrades to advisory — these behaviors work differently than on Claude Code:
+        On a non-Claude runtime the enforcement plane is advisory — these behave differently:
       </div>
       <ul style={{ margin: "0 0 6px 16px", padding: 0 }}>
         {active.degradations.map((d) => (

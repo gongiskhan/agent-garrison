@@ -150,7 +150,6 @@ export function StationGrid() {
           <h1>{composition.name}</h1>
           <p className="ld">
             {faculties.length} Faculty stations · {totalFittings} Fitting{totalFittings === 1 ? "" : "s"} stationed.
-            Click a tile to configure that station, or search to find Fittings across every Faculty.
           </p>
         </div>
 
@@ -196,7 +195,7 @@ export function StationGrid() {
             type="search"
             value={search}
             onChange={(e) => updateSearch(e.target.value)}
-            placeholder="Search every Faculty · Fitting name, summary, capability…"
+            placeholder="Search Fittings across every Faculty…"
             aria-label="Search Fittings across all Faculties"
             style={{
               width: "100%",
@@ -237,8 +236,7 @@ export function StationGrid() {
             <div style={{ flex: 1 }}>
               <h5>Orchestrator station is empty</h5>
               <p>
-                The Operative needs a single governing Fitting to assemble its system prompt. Until one is
-                stationed, <code>Run</code> falls back to a stub orchestrator.
+                Without a governing Fitting, <code>Run</code> falls back to a stub orchestrator.
               </p>
               <div className="actions">
                 <Link href="/compose/orchestrator">Open Orchestrator station →</Link>
@@ -259,8 +257,7 @@ export function StationGrid() {
                 {composition.capabilityIssues.length === 1 ? "" : "s"}
               </h5>
               <p>
-                Selected Fittings consume capabilities that aren&apos;t cleanly resolved. Click a station to
-                fix it.
+                Some Fittings consume capabilities that aren&apos;t cleanly resolved.
               </p>
               <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }}>
                 {composition.capabilityIssues.map((issue, i) => (
@@ -287,7 +284,7 @@ export function StationGrid() {
             <TierSection
               tier="agent"
               title="Agent faculties"
-              blurb="The everyday operative — always available. Its brain (Orchestrator), Memory, the Channels you reach it through, the Gateway it runs on, its persona, plus what it knows and can look up."
+              blurb="The everyday Operative — brain, memory, channels, gateway, and what it knows."
               composition={composition}
               library={library}
               verifyResults={verifyResults}
@@ -297,7 +294,7 @@ export function StationGrid() {
             <TierSection
               tier="dev"
               title="Dev faculties"
-              blurb="Switched on for development work — alternative engines, observability, the dev session and surfaces, and the capabilities for building, understanding, designing, testing, and coordinating software."
+              blurb="Switched on for development — engines, observability, dev surfaces, and build/test/coordinate capabilities."
               composition={composition}
               library={library}
               verifyResults={verifyResults}

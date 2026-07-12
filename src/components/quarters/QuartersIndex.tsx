@@ -110,9 +110,8 @@ export function QuartersIndex() {
         <div className="head">
           <h1>Quarters</h1>
           <p className="ld">
-            The native configuration of every runtime selected in the composition. Claude Code keeps
-            its full surface over the real <code>~/.claude</code> (owned / loose primitives, APM-compiled
-            packages); other engines render a generic tier from their Fitting&apos;s Quarters descriptor.
+            Native config for every runtime in the composition — Claude Code over the real{" "}
+            <code>~/.claude</code>, other engines a generic tier.
           </p>
         </div>
 

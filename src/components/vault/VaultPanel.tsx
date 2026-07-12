@@ -31,9 +31,7 @@ export function VaultPanel() {
         <div className="head">
           <h1>Vault</h1>
           <p className="ld">
-            AES-256-GCM, scrypt-derived key, file mode 0600 on <code>data/vault.json</code>.
-            Materialised as <code>.env</code> in the active composition at runtime; deleted on Stop.
-            Secrets never leave the machine.
+            Encrypted secrets, materialised as <code>.env</code> only between Run and Stop.
           </p>
         </div>
 
@@ -41,12 +39,10 @@ export function VaultPanel() {
           <div className="banner alarm">
             <span className="glyph">!</span>
             <div>
-              <h5>Dev mode — vault is auto-unlocked</h5>
+              <h5>Dev mode — vault auto-unlocks</h5>
               <p>
-                <code>VAULT_UNLOCKED=true</code> is set in the environment, so the vault is decrypted with
-                a fixed dev passphrase on every request. Convenient locally, unsafe anywhere else. Remove
-                <code> VAULT_UNLOCKED</code> from <code>.env</code> (or set it to <code>false</code>) to
-                require a real passphrase again.
+                <code>VAULT_UNLOCKED</code> is set: decrypted with a fixed dev passphrase. Unset it to
+                require a real one.
               </p>
             </div>
           </div>
@@ -56,10 +52,9 @@ export function VaultPanel() {
           <div className="banner alarm">
             <span className="glyph">!</span>
             <div>
-              <h5>Vault is using the unsafe starter state</h5>
+              <h5>No vault password set</h5>
               <p>
-                The vault opens without a password for bootstrap convenience. Set one before storing real
-                secrets — without a password, the vault file is plain on disk.
+                Opens without one for bootstrap; the file stays plain on disk until you set a password.
               </p>
             </div>
           </div>
@@ -79,10 +74,10 @@ export function VaultPanel() {
             </h3>
             <p style={{ color: "var(--mute)", fontSize: 12.5, margin: "0 0 16px" }}>
               {vaultNeedsPassword
-                ? "Encrypts data/vault.json with a scrypt-derived key. The password is never stored; you'll re-enter it on app start."
+                ? "Never stored; you re-enter it on app start."
                 : vaultUnlocked
-                ? "Secrets are decrypted in memory. Materialised .env appears on Run, deleted on Stop."
-                : "Enter the passphrase to decrypt data/vault.json."}
+                ? "Decrypted in memory until Stop."
+                : "Enter the passphrase to unlock."}
             </p>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input
@@ -173,11 +168,11 @@ export function VaultPanel() {
 
             {!vaultUnlocked || vaultNeedsPassword ? (
               <div style={{ padding: 28, color: "var(--mute)", fontSize: 13, textAlign: "center" }}>
-                {vaultNeedsPassword ? "Set a vault password before storing secrets." : "Locked — unlock to view stored secrets."}
+                {vaultNeedsPassword ? "Set a password before storing secrets." : "Locked — unlock to view secrets."}
               </div>
             ) : secrets.length === 0 ? (
               <div style={{ padding: 28, color: "var(--mute)", fontSize: 13, textAlign: "center" }}>
-                No secrets stored. Add one, save it, and the runner will materialise it as <code>.env</code> on Run.
+                No secrets yet. Add one — it materialises as <code>.env</code> on Run.
               </div>
             ) : (
               secrets.map((secret, index) => (
@@ -201,16 +196,11 @@ export function VaultPanel() {
             fontWeight: 600,
             fontSize: 22,
             letterSpacing: "-0.008em",
-            margin: "40px 0 8px"
+            margin: "40px 0 12px"
           }}
         >
-          How the vault is materialised
+          Where secrets live
         </h2>
-        <p style={{ color: "var(--mute)", fontSize: 13, margin: "0 0 18px", maxWidth: 600 }}>
-          When you press Run, the runner decrypts the vault and writes a <code>.env</code> file into the
-          active composition&apos;s directory. On Stop, that <code>.env</code> is deleted. Secrets never
-          leave the machine and are never committed to disk in plain form past one tick.
-        </p>
         <table className="simple">
           <thead>
             <tr>
