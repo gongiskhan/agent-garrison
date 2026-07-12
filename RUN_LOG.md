@@ -343,3 +343,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: probe-question row compiled to LOCAL ollama target (never Anthropic); resolveProbeTarget resolves; live local question gen; 62/62 probe tests; codex finding rebutted+strengthened; IMPROVER-PROBE OK
 - build: lead-built after impl-s7 stalled 30min@0 output
 - model: fable-5 lead + gpt-5.5 codex
+
+### DECISION 2026-07-12T21:04:35Z (S8 stall takeover)
+- impl-s8 produced zero output in 30 min (no improver changes, no findings doc); lead takes over WS8. impl-s6 (WS6 UI) continues.
