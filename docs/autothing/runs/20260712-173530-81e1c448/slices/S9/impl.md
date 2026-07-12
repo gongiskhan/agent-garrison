@@ -32,4 +32,23 @@ copy, added touch affordances, and proved the shell holds at iPhone width.
 - Full suite: 2141 passed; sole failure is the documented vault-heal spawn flake
   (18/18 in isolation), logged in `docs/autothing/known-flakes.md`.
 
+## Addendum — implementer detail (commit 6456b66)
+
+Beyond the coarse-pointer touch block, the mobile pass also:
+- reflows the Vault `SecretRow` fixed `220px 1fr auto auto auto` grid to a
+  `grid-template-areas` stack below 560px (was the worst 390px break when
+  unlocked) — classes `.vault-secret-row` + `.secret-*`;
+- reflows the FacultyStation 4-up `Cardinality/Shapes/Selected/Verify` grid to
+  2-up and stacks the config `.field` rows below 560px (`.station-cells`);
+- scopes `overflow-wrap:anywhere` to `table.simple code` so the vault phase
+  table's long paths wrap while short labels (PHASE, runtime) stay whole —
+  cleaner than breaking every cell.
+
+Narrow-viewport evidence was re-captured with a **fresh Playwright context per
+route** (mobile + touch, 390×844) to avoid mobile-viewport zoom carryover across
+routes; final `slices/S9/overflow-390.json` = **0px on /, /compose, /quarters,
+/vault**, `pointer:coarse` active on every route. typecheck exit 0; eslint clean
+on the 5 touched files; tour suites 42/42; full suite 247 files / 2142 tests
+passed (6 files / 14 tests skipped).
+
 ## Verdict: passed — MARATHON-WS9 OK
