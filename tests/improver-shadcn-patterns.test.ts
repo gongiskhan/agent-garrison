@@ -111,3 +111,27 @@ describe("pattern 4 — reconcile verifies applied, refreshes drifted, retires s
     expect(logs.join("\n")).toMatch(/reconcile: verified 1 applied · refreshed 1 pending · retired 2 stale/);
   });
 });
+
+describe("hardening (S8 codex findings)", () => {
+  it("I2: a structurally-corrupt ledger THROWS (never silently un-suppresses or clobbers)", async () => {
+    const { loadRejectionLedger, recordRejection } = await patterns();
+    const { writeFileSync } = await import("node:fs");
+    const p = await import("node:path");
+    const f = p.join(dataDir, "rejection-ledger.json");
+    writeFileSync(f, JSON.stringify({ rejections: "oops" })); // valid JSON, wrong shape
+    expect(() => loadRejectionLedger()).toThrow(/not a \{rejections/);
+    expect(() => recordRejection({ id: "x", rule: "r", targetClass: "c", claim: "y" }, "reason", "t")).toThrow(/refusing/);
+    // the corrupt file is untouched
+    expect(JSON.parse((await import("node:fs")).readFileSync(f, "utf8")).rejections).toBe("oops");
+  });
+
+  it("I4: a citation escaping the repo root reads as 'does not hold' (drops the proposal), never an out-of-root read", async () => {
+    const { evidenceHolds, proposalEvidenceHolds } = await patterns();
+    expect(evidenceHolds({ file: "/etc/passwd", line: 1 }, repoRoot)).toBe(false);
+    expect(evidenceHolds({ file: "../../../../etc/passwd", line: 1 }, repoRoot)).toBe(false);
+    // an in-root citation still works
+    expect(evidenceHolds({ file: "src/a.ts", line: 2, snippet: "readSecret" }, repoRoot)).toBe(true);
+    // a proposal whose only citation escapes is vetted out
+    expect(proposalEvidenceHolds({ citations: [{ file: "/etc/passwd", line: 1 }] }, repoRoot)).toBe(false);
+  });
+});
