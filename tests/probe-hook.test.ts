@@ -106,7 +106,8 @@ describe("probe-generate — gating + block (#17)", () => {
       env,
       encoding: "utf8",
     });
-    expect(proc.stderr).toContain("agent-sdk-haiku-fast");
+    // WS7: probe-question resolves to the LOCAL ollama target (never Anthropic).
+    expect(proc.stderr).toContain("sdk-ollama-probe");
     expect(proc.stderr).toContain("probe-question");
     expect(proc.stdout).toContain("block");
   });

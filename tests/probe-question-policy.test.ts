@@ -1,7 +1,9 @@
-// GARRISON-FLOW-V2 S8 — the probe-question task type routes to the fast target
-// (agent-sdk-haiku-fast) in EVERY profile at EVERY tier (D23/D29e), and the seed
-// still compiles byte-stably. The generator resolves its model target from this
-// compiled cell.
+// GARRISON-FLOW-V2 S8 — the probe-question task type routes to a target in EVERY
+// profile at EVERY tier (D23/D29e), and the seed still compiles byte-stably. The
+// generator resolves its model target from this compiled cell.
+// WS7 (marathon constraint #3): the target was repointed off agent-sdk-haiku-fast
+// (Anthropic) to a LOCAL ollama agent-sdk target — probe questions never hit an
+// Anthropic endpoint.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,14 +23,16 @@ describe("probe-question policy cell", () => {
     expect(config.taskTypes).toContain("probe-question");
   });
 
-  it.each(["balanced", "economy", "premium"])("profile %s routes probe-question to agent-sdk-haiku-fast at every tier", (profile) => {
+  it.each(["balanced", "economy", "premium"])("profile %s routes probe-question to a LOCAL ollama target at every tier (never Anthropic)", (profile) => {
     const policy = compilePolicy(config, profile);
     const row = policy.matrix["probe-question"];
     expect(row).toBeTruthy();
     for (const tier of policy.tiers) {
-      expect(row[tier].targetId).toBe("agent-sdk-haiku-fast");
+      expect(row[tier].targetId).toBe("sdk-ollama-probe");
       expect(row[tier].runtime).toBe("agent-sdk");
-      expect(row[tier].model).toBe("claude-haiku-4-5");
+      expect(row[tier].provider).toBe("ollama-local");
+      // the hard constraint: probe questions never hit an Anthropic endpoint
+      expect(row[tier].provider).not.toBe("anthropic");
     }
   });
 
