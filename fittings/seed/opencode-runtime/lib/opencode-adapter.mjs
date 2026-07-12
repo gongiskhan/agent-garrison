@@ -101,10 +101,25 @@ export class OpenCodeAdapter {
     this._pending.delete(session);
     const r = await p;
     if (r.code !== 0) throw new Error(`opencode run exited ${r.code}: ${String(r.stderr).slice(0, 200)}`);
-    const { text, sessionId, error } = parseRunOutput(r.stdout ?? "");
-    // Capture the minted session id so subsequent turns resume the same session.
+    const raw = r.stdout ?? "";
+    const { text, sessionId, error } = parseRunOutput(raw);
+    // Capture the minted session id even on the failure paths below, so a retry
+    // resumes the same opencode session rather than starting a fresh one.
     if (sessionId) session.sessionId = sessionId;
-    if (!text && error) throw new Error(`opencode run error: ${error}`);
+    // Fail loudly (I3): a terminal error event fails the turn REGARDLESS of any
+    // partial text. Preserve the partial text on the thrown error so a caller can
+    // still persist it for debugging.
+    if (error) {
+      const err = new Error(`opencode run error: ${error}`);
+      err.partialText = text;
+      throw err;
+    }
+    // Fail loudly (I3): exit 0 with no parseable assistant text and no error event
+    // is empty / non-JSON / truncated output — never fabricate an ok "(no output)"
+    // result. Surface the raw stdout so the failure is diagnosable.
+    if (!text) {
+      throw new Error(`opencode run produced no assistant text (exit 0); raw output: ${raw.trim().slice(0, 200) || "(empty)"}`);
+    }
     return { text, artifacts: [] };
   }
 

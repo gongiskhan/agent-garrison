@@ -122,6 +122,36 @@ describe("OpenCode runtime adapter (MRr-opencode)", () => {
     await adapter.sendTurn(s, "x");
     await expect(adapter.awaitResponse(s)).rejects.toThrow(/provider not configured/);
   });
+
+  it("(a) exit 0 with EMPTY stdout fails loudly (never fabricates an ok result)", async () => {
+    const adapter = new OpenCodeAdapter({ runExec: async () => ({ code: 0, stdout: "", stderr: "" }) });
+    const s = await adapter.spawn({ model: "ollama-local/qwen2.5:3b" });
+    await adapter.sendTurn(s, "x");
+    await expect(adapter.awaitResponse(s)).rejects.toThrow(/no assistant text/);
+  });
+
+  it("(b) exit 0 with NON-JSON / garbage stdout fails loudly, surfacing the raw output", async () => {
+    const adapter = new OpenCodeAdapter({
+      runExec: async () => ({ code: 0, stdout: "boom: not json at all\n<partial", stderr: "" })
+    });
+    const s = await adapter.spawn({ model: "ollama-local/qwen2.5:3b" });
+    await adapter.sendTurn(s, "x");
+    await expect(adapter.awaitResponse(s)).rejects.toThrow(/boom: not json at all/);
+  });
+
+  it("(c) text-then-error events fail loudly, preserving the partial text on the thrown error", async () => {
+    const nd = [
+      textEvent("partial progress...", "ses_p"),
+      '{"type":"error","sessionID":"ses_p","error":{"data":{"message":"stream aborted"}}}'
+    ].join("\n");
+    const adapter = new OpenCodeAdapter({ runExec: async () => ({ code: 0, stdout: nd, stderr: "" }) });
+    const s = await adapter.spawn({ model: "ollama-local/qwen2.5:3b" });
+    await adapter.sendTurn(s, "x");
+    await expect(adapter.awaitResponse(s)).rejects.toMatchObject({
+      message: expect.stringMatching(/stream aborted/),
+      partialText: "partial progress..."
+    });
+  });
 });
 
 describe("OpenCode runtime-bridge delegation (MRr-bridge / opencode-runtime-ok)", () => {
