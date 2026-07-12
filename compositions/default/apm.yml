@@ -18,6 +18,7 @@ dependencies:
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
@@ -73,6 +74,8 @@ x-garrison:
         - id: codex-runtime
           config: {}
         - id: gemini-runtime
+          config: {}
+        - id: opencode-runtime
           config: {}
         - id: agent-sdk-runtime
           config:

@@ -296,6 +296,21 @@
   }
  },
  {
+  "id": "opencode-runtime",
+  "name": "OpenCode runtime",
+  "repo": "local:fittings/seed/opencode-runtime",
+  "localPath": "fittings/seed/opencode-runtime",
+  "summary": "Runtime Faculty (secondary) - drives `opencode run` (stateless subprocess, prompt via stdin, JSON event stream, `-s` session resume) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:opencode` tasks here; the primary calls the bridge and OpenCode does the work in its own loop against any configured provider (hosted `opencode/*` or a local Ollama).",
+  "platforms": [
+   "all"
+  ],
+  "ratings": {
+   "github_stars_url": "https://github.com/gongiskhan/garrison-opencode-runtime",
+   "global": 4.3,
+   "claude_code": 4.3
+  }
+ },
+ {
   "id": "scheduler",
   "name": "Scheduler",
   "repo": "local:fittings/seed/scheduler",
