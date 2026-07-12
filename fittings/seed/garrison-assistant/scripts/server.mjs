@@ -106,8 +106,15 @@ export function createServer() {
           return send(res, 400, { error: "answers must be an array of {id, text}" });
         }
         const arr = Array.isArray(answers) ? answers : [];
-        if (!arr.every((a) => a && typeof a === "object" && typeof a.id === "string")) {
-          return send(res, 400, { error: "each answer must be an object with a string id" });
+        const shapeOk = arr.every(
+          (a) =>
+            a &&
+            typeof a === "object" &&
+            typeof a.id === "string" &&
+            (a.text === undefined || typeof a.text === "string")
+        );
+        if (!shapeOk) {
+          return send(res, 400, { error: "each answer must be {id: string, text?: string}" });
         }
         const step = nextStep(arr);
         if (!step.done) return send(res, 200, { done: false, question: step.question });

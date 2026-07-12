@@ -177,6 +177,8 @@ describe("I4: malformed interview input is a 400, never an uncaught 500", () => 
 
     expect(await post('{"answers":[null]}')).toBe(400);
     expect(await post('{"answers":"x"}')).toBe(400);
+    // an element with a non-string text must not reach interview.mjs .toLowerCase() (500)
+    expect(await post('{"answers":[{"id":"byhand","text":{"bad":true}}]}')).toBe(400);
     expect(await post('{"answers":[]}')).toBe(200); // valid empty → first question
     await new Promise<void>((r) => server.close(() => r()));
   });
