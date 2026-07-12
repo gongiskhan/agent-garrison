@@ -278,3 +278,6 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - decision: governor + tests live outside the repo per brief D2 (single-run tooling); adversarial gates recorded skipped no-repo-diff
 - evidence: docs/autothing/runs/20260712-173530-81e1c448/slices/S0/gate-status.json; ~/.garrison/marathon/ledger.md governor lines
 - model: claude-fable-5 · duration ~8 min
+
+### DECISION 2026-07-12T18:34:22Z (S1 evidence re-record)
+- First recording invalid: title duration authored in ms against a seconds-unit schema (4827s video); one beat flagged (click action superfluous). Storyboard fixed (2.6s/2.2s titles, pure-assert beats), re-recording. advtest-s1 independent PASS 13/13 (own probe, DOM + API); fresh-context review approve; codex slice finding fixed (dcb24c7).

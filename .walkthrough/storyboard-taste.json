@@ -1,0 +1,76 @@
+{
+  "title": "Walkthrough: taste Fitting \u2014 owned design skills in Quarters",
+  "project": "agent-garrison",
+  "folder": "marathon-s1",
+  "video": {
+    "width": 1440,
+    "height": 900,
+    "fps": 30
+  },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Taste Fitting",
+      "subtitle": "design-taste-frontend + redesign-existing-projects, vendored MIT, owned via the global composition",
+      "duration": 2.6
+    },
+    {
+      "type": "browser",
+      "id": "flow",
+      "baseURL": "http://127.0.0.1:7777",
+      "startPath": "/quarters/skills",
+      "beats": [
+        {
+          "id": "skills-page",
+          "caption": "Quarters \u2014 the Skills surface over the real ~/.claude",
+          "expectedScreen": "the Quarters skills list with many skill rows",
+          "assert": {
+            "selector": "text:design-taste-frontend",
+            "highlight": true
+          },
+          "hold": 3000
+        },
+        {
+          "id": "taste-owned",
+          "caption": "design-taste-frontend \u2014 owned by the taste Fitting",
+          "expectedScreen": "the design-taste-frontend row visible with an owned state marker",
+          "assert": {
+            "selector": "text:design-taste-frontend",
+            "highlight": true
+          },
+          "hold": 3200
+        },
+        {
+          "id": "redesign-owned",
+          "caption": "redesign-existing-projects \u2014 the second vendored skill, same owner",
+          "expectedScreen": "the redesign-existing-projects row visible in the skills list",
+          "assert": {
+            "selector": "text:redesign-existing-projects",
+            "highlight": true
+          },
+          "hold": 3000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "pin",
+      "kind": "file",
+      "source": "fittings/seed/taste/upstream.json",
+      "highlight": {
+        "match": "b17742737e796305d829b3ad39eda3add0d79060",
+        "note": "upstream pinned at vendor time"
+      },
+      "hold": 3400
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "MARATHON-WS1",
+      "subtitle": "skills owned + pinned + drift-checked",
+      "duration": 2.2
+    }
+  ]
+}
