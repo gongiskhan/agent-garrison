@@ -93,12 +93,20 @@ describe("cloneFitting", () => {
     expect(resolved?.faculty).toBe("design");
   });
 
-  it("defaults the new id to <source>-copy and refuses a duplicate id", async () => {
-    const entry = await cloneFitting(SOURCE_ID); // no explicit id
-    createdIds.push(entry.id);
-    expect(entry.id).toBe("taste-copy");
+  it("defaults the new id to <source>-copy, then increments, and refuses a duplicate", async () => {
+    // basic-memory keeps this independent of the committed taste-copy demo clone,
+    // whose `-copy` slot is permanently taken.
+    const first = await cloneFitting("basic-memory"); // no explicit id
+    createdIds.push(first.id);
+    expect(first.id).toBe("basic-memory-copy");
 
-    await expect(cloneFitting(SOURCE_ID, { newId: "taste-copy" })).rejects.toBeInstanceOf(CloneError);
+    const second = await cloneFitting("basic-memory"); // -copy taken -> -copy-2
+    createdIds.push(second.id);
+    expect(second.id).toBe("basic-memory-copy-2");
+
+    await expect(
+      cloneFitting("basic-memory", { newId: "basic-memory-copy" })
+    ).rejects.toBeInstanceOf(CloneError);
   });
 
   it("rejects an unknown source", async () => {
