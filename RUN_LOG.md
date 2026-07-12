@@ -292,3 +292,8 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DECISION 2026-07-12T18:54:00Z (S2a codex verdicts)
 - codex needs-work: I3 REAL (adapter-resume never releases old pool checkout → double-teardown at shutdown; teardown throw swallowed) → sent back to impl-s2a with fix spec. I4 REBUTTED: claudeCodeResolvable boolean/function opts are a test-injection seam, no production caller passes them (grep verified); a doc comment requested.
+
+### GATE 2026-07-12T19:05:36Z — S2a1+S2a2 (WS2a gateway abstraction)
+- green: full suite 2019 · fresh review APPROVE (reviewer re-ran live smoke) · codex needs-work→fixed→resolved (e2113e8) · gated live smoke passed twice with real ollama operative · asciinema evidence sha b2f00c22ca73f84c2b2d3c5d704b1cc566958e457ea6832bc6fb4f5cc1a72ef6
+- notable: live smoke caught a REAL bug (resolvePrimaryAdapter hardcoded provider anthropic — non-Anthropic primary impossible; fixed with byte-identical defaults)
+- model: fable-5 lead + fresh subagents + gpt-5.5 codex · duration ~85 min
