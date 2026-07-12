@@ -201,6 +201,9 @@ export function VaultPanel() {
         >
           Where secrets live
         </h2>
+        {/* WS9: wrap the wide table so it scrolls within its own bounds instead
+            of overflowing the page at narrow (390px) widths. */}
+        <div style={{ overflowX: "auto", maxWidth: "100%" }}>
         <table className="simple">
           <thead>
             <tr>
@@ -238,6 +241,7 @@ export function VaultPanel() {
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </main>
   );
