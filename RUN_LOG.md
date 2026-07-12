@@ -297,3 +297,7 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: full suite 2019 · fresh review APPROVE (reviewer re-ran live smoke) · codex needs-work→fixed→resolved (e2113e8) · gated live smoke passed twice with real ollama operative · asciinema evidence sha b2f00c22ca73f84c2b2d3c5d704b1cc566958e457ea6832bc6fb4f5cc1a72ef6
 - notable: live smoke caught a REAL bug (resolvePrimaryAdapter hardcoded provider anthropic — non-Anthropic primary impossible; fixed with byte-identical defaults)
 - model: fable-5 lead + fresh subagents + gpt-5.5 codex · duration ~85 min
+
+### DECISION 2026-07-12T19:12:24Z (S2b codex verdicts)
+- codex needs-work: two REAL I3 loud-failure violations (empty/malformed run output silently accepted; terminal error swallowed after partial text) → fix dispatched to impl-s2b-2. Live delegate round-trip earlier PROVED the transport (bridge→opencode→ollama→{summary,artifacts}); 3B model quality noted for degradations doc.
+- S2b was ultimately a TWO-AGENT convergence (original impl-s2b woke, contributed tests + CLI findings incl. v2-API-can't-carry-model, impl-s2b-2 shipped the stateless design); coordination cost logged to friction.
