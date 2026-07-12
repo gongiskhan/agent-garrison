@@ -16,7 +16,7 @@ commit + its sentinel printed and appended to `~/.garrison/marathon/ledger.md`.
 | S2a1 | WS2a classifier+resume abstraction: classifier via primary-agnostic adapter path; resume via adapter.resume | api | http-gateway gateway-routing/stage-b + claude-pty runtime adapters | g2 | passed |
 | S2a2 | WS2a Stage-B moves via adapter (setModel/setEffort) + non-Claude primary boot/serve smoke | api | http-gateway + agent-sdk-runtime; committed smoke test | g2 | passed |
 | S2b | WS2b opencode-runtime Fitting: serve-based bridge, delegate(), primary-capable, descriptor, status surface; installs ollama+qwen | mixed | fittings/seed/opencode-runtime + library.json + quarters | g2 | passed |
-| S2c | WS2c matrix harness + full run: every composition Fitting × {claude-code, codex, opencode}; fix agnosticism bugs | api | scripts/matrix-harness + docs matrix doc | g2 | pending |
+| S2c | WS2c matrix harness + full run: every composition Fitting × {claude-code, codex, opencode}; fix agnosticism bugs | api | scripts/matrix-harness + docs matrix doc | g2 | passed |
 | S2d | WS2d degradations doc + UI surfacing on non-Claude primaries | mixed | docs/RUNTIME_DEGRADATIONS.md + compose/run UI badge | g2 | pending |
 | S3 | WS3 clone+edit: Armory Clone action → fittings/local/ copy, cloned_from provenance, drift vs pinned upstream, Monaco create-file, composer+run round trip | mixed | library.ts/fitting-files.ts/compose UI | g3 | pending |
 | S4 | WS4 composition switching: active_composition pointer, shell switcher (down/re-resolve/up, error-blocked), CLI flag, evidence id+hash | mixed | src/lib/compositions+runner, AppShell, scripts CLI | g4 | pending |

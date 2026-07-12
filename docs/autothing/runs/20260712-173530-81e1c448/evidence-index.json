@@ -48,6 +48,11 @@
    "videoSha256": "1daf66eb391d95cad1f1161d144a221635b5a03d840ce19d178446d1a1ed8b5a",
    "videoBytes": 890,
    "evidenceMode": "asciinema"
+  },
+  "S2c": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS2C OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2c/gate-status.json"
   }
  },
  "globalGate": {

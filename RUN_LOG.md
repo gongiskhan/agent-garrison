@@ -306,3 +306,8 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - green: suite 2024 · review APPROVE (live flag audit) · codex 2 findings→fixed→resolved · live delegate round-trip through local ollama proven twice · asciinema sha 1daf66eb391d95cad1f1161d144a221635b5a03d840ce19d178446d1a1ed8b5a
 - design decision: stateless run-subprocess (sibling parity; v2 HTTP API can't carry per-call model/variant); server-first variant preserved under slices/S2b/server-first-variant/
 - model: fable-5 lead + 2 impl agents + fresh reviewer + gpt-5.5 codex · duration ~110 min (incl. stall takeover)
+
+### GATE 2026-07-12T19:59:20Z — S2c (WS2c matrix)
+- green: full 3-primary matrix run zero unexplained failures (every primary booted RoutedGateway + served live turn); harness + tests committed; codex proto-key finding fixed 412128e→resolved; full suite 2068
+- notable: found+fixed a real agnosticism bug (resolvePrimaryAdapter had no opencode branch)
+- model: fable-5 lead + impl-s2c + gpt-5.5 codex · matrix run driven by impl-s2c
