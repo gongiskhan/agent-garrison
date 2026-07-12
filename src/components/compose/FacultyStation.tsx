@@ -200,16 +200,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           </div>
         ) : null}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 1,
-            background: "var(--rule)",
-            border: "1px solid var(--rule)",
-            marginBottom: isAlarm ? 28 : 32
-          }}
-        >
+        <div className="station-cells" style={{ marginBottom: isAlarm ? 28 : 32 }}>
           <Cell label="Cardinality">
             {faculty.cardinality}
             {faculty.cardinality === "single" && faculty.governing ? (

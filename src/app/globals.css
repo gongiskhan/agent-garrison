@@ -611,6 +611,61 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   .head h1 { font-size: 30px; }
 }
 
+/* ── Touch targets (iPad / iPhone over Tailscale) ───────────────────────────
+   On a coarse pointer, raise the primary interactive controls to a
+   comfortable ≥44px tap area without changing their desktop look. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn.small { min-height: 40px; }
+  nav.tabs .item { min-height: 44px; }
+  input.text, select.text, textarea.text { min-height: 44px; }
+  .compose-search input,
+  .compose-search button { min-height: 44px; }
+  .vault-secret-row button { min-height: 40px; }
+}
+
+/* ── Vault secret rows — reflow instead of overflowing at phone width ─────── */
+.vault-secret-row {
+  display: grid;
+  grid-template-columns: 220px 1fr auto auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.vault-secret-row .secret-consumers { text-align: right; }
+@media (max-width: 560px) {
+  .vault-secret-row {
+    grid-template-columns: 1fr auto auto;
+    grid-template-areas:
+      "key    reveal remove"
+      "value  value  value"
+      "cons   cons   cons";
+    gap: 8px 10px;
+  }
+  .vault-secret-row .secret-key { grid-area: key; }
+  .vault-secret-row .secret-value { grid-area: value; }
+  .vault-secret-row .secret-reveal { grid-area: reveal; }
+  .vault-secret-row .secret-remove { grid-area: remove; }
+  .vault-secret-row .secret-consumers { grid-area: cons; text-align: left; }
+}
+
+/* ── Compose station station-header cells — 4-up on desktop, 2-up on narrow ─ */
+.station-cells {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+@media (max-width: 560px) {
+  .station-cells { grid-template-columns: repeat(2, 1fr); }
+  /* Stack the label/control config rows so the 220px label column
+     stops squeezing the input at phone width. */
+  .field { grid-template-columns: 1fr; gap: 4px 0; }
+  .field .hint { grid-column: 1; }
+}
+
 /* Rendered markdown preview (Quarters MarkdownEditor: Context, Plans) */
 .markdown-body { color: var(--ink); }
 .markdown-body > :first-child { margin-top: 0; }

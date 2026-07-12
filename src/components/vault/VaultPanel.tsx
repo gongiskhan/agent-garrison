@@ -256,25 +256,16 @@ function SecretRow({
 }) {
   const [revealed, setRevealed] = useState(false);
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "220px 1fr auto auto auto",
-        gap: 14,
-        alignItems: "center",
-        padding: "11px 18px",
-        borderBottom: "1px solid var(--rule)"
-      }}
-    >
+    <div className="vault-secret-row">
       <input
-        className="text"
+        className="text secret-key"
         style={{ fontFamily: "var(--font-mono), 'JetBrains Mono', monospace", fontSize: 12, fontWeight: 500 }}
         value={secret.key}
         placeholder="KEY"
         onChange={(e) => onChange({ ...secret, key: e.target.value })}
       />
       <input
-        className="text"
+        className="text secret-value"
         type={revealed ? "text" : "password"}
         style={{ fontFamily: "var(--font-mono), 'JetBrains Mono', monospace", fontSize: 12 }}
         value={secret.value}
@@ -283,7 +274,7 @@ function SecretRow({
       />
       <button
         type="button"
-        className="font-mono"
+        className="font-mono secret-reveal"
         style={{
           fontSize: 10.5,
           border: "1px solid var(--rule)",
@@ -299,6 +290,7 @@ function SecretRow({
       <button
         type="button"
         onClick={onRemove}
+        className="secret-remove"
         style={{
           background: "transparent",
           border: "1px solid var(--rule)",
@@ -312,12 +304,11 @@ function SecretRow({
         ×
       </button>
       <span
-        className="font-mono"
+        className="font-mono secret-consumers"
         style={{
           fontSize: 10.5,
           color: "var(--mute)",
           letterSpacing: "0.04em",
-          textAlign: "right",
           whiteSpace: "nowrap"
         }}
       >
