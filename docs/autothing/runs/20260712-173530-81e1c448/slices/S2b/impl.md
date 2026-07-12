@@ -120,5 +120,6 @@ transport (injected `runExec`), so they need neither a live opencode server nor 
 
 - `a0953a9` — test(opencode-runtime): committed run-adapter + delegate-bridge + seed-manifest tests, runtime-peer enumeration (S2b)
 - `cf37679` — test(opencode-runtime): explicit RuntimeAdapter method-contract check
+- `040133c` - feat(opencode-runtime): opencode as a first-class runtime Fitting (S2b) - feature capstone (`seedIds` addition), and the `--probe` version-string assertion + stateless-first manifest/library summaries applied by the takeover (impl-s2b-2).
 
 Impl files landed earlier via the takeover WIP: `7f0acbb`, `01de47b`, `0b80063`, `7a7ff35`.
