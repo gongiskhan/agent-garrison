@@ -402,6 +402,11 @@ export interface LibraryEntry {
   platforms: PlatformId[];
   ratings: RatingInfo;
   metadata: GarrisonMetadata;
+  // Present only on clones (S3): "<sourceId>@<version>" recording the upstream
+  // Fitting this was copied from. The clone is a first-class, independent local
+  // Fitting — upstream updates never touch it; drift is measured against the
+  // clone-time snapshot in the copy's clone.json, not against upstream.
+  cloned_from?: string;
 }
 
 export interface SelectedFitting {

@@ -5,7 +5,7 @@ import { parseGarrisonMetadata } from "./metadata";
 import type { LibraryEntry } from "./types";
 import { readYamlFile } from "./yaml";
 
-interface RawLibraryEntry {
+export interface RawLibraryEntry {
   id: string;
   name: string;
   repo: string;
@@ -13,15 +13,45 @@ interface RawLibraryEntry {
   summary: string;
   platforms: string[];
   ratings?: LibraryEntry["ratings"];
+  // Set on clones (S3): "<sourceId>@<version>" — the upstream this was copied
+  // from. Carried through to the resolved LibraryEntry so the composer/editor
+  // can mark it and read its clone.json drift baseline.
+  cloned_from?: string;
 }
 
 interface RawManifest {
   "x-garrison"?: unknown;
 }
 
-export async function readLibrary(): Promise<LibraryEntry[]> {
+export async function readRawLibrary(): Promise<RawLibraryEntry[]> {
   const raw = await fs.readFile(LIBRARY_PATH, "utf8");
-  const entries = JSON.parse(raw) as RawLibraryEntry[];
+  return JSON.parse(raw) as RawLibraryEntry[];
+}
+
+export async function writeRawLibrary(entries: RawLibraryEntry[]): Promise<void> {
+  // Match the existing on-disk style byte-for-byte: 1-space indent, non-ASCII
+  // escaped to \uXXXX, no trailing newline. Keeps an append (e.g. a clone) to a
+  // one-line diff instead of reformatting the whole registry.
+  const json = JSON.stringify(entries, null, 1).replace(
+    /[^\x00-\x7f]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`
+  );
+  await fs.writeFile(LIBRARY_PATH, json, "utf8");
+}
+
+// Append a new entry (idempotent by id — a duplicate id throws so a clone can
+// never silently overwrite an existing registry entry).
+export async function appendRawLibraryEntry(entry: RawLibraryEntry): Promise<void> {
+  const entries = await readRawLibrary();
+  if (entries.some((e) => e.id === entry.id)) {
+    throw new Error(`Library already has an entry with id ${entry.id}`);
+  }
+  entries.push(entry);
+  await writeRawLibrary(entries);
+}
+
+export async function readLibrary(): Promise<LibraryEntry[]> {
+  const entries = await readRawLibrary();
   const resolved = await Promise.all(entries.map(resolveLibraryEntry));
   return resolved.sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -45,6 +75,7 @@ async function resolveLibraryEntry(entry: RawLibraryEntry): Promise<LibraryEntry
     faculty: metadata.faculty,
     platforms: entry.platforms,
     ratings: entry.ratings ?? {},
-    metadata
+    metadata,
+    cloned_from: entry.cloned_from
   };
 }
