@@ -77,6 +77,13 @@
    "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S5/gate-status.json",
    "videoSha256": "b8905952638f16f7d7a01e9ce99b4f331d783f88a90480848561286e5be30259",
    "evidenceMode": "asciinema"
+  },
+  "S7": {
+   "status": "passed",
+   "sentinel": "IMPROVER-PROBE OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S7/gate-status.json",
+   "videoSha256": "5e899ecb71b956baa1bc1be2645f6bb2f3ce5a1eac3ab77542692cd26aef5342",
+   "evidenceMode": "asciinema"
   }
  },
  "globalGate": {

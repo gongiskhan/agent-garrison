@@ -24,7 +24,7 @@ commit + its sentinel printed and appended to `~/.garrison/marathon/ledger.md`.
 | S5b | WS5 Guide (launch tours by name) + Build/interview → ≥1 skill + ≥1 automation proposal, provenance `assistant`, approvable in Improver UI | mixed | garrison-assistant + improver queue | g5 | passed |
 | S6a | WS6 tour engine: ui.tours metadata block + in-app DOM executor (same storyboard schema) + Demo player w/ highlights + captions | ui | src/lib/metadata + src/components/tours | g6 | pending |
 | S6b | WS6 Guided player (spotlight/wait/assert/advance) + a tour per seed Fitting + Escape exit + Assistant Guide launch | ui | tours descriptors per fitting + engine | g6 | pending |
-| S7 | WS7 probe revival: probe-question policy row (S9 fast-target seed), local-model question generation via ollama-local, acceptance checks → IMPROVER-PROBE OK | mixed | improver + orchestrator policy + agent-sdk provider | g7 | pending |
+| S7 | WS7 probe revival: probe-question policy row (S9 fast-target seed), local-model question generation via ollama-local, acceptance checks → IMPROVER-PROBE OK | mixed | improver + orchestrator policy + agent-sdk provider | g7 | passed |
 | S8a | WS8 shadcn/improve findings doc + evidence discipline (file:line + confidence) + vet pass (planted false positive dropped) | api | fittings/seed/improver | g8 | pending |
 | S8b | WS8 rejection ledger (reason + suppression across runs) + reconcile mode (verify/refresh/retire) demonstrated | mixed | improver + its UI reject flow | g8 | pending |
 | S9a | WS9 audit: redesign-skill audit across all surfaces, before word-counts, audit doc committed | ui | docs/design/UIPASS audit | g9 | pending |
