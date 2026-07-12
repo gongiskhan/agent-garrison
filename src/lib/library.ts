@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { LIBRARY_PATH, ROOT_DIR } from "./paths";
 import { parseGarrisonMetadata } from "./metadata";
+import { writeFileAtomic } from "./atomic-write";
 import type { LibraryEntry } from "./types";
 import { readYamlFile } from "./yaml";
 
@@ -36,7 +37,8 @@ export async function writeRawLibrary(entries: RawLibraryEntry[]): Promise<void>
     /[^\x00-\x7f]/g,
     (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`
   );
-  await fs.writeFile(LIBRARY_PATH, json, "utf8");
+  // Atomic (temp + rename) so a concurrent reader never catches a torn file.
+  await writeFileAtomic(LIBRARY_PATH, json);
 }
 
 // Append a new entry (idempotent by id — a duplicate id throws so a clone can
