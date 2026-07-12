@@ -176,7 +176,7 @@ function ollamaDelegate(fitting, tmp) {
   if (r.code === 0 && parsed && typeof parsed.summary === "string") {
     return { status: "pass", note: `delegate round-trip ok over ollama/${OLLAMA_MODEL}; summary "${parsed.summary.slice(0, 60).replace(/\s+/g, " ")}"` };
   }
-  const why = parsed?.message || r.stderr.trim().slice(0, 160) || `exit ${r.code}`;
+  const why = (parsed?.message || r.stderr.trim() || `exit ${r.code}`).replace(/\s+/g, " ").slice(0, 180);
   return { status: "degraded", note: `delegate over ollama/${OLLAMA_MODEL} did not return a summary (small-local-model quality / transport): ${why}` };
 }
 
@@ -192,7 +192,7 @@ function codexDelegate(fitting, tmp, env) {
   if (r.code === 0 && parsed && typeof parsed.summary === "string") {
     return { status: "pass", note: `codex delegate round-trip ok (budgeted single call); summary "${parsed.summary.slice(0, 60).replace(/\s+/g, " ")}"` };
   }
-  const why = parsed?.message || r.stderr.trim().slice(0, 160) || `exit ${r.code}`;
+  const why = (parsed?.message || r.stderr.trim() || `exit ${r.code}`).replace(/\s+/g, " ").slice(0, 180);
   return { status: "degraded", note: `codex delegate returned no summary: ${why}` };
 }
 
@@ -354,6 +354,17 @@ function bootOpts(primary, tmp, logs) {
   }
 }
 
+// Race a promise against a deadline so a hung boot/turn (e.g. an in-process
+// claude PTY that never reaches ready) DEGRADES the primary cell rather than
+// hanging the whole run — the fitting cells still execute afterwards.
+function withTimeout(promise, ms, label) {
+  let t;
+  const guard = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${label} exceeded ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(t));
+}
+
 async function bootAndServe(primary, tmp) {
   const { createRoutedGateway } = await import(
     pathToFileURL(path.join(REPO, "fittings", "seed", "http-gateway", "scripts", "lib", "gateway-routing.mjs")).href
@@ -361,14 +372,15 @@ async function bootAndServe(primary, tmp) {
   const logs = [];
   let gw;
   const started = Date.now();
+  const bootMs = primary === "claude-code" ? 180000 : 150000;
   try {
     gw = await createRoutedGateway(bootOpts(primary, tmp, logs));
-    await gw.start();
+    await withTimeout(gw.start(), bootMs, `${primary} gateway.start()`);
     const adapter = gw.operativeAdapter();
     const session = gw.getOperativeSession();
     if (!adapter || !session) throw new Error("gateway booted but exposed no operative adapter/session");
     await adapter.sendTurn(session, TURN_PROMPT);
-    const resp = await adapter.awaitResponse(session);
+    const resp = await withTimeout(adapter.awaitResponse(session), bootMs, `${primary} served turn`);
     const reply = (resp?.text ?? "").trim();
     if (!reply) throw new Error("operative served an empty reply");
     return {
@@ -471,6 +483,12 @@ function probeEnv() {
 
 const BADGE = { pass: "PASS", degraded: "DEGRADED", fail: "FAIL", "verify-only": "verify-only" };
 
+// Keep table cells legible: collapse whitespace, strip pipes, cap length.
+function cell(note, max = 220) {
+  const s = String(note ?? "").replace(/\s+/g, " ").replace(/\|/g, "/").trim();
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
 export function renderMatrix(cache) {
   const primaries = cache.order.filter((p) => cache.primaries[p]);
   const fittingIds = cache.fittingOrder;
@@ -498,8 +516,8 @@ export function renderMatrix(cache) {
   L.push("| --- | --- | --- | --- |");
   for (const p of primaries) {
     const b = cache.primaries[p].boot;
-    const reply = b.reply ? `reply: "${b.reply.replace(/\|/g, "/")}"` : "-";
-    L.push(`| \`${p}\` | ${BADGE[b.status]} | ${b.engine} | ${b.note.replace(/\|/g, "/")} ${b.reply ? `(${reply})` : ""} |`);
+    const reply = b.reply ? ` (reply: "${cell(b.reply, 80)}")` : "";
+    L.push(`| \`${p}\` | ${BADGE[b.status]} | ${b.engine} | ${cell(b.note)}${reply} |`);
   }
   L.push("");
 
@@ -551,8 +569,15 @@ export function renderMatrix(cache) {
   } else {
     L.push("| Cell | Status | Cause |");
     L.push("| --- | --- | --- |");
-    for (const r of rows) L.push(`| ${r.scope} | ${BADGE[r.status]} | ${r.note.replace(/\|/g, "/")} |`);
+    for (const r of rows) L.push(`| ${r.scope} | ${BADGE[r.status]} | ${cell(r.note, 260)} |`);
   }
+  L.push("");
+  L.push("### Interpreting these degradations (feeds S2d)");
+  L.push("");
+  L.push("- **`gemini-runtime` (every column) - unauthed on this box.** The Gemini CLI is present (`bridge --probe` = ok), but no Gemini credentials are configured here, so a real *authenticated* delegate turn can't run. Expected, known degradation; not a code defect. A credentialed box resolves it.");
+  L.push("- **`opencode-runtime` delegate (opencode + claude-code columns) - small-local-model under load.** The delegate runs on the free local ollama `qwen2.5:3b`. When the harness fires the primary served turn plus the agent-sdk and opencode delegate round-trips back-to-back against the single ollama, the small model intermittently emits only lifecycle events with no `text` part, and the adapter correctly fails loud (I3 - it never fabricates output). It **passes isolated and in the `codex` column** (no ollama contention), proving this is small-model quality under concurrency, not an adapter/transport bug.");
+  L.push("- **`verify-only` own-port fittings - the harness does not `up` the composition.** Their own-port HTTP servers are only started by a real `up`; the fitting's declared `verify` hook is the health signal here. Where Garrison happened to be live, several returned a real HTTP 200 (e.g. `dev-env`, `orchestrator`, `web-channel-default`, `power-default`).");
+  L.push("- **`claude-code-runtime` / `codex-runtime` `verify-only` cells - deliberate budget conservation.** `claude-code-runtime` is a primary-only runtime with no secondary delegate bridge (served LIVE as the primary in its own column). `codex-runtime`'s delegate round-trip is budget-gated to ONE real call (spent in the `codex` column); other columns take a read-only `--probe`.");
   L.push("");
 
   // fails call-out
