@@ -1,0 +1,8 @@
+Final cross-model checkpoint (pass B, decorrelated from pass A) on a finished run in agent-garrison. Report ONLY real surviving defects (a concrete input/state producing a wrong result, crash, hang, wrong routing, or a credential/endpoint leak). No style/speculation.
+
+Focus: runtime-agnosticism + the non-Anthropic probe fence (the run's WS2/WS7 core). Read these files in full:
+1. fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs - applySwitch (adapter-moves vs slash-inject), respawnOperative (adapter.resume vs --continue), resolvePrimaryAdapter (must honor operativeSpawnConfig.provider, not hardcode anthropic), resolveClassifierAdapter fallback. Check: a non-Claude primary boots and serves; no adapter double-teardown or checkout leak; switch to an unknown target.
+2. fittings/seed/opencode-runtime/lib/opencode-adapter.mjs - stateless `opencode run --format json` transport, resume via -s, loud-fail on empty/malformed output. Check: silent success on empty stdout, swallowed terminal error, wrong session id on resume.
+3. fittings/seed/agent-sdk-runtime/lib/providers.mjs and any runtime-selection that launches ollama-local. Check: could the probe/agent path EVER reach api.anthropic.com when provider=ollama-local? Is ANTHROPIC_BASE_URL forced to localhost and ANTHROPIC_API_KEY cleared on every code path? Any path where a non-local baseUrl or a real key survives?
+
+For each REAL defect: file:line, the concrete failing input, the wrong outcome, confidence HIGH/MED/LOW. If nothing real: print exactly "NO REAL DEFECTS FOUND". Be terse.

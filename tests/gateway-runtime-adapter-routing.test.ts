@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs routing layer
-import { RoutedGateway, createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { RoutedGateway, createRoutedGateway, resolvePrimaryAdapter } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs
 import { planSwitch } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 // @ts-ignore — pure .mjs package
@@ -306,5 +306,32 @@ describe("S2a.3 — classifier falls back to the primary adapter when claude-cod
     expect(classifierRt.spawnConfig.model).toBe("haiku");
 
     gw.shutdown?.();
+  });
+});
+
+// codex-checkpoint pass B: an agent-sdk PRIMARY must resolve its own provider
+// spec, not silently fall back to "anthropic". The gateway entrypoint now
+// threads GARRISON_PROVIDER into operativeSpawnConfig.provider; this locks the
+// consuming contract in resolvePrimaryAdapter.
+describe("S2a — agent-sdk primary honors its configured provider", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "primary-provider-"));
+  const ctx = (provider?: string) => ({
+    compositionDir: tmp,
+    spawnFn: null,
+    operativeSpawnConfig: { compositionDir: tmp, model: "qwen2.5:3b", ...(provider ? { provider } : {}) },
+    // Inject a fake adapter so we don't dynamic-import the real fitting.
+    opts: { agentSdkAdapter: { name: "fake-sdk" } }
+  });
+
+  it("threads a non-anthropic provider (ollama-local) into the spawn config", async () => {
+    const resolved = await resolvePrimaryAdapter("agent-sdk", ctx("ollama-local"));
+    expect(resolved.claude).toBe(false);
+    expect(resolved.spawnConfig.provider).toBe("ollama-local");
+    expect(resolved.spawnConfig.model).toBe("qwen2.5:3b");
+  });
+
+  it("preserves the byte-identical anthropic default when no provider is named", async () => {
+    const resolved = await resolvePrimaryAdapter("agent-sdk", ctx());
+    expect(resolved.spawnConfig.provider).toBe("anthropic");
   });
 });

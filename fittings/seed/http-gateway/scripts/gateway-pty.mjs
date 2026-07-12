@@ -55,6 +55,15 @@ const CLAUDE_BINARY = process.env.GARRISON_CLAUDE_BINARY ?? "claude";
 // those vars through the orchestrator spawn instead of stripping them for Max-plan.
 const PROVIDER_LAUNCH = process.env.GARRISON_PROVIDER_LAUNCH === "1";
 const PRIMARY_PROVIDER = process.env.GARRISON_PROVIDER ?? "anthropic-plan";
+// The agent-sdk primary resolves its provider spec from operativeSpawnConfig
+// (baseUrl + capabilities). Historically we passed no provider there, so an
+// agent-sdk-as-primary composition on a non-Anthropic provider (e.g.
+// ollama-local) fell back to the "anthropic" spec — right endpoint only because
+// the process env still carried ANTHROPIC_BASE_URL, but the wrong capability
+// profile and a fence that leaned on inheritance. Thread the real provider so it
+// is configured explicitly. The runner spells the Max-plan path "anthropic-plan";
+// the SDK spec key for it is "anthropic".
+const PRIMARY_SDK_PROVIDER = PRIMARY_PROVIDER === "anthropic-plan" ? "anthropic" : PRIMARY_PROVIDER;
 
 const STARTED_AT = Date.now();
 const SESSION_ID_FILE = path.join(COMPOSITION_DIR, ".garrison", "operative-session-id");
@@ -214,6 +223,10 @@ async function initRouting() {
       continueSession,
       claudeBinary: CLAUDE_BINARY,
       providerLaunch: PROVIDER_LAUNCH,
+      // Consumed only by the agent-sdk primary path (claude-code ignores it and
+      // uses providerLaunch env). Makes an ollama-local / z.ai / … primary run
+      // on its own provider spec instead of defaulting to "anthropic".
+      provider: PRIMARY_SDK_PROVIDER,
     },
     classifierSpawnConfig: {
       compositionDir: COMPOSITION_DIR,
