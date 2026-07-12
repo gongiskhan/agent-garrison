@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 // @ts-ignore — pure .mjs
 import { OpenCodeAdapter, buildRunArgs, parseRunOutput } from "../fittings/seed/opencode-runtime/lib/opencode-adapter.mjs";
 // @ts-ignore
-import { delegate, validateDelegationResult, runAdapterConformance } from "../packages/claude-pty/src/index.mjs";
+import { delegate, validateDelegationResult, runAdapterConformance, ADAPTER_METHODS } from "../packages/claude-pty/src/index.mjs";
 import { parseGarrisonMetadata } from "@/lib/metadata";
 import { readYamlFile } from "@/lib/yaml";
 
@@ -37,6 +37,14 @@ describe("OpenCode runtime adapter (MRr-opencode)", () => {
     expect(stdinFromPrompt).toBe(true);
     // the prompt is NEVER in argv (it travels on stdin)
     expect(argv.join(" ")).not.toContain("the actual task text");
+  });
+
+  it("exposes every RuntimeAdapter method + a string id", () => {
+    const adapter = new OpenCodeAdapter();
+    expect(adapter.id).toBe("opencode");
+    for (const m of ADAPTER_METHODS) {
+      expect(typeof adapter[m]).toBe("function");
+    }
   });
 
   it("parseRunOutput: text from text events, session id from top-level sessionID, terminal error surfaced", () => {
@@ -163,6 +171,11 @@ describe("OpenCode runtime-bridge delegation (MRr-bridge / opencode-runtime-ok)"
   it("rejects a model outside the provider/model allowlist (loud)", async () => {
     const h = harness();
     await expect(h.run({ task: "x", model: "just-a-bare-name" })).rejects.toMatchObject({ code: "invalid-task-spec" });
+  });
+
+  it("rejects a spec missing the required task (loud)", async () => {
+    const h = harness();
+    await expect(h.run({ model: "ollama-local/qwen2.5:3b" })).rejects.toMatchObject({ code: "invalid-task-spec" });
   });
 });
 
