@@ -291,19 +291,7 @@
       "id": "ollama-local",
       "label": "Ollama local",
       "type": "ollama"
-    },
-    {
-      "id": "sdk-ollama-probe",
-      "type": "runtime-target",
-      "runtime": "agent-sdk",
-      "provider": "ollama-local",
-      "model": "qwen2.5:3b",
-      "promptMode": "lean",
-      "effort": "low"
     }
   ],
-  "version": 1,
-  "taskTypes": [
-    "probe-question"
-  ]
+  "version": 1
 }
