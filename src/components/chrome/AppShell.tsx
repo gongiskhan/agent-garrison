@@ -66,6 +66,11 @@ export function useAppShell(): AppShellState {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [composition, setComposition] = useState<Composition | null>(null);
+  const [compositions, setCompositions] = useState<Composition[]>([]);
+  const [activePointer, setActivePointer] = useState<string | null>(null);
+  const [activeExternal, setActiveExternal] = useState<boolean>(false);
+  const [switching, setSwitching] = useState<boolean>(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
   const [runnerState, setRunnerState] = useState<RunnerState | null>(null);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
@@ -135,17 +140,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   const refreshAll = useCallback(async () => {
     setError(null);
     try {
-      const [libraryRes, compositionRes, vaultRes] = await Promise.all([
+      const [libraryRes, compositionRes, vaultRes, activeRes] = await Promise.all([
         fetch("/api/library"),
         fetch("/api/compositions"),
-        fetch("/api/vault/secrets")
+        fetch("/api/vault/secrets"),
+        fetch("/api/composition/active")
       ]);
-      const [libraryData, compositionData, vaultData] = await Promise.all([
+      const [libraryData, compositionData, vaultData, activeData] = await Promise.all([
         libraryRes.json(),
         compositionRes.json(),
-        vaultRes.json()
+        vaultRes.json(),
+        activeRes.ok ? activeRes.json() : Promise.resolve(null)
       ]);
       const allCompositions = (compositionData.compositions ?? []) as Composition[];
+      const activePointerVal: string | null =
+        typeof activeData?.pointer === "string" ? activeData.pointer : null;
+      const activeId: string | null = typeof activeData?.id === "string" ? activeData.id : null;
       const states = await Promise.all(
         allCompositions.map(async (c) => {
           try {
@@ -158,11 +168,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         })
       );
       const running = states.find((s) => s.status === "running" || s.status === "starting");
+      // Active pointer wins (WS4 / D6); fall back to the legacy running-else-first
+      // heuristic for back-compat when no pointer resolves to a listed composition.
       const next =
+        (activeId ? allCompositions.find((c) => c.id === activeId) : undefined) ??
         (running && allCompositions.find((c) => c.id === running.id)) ??
         (allCompositions[0] as Composition | undefined) ??
         null;
       setLibrary(libraryData.library ?? []);
+      setCompositions(allCompositions);
+      setActivePointer(activePointerVal);
+      setActiveExternal(Boolean(activeData?.external));
       setComposition(next ?? null);
       setVaultUnlocked(Boolean(vaultData.unlocked));
       setVaultNeedsPassword(Boolean(vaultData.needsPassword));
@@ -312,6 +328,35 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [secrets]);
 
+  // Switch the active composition (WS4 / D6). Resolves the target server-side
+  // FIRST; a resolver error (409) is surfaced inline WITHOUT changing the
+  // selection (the controlled <select> snaps back to the current active id).
+  const switchTo = useCallback(
+    async (target: string) => {
+      if (switching) return;
+      setSwitching(true);
+      setSwitchError(null);
+      try {
+        const res = await fetch("/api/composition/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setSwitchError(typeof data?.error === "string" ? data.error : res.statusText);
+          return;
+        }
+        await refreshAll();
+      } catch (err) {
+        setSwitchError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSwitching(false);
+      }
+    },
+    [switching, refreshAll]
+  );
+
   const value = useMemo<AppShellState>(
     () => ({
       composition,
@@ -370,6 +415,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Sidebar />
         {children}
       </div>
+      <CompositionSwitcher
+        compositions={compositions}
+        activeId={composition?.id ?? null}
+        activePointer={activePointer}
+        activeExternal={activeExternal}
+        switching={switching}
+        error={switchError}
+        onSwitch={switchTo}
+        onDismissError={() => setSwitchError(null)}
+      />
       {editingFitting ? (
         <FittingEditor
           entry={editingFitting}
@@ -377,5 +432,117 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       ) : null}
     </Ctx.Provider>
+  );
+}
+
+// Floating active-composition switcher (WS4 / D6). A native <select> of the
+// compositions/ entries (plus the active pointer when it's an external path)
+// bound to the persisted pointer. Selecting an entry runs a clean down -> up via
+// /api/composition/switch; a resolver error is shown inline and the selection is
+// left unchanged (the value is controlled by the current active id).
+function CompositionSwitcher({
+  compositions,
+  activeId,
+  activePointer,
+  activeExternal,
+  switching,
+  error,
+  onSwitch,
+  onDismissError
+}: {
+  compositions: Composition[];
+  activeId: string | null;
+  activePointer: string | null;
+  activeExternal: boolean;
+  switching: boolean;
+  error: string | null;
+  onSwitch: (target: string) => void;
+  onDismissError: () => void;
+}) {
+  if (compositions.length === 0 && !activePointer) return null;
+
+  // The select value: the active pointer verbatim when external (so its option
+  // matches), else the resolved active id.
+  const selectValue = activeExternal && activePointer ? activePointer : activeId ?? "";
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 10,
+        right: 14,
+        zIndex: 40,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-end",
+        gap: 4,
+        maxWidth: "min(360px, calc(100vw - 28px))"
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 10px",
+          background: "var(--paper)",
+          border: "1px solid var(--rule)",
+          borderRadius: 6,
+          boxShadow: "0 1px 3px rgba(24, 33, 28, 0.08)"
+        }}
+      >
+        <label
+          htmlFor="composition-switcher"
+          style={{ fontSize: 11.5, color: "var(--mute)", whiteSpace: "nowrap" }}
+        >
+          Composition
+        </label>
+        <select
+          id="composition-switcher"
+          className="text"
+          value={selectValue}
+          disabled={switching}
+          onChange={(event) => {
+            const target = event.target.value;
+            if (target && target !== selectValue) onSwitch(target);
+          }}
+          style={{ width: "auto", minWidth: 150, padding: "5px 8px", fontSize: 12.5 }}
+        >
+          {activeExternal && activePointer ? (
+            <option value={activePointer}>{`${activeId ?? activePointer} (external)`}</option>
+          ) : null}
+          {compositions.map((composition) => (
+            <option key={composition.id} value={composition.id}>
+              {composition.name}
+            </option>
+          ))}
+        </select>
+        {switching ? (
+          <span style={{ fontSize: 11.5, color: "var(--mute)", whiteSpace: "nowrap" }}>
+            switching...
+          </span>
+        ) : null}
+      </div>
+      {error ? (
+        <div
+          role="alert"
+          onClick={onDismissError}
+          title="Click to dismiss"
+          style={{
+            fontSize: 11.5,
+            color: "var(--alarm)",
+            background: "var(--alarm-soft)",
+            border: "1px solid var(--alarm)",
+            borderRadius: 6,
+            padding: "6px 10px",
+            whiteSpace: "pre-wrap",
+            cursor: "pointer",
+            maxWidth: "100%"
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -36,6 +36,7 @@ import { ROOT_DIR } from "./paths";
 import { projectPrimaryContext } from "./orchestrator-projection";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
+import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
 import { reconcileCoordTeardown } from "./coord-wiring";
 import type { FittingSelectionMap, GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
@@ -132,6 +133,28 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
   try {
     await requireCommand(compositionId, "apm");
     const composition = await readCompositionWithDerivedTasks(compositionId);
+    // Run evidence (WS4 / D6): record which composition started + a content hash
+    // of its apm.yml, written EARLY (before the heavy install/verify/spawn steps)
+    // so the record lands even if a later step fails. Best-effort - a failed
+    // evidence write must never abort a launch.
+    try {
+      const evidence = await appendRunEvidence({
+        compositionDir: composition.directory,
+        compositionId: composition.id,
+        manifestPath: composition.manifestPath
+      });
+      appendLog(
+        compositionId,
+        "runner",
+        `run-evidence: recorded ${evidence.compositionId} apm.yml sha256 ${evidence.apmYmlSha256.slice(0, 12)}`
+      );
+    } catch (err) {
+      appendLog(
+        compositionId,
+        "stderr",
+        `run-evidence write skipped: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     // `--force` so apm's "critical hidden characters" warnings on third-party
     // node_modules (zod locales etc.) don't abort install. The composition's
     // own fittings are reviewed via the four-check pipeline; the diagnostic

@@ -9,7 +9,7 @@ import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
 import { facultyIds, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
 
-const DEFAULT_COMPOSITION_ID = "default";
+export const DEFAULT_COMPOSITION_ID = "default";
 
 const DEFAULT_ORCHESTRATOR_PROMPT = [
   "<!--",
