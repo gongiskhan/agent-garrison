@@ -173,3 +173,42 @@ export async function writeFile(id: string, userPath: string, content: string): 
   const relative = path.relative(root, target).split(path.sep).join("/");
   return { path: relative, size: after.size };
 }
+
+// Create a NEW file inside a fitting (the counterpart to the overwrite-only
+// writeFile). Same path-escape + blocked-segment guards, but it REQUIRES the
+// target not already exist and creates any missing parent directories within
+// the fitting root. Editing an existing file still goes through writeFile.
+export async function createFile(
+  id: string,
+  userPath: string,
+  content: string
+): Promise<{ path: string; size: number }> {
+  if (!userPath) {
+    throw new FittingFileError(400, "path is required");
+  }
+  if (typeof content !== "string") {
+    throw new FittingFileError(400, "content must be a string");
+  }
+  const { root } = await resolveLocalFitting(id);
+  const target = safeResolve(root, userPath);
+  if (target === root) {
+    throw new FittingFileError(400, "path is required");
+  }
+  rejectBlockedSegments(root, target);
+
+  let existing;
+  try {
+    existing = await fs.stat(target);
+  } catch {
+    existing = null;
+  }
+  if (existing) {
+    throw new FittingFileError(409, "File already exists (use the overwrite endpoint to edit it)");
+  }
+
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, content, "utf8");
+  const after = await fs.stat(target);
+  const relative = path.relative(root, target).split(path.sep).join("/");
+  return { path: relative, size: after.size };
+}
