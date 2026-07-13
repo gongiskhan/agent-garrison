@@ -1,0 +1,715 @@
+/* Muster page (S5a) - the control-plane config surface. Built entirely on the
+   Garrison theme tokens (globals.css :root): --paper/--ink/--sage/--brass/--rule
+   /--mute/--alarm/--warn. Sharp corners throughout (radius 0, matching .btn/.pill
+   /.tile), one accent family per role: sage = set/valid/armed, brass = labels,
+   alarm = unmet/violation. Interactive controls hold a >=44px touch target. The
+   whole layout collapses to a single column with zero horizontal overflow at
+   390px. Light-only, matching the app's single locked theme. */
+
+.wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 26px 22px 80px;
+}
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+.header {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+.identityRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.kicker {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-bottom: 6px;
+}
+.title {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 38px;
+  letter-spacing: -0.014em;
+  line-height: 1.03;
+  margin: 0;
+  color: var(--ink);
+}
+.titleId {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--mute);
+  margin-top: 6px;
+}
+
+/* composition switcher */
+.switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.switcherLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.select {
+  min-height: 44px;
+  min-width: 220px;
+  padding: 7px 12px;
+  font-size: 13px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+}
+.select:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+/* ── readiness strip ────────────────────────────────────────────────────── */
+.readiness {
+  margin-top: 18px;
+}
+.readinessHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.readinessLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.readyBadge,
+.notReadyBadge {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.readyBadge {
+  border: 1px solid var(--sage);
+  color: var(--sage);
+}
+.notReadyBadge {
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+}
+.badgeDot {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  display: inline-block;
+}
+
+.blocking {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 15px;
+  border: 1px solid rgba(155, 54, 45, 0.3);
+  background: var(--alarm-soft);
+  color: var(--alarm);
+  margin-bottom: 14px;
+}
+.blocking h5 {
+  margin: 0 0 3px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.blocking p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.blockGlyph {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.rulePills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rulePill {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  padding: 5px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule-2);
+  background: white;
+}
+.rulePill.met {
+  border-color: var(--sage);
+  color: var(--sage);
+}
+.rulePill.unmet {
+  border-color: var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.ruleMark {
+  width: 12px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* ── section scaffold ───────────────────────────────────────────────────── */
+.section {
+  margin-top: 30px;
+}
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.sectionLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass);
+  font-weight: 500;
+}
+.sectionCount {
+  color: var(--mute);
+  font-weight: 400;
+}
+
+/* ── targets tray ───────────────────────────────────────────────────────── */
+.trayHint {
+  font-size: 11.5px;
+  color: var(--mute);
+  margin: 0 0 10px;
+  line-height: 1.5;
+  max-width: 640px;
+}
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  margin-bottom: 18px;
+}
+.targetChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: grab;
+  text-align: left;
+  font: inherit;
+  touch-action: none;
+}
+.targetChip:hover {
+  border-color: var(--ink);
+}
+.targetChip.armed {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+  box-shadow: inset 0 0 0 1px var(--sage);
+}
+.targetChip.dragging {
+  opacity: 0.4;
+}
+.targetChip.nonAgentic {
+  border-style: dashed;
+}
+.chipMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border: 1px solid currentColor;
+  color: var(--sage-2);
+  flex-shrink: 0;
+}
+.targetChip.nonAgentic .chipMark {
+  color: var(--warn);
+}
+.chipBody {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.chipId {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.chipRuntime {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--mute);
+  letter-spacing: 0.02em;
+}
+
+/* ── duty list ──────────────────────────────────────────────────────────── */
+.dutyList {
+  display: grid;
+  gap: 8px;
+}
+.dutyRow {
+  border: 1px solid var(--rule);
+  background: white;
+}
+.dutyRow.expanded {
+  border-color: var(--rule-2);
+}
+.dutyHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.dutyToggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  font: inherit;
+}
+.dutyToggle:hover {
+  background: var(--paper-2);
+}
+.caret {
+  color: var(--mute);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.caret.open {
+  transform: rotate(90deg);
+}
+.dutyName {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+}
+.dutySummary {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--mute);
+  letter-spacing: 0.02em;
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+.dutyViolation {
+  color: var(--alarm);
+}
+.removeBtn {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--mute);
+  cursor: pointer;
+}
+.removeBtn:hover {
+  border-color: var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
+
+/* ── levels ─────────────────────────────────────────────────────────────── */
+.levels {
+  border-top: 1px solid var(--rule);
+  padding: 4px 14px 12px;
+  background: var(--paper);
+}
+.level {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.level:last-child {
+  border-bottom: none;
+}
+.levelTag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brass);
+  padding-top: 2px;
+}
+.levelBody {
+  min-width: 0;
+}
+.levelDesc {
+  font-size: 12px;
+  color: var(--mute);
+  line-height: 1.5;
+  margin: 0 0 9px;
+}
+
+/* leaf cell */
+.leafCell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.skillChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 5px 10px;
+  border: 1px solid var(--sage-2);
+  background: var(--sage-soft);
+  color: var(--sage);
+  font-size: 12px;
+}
+.skillChip .metaMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.dropTarget {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 5px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
+.dropTarget:hover {
+  border-color: var(--ink);
+}
+.dropTarget.set {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.dropTarget.over {
+  border-color: var(--brass);
+  box-shadow: inset 0 0 0 2px var(--brass-2);
+}
+.dropTarget.armable {
+  border-style: dashed;
+  border-color: var(--brass);
+}
+.dropTarget.invalid {
+  border-color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.dropLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dropValue {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.dropEmpty {
+  font-size: 12.5px;
+  color: var(--mute);
+  font-style: italic;
+}
+
+/* effort segments */
+.efforts {
+  display: inline-flex;
+  border: 1px solid var(--rule-2);
+}
+.effortSeg {
+  min-height: 44px;
+  padding: 4px 9px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  background: white;
+  border: none;
+  border-left: 1px solid var(--rule);
+  color: var(--mute);
+  cursor: pointer;
+}
+.effortSeg:first-child {
+  border-left: none;
+}
+.effortSeg.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.cellNote {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--alarm);
+  line-height: 1.45;
+  margin-top: 2px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.cellNote .noteMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* composite level */
+.composite {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+.compositeLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.seqChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  min-height: 34px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper-2);
+  font-size: 12px;
+  color: var(--ink);
+}
+.seqArrow {
+  color: var(--mute);
+}
+.seqLevel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--brass);
+}
+
+/* ── add-duty picker ────────────────────────────────────────────────────── */
+.addBtn {
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.addBtn:hover {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+.addPanel {
+  border: 1px solid var(--rule-2);
+  background: white;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.addPanelHead {
+  font-size: 11.5px;
+  color: var(--mute);
+  margin: 0 0 9px;
+}
+.addOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.addOption {
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12.5px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+}
+.addOption:hover {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.addOptionSub {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--mute);
+}
+.addEmpty {
+  font-size: 11.5px;
+  color: var(--mute);
+  font-style: italic;
+}
+
+/* ── states (loading / empty / error) ──────────────────────────────────── */
+.stateBox {
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+  padding: 30px 24px;
+  text-align: center;
+}
+.stateTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 18px;
+  margin-bottom: 5px;
+  color: var(--ink);
+}
+.stateBody {
+  font-size: 13px;
+  color: var(--mute);
+  margin: 0 auto;
+  max-width: 440px;
+  line-height: 1.55;
+}
+.skelLine {
+  height: 14px;
+  margin-bottom: 12px;
+  background: linear-gradient(100deg, var(--paper-2) 40%, var(--paper-3) 50%, var(--paper-2) 60%);
+  background-size: 200% 100%;
+  animation: musterShimmer 1.4s ease-in-out infinite;
+}
+.skelRow {
+  height: 52px;
+  margin-bottom: 8px;
+  border: 1px solid var(--rule);
+  background: linear-gradient(100deg, var(--paper-2) 40%, var(--paper-3) 50%, var(--paper-2) 60%);
+  background-size: 200% 100%;
+  animation: musterShimmer 1.4s ease-in-out infinite;
+}
+@keyframes musterShimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -80% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skelLine, .skelRow { animation: none; }
+  .caret { transition: none; }
+}
+
+.saving {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+/* drag overlay ghost */
+.dragGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border: 1px solid var(--sage);
+  background: var(--sage-soft);
+  color: var(--ink);
+  font-size: 12.5px;
+  box-shadow: 0 8px 20px rgba(24, 33, 28, 0.18);
+}
+
+/* ── mobile collapse (<= 640px): single column, no horizontal overflow ──── */
+@media (max-width: 640px) {
+  .wrap {
+    padding: 20px 14px 70px;
+  }
+  .title {
+    font-size: 30px;
+  }
+  .identityRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .switcher {
+    width: 100%;
+  }
+  .select {
+    width: 100%;
+    min-width: 0;
+  }
+  .dutySummary {
+    display: none;
+  }
+  .level {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .levelTag {
+    padding-top: 0;
+  }
+  .tray {
+    /* keep chips wrapping rather than forcing a scroll - no horizontal bleed */
+    padding: 10px;
+  }
+  .targetChip {
+    max-width: 100%;
+  }
+  .chipId,
+  .dropValue {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
