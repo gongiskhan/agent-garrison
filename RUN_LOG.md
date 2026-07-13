@@ -359,3 +359,21 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DECISION 2026-07-12T21:37:33Z (S9 stall takeover)
 - impl-s9 produced zero output in 20 min; lead takes over WS9 (last slice) directly — focused, measurable copy+affordance pass.
+
+## RUN-START 20260713-135552-3c338e01 — 2026-07-13T13:57:31Z
+- **Brief:** GARRISON-MARATHON-V3 — rebuild Garrison's middle around three assumptions (composition file, Resolver, orchestrator slot): Duties/Levels/Dispatcher replace modes/tiers/task-types/phases; composition v4 absorbs everything; Muster page; Kanban as duty surface; plus V2 carried items (daily-driver fixes, runtime expansion, channel bridge, voice, Quarters honesty).
+- **Session:** model=claude-fable-5 effort=session-inherited sid=3c338e01-b84c-492f-a96e-91674f7cca8f host=dev-madrid
+- **Profile:** build (multi-workstream marathon, >>4 slices; confirmed at planning)
+- **gatesConfig:** all-true (no operator --no-* flags; full bar in force)
+- **Governance overlay:** marathon ledger ~/.garrison/marathon/ledger.md + governor.mjs pacing (spec format wins for sentinels; autothing GATE entries land here)
+- **Preflight:** asciinema 2.4.0, agg 1.9.0, codex-cli 0.144.1, gitleaks 8.30.1, semgrep 1.168.0, ffmpeg 6.1.1, node v20.19.4, npm 10.8.2, jq 1.7, playwright 1.60.0; tsx global MISSING (repo devDep, verify via npx)
+- **DECISION 2026-07-13T13:57:31Z:** coord-mcp not connected; coord-agentmail unreachable (connection refused). Coord stack absent — degrading to intra-run disjoint-files discipline per skill contract. No cross-session leases this run.
+- **Governor:** 2026-07-13T13:57:31Z window 0.8% resets 2026-07-13T16:00Z — pacing armed.
+- **GATE baseline (2026-07-13T14:01:11Z):** typecheck exit 0; vitest 2148 passed / 14 skipped (253 files, 23s) — green pre-change floor. Model: claude-fable-5 (lead, inline). Duration ~5min bg.
+- **DECISION (2026-07-13T14:10:36Z):** first explorer fan-out (7 bg agents, inherited model) stalled — transcripts frozen 13min mid-grep, greps swept node_modules/dist (170KB lines, likely context blowout); liveness ping unanswered. Respawning 7 re-scoped explorers with grep-hygiene rules (exclude node_modules/dist/.map, output caps) pinned to sonnet. First-hand E1/E3/E4 already captured inline by lead.
+- **DECISION-CORRECTION (2026-07-13T14:13:49Z):** wave-1 explorers were NOT stalled — I monitored the wrong dir (/tmp tasks dir of a prior session); real transcripts live in ~/.claude/projects/<slug>/<sid>/subagents/ and show both waves actively writing. Wave-2 respawn was unnecessary → double coverage accepted (wave-1 primary, wave-2 verification/gap-fill); governor 3.3%, headroom ample.
+- **GATE phase0-wave1 (2026-07-13T14:17:40Z):** all 7 wave-1 explorer reports harvested from subagent transcripts (idle-teammate semantics — results pulled, not pushed). Coverage: E1-E19 primary evidence complete incl. E9 root cause (premature-empty-return race + 2 empty-as-success paths), E8 seven-point divergence table, E13 provenance-move gap, E14 token table, E19 pinned set. Wave-2 verification agents still running. Model: sonnet (wave-2) / inherited (wave-1); duration ~18min wall.
+- **GATE phase0 (2026-07-13T14:20:36Z):** exit 0 — 19/19 findings evidence-complete; reports at docs/autothing/runs/20260713-135552-3c338e01/phase0-findings/ (secrets scrubbed). WS0 sentinel appended to marathon ledger. Next: Phase 1 spec-first planning (garrison-plan) → RUN_SPEC + FLOW_PLAN.
+- **GATE plan (2026-07-13T14:24:53Z):** exit 0 — RUN_SPEC.md (12-item assumptions ledger) + FLOW_PLAN.md (24 slices, 4 parallel groups, sizes ≤8) written under runDir. Profile build confirmed. Model: claude-fable-5 (lead).
+- **DECISION (2026-07-13T14:24:53Z):** turnCap resized 250→1920 (max(300, 80×24 slices)) in the sentinel.
+- **DEVIATION (2026-07-13T14:24:53Z):** garrison-plan Phase 2 executed inline by the lead (full findings context already held; re-serializing 19 findings into a Plan subagent judged lossy+wasteful). Read-only discipline held: only RUN_SPEC/FLOW_PLAN/control-plane written.
