@@ -1,0 +1,44 @@
+name: duty-implement
+version: 0.1.0
+description: >-
+  The Implement duty — explore the relevant code, then write the code to satisfy
+  a planned slice or a single well-scoped change. Owns the garrison-implement skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f1): provides exactly one duty, owns its skill.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `implement` duty and owns the garrison-implement skill. Explores
+    the relevant code first (vision-first for UI), then writes code to satisfy the
+    acceptance, following existing conventions and fixing forward.
+  provides:
+    - kind: duty
+      name: implement
+  consumes: []
+  duties:
+    - id: implement
+      title: Implement
+      description: Write the code to satisfy a planned slice or a single well-scoped change.
+      levels:
+        - description: >-
+            Standard implementation — explore the affected code, then write it to satisfy the
+            slice's acceptance, following existing conventions.
+          cell:
+            skill: garrison-implement
+            target: cc-opus
+            effort: high
+  verify:
+    command: test -f apm_modules/_local/duty-implement/.apm/skills/garrison-implement/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `implement` duty owns the garrison-implement skill — the code-writing step
+    of a build and the step gates send work back to. It explores first, then writes
+    the code. The default level targets an agentic runtime; the composition may
+    override the (target, effort) cell.

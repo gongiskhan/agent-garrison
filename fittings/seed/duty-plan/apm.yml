@@ -1,0 +1,46 @@
+name: duty-plan
+version: 0.1.0
+description: >-
+  The Plan duty — explore the request and codebase read-only, then write a
+  concise, durable implementation plan. Owns the garrison-plan skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f1): it PROVIDES exactly one duty and OWNS the
+  # skill that executes it. `building` (Software Building) is the home — it
+  # accepts the `skill` shape and is multi, so the duty Fittings coexist.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `plan` duty and owns the garrison-plan skill. Reproduces Claude
+    Code plan mode autonomously: read-only exploration + design, then a durable
+    plan file. The duty's default level binds the skill to an agentic target.
+  provides:
+    - kind: duty
+      name: plan
+  consumes: []
+  duties:
+    - id: plan
+      title: Plan
+      description: Explore the request and codebase, then write a durable implementation plan.
+      levels:
+        - description: >-
+            Standard planning — read-only Explore + Plan passes producing a concise, durable plan
+            file the implement duty consumes.
+          cell:
+            skill: garrison-plan
+            target: cc-opus
+            effort: high
+  verify:
+    command: test -f apm_modules/_local/duty-plan/.apm/skills/garrison-plan/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `plan` duty owns the garrison-plan skill. Bind it to plan non-trivial work
+    before implementing: it explores read-only and writes a durable plan file,
+    mutating nothing else. The default level targets an agentic runtime; the
+    composition may override the (target, effort) cell.

@@ -1,0 +1,44 @@
+name: duty-walkthrough
+version: 0.1.0
+description: >-
+  The Walkthrough duty — record self-verified video evidence that the current
+  change works and surface the scrubbable link. Owns the garrison-walkthrough skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f1): provides exactly one duty, owns its skill.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `walkthrough` duty and owns the garrison-walkthrough skill.
+    Records self-verified video evidence of the change via the walkthrough skill,
+    then surfaces the scrubbable link.
+  provides:
+    - kind: duty
+      name: walkthrough
+  consumes: []
+  duties:
+    - id: walkthrough
+      title: Walkthrough
+      description: Record self-verified video evidence that the current change works and surface the link.
+      levels:
+        - description: >-
+            Standard walkthrough — capture a narrated, self-verified video of the change working and
+            return the scrubbable link.
+          cell:
+            skill: garrison-walkthrough
+            target: cc-opus
+            effort: high
+  verify:
+    command: test -f apm_modules/_local/duty-walkthrough/.apm/skills/garrison-walkthrough/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `walkthrough` duty owns the garrison-walkthrough skill — the evidence step
+    of a build. It records self-verified video proof of the change and surfaces the
+    scrubbable link. The default level targets an agentic runtime; the composition
+    may override the (target, effort) cell.

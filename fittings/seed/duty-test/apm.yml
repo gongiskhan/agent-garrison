@@ -1,0 +1,44 @@
+name: duty-test
+version: 0.1.0
+description: >-
+  The Test duty — write a committed, re-runnable correctness test for the current
+  change and run it, plus clean build/typecheck/lint. Owns the garrison-test skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f1): provides exactly one duty, owns its skill.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `test` duty and owns the garrison-test skill. The objective
+    correctness gate: a committed, re-runnable test (default e2e through the UI +
+    unit tests) plus a clean build/typecheck/lint.
+  provides:
+    - kind: duty
+      name: test
+  consumes: []
+  duties:
+    - id: test
+      title: Test
+      description: Write and run a committed correctness test plus clean build, typecheck, and lint.
+      levels:
+        - description: >-
+            Standard test gate — a committed, re-runnable correctness test (e2e + unit) run green
+            alongside a clean build/typecheck/lint.
+          cell:
+            skill: garrison-test
+            target: cc-sonnet
+            effort: medium
+  verify:
+    command: test -f apm_modules/_local/duty-test/.apm/skills/garrison-test/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `test` duty owns the garrison-test skill — the objective correctness gate.
+    It writes a committed, re-runnable test and runs it plus build/typecheck/lint.
+    The default level targets an agentic runtime; the composition may override the
+    (target, effort) cell.

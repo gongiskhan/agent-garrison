@@ -10,7 +10,7 @@ import {
 } from "./global-composition";
 import { computeStateModel } from "./primitive-state";
 import { emitFitting, primitiveHash } from "./reconcile";
-import { recordWritten, forgetEntry } from "./provenance";
+import { recordWritten, parkEntry, unparkEntry } from "./provenance";
 import type { ApmRunner } from "./apm-exec";
 import type { ApmDependencyInput } from "./apm-manifest";
 
@@ -110,10 +110,12 @@ export async function park(fittingId: string, opts: TransitionOpts = {}): Promis
     await fsp.rm(captured, { recursive: true, force: true });
   }
 
-  // Delete the on-disk orphans APM left behind, and forget their ledger entries.
+  // Delete the on-disk orphans APM left behind, and ARCHIVE their ledger entries
+  // (drop the live ownership hash so echo-suppression behaves as before, but keep
+  // the history and record a "parked" event — lineage survives the park).
   for (const rel of orphans) {
     await fsp.rm(path.join(home, rel), { recursive: true, force: true });
-    await forgetEntry(`${surfaceForRel(rel)}:${nameForRel(rel)}`);
+    await parkEntry(`${surfaceForRel(rel)}:${nameForRel(rel)}`);
   }
 
   return { ok: true, fittingId, deployed: [], cleanedOrphans: orphans };
@@ -145,13 +147,20 @@ export async function unpark(
     await writeGlobalApmManifest(inputs);
     const nextLock = await apmInstall({ runApm: opts.runApm });
     const dep = nextLock.deps.find((d) => d.name === slug);
-    return { ok: true, fittingId: slug, deployed: dep?.deployedFiles ?? [], cleanedOrphans: [] };
+    const deployed = dep?.deployedFiles ?? [];
+    for (const rel of deployed) {
+      await unparkEntry(`${surfaceForRel(rel)}:${nameForRel(rel)}`);
+    }
+    return { ok: true, fittingId: slug, deployed, cleanedOrphans: [] };
   }
 
   // target === "loose": deploy the parked fitting's files back onto disk WITHOUT
   // adding to apm.yml, then drop it from the parked store.
   const deployed = await deployFittingToDisk(parked, home);
   await fsp.rm(parked, { recursive: true, force: true });
+  for (const rel of deployed) {
+    await unparkEntry(`${surfaceForRel(rel)}:${nameForRel(rel)}`);
+  }
   return { ok: true, fittingId: slug, deployed, cleanedOrphans: [] };
 }
 
