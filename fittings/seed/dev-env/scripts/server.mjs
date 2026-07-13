@@ -551,18 +551,54 @@ async function handleInstruct(req, res, sessionId) {
   if (!rec || rec.state !== "running" || rec.claudeAlive === false) {
     return jsonRes(res, 409, { error: "no running Claude PTY for this session" });
   }
-  try {
-    // Gate on TUI readiness so a fresh session's first command isn't lost to the
-    // boot-splash race (default off via ?wait=0 for callers that manage timing).
-    if (body.waitReady !== false) await waitClaudeReady(rec, Number.isFinite(body.readyTimeoutMs) ? body.readyTimeoutMs : 6000);
-    rec.pty.write(text);
-    const delayMs = Number.isFinite(body.delayMs) ? Math.max(0, Math.min(5000, body.delayMs)) : 600;
-    await sleep(delayMs);
-    rec.pty.write("\r");
-    jsonRes(res, 200, { ok: true });
-  } catch (err) {
-    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  const delayMs = Number.isFinite(body.delayMs) ? Math.max(0, Math.min(5000, body.delayMs)) : 600;
+  if (body.waitReady === false) {
+    // Caller manages timing: original synchronous two-phase write.
+    try {
+      rec.pty.write(text);
+      await sleep(delayMs);
+      rec.pty.write("\r");
+      jsonRes(res, 200, { ok: true });
+    } catch (err) {
+      jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return;
   }
+  // Ack immediately and DELIVER IN THE BACKGROUND so the HTTP call never blocks
+  // on Claude's startup. We gate on TUI readiness, then write; if the input box
+  // doesn't echo the text (a just-spawned Claude TUI can render its box yet still
+  // drop the first keystrokes for a while as it boots), we re-type once more
+  // after a short beat before pressing Enter. Best-effort — the reply surfaces on
+  // the session's stream, so the caller doesn't need this response to carry it.
+  // Note: the very first command to a brand-new session can still be missed if
+  // Claude's TUI is slow to accept input; commanding a warm session is reliable.
+  jsonRes(res, 202, { ack: true });
+  (async () => {
+    try {
+      // Up to 3 CLEAN two-phase writes, spaced out, stopping as soon as a turn
+      // actually starts (the screen goes busy). No Ctrl-U / re-type juggling: a
+      // dropped write leaves nothing behind, so a later clean write can't double-
+      // submit, and once one lands we stop. The spacing lets a just-spawned TUI
+      // finish booting before the next attempt (it silently drops input for a
+      // while even after drawing its box — undetectable by screen-scraping).
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await waitClaudeReady(rec, Number.isFinite(body.readyTimeoutMs) ? body.readyTimeoutMs : 8000);
+        if (!rec || rec.state !== "running" || rec.claudeAlive === false) return; // died meanwhile
+        rec.pty.write(text);
+        await sleep(delayMs);
+        rec.pty.write("\r");
+        // Did a turn start? Poll briefly — even a trivial reply flashes busy.
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline) {
+          await sleep(200);
+          try { if (isBusy(mirrorHandle(rec))) return; } catch { /* mirror not ready */ }
+        }
+        await sleep(6000); // let the TUI finish starting before a fresh clean attempt
+      }
+    } catch (err) {
+      console.error(`[dev-env] instruct delivery failed for ${sessionId}:`, err instanceof Error ? err.message : err);
+    }
+  })();
 }
 
 async function handleDeleteSession(req, res, sessionId) {
