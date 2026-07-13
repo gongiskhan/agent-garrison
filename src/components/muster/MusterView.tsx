@@ -54,16 +54,27 @@ function targetById(targets: CompositionTarget[], id: string | undefined): Compo
   return id ? targets.find((t) => t.id === id) : undefined;
 }
 
-// ── header ──────────────────────────────────────────────────────────────────
+// ── command bar (identity · readiness pill · composition switch) ─────────────
 export function MusterHeader({ model, actions }: { model: MusterModel; actions: MusterActions }) {
   return (
-    <header className={styles.header}>
-      <div className={styles.identityRow}>
-        <div>
-          <div className={styles.kicker}>Muster</div>
-          <h1 className={styles.title}>{model.compositionName}</h1>
-          <div className={styles.titleId}>{model.compositionId}</div>
-        </div>
+    <header className={styles.commandBar}>
+      <div className={styles.identity}>
+        <div className={styles.kicker}>Muster</div>
+        <h1 className={styles.title}>{model.compositionName}</h1>
+        <div className={styles.titleId}>{model.compositionId}</div>
+      </div>
+      <div className={styles.command}>
+        {model.ready ? (
+          <span className={clsx(styles.statusPill, styles.pillReady)} data-testid="readiness-badge">
+            <span className={styles.pillDot} />
+            Ready to run
+          </span>
+        ) : (
+          <span className={clsx(styles.statusPill, styles.pillNotReady)} data-testid="readiness-badge">
+            <span className={styles.pillDot} />
+            Not ready
+          </span>
+        )}
         <label className={styles.switcher}>
           <span className={styles.switcherLabel}>Composition</span>
           <select
@@ -80,31 +91,19 @@ export function MusterHeader({ model, actions }: { model: MusterModel; actions: 
           </select>
         </label>
       </div>
-      <ReadinessStrip model={model} />
     </header>
   );
 }
 
-// ── readiness strip (D10) ────────────────────────────────────────────────────
-function ReadinessStrip({ model }: { model: MusterModel }) {
+// ── readiness ledger (D10): the blocking notice + the per-rule checklist ─────
+// Kept always-mounted under the command bar (not behind a section tab) so the
+// operator sees run-readiness the instant the page loads, whatever tab is open.
+export function ReadinessDetail({ model }: { model: MusterModel }) {
   const unmet = model.rules.filter((r) => !r.met);
   const dutyErrors = model.errors;
   const blocked = !model.ready;
   return (
     <section className={styles.readiness} aria-label="Readiness">
-      <div className={styles.readinessHead}>
-        <span className={styles.readinessLabel}>Readiness</span>
-        {model.ready ? (
-          <span className={styles.readyBadge} data-testid="readiness-badge">
-            <span className={styles.badgeDot} /> Ready
-          </span>
-        ) : (
-          <span className={styles.notReadyBadge} data-testid="readiness-badge">
-            <span className={styles.badgeDot} /> Not ready
-          </span>
-        )}
-      </div>
-
       {blocked && (unmet.length > 0 || dutyErrors.length > 0) ? (
         <div className={styles.blocking} role="alert" data-testid="readiness-blocking">
           <span className={styles.blockGlyph}>!</span>

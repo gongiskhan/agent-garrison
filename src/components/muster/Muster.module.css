@@ -6,118 +6,149 @@
    whole layout collapses to a single column with zero horizontal overflow at
    390px. Light-only, matching the app's single locked theme. */
 
-.wrap {
-  max-width: 1240px;
+/* Muster is a command console over the composition. A sticky command bar carries
+   identity + run-readiness + the composition switch; a section rail swaps a single
+   active panel (Duties / Fittings / Orchestrator / Decisions) so the page is one
+   focused surface, never an endless scroll of everything at once. Garrison tokens
+   throughout: serif display for names, mono for labels/ids/targets, sage = ready/
+   valid/armed, brass = accents, alarm = fault. Sharp corners, light-only. */
+.console {
+  width: 100%;
+  max-width: 1180px;
+  /* min-width:0 so that, when the app shell lays the main area out as a flex
+     child, the console can shrink below its content's min-content instead of
+     forcing horizontal page overflow on narrow (mobile) viewports. */
+  min-width: 0;
   margin: 0 auto;
-  padding: 26px 22px 80px;
+  padding: 0 24px 96px;
 }
 
-/* ── header ─────────────────────────────────────────────────────────────── */
-.header {
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--rule);
-  margin-bottom: 24px;
-}
-.identityRow {
+/* ── command bar (sticky) ───────────────────────────────────────────────── */
+.commandBar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 18px;
+  gap: 20px 28px;
   flex-wrap: wrap;
+  padding: 24px 0 16px;
+  background: linear-gradient(var(--paper) 62%, rgba(251, 248, 241, 0.9));
+  border-bottom: 1px solid var(--rule);
+}
+.commandBar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 112px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--brass), var(--brass-2));
+}
+.identity {
+  min-width: 0;
 }
 .kicker {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.2em;
+  font-size: 10px;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
   color: var(--brass);
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
 .title {
   font-family: var(--font-display), Georgia, serif;
   font-weight: 600;
-  font-size: 38px;
-  letter-spacing: -0.014em;
-  line-height: 1.03;
+  font-size: clamp(27px, 3.6vw, 40px);
+  letter-spacing: -0.016em;
+  line-height: 1.02;
   margin: 0;
   color: var(--ink);
 }
 .titleId {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 12px;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
   color: var(--mute);
-  margin-top: 6px;
+  margin-top: 8px;
+}
+
+.command {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* readiness pill in the command bar */
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pillReady {
+  border: 1px solid var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+.pillNotReady {
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.pillDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.pillReady .pillDot {
+  box-shadow: 0 0 0 3px rgba(61, 98, 73, 0.16);
 }
 
 /* composition switcher */
 .switcher {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 .switcherLabel {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.16em;
+  font-size: 9px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--mute);
 }
 .select {
   min-height: 44px;
-  min-width: 220px;
-  padding: 7px 12px;
+  min-width: 230px;
+  max-width: 100%;
+  padding: 8px 12px;
   font-size: 13px;
   border: 1px solid var(--rule-2);
   background: white;
   color: var(--ink);
   cursor: pointer;
 }
+.select:hover {
+  border-color: var(--ink-mute);
+}
 .select:focus {
   outline: none;
   border-color: var(--ink);
 }
 
-/* ── readiness strip ────────────────────────────────────────────────────── */
+/* ── readiness ledger (blocking notice + per-rule checklist) ─────────────── */
 .readiness {
-  margin-top: 18px;
-}
-.readinessHead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.readinessLabel {
-  font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--brass);
-}
-.readyBadge,
-.notReadyBadge {
-  font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 3px 9px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.readyBadge {
-  border: 1px solid var(--sage);
-  color: var(--sage);
-}
-.notReadyBadge {
-  border: 1px solid var(--alarm);
-  color: var(--alarm);
-}
-.badgeDot {
-  width: 6px;
-  height: 6px;
-  background: currentColor;
-  display: inline-block;
+  padding: 16px 0 2px;
 }
 
 .blocking {
@@ -203,6 +234,140 @@
 .sectionCount {
   color: var(--mute);
   font-weight: 400;
+}
+
+/* ── section rail (tabs) ────────────────────────────────────────────────── */
+.sectionNav {
+  display: flex;
+  gap: 2px;
+  margin: 16px 0 22px;
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sectionNav::-webkit-scrollbar {
+  display: none;
+}
+.navItem {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 11px 17px;
+  border: none;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.navItem::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 2px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+.navItem:hover {
+  color: var(--ink);
+}
+.navItem:hover::after {
+  background: var(--rule-2);
+}
+.navActive {
+  color: var(--ink);
+}
+.navActive::after,
+.navActive:hover::after {
+  background: var(--sage);
+}
+.navCount {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-2);
+  color: var(--mute);
+}
+.navActive .navCount {
+  border-color: var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+
+/* ── stage (the single active panel) ────────────────────────────────────── */
+.stage {
+  min-width: 0;
+}
+.stageHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.stageTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.stageTools {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* duties panel: the duty list + a sticky targets rail on wide screens */
+.dutiesPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  gap: 28px;
+  align-items: start;
+}
+.dutiesMain {
+  min-width: 0;
+}
+.traySide {
+  position: sticky;
+  top: 96px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 15px 15px 17px;
+}
+.trayHeading {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-bottom: 4px;
+}
+/* the tray, inside the rail, is a borderless vertical stack of full-width chips */
+.traySide .tray {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+.traySide .trayHint {
+  font-size: 11px;
+  margin: 0 0 12px;
+  max-width: none;
+}
+.traySide .targetChip {
+  width: 100%;
 }
 
 /* ── targets tray ───────────────────────────────────────────────────────── */
@@ -1190,23 +1355,64 @@
 }
 
 /* ── mobile collapse (<= 640px): single column, no horizontal overflow ──── */
+/* collapse the duties two-column at tablet width - the 296px rail needs room */
+@media (max-width: 900px) {
+  .dutiesPanel {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .traySide {
+    position: static;
+  }
+  .traySide .tray {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .traySide .targetChip {
+    width: auto;
+  }
+}
+
+/* ── mobile (<= 640px): single column, zero horizontal overflow ─────────── */
 @media (max-width: 640px) {
-  .wrap {
-    padding: 20px 14px 70px;
+  .console {
+    padding: 0 14px 72px;
   }
-  .title {
-    font-size: 30px;
-  }
-  .identityRow {
+  .commandBar {
+    padding: 18px 0 14px;
     flex-direction: column;
     align-items: stretch;
+    gap: 14px;
+  }
+  .identity {
+    min-width: 0;
+  }
+  .command {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .statusPill {
+    align-self: flex-start;
   }
   .switcher {
     width: 100%;
+    min-width: 0;
   }
   .select {
     width: 100%;
     min-width: 0;
+  }
+  .stage,
+  .dutiesMain {
+    min-width: 0;
+  }
+  .sectionNav {
+    margin: 12px 0 18px;
+  }
+  .navItem {
+    padding: 11px 13px;
   }
   .dutySummary {
     display: none;
@@ -1219,7 +1425,6 @@
     padding-top: 0;
   }
   .tray {
-    /* keep chips wrapping rather than forcing a scroll - no horizontal bleed */
     padding: 10px;
   }
   .targetChip {

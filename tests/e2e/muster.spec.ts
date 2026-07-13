@@ -125,18 +125,35 @@ test("(c) tap-to-pick assigns a target to a leaf cell (no drag)", async ({ page 
   await expect(page.getByTestId("cell-violation-develop-1")).toHaveCount(0);
 });
 
-test("(d) live validation shows a violation for a garrison-call target on a skill cell", async ({ page }) => {
+test("(d) live validation flags a garrison-call target on a skill cell", async ({ page }) => {
+  // Hold the persist request pending so the optimistic edit and its inline
+  // validation stay on screen deterministically. This test is about the client's
+  // instant feedback; the server-side rejection of an incompatible cell (it is
+  // never persisted) is covered by the setCellTarget unit tests. Without this, the
+  // reject round-trip reloads the model and clears both the violation and the
+  // notice within the same tick, making any post-round-trip assertion racy.
+  await page.route("**/api/muster/cell", () => {
+    /* intentionally left pending: the optimistic edit stays visible */
+  });
+
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await page.getByTestId("duty-toggle-develop").click();
 
-  // Arm the single-shot garrison-call target and place it on the skill cell.
-  await page.getByTestId("target-chip-oneshot").click();
-  await page.getByTestId("cell-target-develop-1").click();
+  const cell = page.getByTestId("cell-target-develop-1");
 
+  // Arm the single-shot garrison-call target, wait for the armed state to settle
+  // (mirrors test (c) — clicking the cell before arm registers is a no-op), then
+  // place it on the skill cell.
+  await page.getByTestId("target-chip-oneshot").click();
+  await expect(page.getByTestId("target-chip-oneshot")).toHaveAttribute("data-armed", "true");
+  await cell.click();
+
+  // The non-agentic target on a skill cell is flagged inline and the offending
+  // target shows on the cell — never silently accepted.
   const violation = page.getByTestId("cell-violation-develop-1");
   await expect(violation).toBeVisible();
   await expect(violation).toContainText(/agentic|single-shot/i);
-  await expect(page.getByTestId("cell-target-develop-1")).toHaveAttribute("data-target", "oneshot");
+  await expect(cell).toHaveAttribute("data-target", "oneshot");
 });
 
 test("(e) no horizontal overflow at 390px", async ({ page }) => {

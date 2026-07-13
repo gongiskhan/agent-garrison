@@ -60,6 +60,7 @@ test("(a) the Standing Fittings section renders slot cards with the current fitt
   });
 
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-fittings").click();
   // The section renders after a client fetch to /api/muster/standing; on a fresh
   // dev server that route compiles lazily on first hit, so allow for the compile.
   await expect(page.getByTestId("standing-section")).toBeVisible({ timeout: 15000 });
@@ -79,6 +80,7 @@ test("(a) the Standing Fittings section renders slot cards with the current fitt
 
 test("(b) the swap picker opens and lists faculty-scoped candidates", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-fittings").click();
   await expect(page.getByTestId("standing-fitting-http-gateway")).toBeVisible();
 
   await page.getByTestId("standing-swap-gateway-http-gateway").click();
@@ -92,6 +94,7 @@ test("(b) the swap picker opens and lists faculty-scoped candidates", async ({ p
 
 test("(c) picking a candidate swaps the fitting and persists", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-fittings").click();
   await page.getByTestId("standing-swap-gateway-http-gateway").click();
   await page.getByTestId("standing-picker-item-mcp-gateway").click();
 
@@ -100,13 +103,16 @@ test("(c) picking a candidate swaps the fitting and persists", async ({ page }) 
   await expect(page.getByTestId("standing-fitting-mcp-gateway")).toBeVisible();
   await expect(page.getByTestId("standing-fitting-http-gateway")).toHaveCount(0);
 
-  // The swap is durable across a reload (persisted to the manifest).
+  // The swap is durable across a reload (persisted to the manifest). A reload lands
+  // on the default (Duties) tab, so re-open the Fittings section before asserting.
   await page.reload();
+  await page.getByTestId("section-nav-fittings").click();
   await expect(page.getByTestId("standing-fitting-mcp-gateway")).toBeVisible();
 });
 
 test("(d) the create-runtime flow opens a clone-from-template picker", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-fittings").click();
   await page.getByTestId("standing-new-runtime").click();
 
   const modal = page.getByTestId("standing-create-modal");
@@ -118,6 +124,7 @@ test("(d) the create-runtime flow opens a clone-from-template picker", async ({ 
 test("(e) no horizontal overflow at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-fittings").click();
   await expect(page.getByTestId("standing-section")).toBeVisible();
 
   // Open the swap picker (the widest surface) before measuring.

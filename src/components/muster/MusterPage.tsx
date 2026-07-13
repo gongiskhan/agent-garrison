@@ -18,7 +18,8 @@ import {
   useSensors
 } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
-import { AddDuty, DutyList, MusterHeader, TargetsTray } from "./MusterView";
+import clsx from "clsx";
+import { AddDuty, DutyList, MusterHeader, ReadinessDetail, TargetsTray } from "./MusterView";
 import { StandingFittings } from "./StandingFittings";
 import { OrchestratorPanel } from "./OrchestratorPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
@@ -26,6 +27,18 @@ import type { DutyEffort, MusterActions, MusterModel } from "./types";
 import styles from "./Muster.module.css";
 
 type Status = "loading" | "ready" | "error";
+
+// The four working areas of the composition. Only the active one mounts, so the
+// page is a focused single panel instead of one 13k-px scroll of everything at
+// once - and the heavy panels (orchestrator prompt, fittings, decisions feed)
+// only fetch when their tab is opened.
+type SectionId = "duties" | "fittings" | "orchestrator" | "decisions";
+const SECTIONS: { id: SectionId; label: string }[] = [
+  { id: "duties", label: "Duties" },
+  { id: "fittings", label: "Fittings" },
+  { id: "orchestrator", label: "Orchestrator" },
+  { id: "decisions", label: "Decisions" }
+];
 
 // ── optimistic patch helpers (pure) ─────────────────────────────────────────
 function patchCell(
@@ -60,6 +73,7 @@ export function MusterPage() {
   const [saving, setSaving] = useState(false);
   const [armed, setArmed] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
+  const [section, setSection] = useState<SectionId>("duties");
 
   // The composition currently viewed (from ?composition=, else the active
   // pointer). Held in a ref so mutation POSTs always target the same one.
@@ -191,7 +205,7 @@ export function MusterPage() {
   if (status === "loading" && !model) {
     return (
       <main>
-        <div className={styles.wrap} data-testid="muster-loading">
+        <div className={styles.console} data-testid="muster-loading">
           <div className={styles.skelLine} style={{ width: "40%", height: 34 }} />
           <div className={styles.skelLine} style={{ width: "24%" }} />
           <div style={{ marginTop: 28 }}>
@@ -207,7 +221,7 @@ export function MusterPage() {
   if (status === "error" && !model) {
     return (
       <main>
-        <div className={styles.wrap}>
+        <div className={styles.console}>
           <div className={styles.stateBox} data-testid="muster-error">
             <div className={styles.stateTitle}>Could not load Muster</div>
             <p className={styles.stateBody}>{errorMsg}</p>
@@ -249,8 +263,9 @@ export function MusterPage() {
         // scrolls mid-drag) must still register as a drop target.
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       >
-        <div className={styles.wrap} data-testid="muster-page">
+        <div className={styles.console} data-testid="muster-page">
           <MusterHeader model={model} actions={actions} />
+          <ReadinessDetail model={model} />
 
           {errorMsg ? (
             <div className={styles.blocking} role="alert" style={{ marginTop: 4 }}>
@@ -262,25 +277,50 @@ export function MusterPage() {
             </div>
           ) : null}
 
-          <section className={styles.section}>
-            <div className={styles.sectionHead}>
-              <span className={styles.sectionLabel}>
-                Duties <span className={styles.sectionCount}>· {model.selectedDuties.length} selected</span>
-              </span>
-              <span style={{ display: "inline-flex", gap: 12, alignItems: "center" }}>
-                {saving ? <span className={styles.saving}>saving…</span> : null}
-                <AddDuty model={model} actions={actions} />
-              </span>
-            </div>
-            <TargetsTray model={model} actions={actions} />
-            <DutyList model={model} actions={actions} />
-          </section>
+          <nav className={styles.sectionNav} role="tablist" aria-label="Muster sections">
+            {SECTIONS.map((s) => {
+              const count = s.id === "duties" ? model.selectedDuties.length : undefined;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={section === s.id}
+                  className={clsx(styles.navItem, section === s.id && styles.navActive)}
+                  onClick={() => setSection(s.id)}
+                  data-testid={`section-nav-${s.id}`}
+                >
+                  <span className={styles.navLabel}>{s.label}</span>
+                  {count != null ? <span className={styles.navCount}>{count}</span> : null}
+                </button>
+              );
+            })}
+          </nav>
 
-          <StandingFittings compositionId={model.compositionId} />
+          <div className={styles.stage}>
+            {section === "duties" ? (
+              <div className={styles.dutiesPanel} data-testid="duties-panel">
+                <div className={styles.dutiesMain}>
+                  <div className={styles.stageHead}>
+                    <span className={styles.stageTitle}>Duties</span>
+                    <span className={styles.stageTools}>
+                      {saving ? <span className={styles.saving}>saving…</span> : null}
+                      <AddDuty model={model} actions={actions} />
+                    </span>
+                  </div>
+                  <DutyList model={model} actions={actions} />
+                </div>
+                <aside className={styles.traySide}>
+                  <div className={styles.trayHeading}>Targets</div>
+                  <TargetsTray model={model} actions={actions} />
+                </aside>
+              </div>
+            ) : null}
 
-          <OrchestratorPanel compositionId={model.compositionId} />
-
-          <DecisionsPanel compositionId={model.compositionId} />
+            {section === "fittings" ? <StandingFittings compositionId={model.compositionId} /> : null}
+            {section === "orchestrator" ? <OrchestratorPanel compositionId={model.compositionId} /> : null}
+            {section === "decisions" ? <DecisionsPanel compositionId={model.compositionId} /> : null}
+          </div>
         </div>
 
         <DragOverlay>
