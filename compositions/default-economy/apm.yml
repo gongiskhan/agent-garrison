@@ -35,8 +35,8 @@ dependencies:
 x-garrison:
   composition:
     schema: 4
-    id: default
-    name: Dogfood Operative
+    id: default-economy
+    name: Dogfood Operative (economy)
     global_config:
       projects_root: ~/dev
       vault: default
@@ -198,20 +198,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-haiku
+              target: cc-haiku
               effort: low
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-opus
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: other
         title: Other
         description: Other work (migrated from routing task-type "other")
@@ -220,20 +220,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-haiku
+              target: cc-haiku
               effort: low
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: research
         title: Research
         description: Research work (migrated from routing task-type "research")
@@ -242,20 +242,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-haiku
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-opus
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: plan
         title: Plan
         description: Plan work (migrated from routing task-type "plan")
@@ -264,20 +264,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: fable
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: fable
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: fable
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
       - id: implement
         title: Implement
         description: Implement work (migrated from routing task-type "implement")
@@ -286,20 +286,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: opus
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: opus
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: opus
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
       - id: review
         title: Review
         description: Review work (migrated from routing task-type "review")
@@ -308,19 +308,19 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: cc-sonnet
+              target: cc-haiku
               effort: low
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
+              target: cc-haiku
               effort: low
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
+              target: cc-haiku
               effort: low
       - id: test
         title: Test
@@ -330,20 +330,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: image
         title: Image
         description: Image work (migrated from routing task-type "image")
@@ -390,20 +390,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: cc-sonnet
+              target: cc-haiku
               effort: low
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: ops
         title: Ops
         description: Ops work (migrated from routing task-type "ops")
@@ -412,20 +412,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: cc-sonnet
+              target: cc-haiku
               effort: low
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: adversarial-review
         title: Adversarial Review
         description: Adversarial Review work (migrated from routing task-type "adversarial-review")
@@ -434,20 +434,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sol
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: sol
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: sol
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
       - id: adversarial-test
         title: Adversarial Test
         description: Adversarial Test work (migrated from routing task-type "adversarial-test")
@@ -456,20 +456,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sol
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: sol
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: sol
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
       - id: ux-qa
         title: Ux Qa
         description: Ux Qa work (migrated from routing task-type "ux-qa")
@@ -478,20 +478,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: fable
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: fable
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: fable
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
       - id: walkthrough
         title: Walkthrough
         description: Walkthrough work (migrated from routing task-type "walkthrough")
@@ -500,20 +500,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: opus
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: opus
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: opus
-              effort: high
+              target: cc-ollama-qwen
+              effort: medium
       - id: validate
         title: Validate
         description: Validate work (migrated from routing task-type "validate")
@@ -522,20 +522,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: codex-checkpoint
         title: Codex Checkpoint
         description: Codex Checkpoint work (migrated from routing task-type "codex-checkpoint")
@@ -544,20 +544,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: report
         title: Report
         description: Report work (migrated from routing task-type "report")
@@ -566,20 +566,20 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-ollama-qwen
+              effort: medium
       - id: probe-question
         title: Probe Question
         description: Probe Question work (migrated from routing task-type "probe-question")
@@ -606,18 +606,11 @@ x-garrison:
       - code
       - other
       - research
-      - plan
-      - implement
       - review
-      - test
       - image
       - video
       - writing
       - ops
-      - adversarial-review
-      - adversarial-test
-      - ux-qa
-      - walkthrough
       - probe-question
     targets:
       - id: cc-haiku
