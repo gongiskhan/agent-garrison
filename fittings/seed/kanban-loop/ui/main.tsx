@@ -529,6 +529,132 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   );
 }
 
+// ── inline Backlog quick-add (touch-first per-column affordance) ─────────────
+// A per-column "Add card" at the head of the Backlog list: tap the trigger to
+// reveal a compact inline form (title required, description + project optional)
+// that POSTs straight to /cards — which always lands the card in Backlog — and
+// refreshes the board in place, no reload. Distinct from the top-bar "New card"
+// sheet, which carries the full run-policy options (goalMode / work kind / phase
+// toggles): this is the fast capture path, sized for touch (≥44px controls,
+// usable at 390px). Reuses PROJECT_CUSTOM + the project-picker semantics of the
+// New Card sheet so the two entry points behave the same.
+function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [projectMode, setProjectMode] = useState<"auto" | "pick" | "custom">("auto");
+  const [project, setProject] = useState("");
+  const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const titleRef = useRef<HTMLInputElement | null>(null);
+
+  // Load the dev-root repos for the project picker only once the form is opened
+  // (parity with the New Card sheet). Best-effort — on failure the picker still
+  // offers "(auto-infer)" + "Custom path…".
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    api.projects().then((v) => { if (alive) setProjects(v.projects); }).catch(() => { /* leave empty */ });
+    return () => { alive = false; };
+  }, [open]);
+
+  // Autofocus the title the moment the form opens.
+  useEffect(() => { if (open) titleRef.current?.focus(); }, [open]);
+
+  function reset() {
+    setTitle(""); setDescription(""); setProjectMode("auto"); setProject(""); setErr(null);
+  }
+
+  async function submit() {
+    // Title is REQUIRED on the quick-add path (the top-bar sheet is the "infer from
+    // description" path). Block + refocus when it's blank rather than round-tripping.
+    const t = title.trim();
+    if (!t) { setErr("Give the card a title."); titleRef.current?.focus(); return; }
+    setSaving(true);
+    setErr(null);
+    const proj = projectMode === "auto" ? undefined : (project.trim() || undefined);
+    try {
+      await api.create({ title: t, description: description.trim() || undefined, project: proj });
+      reset();
+      setOpen(false);
+      onCreated();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setSaving(false);
+    }
+  }
+
+  const selectValue = projectMode === "custom" ? PROJECT_CUSTOM : projectMode === "auto" ? "" : project;
+
+  if (!open) {
+    return (
+      <button type="button" className="backlog-add-trigger" onClick={() => setOpen(true)}>
+        <PlusIcon /> Add card
+      </button>
+    );
+  }
+
+  return (
+    <div className="backlog-add" role="group" aria-label="Add a card to Backlog">
+      <input
+        ref={titleRef}
+        className="ba-input"
+        type="text"
+        value={title}
+        placeholder="Card title (required)"
+        aria-label="Card title"
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); void submit(); }
+          if (e.key === "Escape") { setOpen(false); reset(); }
+        }}
+      />
+      <textarea
+        className="ba-textarea"
+        value={description}
+        placeholder="Description (optional)"
+        aria-label="Card description"
+        onChange={(e) => setDescription(e.target.value)}
+      />
+      <select
+        className="ba-select"
+        aria-label="Project"
+        value={selectValue}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "") { setProjectMode("auto"); setProject(""); }
+          else if (v === PROJECT_CUSTOM) { setProjectMode("custom"); setProject(""); }
+          else { setProjectMode("pick"); setProject(v); }
+        }}
+      >
+        <option value="">Project: auto-infer</option>
+        {projects.map((p) => <option key={p.path} value={p.name}>{p.name}</option>)}
+        <option value={PROJECT_CUSTOM}>Custom path…</option>
+      </select>
+      {projectMode === "custom" && (
+        <input
+          className="ba-input"
+          type="text"
+          value={project}
+          placeholder="project name or absolute path"
+          aria-label="Custom project path"
+          onChange={(e) => setProject(e.target.value)}
+        />
+      )}
+      {err && <div className="ba-err" role="alert">{err}</div>}
+      <div className="ba-actions">
+        <button type="button" className="ba-btn primary" disabled={saving || !title.trim()} onClick={() => void submit()}>
+          {saving ? "Adding…" : "Add card"}
+        </button>
+        <button type="button" className="ba-btn" disabled={saving} onClick={() => { setOpen(false); reset(); }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── move sheet (the manual gate) ────────────────────────────────────────────
 function MoveSheet({
   card,
@@ -1316,7 +1442,7 @@ function ListConfigSheet({
         <label>Next action (where a card can go from here)</label>
         <div className="tag-list">
           {cfg.validNext.length === 0 && (
-            <span className="muted" style={{ fontSize: 12.5 }}>none yet — a card here can't advance until you add one</span>
+            <span className="muted" style={{ fontSize: 12.5 }}>none yet - a card here can&apos;t advance until you add one</span>
           )}
           {cfg.validNext.map((id) => {
             const l = allListIds.find((x) => x.id === id);
@@ -1501,7 +1627,7 @@ function App() {
       <TopBar onNew={() => setOverlay({ kind: "new" })} status={board ? `${board.cards.length} cards` : "loading…"} />
       {runtime?.noGateway && (
         <div className="banner" role="status">
-          No gateway running — agent lists won't dispatch. Bring the composition up (Run / `npm start`).
+          No gateway running - agent lists won&apos;t dispatch. Bring the composition up (Run / `npm start`).
         </div>
       )}
       {notice && <div className="banner info" onClick={() => setNotice(null)}>{notice}</div>}
@@ -1535,7 +1661,10 @@ function App() {
                 </div>
               </div>
               <div className="lbody">
-                {list.cards.length === 0 && <div className="lempty">empty</div>}
+                {/* Backlog leads with the inline quick-add affordance (its own empty
+                    state), so it never shows the bare "empty" label. */}
+                {list.id === "backlog" && <BacklogAddCard onCreated={() => void load()} />}
+                {list.cards.length === 0 && list.id !== "backlog" && <div className="lempty">empty</div>}
                 {(() => {
                   const renderCard = (card: CardSummary) => (
                     <Card
