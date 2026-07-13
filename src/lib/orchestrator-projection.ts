@@ -16,6 +16,11 @@ import { substituteCapabilitiesPlaceholder, substituteRoutingPlaceholder } from 
 import type { ApmRunner } from "./apm-exec";
 import type { ApmDependencyInput } from "./apm-manifest";
 import type { LibraryEntry } from "./types";
+import { DEFAULT_COMPOSITION_ID, readComposition, selectedLibraryEntries } from "./compositions";
+import { resolveModel } from "./resolver";
+import { buildOrchestratorPreview, type OrchestratorPreview } from "./orchestrator-sections";
+import type { AuthoredSectionId } from "./orchestrator-authored-defaults";
+import { AUTHORED_SECTION_IDS } from "./orchestrator-authored-defaults";
 
 // RC3 — project Garrison's orchestrator prompt INTO the real ~/.claude as an
 // APM-managed instructions primitive. This is how "the Operative folds into your
@@ -206,4 +211,65 @@ export async function projectPrimaryContext(opts: {
       `(context-file convention) — weaker authority than the claude-code append-system-prompt path; ` +
       `the engine may weigh it like any other context file.`
   };
+}
+
+// ── Layered orchestrator preview (MARATHON-V3 D11, slice S3e) ────────────────
+// The assembled-preview surface for the Muster orchestrator panel (S5c). The
+// pure section machinery lives in orchestrator-sections.ts; this is the
+// fs-touching loader that resolves a composition into {sections, assembled}.
+//
+// AUTHORED overrides persist beside the composition as a flat
+// {sectionId: markdown} JSON. The Muster editor writes it; the locked blocks
+// are ALWAYS regenerated from the resolved model, never read from disk.
+
+export const AUTHORED_OVERRIDES_REL = ".garrison/orchestrator-authored.json";
+
+// Read the authored-section overrides for a composition directory. Returns {}
+// when the file is absent or unreadable, and keeps ONLY known authored section
+// ids (so a stale/renamed key can never leak into the assembled prompt).
+export async function readAuthoredOverrides(
+  compositionDir: string
+): Promise<Partial<Record<AuthoredSectionId, string>>> {
+  let raw: string;
+  try {
+    raw = await fsp.readFile(path.join(compositionDir, AUTHORED_OVERRIDES_REL), "utf8");
+  } catch {
+    return {};
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.warn(`[garrison] ${AUTHORED_OVERRIDES_REL} is not valid JSON — using authored defaults`);
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object") return {};
+  const known = new Set<string>(AUTHORED_SECTION_IDS);
+  const overrides: Partial<Record<AuthoredSectionId, string>> = {};
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (known.has(key) && typeof value === "string" && value.trim().length > 0) {
+      overrides[key as AuthoredSectionId] = value;
+    }
+  }
+  return overrides;
+}
+
+// Resolve a composition into the layered orchestrator preview: the ordered
+// section model plus its assembled concatenation. Locked blocks (capabilities,
+// duties-and-levels, readiness) regenerate from the resolved model on every
+// call; authored blocks come from the on-disk overrides or their defaults.
+export async function loadOrchestratorPreview(
+  compositionId: string = DEFAULT_COMPOSITION_ID
+): Promise<OrchestratorPreview> {
+  const composition = await readComposition(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+  const model = resolveModel({
+    fittings: entries.map((entry) => ({ id: entry.id, metadata: entry.metadata })),
+    compositionDuties: composition.duties,
+    // An empty selected_duties block means "no explicit narrowing" — let the
+    // resolver default to every known duty (matches resolveModel's own default).
+    selectedDuties: composition.selectedDuties.length ? composition.selectedDuties : undefined
+  });
+  const authored = await readAuthoredOverrides(composition.directory);
+  return buildOrchestratorPreview({ model, entries, authored });
 }
