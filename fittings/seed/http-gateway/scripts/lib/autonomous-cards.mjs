@@ -184,6 +184,65 @@ export async function completeQuickCard({ id, logFn = () => {} }) {
   }
 }
 
+// D19 (assumption 2): the reply that finished a quick turn is EMPTY (nothing but
+// whitespace) → the inline run produced nothing, which is a FAILURE, not a pass.
+export function isEmptyQuickReply(reply) {
+  return !(typeof reply === "string" ? reply : String(reply ?? "")).trim();
+}
+
+// The quick-path empty-output FAILURE CONTRACT copy — same discipline as the
+// engine's: NEVER claims success ("completed"/"done"/"success" are banned), and
+// marks the card for a re-run. The quick path runs inline in the gateway (no
+// engine iteration log), so the empty reply itself IS the evidence.
+export function quickEmptyFailureReason() {
+  return (
+    "This quick task returned no output — the inline run produced nothing verifiable, " +
+    "so there is no result to show. An empty reply is a FAILURE, not a pass: it was routed " +
+    "to needs-attention rather than advanced. Move it back to retry — add a description or " +
+    "more detail if the task was underspecified."
+  );
+}
+
+// D19: an empty (or otherwise failed) quick turn must NOT advance to Done — route
+// the card to needs-attention (a real list move, engine-context) carrying the
+// failure-contract reason. Mirrors completeQuickCard's rev-refresh retry; never
+// throws (a stranded quick card is a visible board state, not a turn failure).
+// NOTE: the board's PATCH handler must honor `attentionReason`/`parkedFrom` on an
+// engine-context move into needs-attention for the reason to persist on the card;
+// the move itself (list → needs-attention) works regardless.
+export async function parkQuickCard({ id, reason, parkedFrom = "implement", logFn = () => {} }) {
+  try {
+    const base = boardBase();
+    if (!base || !id) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let rev = 0;
+      try {
+        const fresh = await fetch(`${base}/cards/${id}`);
+        if (fresh.ok) {
+          const doc = await fresh.json();
+          rev = doc.card?.rev ?? doc.rev ?? 0;
+          if ((doc.card?.list ?? doc.list) === "needs-attention") return true; // already parked
+        }
+      } catch { /* fall through with rev 0 */ }
+      const moved = await fetch(`${base}/cards/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        body: JSON.stringify({ list: "needs-attention", parkedFrom, attentionReason: reason, rev })
+      });
+      if (moved.ok) {
+        logFn({ kind: "quick-card-parked", id, reason });
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+    }
+    logFn({ kind: "quick-card-park-failed", id });
+    return false;
+  } catch (err) {
+    logFn({ kind: "quick-card-park-failed", id, error: err?.message });
+    return false;
+  }
+}
+
 // True only when the card is STILL an active engine run: it exists and sits on
 // a non-terminal, non-parked pipeline list with no abandonment revert prepared.
 // A fetch failure counts as NOT live (safe: the caller registers fresh).
@@ -220,6 +279,11 @@ export class CardRegistrar {
 
   async completeQuickCard(id) {
     return completeQuickCard({ id, logFn: this.logFn });
+  }
+
+  // D19: route a failed/empty quick card to needs-attention instead of Done.
+  async parkQuickCard(id, reason) {
+    return parkQuickCard({ id, reason, logFn: this.logFn });
   }
 
   // D19 session→card memory, liveness-gated (S7 review F1): a stale card

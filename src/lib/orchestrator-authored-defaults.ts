@@ -16,7 +16,7 @@
 export const AUTHORED_SECTION_IDS = [
   "routing-philosophy",
   "escalation-policy",
-  "when-to-ask",
+  "when-to-ask-vs-proceed",
   "identity-handoff"
 ] as const;
 
@@ -65,8 +65,8 @@ export const AUTHORED_SECTION_DEFAULTS: Record<AuthoredSectionId, AuthoredSectio
       "so and say why."
     ].join("\n")
   },
-  "when-to-ask": {
-    id: "when-to-ask",
+  "when-to-ask-vs-proceed": {
+    id: "when-to-ask-vs-proceed",
     title: "When to ask vs proceed",
     content: [
       "Proceed without asking when the request is unambiguous and the action is",
