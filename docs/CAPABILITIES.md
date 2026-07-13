@@ -297,6 +297,21 @@ Speech in and out for the operative: transcribe audio to text and synthesize
 replies to audio. Singleton; the deepgram-voice Fitting provides it today
 (POST /stt, POST /tts) with its key Vault-sealed via `secret_scope`.
 
+## duty
+
+A unit of work with a start and an end, provided by a Fitting, owning a skill
+(MARATHON-V3 D2). Duties + per-duty Levels replace the former
+task-type/tier/phase/mode vocabulary. The provision's `name` is the duty id
+and MUST match a `duties[]` spec in the same manifest (see METADATA.md). Each
+duty declares 1..n levels; a level is either a leaf cell `{skill, target,
+effort}` or an ordered sequence of duty references — the graph must be a DAG,
+validated by the Resolver (`src/lib/resolver.ts`). Multi: a Fitting provides
+one duty as the norm (multi allowed, discouraged). Discovery is the
+derived-view pattern — consume `duty` with `cardinality: any` to see every
+duty in the composition without hardcoding (the board's list set, the
+orchestrator's duties-and-levels block, and garrison-control all read the
+Resolver's model, never the graph directly).
+
 ## view
 
 Derived, never declared: Fittings do not list `view` in `provides` —

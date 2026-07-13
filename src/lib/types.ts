@@ -117,6 +117,15 @@ export const capabilityKinds = [
   "outpost",
   "monitor",
   "voice",
+  // duty (2026-07-13, MARATHON-V3 D2): a unit of work with a start and an end,
+  // provided by a Fitting, owning a skill. Duties + per-duty Levels replace the
+  // former task-type/tier/phase/mode vocabulary. Honesty-Test: real Fittings
+  // (the Dispatcher, the per-duty work Fittings) cannot be expressed without
+  // it. Discovery is the derived-view pattern: consume kind:duty with
+  // cardinality `any`. A Fitting provides ONE duty as the norm (multi allowed,
+  // discouraged); the provision's `name` is the duty id and MUST match a
+  // `duties[]` spec in the same manifest.
+  "duty",
   "view"
 ] as const;
 
@@ -271,6 +280,58 @@ export interface ConnectorSpec {
   oauth?: ConnectorOAuth;
 }
 
+// ---------------------------------------------------------------------------
+// Duties (MARATHON-V3 D2/D3/D4). A duty is work with a start and an end,
+// provided by a Fitting, owning a skill. Each duty has 1..n LEVELS; a level is
+// either a leaf CELL {skill, target, effort} or an ordered SEQUENCE of duty
+// references. Levels are stored FLAT — every level carries its full explicit
+// content; inheritance lives only in the editor (copy-from-below + diff line),
+// never in the data model. The duty graph must be a DAG; the Resolver
+// (src/lib/resolver.ts) validates it.
+
+export const dutyEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
+export type DutyEffort = (typeof dutyEfforts)[number];
+
+// A leaf level's cell. All fields optional: automation-shaped duty levels may
+// leave target and effort empty (D14); skill-shaped cells name the skill the
+// duty owns. `target` names an engine-identity target (model/runtime/provider —
+// effort deliberately NOT part of target identity; it lives here in the cell).
+export interface DutyLevelCell {
+  skill?: string;
+  target?: string;
+  effort?: DutyEffort;
+}
+
+// One entry of a composite level's ordered sequence: a duty reference, run at
+// the parent's level by default, with an optional per-entry level override
+// (1-based index into the referenced duty's levels).
+export interface DutySequenceEntry {
+  duty: string;
+  level?: number;
+}
+
+// A duty level: leaf (cell) XOR composite (sequence) — exactly one is set,
+// enforced at parse time (metadata.ts dutyLevelSchema superRefine); both stay
+// optional here because zod's inferred output can't carry the union.
+// `description` is the one-line summary the Dispatcher reads
+// ("level 1: quick fix, no plan").
+export interface DutyLevel {
+  description: string;
+  cell?: DutyLevelCell;
+  sequence?: DutySequenceEntry[];
+}
+
+// A duty spec as declared by the providing Fitting's manifest `duties[]` block
+// (the provision name = the duty id), or defined/overridden by the composition
+// file (D8 — the composition absorbs duty definitions).
+export interface DutySpec {
+  id: string;
+  title: string;
+  // Verb-shaped description ("develop a change end to end", "review a diff").
+  description: string;
+  levels: DutyLevel[];
+}
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -287,6 +348,9 @@ export interface GarrisonMetadata {
   // runner and the Setup Instructions editor) always sees a list. `undefined`
   // when the fitting declares no setup.
   setup?: SetupStep[];
+  // Duty specs for each kind:duty provision this Fitting declares (one per
+  // provision; provision name === duty id). Empty for non-duty Fittings.
+  duties?: DutySpec[];
   verify: {
     command: string;
     expect: string;

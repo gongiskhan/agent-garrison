@@ -120,7 +120,7 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`; `mcp-gateway` was dropped there too and re-added 2026-07-10 for soul-mode `talk_to`; `data-source` dropped 2026-06-26, superseded by `connector`; `artifact-store` dropped, the file-browser Fitting is the artifact surface; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer); `connector` added 2026-06-26 for the Connectors faculty, a connected service with a callable action catalog + Vault-sealed auth, more general than `data-source`. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view`, all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port`, never declared under `provides`. |
+| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `duty`, `view`. (`duty` added 2026-07-13, MARATHON-V3 D2: a unit of work with per-duty levels, provided by a Fitting owning a skill; the provision `name` is the duty id and must match a `duties[]` spec — see the duty schema below. Dropped in the Quarters pivot: `soul`, `agent-skill`; `mcp-gateway` was dropped there too and re-added 2026-07-10 for soul-mode `talk_to`; `data-source` dropped 2026-06-26, superseded by `connector`; `artifact-store` dropped, the file-browser Fitting is the artifact surface; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer); `connector` added 2026-06-26 for the Connectors faculty, a connected service with a callable action catalog + Vault-sealed auth, more general than `data-source`. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view`, all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port`, never declared under `provides`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):
@@ -194,6 +194,29 @@ Connector schema (`connector`, for Fittings that provide `kind: connector`):
 this Fitting is permitted to read. This is what makes per-connector scoping real —
 vault materialization delivers ONLY these named secrets to the Fitting's process,
 replacing the historical all-or-nothing delivery to any `kind: vault` consumer.
+
+Duty schema (`duties[]`, for Fittings that provide `kind: duty` — one spec per
+provision, spec `id` === provision `name`; MARATHON-V3 D2/D3/D4):
+
+| Field | Type | Required | Notes |
+|---|---:|---:|---|
+| `id` | string | yes | Kebab-case duty id (the provision name). |
+| `title` | string | yes | Display title. |
+| `description` | string | yes | Verb-shaped ("develop a change end to end"). |
+| `levels` | array | yes | 1..n levels, 1-based. Each level: `description` (one line, Dispatcher-readable) plus EXACTLY ONE of `cell` or `sequence`. |
+
+Level `cell` (leaf): `skill` (optional — the skill this duty owns via the
+Quarters ownership tag), `target` (optional — an engine-identity target id;
+effort is NOT part of target identity), `effort` (optional — one of `low`,
+`medium`, `high`, `xhigh`, `max`). Automation-shaped levels may leave `target`
+and `effort` empty.
+
+Level `sequence` (composite): ordered entries `{duty, level?}` — each entry
+runs at the parent's level by default with an optional per-entry `level`
+override (1-based). The duty graph must be a DAG; sequence references, level
+ranges, and cycles are validated by the Resolver (`src/lib/resolver.ts`).
+Levels are stored FLAT — no inheritance in the data model (the editor offers
+copy-from-below + a diff line instead).
 
 Tasks schema:
 

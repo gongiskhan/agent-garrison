@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   capabilityKinds,
+  dutyEfforts,
   facultyIds,
   fittingShapes,
   uiPlacements,
@@ -100,6 +101,46 @@ const connectorSpecSchema = z.object({
   actions: z.array(connectorActionSchema).default([]),
   triggers: z.array(connectorTriggerSchema).optional(),
   oauth: connectorOAuthSchema.optional()
+});
+
+// Duty sub-block (MARATHON-V3 D2/D3/D4): one spec per kind:duty provision
+// (provision name === duty id). A level is leaf (cell) XOR composite
+// (sequence) — declaring both or neither is a parse error. Levels are stored
+// flat; no inheritance in the data model.
+const dutyLevelCellSchema = z.object({
+  skill: z.string().min(1).optional(),
+  target: z.string().min(1).optional(),
+  effort: z.enum(dutyEfforts).optional()
+});
+
+const dutySequenceEntrySchema = z.object({
+  duty: z.string().min(1),
+  level: z.number().int().min(1).optional()
+});
+
+const dutyLevelSchema = z
+  .object({
+    description: z.string().min(1, "each duty level needs a one-line description"),
+    cell: dutyLevelCellSchema.optional(),
+    sequence: z.array(dutySequenceEntrySchema).min(1).optional()
+  })
+  .superRefine((level, ctx) => {
+    if ((level.cell === undefined) === (level.sequence === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "a duty level is either a cell (leaf) or a sequence (composite) — exactly one"
+      });
+    }
+  });
+
+const dutySchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .regex(/^[a-z][a-z0-9-]*$/, "duty id must be kebab-case"),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level")
 });
 
 // D3 (GARRISON-RUNTIMES-V1): a runtime Fitting declares HOW a provider override
@@ -336,6 +377,7 @@ export const garrisonMetadataSchema = z.object({
   default_port: z.number().int().positive().optional(),
   lifecycle: z.enum(["operative-bound", "detached"]).optional(),
   connector: connectorSpecSchema.optional(),
+  duties: z.array(dutySchema).optional(),
   secret_scope: z.array(z.string().min(1)).optional(),
   provider_mechanism: providerMechanismSchema.optional(),
   quarters_descriptor: quartersDescriptorSchema.optional()
@@ -366,7 +408,37 @@ export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {
   const normalized = normalizeDeprecations(input);
   const metadata = garrisonMetadataSchema.parse(normalized);
   validateFacultyCompatibility(metadata);
+  validateDutyDeclarations(metadata);
   return metadata;
+}
+
+// Every kind:duty provision must carry a matching duties[] spec (provision
+// name === duty id) and vice versa — a duty without a spec is undispatchable,
+// a spec without a provision is undiscoverable. Loud at parse time, per the
+// verify-or-don't-ship discipline.
+function validateDutyDeclarations(metadata: GarrisonMetadata): void {
+  const provided = metadata.provides
+    .filter((p) => p.kind === "duty")
+    .map((p) => p.name);
+  const specs = (metadata.duties ?? []).map((d) => d.id);
+  for (const name of provided) {
+    if (!specs.includes(name)) {
+      throw new Error(
+        `fitting provides duty "${name}" but declares no matching duties[] spec`
+      );
+    }
+  }
+  for (const id of specs) {
+    if (!provided.includes(id)) {
+      throw new Error(
+        `duties[] declares "${id}" but no provides entry {kind: duty, name: ${id}} exists`
+      );
+    }
+  }
+  const dupes = specs.filter((id, i) => specs.indexOf(id) !== i);
+  if (dupes.length > 0) {
+    throw new Error(`duplicate duty ids in duties[]: ${[...new Set(dupes)].join(", ")}`);
+  }
 }
 
 function normalizeDeprecations(input: unknown): unknown {
