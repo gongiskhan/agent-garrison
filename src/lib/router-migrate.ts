@@ -563,14 +563,20 @@ export async function migrateRouterConfig(compositionDir: string): Promise<Route
     });
   }
 
-  // Write everything. Siblings + apm.yml first; the .v3.bak marker LAST so a
-  // crash mid-write leaves no marker and the re-run is allowed.
+  // Backup-before-write (codex S3c finding): the .v3.bak marker is written FIRST,
+  // before apm.yml is mutated. The idempotence guard keys on this marker's
+  // existence, so writing it first means a crash mid-migration leaves the marker
+  // present and a re-run REFUSES — it never re-folds an already-migrated apm.yml
+  // (which would corrupt it). Manual recovery from a partial migration is `rm the
+  // .v3.bak + git checkout apm.yml`, an explicit operator action, never a silent
+  // double-fold.
+  await ensureDir(path.join(compositionDir, ".garrison"));
+  await fs.writeFile(backupPath, rawRouting, "utf8");
   for (const sibling of siblings) {
     await ensureDir(sibling.dir);
     await fs.writeFile(sibling.apmPath, sibling.apmBody, "utf8");
   }
   await fs.writeFile(apmPath, rawApmAfter, "utf8");
-  await fs.writeFile(backupPath, rawRouting, "utf8");
 
   return {
     ...base,

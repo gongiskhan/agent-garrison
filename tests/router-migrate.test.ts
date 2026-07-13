@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
@@ -437,6 +437,29 @@ describe("migrateRouterConfig (fixture)", () => {
     expect(second.ok).toBe(false);
     expect(second.skipped).toBe(true);
     expect(second.reason).toMatch(/already exists/);
+  });
+
+  it("writes the backup marker BEFORE mutating apm.yml (backup-before-write, codex S3c)", async () => {
+    // Order proof: at the moment apm.yml gains schema:4, the .v3.bak marker must
+    // already exist — so a crash between them cannot leave a migrated apm.yml
+    // with no idempotence marker (which a re-run would re-fold + corrupt).
+    const bakPath = path.join(compDir, ".garrison", "routing.json.v3.bak");
+    const apmPath = path.join(compDir, "apm.yml");
+    let bakExistedWhenApmWritten: boolean | null = null;
+    const realWriteFile = fsp.writeFile.bind(fsp);
+    const spy = vi.spyOn(fsp, "writeFile").mockImplementation(async (p: any, data: any, enc?: any) => {
+      if (typeof p === "string" && p === apmPath && bakExistedWhenApmWritten === null) {
+        bakExistedWhenApmWritten = fs.existsSync(bakPath);
+      }
+      return realWriteFile(p, data, enc);
+    });
+    try {
+      const res = await migrateRouterConfig(compDir);
+      expect(res.ok).toBe(true);
+      expect(bakExistedWhenApmWritten).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("aborts before writing when the ACTIVE profile has a skill/target incompatibility", async () => {
