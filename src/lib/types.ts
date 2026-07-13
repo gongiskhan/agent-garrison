@@ -84,10 +84,17 @@ export type FittingShape = (typeof fittingShapes)[number];
 export const capabilityKinds = [
   "orchestrator",
   // modes: added 2026-06-22 — the identity/persona layer (souls + shared voice +
-  // per-mode routing bias + mode switching) the `modes` Fitting provides and the
-  // orchestrator consumes. Honesty-Test: a real Fitting needs it and no existing
-  // kind expresses it.
+  // per-mode routing bias + mode switching) the `modes` Fitting provided.
+  // SUPERSEDED 2026-07-13 (MARATHON-V3 D7) by `identity`: modes die (the bias/
+  // pin/sticky-switching/CRUD machinery is removed; James/Joe decompose into
+  // duties). Kept in the vocabulary for back-compat with any lingering manifest;
+  // no seed Fitting provides it after the modes fitting's retirement.
   "modes",
+  // identity (2026-07-13, MARATHON-V3 D7): the persona + tone layer of the
+  // system prompt, provided by the single Identity Fitting (default persona:
+  // Gary). Replaces `modes` as the live persona slot — "Hey Gary" addresses the
+  // operative, full stop. A composition-readiness rule (D10) requires one.
+  "identity",
   "memory-store",
   // data-source: dropped 2026-06-26 — superseded by `connector`, which is
   // strictly more general (a connector both reads AND acts, with a callable

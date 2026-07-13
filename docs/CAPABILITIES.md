@@ -297,6 +297,16 @@ Speech in and out for the operative: transcribe audio to text and synthesize
 replies to audio. Singleton; the deepgram-voice Fitting provides it today
 (POST /stt, POST /tts) with its key Vault-sealed via `secret_scope`.
 
+## identity
+
+The persona + tone layer of the operative's system prompt (MARATHON-V3 D7),
+provided by the single Identity Fitting (default persona: Gary). Replaces the
+retired `modes` kind as the live persona slot — "Hey Gary" addresses the
+operative, full stop. A composition-readiness rule (D10) requires one. The
+former per-mode routing bias / pin / sticky-switching / CRUD machinery is gone;
+register that belonged to specific work (the James/Joe faces) is mined into the
+relevant duty skills instead.
+
 ## duty
 
 A unit of work with a start and an end, provided by a Fitting, owning a skill
