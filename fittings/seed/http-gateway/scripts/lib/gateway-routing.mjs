@@ -252,6 +252,15 @@ export class RoutedGateway {
     // gemini) reads and edits the SAME real project files — a genuine cross-model
     // build on disk, not isolated scratch dirs. Unset → unchanged (scratch).
     this.buildWorkspace = opts.buildWorkspace ?? process.env.GARRISON_BUILD_WORKSPACE ?? null;
+    // S3d (MARATHON-V3 D6): the OPTIONAL Dispatcher path (duties-and-levels), the
+    // classifier's successor. Injected as { core (dispatch-core module), model
+    // (the Resolver's resolved model), call (a garrison-call invoker), evidenceFile? }.
+    // DEFAULT NULL, so classify()/preRoute() below are byte-for-byte unchanged and
+    // the pinned classifier session stays the live default — parity is proven at
+    // the resolution layer (tests/dispatcher-parity.test.ts) but on-box
+    // classification-accuracy vs the haiku classifier is not, so retirement is not
+    // forced (D6). dispatchRoute() is reachable only when a dispatcher is wired.
+    this._dispatcher = opts.dispatcher ?? null;
   }
 
   async start() {
@@ -504,6 +513,11 @@ export class RoutedGateway {
     return cards.completeQuickCard({ id, logFn: (e) => this.logFn(e) });
   }
 
+  // D19: route a failed/empty quick card to needs-attention instead of Done.
+  async parkQuickCard(id, reason) {
+    return cards.parkQuickCard({ id, reason, logFn: (e) => this.logFn(e) });
+  }
+
   // D19: a turn is "task-shaped" (worth a card) when its task type names real
   // work — code / research / writing / image / video / ops. Plain conversation
   // (`other`) and the engine's own pipeline verbs are NOT carded here (the latter
@@ -573,6 +587,29 @@ export class RoutedGateway {
       };
     this.lastClassification = cls;
     return cls;
+  }
+
+  // S3d (MARATHON-V3 D6): route ONE message through the Dispatcher DUTY
+  // (duties-and-levels vocabulary) — the successor to classify(). Returns
+  // { duty, level, confidence, reason, overridden, overrideSource, evidence }.
+  // OPT-IN: only reachable when a dispatcher bundle was injected (opts.dispatcher
+  // at construction); classify() (the live default) is untouched, so the 122-case
+  // classifier corpus and the gateway suite pass unchanged. The dispatch call runs
+  // single-shot on a small fast model via the injected garrison-call invoker; code
+  // clamps + applies the human "run at level N" / card override; routing evidence
+  // (message DIGEST, never the raw message) is logged to the decisions file.
+  async dispatchRoute(message, opts = {}) {
+    if (!this._dispatcher || !this._dispatcher.core || typeof this._dispatcher.core.dispatch !== "function") {
+      throw new Error("dispatchRoute: no Dispatcher wired (construct RoutedGateway with opts.dispatcher = { core, model, call })");
+    }
+    const { core, model, call, evidenceFile, callOpts } = this._dispatcher;
+    return core.dispatch(model, message, {
+      call,
+      now: this.nowFn,
+      evidenceFile: evidenceFile ?? this.decisionsFile,
+      cardLevel: opts.cardLevel,
+      ...(callOpts ?? {}),
+    });
   }
 
   // classify → resolve role → resolve target → LOG at resolution time → switch.
