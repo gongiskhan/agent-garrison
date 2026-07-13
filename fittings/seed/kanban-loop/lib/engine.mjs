@@ -59,6 +59,14 @@ import {
   hasPhaseGateEvidence,
   gateEvidenceNextList
 } from "./policy.mjs";
+
+// Re-export phaseForList through the engine facade. scripts/kanban.mjs (the
+// `node scripts/kanban.mjs --setup` CLI entrypoint) imports the whole board-helper
+// surface from engine.mjs; phaseForList is defined in policy.mjs and engine only
+// imported it for internal use, so without this re-export that top-level import
+// throws "does not provide an export named 'phaseForList'" and setup exits 1. No
+// vitest exercises kanban.mjs's module load, so only a live `up` surfaces it.
+export { phaseForList };
 // D15 (S4a): a card's next list comes from ITS resolved (duty, level) sequence,
 // not a hardcoded column order. validNextForCard returns the card's own valid
 // next-list ids (forward step + implement fail-edge for a gate); it returns null
