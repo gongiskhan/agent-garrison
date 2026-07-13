@@ -34,7 +34,7 @@ import {
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
 import { projectPrimaryContext } from "./orchestrator-projection";
-import { writeKanbanResolvedModel } from "./kanban-model";
+import { computeKanbanResolvedModel, writeKanbanResolvedModel, type KanbanResolvedModel } from "./kanban-model";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
@@ -43,6 +43,25 @@ import { reconcileCoordTeardown } from "./coord-wiring";
 import type { FittingSelectionMap, GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
+
+// Decide whether up() projects the composition's resolved model to the Kanban
+// board, and with what log line (S4a codex finding). A model with an empty
+// kanbanLists (no selected duties / a malformed duty graph) is NOT a projection —
+// writing it would stamp an empty model.json and log a misleading "projected 0
+// phase list(s)". So skip the write and log the honest reason; only a non-empty
+// resolved duty model projects. Pure — no disk, so it is unit-testable.
+export function kanbanProjectionPlan(kmodel: KanbanResolvedModel): { write: boolean; log: string } {
+  if (kmodel.kanbanLists.length === 0) {
+    return {
+      write: false,
+      log: "kanban model: no resolved duty model (no selected duties) — board keeps its default pipeline; projection skipped"
+    };
+  }
+  return {
+    write: true,
+    log: `kanban model: projected ${kmodel.kanbanLists.length} phase list(s) → ${kmodel.kanbanLists.join(", ")}`
+  };
+}
 
 interface LogEvent {
   ts: string;
@@ -214,12 +233,15 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // it seeds a FRESH board, and falls back to its default pipeline if the file
     // is absent — so a projection failure never affects the launch.
     try {
-      const kmodel = await writeKanbanResolvedModel(composition, soulEntries);
-      appendLog(
-        compositionId,
-        "runner",
-        `kanban model: projected ${kmodel.kanbanLists.length} phase list(s) → ${kmodel.kanbanLists.join(", ") || "(none — board keeps default pipeline)"}`
-      );
+      // Guard (S4a codex finding): a composition with no resolved duty model (no
+      // selected duties → empty kanbanLists) has nothing to project. Skip the write
+      // rather than stamping an empty model.json + logging a misleading "projected 0
+      // phase list(s)"; the board keeps its default pipeline. Additive — a real duty
+      // model still projects exactly as before.
+      const kmodel = computeKanbanResolvedModel(composition, soulEntries);
+      const plan = kanbanProjectionPlan(kmodel);
+      if (plan.write) await writeKanbanResolvedModel(composition, soulEntries);
+      appendLog(compositionId, "runner", plan.log);
     } catch (err) {
       appendLog(compositionId, "stderr", `kanban model projection skipped: ${err instanceof Error ? err.message : String(err)}`);
     }

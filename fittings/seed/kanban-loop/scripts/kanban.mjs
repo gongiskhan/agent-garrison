@@ -11,12 +11,12 @@ import { existsSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards } from "../lib/board.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive } from "../lib/engine.mjs";
+import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
+import { processCard, processBatch, getList, triggerFor, isInteractive, withEvent, phaseForList } from "../lib/engine.mjs";
 import { gatewayRunFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
-import { loadResolvedModel, buildBoard } from "../lib/resolved-model.mjs";
+import { loadResolvedModel, buildBoard, reconcileBoardLists, validNextForCard } from "../lib/resolved-model.mjs";
 import {
   reevaluateWaiting,
   coordinationConfig,
@@ -169,6 +169,39 @@ export function resolveSeedBoard(root) {
   return buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });
 }
 
+// A card must never be LOST when its list is removed by a duty reconcile. Move every
+// card sitting on a now-removed list to the needs-attention column, preserving ALL
+// other card state (runDir/runId/fences/… are kept) and recording WHY (a park event)
+// so the human touchpoint surfaces it — the operator re-enters it on a current list.
+// CAS-safe per card; a card whose list still exists is left untouched. Returns the
+// moved card ids.
+export async function relocateStrandedCards(root, board, removedListIds) {
+  if (!Array.isArray(removedListIds) || removedListIds.length === 0) return [];
+  const removed = new Set(removedListIds);
+  const validIds = new Set((board.lists || []).map((l) => l.id));
+  const cards = await loadAllCards(root);
+  const moved = [];
+  for (const card of cards) {
+    // Only relocate a card whose current list truly left the board.
+    if (!removed.has(card.list) || validIds.has(card.list)) continue;
+    const fromList = card.list;
+    const at = new Date().toISOString();
+    const reason =
+      `The '${fromList}' list was removed from the board when the composition's selected duties changed. ` +
+      `Moved here so the card is not lost — re-enter it on a current list (To Do) to continue.`;
+    const res = await updateCardCAS(root, card.id, (c) => ({
+      ...c,
+      list: "needs-attention",
+      status: "needs-attention",
+      parkedFrom: fromList,
+      attentionReason: reason,
+      events: withEvent(c, { at, kind: "parked", message: `List '${fromList}' removed by duty reconcile - moved to needs attention`, detail: reason })
+    }));
+    if (res) moved.push(card.id);
+  }
+  return moved;
+}
+
 // Resolve the installed scheduler CLI. At setup time cwd is the kanban-loop fitting
 // dir, so the sibling scheduler fitting is one level up (matches the improver pattern).
 function schedulerCli() {
@@ -215,7 +248,29 @@ async function setup() {
     await atomicWriteJSON(boardFile, resolveSeedBoard(root));
     console.log("kanban-loop: seeded board at", boardFile);
   } else {
-    console.log("kanban-loop: board exists at", boardFile);
+    // RECONCILE an existing board's phase-list SET to the current resolved model
+    // (D15): add lists for newly-selected duties, drop lists for deselected ones,
+    // so changing selected_duties updates a LIVE board (not only a fresh seed). Card
+    // state is preserved (membership is derived from card files); any card stranded
+    // on a removed list is relocated to needs-attention. No model on disk → leave the
+    // board untouched (the default-pipeline / policy-less case is unaffected).
+    const model = loadResolvedModel(root);
+    const existing = model ? await loadBoard(root).catch(() => null) : null;
+    if (model && existing) {
+      const { board, removed, added } = reconcileBoardLists(existing, model, { templates: phaseTemplatesFrom(seedBoard()) });
+      if (removed.length || added.length) {
+        await atomicWriteJSON(boardFile, board);
+        const moved = await relocateStrandedCards(root, board, removed);
+        console.log(
+          `kanban-loop: reconciled board (+[${added.join(", ")}] -[${removed.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""}) at`,
+          boardFile
+        );
+      } else {
+        console.log("kanban-loop: board up to date with the resolved model at", boardFile);
+      }
+    } else {
+      console.log("kanban-loop: board exists at", boardFile);
+    }
   }
   await registerTick();
   await registerSchedulerBeats();
@@ -258,8 +313,17 @@ export function batchGatewayRunFn(gatewayUrl) {
     if (nudge) {
       return streamRunFn({ prompt: nudge, classification, skill, suppressContinuations: suppressContinuations ?? true });
     }
+    // D15 (S4a): each card's valid next steps come from ITS resolved (duty, level)
+    // sequence (cached on the card), so a sequence-ended card is offered `done`, not
+    // the board's next column. A legacy card (no sequence) falls back to the list's
+    // static validNext. Tell the operative each card's own options so the verdict it
+    // emits matches what parseBatchVerdicts will accept.
+    const phase = phaseForList(list) || list.id;
     const roster = cards
-      .map((c) => `- ${c.id} :: title="${c.title}" runDir=${c.runDir || "(none)"} slice=${c.sliceId || "(none)"}`)
+      .map((c) => {
+        const opts = validNextForCard(c, phase, null) ?? list.validNext ?? [];
+        return `- ${c.id} :: title="${c.title}" runDir=${c.runDir || "(none)"} slice=${c.sliceId || "(none)"} next-options=[${opts.join(" | ")}]`;
+      })
       .join("\n");
     // Lead with the list's mode so the gateway switches the operative's face (same as
     // the per-card buildCardPrompt). Inert if the gateway ignores it.
@@ -271,7 +335,7 @@ export function batchGatewayRunFn(gatewayUrl) {
       "",
       list.executePrompt || "",
       "",
-      `Emit ONE verdict line per card, each on its own line, EXACTLY in the form \`<cardId> <next-list>\` where <next-list> is one of: ${list.validNext.join(", ")}.`,
+      "Emit ONE verdict line per card, each on its own line, EXACTLY in the form `<cardId> <next-list>` where <next-list> is one of THAT card's own next-options listed above.",
       list.routerPrompt || ""
     ].join("\n");
     return streamRunFn({ prompt, classification, skill, suppressContinuations: suppressContinuations ?? true });

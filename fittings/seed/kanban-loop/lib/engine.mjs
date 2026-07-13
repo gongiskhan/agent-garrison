@@ -64,7 +64,7 @@ import {
 // next-list ids (forward step + implement fail-edge for a gate); it returns null
 // for a legacy card with no duty/level/sequence, and the caller falls back to the
 // board's static validNext — so nothing changes for cards that don't carry a duty.
-import { loadResolvedModel, validNextForCard } from "./resolved-model.mjs";
+import { loadResolvedModel, validNextForCard, nextListForCard } from "./resolved-model.mjs";
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
 // PREMATURE `done` event: the gateway's reply stream closed while the operative
@@ -258,7 +258,7 @@ export function classificationFor(list) {
 // forward validNext edge. OFF phases collect into `skipped` so the caller can
 // record them (rendered off, never silent). Terminal safety: stops at any
 // non-agent list, an unknown list, or after 20 hops.
-export function effectiveListForCard(board, rail, listId, card) {
+export function effectiveListForCard(board, rail, listId, card, model = null) {
   const skipped = [];
   let current = listId;
   for (let hops = 0; hops < 20; hops++) {
@@ -268,9 +268,14 @@ export function effectiveListForCard(board, rail, listId, card) {
     const phase = phaseForList(list);
     if (phaseOnForCard(rail, phase)) return { listId: current, skipped };
     skipped.push(phase);
-    // The forward edge is the FIRST validNext that is not the implement
-    // loop-back (every gate list's fail edge) and not needs-attention.
-    const forward = (list.validNext || []).find((n) => n !== "implement" && n !== ATTENTION_LIST) ||
+    // D15 (S4a): the forward step for a card carrying a resolved (duty, level)
+    // sequence follows ITS sequence (nextListForCard — the next leaf after this
+    // phase, or "done" at the sequence end), NEVER the board's static column
+    // order. Only a LEGACY card (no sequence, or a phase off its sequence →
+    // nextListForCard null) uses the board's forward validNext edge (the first
+    // that is not the implement loop-back or needs-attention).
+    const forward = nextListForCard(card, phase, model) ??
+      (list.validNext || []).find((n) => n !== "implement" && n !== ATTENTION_LIST) ??
       (list.validNext || [])[0];
     if (!forward) return { listId: current, skipped };
     current = forward;
@@ -577,7 +582,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // as an explicit "off" event (rendered off, never a silent pass).
   const rail = railForCard(policy, card);
   if (rail && !phaseOnForCard(rail, phase)) {
-    const { listId: fwd, skipped } = effectiveListForCard(board, rail, card.list, card);
+    const { listId: fwd, skipped } = effectiveListForCard(board, rail, card.list, card, resolvedModel);
     const offEvents = skipped.map((ph) => ({
       at: now(),
       kind: "phase-off",
@@ -906,7 +911,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     let effectiveNext = next;
     let offEvents = [];
     if (rail) {
-      const fwd = effectiveListForCard(board, rail, next, runningCard);
+      const fwd = effectiveListForCard(board, rail, next, runningCard, resolvedModel);
       if (fwd.listId !== next) {
         effectiveNext = fwd.listId;
         offEvents = fwd.skipped.map((ph) => ({
@@ -1295,7 +1300,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   let effectiveNext = verdict;
   let offEvents = [];
   if (rail) {
-    const fwd = effectiveListForCard(board, rail, verdict, card);
+    const fwd = effectiveListForCard(board, rail, verdict, card, resolvedModel);
     if (fwd.listId !== verdict) {
       effectiveNext = fwd.listId;
       offEvents = fwd.skipped.map((ph) => ({
@@ -1517,12 +1522,17 @@ function firstValidNextIn(text, validNext) {
 // require it on its own line. Strip badge spans, then for each card find its id (LAST
 // occurrence — the verdict comes after the work) and take the first valid-next token that
 // follows it. Still exact-match, no guessing.
-export function parseBatchVerdicts(reply, cards, board) {
+export function parseBatchVerdicts(reply, cards, board, model = null) {
   const text = typeof reply === "string" ? reply : reply?.reply ?? reply?.text ?? "";
   const cleaned = String(text).replace(/\[[^\]\n]*\]/g, " ");
   const verdicts = {};
   for (const c of cards) {
-    const validNext = validNextFor(board, c.list);
+    // D15 (S4a): match each card's verdict against ITS resolved (duty, level)
+    // sequence (validNextForCard — the forward step + gate fail-edge), NOT the
+    // board's column order. A legacy card (no sequence) falls back to the board's
+    // static validNext, so nothing changes for a card that carries no duty.
+    const phase = phaseForList(getList(board, c.list));
+    const validNext = validNextForCard(c, phase, model) ?? validNextFor(board, c.list);
     verdicts[c.id] = null;
     const idx = cleaned.lastIndexOf(c.id);
     if (idx === -1) continue;
@@ -1539,15 +1549,20 @@ export function parseBatchVerdicts(reply, cards, board) {
 // is the card's first agent-list entry): a valid verdict moves it forward; a missing /
 // non-matching verdict, or an iteration-cap breach, loops it to `implement` (the fail
 // edge) or parks it in needs-attention if implement is not a valid next.
-export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {} }) {
+export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, listId);
   if (!list || list.kind !== AGENT_KIND) {
     return { outcomes: [], reason: "not-an-agent-list" };
   }
   const listTitle = list.title || listId;
+  // D15 (S4a): each card advances along ITS resolved (duty, level) sequence, not
+  // the board's static column order. Read the resolved model once (injectable by
+  // tests; absent → null → legacy board-order behaviour) and derive valid-next
+  // PER CARD below. The board-level validNext stays the legacy fallback + the
+  // union base for the generic nudge/park hints.
+  const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
   const validNext = validNextFor(board, listId);
-  const expected = validNext.join(", ");
   const groups = groupCardsByProject(cards, listId);
   const outcomes = [];
   // Coordination context for the batch (D7 red-path): attribution + fences run
@@ -1599,6 +1614,14 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     // one session; per-card tier divergence is not worth a session each).
     const policy = loadPolicy();
     const phase = phaseForList(list);
+    // The generic hint tokens for the nudge prompt: the UNION of every card's own
+    // valid-next (its resolved sequence, D15) plus the board's static validNext, so
+    // a sequence-ended card's real option (e.g. `done`) is never omitted from the
+    // hint the operative is given.
+    const batchValidNextUnion = [...new Set([
+      ...validNext,
+      ...runningCards.flatMap((c) => validNextForCard(c, phase, resolvedModel) ?? [])
+    ])];
     const classification = classificationForPhase(policy, phase, runningCards[0]);
     const skill = skillForPhase(policy, phase, runningCards[0]?.workKind || policy?.defaultWorkKind);
     let out;
@@ -1652,7 +1675,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     }
 
     let reply = out?.reply ?? out?.text ?? String(out ?? "");
-    let verdicts = parseBatchVerdicts(reply, runningCards, board);
+    let verdicts = parseBatchVerdicts(reply, runningCards, board, resolvedModel);
     // VERDICT NUDGE (same backstop as processCard). A batch turn that did the
     // work but ended narrating — or returned an empty screen-scrape — leaves
     // ZERO verdict lines and would park the whole group. One bounded follow-up
@@ -1662,11 +1685,11 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         const nudgePrompt =
           `Your previous reply did not include the required per-card verdict lines, so the workflow can't advance. ` +
           `Based ONLY on the batched test work you just completed, reply with NOTHING but one verdict line per card, ` +
-          `each EXACTLY in the form \`<cardId> <next-list>\` where <next-list> is one of: ${validNext.join(", ")}. The cards: ` +
+          `each EXACTLY in the form \`<cardId> <next-list>\` where <next-list> is one of: ${batchValidNextUnion.join(", ")}. The cards: ` +
           runningCards.map((c) => c.id).join(", ") + ".";
         const nout = await batchRunFn({ project, cards: runningCards, list, classification, skill, suppressContinuations: true, nudge: nudgePrompt });
         const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
-        const nudged = parseBatchVerdicts(nudgeReply, runningCards, board);
+        const nudged = parseBatchVerdicts(nudgeReply, runningCards, board, resolvedModel);
         if (Object.values(nudged).some(Boolean)) {
           verdicts = nudged;
           if (!reply.trim()) reply = nudgeReply;
@@ -1678,6 +1701,11 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     const snippet = replySnippet(reply);
     for (const a of acquired) {
       let next = verdicts[a.original.id];
+      // D15 (S4a): this card's OWN valid-next (its resolved sequence) — the gate
+      // poll must accept the card's real next step (e.g. `done` at a sequence end),
+      // not the board's column order; a legacy card falls back to the board's set.
+      const cardValidNext = validNextForCard(a.running, phase, resolvedModel) ?? validNext;
+      const cardExpected = cardValidNext.join(", ");
       await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\nverdict: ${next ?? "(none)"}\n${reply}\n`);
       const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
       // RACE FIX (D19, assumption 2) — mirror of processCard. An EMPTY batch reply
@@ -1686,7 +1714,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       // advances it exactly as a verdict line would.
       let batchGrace = null;
       if (!next && !reply.trim() && a.running.runDir && pipelinePhase) {
-        batchGrace = await pollForGateEvidence({ cwd, runDir: a.running.runDir, phase, validNext, ...grace });
+        batchGrace = await pollForGateEvidence({ cwd, runDir: a.running.runDir, phase, validNext: cardValidNext, ...grace });
         if (batchGrace.next) {
           next = batchGrace.next;
           await appendCardLog(root, a.original.id, a.iteration, `\n_(empty batch reply — gate evidence landed after ${batchGrace.waited} grace check(s): ${next})_\n`);
@@ -1711,7 +1739,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         let effectiveNext = next;
         let offEvents = [];
         if (rail) {
-          const fwd = effectiveListForCard(board, rail, next, a.running);
+          const fwd = effectiveListForCard(board, rail, next, a.running, resolvedModel);
           if (fwd.listId !== next) {
             effectiveNext = fwd.listId;
             offEvents = fwd.skipped.map((ph) => ({
@@ -1821,13 +1849,13 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       } else {
         // No verdict line for THIS card in the batch reply — say so plainly (the batch
         // session must emit `<cardId> <next-list>` per card; it didn't for this one).
-        const noMatchReason = `${listTitle} ran (batched for ${project}) but returned no valid verdict for this card — it needed a line "${a.original.id} <one of: ${expected}>". The operative said: “${snippet}” — open the log for the full reply, then move it back to retry.`;
+        const noMatchReason = `${listTitle} ran (batched for ${project}) but returned no valid verdict for this card — it needed a line "${a.original.id} <one of: ${cardExpected}>". The operative said: “${snippet}” — open the log for the full reply, then move it back to retry.`;
         target = {
           ...a.running,
           ...parkFields(a.running, listId, noMatchReason),
           runningSince: null,
           lastReply: snippet,
-          events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no valid verdict in the batch reply`, detail: `Expected: ${a.original.id} <${expected}>\n\nBatch reply:\n${reply}` })
+          events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no valid verdict in the batch reply`, detail: `Expected: ${a.original.id} <${cardExpected}>\n\nBatch reply:\n${reply}` })
         };
       }
       const res = await saveCardCAS(root, target, a.running.rev, now());

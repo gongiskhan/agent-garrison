@@ -197,6 +197,33 @@ export function buildBoard(model, opts = {}) {
   return { version: 3, lists, projects: {} };
 }
 
+// Reconcile an EXISTING board's phase-list SET to the current resolved model
+// (D15, S4a finding): rebuild the list STRUCTURE from the model — add lists for
+// newly-selected duties, drop lists for deselected ones — while preserving the
+// board's non-structural state (the `projects` map + `rev`). List MEMBERSHIP is
+// derived by scanning card files (never stored on the board), so rebuilding
+// board.json touches no card state; the caller separately relocates any card
+// stranded on a removed list so nothing is lost. Returns
+// { board, removed, added } where removed/added are the list ids that left/joined
+// the board (used by the caller to move stranded cards + to log the reconcile).
+// Pure: no fs, no I/O.
+export function reconcileBoardLists(existingBoard, model, opts = {}) {
+  const rebuilt = buildBoard(model, opts);
+  const oldIds = new Set((existingBoard?.lists || []).map((l) => l.id));
+  const newIds = new Set(rebuilt.lists.map((l) => l.id));
+  const removed = [...oldIds].filter((id) => !newIds.has(id));
+  const added = [...newIds].filter((id) => !oldIds.has(id));
+  const board = {
+    ...rebuilt,
+    // Preserve the live board's project map + optimistic-concurrency rev; the human
+    // columns + phase-list defs come fresh from the model (phase lists are engine-
+    // owned, D16, so there is no user list config to preserve).
+    projects: existingBoard?.projects && typeof existingBoard.projects === "object" ? existingBoard.projects : {},
+    rev: Number.isInteger(existingBoard?.rev) ? existingBoard.rev : 0
+  };
+  return { board, removed, added };
+}
+
 // A human title for a derived phase list id ("adversarial-review" → "Adversarial
 // Review"). Only used when a template omits a title.
 function titleFor(id) {

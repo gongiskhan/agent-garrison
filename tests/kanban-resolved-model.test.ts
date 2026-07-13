@@ -18,14 +18,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { deriveKanbanLists, resolveSequence } from "../src/lib/resolver";
+import { computeKanbanResolvedModel } from "../src/lib/kanban-model";
+import { kanbanProjectionPlan } from "../src/lib/runner";
 // @ts-ignore — pure .mjs
-import { buildBoard, validNextForCard, nextListForCard, resolveCardSequence, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
+import { buildBoard, validNextForCard, nextListForCard, resolveCardSequence, reconcileBoardLists, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
-import { processCard, getList } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
-import { createCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { seedBoard, phaseTemplatesFrom } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+import { seedBoard, phaseTemplatesFrom, relocateStrandedCards } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-resolved-"));
 
@@ -238,5 +240,165 @@ describe("S4a — no regression: a legacy card flows on the board's static valid
     const { outcome } = await processCard({ root, board, card, runFn, cap: 10 });
     expect(outcome.status).toBe("moved");
     expect(outcome.to).toBe("implement");
+  });
+});
+
+// ── S4a codex-fix regression suite — one test per finding (the determinism ratchet).
+// The board column order is a LEGACY fallback ONLY; a card carrying a resolved
+// (duty, level) sequence advances by ITS SEQUENCE, never by the board's next column.
+
+// The finding's exact model: a Test list whose board-forward is 'adversarial-test'
+// (test is NOT the last board column), but a card whose sequence ENDS at 'test'.
+const BATCH_MODEL = {
+  version: 1 as const,
+  compositionId: "test",
+  kanbanLists: ["plan", "implement", "review", "test", "adversarial-test"],
+  sequences: { develop: { "2": ["plan", "implement", "review", "test"] } }
+};
+
+describe("S4a codex finding #1 — the batched Test path advances by the card's sequence, not board column order", () => {
+  const board = buildBoard(BATCH_MODEL, { templates: templates() });
+  const seqCard = () => ({
+    id: "01ARZ3NDEKTSV4RRFFQ69BATCH",
+    list: "test",
+    duty: "develop",
+    level: 2,
+    sequence: ["plan", "implement", "review", "test"]
+  });
+
+  it("parseBatchVerdicts accepts the card's sequence-end 'done' and REJECTS the board column 'adversarial-test'", () => {
+    const c = seqCard();
+    // With the resolved model: test is the sequence end → valid-next = [done, implement].
+    expect(parseBatchVerdicts(`${c.id} done`, [c], board, BATCH_MODEL)[c.id]).toBe("done");
+    expect(parseBatchVerdicts(`${c.id} adversarial-test`, [c], board, BATCH_MODEL)[c.id]).toBeNull();
+  });
+
+  it("a LEGACY card (no sequence) still parses against the board's static validNext", () => {
+    const legacy = { id: "01ARZ3NDEKTSV4RRFFQ69LEGCY", list: "test" };
+    // Board's Test column forward is 'adversarial-test' — the legacy fallback path.
+    expect(parseBatchVerdicts(`${legacy.id} adversarial-test`, [legacy], board)[legacy.id]).toBe("adversarial-test");
+    expect(parseBatchVerdicts(`${legacy.id} done`, [legacy], board)[legacy.id]).toBeNull();
+  });
+
+  it("processBatch MOVES a sequence-ended card to 'done' on its own verdict", async () => {
+    const root = tmp();
+    await createCard(root, { title: "seq-end", project: "demo", list: "test", duty: "develop", level: 2, sequence: ["plan", "implement", "review", "test"] });
+    const all = await loadAllCards(root);
+    const batchRunFn = async ({ cards }: { cards: any[] }) => ({ reply: cards.map((c) => `${c.id} done`).join("\n") });
+    const { outcomes } = await processBatch({ root, board, listId: "test", cards: all, batchRunFn, cap: 10, model: BATCH_MODEL });
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].status).toBe("moved");
+    expect(outcomes[0].to).toBe("done");
+  });
+
+  it("processBatch REFUSES to advance a sequence-ended card to the board's next column ('adversarial-test')", async () => {
+    const root = tmp();
+    await createCard(root, { title: "seq-end", project: "demo", list: "test", duty: "develop", level: 2, sequence: ["plan", "implement", "review", "test"] });
+    const all = await loadAllCards(root);
+    // The operative names the board's next column — off this card's sequence.
+    const batchRunFn = async ({ cards }: { cards: any[] }) => ({ reply: cards.map((c) => `${c.id} adversarial-test`).join("\n") });
+    const { outcomes } = await processBatch({ root, board, listId: "test", cards: all, batchRunFn, cap: 10, model: BATCH_MODEL });
+    expect(outcomes[0].status).toBe("needs-attention");
+    expect(outcomes[0].to).toBeUndefined();
+    const remaining: any[] = await loadAllCards(root);
+    const parked = await loadCard(root, remaining[0].id);
+    expect(parked.list).toBe("needs-attention"); // NOT advanced to adversarial-test
+  });
+});
+
+describe("S4a codex finding #2 — effectiveListForCard skips OFF phases along the card's sequence, not board column order", () => {
+  // A model whose board column order makes implement→review the static edge, but a
+  // level-1 develop card whose sequence is ONLY [implement] (so after implement → done).
+  const model = {
+    version: 1 as const,
+    compositionId: "test",
+    kanbanLists: ["implement", "review", "test"],
+    sequences: { develop: { "1": ["implement"], "2": ["implement", "review", "test"] } }
+  };
+  const board = buildBoard(model, { templates: templates() });
+  // A rail that turns the card's current phase (implement) OFF and keeps review ON.
+  const rail = { workKind: "k", evidence: "none", phases: [{ id: "implement", on: false }, { id: "review", on: true }] };
+
+  it("a card whose sequence ENDS at the OFF phase fast-forwards to 'done' (its sequence), NOT 'review' (board column)", () => {
+    const seqCard = { list: "implement", duty: "develop", level: 1, sequence: ["implement"] };
+    const { listId, skipped } = effectiveListForCard(board, rail, "implement", seqCard, model);
+    expect(skipped).toEqual(["implement"]);
+    expect(listId).toBe("done"); // the bug advanced this to 'review'
+  });
+
+  it("a LEGACY card (no sequence) still fast-forwards along the board's column order to 'review'", () => {
+    const legacy = { list: "implement" };
+    const { listId } = effectiveListForCard(board, rail, "implement", legacy, model);
+    expect(listId).toBe("review"); // board-column fallback preserved for legacy cards
+  });
+});
+
+describe("S4a codex finding #3 — an EXISTING board is reconciled to the current resolved model (not only a fresh seed)", () => {
+  it("adding a selected duty ADDS its list to the existing board, preserving projects + rev", () => {
+    const existing = buildBoard(makeModel(["plan", "implement"]), { templates: templates() });
+    existing.projects = { demo: { repoPath: "/x" } };
+    existing.rev = 7;
+    expect(existing.lists.map((l: any) => l.id)).not.toContain("review");
+
+    const { board, added, removed } = reconcileBoardLists(existing, makeModel(["plan", "implement", "review"]), { templates: templates() });
+    expect(board.lists.map((l: any) => l.id)).toContain("review"); // the failing case: the list must appear
+    expect(added).toContain("review");
+    expect(removed).toEqual([]);
+    // Non-structural state is preserved across the reconcile.
+    expect(board.projects).toEqual({ demo: { repoPath: "/x" } });
+    expect(board.rev).toBe(7);
+  });
+
+  it("removing a selected duty REMOVES its list AND relocates any stranded card to needs-attention WITHOUT losing it", async () => {
+    const root = tmp();
+    const existing = buildBoard(makeModel(["plan", "implement", "review"]), { templates: templates() });
+    // A card mid-pipeline on the list that is about to be removed, plus one on a kept list.
+    const onReview = await createCard(root, { title: "on review", project: "demo", list: "review", duty: "develop", level: 2, sequence: ["plan", "implement", "review", "test"] });
+    const onImplement = await createCard(root, { title: "on implement", project: "demo", list: "implement" });
+
+    const { board, removed } = reconcileBoardLists(existing, makeModel(["plan", "implement"]), { templates: templates() });
+    expect(removed).toContain("review");
+    expect(board.lists.map((l: any) => l.id)).not.toContain("review");
+
+    const moved = await relocateStrandedCards(root, board, removed);
+    expect(moved).toContain(onReview.id);
+
+    const parked = await loadCard(root, onReview.id);
+    expect(parked.list).toBe("needs-attention");
+    expect(parked.status).toBe("needs-attention");
+    expect(parked.parkedFrom).toBe("review");
+    // Card state is PRESERVED (never clobbered): the title + duty/sequence survive.
+    expect(parked.title).toBe("on review");
+    expect(parked.sequence).toEqual(["plan", "implement", "review", "test"]);
+
+    // A card on a still-present list is untouched.
+    const kept = await loadCard(root, onImplement.id);
+    expect(kept.list).toBe("implement");
+  });
+
+  it("a no-op reconcile (identical list set) reports nothing added or removed", () => {
+    const existing = buildBoard(makeModel(["plan", "implement"]), { templates: templates() });
+    const { added, removed } = reconcileBoardLists(existing, makeModel(["plan", "implement"]), { templates: templates() });
+    expect(added).toEqual([]);
+    expect(removed).toEqual([]);
+  });
+});
+
+describe("S4a codex finding #4 — the runner does NOT project an empty resolved model", () => {
+  it("a composition with no selected duties yields an empty model → the guard SKIPS the write, no misleading log", () => {
+    const empty = computeKanbanResolvedModel({ id: "c", duties: [], selectedDuties: [] }, []);
+    expect(empty.kanbanLists).toEqual([]); // the guard's precondition (no resolved duty model)
+
+    const plan = kanbanProjectionPlan(empty);
+    expect(plan.write).toBe(false);
+    expect(plan.log).not.toMatch(/projected/); // never claims a projection happened
+    expect(plan.log).toMatch(/default pipeline/);
+  });
+
+  it("a non-empty resolved duty model DOES project, logging the real list count", () => {
+    const plan = kanbanProjectionPlan({ version: 1, compositionId: "c", kanbanLists: ["plan", "implement", "review"], sequences: {} });
+    expect(plan.write).toBe(true);
+    expect(plan.log).toContain("projected 3 phase list(s)");
+    expect(plan.log).toContain("plan, implement, review");
   });
 });
