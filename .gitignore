@@ -15,6 +15,7 @@ dist/
 data/vault.json
 data/vault.json.bak-*
 compositions/*/.env
+compositions/*/local.yml
 compositions/*/.garrison/assembled-system-prompt.md
 compositions/*/.garrison/uploads/
 compositions/*/.garrison/decisions.jsonl
