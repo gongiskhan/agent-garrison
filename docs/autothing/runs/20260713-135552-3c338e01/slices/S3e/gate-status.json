@@ -1,0 +1,48 @@
+{
+  "slice": "S3e",
+  "kind": "mixed",
+  "commits": [
+    "9f98027",
+    "fe3ef79"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s3e-impl2",
+      "at": "2026-07-13T16:03:43Z",
+      "note": "first attempt (s3e-impl) stalled empty; re-dispatched with implementation-first brief"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T16:03:43Z",
+      "detail": "typecheck clean (excl S3d WIP), lint clean"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T16:03:43Z",
+      "detail": "30 tests: duties table (leaf+composite), readiness, layering order, regen-preserves-authored, markers"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T16:09:47Z",
+      "detail": "4 findings (constraint-12 locked identity, authored trim, 2 marker-injection) fixed fe3ef79"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T16:09:47Z"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "pending",
+      "note": "preview UI design at S5c/WS7"
+    },
+    "walkthrough": {
+      "status": "pending"
+    }
+  }
+}

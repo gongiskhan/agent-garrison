@@ -1,0 +1,50 @@
+{
+  "slice": "S3f2b",
+  "kind": "api",
+  "commits": [
+    "fa72232",
+    "6a3eef4",
+    "174ab93"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s3f2b-impl",
+      "at": "2026-07-13T17:34:30Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T17:34:30Z",
+      "detail": "typecheck clean; targeted 112/112 + composition 65/65"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T17:34:30Z",
+      "detail": "modes-souls-retired test + fixups; full suite green (deepgram flake unrelated, 12/12 isolation)"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T17:46:57Z",
+      "detail": "library-registration gap (14 new fittings unregistered → composition not ready) fixed 174ab93 + ratchet test; review missed it, codex caught it"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T17:46:57Z",
+      "detail": "reviewed pre-library-fix; approved retirement mechanics"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "walkthrough": {
+      "status": "pending"
+    }
+  },
+  "note": "seed-dir deletions landed in fa72232 (residue-commit conflation — an earlier git add had staged them); consumer updates in 6a3eef4. Branch TIP correct; fa72232 broken-in-isolation, documented."
+}

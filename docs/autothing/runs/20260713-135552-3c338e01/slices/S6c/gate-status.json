@@ -1,0 +1,44 @@
+{
+  "slice": "S6c",
+  "kind": "mixed",
+  "commits": [
+    "bc53cd3"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s6c-impl",
+      "at": "2026-07-13T20:12:35Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T20:12:35Z",
+      "detail": "typecheck clean, lint clean, manifest valid, bundle rebuilds, em-dashes fixed"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T20:12:35Z",
+      "detail": "11 PWA tests + 43/43 web-channel suite"
+    },
+    "codexSliceReview": {
+      "status": "skipped",
+      "reason": "declarative-config-dominant (manifest/sw/icons/docs); the one logic surface (server static-serving) gets the fresh-context review; budget conserved for WS7 live-fire",
+      "at": "2026-07-13T20:12:35Z"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T20:16:51Z"
+    },
+    "adversarialTest": {
+      "status": "attended-pending",
+      "note": "iPhone/iPad checklist committed — owner runs it; non-gating"
+    },
+    "design": {
+      "status": "deferred-to-ux-gate"
+    },
+    "walkthrough": {
+      "status": "attended-pending"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{ "slice":"S2b","kind":"api","commits":["32e4718","8c6365c","bf5bab4"],"gates":{
+ "implement":{"status":"passed","by":"s2b-impl","at":"2026-07-13T15:04:39Z"},
+ "wall":{"status":"passed","at":"2026-07-13T15:04:39Z","detail":"typecheck+lint+gitleaks clean, validate-fitting 4/4"},
+ "test":{"status":"passed","at":"2026-07-13T15:04:39Z","detail":"38 tests (5 live Ollama incl. structured), 5 codex/review regressions"},
+ "codexSliceReview":{"status":"passed","verdict":"needs-work→fixed","actualModel":"gpt-5.5-high","at":"2026-07-13T15:04:39Z","detail":"3 findings (unprefixed-key echo, enum bypass, hung-body) fixed 8c6365c"},
+ "adversarialReview":{"status":"passed","verdict":"needs-work→fixed","at":"2026-07-13T15:04:39Z","detail":"finding1 key-egress-via-baseUrl-override fixed bf5bab4; finding2 hung-body = same as codex, fixed"},
+ "adversarialTest":{"status":"deferred-batched","note":"api slice — run-level batched pass"},
+ "design":{"status":"skipped","reason":"kind-conditional"},
+ "walkthrough":{"status":"pending","note":"api — asciinema batched"} } }

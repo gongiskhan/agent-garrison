@@ -1,0 +1,46 @@
+{
+  "slice": "S5c",
+  "kind": "ui",
+  "commits": [
+    "9bc9a78",
+    "f18c4ce"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s5c-impl",
+      "at": "2026-07-13T20:15:35Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T20:15:35Z",
+      "detail": "typecheck+lint clean; em-dashes fixed; 2 obsolete compose e2e specs retired, 1 migrated"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T20:15:35Z",
+      "detail": "68 tests (orchestrator-authored, decisions-feed, redirects); no regression"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T20:24:25Z",
+      "detail": "combined S5b+S5c: 3 findings (config leak, swap validation, decisions-reason) fixed 383bc8c; clone-atomicity accepted"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T20:24:25Z"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "deferred-to-ux-gate"
+    },
+    "walkthrough": {
+      "status": "deferred-to-ux-gate"
+    }
+  }
+}

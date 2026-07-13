@@ -1,0 +1,52 @@
+{
+  "slice": "S4b",
+  "kind": "mixed",
+  "commits": [
+    "8586020",
+    "3fb1a29",
+    "e4798f4",
+    "ff758ac"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s4b-impl",
+      "at": "2026-07-13T18:43:28Z",
+      "note": "door-1 persistence gap completed by lead in 3fb1a29"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T18:43:28Z",
+      "detail": "typecheck+lint clean"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T18:43:28Z",
+      "detail": "3 divergence-zero + 6 garrison-control + door-1 payload persistence tests"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T18:56:41Z",
+      "detail": "read-only guard + card-field gating fixed e4798f4; 2 accepted-with-reason (dispatchRoute loud guard, shared-reader-by-design)"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "at": "2026-07-13T18:56:41Z",
+      "detail": "door-1 inert-plumbing wired live in ff758ac; claim corrected (runtime gated on opt-in dispatcher); consult-layer divergence-zero proven"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched",
+      "note": "WS7 three-door live-fire"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional (api/read-tool)"
+    },
+    "walkthrough": {
+      "status": "pending"
+    }
+  }
+}

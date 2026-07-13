@@ -1,0 +1,7 @@
+{ "slice":"S3f1","kind":"api","commits":["2806bec","7ce7a55"],"gates":{
+ "implement":{"status":"passed","by":"s3f1-impl","at":"2026-07-13T16:44:20Z"},
+ "wall":{"status":"passed","at":"2026-07-13T16:44:20Z","detail":"typecheck+lint clean; 6 fittings validate 4/4"},
+ "test":{"status":"passed","at":"2026-07-13T16:44:20Z","detail":"36 tests: history move/park/unpark/reattribute, 6 fittings, echo-suppression unchanged"},
+ "codexSliceReview":{"status":"passed","verdict":"needs-work→fixed","actualModel":"gpt-5.5-high","at":"2026-07-13T16:44:20Z","detail":"shared-primitive park reattribution fixed 7ce7a55"},
+ "adversarialReview":{"status":"passed","verdict":"approve","at":"2026-07-13T16:44:20Z"},
+ "adversarialTest":{"status":"deferred-batched","note":"live-fire at WS7"},"design":{"status":"skipped","reason":"kind-conditional"},"walkthrough":{"status":"pending"} } }

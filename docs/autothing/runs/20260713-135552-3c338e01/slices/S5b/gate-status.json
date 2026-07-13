@@ -1,0 +1,45 @@
+{
+  "slice": "S5b",
+  "kind": "ui",
+  "commits": [
+    "24bf227"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s5b-impl",
+      "at": "2026-07-13T19:48:19Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T19:48:19Z",
+      "detail": "typecheck+lint clean; em-dashes fixed; atomic+validate write discipline"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T19:48:19Z",
+      "detail": "10 new unit + 5 e2e (desktop+390px); no S5a regression"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "at": "2026-07-13T20:24:25Z",
+      "detail": "combined codex 383bc8c — swap validation + config redaction fixed"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T19:54:47Z"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "deferred-to-ux-gate",
+      "note": "WS7 UX gate re-audits Muster"
+    },
+    "walkthrough": {
+      "status": "deferred-to-ux-gate"
+    }
+  }
+}

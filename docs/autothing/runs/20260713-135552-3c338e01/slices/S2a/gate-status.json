@@ -1,0 +1,47 @@
+{
+  "slice": "S2a",
+  "kind": "api",
+  "commits": [
+    "2a91276",
+    "5b7fe0c"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s2a-impl",
+      "at": "2026-07-13T15:04:39Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T15:04:39Z",
+      "detail": "typecheck+lint+gitleaks clean, validate-fitting 4/4, deps verified (@openai/agents 0.13.2 MIT / openai 6.46.0)"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T15:04:39Z",
+      "detail": "34 tests (3 live Ollama incl. full tool round trip)"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T15:15:50Z",
+      "detail": "key-egress via spec.baseUrl + --spec-file both fixed (5b7fe0c)"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T15:15:50Z"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "walkthrough": {
+      "status": "pending"
+    }
+  }
+}
