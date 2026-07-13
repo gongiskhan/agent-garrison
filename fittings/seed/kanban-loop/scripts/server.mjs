@@ -152,6 +152,11 @@ export function cardSummary(card) {
     tier: card.tier ?? null,
     origin: card.origin ?? null,
     outpost: card.outpost ?? null,
+    // D15 (S4a): the card's resolved-model journey — its duty + level and the
+    // cached ordered leaf phase lists it visits (skipping the rest).
+    duty: card.duty ?? null,
+    level: card.level ?? null,
+    sequence: Array.isArray(card.sequence) ? card.sequence : null,
     // D19: a quick card is a trivial-plan task the gateway ran inline and
     // auto-advanced to Done. The Done column groups these under a collapsed
     // "quick tasks" strip, and they are never engine-owned (operator-touchable).

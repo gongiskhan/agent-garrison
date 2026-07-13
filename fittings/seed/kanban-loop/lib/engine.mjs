@@ -59,6 +59,12 @@ import {
   hasPhaseGateEvidence,
   gateEvidenceNextList
 } from "./policy.mjs";
+// D15 (S4a): a card's next list comes from ITS resolved (duty, level) sequence,
+// not a hardcoded column order. validNextForCard returns the card's own valid
+// next-list ids (forward step + implement fail-edge for a gate); it returns null
+// for a legacy card with no duty/level/sequence, and the caller falls back to the
+// board's static validNext — so nothing changes for cards that don't carry a duty.
+import { loadResolvedModel, validNextForCard } from "./resolved-model.mjs";
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
 // PREMATURE `done` event: the gateway's reply stream closed while the operative
@@ -499,7 +505,7 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
 // Run ONE transition for a card on an agent list. runFn dispatches the prompt
 // through the orchestrator (preRoute) and returns { reply }. Returns the updated
 // card + an outcome ({status: moved|needs-attention|skipped, ...}).
-export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {} }) {
+export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, card.list);
   // An interactive list (Discuss — kind "agent-interactive") is never auto-dispatched:
@@ -542,12 +548,18 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     return { card: res.card, outcome: { status: "needs-attention", reason: "iteration-cap" } };
   }
 
-  const validNext = validNextFor(board, card.list);
   const iteration = (card.iterations || 0) + 1;
   // D15: resolve everything from the compiled policy up front — the list's
   // phase is the task type, the executing skill is the phase's binding.
   const policy = loadPolicy();
   const phase = phaseForList(list);
+  // D15 (S4a): a card carrying a resolved (duty, level) sequence advances along
+  // ITS sequence, not the board's static column edges. validNextForCard returns
+  // the card's own [forward, fail?] set; null → legacy card → the board's
+  // validNext. `model` is injected by tests; otherwise read from the board root
+  // (absent in a sandbox → null → legacy behaviour, so existing tests are inert).
+  const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
+  const validNext = validNextForCard(card, phase, resolvedModel) ?? validNextFor(board, card.list);
   const skill = skillForPhase(policy, phase, card.workKind || policy?.defaultWorkKind);
   // Coordination is ACTIVE when the compiled policy explicitly carries a
   // `coordination` section (turned on by the composer — S6 — for production; a
@@ -1231,12 +1243,16 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
     return { card, outcome: { status: "skipped", reason: "not-an-agent-list" } };
   }
   const listTitle = list.title || card.list;
-  const validNext = validNextFor(board, card.list);
+  const policy = loadPolicy();
+  const phase = phaseForList(list);
+  // D15 (S4a): the in-session driver validates the verdict against the CARD's
+  // resolved sequence (forward step + gate fail-edge), falling back to the
+  // board's static validNext for a legacy card with no duty/level/sequence.
+  const resolvedModel = loadResolvedModel(root);
+  const validNext = validNextForCard(card, phase, resolvedModel) ?? validNextFor(board, card.list);
   if (!validNext.includes(verdict)) {
     return { card, outcome: { status: "rejected", reason: "invalid-verdict", validNext } };
   }
-  const policy = loadPolicy();
-  const phase = phaseForList(list);
   const coordCfg = coordinationConfig(policy);
   const coordActive = Boolean(policy && policy.coordination) && coordCfg.enabled && coordinationAvailability().ok;
   // Fail SAFE on a CORRUPT policy (rev2-s567 S5#1): a real run whose policy can't

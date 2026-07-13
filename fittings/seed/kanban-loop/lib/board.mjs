@@ -67,7 +67,7 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, outpost = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, outpost = null, duty = null, level = null, sequence = null, at = new Date().toISOString() }) {
   const id = ulid();
   const card = {
     id,
@@ -90,6 +90,15 @@ export async function createCard(root, { title, description = "", project = null
     phases: phases && typeof phases === "object" ? phases : null,
     tier: typeof tier === "string" && tier ? tier : null,
     origin: typeof origin === "string" && origin ? origin : null,
+    // ── resolved-model flow (D15, S4a) ────────────────────────────────────
+    // The card's duty + level (its journey through the board): its resolved
+    // sequence (resolver.resolveSequence) is the ordered leaf phase lists it
+    // visits — a card visits EXACTLY its sequence and skips the rest. `sequence`
+    // caches those leaf ids so the engine advances along it without re-resolving;
+    // absent (a legacy card) → the engine uses the board's static validNext.
+    duty: typeof duty === "string" && duty ? duty : null,
+    level: Number.isInteger(level) ? level : null,
+    sequence: Array.isArray(sequence) && sequence.every((s) => typeof s === "string") ? sequence : null,
     // D27: single-outpost affinity — the run engine dispatches this card's
     // phase sessions to the named outpost; offline → needs-attention.
     outpost: typeof outpost === "string" && outpost ? outpost : null,

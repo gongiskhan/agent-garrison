@@ -34,6 +34,7 @@ import {
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
 import { projectPrimaryContext } from "./orchestrator-projection";
+import { writeKanbanResolvedModel } from "./kanban-model";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
@@ -207,6 +208,21 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // gateway runs its normal single-operative routed mode (the default comp).
     let gatewayExtraEnv: Record<string, string> | undefined;
     const soulEntries = await selectedLibraryEntries(composition.selections);
+    // D15 (S4a): project the composition's resolved model to the Kanban board so
+    // its phase lists derive from the selected duties' resolved sequences, not a
+    // hardcoded column set. Additive + best-effort: the board reads this only when
+    // it seeds a FRESH board, and falls back to its default pipeline if the file
+    // is absent — so a projection failure never affects the launch.
+    try {
+      const kmodel = await writeKanbanResolvedModel(composition, soulEntries);
+      appendLog(
+        compositionId,
+        "runner",
+        `kanban model: projected ${kmodel.kanbanLists.length} phase list(s) → ${kmodel.kanbanLists.join(", ") || "(none — board keeps default pipeline)"}`
+      );
+    } catch (err) {
+      appendLog(compositionId, "stderr", `kanban model projection skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
     const modesEntry = findModesEntry(soulEntries);
     if (modesEntry) {
       // Orchestrator/soul mode drives souls through the mcp-gateway sidecar

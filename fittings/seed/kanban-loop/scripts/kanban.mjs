@@ -16,6 +16,7 @@ import { processCard, processBatch, getList, triggerFor, isInteractive } from ".
 import { gatewayRunFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
+import { loadResolvedModel, buildBoard } from "../lib/resolved-model.mjs";
 import {
   reevaluateWaiting,
   coordinationConfig,
@@ -143,6 +144,31 @@ export function seedBoard() {
   };
 }
 
+// The canonical per-phase list configs (prompts, trigger, gate flags), indexed
+// by phase id from the default pipeline — the SINGLE source buildBoard reuses so
+// a derived board's phase lists carry the same behaviour as the built-in
+// pipeline. Structural fields (id/order/validNext) are stripped by buildBoard and
+// recomputed from the resolved model.
+export function phaseTemplatesFrom(board) {
+  const out = {};
+  for (const l of board.lists || []) {
+    if (l.kind === "agent") out[l.id] = l;
+  }
+  return out;
+}
+
+// The board to seed: DRIVEN BY the resolved model when the runner has projected
+// one to ~/.garrison/kanban-loop/model.json (D15 — the fixed human columns plus
+// one phase list per leaf duty in the composition's resolved sequences), else the
+// built-in default pipeline. seedBoard() itself stays pure (a fixed default) so
+// it is safe to call as an in-memory default; the model only drives the board
+// that is actually PERSISTED to disk here at --setup.
+export function resolveSeedBoard(root) {
+  const model = loadResolvedModel(root);
+  if (!model) return seedBoard();
+  return buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });
+}
+
 // Resolve the installed scheduler CLI. At setup time cwd is the kanban-loop fitting
 // dir, so the sibling scheduler fitting is one level up (matches the improver pattern).
 function schedulerCli() {
@@ -186,7 +212,7 @@ async function setup() {
   await fs.mkdir(path.join(root, "cards"), { recursive: true });
   const boardFile = path.join(root, "board.json");
   if (!existsSync(boardFile)) {
-    await atomicWriteJSON(boardFile, seedBoard());
+    await atomicWriteJSON(boardFile, resolveSeedBoard(root));
     console.log("kanban-loop: seeded board at", boardFile);
   } else {
     console.log("kanban-loop: board exists at", boardFile);
