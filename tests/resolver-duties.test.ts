@@ -9,7 +9,7 @@ import {
   validateDutyGraph,
   type ResolverFittingInput
 } from "@/lib/resolver";
-import { parseGarrisonMetadata } from "@/lib/metadata";
+import { garrisonMetadataSchema, parseGarrisonMetadata } from "@/lib/metadata";
 import type { DutySpec, GarrisonMetadata } from "@/lib/types";
 
 function fitting(
@@ -134,6 +134,30 @@ describe("duty metadata parsing (D2)", () => {
     expect(() => parseGarrisonMetadata(neither)).toThrow(/exactly one/);
   });
 
+  it("rejects duplicate duty provisions (codex S3a finding 3)", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...base,
+        provides: [
+          { kind: "duty", name: "implement" },
+          { kind: "duty", name: "implement" }
+        ],
+        duties: [implementDuty]
+      })
+    ).toThrow(/duplicate duty provisions/);
+  });
+
+  it("the exported schema itself enforces the duty cross-field rules (codex S3a finding 2)", () => {
+    expect(() =>
+      garrisonMetadataSchema.parse({
+        ...base,
+        config_schema: [],
+        consumes: [],
+        provides: [{ kind: "duty", name: "implement" }]
+      })
+    ).toThrow(/no matching duties\[\] spec/);
+  });
+
   it("multi-duty fittings are allowed", () => {
     const metadata = parseGarrisonMetadata({
       ...base,
@@ -202,6 +226,19 @@ describe("duty graph validation (D3)", () => {
     ]);
     const errors = validateDutyGraph(duties);
     expect(errors.some((e) => e.code === "missing-level" && e.level === 2)).toBe(true);
+  });
+
+  it("rejects a zero/negative explicit level override (codex S3a finding 1)", () => {
+    const dev: DutySpec = {
+      ...developDuty,
+      levels: [{ description: "l1", sequence: [{ duty: "implement", level: 0 }] }]
+    };
+    const { duties } = collectDuties([
+      fitting("f-impl", { provides: [{ kind: "duty", name: "implement" }], duties: [implementDuty] }),
+      fitting("f-dev", { provides: [{ kind: "duty", name: "develop" }], duties: [dev] })
+    ]);
+    const errors = validateDutyGraph(duties);
+    expect(errors.some((e) => e.code === "level-out-of-range" && /1-based/.test(e.message))).toBe(true);
   });
 
   it("detects cycles (A → B → A)", () => {

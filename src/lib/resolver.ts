@@ -148,6 +148,15 @@ export function validateDutyGraph(duties: Record<string, ResolvedDuty>): DutyGra
           continue;
         }
         const effective = entry.level ?? levelNumber;
+        if (effective < 1) {
+          errors.push({
+            code: "level-out-of-range",
+            dutyId: duty.id,
+            level: levelNumber,
+            message: `duty "${duty.id}" level ${levelNumber} runs "${entry.duty}" at invalid level ${effective} (levels are 1-based)`
+          });
+          continue;
+        }
         if (effective > referenced.levels.length) {
           errors.push({
             code: entry.level ? "level-out-of-range" : "missing-level",

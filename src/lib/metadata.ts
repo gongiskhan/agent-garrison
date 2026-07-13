@@ -381,7 +381,51 @@ export const garrisonMetadataSchema = z.object({
   secret_scope: z.array(z.string().min(1)).optional(),
   provider_mechanism: providerMechanismSchema.optional(),
   quarters_descriptor: quartersDescriptorSchema.optional()
-});
+})
+  // Duty cross-field rules live ON the schema (not only in
+  // parseGarrisonMetadata) so a direct schema user cannot parse an invalid
+  // duty manifest: every kind:duty provision needs a matching duties[] spec
+  // (provision name === duty id) and vice versa; no duplicate duty ids on
+  // either side. A duty without a spec is undispatchable, a spec without a
+  // provision is undiscoverable.
+  .superRefine((metadata, ctx) => {
+    const provided = metadata.provides.filter((p) => p.kind === "duty").map((p) => p.name);
+    const specs = (metadata.duties ?? []).map((d) => d.id);
+    for (const name of provided) {
+      if (!specs.includes(name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["provides"],
+          message: `fitting provides duty "${name}" but declares no matching duties[] spec`
+        });
+      }
+    }
+    for (const id of specs) {
+      if (!provided.includes(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["duties"],
+          message: `duties[] declares "${id}" but no provides entry {kind: duty, name: ${id}} exists`
+        });
+      }
+    }
+    const dupeSpecs = specs.filter((id, i) => specs.indexOf(id) !== i);
+    if (dupeSpecs.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["duties"],
+        message: `duplicate duty ids in duties[]: ${[...new Set(dupeSpecs)].join(", ")}`
+      });
+    }
+    const dupeProvisions = provided.filter((name, i) => provided.indexOf(name) !== i);
+    if (dupeProvisions.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["provides"],
+        message: `duplicate duty provisions: ${[...new Set(dupeProvisions)].join(", ")}`
+      });
+    }
+  });
 
 // Legacy faculty names fold into the role faculties (the Quarters pivot). The
 // own-port residue keeps working — its Fittings just declare a role faculty + the
@@ -406,39 +450,10 @@ export const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {
   const normalized = normalizeDeprecations(input);
+  // Duty cross-field validation rides on the schema itself (superRefine above).
   const metadata = garrisonMetadataSchema.parse(normalized);
   validateFacultyCompatibility(metadata);
-  validateDutyDeclarations(metadata);
   return metadata;
-}
-
-// Every kind:duty provision must carry a matching duties[] spec (provision
-// name === duty id) and vice versa — a duty without a spec is undispatchable,
-// a spec without a provision is undiscoverable. Loud at parse time, per the
-// verify-or-don't-ship discipline.
-function validateDutyDeclarations(metadata: GarrisonMetadata): void {
-  const provided = metadata.provides
-    .filter((p) => p.kind === "duty")
-    .map((p) => p.name);
-  const specs = (metadata.duties ?? []).map((d) => d.id);
-  for (const name of provided) {
-    if (!specs.includes(name)) {
-      throw new Error(
-        `fitting provides duty "${name}" but declares no matching duties[] spec`
-      );
-    }
-  }
-  for (const id of specs) {
-    if (!provided.includes(id)) {
-      throw new Error(
-        `duties[] declares "${id}" but no provides entry {kind: duty, name: ${id}} exists`
-      );
-    }
-  }
-  const dupes = specs.filter((id, i) => specs.indexOf(id) !== i);
-  if (dupes.length > 0) {
-    throw new Error(`duplicate duty ids in duties[]: ${[...new Set(dupes)].join(", ")}`);
-  }
 }
 
 function normalizeDeprecations(input: unknown): unknown {
