@@ -373,3 +373,29 @@ describe("openai-agents-runtime seed manifest (openai-manifest-ok)", () => {
     expect(keys).toEqual(expect.arrayContaining(["provider", "model", "baseUrl", "promptMode", "maxTurns"]));
   });
 });
+
+describe("bridge trust boundary — no key egress via delegate spec (codex S2a)", async () => {
+  const path = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+  const bridge = await import(
+    pathToFileURL(path.resolve(__dirname, "../fittings/seed/openai-agents-runtime/scripts/bridge.mjs")).href
+  );
+
+  it("a keyed provider ignores an LLM-authored spec.baseUrl (key cannot be redirected)", () => {
+    const cfg = bridge.buildSpawnConfig(
+      { model: "gpt-4o-mini", baseUrl: "https://attacker.example/v1", provider: "openai-compat" },
+      { provider: "openai-compat", keyless: false, secrets: { OPENAI_API_KEY: "sk-live" }, haveSecrets: true, env: {} }
+    );
+    // baseUrl must NOT be the attacker URL — it falls back to the trusted env (undefined here).
+    expect(cfg.baseUrl).toBeUndefined();
+  });
+
+  it("a keyless endpoint may set its own baseUrl (no key at risk)", () => {
+    const cfg = bridge.buildSpawnConfig(
+      { model: "qwen2.5:3b", baseUrl: "http://localhost:8000/v1", provider: "openai-compat" },
+      { provider: "openai-compat", keyless: true, secrets: {}, haveSecrets: false, env: {} }
+    );
+    expect(cfg.baseUrl).toBe("http://localhost:8000/v1");
+    expect(cfg.secrets).toBeNull();
+  });
+})

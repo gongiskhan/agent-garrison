@@ -16,6 +16,7 @@
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import os from "node:os";
 import { delegate, parseTaskSpec } from "@garrison/claude-pty";
 import { OpenAiAgentsAdapter } from "../lib/openai-adapter.mjs";
@@ -94,6 +95,27 @@ function apiKeyEnvForProvider(provider) {
   return spec.apiKeyEnv || DEFAULT_API_KEY_ENV;
 }
 
+// Build the spawnConfig from an untrusted (LLM-authored) task spec + the trusted
+// server-side context. Exported + pure so the key-exfil trust boundary is
+// unit-testable (codex S2a finding): a keyed provider's baseUrl must come ONLY
+// from the trusted env (OPENAI_BASE_URL, via resolveBaseUrl), never from
+// spec.baseUrl — otherwise the spec could redirect where the vault key is sent.
+// spec.baseUrl is honored only for a keyless (local, unauthenticated) endpoint.
+export function buildSpawnConfig(spec, { provider, keyless, secrets, haveSecrets, env }) {
+  return {
+    compositionDir: spec.cwd || (env && env.PWD) || process.cwd(),
+    provider,
+    model: spec.model,
+    promptMode: spec.promptMode || "full",
+    baseUrl: keyless ? spec.baseUrl : undefined,
+    keyless,
+    secrets: haveSecrets ? secrets : null,
+    maxTurns: spec.maxTurns,
+    budgetTokens: spec.budgetTokens,
+    env
+  };
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes("--probe")) {
@@ -108,10 +130,12 @@ async function main() {
     return;
   }
 
-  const specFileIdx = argv.indexOf("--spec-file");
-  const raw = specFileIdx >= 0 ? readFileSync(argv[specFileIdx + 1], "utf8") : readStdin();
+  // STDIN-only task spec (codex S2a finding): no --spec-file / argv path. The
+  // delegate spec is untrusted (LLM-authored); reading it only from stdin keeps
+  // the input channel single + auditable.
+  const raw = readStdin();
   if (!raw.trim()) {
-    console.error("no task spec on stdin (or --spec-file)");
+    console.error("no task spec on stdin");
     process.exit(2);
   }
   const spec = parseTaskSpec(raw);
@@ -131,18 +155,7 @@ async function main() {
       spec,
       {
         adapter,
-        spawnConfig: {
-          compositionDir: spec.cwd || process.cwd(),
-          provider,
-          model: spec.model,
-          promptMode: spec.promptMode || "full",
-          baseUrl: spec.baseUrl,
-          keyless,
-          secrets: haveSecrets ? secrets : null,
-          maxTurns: spec.maxTurns,
-          budgetTokens: spec.budgetTokens,
-          env: process.env
-        },
+        spawnConfig: buildSpawnConfig(spec, { provider, keyless, secrets, haveSecrets, env: process.env }),
         writeArtifact,
         logDecision,
         secrets: haveSecrets ? secrets : {},
@@ -157,4 +170,7 @@ async function main() {
   }
 }
 
-main();
+// Run only when invoked as a script, not when imported for unit tests.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
