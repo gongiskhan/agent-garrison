@@ -201,6 +201,23 @@ export function VoiceConversation(props: VoiceConversationProps) {
     dispatchRef.current({ type: "REPLY_READY", text: r.text });
   }, [props.lastReply?.id, props.lastReply?.text]);
 
+  // Primary deadlock recovery (s6b-review): the chat's `busy` flag goes false
+  // when a turn settles. If it settles while we're still awaiting a reply that
+  // never produced non-empty assistant text (a tool-only/errored/empty turn),
+  // re-arm IMMEDIATELY rather than waiting out the 30s backstop timeout — feed
+  // the machine an empty REPLY_READY (→ listening). A turn that DID produce text
+  // clears awaitingReplyRef via the lastReply correlation before busy falls.
+  const prevBusyRef = useRef(false);
+  useEffect(() => {
+    const settled = prevBusyRef.current && !props.busy;
+    prevBusyRef.current = props.busy;
+    if (settled && awaitingReplyRef.current && ctxRef.current.state === "sending") {
+      awaitingReplyRef.current = false;
+      if (sendTimeoutRef.current) { window.clearTimeout(sendTimeoutRef.current); sendTimeoutRef.current = null; }
+      dispatchRef.current({ type: "REPLY_READY", text: "" });
+    }
+  }, [props.busy]);
+
   // Release the playback AudioContext when the machine returns to idle (STOP) —
   // not only on unmount (codex S6b finding: STOP left the context open, holding
   // the mobile audio session across a start→stop→start cycle). ensurePlaybackCtx
