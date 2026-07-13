@@ -30,6 +30,23 @@ export interface DecisionView {
   level: number | null;
   target: string | null;
   reason: string | null;
+  // The message digest (never the raw message) — the safe correlation handle
+  // (codex S5b/S5c finding). The feed carries this, not user content.
+  messageDigest: string | null;
+}
+
+// Defensively redact path/secret/raw-message-shaped content from a reason before
+// it reaches the feed (codex finding): even though the dispatcher now writes a
+// code-composed reason, an old or hand-edited decisions.jsonl line could carry
+// raw user text. Strip absolute/home paths + secret-looking tokens and cap
+// length so a stray raw message can't be displayed verbatim.
+function sanitizeReason(reason: string | null): string | null {
+  if (reason == null) return null;
+  let out = reason
+    .replace(/(\/home\/[^\s"']+|\/Users\/[^\s"']+|~\/[^\s"']+)/g, "[path]")
+    .replace(/\b(password|secret|token|api[_-]?key|credential)s?\b[:=\s]*\S*/gi, "[redacted]");
+  if (out.length > 200) out = out.slice(0, 200) + "…";
+  return out;
 }
 
 function str(value: unknown): string | null {
@@ -78,7 +95,7 @@ export function normalizeDecision(raw: unknown): DecisionView | null {
   const kind = classifyKind(r);
   // Trust a stored `reason` only for a dispatch record (code-composed, no user
   // text). Anything else is composed here from safe scalar fields.
-  const reason = kind === "dispatch" ? str(r.reason) ?? composeReason(r) : composeReason(r);
+  const rawReason = kind === "dispatch" ? str(r.reason) ?? composeReason(r) : composeReason(r);
   return {
     at: str(r.at),
     kind,
@@ -87,7 +104,8 @@ export function normalizeDecision(raw: unknown): DecisionView | null {
     // The gateway/placement records name the engine as `targetId`; the dispatcher
     // leaves it implicit (target lives on the duty cell), so fall back cleanly.
     target: str(r.target) ?? str(r.targetId),
-    reason
+    reason: sanitizeReason(rawReason),
+    messageDigest: str(r.messageDigest) ?? str(r.promptDigest)
   };
 }
 

@@ -57,18 +57,32 @@ import type {
 // finding): a target's params can carry secrets or absolute home paths. We
 // redact any param whose key looks secret-bearing, or whose string value is an
 // absolute/home path, before returning targets to the client.
+const SECRET_KEY_RE = /(secret|token|key|password|credential|auth)/i;
+const pathish = (v: unknown) =>
+  typeof v === "string" && (/^(\/|~)/.test(v) || v.includes("/home/") || v.includes("/Users/"));
+
 function sanitizeTargets(targets: CompositionTarget[]): CompositionTarget[] {
-  const secretKey = /(secret|token|key|password|credential|auth)/i;
-  const pathish = (v: unknown) =>
-    typeof v === "string" && (/^(\/|~)/.test(v) || v.includes("/home/") || v.includes("/Users/"));
   return targets.map((t) => {
     if (!t.params) return t;
     const params: Record<string, string | number | boolean> = {};
     for (const [k, v] of Object.entries(t.params)) {
-      params[k] = secretKey.test(k) || pathish(v) ? "[redacted]" : v;
+      params[k] = SECRET_KEY_RE.test(k) || pathish(v) ? "[redacted]" : v;
     }
     return { ...t, params };
   });
+}
+
+// Redact secret-keyed / path-shaped values from a fitting's selection config
+// before it reaches the browser (codex S5b finding: a stored tls_key path or a
+// secret in selection.config was returned verbatim from the standing GET).
+function sanitizeConfig(
+  config: Record<string, string | number | boolean>
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const [k, v] of Object.entries(config)) {
+    out[k] = SECRET_KEY_RE.test(k) || pathish(v) ? "[redacted]" : v;
+  }
+  return out;
 }
 
 export interface MusterCompositionRef {
@@ -378,7 +392,7 @@ export function buildStandingPayload(args: {
         providesRuntime: providesKind(entry, "runtime"),
         isPrimaryRuntime: facultyId === "runtimes" && entry.id === args.composition.primaryRuntime,
         configSchema: entry.metadata.config_schema,
-        config: selection.config ?? {}
+        config: sanitizeConfig(selection.config ?? {})
       });
     }
     const candidates: StandingCandidate[] = args.library
@@ -518,7 +532,10 @@ function applyStandingSwap(
   } else if (change.fromId) {
     const idx = current.findIndex((s) => s.id === change.fromId);
     if (idx === -1) {
-      updated = toSelection && !current.some((s) => s.id === toSelection!.id) ? [...current, toSelection] : current;
+      // An explicit fromId that is NOT a current selection is a malformed request
+      // (codex S5b finding) — reject it rather than silently adding toId, which
+      // would change membership from a bad id.
+      throw new Error(`cannot swap: "${change.fromId}" is not currently stationed`);
     } else if (toSelection) {
       updated = current.some((s) => s.id === toSelection!.id)
         ? current.filter((s) => s.id !== change.fromId) // toId already present — collapse the dup

@@ -51,7 +51,8 @@ describe("normalizeDecision", () => {
       duty: "develop",
       level: 2,
       target: null,
-      reason: "→ develop L2, confidence high"
+      reason: "→ develop L2, confidence high",
+      messageDigest: null
     });
   });
 
@@ -154,3 +155,19 @@ describe("readDecisionsTail", () => {
     expect(feed.length).toBe(3);
   });
 });
+
+describe("decisions-feed codex fix — reason sanitization + digest", () => {
+  it("redacts a raw path/secret in a dispatch reason and surfaces the digest", async () => {
+    const { normalizeDecision } = await import("@/lib/decisions-feed");
+    const v = normalizeDecision({
+      kind: "dispatch", at: "t", messageDigest: "abc123", duty: "develop", level: 1,
+      reason: "raw user message: my password is secret and path /home/ggomes/.ssh/id_rsa"
+    });
+    expect(v).not.toBeNull();
+    expect(v!.messageDigest).toBe("abc123");
+    expect(v!.reason).not.toContain("/home/ggomes");
+    expect(v!.reason).not.toContain("id_rsa");
+    expect(v!.reason).toContain("[path]");
+    expect(v!.reason).toContain("[redacted]");
+  });
+})
