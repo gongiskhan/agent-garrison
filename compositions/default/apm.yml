@@ -11,6 +11,7 @@ dependencies:
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
+    - path: ../../fittings/seed/dispatcher
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/gemini-runtime
@@ -70,6 +71,11 @@ x-garrison:
           config:
             port: 4777
             bind_host: 127.0.0.1
+        - id: dispatcher
+          config:
+            dispatch_provider: ollama-local
+            dispatch_shape: ollama
+            dispatch_model: qwen2.5:3b
       runtimes:
         - id: claude-code-runtime
           config: {}
@@ -618,7 +624,14 @@ x-garrison:
       - ux-qa
       - walkthrough
       - probe-question
+      - dispatch
     targets:
+      - id: dispatch-fast
+        runtime: garrison-call
+        model: qwen2.5:3b
+        provider: ollama-local
+        params:
+          type: single-shot
       - id: cc-haiku
         runtime: claude-code
         model: haiku
