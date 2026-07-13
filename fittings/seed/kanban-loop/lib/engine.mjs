@@ -1103,8 +1103,11 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       runningSince: null,
       lastReply: "",
       lastDispatchError: null,
-      // D19: a context-keeping retry re-enters this phase with the runDir + iteration
-      // history intact (the un-park handler honors this instead of resetting).
+      // D19: signal a context-keeping retry — when this card is un-parked, the
+      // server's recovery handler (server.mjs handlePatchCard) reads this flag,
+      // preserves the phase runDir + its iteration logs across the un-park, and
+      // clears the flag. The iteration counter still resets (re-cap avoidance);
+      // context lives in the preserved runDir.
       retryKeepsContext: true,
       events: withEvent(runningCard, {
         at: now(),

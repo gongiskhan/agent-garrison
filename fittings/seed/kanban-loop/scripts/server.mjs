@@ -939,6 +939,28 @@ export function isEngineRequest(req) {
   return typeof req.headers["x-garrison-engine"] === "string" && req.headers["x-garrison-engine"].length > 0;
 }
 
+// The field patch applied when a card is un-parked (moved OUT of
+// needs-attention). Clears the park reason + prior dispatch error and resets
+// the iteration count so the re-run isn't instantly re-capped. D19
+// context-keeping retry: when the card carries retryKeepsContext (set by the
+// engine on an empty-output park), the phase runDir + its iteration logs are
+// PRESERVED so the re-entered phase resumes with prior context; the flag is
+// then consumed (cleared). Pure + exported so the recovery contract is
+// unit-tested (S1b review finding: the flag was written but read nowhere).
+export function unparkRecoveryFields(card) {
+  const patch = {
+    attentionReason: null,
+    parkedFrom: null,
+    lastDispatchError: null,
+    iterations: 0
+  };
+  if (card.retryKeepsContext) {
+    patch.runDir = card.runDir ?? null;
+    patch.retryKeepsContext = false;
+  }
+  return patch;
+}
+
 // D16: cards on autonomous (agent-kind) lists are ENGINE-OWNED — the board API
 // rejects manual moves and edits on them. needs-attention is the one human
 // touchpoint on the autonomous side; interactive + manual lists stay editable.
@@ -990,15 +1012,16 @@ async function handlePatchCard(req, res, opts, id) {
         message: recovered ? `Recovered: moved ${fromTitle} → ${toTitle}` : `Moved ${fromTitle} → ${toTitle}`
       });
     }
-    // Recovery: moving a card OUT of the needs-attention column is a fresh retry —
-    // clear the park reason + the prior dispatch error and reset the iteration count
-    // so a re-run isn't instantly re-capped (otherwise an iteration-cap park would
-    // re-park on the very next run).
+    // Recovery: moving a card OUT of the needs-attention column is a fresh retry.
     if (card.list === "needs-attention" && body.list !== "needs-attention") {
-      next.attentionReason = null;
-      next.parkedFrom = null;
-      next.lastDispatchError = null;
-      next.iterations = 0;
+      Object.assign(next, unparkRecoveryFields(card));
+      if (card.retryKeepsContext) {
+        next.events = withEvent(next, {
+          at: new Date().toISOString(),
+          kind: "retry-keeps-context",
+          message: "Retry preserves prior context (phase runDir + iteration logs kept)"
+        });
+      }
     }
     // Auto-link a Discuss brief: when a card LEAVES the interactive Discuss list,
     // look for the brief James was asked to write (briefs/<slug>.md — the

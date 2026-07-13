@@ -260,3 +260,27 @@ describe("grace-window primitives (S1b/D19)", () => {
     expect(buildEmptyFailureReason({ listTitle: "Plan" })).not.toMatch(/waited/);
   });
 });
+
+describe("un-park honors retryKeepsContext (S1b review finding — flag now read)", async () => {
+  // @ts-ignore — pure .mjs
+  const { unparkRecoveryFields } = await import("../fittings/seed/kanban-loop/scripts/server.mjs");
+
+  it("preserves the phase runDir + clears the flag when retryKeepsContext is set", () => {
+    const patch = unparkRecoveryFields({
+      retryKeepsContext: true,
+      runDir: "/home/x/.garrison/runs/no-project/ABC",
+      iterations: 5
+    });
+    expect(patch.runDir).toBe("/home/x/.garrison/runs/no-project/ABC");
+    expect(patch.retryKeepsContext).toBe(false); // consumed
+    expect(patch.iterations).toBe(0); // counter still resets (re-cap avoidance)
+    expect(patch.attentionReason).toBeNull();
+  });
+
+  it("a normal un-park (no flag) does not touch runDir/retryKeepsContext", () => {
+    const patch = unparkRecoveryFields({ iterations: 3 });
+    expect(patch).not.toHaveProperty("runDir");
+    expect(patch).not.toHaveProperty("retryKeepsContext");
+    expect(patch.iterations).toBe(0);
+  });
+})
