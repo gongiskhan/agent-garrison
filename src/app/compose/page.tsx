@@ -1,13 +1,10 @@
-import { Suspense } from "react";
-import { StationGrid } from "@/components/compose/StationGrid";
-import { PageSkeleton } from "@/components/chrome/PageSkeleton";
-import { RuntimeDegradationNotice } from "@/components/compose/RuntimeDegradationNotice";
+import { redirect } from "next/navigation";
 
+// D12 - the Compose grid folded into Muster: composing a system (duties, targets,
+// standing Fittings, the Orchestrator prompt, the Runtimes) now happens on the
+// one Muster page. /compose redirects there so old links / the sidebar entry keep
+// working. The /armory → /compose → /muster chain is preserved (armory still
+// redirects to /compose, which now lands on /muster).
 export default function ComposePage() {
-  return (
-    <Suspense fallback={<PageSkeleton label="Loading composition" />}>
-      <RuntimeDegradationNotice />
-      <StationGrid />
-    </Suspense>
-  );
+  redirect("/muster");
 }

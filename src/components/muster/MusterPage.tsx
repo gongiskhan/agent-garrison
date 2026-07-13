@@ -20,6 +20,8 @@ import {
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { AddDuty, DutyList, MusterHeader, TargetsTray } from "./MusterView";
 import { StandingFittings } from "./StandingFittings";
+import { OrchestratorPanel } from "./OrchestratorPanel";
+import { DecisionsPanel } from "./DecisionsPanel";
 import type { DutyEffort, MusterActions, MusterModel } from "./types";
 import styles from "./Muster.module.css";
 
@@ -275,6 +277,10 @@ export function MusterPage() {
           </section>
 
           <StandingFittings compositionId={model.compositionId} />
+
+          <OrchestratorPanel compositionId={model.compositionId} />
+
+          <DecisionsPanel compositionId={model.compositionId} />
         </div>
 
         <DragOverlay>
