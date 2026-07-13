@@ -199,17 +199,27 @@ describe("applyLocalOverlay", () => {
     expect(composition.globalConfig.vault).toBe("default");
   });
 
-  it("appends an overlay selection whose id is not in the base (nothing dropped)", () => {
+  it("IGNORES an overlay selection whose id is not in the base — overlay cannot add membership (codex S3b1)", () => {
+    // D8: the composition file owns membership; local.yml carries machine-local
+    // VALUES for already-selected fittings only. An overlay-only id is dropped
+    // (with a warning), never appended.
     const merged = applyLocalOverlay(base(), {
       selections: {
         gateway: [{ id: "extra-gateway", config: { port: 5000 } }]
       }
     });
     const composition = manifestToComposition("c", merged);
-    expect(composition.selections.gateway?.map((s) => s.id).sort()).toEqual([
-      "extra-gateway",
-      "http-gateway"
-    ]);
+    expect(composition.selections.gateway?.map((s) => s.id)).toEqual(["http-gateway"]);
+  });
+
+  it("drops __proto__/constructor keys from the overlay merge (prototype-pollution guard, codex S3b1)", () => {
+    const merged = applyLocalOverlay(base(), {
+      global_config: JSON.parse('{"__proto__":{"primary_runtime":"codex-runtime"}}')
+    });
+    const composition = manifestToComposition("c", merged);
+    // The malicious key never reaches the merged config, and Object.prototype is clean.
+    expect((composition.globalConfig as unknown as Record<string, unknown>).primary_runtime).toBeUndefined();
+    expect(({} as Record<string, unknown>).primary_runtime).toBeUndefined();
   });
 
   it("does not mutate the input manifest", () => {

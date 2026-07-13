@@ -75,6 +75,22 @@ export async function migrateCompositionV3ToV4(
 
   const home = os.homedir();
   const overlaySelections: SelectionMap = {};
+  const overlayGlobalConfig: Record<string, unknown> = {};
+
+  // (d0) Extract machine-local PATHS out of global_config (codex S3b1 finding:
+  // projects_root: ~/dev is a home path that must not stay in the committed
+  // manifest). Only path-shaped values move; ports/scalars/nested config-objects
+  // (guardrails, observability_config) are portable and stay. A moved key is
+  // deleted from apm.yml and lands in the overlay's global_config.
+  const globalConfig = composition.global_config;
+  if (globalConfig && typeof globalConfig === "object") {
+    for (const [key, value] of Object.entries(globalConfig as Record<string, unknown>)) {
+      if (classifyConfigValue(key, value, home) === "path") {
+        overlayGlobalConfig[key] = value;
+        delete (globalConfig as Record<string, unknown>)[key];
+      }
+    }
+  }
 
   // (d) Extract machine-local values out of selections[].config.
   const selections = (composition.selections ?? {}) as SelectionMap;
@@ -107,13 +123,16 @@ export async function migrateCompositionV3ToV4(
 
   const rawAfter = yaml.dump(migratedManifest, YAML_DUMP_OPTS);
 
-  const hasOverlay = Object.keys(overlaySelections).length > 0;
+  const hasGlobalOverlay = Object.keys(overlayGlobalConfig).length > 0;
+  const hasSelectionOverlay = Object.keys(overlaySelections).length > 0;
+  const hasOverlay = hasGlobalOverlay || hasSelectionOverlay;
   const localYml = hasOverlay
     ? yaml.dump(
         {
           // A partial mirror of x-garrison.composition, deep-merged over apm.yml
           // at read (see compositions.readLocalOverlay). Machine-local; gitignored.
-          selections: overlaySelections
+          ...(hasGlobalOverlay ? { global_config: overlayGlobalConfig } : {}),
+          ...(hasSelectionOverlay ? { selections: overlaySelections } : {})
         },
         YAML_DUMP_OPTS
       )

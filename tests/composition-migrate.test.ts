@@ -95,11 +95,15 @@ describe("migrateCompositionV3ToV4", () => {
     // paths removed from the committed manifest.
     expect(migrated.selections.memory[0].config).not.toHaveProperty("vault_dir");
     expect(migrated.selections.memory[0].config).not.toHaveProperty("board_dir");
-    // global_config is out of extraction scope: projects_root stays.
-    expect(migrated.global_config.projects_root).toBe("~/dev");
+    // global_config path values ARE extracted (codex S3b1 finding): a home path
+    // like projects_root must not stay in the committed manifest — it moves to
+    // the overlay. Portable scalars/nested config (vault, guardrails) stay.
+    expect(migrated.global_config).not.toHaveProperty("projects_root");
+    expect(migrated.global_config.vault).toBe("default");
 
     // local.yml carries the machine-local values (ports copied, paths moved).
     const overlay = yaml.load(await fs.readFile(path.join(dir, "local.yml"), "utf8")) as any;
+    expect(overlay.global_config.projects_root).toBe("~/dev");
     expect(overlay.selections.gateway[0].config).toEqual({
       port: 4777,
       bind_host: "127.0.0.1",
@@ -119,9 +123,17 @@ describe("migrateCompositionV3ToV4", () => {
   });
 
   it("stamps schema 4 with no local.yml when there is nothing machine-local", async () => {
-    await writeFixture(dir, {
+    // A composition with no machine-local values anywhere: portable global_config
+    // (no path-shaped keys) + portable selection config.
+    const manifest = fixtureManifest({
       observability: [{ id: "monitor", config: { log_level: "info", enabled: true } }]
-    });
+    }) as any;
+    manifest["x-garrison"].composition.global_config = {
+      vault: "default",
+      platform: "claude-code",
+      permissions_mode: "auto"
+    };
+    await fs.writeFile(path.join(dir, "apm.yml"), yaml.dump(manifest, DUMP_OPTS), "utf8");
 
     const result = await migrateCompositionV3ToV4(dir);
     expect(result.ok).toBe(true);

@@ -394,12 +394,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Keys that would let a malicious local.yml pollute Object.prototype (codex S3b1
+// finding): __proto__ / constructor / prototype are dropped from any merge.
+const FORBIDDEN_MERGE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function deepMergePlain(
   base: Record<string, unknown>,
   over: Record<string, unknown>
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   for (const [key, value] of Object.entries(over)) {
+    if (FORBIDDEN_MERGE_KEYS.has(key)) continue;
     const existing = out[key];
     if (isPlainObject(value) && isPlainObject(existing)) {
       out[key] = deepMergePlain(existing, value);
@@ -411,9 +416,11 @@ function deepMergePlain(
 }
 
 // Merge overlay selections into base selections by faculty then by fitting id.
-// A matching id gets its config shallow-merged (overlay keys win); an id present
-// only in the overlay is appended (nothing is silently dropped). Base order is
-// preserved, overlay-only ids follow.
+// A matching id gets its config shallow-merged (overlay keys win). An id present
+// ONLY in the overlay is IGNORED with a warning (codex S3b1 finding): the
+// composition file owns MEMBERSHIP (D8); local.yml carries only machine-local
+// VALUES for already-selected fittings, so it must never silently add a fitting
+// to the composition. Base order is preserved.
 function mergeSelectionConfigs(
   base: FittingSelectionMap,
   over: FittingSelectionMap
@@ -432,7 +439,9 @@ function mergeSelectionConfigs(
       if (existing) {
         existing.config = { ...existing.config, ...(item.config ?? {}) };
       } else {
-        byId.set(item.id, { id: item.id, config: { ...(item.config ?? {}) } });
+        console.warn(
+          `[garrison] local.yml overlay names fitting "${item.id}" (${facultyKey}) not selected in the composition — ignored (the overlay overrides config, it cannot add membership)`
+        );
       }
     }
     out[facultyKey] = [...byId.values()];
