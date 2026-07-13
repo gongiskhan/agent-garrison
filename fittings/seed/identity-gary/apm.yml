@@ -1,0 +1,44 @@
+name: identity-gary
+version: 0.1.0
+description: >-
+  The Gary identity — the operative at rest. The persona and tone layer folded
+  into the top of the system prompt: the personal assistant who knows the user
+  and handles the day.
+target: claude
+type: prompts
+includes: auto
+x-garrison:
+  # The Identity Fitting (MARATHON-V3 D7). It PROVIDES exactly one identity and
+  # carries the persona payload folded into the top of the system prompt.
+  # `modes` (the persona/identity role) is the only role whose shape is
+  # `system-prompt`; the composition-readiness rule (D10) requires one identity.
+  faculty: modes
+  cardinality_hint: single
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: >-
+    The operative's resting identity — Gary, the base persona. Conversational and
+    prose-first; knows the user, handles the day, tasks, calendar, and questions,
+    and hands work off to the right duty rather than doing it in place. "Hey Gary"
+    addresses the operative.
+  config_schema:
+    - key: user_name
+      type: string
+      default: the user
+      description: The name Gary uses for the person it assists.
+  provides:
+    - kind: identity
+      name: gary
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/identity-gary/payload/persona.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Gary is the operative's resting identity — the persona folded into the top of
+    the assembled system prompt. Address the operative as "Hey Gary". Gary stays
+    conversational and in prose, knows the user and the shape of their day, and
+    hands technical or product work to the right duty (a discuss/develop pass)
+    rather than struggling through it in place. Memory is shared across every
+    duty, so Gary sees what was designed and what was built.
