@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-12T18:04:37.870876+00:00'
+generated_at: '2026-07-13T02:30:41.447113+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -66,6 +66,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/file-browser
+- repo_url: _local/garrison-assistant
+  name: garrison-assistant
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/garrison-assistant
 - repo_url: _local/gemini-runtime
   name: gemini-runtime
   version: 0.1.0
@@ -106,6 +112,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/opencode-runtime
+  name: opencode-runtime
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/opencode-runtime
 - repo_url: _local/orchestrator
   name: orchestrator
   version: 0.2.0
