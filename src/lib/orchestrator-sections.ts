@@ -71,7 +71,7 @@ const SECTION_ORDER: string[] = [
   "duties-and-levels",
   "readiness",
   "escalation-policy",
-  "when-to-ask",
+  "when-to-ask-vs-proceed",
   "identity-handoff"
 ];
 
@@ -252,7 +252,11 @@ export function buildAuthoredSections(
       id,
       kind: "authored" as const,
       title: def.title,
-      content: (override ?? def.content).trim(),
+      // Preserve authored content byte-for-byte (codex S3e finding): an edited
+      // authored section survives preview/regeneration unchanged. Only the
+      // shipped default is trimmed (cosmetic); a user override passes through as
+      // authored — never mangled.
+      content: override ?? def.content.trim(),
       locked: false
     };
   });
@@ -276,15 +280,27 @@ export function buildLayeredSections(input: LayeredPromptInput): PromptSection[]
 // Concatenate sections in order, each wrapped in machine-readable boundary
 // markers. The markers let the UI locate each section's region (and its
 // locked/authored class) and let a re-parse map assembled text back to sections.
+// Neutralize the section-marker syntax inside any content that goes into the
+// assembled prompt (codex S3e finding): authored text or model-derived duty
+// text containing `<!-- GARRISON-SECTION ... -->` / `<!-- /GARRISON-SECTION -->`
+// could otherwise spoof a section boundary (reclassify locked vs authored, or
+// break a re-parse). We break the comment opener with a space so the marker can
+// never appear verbatim in section content — the parser's marker regex requires
+// the exact `<!-- GARRISON-SECTION` token, which `<!- - GARRISON-SECTION` is not.
+export const SECTION_MARKER_RE = /<!--\s*\/?\s*GARRISON-SECTION/gi;
+function neutralizeSectionMarkers(text: string): string {
+  return String(text).replace(SECTION_MARKER_RE, (m) => m.replace("<!--", "<!- -"));
+}
+
 export function assembleLayeredPrompt(sections: PromptSection[]): string {
   const blocks = sections.map((section) => {
     const attrs = [`id=${section.id}`, `kind=${section.kind}`];
     if (section.regeneratedFrom) attrs.push(`regenerated-from=${section.regeneratedFrom}`);
     return [
       `<!-- GARRISON-SECTION ${attrs.join(" ")} -->`,
-      `## ${section.title}`,
+      `## ${neutralizeSectionMarkers(section.title)}`,
       "",
-      section.content.trim(),
+      neutralizeSectionMarkers(section.content),
       `<!-- /GARRISON-SECTION id=${section.id} -->`
     ].join("\n");
   });
@@ -303,10 +319,17 @@ export function regenerateLockedSections(
   const fresh = new Map<string, PromptSection>(
     buildLockedSections(input).map((section) => [section.id, section])
   );
-  return previous.map((section) => {
-    if (section.kind !== "locked") return section;
-    return fresh.get(section.id) ?? section;
-  });
+  return previous
+    .map((section) => {
+      if (section.kind !== "locked") return section;
+      // Constraint 12 (codex S3e finding): a locked section is ONLY ever its
+      // freshly generated twin. A "locked" section in `previous` whose id is not
+      // a known generated one is user-injected content masquerading as locked —
+      // DROP it (never pass its content through). Returning the previous section
+      // unchanged would let hand-supplied locked content persist.
+      return fresh.get(section.id) ?? null;
+    })
+    .filter((section): section is PromptSection => section !== null);
 }
 
 // The assembled-preview surface (S5c consumes it via the API). Pure: sections +
