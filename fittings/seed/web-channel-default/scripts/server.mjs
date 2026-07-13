@@ -709,31 +709,45 @@ function serveStatic(req, res, distDir) {
     res.end("forbidden");
     return;
   }
+  const ext = path.extname(filePath).toLowerCase();
   if (!existsSync(filePath)) {
-    const indexFallback = path.join(distDir, "index.html");
-    if (existsSync(indexFallback)) {
-      const data = readFileSync(indexFallback);
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "text/html");
-      res.end(data);
-      return;
+    // SPA fallback is for NAVIGATIONS only (extension-less routes). An asset-like
+    // path with an extension (e.g. /sw.js, /manifest.json, /icons/icon-192.png)
+    // that is missing must 404 — serving index.html for it as text/html would
+    // break service-worker registration, manifest parsing, and icon loads.
+    if (!ext) {
+      const indexFallback = path.join(distDir, "index.html");
+      if (existsSync(indexFallback)) {
+        const data = readFileSync(indexFallback);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/html");
+        res.end(data);
+        return;
+      }
     }
     res.statusCode = 404;
     res.setHeader("Content-Type", "text/plain");
-    res.end("web-channel: dist/ not built yet — run `node ui/build.mjs` in the Fitting directory.");
+    res.end("web-channel: not found (dist/ built? run `node ui/build.mjs` in the Fitting directory).");
     return;
   }
-  const ext = path.extname(filePath).toLowerCase();
   const ctMap = {
     ".html": "text/html",
     ".js": "application/javascript",
     ".css": "text/css",
     ".json": "application/json",
     ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".webmanifest": "application/manifest+json",
     ".map": "application/json"
   };
+  // The web app manifest is served with its precise type so Chrome/Android accept
+  // it (application/json also works, but this is the spec-correct MIME).
+  const contentType = path.basename(filePath) === "manifest.json"
+    ? "application/manifest+json"
+    : (ctMap[ext] ?? "application/octet-stream");
   res.statusCode = 200;
-  res.setHeader("Content-Type", ctMap[ext] ?? "application/octet-stream");
+  res.setHeader("Content-Type", contentType);
   createReadStream(filePath).pipe(res);
 }
 

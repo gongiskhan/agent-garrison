@@ -5,8 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f4ede0" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Operative" />
     <title>Garrison · Operative</title>
+    <!-- PWA: installable (Add to Home Screen on iOS, install prompt elsewhere). -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
     <!-- Garrison typeface stack (Inter / Source Serif 4 / JetBrains Mono). System
          fallbacks in web-channel.css keep the UI readable if fonts don't load. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -20,5 +27,16 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/web-channel.bundle.js"></script>
+    <!-- Register the service worker (needs a secure context: https or localhost).
+         Failure is non-fatal — the app runs fine without it, just not offline. -->
+    <script>
+      if ("serviceWorker" in navigator && window.isSecureContext) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js").catch(function (err) {
+            console.warn("[web-channel] service worker registration failed:", err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>
