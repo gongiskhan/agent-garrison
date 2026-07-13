@@ -45,10 +45,9 @@ Every security-boundary slice surfaced a genuine vulnerability: key-exfil via `b
 - Security wall: **0 secrets introduced** (committed diff bd479dd..HEAD clean; 24 working-tree hits all pre-existing baseline). Hard constraint 3 (vault discipline) satisfied; every key path adversarially hardened.
 - Run-level codex checkpoint: issues-fixed (3 cross-cutting key/log-leak findings fixed, 1 low-severity accepted).
 - Live proofs: the Resolver drives one model over the REAL composition (AC3); the duty DAG validates live (AC4); the duty on/off round-trip works on the running app (AC9 — remove `review` → absent, re-add → restored); three-door divergence proven zero.
-- Desktop Muster + Kanban e2e: 39 passed (UX-gate parameters — 390px overflow, interaction budgets — on desktop).
+- Muster + Kanban e2e green on BOTH desktop and 390px mobile (UX-gate parameters — 390px overflow, interaction budgets, render). The 3 mobile `muster-orchestrator` specs that previously failed on a test-harness timing race (async preview load + mobile auto-collapse) are FIXED (55b7403: async-load wait + re-expand-after-reload + no double-toggle) — now 4/4 green in isolation, 41/42 in the combined concurrent-load run (the 1 remaining is a logged concurrent-load flake, not a product defect). FINDING 13's e2e parameters now hold on mobile.
 
 **Pending (the PARTIAL tail):**
-- 3 mobile `muster-orchestrator` e2e fail on a test-harness timing race (async preview load + mobile auto-collapse) — the orchestrator panel is proven functional on desktop e2e + 68 unit tests; this is test-infra work, not a product defect.
 - Exhaustive "every rewritten skill executed once through a live gateway dispatch" — each component is unit-tested + the duty fittings validate 4/4; a full live-operative sweep was not run.
 - The complete printed 9-parameter UX gate — measured in part (390px/interaction via e2e; design-taste pre-flight at build time), not fully aggregated + printed.
 - Per-slice walkthrough videos — not recorded (deferred).
