@@ -1,0 +1,10 @@
+{
+  "name": "garrison-call",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Single-shot / structured LLM call fitting — three wire shapes (Anthropic Messages / OpenAI-compatible / Ollama native) behind a default-deny base-URL fence. No dependencies; uses global fetch.",
+  "bin": {
+    "garrison-call": "scripts/call.mjs"
+  }
+}
