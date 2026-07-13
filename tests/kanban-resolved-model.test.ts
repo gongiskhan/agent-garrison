@@ -13,9 +13,10 @@ import { tmpdir as __tmpdir } from "node:os";
 import { join as __join } from "node:path";
 process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { deriveKanbanLists, resolveSequence } from "../src/lib/resolver";
 import { computeKanbanResolvedModel } from "../src/lib/kanban-model";
@@ -23,7 +24,7 @@ import { kanbanProjectionPlan } from "../src/lib/runner";
 // @ts-ignore — pure .mjs
 import { buildBoard, validNextForCard, nextListForCard, resolveCardSequence, reconcileBoardLists, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
-import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList, triggerFor, isInteractive, withEvent, phaseForList } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
@@ -400,5 +401,48 @@ describe("S4a codex finding #4 — the runner does NOT project an empty resolved
     expect(plan.write).toBe(true);
     expect(plan.log).toContain("projected 3 phase list(s)");
     expect(plan.log).toContain("plan, implement, review");
+  });
+});
+
+// ── engine facade / CLI import surface (relocated regression guard) ─────────
+// scripts/kanban.mjs is the CLI entrypoint the fitting's setup hook runs during
+// `up` (`node scripts/kanban.mjs --setup`); it imports its whole board-helper
+// surface from engine.mjs. phaseForList is defined in policy.mjs and engine.mjs
+// imported it for INTERNAL use only, without re-exporting it — so the CLI's
+// top-level import threw "does not provide an export named 'phaseForList'" and
+// setup exited 1 the first time a live `up` ran. No vitest loads kanban.mjs's
+// module graph, so the marathon's gates (readiness via resolveModel, not a live
+// up) never hit it. These guard the exact export set the CLI entrypoint needs.
+const GUARDED_ENGINE_EXPORTS: Record<string, unknown> = {
+  processCard,
+  processBatch,
+  getList,
+  triggerFor,
+  isInteractive,
+  withEvent,
+  phaseForList
+};
+function symbolsImportedFromEngine(src: string): string[] {
+  const m = src.match(/import\s*\{([^}]*)\}\s*from\s*["'][^"']*lib\/engine\.mjs["']/);
+  if (!m) return [];
+  return m[1].split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+describe("kanban-loop engine facade — scripts/kanban.mjs CLI import surface", () => {
+  it("engine.mjs exports every symbol the --setup CLI entrypoint imports from it", () => {
+    for (const [name, value] of Object.entries(GUARDED_ENGINE_EXPORTS)) {
+      expect(
+        typeof value,
+        `engine.mjs must export "${name}" — scripts/kanban.mjs imports it, and a missing export makes \`node scripts/kanban.mjs --setup\` exit 1 during \`up\``
+      ).toBe("function");
+    }
+    expect(typeof phaseForList).toBe("function"); // the exact symbol that regressed
+  });
+
+  it("the guarded set matches the CLI's actual engine import line (auto-tracks new imports)", () => {
+    const cliUrl = new URL("../fittings/seed/kanban-loop/scripts/kanban.mjs", import.meta.url);
+    const cliNames = symbolsImportedFromEngine(readFileSync(fileURLToPath(cliUrl), "utf8")).sort();
+    expect(cliNames.length).toBeGreaterThan(0);
+    expect(cliNames).toEqual(Object.keys(GUARDED_ENGINE_EXPORTS).sort());
   });
 });
