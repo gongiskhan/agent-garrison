@@ -92,6 +92,26 @@ export function resolveSecondaryDir(compositionDir, runtime) {
   return null;
 }
 
+// Locate the kanban-loop fitting dir (repo seed OR installed composition) so the
+// gateway can consult the SAME resolved model the BOARD reads (S4b / D15
+// acceptance 9). Same resolution shape as the other fittings: env override,
+// installed composition, or repo seed.
+export function resolveKanbanLoopDir(compositionDir) {
+  const candidates = [
+    process.env.GARRISON_KANBAN_LOOP_DIR,
+    compositionDir && path.join(compositionDir, "apm_modules", "_local", "kanban-loop"),
+    path.resolve(HERE, "..", "..", "..", "kanban-loop"),
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(path.join(c, "lib", "resolved-model.mjs"))) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
 // BUILD MODE helper: commit a locally-generated file verbatim. The local model
 // (ollama via the agent-sdk runtime) can't drive file-edit tools over ollama's
 // Anthropic-compat endpoint, so it generates the code in chat mode and the
@@ -603,13 +623,65 @@ export class RoutedGateway {
       throw new Error("dispatchRoute: no Dispatcher wired (construct RoutedGateway with opts.dispatcher = { core, model, call })");
     }
     const { core, model, call, evidenceFile, callOpts } = this._dispatcher;
-    return core.dispatch(model, message, {
+    const result = await core.dispatch(model, message, {
       call,
       now: this.nowFn,
       evidenceFile: evidenceFile ?? this.decisionsFile,
       cardLevel: opts.cardLevel,
       ...(callOpts ?? {}),
     });
+    // S4b (D15 acceptance 9): the dispatch now CONSULTS THE RESOLVED MODEL. Attach
+    // the ordered phase sequence the resolved (duty, level) walks — read from the
+    // SAME runner-projected model.json the board reads — so a task entering via the
+    // web-channel produces a card that visits the IDENTICAL sequence a board-entered
+    // card with the same (duty, level) would (divergence zero). Additive + best-
+    // effort: an absent/unresolvable model leaves the historical dispatch fields
+    // untouched and `sequence` unset, so the pre-S4b behaviour is byte-for-byte kept.
+    try {
+      const sequence = await this.resolvedSequenceForDispatch(result?.duty, result?.level);
+      if (sequence.length) {
+        result.sequence = sequence;
+        this.logFn({ kind: "dispatch-sequence", duty: result.duty, level: result.level, sequence });
+      }
+    } catch (err) {
+      this.logFn({ kind: "dispatch-sequence-failed", error: err?.message });
+    }
+    return result;
+  }
+
+  // Load the board's resolved-model helpers (loadResolvedModel + resolveCardSequence)
+  // from the kanban-loop fitting — the SAME module the board uses to decide a card's
+  // flow — so the gateway's dispatch consult and the board's card-flow decision read
+  // one implementation and cannot drift. Cached; null when the fitting isn't
+  // resolvable on disk (the gateway then attaches no sequence and behaves as before).
+  async _kanbanResolvedModelLib() {
+    if (this._kanbanLib !== undefined) return this._kanbanLib;
+    try {
+      const dir = resolveKanbanLoopDir(this.compositionDir);
+      this._kanbanLib = dir
+        ? await import(pathToFileURL(path.join(dir, "lib", "resolved-model.mjs")).href)
+        : null;
+    } catch {
+      this._kanbanLib = null;
+    }
+    return this._kanbanLib;
+  }
+
+  // S4b (D15 acceptance 9): resolve a (duty, level) to the ordered phase-list
+  // sequence a card would VISIT, reading the runner-projected model.json (the SAME
+  // file the board reads via resolved-model.mjs). Returns [] when the model is
+  // absent/unresolvable — the gateway then keeps its historical entry lists
+  // (backlog/plan/implement) unchanged. This is DOOR 1's consult of the shared model.
+  async resolvedSequenceForDispatch(duty, level) {
+    if (!duty) return [];
+    const lib = await this._kanbanResolvedModelLib();
+    if (!lib || typeof lib.loadResolvedModel !== "function" || typeof lib.resolveCardSequence !== "function") {
+      return [];
+    }
+    const model = lib.loadResolvedModel();
+    if (!model) return [];
+    const seq = lib.resolveCardSequence({ duty, level: level ?? 1 }, model);
+    return Array.isArray(seq) ? seq : [];
   }
 
   // classify → resolve role → resolve target → LOG at resolution time → switch.
