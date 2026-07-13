@@ -102,6 +102,17 @@ export function boundedPending(cap = MAX_PENDING_FRAMES) {
 // Forward only known-safe scalar fields of an upstream Metadata frame to the
 // client — never the whole object, which could carry an echoed auth/token field
 // (codex S6a finding). Deepgram Metadata's useful fields are ids + durations.
+// Redact the vault key (literal value + a "Token <key>" echo) from any text
+// bound for the client (codex checkpoint finding). The literal-value strip is
+// the reliable catch; the Token pattern defangs a common echo shape.
+export function scrubSecret(text, apiKey) {
+  let out = String(text ?? "").replace(/Token\s+[\w.\-]+/gi, "Token [redacted]");
+  if (apiKey && typeof apiKey === "string" && apiKey.length >= 6) {
+    out = out.split(apiKey).join("[redacted]");
+  }
+  return out;
+}
+
 export function sanitizeMetadata(msg) {
   const safe = {};
   for (const key of ["request_id", "model_name", "model_uuid", "model_version", "duration", "channels", "created"]) {
@@ -617,11 +628,14 @@ function attachTtsStream(clientWs, opts, sampleRate) {
     // the key client-bound. Forward only a known-safe allowlist of scalar fields.
     else if (msg.type === "Metadata") sendClient({ type: "metadata", data: sanitizeMetadata(msg) });
     else if (msg.type === "Warning" || msg.type === "Error") {
-      sendClient({ type: "error", error: `deepgram: ${msg.description || msg.message || msg.type}` });
+      // Scrub the vault key from an upstream error before it reaches the browser
+      // (codex checkpoint finding): a misbehaving upstream could echo the
+      // Authorization token in its Error/Warning text.
+      sendClient({ type: "error", error: scrubSecret(`deepgram: ${msg.description || msg.message || msg.type}`, opts.apiKey) });
     }
   });
 
-  dg.on("error", (err) => sendClient({ type: "error", error: `deepgram: ${err.message}` }));
+  dg.on("error", (err) => sendClient({ type: "error", error: scrubSecret(`deepgram: ${err.message}`, opts.apiKey) }));
   dg.on("close", () => { try { clientWs.close(); } catch {} });
 
   clientWs.on("message", (data, isBinary) => {

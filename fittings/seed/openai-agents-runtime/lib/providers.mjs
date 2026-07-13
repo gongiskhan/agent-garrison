@@ -146,6 +146,21 @@ export function resolveEndpoint(target = {}, opts = {}) {
     return { baseUrl, apiKey: spec.dummyToken || "unused", apiKeyEnv: null };
   }
 
+  // Defense-in-depth key-egress fence (codex checkpoint finding): for the
+  // CONFIGURABLE provider (openai-compat), the vault key must only be attached to
+  // a TRUSTED base URL — the server-side env (OPENAI_BASE_URL), never an explicit
+  // target.baseUrl that diverges from it (which could be attacker/spec-authored).
+  // The bridge already strips an untrusted spec.baseUrl for keyed calls (S2a);
+  // this closes the direct-call path too: a keyed configurable target whose
+  // baseUrl is NOT the trusted env value drops to keyless rather than shipping
+  // the key to that host.
+  if (spec.configurable) {
+    const trustedBase = env.OPENAI_BASE_URL ? normalizeBaseUrl(env.OPENAI_BASE_URL) : null;
+    if (!trustedBase || normalizeBaseUrl(baseUrl) !== trustedBase) {
+      return { baseUrl, apiKey: spec.dummyToken || "unused", apiKeyEnv: null };
+    }
+  }
+
   const apiKeyEnv = target.apiKeyEnv || spec.apiKeyEnv || DEFAULT_API_KEY_ENV;
   const vaultLocked = secrets === null;
   // The key may arrive via the materialized Vault secrets (secondary/bridge path)

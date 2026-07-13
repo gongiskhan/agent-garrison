@@ -66,6 +66,16 @@ function clearAuthored(): void {
   fs.rmSync(path.join(FIXTURE_DIR, ".garrison", "orchestrator-authored.json"), { force: true });
 }
 
+
+// On mobile the Muster CollapsibleSections auto-collapse; expand every collapsed
+// section so content assertions see the rendered body (S5c mobile-collapse, D12).
+async function expandAll(page: import("@playwright/test").Page): Promise<void> {
+  const toggles = page.locator('[data-testid$="-toggle"][aria-expanded="false"]');
+  for (let i = 0; i < (await toggles.count()); i++) {
+    try { await toggles.nth(i).click({ timeout: 2000 }); } catch { /* already open */ }
+  }
+}
+
 test.beforeEach(() => {
   writeFixture();
   clearAuthored();
@@ -74,6 +84,7 @@ test.afterAll(() => fs.rmSync(FIXTURE_DIR, { recursive: true, force: true }));
 
 test("(a) orchestrator panel renders locked (greyed, non-editable) + authored + assembled", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await expandAll(page);
   await expect(page.getByTestId("orchestrator-panel")).toBeVisible();
 
   // A LOCKED block with its "regenerated from composition" badge, and NO edit control inside it.
@@ -95,6 +106,7 @@ test("(a) orchestrator panel renders locked (greyed, non-editable) + authored + 
 
 test("(b) editing an authored section autosaves and survives reload; locked stays put", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await expandAll(page);
   const authored = page.getByTestId("orchestrator-authored-routing-philosophy");
   await expect(authored).toBeVisible();
 
@@ -116,6 +128,7 @@ test("(b) editing an authored section autosaves and survives reload; locked stay
 
 test("(c) the decisions panel renders the evidence feed", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await expandAll(page);
   await expect(page.getByTestId("decisions-panel")).toBeVisible();
 
   const list = page.getByTestId("decisions-list");
@@ -128,6 +141,7 @@ test("(c) the decisions panel renders the evidence feed", async ({ page }) => {
 test("(e) no horizontal overflow at 390px with both panels expanded", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await expandAll(page);
   await expect(page.getByTestId("muster-page")).toBeVisible();
 
   // At narrow width the S5c sections start collapsed — expand both so the widest

@@ -399,3 +399,26 @@ describe("bridge trust boundary — no key egress via delegate spec (codex S2a)"
     expect(cfg.secrets).toBeNull();
   });
 })
+
+describe("codex checkpoint — resolveEndpoint drops key on untrusted baseUrl (defense-in-depth)", async () => {
+  const path = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+  const providers = await import(
+    pathToFileURL(path.resolve(__dirname, "../fittings/seed/openai-agents-runtime/lib/providers.mjs")).href
+  );
+  it("a keyed openai-compat target whose baseUrl != trusted env OPENAI_BASE_URL gets NO key", () => {
+    const ep = providers.resolveEndpoint(
+      { provider: "openai-compat", baseUrl: "https://attacker.example/v1" },
+      { secrets: { OPENAI_API_KEY: "sk-live" }, env: { OPENAI_BASE_URL: "https://trusted.local/v1" } }
+    );
+    expect(ep.apiKey).not.toBe("sk-live");
+    expect(ep.apiKeyEnv).toBeNull();
+  });
+  it("the trusted env baseUrl DOES carry the key", () => {
+    const ep = providers.resolveEndpoint(
+      { provider: "openai-compat", baseUrl: "https://trusted.local/v1" },
+      { secrets: { OPENAI_API_KEY: "sk-live" }, env: { OPENAI_BASE_URL: "https://trusted.local/v1" } }
+    );
+    expect(ep.apiKey).toBe("sk-live");
+  });
+})

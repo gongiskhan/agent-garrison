@@ -24,3 +24,10 @@ declare module "*/web-channel-default/scripts/threads.mjs" {
   export function deleteThread(id: string): Promise<boolean>;
   export function threadExistsSync(id: string): boolean;
 }
+
+declare module "*/web-channel-default/ui/pwa-assets.mjs" {
+  export function renderIconPng(size: number): Buffer;
+  export function iconSvg(size?: number): string;
+  export function emitPwaAssets(opts: { srcDir: string; distDir: string }): Promise<string[]>;
+  export const PWA_DIST_ASSETS: string[];
+}

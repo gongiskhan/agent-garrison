@@ -144,11 +144,24 @@ export async function delegate(spec, deps, opts = {}) {
     at: now ? now() : null,
     kind: "delegation",
     runtime: adapter.id,
-    task: spec.task.slice(0, 120),
+    // Redact secret/path-shaped content from the task before it is persisted to
+    // the decisions log (codex checkpoint finding): a task string can carry a
+    // provider key or an absolute home path. Strip those, then cap length.
+    task: redactForLog(spec.task),
     model: spec.model ?? null,
     artifacts: result.artifacts
   });
   return result;
+}
+
+// Redact secrets/paths from a free-text task before it lands in the durable
+// decisions log. Not a digest (the task summary stays legible), just a scrub.
+function redactForLog(task) {
+  return String(task ?? "")
+    .replace(/(\/home\/[^\s"']+|\/Users\/[^\s"']+|~\/[^\s"']+)/g, "[path]")
+    .replace(/\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(/\b(sk|dg|pk)-[A-Za-z0-9._\-]{6,}/g, "[redacted]")
+    .slice(0, 120);
 }
 
 function renderTaskPrompt(spec) {

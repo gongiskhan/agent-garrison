@@ -37,12 +37,49 @@ Two URL query params for testing/tuning:
   → auto-send). Used by `scripts/spike/voice-e2e.mjs` to drive the fallback;
   without it the batch path is unreachable in any capable browser.
 
+## Install to the home screen (PWA)
+
+The surface is an installable PWA. On iOS Safari: Share → **Add to Home Screen**;
+on Android/desktop Chrome the browser offers an **Install** prompt. Installed, it
+launches standalone (no browser chrome) with the Garrison "G" icon.
+
+What makes it installable (all emitted into `dist/` by `node ui/build.mjs`):
+
+- `manifest.json` — name/short_name, `display: standalone`, `start_url`,
+  theme/background colours, and icons.
+- `icons/` — `icon-192.png`, `icon-512.png` (manifest, `purpose: "any maskable"`),
+  `apple-touch-icon-180.png` (iOS), and `icon.svg`. Icons are **generated** by
+  `ui/pwa-assets.mjs` from a single vector mark, so they never drift and no binary
+  blobs are checked in.
+- `sw.js` — a deliberately minimal service worker: it precaches the app shell for
+  offline install and **never** touches `/api/*` (the chat SSE stream and the
+  `/api/voice/*` WebSockets go straight to the network untouched). It only
+  registers in a secure context.
+
+Installing a PWA that captures the mic still needs a secure context — see below.
+
 ## Mobile / phone voice input needs HTTPS
 
 `getUserMedia` (mic capture) only works in a **secure context**. `localhost` /
 `127.0.0.1` count as secure, so desktop and Playwright are fine. A phone hitting
 a LAN IP over plain `http` does **not** — the browser blocks the mic (read-aloud
-/ TTS still works). Two ways to get a secure context on the phone:
+/ TTS still works).
+
+**Check what's available:** `node scripts/secure-context.mjs --check` reports
+whether a secure context is reachable for the phone (a `tailscale serve` mapping
+for port 7083, or configured `tls_cert`/`tls_key`) and prints a machine-readable
+`SECURE_CONTEXT={...}` line. It is advisory — it always exits 0 and is NOT part of
+the composition `up` verify (which stays about "server loads + binds").
+
+**Automatic vs manual:** `localhost` is automatically secure (desktop). The server
+serves https automatically when `tls_cert`/`tls_key` are set. Exposing an https
+origin to the phone over Tailscale is a **manual step** — nothing runs
+`tailscale serve` during `up`. The fastest path:
+`node scripts/secure-context.mjs --serve` maps `127.0.0.1:7083` to an https tailnet
+URL (idempotent; equivalent to the platform helper
+`scripts/tailnet-serve-views.mjs`, which does the same for every own-port view).
+
+Two ways to get a secure context on the phone:
 
 ### Option 1 — `tailscale serve` (recommended)
 

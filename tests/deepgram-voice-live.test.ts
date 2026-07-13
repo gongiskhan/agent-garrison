@@ -541,3 +541,11 @@ describe("S6a codex hardening — Metadata sanitization + bounded pre-open buffe
     expect(buf.length).toBe(0);
   });
 })
+
+describe("codex checkpoint — scrubSecret strips the key from client-bound errors", () => {
+  it("redacts the literal key + Token echo", () => {
+    const out = voiceServerMod.scrubSecret("deepgram: bad Token dg-secret-123", "dg-secret-123");
+    expect(out).not.toContain("dg-secret-123");
+    expect(out).toContain("[redacted]");
+  });
+})
