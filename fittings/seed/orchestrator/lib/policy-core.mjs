@@ -622,7 +622,7 @@ export function isSignificantAutonomous(classification) {
 // Build the board-API card payload for an autonomous run (D8 card creation).
 // Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
 // optional per-card toggle map merged over the work kind's plan (D17).
-export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier } = {}) {
+export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier, duty, level, sequence } = {}) {
   return {
     description: brief || "",
     project: project || null,
@@ -631,7 +631,14 @@ export function buildAutonomousCardPayload({ brief, project, workKind, phases, t
     workKind: workKind || null,
     phases: phases || null,
     origin: "orchestrator",
-    classification: taskType && tier ? { taskType, tier } : null
+    classification: taskType && tier ? { taskType, tier } : null,
+    // S4b completion (D15 acceptance 9): carry the resolved (duty, level) + its
+    // ordered sequence onto the card so a gateway/skill-entered card FLOWS through
+    // the IDENTICAL resolved sequence a board-entered card would (door-1
+    // persistence). Additive — omitted keys keep the pre-S4b card shape.
+    ...(duty ? { duty } : {}),
+    ...(Number.isInteger(level) ? { level } : {}),
+    ...(Array.isArray(sequence) && sequence.length ? { sequence } : {})
   };
 }
 

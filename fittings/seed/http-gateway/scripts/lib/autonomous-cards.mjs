@@ -90,7 +90,14 @@ export async function createAutonomousCard({ message, classification, opts = {},
           workKind: opts.workKind ?? null,
           phases: opts.phases ?? null,
           taskType: classification?.taskType,
-          tier: classification?.tier
+          tier: classification?.tier,
+          // S4b door-1 persistence (D15 acceptance 9): carry the resolved
+          // (duty, level, sequence) from the dispatch result onto the card so a
+          // web-channel/skill-entered card FLOWS through the identical resolved
+          // sequence a board card would. Additive — absent when no dispatcher.
+          duty: opts.duty,
+          level: opts.level,
+          sequence: opts.sequence
         })
       : { description: message, goalMode: true };
     if (opts.quick) payload.quick = true; // D19: mark trivial-plan cards for the Done quick-tasks strip

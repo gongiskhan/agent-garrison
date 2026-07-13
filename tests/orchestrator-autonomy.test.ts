@@ -112,6 +112,23 @@ describe("autonomy axis (D8)", () => {
     expect(p.classification).toEqual({ taskType: "implement", tier: "T2-deep" });
     expect(p.origin).toBe("orchestrator");
   });
+
+  it("carries the resolved (duty, level, sequence) when present (S4b door-1 persistence)", async () => {
+    const mod = await core();
+    const p = mod.buildAutonomousCardPayload({
+      brief: "build X",
+      duty: "develop",
+      level: 2,
+      sequence: ["plan", "implement", "review", "test"]
+    });
+    expect(p.duty).toBe("develop");
+    expect(p.level).toBe(2);
+    expect(p.sequence).toEqual(["plan", "implement", "review", "test"]);
+    // Absent when not resolved (pre-S4b card shape preserved).
+    const bare = mod.buildAutonomousCardPayload({ brief: "y" });
+    expect(bare).not.toHaveProperty("duty");
+    expect(bare).not.toHaveProperty("sequence");
+  });
 });
 
 describe("brain merge grep proofs (D6/D7, acceptance 10)", () => {
