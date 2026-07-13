@@ -1,0 +1,118 @@
+name: spotify
+version: 0.1.0
+description: Spotify connector seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: connectors
+  cardinality_hint: multi
+  component_shape: cli
+  platforms:
+    - all
+  summary: Spotify connector — control playback on the user's active Spotify Connect device (pause / resume / next / previous, play by search, volume, transfer) over the Spotify Web API. Playback control REQUIRES Spotify Premium; audio plays on whichever device runs the Spotify app (open it on the phone to make the phone the target). OAuth2 is sealed in the Vault; a freshly-refreshed access token is delivered scoped per call — nothing plaintext in the manifest or logs.
+  config_schema:
+    - key: device_name
+      type: string
+      description: Preferred Spotify Connect device to target (SPOTIFY_DEVICE_NAME) — e.g. the phone's name as it shows in Spotify. Empty = act on the currently active device. Case-insensitive substring match.
+      required: false
+  connector:
+    auth: oauth2
+    actions:
+      - name: current
+        mutates: false
+        description: What is playing now (track, artist, device, is_playing).
+      - name: devices
+        mutates: false
+        description: Available Spotify Connect devices (id, name, is_active).
+      - name: pause
+        mutates: true
+        description: Pause playback on the active device.
+      - name: resume
+        mutates: true
+        description: Resume playback on the active/target device.
+      - name: next
+        mutates: true
+        description: Skip to the next track.
+      - name: previous
+        mutates: true
+        description: Go back to the previous track.
+      - name: play
+        args:
+          - query
+        mutates: true
+        description: Search and play. `query` is free text ("Beatles", "Hey Jude", "Miles Davis Kind of Blue"). Plays the best track match (or the artist's top tracks) on the target device.
+      - name: play_uri
+        args:
+          - uri
+        mutates: true
+        description: "Play a specific Spotify URI (spotify:track / album / artist / playlist)."
+      - name: volume
+        args:
+          - percent
+        mutates: true
+        description: Set volume 0–100 on the target device.
+      - name: search
+        args:
+          - query
+          - type
+        mutates: false
+        description: Search the catalog. `type` = track|artist|album|playlist (default track). Returns top matches with their URIs.
+      - name: transfer
+        args:
+          - device_id
+        mutates: true
+        description: Move playback to a device id (from `devices`) and start playing.
+    oauth:
+      auth_url: https://accounts.spotify.com/authorize
+      token_url: https://accounts.spotify.com/api/token
+      scopes:
+        - user-read-playback-state
+        - user-modify-playback-state
+        - user-read-currently-playing
+      client_id_secret: SPOTIFY_OAUTH_CLIENT_ID
+      client_secret_secret: SPOTIFY_OAUTH_CLIENT_SECRET
+  secret_scope:
+    - SPOTIFY_OAUTH_CLIENT_ID
+    - SPOTIFY_OAUTH_CLIENT_SECRET
+    - SPOTIFY_DEVICE_NAME
+  provides:
+    - kind: connector
+      name: spotify
+  consumes:
+    - kind: vault
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: node apm_modules/_local/spotify/scripts/connector.mjs --probe
+    expect: connectorOk
+    timeout_ms: 15000
+  for_consumers: |
+    Spotify is a connector: a catalog of playback actions on the user's Spotify,
+    callable directly via the connector CLI (the Operative runs it over bash).
+    Two hard requirements: playback control needs Spotify PREMIUM, and audio
+    plays on whichever device runs the Spotify app — for "play on my phone" the
+    Spotify app must be open/awake on the phone (it then appears under `devices`).
+
+      node apm_modules/_local/spotify/scripts/connector.mjs catalog
+        -> the action catalog as JSON.
+      node .../connector.mjs call current
+        -> { is_playing, track, artist, device } — check before acting.
+      node .../connector.mjs call devices
+        -> [{ id, name, is_active }]. Use to find the phone's device id.
+      node .../connector.mjs call pause
+      node .../connector.mjs call resume
+      node .../connector.mjs call next
+      node .../connector.mjs call previous
+      node .../connector.mjs call play '{"query":"Beatles"}'
+      node .../connector.mjs call play_uri '{"uri":"spotify:track:..."}'
+      node .../connector.mjs call volume '{"percent":40}'
+      node .../connector.mjs call transfer '{"device_id":"<id>"}'
+
+    Each call prints { ok, result } — or { ok:false, awaiting_connector:true }
+    when Spotify is not connected (prompt the user to connect it), or
+    { ok:false, error } carrying a human hint when there is no active device
+    ("open Spotify on the phone") or the account is not Premium (403).
