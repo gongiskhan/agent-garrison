@@ -158,6 +158,23 @@ describe("duty metadata parsing (D2)", () => {
     ).toThrow(/no matching duties\[\] spec/);
   });
 
+  it("rejects mistyped duty fields loudly — strict schemas (review S3a finding 1)", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...base,
+        provides: [{ kind: "duty", name: "implement" }],
+        duties: [
+          {
+            id: "implement",
+            title: "Implement",
+            description: "x",
+            levels: [{ description: "l1", cell: { skill: "s", targett: "t-deep" } }]
+          }
+        ]
+      })
+    ).toThrow(/unrecognized|Unrecognized/);
+  });
+
   it("multi-duty fittings are allowed", () => {
     const metadata = parseGarrisonMetadata({
       ...base,

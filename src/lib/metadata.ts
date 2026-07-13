@@ -107,16 +107,20 @@ const connectorSpecSchema = z.object({
 // (provision name === duty id). A level is leaf (cell) XOR composite
 // (sequence) — declaring both or neither is a parse error. Levels are stored
 // flat; no inheritance in the data model.
-const dutyLevelCellSchema = z.object({
-  skill: z.string().min(1).optional(),
-  target: z.string().min(1).optional(),
-  effort: z.enum(dutyEfforts).optional()
-});
+const dutyLevelCellSchema = z
+  .object({
+    skill: z.string().min(1).optional(),
+    target: z.string().min(1).optional(),
+    effort: z.enum(dutyEfforts).optional()
+  })
+  .strict();
 
-const dutySequenceEntrySchema = z.object({
-  duty: z.string().min(1),
-  level: z.number().int().min(1).optional()
-});
+const dutySequenceEntrySchema = z
+  .object({
+    duty: z.string().min(1),
+    level: z.number().int().min(1).optional()
+  })
+  .strict();
 
 const dutyLevelSchema = z
   .object({
@@ -124,6 +128,7 @@ const dutyLevelSchema = z
     cell: dutyLevelCellSchema.optional(),
     sequence: z.array(dutySequenceEntrySchema).min(1).optional()
   })
+  .strict()
   .superRefine((level, ctx) => {
     if ((level.cell === undefined) === (level.sequence === undefined)) {
       ctx.addIssue({
@@ -133,15 +138,17 @@ const dutyLevelSchema = z
     }
   });
 
-const dutySchema = z.object({
-  id: z
-    .string()
-    .min(1)
-    .regex(/^[a-z][a-z0-9-]*$/, "duty id must be kebab-case"),
-  title: z.string().min(1),
-  description: z.string().min(1),
-  levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level")
-});
+const dutySchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .regex(/^[a-z][a-z0-9-]*$/, "duty id must be kebab-case"),
+    title: z.string().min(1),
+    description: z.string().min(1),
+    levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level")
+  })
+  .strict();
 
 // D3 (GARRISON-RUNTIMES-V1): a runtime Fitting declares HOW a provider override
 // (base URL / auth credential / model) is applied to its engine — env vars for
