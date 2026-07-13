@@ -210,11 +210,13 @@ async function handleVoiceProxy(req, res, subpath) {
   upstream.end(body);
 }
 
-// Pure passthrough relay: browser WS ⇄ voice Fitting /stream WS. Binary (PCM)
-// and text (control + transcript events) are forwarded verbatim in both
-// directions; frames sent before the upstream opens are buffered briefly.
-function relayVoiceStream(client, voiceHttpUrl, search) {
-  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/stream" + (search || "");
+// Pure passthrough relay: browser WS ⇄ a voice Fitting WS endpoint (STT /stream
+// or read-aloud /tts-stream). Binary (PCM audio) and text (control + transcript
+// events) are forwarded verbatim in both directions; frames sent before the
+// upstream opens are buffered briefly. All Deepgram logic — and the API key —
+// stay on the voice Fitting; this hop only shuttles frames.
+function relayVoiceStream(client, voiceHttpUrl, search, subpath = "/stream") {
+  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + subpath + (search || "");
   const upstream = new WebSocket(upstreamUrl);
   const pending = [];
 
@@ -848,14 +850,20 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     ? https.createServer(tls, requestHandler)
     : http.createServer(requestHandler);
 
-  // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting /stream.
-  // No parsing — all Deepgram logic stays in the voice Fitting; the key never
-  // reaches the browser. The page connects to /api/voice/stream (wss when this
-  // server is TLS), and we forward the query (sample_rate) verbatim.
+  // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting.
+  // /api/voice/stream → the Fitting's STT /stream; /api/voice/tts-stream → its
+  // read-aloud /tts-stream. No parsing — all Deepgram logic stays in the voice
+  // Fitting; the key never reaches the browser. The page connects with wss when
+  // this server is TLS, and we forward the query (sample_rate, etc.) verbatim.
+  const VOICE_WS_ROUTES = {
+    "/api/voice/stream": "/stream",
+    "/api/voice/tts-stream": "/tts-stream"
+  };
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
     const parsed = url.parse(request.url || "/", true);
-    if (parsed.pathname !== "/api/voice/stream") {
+    const subpath = VOICE_WS_ROUTES[parsed.pathname || ""];
+    if (!subpath) {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
@@ -866,7 +874,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || ""));
+    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || "", subpath));
   });
 
   // Bind the CONFIGURED port only - no findFreePort auto-shift. A busy port is a

@@ -86,5 +86,20 @@ x-garrison:
                                              pass 1000-20000 to override). utterance_end
                                              fires after that much silence — use it to
                                              auto-finalize/send hands-free.
+      WS   /tts-stream?sample_rate=<n>     - streaming read-aloud (Aura-2). Send text
+                                             token-by-token so audio starts before the
+                                             full reply exists. Send JSON control frames:
+                                             {type:"speak", text} | {type:"flush"}
+                                             | {type:"clear"} (barge-in) | {type:"close"}.
+                                             Receive: {type:"ready", sampleRate} then raw
+                                             linear16 PCM audio as BINARY frames, plus
+                                             {type:"flushed"} | {type:"cleared"}
+                                             | {type:"metadata", data} | {type:"error"}.
+                                             sample_rate = output PCM rate in Hz
+                                             (8000-48000; defaults to 24000, Aura-2 native).
     The Deepgram API key stays on the host (read from the vault as DEEPGRAM_API_KEY);
-    callers never see it. When the key is missing, /stt and /tts return HTTP 503.
+    callers never see it. When the key is missing, /stt, /tts, and the /stream +
+    /tts-stream WebSockets all refuse (HTTP 503 / an {type:"error"} frame then close).
+    Per-stage latency is logged as JSON lines (evt:"voice-latency") on stdout:
+    stage audio_in / first_interim / utterance_end (STT) and tts_text_in /
+    tts_first_audio (TTS), each with a session id and epoch-ms ts.

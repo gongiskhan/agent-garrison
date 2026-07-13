@@ -2,9 +2,10 @@
 // deepgram-voice backend — Voice Faculty Fitting.
 //
 // Proxies Deepgram so the API key never reaches the browser:
-//   - POST /stt     → Deepgram /v1/listen  (audio in → { transcript } out)
-//   - POST /tts     → Deepgram /v1/speak   ({ text } in → audio bytes out)
-//   - WS   /stream  → Deepgram live /v1/listen (real-time STT + endpointing)
+//   - POST /stt        → Deepgram /v1/listen  (audio in → { transcript } out)
+//   - POST /tts        → Deepgram /v1/speak   ({ text } in → audio bytes out)
+//   - WS   /stream     → Deepgram live /v1/listen (real-time STT + endpointing)
+//   - WS   /tts-stream → Deepgram live /v1/speak  (streaming read-aloud, Aura-2)
 //   - GET  /health, GET / (status page)
 //
 // The key is read from DEEPGRAM_API_KEY, injected from the vault by the runner
@@ -12,6 +13,7 @@
 // src/lib/own-port-lifecycle.ts vaultEnvForEntry). Localhost-bind by default,
 // per CLAUDE.md "talks only to localhost"; user opts into 0.0.0.0 via config.
 
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -32,6 +34,11 @@ const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
 
 const DG_BASE = "https://api.deepgram.com";
+// WebSocket base for Deepgram's live endpoints (/v1/listen for STT, /v1/speak
+// for streaming TTS). Overridable via DEEPGRAM_WS_BASE / --ws-base so the mocked
+// test suite can point the relays at a local WS server; defaults to the real
+// host. It is a base URL only — it carries no secret and never reaches a client.
+const DG_WS_BASE = process.env.DEEPGRAM_WS_BASE || "wss://api.deepgram.com";
 
 function parseArgs(argv) {
   const out = {
@@ -39,6 +46,11 @@ function parseArgs(argv) {
     host: process.env.DEEPGRAM_VOICE_HOST || "127.0.0.1",
     sttModel: process.env.DEEPGRAM_STT_MODEL || "nova-2",
     ttsModel: process.env.DEEPGRAM_TTS_MODEL || "aura-asteria-en",
+    // Streaming read-aloud runs over Deepgram's /v1/speak WebSocket; the Aura-2
+    // voices target that path for the lowest first-audio latency with
+    // token-by-token input. Distinct from ttsModel (batch /tts, Aura-1 default).
+    ttsStreamModel: process.env.DEEPGRAM_TTS_STREAM_MODEL || "aura-2-thalia-en",
+    wsBase: DG_WS_BASE,
     apiKey: process.env.DEEPGRAM_API_KEY || ""
   };
   for (let i = 0; i < argv.length; i++) {
@@ -47,6 +59,8 @@ function parseArgs(argv) {
     else if (a === "--host") out.host = argv[++i];
     else if (a === "--stt-model") out.sttModel = argv[++i];
     else if (a === "--tts-model") out.ttsModel = argv[++i];
+    else if (a === "--tts-stream-model") out.ttsStreamModel = argv[++i];
+    else if (a === "--ws-base") out.wsBase = argv[++i];
   }
   return out;
 }
@@ -55,6 +69,17 @@ function jsonRes(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(body));
+}
+
+// Structured per-stage latency instrumentation (one JSON line per event on
+// stdout). S6b's browser voice loop consumes these to measure the end-of-speech
+// → first-audio budget (target 2s). Each line carries { ts (epoch ms, so events
+// on the separate STT and TTS sockets are wall-clock comparable), evt, stage,
+// session }. It never contains audio bytes, transcript text, or the API key.
+function logLatency(stage, fields) {
+  try {
+    console.log(JSON.stringify({ ts: Date.now(), evt: "voice-latency", stage, ...fields }));
+  } catch {}
 }
 
 function handleHealth(res, opts) {
@@ -76,11 +101,13 @@ function handleStatusPage(res, opts) {
     ? `<span class="chip chip-ok"><span class="sq sq-ok"></span>CONFIGURED</span>`
     : `<span class="chip chip-alarm"><span class="sq sq-alarm"></span>MISSING - set DEEPGRAM_API_KEY in the vault</span>`;
 
-  // Real endpoints this server serves; /stream is the live WebSocket path.
+  // Real endpoints this server serves; /stream + /tts-stream are the live
+  // WebSocket paths (STT and read-aloud respectively).
   const endpoints = [
     ["POST", "/stt", "audio in, transcript out"],
     ["POST", "/tts", "text in, audio bytes out"],
     ["WS", "/stream", "live streaming transcription"],
+    ["WS", "/tts-stream", "streaming read-aloud (Aura-2)"],
     ["GET", "/health", "liveness probe (JSON)"]
   ];
   const rows = endpoints
@@ -96,7 +123,8 @@ function handleStatusPage(res, opts) {
     ["PORT", String(opts.port)],
     ["HOST", opts.host],
     ["STT MODEL", opts.sttModel],
-    ["TTS MODEL", opts.ttsModel]
+    ["TTS MODEL", opts.ttsModel],
+    ["TTS STREAM MODEL", opts.ttsStreamModel]
   ]
     .map(
       ([label, value]) =>
@@ -409,12 +437,15 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
     utterance_end_ms: String(utterEnd), // emit UtteranceEnd after this much silence
     vad_events: "true"
   });
-  const dg = new WebSocket(`wss://api.deepgram.com/v1/listen?${qs.toString()}`, {
+  const session = randomUUID();
+  const dg = new WebSocket(`${opts.wsBase || DG_WS_BASE}/v1/listen?${qs.toString()}`, {
     headers: { Authorization: `Token ${opts.apiKey}` }
   });
 
   // Accumulate final transcripts for the current utterance; flush on UtteranceEnd.
   let finals = [];
+  let firstFrameLogged = false;   // audio-in: first client PCM frame forwarded
+  let firstResultLogged = false;  // first-interim: first transcript back from DG
   const sendClient = (obj) => { try { clientWs.send(JSON.stringify(obj)); } catch {} };
 
   dg.on("open", () => sendClient({ type: "ready", sampleRate: rate }));
@@ -426,6 +457,10 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
       const text = msg.channel?.alternatives?.[0]?.transcript ?? "";
       const isFinal = msg.is_final === true;
       const speechFinal = msg.speech_final === true;
+      if (text && !firstResultLogged) {
+        firstResultLogged = true;
+        logLatency("first_interim", { session, dir: "stt", isFinal });
+      }
       if (isFinal && text) finals.push(text);
       sendClient({ type: "transcript", text, isFinal, speechFinal });
     } else if (msg.type === "SpeechStarted") {
@@ -433,6 +468,7 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
     } else if (msg.type === "UtteranceEnd") {
       const transcript = finals.join(" ").replace(/\s+/g, " ").trim();
       finals = [];
+      logLatency("utterance_end", { session, dir: "stt" });
       sendClient({ type: "utterance_end", transcript });
     }
   });
@@ -445,6 +481,10 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
   const pending = [];
   clientWs.on("message", (data, isBinary) => {
     if (isBinary) {
+      if (!firstFrameLogged) {
+        firstFrameLogged = true;
+        logLatency("audio_in", { session, dir: "stt" });
+      }
       if (dg.readyState === WebSocket.OPEN) dg.send(data);
       else pending.push(data);
       return;
@@ -462,6 +502,118 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
     try {
       if (dg.readyState === WebSocket.OPEN) dg.send(JSON.stringify({ type: "CloseStream" }));
     } catch {}
+    try { dg.close(); } catch {}
+  });
+  clientWs.on("error", () => { try { dg.close(); } catch {} });
+}
+
+// Streaming TTS (read-aloud): relay client text to Deepgram's live /v1/speak
+// WebSocket and stream the Aura audio back as it is generated, so playback can
+// start before the full reply text exists. Mirrors attachStream's architecture
+// (the API key stays server-side; Deepgram logic stays here). Protocol:
+//   client → server: {type:"speak", text}     append text to synthesize
+//                     {type:"flush"}           force audio for buffered text
+//                     {type:"clear"}           barge-in: drop pending audio
+//                     {type:"close"}           finish + close
+//   server → client: {type:"ready", sampleRate} Deepgram socket open
+//                    <binary>                  raw linear16 PCM audio frames
+//                    {type:"flushed"}          buffered text fully synthesized
+//                    {type:"cleared"}          pending audio dropped
+//                    {type:"metadata", data}   Deepgram model metadata
+//                    {type:"error", error}
+// sampleRate is client-selectable (?sample_rate=, 8000-48000, default 24000 —
+// Aura-2's native rate); the browser feeds the PCM straight into an AudioContext.
+function attachTtsStream(clientWs, opts, sampleRate) {
+  if (!opts.apiKey) {
+    try { clientWs.send(JSON.stringify({ type: "error", error: "DEEPGRAM_API_KEY not configured" })); } catch {}
+    clientWs.close();
+    return;
+  }
+  const rate = Number.isFinite(sampleRate) && sampleRate >= 8000 && sampleRate <= 48000
+    ? Math.round(sampleRate)
+    : 24000;
+
+  const qs = new URLSearchParams({
+    model: opts.ttsStreamModel,
+    encoding: "linear16",
+    sample_rate: String(rate)
+  });
+  const session = randomUUID();
+  const dg = new WebSocket(`${opts.wsBase || DG_WS_BASE}/v1/speak?${qs.toString()}`, {
+    headers: { Authorization: `Token ${opts.apiKey}` }
+  });
+
+  let firstTextLogged = false;   // tts-text-in: first speak text forwarded
+  let firstAudioLogged = false;  // tts-first-audio: first audio chunk back from DG
+  const sendClient = (obj) => { try { clientWs.send(JSON.stringify(obj)); } catch {} };
+
+  // Buffer client control messages that arrive before Deepgram's socket opens.
+  const pending = [];
+  const forward = (obj) => {
+    if (dg.readyState === WebSocket.OPEN) dg.send(JSON.stringify(obj));
+    else pending.push(obj);
+  };
+
+  dg.on("open", () => {
+    sendClient({ type: "ready", sampleRate: rate });
+    for (const obj of pending) dg.send(JSON.stringify(obj));
+    pending.length = 0;
+  });
+
+  dg.on("message", (data, isBinary) => {
+    // Deepgram streams audio as binary frames and status as JSON text frames.
+    if (isBinary) {
+      if (!firstAudioLogged) {
+        firstAudioLogged = true;
+        logLatency("tts_first_audio", { session, dir: "tts" });
+      }
+      try { if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: true }); } catch {}
+      return;
+    }
+    let msg;
+    try { msg = JSON.parse(data.toString()); } catch { return; }
+    if (msg.type === "Flushed") sendClient({ type: "flushed" });
+    else if (msg.type === "Cleared") sendClient({ type: "cleared" });
+    else if (msg.type === "Metadata") sendClient({ type: "metadata", data: msg });
+    else if (msg.type === "Warning" || msg.type === "Error") {
+      sendClient({ type: "error", error: `deepgram: ${msg.description || msg.message || msg.type}` });
+    }
+  });
+
+  dg.on("error", (err) => sendClient({ type: "error", error: `deepgram: ${err.message}` }));
+  dg.on("close", () => { try { clientWs.close(); } catch {} });
+
+  clientWs.on("message", (data, isBinary) => {
+    if (isBinary) return; // TTS input is text only; ignore stray binary.
+    let ctrl;
+    try { ctrl = JSON.parse(data.toString()); } catch { return; }
+    switch (ctrl?.type) {
+      case "speak": {
+        const text = typeof ctrl.text === "string" ? ctrl.text : "";
+        if (!text) return;
+        if (!firstTextLogged) {
+          firstTextLogged = true;
+          logLatency("tts_text_in", { session, dir: "tts" });
+        }
+        forward({ type: "Speak", text });
+        break;
+      }
+      case "flush":
+        forward({ type: "Flush" });
+        break;
+      case "clear":
+        forward({ type: "Clear" });
+        break;
+      case "close":
+        forward({ type: "Close" });
+        break;
+      default:
+        break;
+    }
+  });
+
+  clientWs.on("close", () => {
+    try { if (dg.readyState === WebSocket.OPEN) dg.send(JSON.stringify({ type: "Close" })); } catch {}
     try { dg.close(); } catch {}
   });
   clientWs.on("error", () => { try { dg.close(); } catch {} });
@@ -525,18 +677,23 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   });
 
-  // Live streaming STT over WebSocket at /stream?sample_rate=<n>.
+  // Live streaming over WebSocket: /stream = STT (mic → transcript), /tts-stream
+  // = read-aloud (text → audio). One WSS in noServer mode routes both by path.
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
     const parsed = url.parse(request.url || "/", true);
-    if (parsed.pathname !== "/stream") {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
+    const sampleRate = Number(parsed.query.sample_rate);
+    if (parsed.pathname === "/stream") {
+      const utteranceEndMs = Number(parsed.query.utterance_end_ms);
+      wss.handleUpgrade(request, socket, head, (clientWs) => attachStream(clientWs, liveOpts, sampleRate, utteranceEndMs));
       return;
     }
-    const sampleRate = Number(parsed.query.sample_rate);
-    const utteranceEndMs = Number(parsed.query.utterance_end_ms);
-    wss.handleUpgrade(request, socket, head, (clientWs) => attachStream(clientWs, liveOpts, sampleRate, utteranceEndMs));
+    if (parsed.pathname === "/tts-stream") {
+      wss.handleUpgrade(request, socket, head, (clientWs) => attachTtsStream(clientWs, liveOpts, sampleRate));
+      return;
+    }
+    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    socket.destroy();
   });
 
   server.once("error", (err) => {
