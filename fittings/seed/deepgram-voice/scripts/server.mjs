@@ -82,6 +82,35 @@ function logLatency(stage, fields) {
   } catch {}
 }
 
+// Bound on frames buffered before the Deepgram socket opens (codex S6a finding:
+// unbounded pre-open buffers are a memory-DoS if the upstream handshake stalls).
+// ~5s of 16kHz linear16 mono audio is 160KB; 256 frames covers a normal
+// handshake with wide margin. Exceeding it closes the client leg with an error.
+const MAX_PENDING_FRAMES = 256;
+
+// A pre-open buffer that refuses to grow past the cap. push() returns false on
+// overflow; the caller tears the socket down.
+export function boundedPending(cap = MAX_PENDING_FRAMES) {
+  const items = [];
+  return {
+    push: (item) => (items.length >= cap ? false : (items.push(item), true)),
+    drain: () => { const out = items.slice(); items.length = 0; return out; },
+    get length() { return items.length; }
+  };
+}
+
+// Forward only known-safe scalar fields of an upstream Metadata frame to the
+// client — never the whole object, which could carry an echoed auth/token field
+// (codex S6a finding). Deepgram Metadata's useful fields are ids + durations.
+export function sanitizeMetadata(msg) {
+  const safe = {};
+  for (const key of ["request_id", "model_name", "model_uuid", "model_version", "duration", "channels", "created"]) {
+    const v = msg?.[key];
+    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") safe[key] = v;
+  }
+  return safe;
+}
+
 function handleHealth(res, opts) {
   jsonRes(res, 200, {
     ok: true,
@@ -478,7 +507,7 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
 
   // Buffer any PCM that arrives before Deepgram's socket is open (the client
   // also waits for {type:"ready"}, but guard anyway).
-  const pending = [];
+  const pending = boundedPending();
   clientWs.on("message", (data, isBinary) => {
     if (isBinary) {
       if (!firstFrameLogged) {
@@ -486,7 +515,12 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
         logLatency("audio_in", { session, dir: "stt" });
       }
       if (dg.readyState === WebSocket.OPEN) dg.send(data);
-      else pending.push(data);
+      else if (!pending.push(data)) {
+        // Pre-open buffer overflow — the upstream handshake is stalled; fail loudly.
+        try { clientWs.send(JSON.stringify({ type: "error", error: "voice: upstream not ready (buffer overflow)" })); } catch {}
+        try { clientWs.close(); } catch {}
+        try { dg.close(); } catch {}
+      }
       return;
     }
     // Text control messages (e.g. CloseStream).
@@ -496,7 +530,7 @@ function attachStream(clientWs, opts, sampleRate, utteranceEndMs) {
       dg.send(JSON.stringify({ type: "CloseStream" }));
     }
   });
-  dg.on("open", () => { for (const d of pending) dg.send(d); pending.length = 0; });
+  dg.on("open", () => { for (const d of pending.drain()) dg.send(d); });
 
   clientWs.on("close", () => {
     try {
@@ -547,17 +581,21 @@ function attachTtsStream(clientWs, opts, sampleRate) {
   let firstAudioLogged = false;  // tts-first-audio: first audio chunk back from DG
   const sendClient = (obj) => { try { clientWs.send(JSON.stringify(obj)); } catch {} };
 
-  // Buffer client control messages that arrive before Deepgram's socket opens.
-  const pending = [];
+  // Buffer client control messages that arrive before Deepgram's socket opens
+  // (bounded — codex S6a finding: an unbounded pre-open buffer is a memory-DoS).
+  const pending = boundedPending();
   const forward = (obj) => {
     if (dg.readyState === WebSocket.OPEN) dg.send(JSON.stringify(obj));
-    else pending.push(obj);
+    else if (!pending.push(obj)) {
+      sendClient({ type: "error", error: "voice: upstream not ready (buffer overflow)" });
+      try { clientWs.close(); } catch {}
+      try { dg.close(); } catch {}
+    }
   };
 
   dg.on("open", () => {
     sendClient({ type: "ready", sampleRate: rate });
-    for (const obj of pending) dg.send(JSON.stringify(obj));
-    pending.length = 0;
+    for (const obj of pending.drain()) dg.send(JSON.stringify(obj));
   });
 
   dg.on("message", (data, isBinary) => {
@@ -574,7 +612,10 @@ function attachTtsStream(clientWs, opts, sampleRate) {
     try { msg = JSON.parse(data.toString()); } catch { return; }
     if (msg.type === "Flushed") sendClient({ type: "flushed" });
     else if (msg.type === "Cleared") sendClient({ type: "cleared" });
-    else if (msg.type === "Metadata") sendClient({ type: "metadata", data: msg });
+    // Do NOT forward the upstream Metadata object verbatim (codex S6a finding):
+    // a compromised/misbehaving upstream could echo an auth/token field, sending
+    // the key client-bound. Forward only a known-safe allowlist of scalar fields.
+    else if (msg.type === "Metadata") sendClient({ type: "metadata", data: sanitizeMetadata(msg) });
     else if (msg.type === "Warning" || msg.type === "Error") {
       sendClient({ type: "error", error: `deepgram: ${msg.description || msg.message || msg.type}` });
     }

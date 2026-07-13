@@ -215,6 +215,10 @@ async function handleVoiceProxy(req, res, subpath) {
 // events) are forwarded verbatim in both directions; frames sent before the
 // upstream opens are buffered briefly. All Deepgram logic — and the API key —
 // stay on the voice Fitting; this hop only shuttles frames.
+// Cap on frames buffered before the upstream voice socket opens (codex S6a
+// finding: an unbounded relay buffer is a memory-DoS if the upstream stalls).
+const MAX_RELAY_PENDING = 256;
+
 function relayVoiceStream(client, voiceHttpUrl, search, subpath = "/stream") {
   const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + subpath + (search || "");
   const upstream = new WebSocket(upstreamUrl);
@@ -232,7 +236,11 @@ function relayVoiceStream(client, voiceHttpUrl, search, subpath = "/stream") {
 
   client.on("message", (data, isBinary) => {
     if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-    else pending.push({ data, isBinary });
+    else if (pending.length >= MAX_RELAY_PENDING) {
+      // Pre-open buffer overflow — upstream stalled; tear both legs down.
+      try { client.close(); } catch {}
+      try { upstream.close(); } catch {}
+    } else pending.push({ data, isBinary });
   });
   client.on("close", () => { try { upstream.close(); } catch {} });
   client.on("error", () => { try { upstream.close(); } catch {} });

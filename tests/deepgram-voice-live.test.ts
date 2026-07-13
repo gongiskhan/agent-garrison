@@ -513,3 +513,31 @@ describe("web-channel-default voice relay hop", () => {
     assertNoKeyLeak(msgs);
   });
 });
+
+describe("S6a codex hardening — Metadata sanitization + bounded pre-open buffer", () => {
+  it("sanitizeMetadata forwards only safe scalar fields, never an echoed token", () => {
+    const out = voiceServerMod.sanitizeMetadata({
+      type: "Metadata",
+      request_id: "req-123",
+      duration: 1.5,
+      authorization: "Token sk-DEEPGRAM-SECRET",
+      apiKey: "sk-DEEPGRAM-SECRET"
+    });
+    expect(out.request_id).toBe("req-123");
+    expect(out.duration).toBe(1.5);
+    expect(JSON.stringify(out)).not.toContain("sk-DEEPGRAM-SECRET");
+    expect(out).not.toHaveProperty("authorization");
+    expect(out).not.toHaveProperty("apiKey");
+  });
+
+  it("boundedPending refuses to grow past the cap (memory-DoS guard)", () => {
+    const buf = voiceServerMod.boundedPending(3);
+    expect(buf.push("a")).toBe(true);
+    expect(buf.push("b")).toBe(true);
+    expect(buf.push("c")).toBe(true);
+    expect(buf.push("d")).toBe(false); // overflow
+    expect(buf.length).toBe(3);
+    expect(buf.drain()).toEqual(["a", "b", "c"]);
+    expect(buf.length).toBe(0);
+  });
+})
