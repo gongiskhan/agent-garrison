@@ -39,6 +39,11 @@ export function resolvePlacementPaths(
   const installedModes = path.join(compDir, "apm_modules", "_local", "modes");
   const scopedRouting = path.join(compDir, ".garrison", "routing.json");
   return {
+    // The modes seed fitting was retired (D7 — modes/souls replaced by the
+    // identity fitting). The installed-modes path still resolves when a
+    // composition carries a legacy modes package; otherwise this points at the
+    // (now absent) seed dir, whose missing modes.json makes the caller fall back
+    // to a bare session — the correct post-retirement outcome.
     modesDir: existsSync(path.join(installedModes, "modes.json"))
       ? installedModes
       : path.join(rootDir, "fittings/seed/modes"),

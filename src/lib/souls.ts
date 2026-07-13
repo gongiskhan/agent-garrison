@@ -1,12 +1,21 @@
-// Souls assembly (modes faculty → GARRISON_SOULS_CONFIG).
+// Souls assembly (a `modes` provider → GARRISON_SOULS_CONFIG).
 //
-// When a `modes` provider is selected, the runner composes one system prompt per
-// mode (Gary/Joe/James) — shared voice + soul stance + the {{capabilities}} block
-// + the {{routing}} policy — writes them under <composition>/.garrison/souls/, and
-// hands the gateway a GARRISON_SOULS_CONFIG. That activates the gateway's
+// When a fitting providing capability kind `modes` is selected, the runner composes
+// one system prompt per mode — shared voice + soul stance + the {{capabilities}}
+// block + the {{routing}} policy — writes them under <composition>/.garrison/souls/,
+// and hands the gateway a GARRISON_SOULS_CONFIG. That activates the gateway's
 // orchestrator/soul mode (fittings/seed/http-gateway/scripts/gateway.mjs), which
 // boots an orchestrator session (the assembled orchestrator prompt) and spawns the
 // per-mode soul sessions on demand, keyed `soul-<mode>` in its session registry.
+//
+// DORMANT by default (S3f2b): the multi-face `modes` seed fitting (Gary/Joe/James)
+// was retired in favour of the single-persona identity fitting (identity-gary),
+// which provides kind `identity`, NOT kind `modes`. So `findModesEntry` returns
+// null for the default composition and the runner never reaches souls assembly —
+// it stays in normal routed mode. This module remains live and no-op-safe: given a
+// dir with no usable modes.json, `assembleSouls` returns null (never throws), and
+// with a valid modes-shaped provider it still composes souls. Nothing here reads a
+// seed dir at import time, so the fitting's removal doesn't affect it.
 //
 // This module deliberately imports nothing from runner.ts (which imports it) —
 // the caller passes the already-rendered capabilities block + routing section, so

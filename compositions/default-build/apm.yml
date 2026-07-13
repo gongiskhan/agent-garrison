@@ -15,9 +15,9 @@ dependencies:
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
-    - path: ../../fittings/seed/modes
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/orchestrator
@@ -172,10 +172,9 @@ x-garrison:
             bind_host: 127.0.0.1
             outpost_host_url: http://127.0.0.1:3702
       modes:
-        - id: modes
+        - id: identity-gary
           config:
-            briefs_path: ./briefs/
-            default_mode: gary
+            user_name: the user
       connectors:
         - id: deepgram-voice
           config:

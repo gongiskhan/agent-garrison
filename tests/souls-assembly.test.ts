@@ -10,11 +10,13 @@ import {
   assembleSouls,
   mcpGatewayPresent
 } from "../src/lib/souls";
+// The `modes` seed fitting was retired (S3f2b); assembleSouls is still-live code, so
+// it is exercised against a synthetic modes fixture instead of the removed seed dir.
+import { writeModesFixture } from "./helpers/modes-fixture";
 
 const ROOT = join(__dirname, "..");
-const SEED_MODES = join(ROOT, "fittings/seed/modes");
 
-// Anchors from the real seed files (voice/shared-voice.md + souls/*.md).
+// Anchors carried by the fixture (voice/shared-voice.md + souls/*.md).
 const VOICE_ANCHOR = "thoughtful person speaks";
 const STANCE: Record<string, string> = {
   gary: "Gary, the operative at rest",
@@ -56,14 +58,15 @@ describe("souls assembly (s1c)", () => {
     expect(findModesEntry([{ id: "x", metadata: { provides: [] } }])).toBeNull();
   });
 
-  it("assembleSouls composes 3 soul prompts from the seed fitting + returns the gateway config", async () => {
+  it("assembleSouls composes 3 soul prompts from a modes fitting + returns the gateway config", async () => {
     const dir = mkdtempSync(join(tmpdir(), "garrison-souls-"));
+    const modesDir = writeModesFixture(mkdtempSync(join(tmpdir(), "garrison-souls-modes-")));
     const orchPrompt = join(dir, ".garrison", "assembled-system-prompt.md");
     mkdirSync(join(dir, ".garrison"), { recursive: true });
     writeFileSync(orchPrompt, "# BASE ORCH PROMPT\n[orchestrator-active]\n", "utf8");
     const config = await assembleSouls({
       compositionDir: dir,
-      modesDir: SEED_MODES,
+      modesDir,
       orchestratorPromptPath: orchPrompt,
       orchestratorFittingId: "orchestrator",
       capabilitiesBlock: "- memory:local — recall",

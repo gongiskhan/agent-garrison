@@ -236,21 +236,6 @@
   }
  },
  {
-  "id": "modes",
-  "name": "Modes (Gary/Joe/James)",
-  "repo": "local:fittings/seed/modes",
-  "localPath": "fittings/seed/modes",
-  "summary": "Modes faculty \u2014 one operative, three faces (Gary the PA, Joe the dev who dispatches code to a native session, James the product/architect who writes briefs), one shared voice and one shared memory. Name-based sticky switching with channel defaults; per-mode routing bias.",
-  "platforms": [
-   "claude-code"
-  ],
-  "ratings": {
-   "github_stars_url": "https://github.com/gongiskhan/garrison-modes",
-   "global": 4.5,
-   "claude_code": 4.5
-  }
- },
- {
   "id": "improver",
   "name": "Improver",
   "repo": "local:fittings/seed/improver",

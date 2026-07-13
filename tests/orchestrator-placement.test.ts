@@ -3,9 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { placeOrchestratedSession, resolvePlacementMode, safeComposition, resolvePlacementPaths } from "../src/lib/orchestrator-placement";
+// The `modes` seed fitting was retired (S3f2b); placeOrchestratedSession is still-live
+// code, so it is driven against a synthetic modes fixture instead of the removed seed.
+import { writeModesFixture } from "./helpers/modes-fixture";
 
 const ROOT = join(__dirname, "..");
-const MODES_DIR = join(ROOT, "fittings/seed/modes");
+const MODES_DIR = writeModesFixture(mkdtempSync(join(tmpdir(), "place-modes-fx-")));
 const RCONF = join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
 const NAMES = ["gary", "joe", "james"];
 const CH = { "dev-env": "joe", slack: "gary", web: "gary" };
