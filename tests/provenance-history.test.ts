@@ -8,7 +8,8 @@ import {
   recordWrittenBatch,
   parkEntry,
   unparkEntry,
-  forgetEntry
+  forgetEntry,
+  reattributeEntry
 } from "@/lib/provenance";
 import { provenanceLedgerPath } from "@/lib/claude-home";
 
@@ -145,3 +146,27 @@ describe("forgetEntry still hard-deletes", () => {
     expect((await readLedger())["skill:foo"]).toBeUndefined();
   });
 });
+
+describe("reattributeEntry — shared primitive keeps a live owner on park (codex S3f1)", () => {
+  it("moves ownership to the surviving sibling with a 'moved' event, preserving lineage", async () => {
+    await recordWritten("skill:foo", "sha256:x", { surface: "skill", fittingId: "owner-a" });
+    // owner-a is being parked but skill:foo is still deployed by owner-b.
+    await reattributeEntry("skill:foo", "owner-b");
+    const ledger = await readLedger();
+    const e = ledger["skill:foo"];
+    expect(e.fittingId).toBe("owner-b"); // no longer names the parked fitting
+    expect(e.lastWrittenHash).toBe("sha256:x"); // content untouched
+    const moved = e.history!.filter((h) => h.event === "moved");
+    expect(moved.length).toBe(1);
+    expect(moved[0].fittingId).toBe("owner-a"); // prior owner preserved
+  });
+
+  it("is a no-op when the entry is absent or already the new owner", async () => {
+    await reattributeEntry("skill:missing", "owner-b"); // absent → no throw
+    await recordWritten("skill:bar", "sha256:y", { surface: "skill", fittingId: "owner-b" });
+    await reattributeEntry("skill:bar", "owner-b"); // already owner-b → no churn
+    const ledger = await readLedger();
+    expect(ledger["skill:missing"]).toBeUndefined();
+    expect((ledger["skill:bar"].history!.filter((h) => h.event === "moved")).length).toBe(0);
+  });
+})

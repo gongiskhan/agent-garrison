@@ -10,7 +10,7 @@ import {
 } from "./global-composition";
 import { computeStateModel } from "./primitive-state";
 import { emitFitting, primitiveHash } from "./reconcile";
-import { recordWritten, parkEntry, unparkEntry } from "./provenance";
+import { recordWritten, parkEntry, unparkEntry, reattributeEntry } from "./provenance";
 import type { ApmRunner } from "./apm-exec";
 import type { ApmDependencyInput } from "./apm-manifest";
 
@@ -116,6 +116,17 @@ export async function park(fittingId: string, opts: TransitionOpts = {}): Promis
   for (const rel of orphans) {
     await fsp.rm(path.join(home, rel), { recursive: true, force: true });
     await parkEntry(`${surfaceForRel(rel)}:${nameForRel(rel)}`);
+  }
+
+  // NON-orphan files (still deployed by a sibling) that the ledger attributes to
+  // the parked fitting must be REATTRIBUTED to a surviving owner (codex S3f1
+  // finding) — otherwise the ledger keeps naming a removed fitting. Pick the
+  // first sibling that deploys the file as the new owner; a "moved" event
+  // preserves lineage.
+  const shared = depFiles.filter((f) => !orphans.includes(f));
+  for (const rel of shared) {
+    const newOwner = siblings.find((d) => d.deployedFiles.includes(rel))?.name;
+    if (newOwner) await reattributeEntry(`${surfaceForRel(rel)}:${nameForRel(rel)}`, newOwner);
   }
 
   return { ok: true, fittingId, deployed: [], cleanedOrphans: orphans };

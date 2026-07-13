@@ -138,6 +138,23 @@ export async function parkEntry(id: string): Promise<void> {
   await writeLedger(ledger);
 }
 
+// Reattribute a still-deployed primitive to a NEW owner (codex S3f1 finding):
+// when a parked fitting shared a primitive with a sibling, the file is NOT an
+// orphan, so parkEntry never runs — yet the ledger may still name the parked
+// (removed) fitting. This moves ownership to the surviving sibling with a
+// "moved" event, preserving lineage. No-op if the entry is absent or already
+// attributed to newFittingId. lastWrittenHash is untouched (the file's content
+// didn't change — only its recorded owner).
+export async function reattributeEntry(id: string, newFittingId: string): Promise<void> {
+  const ledger = await readLedger();
+  const entry = ledger[id];
+  if (!entry || entry.fittingId === newFittingId) return;
+  const history = entry.history ? [...entry.history] : [];
+  history.push({ fittingId: entry.fittingId, at: new Date().toISOString(), event: "moved" });
+  ledger[id] = { ...entry, fittingId: newFittingId, history };
+  await writeLedger(ledger);
+}
+
 // Append an "unparked" event on UNPARK. Creates a history-only entry if none
 // exists (an externally-parked primitive re-entering Garrison's view). Does not
 // restore lastWrittenHash — a subsequent recordWritten re-snapshots that.
