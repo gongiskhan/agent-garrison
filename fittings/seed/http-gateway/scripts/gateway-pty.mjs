@@ -387,7 +387,20 @@ async function runRoutedTurn(message, onChunk, hints) {
       if (attached) {
         logEvent("stdout", { kind: "card-attached", id: attached.cardId, taskType: cls.taskType });
       } else {
-        const cardOpts = { workKind: hints?.workKind ?? null, phases: hints?.phases ?? null, project: hints?.project ?? null };
+        // S4b door-1 persistence: carry the resolved (duty, level, sequence) onto
+        // the card when preRoute produced one — this happens when the Dispatcher
+        // is wired (S3d opt-in). On the default classifier path these are
+        // undefined and the payload builder keeps the pre-S4b card shape, so a
+        // web-channel card FLOWS through the resolved sequence exactly when the
+        // Dispatcher is active (divergence-zero at runtime, gated on the opt-in).
+        const cardOpts = {
+          workKind: hints?.workKind ?? null,
+          phases: hints?.phases ?? null,
+          project: hints?.project ?? null,
+          duty: pre?.duty ?? pre?.route?.duty,
+          level: pre?.level ?? pre?.route?.level,
+          sequence: pre?.sequence ?? pre?.route?.sequence
+        };
         const naturalSignificant =
           typeof router.core?.isSignificantAutonomous === "function" && router.core.isSignificantAutonomous(cls);
         // D20: a conversational override in the operator's words reclassifies the
