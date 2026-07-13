@@ -40,6 +40,7 @@ import {
   claudeProjectDirForCwd,
 } from "@garrison/claude-pty";
 import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
+import { isEmptyQuickReply, quickEmptyFailureReason } from "./lib/autonomous-cards.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
 
@@ -445,9 +446,17 @@ async function runRoutedTurn(message, onChunk, hints) {
   }
   const result = await execRoutedTurn(pre, message, onChunk, hints);
   // D19: a quick card runs inline; advance it Implement→Done now that the turn
-  // finished, and release the session slot so the next task starts a fresh card.
+  // finished — but ONLY if it finished honestly. An EMPTY reply is a FAILURE, not
+  // a pass: route it to needs-attention with the failure contract instead of Done
+  // (parity with the souls-mode completeQuickTurnCard). Either way, release the
+  // session slot so the next task starts a fresh card.
   if (quickCard) {
-    await router.completeQuickCard(quickCard.id);
+    if (isEmptyQuickReply(result?.reply)) {
+      await router.parkQuickCard(quickCard.id, quickEmptyFailureReason());
+      logEvent("stdout", { kind: "quick-card-empty-parked", id: quickCard.id, reason: "empty reply — routed to needs-attention" });
+    } else {
+      await router.completeQuickCard(quickCard.id);
+    }
     router.forgetCard(sessionKey);
   }
   return result;

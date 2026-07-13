@@ -60,6 +60,76 @@ import {
   gateEvidenceNextList
 } from "./policy.mjs";
 
+// EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
+// PREMATURE `done` event: the gateway's reply stream closed while the operative
+// was STILL writing its gate-status.json (observed: the gate landed ~2.5 min
+// AFTER the empty done, parking a genuinely-succeeding run). So on an empty reply
+// we do NOT park immediately — we poll the phase's gate file over a bounded grace
+// window and, if it lands and names a next step, advance per the gate. Bounded
+// (default 6 checks × 30s ≈ 3 min) and configurable via env; the sleep is
+// injectable so tests drive the race deterministically without real waits.
+const EMPTY_GATE_GRACE_CHECKS = Math.max(0, Number(process.env.GARRISON_EMPTY_GATE_GRACE_CHECKS) || 6);
+const EMPTY_GATE_GRACE_INTERVAL_MS = Math.max(0, Number(process.env.GARRISON_EMPTY_GATE_GRACE_INTERVAL_MS) || 30000);
+const defaultGraceSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Resolve the grace config from a per-call override (tests) over the env defaults.
+export function resolveEmptyGrace(opts = {}) {
+  return {
+    checks: Number.isFinite(opts.checks) ? Math.max(0, opts.checks) : EMPTY_GATE_GRACE_CHECKS,
+    intervalMs: Number.isFinite(opts.intervalMs) ? Math.max(0, opts.intervalMs) : EMPTY_GATE_GRACE_INTERVAL_MS,
+    sleep: typeof opts.sleep === "function" ? opts.sleep : defaultGraceSleep
+  };
+}
+
+// Poll the phase's durable gate evidence over the grace window. Returns
+// { next, waited, checks, intervalMs } — `next` is the gate-named next list id
+// (one of validNext) or null after the window is exhausted.
+export async function pollForGateEvidence({ cwd, runDir, phase, validNext, checks, intervalMs, sleep }) {
+  for (let i = 0; i < checks; i++) {
+    await sleep(intervalMs);
+    const next = gateEvidenceNextList(cwd, runDir, phase, validNext);
+    if (next) return { next, waited: i + 1, checks, intervalMs };
+  }
+  return { next: null, waited: checks, checks, intervalMs };
+}
+
+// Last ~15 lines of a card's phase iteration log (cards/<id>/log-<n>.md) — the
+// log-tail evidence attached to an empty-output failure so the parked card
+// carries proof of WHAT the operative produced (nothing but the header, for a
+// genuinely empty run) instead of an unfalsifiable claim. Read-only, best-effort.
+export function readLogTail(root, cardId, iteration, maxLines = 15) {
+  try {
+    const file = path.join(root, "cards", String(cardId), `log-${iteration}.md`);
+    if (!existsSync(file)) return "";
+    const lines = readFileSync(file, "utf8").replace(/\s+$/, "").split("\n");
+    return lines.slice(-maxLines).join("\n");
+  } catch {
+    return "";
+  }
+}
+
+// The empty-output FAILURE CONTRACT copy (D19): it must (a) NEVER claim success
+// (no "completed"/"done"/"success" phrasing), (b) carry a log-tail evidence
+// excerpt when available, and (c) tell the operator the retry re-enters the SAME
+// phase with prior context (runDir + iteration history) preserved, not reset.
+export function buildEmptyFailureReason({ listTitle, phase = null, grace = null, logTail = "" }) {
+  const parts = [`The ${listTitle} run returned no output — the operative produced nothing verifiable.`];
+  if (grace && grace.waited > 0) {
+    const secs = Math.round((grace.waited * (grace.intervalMs || 0)) / 1000);
+    parts.push(
+      `Garrison then waited ${secs}s (${grace.waited} check${grace.waited === 1 ? "" : "s"}) for ${phase ? `the ${phase} phase's ` : "the "}durable gate evidence to land, and none arrived.`
+    );
+  }
+  parts.push(`There is no plan, no result, and no next step to advance on — an empty reply is a FAILURE, not a pass.`);
+  if (logTail && logTail.trim()) {
+    parts.push(`Last lines of the iteration log:\n---\n${logTail.trim()}\n---`);
+  }
+  parts.push(
+    `The retry re-enters the ${phase || "same"} phase with your prior work preserved (the run directory and iteration history are kept, not reset). Move it back to retry, or add a description/project if the task was underspecified.`
+  );
+  return parts.join("\n\n");
+}
+
 // Does this card's run dir actually contain tangible evidence? A list flagged
 // `requiresEvidence` (Walkthrough) must not advance on the operative's word alone — the
 // "ALWAYS write evidence" instruction is self-attested, so we VERIFY it on disk:
@@ -429,7 +499,8 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
 // Run ONE transition for a card on an agent list. runFn dispatches the prompt
 // through the orchestrator (preRoute) and returns { reply }. Returns the updated
 // card + an outcome ({status: moved|needs-attention|skipped, ...}).
-export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd() }) {
+export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {} }) {
+  const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, card.list);
   // An interactive list (Discuss — kind "agent-interactive") is never auto-dispatched:
   // the board opens the web chat and the human advances manually. Checked before the
@@ -723,12 +794,30 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // iteration), only fires when the first reply had no valid verdict, and still parks
   // honestly if the nudge also fails to produce one.
   let nudged = false;
+  // A policy pipeline phase (and only it) writes a durable gate-status.json, so
+  // only it can be rescued by — or needs to WAIT for — gate evidence on an empty
+  // reply. Computed here (reused for the D9 enforcement below) so the grace window
+  // never fires for a non-gated phase.
+  const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
+  let emptyGraceResult = null; // set when an empty reply opened the grace window
   // DURABLE VERDICT first (D9 backstop, 2026-07-11): before spending an LLM
   // nudge turn, read the verdict from the phase's own gate record — the phase
   // skill writes next_phase there, and it survives reply-capture loss (the
   // observed case: a Workflow completion banner as the operative's final line).
   if (!next) {
-    const durable = gateEvidenceNextList(cwd, runningCard.runDir, phase, validNext);
+    let durable = gateEvidenceNextList(cwd, runningCard.runDir, phase, validNext);
+    // RACE FIX (D19, assumption 2): an EMPTY reply is frequently a PREMATURE
+    // `done` event — the reply stream closed while the operative was still
+    // writing its gate-status.json. Rather than park at once, poll the gate file
+    // over the bounded grace window; if it lands and names a next step, advance
+    // per the gate exactly as a non-empty durable verdict would.
+    if (!durable && !replyText && runningCard.runDir && pipelinePhase) {
+      emptyGraceResult = await pollForGateEvidence({ cwd, runDir: runningCard.runDir, phase, validNext, ...grace });
+      if (emptyGraceResult.next) {
+        durable = emptyGraceResult.next;
+        await appendCardLog(root, card.id, iteration, `\n_(empty reply — gate evidence landed after ${emptyGraceResult.waited} grace check(s): ${durable})_\n`);
+      }
+    }
     if (durable) {
       next = durable;
       nudged = true; // same accounting as the nudge: a rescued verdict, not a first-line one
@@ -777,7 +866,6 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     next = null;
     gateEvidenceMissing = true;
   }
-  const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
   if (next && pipelinePhase && runningCard.runDir && !hasPhaseGateEvidence(cwd, runningCard.runDir, phase)) {
     next = null;
     gateEvidenceMissing = true;
@@ -1003,17 +1091,25 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     };
     outcome = { status: "needs-attention", reason: "no-evidence", validNext };
   } else if (!replyText) {
-    const emptyReason = `The ${listTitle} run produced no output — the operative returned nothing, so there was no plan/result and no next step. This usually means the operative was busy or the task needs more detail (try adding a description, or a project). Move it back to retry.`;
+    // EMPTY OUTPUT = FAILURE (D19). The grace window above already gave a genuinely
+    // -succeeding run time to land its gate evidence; reaching here means none did.
+    // Park with the failure contract: never claims success, carries a log-tail
+    // evidence excerpt, and marks the card for a context-keeping retry.
+    const logTail = readLogTail(root, card.id, iteration);
+    const emptyReason = buildEmptyFailureReason({ listTitle, phase, grace: emptyGraceResult, logTail });
     target = {
       ...runningCard,
       ...parkFields(runningCard, card.list, emptyReason),
       runningSince: null,
       lastReply: "",
       lastDispatchError: null,
+      // D19: a context-keeping retry re-enters this phase with the runDir + iteration
+      // history intact (the un-park handler honors this instead of resetting).
+      retryKeepsContext: true,
       events: withEvent(runningCard, {
         at: now(),
         kind: "parked",
-        message: `Parked from ${listTitle}: the operative returned no output`,
+        message: `Parked from ${listTitle}: the operative returned no output (empty is a failure, not a pass)`,
         detail: emptyReason
       })
     };
@@ -1424,7 +1520,8 @@ export function parseBatchVerdicts(reply, cards, board) {
 // is the card's first agent-list entry): a valid verdict moves it forward; a missing /
 // non-matching verdict, or an iteration-cap breach, loops it to `implement` (the fail
 // edge) or parks it in needs-attention if implement is not a valid next.
-export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd() }) {
+export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {} }) {
+  const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, listId);
   if (!list || list.kind !== AGENT_KIND) {
     return { outcomes: [], reason: "not-an-agent-list" };
@@ -1563,11 +1660,23 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     for (const a of acquired) {
       let next = verdicts[a.original.id];
       await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\nverdict: ${next ?? "(none)"}\n${reply}\n`);
+      const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
+      // RACE FIX (D19, assumption 2) — mirror of processCard. An EMPTY batch reply
+      // may be a premature `done`; before parking THIS card for "no output", poll
+      // its gate file over the grace window. A landed gate that names a next step
+      // advances it exactly as a verdict line would.
+      let batchGrace = null;
+      if (!next && !reply.trim() && a.running.runDir && pipelinePhase) {
+        batchGrace = await pollForGateEvidence({ cwd, runDir: a.running.runDir, phase, validNext, ...grace });
+        if (batchGrace.next) {
+          next = batchGrace.next;
+          await appendCardLog(root, a.original.id, a.iteration, `\n_(empty batch reply — gate evidence landed after ${batchGrace.waited} grace check(s): ${next})_\n`);
+        }
+      }
       // DURABLE GATE EVIDENCE (D9) — the batch path enforces the SAME check as
       // processCard: a verdict without the phase's gate-status entry in the
       // card's runDir parks (rev-s4 finding #1: this path used to bypass it).
       let gateEvidenceMissing = false;
-      const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
       if (next && pipelinePhase && a.running.runDir && !hasPhaseGateEvidence(cwd, a.running.runDir, phase)) {
         next = null;
         gateEvidenceMissing = true;
@@ -1675,6 +1784,21 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           lastReply: snippet,
           events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no durable gate evidence for ${phase}`, detail: geReason })
         };
+      } else if (!reply.trim()) {
+        // EMPTY OUTPUT = FAILURE (D19) — the whole batched turn produced nothing and
+        // the grace window found no gate. Park with the SAME failure contract as the
+        // per-card path: never claims success, carries a log-tail excerpt, marks the
+        // card for a context-keeping retry.
+        const logTail = readLogTail(root, a.original.id, a.iteration);
+        const emptyReason = buildEmptyFailureReason({ listTitle: `${listTitle} (batched for ${project})`, phase, grace: batchGrace, logTail });
+        target = {
+          ...a.running,
+          ...parkFields(a.running, listId, emptyReason),
+          runningSince: null,
+          lastReply: "",
+          retryKeepsContext: true,
+          events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: the operative returned no output (empty is a failure, not a pass)`, detail: emptyReason })
+        };
       } else {
         // No verdict line for THIS card in the batch reply — say so plainly (the batch
         // session must emit `<cardId> <next-list>` per card; it didn't for this one).
@@ -1700,7 +1824,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       }
       if (gateEvidenceMissing) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-gate-evidence", project }); continue; }
       if (batchInterferenceWait) { outcomes.push({ id: a.original.id, status: "waiting", reason: "interference", project }); continue; }
-      if (!next) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-exact-match", project }); continue; }
+      if (!next) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: reply.trim() ? "no-exact-match" : "empty-reply", project }); continue; }
       outcomes.push({ id: a.original.id, status: "moved", from: listId, to: target.list, project });
     }
   }

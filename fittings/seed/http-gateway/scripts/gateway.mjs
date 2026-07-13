@@ -48,7 +48,7 @@ import { resolveMode, buildSwitchEntry, appendSwitchLog } from "./lib/mode-resol
 import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
 import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir, classifyByKeywords } from "./lib/gateway-routing.mjs";
 import { resolveSoulsHint } from "./lib/souls-route.mjs";
-import { CardRegistrar, isTaskShaped, isCardOriginatedChannel, heuristicClassify } from "./lib/autonomous-cards.mjs";
+import { CardRegistrar, isTaskShaped, isCardOriginatedChannel, heuristicClassify, isEmptyQuickReply, quickEmptyFailureReason } from "./lib/autonomous-cards.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
@@ -248,11 +248,20 @@ async function maybeCardChannelTurn({ channel, body, message }) {
 }
 
 // D19: a quick card runs inline; advance it Implement → Done when the turn
-// finished HONESTLY (an "[operative error]" reply leaves the card visible in
-// Implement instead of lying Done), and release the session slot so the next
-// task starts a fresh card.
+// finished HONESTLY. Two ways it did NOT: an "[operative error]" reply leaves the
+// card visible in Implement (not a lying Done); an EMPTY reply (nothing but
+// whitespace) is a FAILURE, not a pass — route it to needs-attention with the
+// failure contract instead of advancing. Only a real, non-empty reply reaches
+// Done. On any non-Done outcome the session slot still releases so the next task
+// starts a fresh card.
 async function completeQuickTurnCard(carded, replyText) {
   if (!carded?.quickCardId) return;
+  if (isEmptyQuickReply(replyText)) {
+    await cardRegistrar.parkQuickCard(carded.quickCardId, quickEmptyFailureReason());
+    logEvent("stdout", { kind: "quick-card-empty-parked", id: carded.quickCardId, reason: "empty reply — routed to needs-attention" });
+    cardRegistrar.forgetCard(carded.sessionKey);
+    return;
+  }
   if (typeof replyText === "string" && replyText.startsWith("[operative error]")) {
     logEvent("stdout", { kind: "quick-card-left-open", id: carded.quickCardId, reason: "operative error reply" });
     return;
