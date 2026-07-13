@@ -182,6 +182,21 @@ export function validateAgainstSchema(value, schema, path = "$") {
     return errors; // a wrong container type makes deeper checks meaningless
   }
 
+  // enum / const value constraints (codex S2b finding: schema-violating output
+  // like {status:"bad"} against enum:["ok"] was returned as ok:true). Compared
+  // by JSON identity so objects/arrays in an enum work.
+  if (Array.isArray(schema.enum)) {
+    const target = JSON.stringify(value);
+    if (!schema.enum.some((allowed) => JSON.stringify(allowed) === target)) {
+      errors.push(`${path}: value ${target} is not one of enum ${JSON.stringify(schema.enum)}`);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(schema, "const")) {
+    if (JSON.stringify(value) !== JSON.stringify(schema.const)) {
+      errors.push(`${path}: value must equal const ${JSON.stringify(schema.const)}`);
+    }
+  }
+
   if ((schema.type === "object" || (!schema.type && schema.properties)) && value && typeof value === "object" && !Array.isArray(value)) {
     for (const key of schema.required || []) {
       if (!Object.prototype.hasOwnProperty.call(value, key)) {
@@ -237,20 +252,32 @@ export async function runCall(spec = {}, opts = {}) {
   } catch (err) {
     clearTimeout(timer);
     if (err?.name === "AbortError") return { ok: false, error: `request timed out after ${timeoutMs}ms` };
-    return { ok: false, error: `request failed: ${scrub(err?.message || String(err))}` };
+    return { ok: false, error: `request failed: ${scrub(err?.message || String(err), token)}` };
+  }
+
+  // Read the body BEFORE clearing the timeout (codex S2b finding: an endpoint
+  // that sends headers then hangs the body must still abort at timeoutMs — the
+  // AbortController is wired to fetch, and res.text() rejects with AbortError on
+  // abort). Clearing early left runCall pending forever.
+  let raw;
+  try {
+    raw = await res.text();
+  } catch (err) {
+    clearTimeout(timer);
+    if (err?.name === "AbortError") return { ok: false, error: `request timed out after ${timeoutMs}ms` };
+    return { ok: false, error: `reading response failed: ${scrub(err?.message || String(err), token)}` };
   }
   clearTimeout(timer);
 
-  const raw = await res.text();
   if (!res.ok) {
-    return { ok: false, error: `provider returned HTTP ${res.status}: ${scrub(raw).slice(0, 400)}` };
+    return { ok: false, error: `provider returned HTTP ${res.status}: ${scrub(raw, token).slice(0, 400)}` };
   }
 
   let json;
   try {
     json = JSON.parse(raw);
   } catch {
-    return { ok: false, error: `provider returned non-JSON body: ${scrub(raw).slice(0, 200)}` };
+    return { ok: false, error: `provider returned non-JSON body: ${scrub(raw, token).slice(0, 200)}` };
   }
 
   const { text, usage } = extractResponse(spec.shape, json);
@@ -260,7 +287,7 @@ export async function runCall(spec = {}, opts = {}) {
     try {
       parsed = parseJson(text);
     } catch (err) {
-      return { ok: false, error: `structured output parse failed: ${scrub(err?.message || String(err))}`, usage };
+      return { ok: false, error: `structured output parse failed: ${scrub(err?.message || String(err), token)}`, usage };
     }
     const schemaErrors = validateAgainstSchema(parsed, spec.schema);
     if (schemaErrors.length) {
@@ -272,10 +299,16 @@ export async function runCall(spec = {}, opts = {}) {
   return { ok: true, text, usage };
 }
 
-// Defense-in-depth: even though the token never enters an error path by
-// construction, strip any accidental Bearer/x-api-key header echo from a message.
-function scrub(message) {
-  return String(message)
+// Defense-in-depth: strip any accidental secret echo from a message. Beyond the
+// Bearer/x-api-key header shapes, redact the ACTUAL resolved token value literally
+// (codex S2b finding: a provider's 401 body can echo an unprefixed raw key, which
+// the pattern scrubbers miss) — the literal value is the only reliable catch.
+function scrub(message, token) {
+  let out = String(message)
     .replace(/Bearer\s+[\w.\-]+/gi, "Bearer [redacted]")
     .replace(/x-api-key["'\s:=]+[\w.\-]+/gi, "x-api-key [redacted]");
+  if (token && typeof token === "string" && token.length >= 6) {
+    out = out.split(token).join("[redacted]");
+  }
+  return out;
 }
