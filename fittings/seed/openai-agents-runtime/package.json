@@ -1,0 +1,12 @@
+{
+  "name": "openai-agents-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI Agents runtime fitting — a RuntimeAdapter over OpenAI-compatible endpoints (OpenAI / local Ollama / any /v1/chat/completions base URL) with the uniform delegate() bridge. Primary-capable.",
+  "dependencies": {
+    "@openai/agents": "0.13.2",
+    "openai": "6.46.0",
+    "zod": "4.4.3"
+  }
+}

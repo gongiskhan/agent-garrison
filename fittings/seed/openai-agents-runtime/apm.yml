@@ -1,0 +1,91 @@
+name: openai-agents-runtime
+version: 0.1.0
+description: OpenAI Agents runtime (Runtime Faculty) - a first-class runtime over OpenAI-compatible endpoints (OpenAI cloud, a LOCAL Ollama endpoint, or any /v1/chat/completions base URL such as vLLM, Groq, Together, LM Studio, or a LiteLLM proxy). Implements the RuntimeAdapter contract over the OpenAI Agents SDK (@openai/agents) and ships the uniform delegate() bridge. Primary-capable.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A Runtime fitting over OpenAI-compatible endpoints. Implements the
+    RuntimeAdapter contract over the OpenAI Agents SDK (@openai/agents - structured
+    request/response, native function-tool handling, NO PTY, NO terminal scraping)
+    and ships a runtime-bridge exposing the uniform delegate(task_spec) -> {summary,
+    artifacts} tool. It is PRIMARY-CAPABLE (routable as the operative's primary
+    runtime) as well as a secondary delegate. The endpoint base URL is configurable
+    - OpenAI cloud, a local Ollama server (http://localhost:11434/v1), or any
+    OpenAI-compatible /v1/chat/completions base URL - passed per-call to the OpenAI
+    client (never a process-global), so concurrent turns may target different
+    endpoints. The API key is resolved BY NAME from the Vault (OPENAI_API_KEY): it
+    is read server-side and never enters argv or a browser.
+  config_schema:
+    - key: provider
+      type: string
+      default: ollama-local
+      description: One of openai | ollama-local | openai-compat. `openai` is OpenAI cloud (needs OPENAI_API_KEY); `ollama-local` is a free local Ollama endpoint; `openai-compat` is any OpenAI-compatible base URL (set baseUrl).
+    - key: model
+      type: string
+      default: ""
+      description: Model string for delegated tasks (free-text; e.g. an Ollama tag like qwen2.5:3b, a gpt-* / o-* slot, or any model an OpenAI-compatible endpoint fronts).
+    - key: baseUrl
+      type: string
+      default: ""
+      description: For provider `openai-compat`, the OpenAI-compatible base URL (must be http(s), ending in /v1). Ignored for `openai` (SDK default) and `ollama-local` (fixed local endpoint).
+    - key: promptMode
+      type: string
+      default: full
+      description: full = software-engineering system prompt + cwd-confined file tools (coding roles); lean = minimal chat prompt, tools disabled (chat/classification roles, lower token floor).
+    - key: maxTurns
+      type: number
+      default: 12
+      description: Cap on the agentic loop - the loop has no natural bound, so an unbounded run would burn paid credits until stopped.
+  provides:
+    - kind: runtime
+      name: openai-agents
+  consumes:
+    - kind: vault
+      cardinality: optional-one
+  # The API key is resolved BY NAME from the Vault; the runner materializes it into
+  # the server-side env under this exact key (secret_scope). It never reaches a
+  # browser and never enters argv.
+  secret_scope:
+    - OPENAI_API_KEY
+  # The OpenAI Agents engine takes provider overrides through the OpenAI-compatible
+  # env contract: the base URL, the API key, and the model. The bridge/adapter read
+  # OPENAI_API_KEY + OPENAI_BASE_URL from the server-side env (primary path), or the
+  # base URL from the composition config (secondary path). This descriptor is what
+  # the gateway's primary-runtime wiring consumes.
+  provider_mechanism:
+    type: env
+    base_url_env: OPENAI_BASE_URL
+    auth_env: OPENAI_API_KEY
+    model_env: GARRISON_MODEL
+  setup:
+    command: npm install --no-audit --no-fund
+    idempotent: true
+    timeout_ms: 180000
+  verify:
+    command: node apm_modules/_local/openai-agents-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    OpenAI-agents runtime - routable as PRIMARY (the operative's own runtime, wired
+    by the gateway's primary-runtime path) or as a SECONDARY delegate. As secondary,
+    when the orchestrator resolves a task to `secondary:openai-agents`, the primary
+    calls this fitting's runtime-bridge tool:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON: task, paths, constraints, provider, model, promptMode,
+    baseUrl, maxTurns, budgetTokens, expectedSchema) is passed via STDIN (never
+    argv). The provider selects the endpoint - `openai` (OpenAI cloud), `ollama-local`
+    (free local endpoint), or `openai-compat` (any OpenAI-compatible base URL). The
+    API key is resolved BY NAME from the Vault (OPENAI_API_KEY), read server-side
+    only. Each provider carries a capability record; a vision/MCP task is refused at
+    a target that cannot serve it (e.g. ollama-local = text + tool use only). Full
+    output lands in the Artifact Store; the return is a schema-validated summary +
+    artifact paths; every delegation is appended to decisions.jsonl.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   → prints "ok"
