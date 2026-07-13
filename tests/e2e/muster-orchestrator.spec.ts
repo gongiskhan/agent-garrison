@@ -69,10 +69,16 @@ function clearAuthored(): void {
 
 // On mobile the Muster CollapsibleSections auto-collapse; expand every collapsed
 // section so content assertions see the rendered body (S5c mobile-collapse, D12).
+// The orchestrator panel loads content async from /api/orchestrator/preview, so
+// WAIT for that load to settle (the loading skeleton detaches) before toggling —
+// otherwise expandAll runs before the section + its toggle exist.
 async function expandAll(page: import("@playwright/test").Page): Promise<void> {
-  const toggles = page.locator('[data-testid$="-toggle"][aria-expanded="false"]');
-  for (let i = 0; i < (await toggles.count()); i++) {
-    try { await toggles.nth(i).click({ timeout: 2000 }); } catch { /* already open */ }
+  await page.getByTestId("orchestrator-panel").waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+  await page.getByTestId("orchestrator-loading").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+  for (let pass = 0; pass < 6; pass++) {
+    const collapsed = page.locator('[data-testid$="-toggle"][aria-expanded="false"]');
+    if ((await collapsed.count()) === 0) break;
+    try { await collapsed.first().click({ timeout: 2000 }); } catch { break; }
   }
 }
 
@@ -121,6 +127,7 @@ test("(b) editing an authored section autosaves and survives reload; locked stay
 
   // Reload: the authored edit persisted, and the locked block is unchanged.
   await page.reload();
+  await expandAll(page); // re-expand: reload re-collapses the section on mobile
   await expect(page.getByTestId("orchestrator-authored-routing-philosophy")).toHaveValue(custom);
   const lockedAfter = (await page.getByTestId("orchestrator-locked-readiness").innerText()).trim();
   expect(lockedAfter).toBe(lockedBefore);
@@ -141,17 +148,11 @@ test("(c) the decisions panel renders the evidence feed", async ({ page }) => {
 test("(e) no horizontal overflow at 390px with both panels expanded", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
-  await expandAll(page);
+  await expandAll(page); // expands every collapsed section (orchestrator + decisions)
   await expect(page.getByTestId("muster-page")).toBeVisible();
-
-  // At narrow width the S5c sections start collapsed — expand both so the widest
-  // content (the assembled prompt, decision rows) is on screen.
-  await page.getByTestId("orchestrator-section-toggle").click();
+  // Both panels are now expanded so the widest content (assembled prompt, decision
+  // rows) is on screen for the overflow check.
   await expect(page.getByTestId("orchestrator-assembled")).toBeVisible();
-  const decisionsToggle = page.getByTestId("decisions-section-toggle");
-  if (!(await page.getByTestId("decisions-list").isVisible().catch(() => false))) {
-    await decisionsToggle.click();
-  }
   await expect(page.getByTestId("decisions-list")).toBeVisible();
 
   const overflow = await page.evaluate(() => {
