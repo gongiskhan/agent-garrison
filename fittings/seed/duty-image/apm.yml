@@ -1,0 +1,66 @@
+name: duty-image
+version: 0.1.0
+description: >-
+  The Image duty (id: image) — produce an image from a text prompt. No image path
+  exists in the composition today, so this duty owns a simple, HONEST working skill:
+  it documents generating an image by invoking an image-capable model already
+  reachable by the operative (the gemini runtime, or an image MCP tool if the
+  composition provides one) and saving the result to the artifact store. It is a
+  documented-simple path, not a heavy generation pipeline.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # Faculty `research` (Research & Media): the media-production home that accepts
+  # the `skill` shape. Provides kind:duty (name:image), discovered by the Resolver
+  # regardless of role (readiness keys on the duty id, not the faculty).
+  faculty: research
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - all
+  summary: >-
+    Produce an image from a prompt via the simplest path that already works in the
+    composition: invoke an image-capable model the operative can reach (the gemini
+    runtime, or an image MCP tool) with the prompt and save the output to the
+    artifact store. A documented-simple skill, not an automated generation pipeline.
+  provides:
+    - kind: duty
+      name: image
+  # The image duty. ONE leaf level whose cell names the skill this fitting owns
+  # (duty-image). The cell leaves target+effort empty (D14 — an automation-shaped
+  # level MAY): the fitting declares no targets[] of its own; the composition binds
+  # the skill to a concrete image-capable target when it selects the duty.
+  duties:
+    - id: image
+      title: Image
+      description: produce an image from a prompt
+      levels:
+        - description: >-
+            Generate an image from the prompt using an image-capable model the operative can
+            reach, then save the file to the artifact store and return its path.
+          cell:
+            skill: duty-image
+  verify:
+    command: test -f apm_modules/_local/duty-image/.apm/skills/duty-image/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    THE IMAGE DUTY (kind:duty, name:image) — produce an image from a text prompt.
+
+    Nothing generated images in the composition before this duty, so it owns ONE
+    skill (duty-image) that documents the SIMPLEST path that actually works with
+    what the operative already has:
+
+      1. Pick an image-capable model the operative can reach. The default is the
+         gemini runtime (the `gemini` CLI, provided by the gemini-runtime fitting)
+         with an image-generation model; if the composition exposes an image MCP
+         tool, that works too.
+      2. Send the prompt to that model.
+      3. Save the returned image into the artifact store (the file-browser root,
+         ~/.garrison/files by default) and return the saved path.
+
+    This is a documented-simple duty, NOT a heavy image pipeline: the actual
+    generation depends on the configured model being image-capable. If no
+    image-capable model is reachable, the skill says so plainly rather than
+    pretending to produce an image.

@@ -1,0 +1,63 @@
+name: duty-video
+version: 0.1.0
+description: >-
+  The Video duty (id: video) — produce a narrated, captioned video walkthrough of
+  a change. A thin duty that WRAPS the existing walkthrough recorder (the
+  playwright-cli + ffmpeg + vision self-check machinery under
+  ~/.claude/skills/walkthrough); the duty owns a skill that documents how to drive
+  that recorder as the video-production duty, adding no new pipeline of its own.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # Faculty `research` (Research & Media): the media-production home that accepts
+  # the `skill` shape. The duty provides kind:duty (name:video), discovered by the
+  # Resolver regardless of role (readiness keys on the duty id, not the faculty).
+  faculty: research
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - all
+  summary: >-
+    Produce a video walkthrough of a change by driving the existing walkthrough
+    recorder (narrated, captioned MP4 via playwright-cli capture + ffmpeg stitch +
+    vision self-check). This duty adds no pipeline of its own — its owned skill is a
+    thin wrapper that documents invoking the walkthrough recorder as the video duty.
+  provides:
+    - kind: duty
+      name: video
+  # The video duty. ONE leaf level whose cell names the skill this fitting owns
+  # (duty-video). The cell leaves target+effort empty (D14 — an automation-shaped
+  # level MAY): the fitting declares no targets[] of its own; the composition binds
+  # the skill to a concrete agentic target when it selects the duty.
+  duties:
+    - id: video
+      title: Video
+      description: produce a video walkthrough of a change
+      levels:
+        - description: >-
+            Record a narrated, captioned video walkthrough of the change with the walkthrough
+            recorder, then self-verify it and surface the scrubbable link.
+          cell:
+            skill: duty-video
+  verify:
+    command: test -f apm_modules/_local/duty-video/.apm/skills/duty-video/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    THE VIDEO DUTY (kind:duty, name:video) — produce a video walkthrough of a change.
+
+    This duty owns ONE skill (duty-video) and adds NO new machinery. It is a thin
+    wrapper over the `walkthrough` skill already installed under
+    ~/.claude/skills/walkthrough — the narrated, captioned video recorder
+    (playwright-cli capture + ffmpeg stitch + mandatory vision self-check).
+
+    To fulfil the duty:
+      1. Invoke the `walkthrough` skill with the change's diff + acceptance context
+         (this is exactly what the garrison-walkthrough evidence step does).
+      2. The recorder produces ONE stitched MP4, self-verifies it via vision on
+         extracted frames, and publishes it as one scrubbable Tailscale link.
+      3. Return that link as the duty's output.
+
+    Do NOT rebuild the recorder or shell its scripts directly — reference the
+    walkthrough skill and let it own capture, stitching, and self-verification.
