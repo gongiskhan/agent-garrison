@@ -174,8 +174,19 @@ export function resolveTarget(spec = {}) {
     }
     let baseUrl = normalizeBaseUrl(p.baseUrl);
     // An explicit baseUrl override is honored ONLY if it still passes the fence.
+    // CRITICAL (S2b review finding): the spec is LLM-authored (untrusted under
+    // prompt injection). If the override diverges from the provider's PINNED
+    // host, we must NOT ship the provider's real credential to it — that is a
+    // key-exfil vector (send openai's key to http://127.0.0.1:<attacker>). An
+    // override to a different host is treated as an unauthenticated dev endpoint:
+    // the provider's authTokenEnv/needsKey are dropped. Only an override that
+    // resolves back to the provider's own URL keeps its credential.
     if (spec.baseUrl && normalizeBaseUrl(spec.baseUrl) !== baseUrl) {
-      baseUrl = fenceExplicitBaseUrl(spec.baseUrl, shape);
+      const overridden = fenceExplicitBaseUrl(spec.baseUrl, shape);
+      if (overridden !== baseUrl) {
+        return { baseUrl: overridden, needsKey: false, authTokenEnv: null, provider: null };
+      }
+      baseUrl = overridden;
     }
     return { baseUrl, needsKey: !!p.needsKey, authTokenEnv: p.authTokenEnv || null, provider: spec.provider };
   }
