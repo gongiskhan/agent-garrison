@@ -128,6 +128,12 @@ describe("autonomy axis (D8)", () => {
     const bare = mod.buildAutonomousCardPayload({ brief: "y" });
     expect(bare).not.toHaveProperty("duty");
     expect(bare).not.toHaveProperty("sequence");
+    // duty/level WITHOUT a sequence keeps the pre-S4b shape (codex S4b finding):
+    // all three are gated on a resolved sequence, never a partial stamp.
+    const partial = mod.buildAutonomousCardPayload({ brief: "z", duty: "develop", level: 2 });
+    expect(partial).not.toHaveProperty("duty");
+    expect(partial).not.toHaveProperty("level");
+    expect(partial).not.toHaveProperty("sequence");
   });
 });
 

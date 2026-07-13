@@ -152,4 +152,16 @@ describe("garrison-control fs wrappers (read the active composition)", () => {
     expect(Array.isArray(readiness.rules)).toBe(true);
     expect(typeof readiness.ready).toBe("boolean");
   });
+
+  it("REJECTS a missing composition instead of creating it (read-only, codex S4b)", async () => {
+    const fs = await import("node:fs");
+    const { getCompositionDirectory } = await import("@/lib/compositions");
+    const missingId = `gc-missing-${process.pid}`;
+    const dir = getCompositionDirectory(missingId);
+    // Precondition: it does not exist.
+    expect(fs.existsSync(dir)).toBe(false);
+    await expect(getResolvedModel(missingId)).rejects.toThrow(/not found/);
+    // The read must NOT have materialised the composition (no write side effect).
+    expect(fs.existsSync(dir)).toBe(false);
+  });
 });

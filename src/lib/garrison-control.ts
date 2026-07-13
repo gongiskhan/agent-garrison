@@ -31,8 +31,9 @@ import {
   type RuleResult
 } from "./resolver";
 import { computeKanbanResolvedModel } from "./kanban-model";
-import { readComposition, selectedLibraryEntries } from "./compositions";
+import { readComposition, selectedLibraryEntries, getCompositionManifestPath } from "./compositions";
 import { resolveActiveComposition } from "./active-composition";
+import { existsSync } from "node:fs";
 import type { DutySpec, GarrisonMetadata } from "./types";
 
 export interface ControlModel {
@@ -125,6 +126,13 @@ export function resolvedSequenceFrom(
 
 async function loadControlModel(compositionId?: string): Promise<ControlModel> {
   const id = compositionId?.trim() || (await resolveActiveComposition()).id;
+  // READ-ONLY guard (codex S4b finding): readComposition() ensures (creates)
+  // a missing composition's dirs + default apm.yml. This surface must never
+  // write, so reject an id whose manifest does not already exist rather than
+  // materialising one on a GET. An existing composition's ensure is a no-op.
+  if (!existsSync(getCompositionManifestPath(id))) {
+    throw new Error(`composition "${id}" not found`);
+  }
   const composition = await readComposition(id);
   const entries = await selectedLibraryEntries(composition.selections);
   return buildControlModel({

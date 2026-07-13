@@ -635,10 +635,12 @@ export function buildAutonomousCardPayload({ brief, project, workKind, phases, t
     // S4b completion (D15 acceptance 9): carry the resolved (duty, level) + its
     // ordered sequence onto the card so a gateway/skill-entered card FLOWS through
     // the IDENTICAL resolved sequence a board-entered card would (door-1
-    // persistence). Additive — omitted keys keep the pre-S4b card shape.
-    ...(duty ? { duty } : {}),
-    ...(Number.isInteger(level) ? { level } : {}),
-    ...(Array.isArray(sequence) && sequence.length ? { sequence } : {})
+    // persistence). ALL THREE are gated on a RESOLVED sequence (codex S4b finding):
+    // without a sequence the resolution is incomplete, so we keep the pre-S4b card
+    // shape byte-for-byte rather than stamping a partial (duty, level).
+    ...(Array.isArray(sequence) && sequence.length && duty && Number.isInteger(level)
+      ? { duty, level, sequence }
+      : {})
   };
 }
 
