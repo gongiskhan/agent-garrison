@@ -52,6 +52,8 @@ export interface RoutingEvidence {
   messageDigest: string;
   duty: string | null;
   level: number | null;
+  confidence: "low" | "medium" | "high" | null;
+  overrideSource: "message" | "card" | null;
   reason: string | null;
 }
 
@@ -104,7 +106,8 @@ export function routingEvidence(input: {
   message: string;
   duty?: string | null;
   level?: number | null;
-  reason?: string | null;
+  confidence?: "low" | "medium" | "high" | string | null;
+  overrideSource?: "message" | "card" | null;
   at?: string | null;
 }): RoutingEvidence;
 export function appendEvidence(filePath: string, record: RoutingEvidence): Promise<void>;

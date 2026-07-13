@@ -189,9 +189,14 @@ export function fallbackDispatch(model, reason = "dispatch parse failed; default
 // incidental "level 3" only fires with a routing verb/preposition in front.
 export function parseLevelOverride(message) {
   const text = String(message ?? "");
+  // Each pattern requires an EXPLICIT routing directive — a routing verb, an
+  // assignment, or a leading "level N" — never a bare "at level N" in prose
+  // (codex S3d finding: "the crash happens at level 3 of the menu" must NOT be a
+  // routing override). An out-of-range value is returned as-is so applyOverride
+  // clamps it (an explicit human override always wins — codex S3d finding: a
+  // "level 0" override must clamp to 1, not be ignored).
   const patterns = [
     /\b(?:run|dispatch|do|use|set|force)\b[^\n]{0,24}?\blevel\s+(\d+)\b/i,
-    /\bat\s+level\s+(\d+)\b/i,
     /\blevel\s*[:=]\s*(\d+)\b/i,
     /^\s*level\s+(\d+)\b/i
   ];
@@ -199,7 +204,7 @@ export function parseLevelOverride(message) {
     const m = text.match(re);
     if (m) {
       const n = Number(m[1]);
-      if (Number.isInteger(n) && n >= 1) return n;
+      if (Number.isInteger(n)) return n; // out-of-range clamped by applyOverride
     }
   }
   return null;
@@ -212,7 +217,9 @@ export function parseLevelOverride(message) {
 // present. The override level is clamped into the chosen duty's real range.
 export function applyOverride(dispatch, opts = {}, model) {
   const messageLevel = parseLevelOverride(opts.message);
-  const cardLevel = Number.isInteger(opts.cardLevel) && opts.cardLevel >= 1 ? opts.cardLevel : null;
+  // An explicit card level wins even when out of range — it is clamped below,
+  // not ignored (codex S3d finding: an out-of-range-low card level must clamp).
+  const cardLevel = Number.isInteger(opts.cardLevel) ? opts.cardLevel : null;
   const picked =
     messageLevel != null ? { level: messageLevel, source: "message" }
       : cardLevel != null ? { level: cardLevel, source: "card" }
@@ -247,15 +254,26 @@ export function messageDigest(message) {
 }
 
 // The routing-evidence record for one dispatch — { at, messageDigest, duty,
-// level, reason }. Deliberately carries the digest, NOT the message.
-export function routingEvidence({ message, duty, level, reason, at }) {
+// level, confidence, overrideSource }. Deliberately carries the digest, NOT the
+// message. CRITICAL (codex S3d finding): the model's free-text `reason` saw the
+// raw message and can echo it, so it is NEVER persisted here — the durable log
+// carries no user content. The persisted `reason` is CODE-COMPOSED from
+// non-message fields (duty/level/confidence/override) so the Decisions panel
+// stays useful without a leak. The model's free-text reason remains in the live
+// dispatch return for immediate debugging, never on disk.
+export function routingEvidence({ message, duty, level, confidence, overrideSource, at }) {
+  const parts = [`→ ${duty ?? "?"} L${level ?? "?"}`];
+  if (confidence) parts.push(`confidence ${confidence}`);
+  if (overrideSource) parts.push(`overridden by ${overrideSource}`);
   return {
     kind: "dispatch",
     at: at ?? null,
     messageDigest: messageDigest(message),
     duty: duty ?? null,
     level: level ?? null,
-    reason: reason ?? null
+    confidence: confidence ?? null,
+    overrideSource: overrideSource ?? null,
+    reason: parts.join(", ")
   };
 }
 
@@ -306,7 +324,10 @@ export async function dispatch(model, message, opts = {}) {
     message,
     duty: chosen.duty,
     level: chosen.level,
-    reason: chosen.reason,
+    // NOT chosen.reason — that is model free text that saw the message. Persist
+    // only non-message-derived fields (codex S3d finding).
+    confidence: chosen.confidence,
+    overrideSource: chosen.overridden ? chosen.overrideSource : null,
     at: now()
   });
   if (opts.evidenceFile) {
