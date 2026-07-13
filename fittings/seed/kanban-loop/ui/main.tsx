@@ -563,10 +563,13 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
   useEffect(() => { if (open) titleRef.current?.focus(); }, [open]);
 
   function reset() {
-    setTitle(""); setDescription(""); setProjectMode("auto"); setProject(""); setErr(null);
+    setTitle(""); setDescription(""); setProjectMode("auto"); setProject(""); setErr(null); setSaving(false);
   }
 
   async function submit() {
+    // Reentrancy guard: Enter can fire again while the POST is in flight —
+    // without this, two keydowns create two cards.
+    if (saving) return;
     // Title is REQUIRED on the quick-add path (the top-bar sheet is the "infer from
     // description" path). Block + refocus when it's blank rather than round-tripping.
     const t = title.trim();
