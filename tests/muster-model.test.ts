@@ -153,17 +153,18 @@ describe("mutation helpers (fs-backed)", () => {
   });
 
   it("sets a leaf cell's target and effort into composition.duties", async () => {
-    const afterTarget = await setCellTarget(FIXTURE_ID, "develop", 1, { target: "oneshot" });
-    expect(afterTarget.duties.develop?.levels[0].cell?.target).toBe("oneshot");
+    // develop L1 has a skill (garrison-implement) → its target must be agentic.
+    // 'chore' has no skill, so it takes any target (incl. garrison-call 'oneshot').
+    const afterTarget = await setCellTarget(FIXTURE_ID, "chore", 1, { target: "oneshot" });
+    expect(afterTarget.duties.chore?.levels[0].cell?.target).toBe("oneshot");
 
     const afterEffort = await setCellTarget(FIXTURE_ID, "develop", 1, { effort: "high" });
     expect(afterEffort.duties.develop?.levels[0].cell?.effort).toBe("high");
 
     const block = await readManifestComposition();
     const duties = block.duties as Array<{ id: string; levels: Array<{ cell?: { target?: string; effort?: string } }> }>;
-    const develop = duties.find((d) => d.id === "develop");
-    expect(develop?.levels[0].cell?.target).toBe("oneshot");
-    expect(develop?.levels[0].cell?.effort).toBe("high");
+    expect(duties.find((d) => d.id === "chore")?.levels[0].cell?.target).toBe("oneshot");
+    expect(duties.find((d) => d.id === "develop")?.levels[0].cell?.effort).toBe("high");
 
     // a composite / out-of-range level cannot be assigned as a leaf
     await expect(setCellTarget(FIXTURE_ID, "develop", 9, { target: "cc-sonnet" })).rejects.toThrow(/no level 9/);
@@ -174,5 +175,52 @@ describe("mutation helpers (fs-backed)", () => {
     expect(model.compositionId).toBe(FIXTURE_ID);
     expect(model.compositions.some((c) => c.id === FIXTURE_ID)).toBe(true);
     expect(Object.keys(model.duties)).toEqual(expect.arrayContaining(["develop", "chore"]));
+  });
+});
+
+describe("write-path server-side validation + payload sanitization (codex S5a)", () => {
+  it("rejects an unknown target on a cell (not defined in the composition)", async () => {
+    await expect(
+      setCellTarget(FIXTURE_ID, "develop", 1, { target: "ghost-target" })
+    ).rejects.toThrow(/unknown target/);
+    // The composition file was NOT mutated.
+    const comp = await readManifestComposition();
+    expect(JSON.stringify(comp)).not.toContain("ghost-target");
+  });
+
+  it("rejects a garrison-call target on a skill cell (server enforces compatibility, not just the client)", async () => {
+    // develop L1 has skill garrison-implement; 'oneshot' is a garrison-call target.
+    await expect(
+      setCellTarget(FIXTURE_ID, "develop", 1, { target: "oneshot" })
+    ).rejects.toThrow(/incompatible cell|agentic/);
+    // develop's CELL was not changed to oneshot (oneshot legitimately remains in
+    // the composition's targets[] — the check is that it wasn't assigned here).
+    const comp = await readManifestComposition();
+    const duties = comp.duties as Array<{ id: string; levels: Array<{ cell?: { target?: string } }> }>;
+    expect(duties.find((d) => d.id === "develop")?.levels[0].cell?.target).not.toBe("oneshot");
+  });
+
+  it("accepts a valid agentic target on a skill cell + persists it", async () => {
+    const model = await setCellTarget(FIXTURE_ID, "develop", 1, { target: "cc-sonnet", effort: "high" });
+    expect(model.duties.develop?.levels[0].cell?.target).toBe("cc-sonnet");
+    expect(model.duties.develop?.levels[0].cell?.effort).toBe("high");
+  });
+
+  it("sanitizes secret/path params out of the GET payload targets", () => {
+    const payload = buildMusterPayload({
+      composition: {
+        id: "c", name: "C", duties: [developDuty], selectedDuties: ["develop"],
+        targets: [
+          { id: "t", runtime: "claude-code", model: "sonnet", params: { apiKey: "sk-secret", cwd: "/home/ggomes/private", temp: 0.5 } }
+        ]
+      },
+      fittings: [], compositions: []
+    });
+    const t = payload.targets[0];
+    expect(t.params?.apiKey).toBe("[redacted]");
+    expect(t.params?.cwd).toBe("[redacted]");
+    expect(t.params?.temp).toBe(0.5); // non-secret, non-path passes through
+    expect(JSON.stringify(payload)).not.toContain("sk-secret");
+    expect(JSON.stringify(payload)).not.toContain("/home/ggomes/private");
   });
 });

@@ -25,8 +25,29 @@ import {
   type CompositionTarget
 } from "@/lib/compositions";
 import { resolveActiveComposition } from "@/lib/active-composition";
-import { readYamlFile, writeYamlFile } from "@/lib/yaml";
+import { readYamlFile } from "@/lib/yaml";
+import { writeFileAtomic } from "@/lib/atomic-write";
+import { validateCellCompatibility } from "@/lib/router-migrate";
+import { dump as dumpYaml } from "js-yaml";
 import type { DutyEffort, DutyLevelCell, DutySpec } from "@/lib/types";
+
+// Config values that must never reach the browser in the GET payload (codex S5a
+// finding): a target's params can carry secrets or absolute home paths. We
+// redact any param whose key looks secret-bearing, or whose string value is an
+// absolute/home path, before returning targets to the client.
+function sanitizeTargets(targets: CompositionTarget[]): CompositionTarget[] {
+  const secretKey = /(secret|token|key|password|credential|auth)/i;
+  const pathish = (v: unknown) =>
+    typeof v === "string" && (/^(\/|~)/.test(v) || v.includes("/home/") || v.includes("/Users/"));
+  return targets.map((t) => {
+    if (!t.params) return t;
+    const params: Record<string, string | number | boolean> = {};
+    for (const [k, v] of Object.entries(t.params)) {
+      params[k] = secretKey.test(k) || pathish(v) ? "[redacted]" : v;
+    }
+    return { ...t, params };
+  });
+}
 
 export interface MusterCompositionRef {
   id: string;
@@ -75,7 +96,7 @@ export function buildMusterPayload(args: {
     compositions: args.compositions,
     duties: resolved.duties,
     selectedDuties: resolved.selectedDuties,
-    targets: args.composition.targets,
+    targets: sanitizeTargets(args.composition.targets),
     rules: resolved.rules,
     ready: resolved.ready,
     errors: resolved.errors
@@ -133,7 +154,11 @@ async function mutateCompositionBlock(
     throw new Error(`composition "${compositionId}" has no x-garrison.composition block`);
   }
   mutate(block);
-  await writeYamlFile(manifestPath, manifest);
+  // Atomic write (codex S5a finding): a direct truncate-and-write races with a
+  // concurrent autosave and can corrupt the composition. writeFileAtomic does
+  // temp+rename (0600-preserving), so a reader never sees a partial file.
+  const raw = dumpYaml(manifest, { lineWidth: 100, noRefs: true, sortKeys: false });
+  await writeFileAtomic(manifestPath, raw);
 }
 
 // A clean DutySpec (no resolver-added providerFittingId) to persist into the
@@ -187,6 +212,23 @@ export async function setCellTarget(
   if (!spec) throw new Error(`duty "${dutyId}" has no level ${level} (has ${duty.levels.length})`);
   if (!spec.cell) {
     throw new Error(`duty "${dutyId}" level ${level} is a composite (sequence), not an assignable leaf cell`);
+  }
+  // Server-side validation (codex S5a finding): the client checks are bypassable
+  // via a direct API call, so enforce here too. (a) the target must EXIST in the
+  // composition's targets; (b) the RESULTING cell must pass validateCellCompatibility
+  // (a skill cell requires an agentic target — garrison-call is ineligible) so an
+  // invalid cell is never persisted.
+  if (patch.target !== undefined && !model.targets.some((t) => t.id === patch.target)) {
+    throw new Error(`unknown target "${patch.target}" — not defined in this composition`);
+  }
+  const resultingCell: DutyLevelCell = {
+    ...spec.cell,
+    ...(patch.target !== undefined ? { target: patch.target } : {}),
+    ...(patch.effort !== undefined ? { effort: patch.effort } : {})
+  };
+  const compatErrors = validateCellCompatibility(resultingCell, model.targets);
+  if (compatErrors.length > 0) {
+    throw new Error(`incompatible cell: ${compatErrors.map((e) => e.message).join("; ")}`);
   }
   await mutateCompositionBlock(id, (block) => {
     const duties: Array<{ id?: unknown; levels?: unknown }> = Array.isArray(block.duties)
