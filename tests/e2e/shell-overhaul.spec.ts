@@ -9,7 +9,7 @@ function appErrors(errors: string[]): string[] {
 // filters the grid, and the sidebar Views statuses carry tone dots. Drives the
 // seeded sandbox (~/.garrison-test), never live ~/.claude.
 
-const ROUTES = ["/", "/compose", "/quarters", "/vault", "/connectors", "/coordination", "/settings"];
+const ROUTES = ["/", "/muster", "/quarters", "/vault", "/connectors", "/coordination", "/settings"];
 
 test("every main shell route renders without console errors", async ({ page }) => {
   // Seven first-visit routes in one pass: under `next dev` each pays a compile
@@ -30,7 +30,7 @@ test("every main shell route renders without console errors", async ({ page }) =
 test("Compose: a stationed tile's sub-line describes the Fitting, not its name again", async ({
   page
 }) => {
-  await page.goto("/compose", { timeout: 60_000 });
+  await page.goto("/muster", { timeout: 60_000 });
   await expect(page.getByRole("heading", { name: "Agent faculties" })).toBeVisible({
     timeout: 30_000
   });
@@ -50,7 +50,7 @@ test("Compose: a stationed tile's sub-line describes the Fitting, not its name a
 });
 
 test("Compose: search filters the Fitting grid", async ({ page }) => {
-  await page.goto("/compose", { timeout: 60_000 });
+  await page.goto("/muster", { timeout: 60_000 });
   const search = page.getByPlaceholder(/Search every Faculty/i);
   await expect(search).toBeVisible({ timeout: 30_000 });
   await search.fill("zz-no-such-fitting-zz");
