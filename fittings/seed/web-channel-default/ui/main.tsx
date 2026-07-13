@@ -1,4 +1,4 @@
-// Web Channel UI — the ONE generic, context-driven chat surface, now with a
+// Web Channel UI - the ONE generic, context-driven chat surface, now with a
 // SESSIONS sidebar: persisted per-conversation threads you can move between and
 // whose history is restored on open.
 //
@@ -15,7 +15,7 @@
 //
 // The channel stays generic: a `thread` is an OPAQUE key + optional title a host
 // (Kanban / Automations) puts on the query string. The channel never interprets
-// it — it just persists turns under it and lists them.
+// it - it just persists turns under it and lists them.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -23,8 +23,19 @@ import { Marked } from "marked";
 import {
   ClaudeChat,
   createHttpTransport,
+  type ComposerAdornmentApi,
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
+import { VoiceConversation } from "./voice-conversation";
+
+// The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
+// rendered into ClaudeChat's composer via the function-form adornment so it can
+// send transcribed turns and read replies aloud. This SUPERSEDES the component's
+// built-in batch voice (feature `voice`) in the web channel - we omit that
+// feature so there is a single, streaming mic rather than two.
+function voiceAdornment(api: ComposerAdornmentApi) {
+  return <VoiceConversation send={api.send} busy={api.busy} lastReply={api.lastReply} />;
+}
 
 // A private marked instance for the brief PREVIEW (kept separate from the chat's).
 const briefMd = new Marked({ breaks: true, gfm: true });
@@ -32,7 +43,7 @@ const briefMd = new Marked({ breaks: true, gfm: true });
 // Pull the absolute brief path out of the Discuss context a host handed us. The
 // context arrives as a JSON string (decodeContext) or an already-parsed object; the
 // host (Kanban / Automations) sets `briefAbsPath` to the brief file's absolute path.
-// Returns undefined when absent — the Brief button then simply doesn't show.
+// Returns undefined when absent - the Brief button then simply doesn't show.
 function extractBriefPath(ctx: unknown): string | undefined {
   if (!ctx) return undefined;
   let obj: any = ctx;
@@ -56,7 +67,7 @@ function decodeContext(raw: string | null): unknown {
         try { return decodeURIComponent(escape(bytes)); } catch { return bytes; }
       }
     } catch {
-      /* not base64 — forward verbatim */
+      /* not base64 - forward verbatim */
     }
   }
   return raw;
@@ -76,13 +87,13 @@ interface UrlState {
 }
 
 // Return to whatever page the user came from (the board / Automations), robust across
-// every access mode — the web channel is reached at its OWN port (127.0.0.1:7083), via
+// every access mode - the web channel is reached at its OWN port (127.0.0.1:7083), via
 // Garrison's /embed proxy (127.0.0.1:7777), or over the tailnet, and the host's URL
 // differs in each. history.back() returns to the previous page regardless of its URL,
 // so we never guess a route (an earlier version hard-coded "/embed/kanban-loop", which
 // 404'd → SPA-fell-back to the default console when opened directly on :7083). Prefer the
 // TOP window when it's same-origin (Garrison embed); fall back to this window (direct
-// access — the common case) if the top is cross-origin or is this window.
+// access - the common case) if the top is cross-origin or is this window.
 function goBackToHost(): void {
   let w: Window = window;
   try {
@@ -90,7 +101,7 @@ function goBackToHost(): void {
       w = window.top;
     }
   } catch {
-    w = window; // cross-origin top — can't drive it; use our own history
+    w = window; // cross-origin top - can't drive it; use our own history
   }
   w.history.back();
 }
@@ -206,7 +217,7 @@ function fmtWhen(iso: string | null): string {
 // ── Brief editor (view + edit the Discuss brief markdown) ────────────────────
 // A slide-over panel over the chat. Loads the brief from the confined /api/brief
 // endpoint (GET by absolute path), lets the user edit it as markdown (with a Preview
-// toggle), and saves back (PUT). Handles the "no brief written yet" case — Save
+// toggle), and saves back (PUT). Handles the "no brief written yet" case - Save
 // creates the file. The path is the host-provided absolute briefAbsPath.
 function BriefPanel({ path: briefPath, onClose }: { path: string; onClose: () => void }) {
   const [content, setContent] = useState("");
@@ -273,7 +284,7 @@ function BriefPanel({ path: briefPath, onClose }: { path: string; onClose: () =>
             value={content}
             spellCheck={false}
             onChange={(e) => { setContent(e.target.value); setDirty(true); }}
-            placeholder={exists ? "" : "No brief written yet — type here to create it, then Save."}
+            placeholder={exists ? "" : "No brief written yet - type here to create it, then Save."}
           />
         ) : (
           <div className="wc-brief-preview cc-md" dangerouslySetInnerHTML={{ __html: briefMd.parse(content.trim() || "_(empty brief)_") as string }} />
@@ -400,7 +411,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const history = useMemo(() => {
     if (!activeThread) return [] as { user: string; assistant: string; hideUser?: boolean }[];
     const h: { user: string; assistant: string; hideUser?: boolean }[] = toHistory(activeThread.messages);
-    // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction —
+    // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction -
     // hide its user bubble so the transcript starts with James's question, not the prompt.
     const isDiscuss = activeThread.mode === "james" || activeThread.source === "discuss";
     if (isDiscuss && h.length > 0) h[0] = { ...h[0], hideUser: true };
@@ -412,7 +423,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
     ? url.returnLabel.trim()
     : (url.returnUrl ? "Back" : undefined);
   const ctx = activeThread?.context ?? url.context;
-  // The Discuss brief's absolute path (host-provided) — enables the Brief editor.
+  // The Discuss brief's absolute path (host-provided) - enables the Brief editor.
   const briefPath = useMemo(() => extractBriefPath(ctx), [ctx]);
 
   // Baseline the brief when the active Discuss changes (don't auto-open on mount); close
@@ -444,7 +455,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
         setBriefReloadKey((k) => k + 1);
         setBriefOpen(true);
       }
-    } catch { /* best effort — auto-open is a convenience */ }
+    } catch { /* best effort - auto-open is a convenience */ }
   }, [briefPath]);
 
   const mode = activeThread?.mode ?? url.mode;
@@ -541,7 +552,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             key={activeId}
             transport={transport}
             title="Operative"
-            features={{ voice: true }}
+            composerAdornment={voiceAdornment}
             context={ctx}
             mode={mode}
             initialMessage={kickoff}
@@ -589,7 +600,7 @@ function App() {
 
   if (threaded) return <ThreadedApp url={url} />;
   // Explicit ?console=1: the rich operative console (live PTY surface).
-  return <ClaudeChat transport={createHttpTransport("/api")} title="Operative" features={{ voice: true }} />;
+  return <ClaudeChat transport={createHttpTransport("/api")} title="Operative" composerAdornment={voiceAdornment} />;
 }
 
 const root = createRoot(document.getElementById("root")!);

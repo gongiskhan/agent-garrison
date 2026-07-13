@@ -1,5 +1,5 @@
 export { ClaudeChat, buildSendMeta, QuestionBlock } from "./ClaudeChat";
-export type { ClaudeChatProps, ChatFeatures, ChatSendMeta } from "./ClaudeChat";
+export type { ClaudeChatProps, ChatFeatures, ChatSendMeta, ComposerAdornmentApi } from "./ClaudeChat";
 export { createHttpTransport } from "./transport";
 export { createVoiceClient } from "./voice";
 export type { VoiceClient, VoiceHealth } from "./voice";

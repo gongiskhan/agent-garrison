@@ -27,6 +27,10 @@ await build({
 });
 
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
+// The PCM capture worklet is loaded at runtime via AudioContext.audioWorklet
+// .addModule("/pcm-worklet.js"), so it must ship as a standalone static asset
+// (NOT bundled into the main module — worklets run in a separate global scope).
+copyFileSync(path.join(HERE, "pcm-worklet.js"), path.join(DIST, "pcm-worklet.js"));
 
 // web-channel.css = the shared claude-chat stylesheet FIRST, then the
 // web-channel skin (styles.css) LAST, so the skin's Garrison palette/chrome
