@@ -280,6 +280,15 @@ type DevSession = {
   projectPath?: string | null;
   lastStatus?: string;
   claudePty?: { state?: string; busy?: boolean };
+  // Whether the dev-env drives this session's Claude PTY. Only sessions it
+  // opened/spawned carry a running PTY (`state === "running"`); hook-autocreated
+  // "external" ones (a Claude started in a terminal / by the orchestrator / by
+  // the HUD itself) are observed via status hooks only — the dev-env has no PTY
+  // to type into, so `/instruct` returns 409. These flags let the switcher show
+  // "commandable" vs "observed" honestly instead of listing dead targets.
+  external?: boolean;
+  openedInDevEnv?: boolean;
+  source?: string;
 };
 type OperativeState = {
   gateway: { ok: boolean; mode?: string | null; uptimeMs?: number | null; sessions?: number | null; channels?: number | null };
@@ -342,14 +351,36 @@ function soulIsLive(name: string, sessions: SessionRow[]): boolean {
 // Jarvis being out of the loop.
 const DEVSESSION_POLL_MS = 4_000;
 
-// Short human label for a dev session (project / branch / title, else a short id).
+// Stuck-open guard: the longest a single Silero speech segment may stay open
+// before the watchdog FLUSHES it (hands the buffered audio to the turn pipeline
+// and keeps listening — see flushOpenSegment). This is non-destructive: if the
+// user is still mid-sentence they simply merge into the same turn, so the cap is
+// a chunk boundary, NOT a cut-off. A natural pause fires onSpeechEnd and resets
+// this clock long before 20s; only a never-closing segment (noise/echo, or truly
+// unbroken speech) reaches it. Kept generous so the rare boundary rarely lands
+// inside a real word.
+const MAX_OPEN_SPEECH_MS = 20_000;
+
+// Short human label for a dev session (title / project / branch, else a short id).
 function devSessionName(s: DevSession): string {
-  return (s.projectName || s.branch || s.title || s.id.slice(0, 8)) as string;
+  return (s.title || s.projectName || s.branch || s.id.slice(0, 8)) as string;
+}
+// A stable, distinguishing id token. Sessions in the same repo/branch with no
+// title all render an identical name; this 4-char tag makes each row unique so
+// "which session is which" is answerable at a glance.
+function devSessionTag(s: DevSession): string {
+  return s.id.slice(0, 4);
 }
 // A dev session is actively working if its Claude PTY is busy or its last hook
 // status says so — either way the switcher shows a lit dot (proves concurrency).
 function devSessionWorking(s: DevSession): boolean {
   return s.lastStatus === "working" || s.claudePty?.busy === true;
+}
+// Commandable = the dev-env holds a running Claude PTY we can type into. Only
+// these accept `/instruct`; everything else is observed read-only (see the
+// DevSession flags above and the dev-env's handleInstruct 409 path).
+function devSessionCommandable(s: DevSession): boolean {
+  return s.claudePty?.state === "running";
 }
 
 // The gateway proxies worktrees to the dev-env Fitting; shapes vary by source
@@ -432,10 +463,13 @@ function App() {
   // re-created (and re-wiring finalizeTurn) on every poll.
   const [kanban, setKanban] = useState<KanbanState | null>(null);
   const [tasksOpen, setTasksOpen] = useState(true);
-  // On a phone the flank rails cover the orb, so they start hidden behind a
-  // toggle (the .jarvis-panels-toggle button, mobile-only via CSS). Desktop
-  // ignores this — the rails there are always shown by the media query.
+  // On a phone the flank rails cover the orb, so the sessions/actions/operative/
+  // reports all live behind the ☰ toggle in a left-sliding drawer (the
+  // .jarvis-drawer, mobile-only via CSS). Desktop ignores this — the rails there
+  // are always shown by the media query. `closeDrawer` snaps it shut after any
+  // in-drawer action so the orb + conversation come back into view.
   const [panelsOpen, setPanelsOpen] = useState(false);
+  const closeDrawer = useCallback(() => setPanelsOpen(false), []);
   const kanbanRef = useRef<KanbanState | null>(null);
   useEffect(() => { kanbanRef.current = kanban; }, [kanban]);
 
@@ -512,6 +546,12 @@ function App() {
   // while the adaptive grace window runs (see onTentativeEnd below).
   const pendingSegsRef = useRef<Float32Array[]>([]);
   const tentativeAtRef = useRef(0);             // when the tentative end fired
+  // When Silero opened a speech segment (onSpeechStart set "listening") but has
+  // NOT yet closed it (no onSpeechEnd). Continuous room noise / echo can hold the
+  // speech probability above negativeSpeechThreshold so the redemption counter
+  // never fills and onSpeechEnd never fires — the turn hangs in "listening"
+  // forever. The stuck-open watchdog (below) uses this to force a recovery.
+  const speechOpenAtRef = useRef<number | null>(null);
   const graceTimerRef = useRef<number | null>(null);
   const eagerSeqRef = useRef(0);                // invalidates stale eager STT
   const eagerSttRef = useRef<Promise<SttResult> | null>(null);
@@ -1020,11 +1060,51 @@ function App() {
   const resetEndpointer = useCallback(() => {
     if (graceTimerRef.current !== null) { window.clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
     pendingSegsRef.current = [];
+    speechOpenAtRef.current = null;
     eagerSeqRef.current++;
     eagerSttRef.current = null;
     bargeActiveRef.current = false;
     if (bargeTimerRef.current !== null) { window.clearTimeout(bargeTimerRef.current); bargeTimerRef.current = null; }
   }, []);
+
+  // Flush a never-closing segment WITHOUT cutting the user off. Silero opened a
+  // segment but hasn't closed it (continuous noise/echo, or a genuinely long
+  // sentence with no ≥redemption pause) → no onSpeechEnd → no grace timer → the
+  // turn hangs in "listening". Instead of resetting (which would discard the
+  // audio and force a repeat), pause() — with submitUserSpeechOnPause — hands the
+  // buffered audio over as an onSpeechEnd, so it flows through onTentativeEnd
+  // (eager STT + adaptive grace) exactly like a natural pause. We then resume at
+  // once: if the user is STILL talking, the next onSpeechStart MERGES into the
+  // same open turn (pendingSegs > 0 → merge), so long speech is chunked-and-
+  // joined, never truncated; if it was only noise, the chunk transcribes empty
+  // and is dropped. Either way the freeze is broken and nothing is lost.
+  const flushOpenSegment = useCallback(async () => {
+    const vad = vadRef.current;
+    if (!vad || !vadRunningRef.current) return;
+    console.debug("[vad] stuck-open watchdog — flushing open segment, continuing to listen");
+    speechOpenAtRef.current = null;
+    try { await vad.pause(); } catch (e) { console.debug("[vad] flush pause err", e); }
+    if (!sessionOnRef.current) { vadRunningRef.current = false; return; }
+    try { await vad.start(); vadRunningRef.current = true; } catch (e) { console.debug("[vad] flush start err", e); }
+  }, []);
+
+  // Stuck-open watchdog: while a session is armed, once a second check whether a
+  // speech segment has stayed open past MAX_OPEN_SPEECH_MS while still listening
+  // and not otherwise busy. `speechOpenAtRef !== null` means a segment is CURRENTLY
+  // open (it's cleared the moment onSpeechEnd fires), so this never fights the
+  // grace window — it only fires for a segment Silero has failed to close.
+  useEffect(() => {
+    if (!sessionOn) return;
+    const id = window.setInterval(() => {
+      const openAt = speechOpenAtRef.current;
+      if (openAt === null) return;
+      if (modeRef.current !== "listening") return;                 // only a stuck LISTEN, not working/speaking
+      if (micMutedRef.current && !pttOpenRef.current) return;       // muted room audio isn't a turn
+      if (sendingRef.current || speakingRef.current || speakQueueRef.current.length > 0) return;
+      if (performance.now() - openAt > MAX_OPEN_SPEECH_MS) void flushOpenSegment();
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [sessionOn, flushOpenSegment]);
 
   // Standby transitions. enterStandby keeps the session (mic + VAD) alive but
   // dormant; exitStandby wakes it. Both are cheap — no mic/VAD teardown, so a
@@ -1379,6 +1459,8 @@ function App() {
     if (!cutAssistant()) return;
     bargeActiveRef.current = true;
     setMode("listening");
+    // The barge-in's own segment is still open — track it for the watchdog too.
+    speechOpenAtRef.current = performance.now();
     console.debug("[barge] confirmed — assistant cut, listening");
   }, [cutAssistant, setMode]);
 
@@ -1427,6 +1509,14 @@ function App() {
       minSpeechMs: 250,
       positiveSpeechThreshold: 0.3,
       negativeSpeechThreshold: 0.25,
+      // Let a manual pause() hand us the audio buffered so far as an onSpeechEnd
+      // (instead of silently dropping it). The stuck-open watchdog relies on this
+      // to FLUSH a never-closing segment into the normal turn pipeline and keep
+      // listening — so genuine long speech is chunked-and-merged, never cut off.
+      // Safe because every OTHER pause() is in a muted context, where
+      // onTentativeEnd drops the flushed segment (verified: setMicMuted sets its
+      // ref synchronously before pausing; standby never pauses).
+      submitUserSpeechOnPause: true,
       // Reuse the ONE mic stream opened in startSession and keep it open across
       // turns: pauseStream is a no-op and resumeStream returns the same stream,
       // so pause/resume only toggles the worklet, never the mic.
@@ -1462,11 +1552,17 @@ function App() {
         }
         // Don't flash "listening" for room audio overheard while muted (only a
         // real push-to-talk window should light the core up).
-        if (!sendingRef.current && modeRef.current !== "speaking" && (!micMutedRef.current || pttOpenRef.current)) setMode("listening");
+        if (!sendingRef.current && modeRef.current !== "speaking" && (!micMutedRef.current || pttOpenRef.current)) {
+          setMode("listening");
+          // Mark this segment open so the stuck-open watchdog can recover if
+          // Silero never hands us an onSpeechEnd for it.
+          speechOpenAtRef.current = performance.now();
+        }
       },
-      onSpeechEnd: (audio: Float32Array) => { vadDbgRef.current.ends++; console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
+      onSpeechEnd: (audio: Float32Array) => { vadDbgRef.current.ends++; speechOpenAtRef.current = null; console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
       onVADMisfire: () => {
         vadDbgRef.current.misfires++;
+        speechOpenAtRef.current = null;
         console.debug("[vad] misfire");
         // The speech burst was too short to be real — cancel any pending barge-in.
         if (bargeTimerRef.current !== null) {
@@ -1942,23 +2038,61 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
                       <span className="jarvis-ws-row is-standby">
                         <span className="jarvis-ws-text jarvis-ws-muted">sem sessões — diz “cria uma sessão”</span>
                       </span>
-                    ) : devSessions.slice(0, 6).map((s, i) => {
-                      const active = s.id === activeSessionId;
-                      const working = devSessionWorking(s);
+                    ) : (() => {
+                      // Same honest split as the phone drawer: only sessions the
+                      // dev-env drives (a running Claude PTY) accept /instruct;
+                      // hook-autocreated "external" ones are observed read-only.
+                      const commandable = devSessions.filter(devSessionCommandable);
+                      const observed = devSessions.filter((s) => !devSessionCommandable(s));
                       return (
-                        <button
-                          key={s.id}
-                          className={`jarvis-ws-row jarvis-sess-row${active ? " is-active" : ""}`}
-                          onClick={() => toggleSession(s.id)}
-                          title={active ? "Sessão ativa — clica para voltar ao orquestrador" : "Falar com esta sessão"}
-                        >
-                          <span className={`jarvis-op-dot${working ? " is-ok" : ""}`} />
-                          <span className="jarvis-ws-key">{i + 1}</span>
-                          <span className="jarvis-ws-text">{devSessionName(s)}</span>
-                          <span className="jarvis-ws-when">{active ? "ativa" : (working ? "working" : (s.lastStatus || ""))}</span>
-                        </button>
+                        <>
+                          {commandable.slice(0, 6).map((s, i) => {
+                            const active = s.id === activeSessionId;
+                            const working = devSessionWorking(s);
+                            return (
+                              <button
+                                key={s.id}
+                                className={`jarvis-ws-row jarvis-sess-row${active ? " is-active" : ""}`}
+                                onClick={() => toggleSession(s.id)}
+                                title={active ? "Sessão ativa — clica para voltar ao orquestrador" : "Falar com esta sessão"}
+                              >
+                                <span className={`jarvis-op-dot${working ? " is-ok" : ""}`} />
+                                <span className="jarvis-ws-key">{i + 1}</span>
+                                <span className="jarvis-ws-text">{devSessionName(s)}</span>
+                                <span className="jarvis-sess-tag">#{devSessionTag(s)}</span>
+                                <span className="jarvis-ws-when">{active ? "ativa" : (working ? "working" : (s.lastStatus || ""))}</span>
+                              </button>
+                            );
+                          })}
+                          {commandable.length === 0 && (
+                            <span className="jarvis-ws-row is-standby">
+                              <span className="jarvis-ws-text jarvis-ws-muted">nenhuma gerida pelo Jarvis — “+ nova” cria uma</span>
+                            </span>
+                          )}
+                          {observed.length > 0 && (
+                            <>
+                              <span className="jarvis-ws-subrow">observadas · só leitura</span>
+                              {observed.slice(0, 6).map((s) => {
+                                const working = devSessionWorking(s);
+                                return (
+                                  <span
+                                    key={s.id}
+                                    className="jarvis-ws-row jarvis-sess-row is-observed"
+                                    title="Claude a correr no repo fora do Jarvis (terminal / orquestrador / HUD). Só leitura — não dá para lhe falar daqui."
+                                  >
+                                    <span className={`jarvis-op-dot${working ? " is-ok" : ""}`} />
+                                    <span className="jarvis-ws-key jarvis-sess-eye">◦</span>
+                                    <span className="jarvis-ws-text">{devSessionName(s)}</span>
+                                    <span className="jarvis-sess-tag">#{devSessionTag(s)}</span>
+                                    <span className="jarvis-ws-when">{working ? "working" : (s.lastStatus || "")}</span>
+                                  </span>
+                                );
+                              })}
+                            </>
+                          )}
+                        </>
                       );
-                    })}
+                    })()}
                   </div>
                 )}
                 {(operative.souls.length > 0 || sessions.length > 0) && (
@@ -2195,6 +2329,229 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
           </button>
         ))}
       </div>
+
+      {/* ── Phone drawer (mobile-only via CSS) ────────────────────────────────
+          A left-sliding panel (transform-based → GPU-composited, no reflow) that
+          owns everything the desktop rails hold: session create/switch, the dev
+          action buttons, operative health, reports and tasks. The scrim + drawer
+          are always mounted so the open/close transition runs both ways; the
+          `.panels-open` class on the root drives the slide. Any action closes it
+          so the orb + conversation return to view. */}
+      <div
+        className="jarvis-drawer-scrim"
+        onClick={closeDrawer}
+        aria-hidden={!panelsOpen}
+      />
+      <aside className="jarvis-drawer" aria-hidden={!panelsOpen}>
+        <div className="jarvis-drawer-scroll">
+          {/* sessions — split into two honest groups:
+              · comandáveis: the dev-env drives a live Claude PTY → tappable, /instruct works.
+              · observadas:  external Claude processes it only watches via hooks → read-only.
+              Each row carries a 4-char id tag so same-repo sessions are distinguishable. */}
+          {(() => {
+            const commandable = devSessions.filter(devSessionCommandable);
+            const observed = devSessions.filter((s) => !devSessionCommandable(s));
+            return (
+              <section className="jarvis-drawer-sec">
+                <h3 className="jarvis-drawer-head">sessões</h3>
+                <button
+                  className="jarvis-drawer-primary"
+                  onClick={() => { void createDevSession(); closeDrawer(); }}
+                  disabled={!devAvailable}
+                  title="Criar uma nova sessão Claude que o Jarvis comanda"
+                >
+                  <span className="jarvis-drawer-primary-plus">+</span>
+                  <span>nova sessão</span>
+                </button>
+
+                <button
+                  className={`jarvis-drawer-sess${activeSessionId ? "" : " is-active"}`}
+                  onClick={() => { setActiveSessionId(null); closeDrawer(); }}
+                  title="Falar com o orquestrador"
+                >
+                  <span className="jarvis-drawer-sess-badge">▶</span>
+                  <span className="jarvis-drawer-sess-name">orquestrador</span>
+                  <span className="jarvis-drawer-sess-meta">{activeSessionId ? "" : "ativo"}</span>
+                </button>
+
+                {commandable.slice(0, 8).map((s, i) => {
+                  const active = s.id === activeSessionId;
+                  const working = devSessionWorking(s);
+                  return (
+                    <button
+                      key={s.id}
+                      className={`jarvis-drawer-sess${active ? " is-active" : ""}`}
+                      onClick={() => { toggleSession(s.id); closeDrawer(); }}
+                      title={active ? "Sessão ativa — toca para voltar ao orquestrador" : "Falar com esta sessão"}
+                    >
+                      <span className={`jarvis-drawer-sess-dot${working ? " is-working" : ""}`} />
+                      <span className="jarvis-drawer-sess-badge">{i + 1}</span>
+                      <span className="jarvis-drawer-sess-name">{devSessionName(s)}</span>
+                      <span className="jarvis-drawer-sess-tag">#{devSessionTag(s)}</span>
+                      <span className="jarvis-drawer-sess-meta">{active ? "ativa" : (working ? "working" : (s.lastStatus || ""))}</span>
+                    </button>
+                  );
+                })}
+                {devAvailable && commandable.length === 0 && (
+                  <p className="jarvis-drawer-empty">Nenhuma sessão gerida pelo Jarvis. Toca “+ nova” (ou diz “cria uma sessão”) para uma que ele comanda.</p>
+                )}
+
+                {observed.length > 0 && (
+                  <>
+                    <p className="jarvis-drawer-subhead">observadas · o Jarvis só vê</p>
+                    {observed.slice(0, 8).map((s) => {
+                      const working = devSessionWorking(s);
+                      return (
+                        <div
+                          key={s.id}
+                          className="jarvis-drawer-sess is-observed"
+                          title="Claude a correr no repo fora do Jarvis (terminal / orquestrador / a HUD). Só leitura — não dá para lhe falar daqui."
+                        >
+                          <span className={`jarvis-drawer-sess-dot${working ? " is-working" : ""}`} />
+                          <span className="jarvis-drawer-sess-badge jarvis-drawer-sess-eye">◦</span>
+                          <span className="jarvis-drawer-sess-name">{devSessionName(s)}</span>
+                          <span className="jarvis-drawer-sess-tag">#{devSessionTag(s)}</span>
+                          <span className="jarvis-drawer-sess-meta">{working ? "working" : (s.lastStatus || "")}</span>
+                        </div>
+                      );
+                    })}
+                    <p className="jarvis-drawer-empty">Processos Claude vivos no repo, iniciados fora do Jarvis. Ficam aqui para veres o que corre — usa “+ nova” para uma que ele comande.</p>
+                  </>
+                )}
+              </section>
+            );
+          })()}
+
+          {/* dev actions — the former desktop dock, now full-size tappable buttons */}
+          <section className="jarvis-drawer-sec">
+            <h3 className="jarvis-drawer-head">ações</h3>
+            <div className="jarvis-drawer-actions">
+              {DOCK_ACTIONS.map((a) => (
+                <button
+                  key={a.label}
+                  className="jarvis-drawer-action"
+                  onClick={() => { void dispatch(a.prompt, a.label); closeDrawer(); }}
+                  disabled={mode === "working"}
+                  title={a.prompt}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* operative health */}
+          {operative && (
+            <section className="jarvis-drawer-sec">
+              <h3 className="jarvis-drawer-head">
+                <span>operative</span>
+                <span className={`jarvis-drawer-health${operative.gateway.ok ? " is-ok" : ""}`}>
+                  {operative.gateway.ok ? "online" : "offline"}
+                </span>
+              </h3>
+              <div className="jarvis-drawer-stat">
+                <span className={`jarvis-op-dot${operative.gateway.ok ? " is-ok" : ""}`} />
+                <span className="jarvis-drawer-stat-k">gateway</span>
+                <span className="jarvis-drawer-stat-v">
+                  {operative.gateway.ok
+                    ? `${operative.gateway.mode ?? "?"} · ${operative.gateway.sessions ?? 0} sess`
+                    : "down"}
+                </span>
+              </div>
+              <div className="jarvis-drawer-stat">
+                <span className={`jarvis-op-dot${operative.voice.ok ? " is-ok" : ""}`} />
+                <span className="jarvis-drawer-stat-k">voice</span>
+                <span className="jarvis-drawer-stat-v">
+                  {operative.voice.ok ? (operative.voice.ready ? "ready" : "warming") : "down"}
+                </span>
+              </div>
+            </section>
+          )}
+
+          {/* workspace — the active project's branch + diff + PRs (compact) */}
+          {project?.available && (
+            <section className="jarvis-drawer-sec">
+              <h3 className="jarvis-drawer-head">
+                <span>{project.name || "workspace"}</span>
+                <span className="jarvis-drawer-head-meta">{project.branch || "—"}</span>
+              </h3>
+              {(project.changed ?? 0) > 0 && (
+                <button
+                  className="jarvis-drawer-stat is-btn"
+                  onClick={async () => {
+                    try {
+                      const d = await fetch("/api/diff").then((r) => r.json());
+                      setDiff({
+                        title: `git diff HEAD · ${project.changed} changed`,
+                        patch: (d?.patch || "").trim(),
+                        truncated: Boolean(d?.truncated)
+                      });
+                      closeDrawer();
+                    } catch { /* leave the drawer open on a failed fetch */ }
+                  }}
+                  title="Ver o diff da working tree (git diff HEAD)"
+                >
+                  <span className="jarvis-drawer-stat-k">diff</span>
+                  <span className="jarvis-drawer-stat-v">{project.changed} ficheiro{project.changed === 1 ? "" : "s"} — ver</span>
+                </button>
+              )}
+              {(project.prs?.length ?? 0) > 0 && project.prs!.slice(0, 3).map((pr) => (
+                <a key={pr.number} className="jarvis-drawer-stat" href={pr.url} target="_blank" rel="noreferrer">
+                  <span className="jarvis-drawer-stat-k">#{pr.number}</span>
+                  <span className="jarvis-drawer-stat-v">{pr.title}</span>
+                </a>
+              ))}
+            </section>
+          )}
+
+          {/* reports (callouts) */}
+          {callouts.length > 0 && (
+            <section className="jarvis-drawer-sec">
+              <h3 className="jarvis-drawer-head">relatórios</h3>
+              {callouts.map((c) => (
+                <button
+                  key={c.id}
+                  className="jarvis-drawer-callout"
+                  onClick={() => { setReport({ path: c.label, content: c.content }); closeDrawer(); }}
+                >
+                  <span className="jarvis-drawer-callout-label">{c.label}</span>
+                  <span className="jarvis-drawer-callout-text">{c.content.slice(0, 100)}</span>
+                </button>
+              ))}
+            </section>
+          )}
+
+          {/* tasks (kanban) */}
+          {kanban?.available && (kanban.cards?.length ?? 0) > 0 && (
+            <section className="jarvis-drawer-sec">
+              <h3 className="jarvis-drawer-head">
+                <span>tarefas</span>
+                <span className="jarvis-drawer-head-meta">
+                  {kanban.counts!.total}{kanban.counts!.running > 0 ? ` · ${kanban.counts!.running} a correr` : ""}
+                </span>
+              </h3>
+              {kanban.cards!.map((c) => {
+                const url = cardHref(kanban, c.id);
+                const statusClass = c.status === "needs-attention" ? "attention" : c.status === "running" ? "running" : "ok";
+                return (
+                  <button
+                    key={c.id}
+                    className="jarvis-drawer-task"
+                    onClick={() => { if (url) setBoardUrl(url); closeDrawer(); }}
+                    title={`${c.title} — ${c.statusLine}`}
+                  >
+                    <span className={`jarvis-task-pill jarvis-task-pill--${statusClass}`} />
+                    <span className="jarvis-drawer-task-main">
+                      <span className="jarvis-drawer-task-title">{c.title}</span>
+                      <span className="jarvis-drawer-task-status">{c.statusLine}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </section>
+          )}
+        </div>
+      </aside>
 
       {report ? <ReportOverlay report={report} onClose={() => setReport(null)} /> : null}
       {diff ? <DiffOverlay title={diff.title} patch={diff.patch} truncated={diff.truncated} onClose={() => setDiff(null)} /> : null}
