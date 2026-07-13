@@ -10,6 +10,7 @@
 // composition manifest. Writes touch ONLY x-garrison.composition.{selected_duties,
 // duties}; everything else in the manifest round-trips untouched.
 
+import path from "node:path";
 import {
   resolveModel,
   type DutyGraphError,
@@ -18,18 +19,39 @@ import {
   type RuleResult
 } from "@/lib/resolver";
 import {
+  computeCapabilityResolution,
+  defaultConfigForEntry,
+  getCompositionDirectory,
   getCompositionManifestPath,
   listCompositions,
   readComposition,
   selectedLibraryEntries,
+  validateCompositionSelections,
   type CompositionTarget
 } from "@/lib/compositions";
 import { resolveActiveComposition } from "@/lib/active-composition";
+import { readLibrary } from "@/lib/library";
+import { authorApmDependencies } from "@/lib/apm-manifest";
+import { ROOT_DIR } from "@/lib/paths";
+import { cloneFitting } from "@/lib/clone";
+import { getFaculty, facultyRoleCopy } from "@/lib/faculties";
 import { readYamlFile } from "@/lib/yaml";
 import { writeFileAtomic } from "@/lib/atomic-write";
 import { validateCellCompatibility } from "@/lib/router-migrate";
 import { dump as dumpYaml } from "js-yaml";
-import type { DutyEffort, DutyLevelCell, DutySpec } from "@/lib/types";
+import type {
+  Cardinality,
+  CapabilityIssue,
+  ConfigSchemaField,
+  DutyEffort,
+  DutyLevelCell,
+  DutySpec,
+  FacultyId,
+  FittingSelectionMap,
+  FittingShape,
+  LibraryEntry,
+  SelectedFitting
+} from "@/lib/types";
 
 // Config values that must never reach the browser in the GET payload (codex S5a
 // finding): a target's params can carry secrets or absolute home paths. We
@@ -247,4 +269,480 @@ export async function setCellTarget(
     if (patch.effort !== undefined) cell.effort = patch.effort;
   });
   return assembleMusterModel(id);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Standing Fittings (GARRISON-UNIFY-V1 D12, slice S5b). The non-duty half of the
+// Muster page: the infrastructure faculty slots (channels/gateway/runtimes/…)
+// each showing its current fitting(s), config, health, and a swap picker. This
+// section owns the fitting SELECTIONS axis; the Duties section (above) owns the
+// duty-routing axis. Writes go through writeStandingSelections — validate →
+// re-author apm deps → atomic write — the same discipline the S5a cell/duty
+// writers use, extended to membership changes (which must re-author deps).
+
+// The standing faculty slots this section surfaces: the infrastructure roles.
+// EXCLUDES `orchestrator`/`modes` (behavior — the Orchestrator panel, S5c) and
+// the optional capability faculties (Compose's capability blocks). A fitting
+// that PROVIDES kind:duty is a duty fitting and is filtered out even when it
+// sits inside a standing slot, so the Duties section stays its only home.
+const STANDING_FACULTIES: FacultyId[] = [
+  "channels",
+  "gateway",
+  "runtimes",
+  "memory",
+  "observability",
+  "sessions",
+  "surfaces",
+  "connectors"
+];
+
+export interface StandingFittingView {
+  id: string;
+  name: string;
+  summary: string;
+  faculty: FacultyId;
+  componentShape: FittingShape;
+  clonedFrom?: string;
+  // own-port fitting → the client overlays live health from /api/fittings/views.
+  ownPort: boolean;
+  // provides kind:runtime → eligible to be the composition's primary runtime.
+  providesRuntime: boolean;
+  isPrimaryRuntime: boolean;
+  configSchema: ConfigSchemaField[];
+  config: Record<string, string | number | boolean>;
+}
+
+// A pickable library entry for a slot's swap picker (the D9 library picker,
+// scoped to the slot's faculty — seed + local + clones).
+export interface StandingCandidate {
+  id: string;
+  name: string;
+  summary: string;
+  clonedFrom?: string;
+}
+
+export interface StandingSlot {
+  faculty: FacultyId;
+  facultyName: string;
+  // What the role does (facultyRoleCopy.role) — the card's one-line subhead.
+  role: string;
+  cardinality: Cardinality;
+  fittings: StandingFittingView[];
+  candidates: StandingCandidate[];
+}
+
+// A runtime template the create-runtime flow can clone from.
+export interface RuntimeTemplate {
+  id: string;
+  name: string;
+  summary: string;
+  clonable: boolean;
+}
+
+export interface StandingModel {
+  compositionId: string;
+  compositionName: string;
+  slots: StandingSlot[];
+  runtimeTemplates: RuntimeTemplate[];
+  primaryRuntime: string;
+}
+
+function providesKind(entry: LibraryEntry, kind: string): boolean {
+  return entry.metadata.provides.some((p) => p.kind === kind);
+}
+
+// The pure core: composition selections + resolved entries + library in, the
+// standing model out. No fs — callers hand it data, tests hand it fixtures.
+export function buildStandingPayload(args: {
+  composition: { id: string; name: string; selections: FittingSelectionMap; primaryRuntime: string };
+  entries: LibraryEntry[];
+  library: LibraryEntry[];
+}): StandingModel {
+  const byId = new Map(args.entries.map((entry) => [entry.id, entry]));
+  const slots: StandingSlot[] = STANDING_FACULTIES.map((facultyId) => {
+    const faculty = getFaculty(facultyId);
+    const selected = args.composition.selections[facultyId] ?? [];
+    const fittings: StandingFittingView[] = [];
+    for (const selection of selected) {
+      const entry = byId.get(selection.id);
+      if (!entry) continue; // unknown id — validateCompositionSelections surfaces it
+      if (providesKind(entry, "duty")) continue; // a duty fitting lives in the Duties section
+      fittings.push({
+        id: entry.id,
+        name: entry.name,
+        summary: entry.summary,
+        faculty: facultyId,
+        componentShape: entry.metadata.component_shape,
+        clonedFrom: entry.cloned_from,
+        ownPort: entry.metadata.own_port === true,
+        providesRuntime: providesKind(entry, "runtime"),
+        isPrimaryRuntime: facultyId === "runtimes" && entry.id === args.composition.primaryRuntime,
+        configSchema: entry.metadata.config_schema,
+        config: selection.config ?? {}
+      });
+    }
+    const candidates: StandingCandidate[] = args.library
+      .filter((entry) => entry.faculty === facultyId && !providesKind(entry, "duty"))
+      .map((entry) => ({ id: entry.id, name: entry.name, summary: entry.summary, clonedFrom: entry.cloned_from }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      faculty: facultyId,
+      facultyName: faculty.name,
+      role: facultyRoleCopy[facultyId].role,
+      cardinality: faculty.cardinality,
+      fittings,
+      candidates
+    };
+  });
+
+  const runtimeTemplates: RuntimeTemplate[] = args.library
+    .filter((entry) => entry.faculty === "runtimes" && providesKind(entry, "runtime"))
+    .map((entry) => ({ id: entry.id, name: entry.name, summary: entry.summary, clonable: Boolean(entry.localPath) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    compositionId: args.composition.id,
+    compositionName: args.composition.name,
+    slots,
+    runtimeTemplates,
+    primaryRuntime: args.composition.primaryRuntime
+  };
+}
+
+// The default primary when the composition names none — the historical
+// gateway/PTY engine (mirrors GlobalConfig.primary_runtime's documented default).
+const DEFAULT_PRIMARY_RUNTIME = "claude-code-runtime";
+
+export async function assembleStandingModel(compositionId?: string): Promise<StandingModel> {
+  const id = await resolveCompositionId(compositionId);
+  const composition = await readComposition(id);
+  const entries = await selectedLibraryEntries(composition.selections);
+  const library = await readLibrary();
+  return buildStandingPayload({
+    composition: {
+      id: composition.id,
+      name: composition.name,
+      selections: composition.selections,
+      primaryRuntime: composition.globalConfig.primary_runtime ?? DEFAULT_PRIMARY_RUNTIME
+    },
+    entries,
+    library
+  });
+}
+
+function assertStandingFaculty(faculty: string): FacultyId {
+  if (!(STANDING_FACULTIES as string[]).includes(faculty)) {
+    throw new Error(`"${faculty}" is not a standing faculty slot`);
+  }
+  return faculty as FacultyId;
+}
+
+// Mutate the whole manifest atomically (temp+rename, 0600-preserving). Unlike
+// mutateCompositionBlock this exposes the top-level manifest so a membership
+// change can re-author dependencies.apm alongside x-garrison.composition.
+async function mutateManifestAtomic(
+  compositionId: string,
+  mutate: (manifest: Manifest) => void
+): Promise<void> {
+  const manifestPath = getCompositionManifestPath(compositionId);
+  const manifest = await readYamlFile<Manifest>(manifestPath);
+  if (!manifest || !manifest["x-garrison"]?.composition) {
+    throw new Error(`composition "${compositionId}" has no x-garrison.composition block`);
+  }
+  mutate(manifest);
+  const raw = dumpYaml(manifest, { lineWidth: 100, noRefs: true, sortKeys: false });
+  await writeFileAtomic(manifestPath, raw);
+}
+
+// Persist a whole new selections map: validate first (cardinality + faculty
+// compatibility), re-author the apm dependency list from the resulting
+// membership (else a swapped-in fitting would never install), then write both
+// x-garrison.composition.selections and dependencies.apm in one atomic pass.
+// Everything else in the manifest (duties/targets/global_config/…) round-trips
+// untouched because the mutator only assigns those two keys.
+async function writeStandingSelections(
+  compositionId: string,
+  nextSelections: FittingSelectionMap
+): Promise<void> {
+  await validateCompositionSelections(nextSelections);
+  const entries = await selectedLibraryEntries(nextSelections);
+  const dependencies = authorApmDependencies(
+    entries.map((entry) =>
+      entry.localPath ? { absPath: path.join(ROOT_DIR, entry.localPath) } : { repo: entry.repo }
+    ),
+    getCompositionDirectory(compositionId)
+  );
+  await mutateManifestAtomic(compositionId, (manifest) => {
+    const block = manifest["x-garrison"]!.composition!;
+    block.selections = nextSelections;
+    const deps =
+      manifest.dependencies && typeof manifest.dependencies === "object"
+        ? (manifest.dependencies as Record<string, unknown>)
+        : {};
+    manifest.dependencies = { ...deps, apm: dependencies };
+  });
+}
+
+function cloneSelections(selections: FittingSelectionMap): FittingSelectionMap {
+  const out: FittingSelectionMap = {};
+  for (const [key, items] of Object.entries(selections)) {
+    out[key as FacultyId] = (items ?? []).map((s) => ({ id: s.id, config: { ...(s.config ?? {}) } }));
+  }
+  return out;
+}
+
+// Build the next selections for a swap in one faculty slot. Single-cardinality
+// slots hold exactly one fitting (toId replaces it; no toId clears it). Multi
+// slots replace fromId with toId (or add / remove when only one side is given),
+// never duplicating a fitting already present.
+function applyStandingSwap(
+  selections: FittingSelectionMap,
+  facultyId: FacultyId,
+  change: { toId?: string; fromId?: string },
+  library: LibraryEntry[]
+): FittingSelectionMap {
+  const faculty = getFaculty(facultyId);
+  const next = cloneSelections(selections);
+  const current = next[facultyId] ?? [];
+
+  let toSelection: SelectedFitting | undefined;
+  if (change.toId) {
+    const entry = library.find((e) => e.id === change.toId);
+    if (!entry) throw new Error(`unknown fitting "${change.toId}"`);
+    toSelection = defaultConfigForEntry(entry);
+  }
+
+  let updated: SelectedFitting[];
+  if (faculty.cardinality === "single") {
+    updated = toSelection ? [toSelection] : [];
+  } else if (change.fromId) {
+    const idx = current.findIndex((s) => s.id === change.fromId);
+    if (idx === -1) {
+      updated = toSelection && !current.some((s) => s.id === toSelection!.id) ? [...current, toSelection] : current;
+    } else if (toSelection) {
+      updated = current.some((s) => s.id === toSelection!.id)
+        ? current.filter((s) => s.id !== change.fromId) // toId already present — collapse the dup
+        : current.map((s, i) => (i === idx ? toSelection! : s));
+    } else {
+      updated = current.filter((s) => s.id !== change.fromId); // removal
+    }
+  } else if (toSelection) {
+    updated = current.some((s) => s.id === toSelection!.id) ? current : [...current, toSelection];
+  } else {
+    updated = current;
+  }
+
+  if (updated.length === 0) delete next[facultyId];
+  else next[facultyId] = updated;
+  return next;
+}
+
+// A consumer left without a provider by a swap (reference loss). Surfaced to the
+// UI so it can OFFER removal (a confirm) — never auto-removed.
+export interface OrphanedConsumer {
+  fittingId: string;
+  faculty: FacultyId;
+  kind: string;
+  name?: string;
+  message: string;
+}
+
+function missingRequiredKey(issue: CapabilityIssue): string {
+  return `${issue.fittingId}|${issue.kind}|${issue.name ?? ""}`;
+}
+
+// The consumers newly orphaned by a swap: missing-required capability issues
+// present AFTER the swap that were not present before it.
+function newlyOrphaned(
+  before: CapabilityIssue[],
+  after: CapabilityIssue[],
+  afterEntries: LibraryEntry[]
+): OrphanedConsumer[] {
+  const had = new Set(before.filter((i) => i.code === "missing-required").map(missingRequiredKey));
+  const facultyById = new Map(afterEntries.map((e) => [e.id, e.faculty]));
+  return after
+    .filter((i) => i.code === "missing-required" && !had.has(missingRequiredKey(i)))
+    .map((i) => ({
+      fittingId: i.fittingId,
+      faculty: (facultyById.get(i.fittingId) ?? "channels") as FacultyId,
+      kind: i.kind,
+      name: i.name,
+      message: i.message
+    }));
+}
+
+export interface StandingSwapResult {
+  model: StandingModel;
+  orphaned: OrphanedConsumer[];
+}
+
+// Swap the fitting in a standing slot. `toId` is placed; `fromId` (multi slots)
+// is the one it replaces. Validates + persists atomically, then reports any
+// consumer the swap orphaned (never removes it — the UI offers that).
+export async function swapStandingFitting(
+  compositionId: string | undefined,
+  faculty: string,
+  toId?: string,
+  fromId?: string
+): Promise<StandingSwapResult> {
+  const id = await resolveCompositionId(compositionId);
+  const facultyId = assertStandingFaculty(faculty);
+  const composition = await readComposition(id);
+  const library = await readLibrary();
+
+  const beforeEntries = await selectedLibraryEntries(composition.selections);
+  const beforeIssues = computeCapabilityResolution(beforeEntries).issues;
+
+  const nextSelections = applyStandingSwap(composition.selections, facultyId, { toId, fromId }, library);
+  await writeStandingSelections(id, nextSelections);
+
+  const afterEntries = await selectedLibraryEntries(nextSelections);
+  const afterIssues = computeCapabilityResolution(afterEntries).issues;
+  const orphaned = newlyOrphaned(beforeIssues, afterIssues, afterEntries);
+
+  return { model: await assembleStandingModel(id), orphaned };
+}
+
+// Autosave one config value into a standing fitting's selection. A config edit
+// does not change membership, so deps re-author to the same list — writing
+// through writeStandingSelections keeps a single validated, atomic write path.
+export async function setStandingConfig(
+  compositionId: string | undefined,
+  faculty: string,
+  fittingId: string,
+  key: string,
+  value: string | number | boolean
+): Promise<StandingModel> {
+  const id = await resolveCompositionId(compositionId);
+  const facultyId = assertStandingFaculty(faculty);
+  const composition = await readComposition(id);
+  const current = composition.selections[facultyId] ?? [];
+  if (!current.some((s) => s.id === fittingId)) {
+    throw new Error(`fitting "${fittingId}" is not stationed in ${facultyId}`);
+  }
+  const next = cloneSelections(composition.selections);
+  next[facultyId] = (next[facultyId] ?? []).map((s) =>
+    s.id === fittingId ? { id: s.id, config: { ...s.config, [key]: value } } : s
+  );
+  await writeStandingSelections(id, next);
+  return assembleStandingModel(id);
+}
+
+// Make a stationed runtime the composition's primary runtime (the engine that
+// runs the orchestrator loop). Writes global_config.primary_runtime only.
+export async function setPrimaryRuntime(
+  compositionId: string | undefined,
+  fittingId: string
+): Promise<StandingModel> {
+  const id = await resolveCompositionId(compositionId);
+  const composition = await readComposition(id);
+  const runtimes = composition.selections.runtimes ?? [];
+  if (!runtimes.some((s) => s.id === fittingId)) {
+    throw new Error(`"${fittingId}" is not a stationed runtime — station it before making it primary`);
+  }
+  await mutateManifestAtomic(id, (manifest) => {
+    const block = manifest["x-garrison"]!.composition!;
+    const gc =
+      block.global_config && typeof block.global_config === "object"
+        ? (block.global_config as Record<string, unknown>)
+        : (block.global_config = {});
+    (gc as Record<string, unknown>).primary_runtime = fittingId;
+  });
+  return assembleStandingModel(id);
+}
+
+export interface CreateRuntimeResult {
+  model: StandingModel;
+  newFittingId: string;
+}
+
+// Create a new runtime by cloning a runtime template, then station the clone in
+// the runtimes slot with its default config. The UI then configures it, tests
+// it, and (optionally) sets it primary. cloneFitting throws CloneError (with a
+// status) on a bad/duplicate id — the route maps that to the HTTP status.
+export async function createRuntime(
+  compositionId: string | undefined,
+  templateId: string,
+  newId?: string
+): Promise<CreateRuntimeResult> {
+  const id = await resolveCompositionId(compositionId);
+  const library = await readLibrary();
+  const template = library.find((e) => e.id === templateId);
+  if (!template) throw new Error(`unknown runtime template "${templateId}"`);
+  if (template.faculty !== "runtimes" || !providesKind(template, "runtime")) {
+    throw new Error(`"${templateId}" is not a runtime template`);
+  }
+  const clone = await cloneFitting(templateId, newId ? { newId } : {});
+
+  const composition = await readComposition(id);
+  const next = cloneSelections(composition.selections);
+  const runtimes = next.runtimes ?? [];
+  if (!runtimes.some((s) => s.id === clone.id)) runtimes.push(defaultConfigForEntry(clone));
+  next.runtimes = runtimes;
+  await writeStandingSelections(id, next);
+
+  return { model: await assembleStandingModel(id), newFittingId: clone.id };
+}
+
+export interface RuntimeCheck {
+  label: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface RuntimeTestResult {
+  fittingId: string;
+  ok: boolean;
+  checks: RuntimeCheck[];
+  // Transparency: this is a static readiness check, not a live model handshake.
+  note: string;
+}
+
+// Test a stationed runtime's connection. Honest scope: a STATIC readiness check
+// (stationed, is-a-runtime, declares an override mechanism, required config set)
+// — not a live model round-trip, which needs the fitting installed + the runtime
+// bridge spawned (that happens when the operative starts). The note says so.
+export async function testRuntimeConnection(
+  compositionId: string | undefined,
+  fittingId: string
+): Promise<RuntimeTestResult> {
+  const id = await resolveCompositionId(compositionId);
+  const composition = await readComposition(id);
+  const library = await readLibrary();
+  const entry = library.find((e) => e.id === fittingId);
+  const selection = (composition.selections.runtimes ?? []).find((s) => s.id === fittingId);
+
+  const checks: RuntimeCheck[] = [];
+  checks.push({
+    label: "Stationed",
+    ok: Boolean(selection),
+    detail: selection ? undefined : "not stationed in the runtimes slot"
+  });
+  checks.push({
+    label: "Is a runtime",
+    ok: Boolean(entry && providesKind(entry, "runtime")),
+    detail: entry ? (providesKind(entry, "runtime") ? undefined : "does not provide kind:runtime") : "fitting not found"
+  });
+  const mechanism = entry?.metadata.provider_mechanism;
+  checks.push({
+    label: "Override mechanism",
+    ok: Boolean(mechanism),
+    detail: mechanism ? mechanism.type : "no provider_mechanism declared"
+  });
+  const config = selection?.config ?? {};
+  const missing = (entry?.metadata.config_schema ?? [])
+    .filter((f) => f.required)
+    .filter((f) => config[f.key] === undefined || config[f.key] === "");
+  checks.push({
+    label: "Required config set",
+    ok: missing.length === 0,
+    detail: missing.length ? `missing: ${missing.map((f) => f.key).join(", ")}` : undefined
+  });
+
+  return {
+    fittingId,
+    ok: checks.every((c) => c.ok),
+    checks,
+    note: "Static readiness check (stationing, runtime kind, override mechanism, required config). A live model handshake runs when the operative starts."
+  };
 }

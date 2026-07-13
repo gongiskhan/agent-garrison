@@ -671,6 +671,524 @@
   box-shadow: 0 8px 20px rgba(24, 33, 28, 0.18);
 }
 
+/* ═══ Standing Fittings section (S5b) ═══════════════════════════════════════
+   The non-duty half of Muster: infrastructure faculty slots. Same theme tokens,
+   sharp corners, sage=set/primary, brass=labels, alarm=orphan. Every control
+   holds a >=44px target; the grid collapses to one column at 640px. */
+.standingGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 10px;
+}
+.slotCard {
+  border: 1px solid var(--rule);
+  background: white;
+  display: flex;
+  flex-direction: column;
+}
+.slotHead {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.slotHeadTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.slotName {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+}
+.slotCardinality {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+  border: 1px solid var(--rule);
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+.slotRole {
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.45;
+  margin: 5px 0 0;
+}
+
+.slotFittings {
+  display: flex;
+  flex-direction: column;
+}
+.fittingBlock {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.fittingBlock:last-child {
+  border-bottom: none;
+}
+.fittingHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fittingName {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.shapeTag,
+.cloneTag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--rule);
+  color: var(--mute);
+  background: var(--paper);
+}
+.cloneTag {
+  color: var(--brass);
+  border-color: var(--brass);
+  background: transparent;
+}
+.primaryTag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+.healthPip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.healthDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mute-2);
+  flex-shrink: 0;
+}
+.healthPip.up .healthDot {
+  background: var(--sage-2);
+}
+.healthPip.down .healthDot {
+  background: var(--alarm);
+}
+
+/* config form (config_schema-driven; mirrors the Compose ConfigInput branches) */
+.configForm {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.cfgField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cfgLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--ink-mute);
+}
+.cfgControl {
+  min-height: 44px;
+  padding: 8px 11px;
+  font-size: 12.5px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  width: 100%;
+}
+.cfgControl:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.cfgCheckRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.cfgCheckRow input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--sage);
+}
+.cfgCheckVal {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  color: var(--mute);
+}
+.cfgHint {
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.4;
+}
+.cfgEmpty {
+  font-size: 11px;
+  color: var(--mute);
+  font-style: italic;
+  margin-top: 8px;
+}
+
+/* runtime controls (primary + test) */
+.runtimeControls {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.primaryBtn {
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.primaryBtn:hover:not(:disabled) {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.primaryBtn:disabled {
+  cursor: default;
+  border-color: var(--sage);
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+.testBtn {
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.testBtn:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+.testResult {
+  flex-basis: 100%;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 9px 11px;
+  margin-top: 2px;
+}
+.checkRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.checkMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-weight: 700;
+  width: 12px;
+  flex-shrink: 0;
+}
+.checkRow.ok .checkMark {
+  color: var(--sage);
+}
+.checkRow.bad .checkMark {
+  color: var(--alarm);
+}
+.checkDetail {
+  color: var(--mute);
+}
+.testNote {
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.45;
+  margin: 7px 0 0;
+  font-style: italic;
+}
+
+/* empty slot + slot footer */
+.slotEmpty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--mute);
+  font-style: italic;
+}
+.slotFoot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.slotFootBtn {
+  min-height: 44px;
+  padding: 7px 12px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.slotFootBtn:hover {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+
+/* orphan banner (reference-loss offer) */
+.orphanBanner {
+  border: 1px solid rgba(155, 54, 45, 0.35);
+  background: var(--alarm-soft);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.orphanHead {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--alarm);
+  margin: 0 0 8px;
+}
+.orphanRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 7px 0;
+  border-top: 1px solid rgba(155, 54, 45, 0.18);
+}
+.orphanRowText {
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.45;
+  min-width: 0;
+}
+.orphanRowText b {
+  color: var(--alarm);
+}
+.orphanBtns {
+  display: flex;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.orphanBtn {
+  min-height: 40px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.orphanBtn.remove {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+.orphanBtn.remove:hover {
+  background: white;
+  box-shadow: inset 0 0 0 1px var(--alarm);
+}
+.orphanBtn.keep:hover {
+  border-color: var(--ink);
+}
+
+/* picker + create-runtime modal */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 33, 28, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+.modal {
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  width: min(560px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(24, 33, 28, 0.3);
+}
+.modalHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+.modalTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--ink);
+}
+.modalSub {
+  font-size: 11px;
+  color: var(--mute);
+  margin-top: 3px;
+}
+.modalClose {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--mute);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.modalClose:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.pickerSearch {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  font-family: inherit;
+}
+.pickerSearch:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.pickerList {
+  overflow-y: auto;
+  padding: 10px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.pickerItem {
+  border: 1px solid var(--rule-2);
+  background: white;
+  padding: 11px 13px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 44px;
+}
+.pickerItem:hover {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.pickerItem.current {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.pickerItemTop {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pickerItemName {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.pickerItemSummary {
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.45;
+}
+.pickerEmpty {
+  padding: 20px 16px 24px;
+  text-align: center;
+  color: var(--mute);
+  font-size: 12.5px;
+}
+.newIdRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 16px 0;
+}
+.modalError {
+  margin: 10px 16px 0;
+  font-size: 11.5px;
+  color: var(--alarm);
+  line-height: 1.45;
+}
+.modalFoot {
+  padding: 14px 16px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .standingGrid {
+    grid-template-columns: 1fr;
+  }
+  .modalBackdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+  .modal {
+    width: 100%;
+    max-height: 100vh;
+    border: none;
+  }
+  .orphanRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .orphanBtns {
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slotFootBtn,
+  .primaryBtn,
+  .testBtn,
+  .pickerItem {
+    transition: none;
+  }
+}
+
 /* ── mobile collapse (<= 640px): single column, no horizontal overflow ──── */
 @media (max-width: 640px) {
   .wrap {

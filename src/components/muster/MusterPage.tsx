@@ -19,6 +19,7 @@ import {
 } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { AddDuty, DutyList, MusterHeader, TargetsTray } from "./MusterView";
+import { StandingFittings } from "./StandingFittings";
 import type { DutyEffort, MusterActions, MusterModel } from "./types";
 import styles from "./Muster.module.css";
 
@@ -272,6 +273,8 @@ export function MusterPage() {
             <TargetsTray model={model} actions={actions} />
             <DutyList model={model} actions={actions} />
           </section>
+
+          <StandingFittings compositionId={model.compositionId} />
         </div>
 
         <DragOverlay>
