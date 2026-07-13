@@ -140,4 +140,26 @@ describe("seed Fittings", () => {
     }
     expect(result.ok).toBe(true);
   });
+
+  // Determinism ratchet (codex S3f2 finding): every fitting selected by the
+  // default composition MUST be registered in data/library.json — the runtime
+  // filters selections through the library (validateCompositionSelections throws
+  // "Unknown fitting"), so an unregistered selection is silently dropped and the
+  // composition never resolves. This catches the "new seed fitting created but
+  // not registered" gap for the whole run's new fittings, not just identity.
+  it("every fitting selected by the default composition is registered in the library", async () => {
+    const fs = await import("node:fs");
+    const yaml = await import("js-yaml");
+    const compManifest = yaml.load(
+      fs.readFileSync(path.resolve(__dirname, "..", "compositions", "default", "apm.yml"), "utf8")
+    ) as { "x-garrison"?: { composition?: { selections?: Record<string, Array<{ id: string }>> } } };
+    const library = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, "..", "data", "library.json"), "utf8")
+    ) as Array<{ id: string }>;
+    const registered = new Set(library.map((e) => e.id));
+    const selections = compManifest["x-garrison"]?.composition?.selections ?? {};
+    const selectedIds = Object.values(selections).flat().map((s) => s.id);
+    const missing = selectedIds.filter((id) => !registered.has(id));
+    expect(missing).toEqual([]);
+  });
 });
