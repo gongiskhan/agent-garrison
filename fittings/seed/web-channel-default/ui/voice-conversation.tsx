@@ -31,6 +31,10 @@ export interface VoiceConversationProps {
 
 interface VoiceHealth { available: boolean; keyConfigured?: boolean }
 
+// If a voice send produces no settled reply within this window, recover the
+// state machine rather than deadlock in `sending` (codex S6b finding).
+const SENDING_TIMEOUT_MS = 30000;
+
 export function VoiceConversation(props: VoiceConversationProps) {
   const supported = useMemo(() => isCaptureSupported(), []);
   const [ctx, setCtx] = useState<VoiceCtx>(() => initialCtx());
@@ -46,6 +50,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
   const latencyRef = useRef(new LatencyTracker());
   const playbackCtxRef = useRef<AudioContext | null>(null);
   const awaitingReplyRef = useRef(false);
+  const sendTimeoutRef = useRef<number | null>(null);
   const consumedReplyIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const runEffectRef = useRef<(eff: VoiceEffect) => void>(() => {});
@@ -157,6 +162,19 @@ export function VoiceConversation(props: VoiceConversationProps) {
         awaitingReplyRef.current = true;
         setError(null);
         props.send(eff.text);
+        // Deadlock guard (codex S6b finding): the chat only feeds a NEW settled
+        // lastReply for non-empty assistant text, so a voice turn whose reply is
+        // empty/missing would leave the machine stuck in `sending` forever. Arm a
+        // timeout that, if no reply settles, dispatches an empty REPLY_READY —
+        // which the machine handles by re-arming the mic (→ listening). Cleared
+        // when a real reply lands or the machine leaves `sending`.
+        if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current);
+        sendTimeoutRef.current = window.setTimeout(() => {
+          if (awaitingReplyRef.current && ctxRef.current.state === "sending") {
+            awaitingReplyRef.current = false;
+            dispatchRef.current({ type: "REPLY_READY", text: "" });
+          }
+        }, SENDING_TIMEOUT_MS);
         break;
       case "start-tts":
         startPlayback(eff.text);
@@ -178,14 +196,30 @@ export function VoiceConversation(props: VoiceConversationProps) {
     consumedReplyIdRef.current = r.id;
     if (!awaitingReplyRef.current) return;
     awaitingReplyRef.current = false;
+    if (sendTimeoutRef.current) { window.clearTimeout(sendTimeoutRef.current); sendTimeoutRef.current = null; }
     latencyRef.current.mark("reply_ready");
     dispatchRef.current({ type: "REPLY_READY", text: r.text });
   }, [props.lastReply?.id, props.lastReply?.text]);
+
+  // Release the playback AudioContext when the machine returns to idle (STOP) —
+  // not only on unmount (codex S6b finding: STOP left the context open, holding
+  // the mobile audio session across a start→stop→start cycle). ensurePlaybackCtx
+  // recreates it on the next start.
+  useEffect(() => {
+    if (ctx.state !== "idle") return;
+    if (sendTimeoutRef.current) { window.clearTimeout(sendTimeoutRef.current); sendTimeoutRef.current = null; }
+    awaitingReplyRef.current = false;
+    if (playbackCtxRef.current) {
+      try { void playbackCtxRef.current.close(); } catch {}
+      playbackCtxRef.current = null;
+    }
+  }, [ctx.state]);
 
   // Teardown on unmount.
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      if (sendTimeoutRef.current) { try { window.clearTimeout(sendTimeoutRef.current); } catch {} }
       try { captureRef.current?.stop(); } catch {}
       try { ttsRef.current?.stop(); } catch {}
       if (playbackCtxRef.current) { try { void playbackCtxRef.current.close(); } catch {} }
