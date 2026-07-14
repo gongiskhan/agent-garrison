@@ -171,6 +171,7 @@ function Card({
   onInfer,
   onDiscuss,
   onRevert,
+  onContinue,
   busy
 }: {
   card: CardSummary;
@@ -182,6 +183,7 @@ function Card({
   onInfer: (c: CardSummary) => void;
   onDiscuss: (c: CardSummary) => void;
   onRevert: (c: CardSummary) => void;
+  onContinue: (c: CardSummary) => void;
   busy: boolean;
 }) {
   // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
@@ -363,6 +365,13 @@ function Card({
         ) : (
           <button className="btn small" onClick={() => onWatch(card)}>
             <WatchIcon /> Watch
+          </button>
+        )}
+        {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
+            seeded from this card's handoff packet. */}
+        {list.terminal && (
+          <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => onContinue(card)}>
+            <PlayIcon /> Continue
           </button>
         )}
         <button className="btn small" onClick={() => onOpen(card)}>
@@ -1558,6 +1567,35 @@ function App() {
     }
   }
 
+  // WS2 (D7): continue a DONE card's work in one click — create a successor card
+  // (continues=<id>, its prompt seeded from the predecessor's handoff packet) and
+  // move it to plan so the run dispatches. A fresh backlog card is not engine-owned,
+  // so the human move to plan is allowed and auto-dispatches.
+  async function onContinue(card: CardSummary) {
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      const created = await api.create({
+        continues: card.id,
+        title: `Continue: ${card.title || "(untitled)"}`,
+        project: card.project ?? undefined
+      });
+      const newId = created.card.id;
+      try {
+        await api.patch(newId, { list: "plan", rev: created.card.rev });
+      } catch {
+        /* the move raced (project inference bumped the rev) — the card stays in
+           Backlog; the user can move it to To Do. Never fail the whole action. */
+      }
+      await load();
+      setNotice(`Continuation created${newId ? ` (${newId.slice(-6)})` : ""}`);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyCard(null);
+    }
+  }
+
   // Open a James-mode Discuss session seeded with this card. buildDiscussUrl carries
   // the card context + an auto-sent kickoff (analyse the description, ask questions,
   // write the brief). Crossing fittings: the board runs embedded (/embed/kanban-loop),
@@ -1692,6 +1730,7 @@ function App() {
                       }}
                       onWatch={(c) => setOverlay({ kind: "watch", card: c })}
                       onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                      onContinue={onContinue}
                     />
                   );
                   // D19: the Done column groups quick cards (trivial-plan inline tasks)

@@ -307,7 +307,7 @@ export const api = {
   // Title is optional — the server infers it from the description when blank.
   // workKind + phases (D17): the policy phase plan this run follows and the
   // per-card toggle map (false = OFF, recorded off, never silent).
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean> }) =>
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; continues?: string }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
   // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
   // phase plans, bindings) for the card-create UI. 404 → no policy compiled.

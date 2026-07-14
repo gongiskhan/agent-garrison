@@ -36,3 +36,15 @@ x-garrison:
     its own); remote outpost sessions connect over HTTP MCP instead. Hosts the
     garrison-control tool set (present when GARRISON_HTTP_GATEWAY_BASE_URL is
     set): talk_to, wait_for, list_active_sessions, end_session, list_workdirs.
+
+    Kanban run-engine tools (WS2, present when the kanban-loop board is live at
+    ~/.garrison/ui-fittings/kanban-loop.json):
+      - fetch_evidence(card_id, artifact_ref): pull one card artifact (raw text,
+        capped ~50KB) by its opaque ref token (plan | brief | evidenceIndex |
+        gateMarkers | evidence:<file> | session:<i> | log:<n>). Pull, not push.
+      - create_continuation(card_id, title?, description?): register a successor
+        card (continues=<card_id>, moved to plan) whose prompt is seeded from the
+        predecessor's handoff packet; returns { id, url }.
+    NOTE: "continuation" here is CARD CHAINING (one card continues another's work),
+    DISTINCT from the Orchestrator policy's post-task "continuations" vocabulary
+    (store|ask|route|notify steps by output kind).

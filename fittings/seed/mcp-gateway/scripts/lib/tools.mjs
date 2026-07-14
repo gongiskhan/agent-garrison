@@ -50,6 +50,102 @@ export async function callRunAutomation(input) {
   return { runId: run.id, status: run.status, steps: run.steps?.map((s) => ({ type: s.type, status: s.status })) ?? [] };
 }
 
+// ── Kanban run-engine tools (own-port REST, WS2) ────────────────────────────
+// The kanban-loop board registers its live URL in ~/.garrison/ui-fittings/
+// kanban-loop.json (same discovery contract as the http-gateway's boardBase).
+// fetch_evidence pulls a card's artifact (raw bytes) and create_continuation
+// registers a chained successor card. This is CARD CHAINING — distinct from the
+// Orchestrator policy's post-task "continuations" (store|ask|route|notify).
+function kanbanBaseUrl() {
+  try {
+    const home = process.env.GARRISON_HOME ?? path.join(os.homedir(), ".garrison");
+    const status = JSON.parse(readFileSync(path.join(home, "ui-fittings", "kanban-loop.json"), "utf8"));
+    return status.url || (status.port ? `http://127.0.0.1:${status.port}` : null);
+  } catch {
+    return null;
+  }
+}
+
+export function kanbanAvailable() {
+  return kanbanBaseUrl() !== null;
+}
+
+const EVIDENCE_CAP_BYTES = 50 * 1024;
+
+// GET <board>/cards/:id/artifact?ref=... — the board serves RAW file bytes (not
+// JSON), so read text and cap it with a truncation note.
+export async function callFetchEvidence(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const cardId = input?.card_id;
+  const ref = input?.artifact_ref;
+  if (!cardId || !ref) throw new Error("fetch_evidence requires card_id and artifact_ref");
+  const url = `${base}/cards/${encodeURIComponent(cardId)}/artifact?ref=${encodeURIComponent(ref)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`fetch_evidence ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const text = await res.text();
+  if (text.length > EVIDENCE_CAP_BYTES) {
+    return {
+      card_id: cardId,
+      ref,
+      truncated: true,
+      bytes: text.length,
+      content: text.slice(0, EVIDENCE_CAP_BYTES) + `\n\n…[truncated at ${EVIDENCE_CAP_BYTES} bytes of ${text.length}]`
+    };
+  }
+  return { card_id: cardId, ref, truncated: false, bytes: text.length, content: text };
+}
+
+// POST <board>/cards {continues, ...} + engine-context PATCH to plan (mirrors the
+// http-gateway's createAutonomousCard move-with-rev-retry). Returns {id, url}.
+export async function callCreateContinuation(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const cardId = input?.card_id;
+  if (!cardId) throw new Error("create_continuation requires card_id");
+  const payload = { continues: cardId, origin: "continuation", goalMode: true };
+  if (typeof input.title === "string" && input.title.trim()) payload.title = input.title.trim();
+  if (typeof input.description === "string" && input.description) payload.description = input.description;
+  const created = await fetch(`${base}/cards`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!created.ok) {
+    const t = await created.text().catch(() => "");
+    throw new Error(`create_continuation create ${created.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await created.json();
+  const id = doc.id || doc.card?.id;
+  if (!id) throw new Error("create_continuation: board returned no id");
+  // Move to plan (engine-context move). The create-rev goes stale immediately for a
+  // no-project card (project inference bumps it), so retry on any failed move.
+  let rev = doc.rev ?? doc.card?.rev ?? 0;
+  let movedOk = false;
+  for (let attempt = 0; attempt < 3 && !movedOk; attempt++) {
+    const moved = await fetch(`${base}/cards/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-garrison-engine": "mcp-gateway" },
+      body: JSON.stringify({ list: "plan", rev })
+    });
+    if (moved.ok) { movedOk = true; break; }
+    try {
+      const fresh = await fetch(`${base}/cards/${encodeURIComponent(id)}`);
+      if (fresh.ok) {
+        const f = await fresh.json();
+        rev = f.card?.rev ?? f.rev ?? rev;
+        if ((f.card?.list ?? f.list) === "plan") { movedOk = true; break; }
+      }
+    } catch { /* retry with the old rev */ }
+    await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+  }
+  const url = `${base}/#/cards/${id}`;
+  return { id, url, moved: movedOk, list: movedOk ? "plan" : "backlog" };
+}
+
 function resolveScript(fittingId, scriptName) {
   return path.join(COMPOSITION_DIR, "apm_modules", "_local", fittingId, "scripts", scriptName);
 }

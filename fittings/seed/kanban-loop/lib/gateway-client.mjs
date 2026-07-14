@@ -245,10 +245,16 @@ export function gatewayRunFn(gatewayUrl) {
       e.transport = true;
       throw e;
     }
-    // Return the reply text, the per-turn route metadata (null in souls mode), AND the
-    // per-turn context telemetry (null when none flowed). The shape stays an object every
-    // call site already destructures (`out?.reply`), so adding `route`/`context` is inert
-    // for callers that ignore them.
-    return { reply: done.reply ?? done.text ?? "", route: routeFromDone(done), context: contextFromDone(done) };
+    // Return the reply text, the per-turn route metadata (null in souls mode), the
+    // per-turn context telemetry (null when none flowed), AND the operative session id
+    // (WS2 — the engine appends it to card.sessionIds so transcript links resolve). The
+    // shape stays an object every call site already destructures (`out?.reply`), so the
+    // extra fields are inert for callers that ignore them.
+    return {
+      reply: done.reply ?? done.text ?? "",
+      route: routeFromDone(done),
+      context: contextFromDone(done),
+      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : null
+    };
   };
 }

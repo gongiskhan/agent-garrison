@@ -32,7 +32,10 @@ import {
   automationsAvailable,
   callListAutomations,
   callRunAutomation,
-  callRecordImproverFeedback
+  callRecordImproverFeedback,
+  kanbanAvailable,
+  callFetchEvidence,
+  callCreateContinuation
 } from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
@@ -85,6 +88,41 @@ async function discoverTools() {
             inputs: { type: "object", description: "Values for the automation's declared inputs." }
           },
           required: ["id"]
+        }
+      }
+    );
+  }
+
+  // Kanban run-engine tools (WS2 — CARD CHAINING). Gated on the board being live
+  // (~/.garrison/ui-fittings/kanban-loop.json). Distinct from the Orchestrator
+  // policy's post-task "continuations" (store|ask|route|notify).
+  if (kanbanAvailable()) {
+    tools.push(
+      {
+        name: "fetch_evidence",
+        description:
+          "Pull one artifact from a done/running card by its opaque ref token (from a card's evidence manifest or handoff packet): plan | brief | evidenceIndex | gateMarkers | evidence:<file> | session:<i> | log:<n>. Returns the raw text (capped ~50KB). Pull, not push — fetch only what you need.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card_id: { type: "string", description: "The card ULID that owns the artifact." },
+            artifact_ref: { type: "string", description: "The opaque ref token (e.g. 'plan', 'log:2', 'evidence:after.png')." }
+          },
+          required: ["card_id", "artifact_ref"]
+        }
+      },
+      {
+        name: "create_continuation",
+        description:
+          "Register a CONTINUATION card that continues a predecessor card's work (card chaining). Creates the card with continues=<card_id> and moves it to plan; the successor's prompt is seeded from the predecessor's handoff packet. Returns { id, url }.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card_id: { type: "string", description: "The predecessor card ULID to continue." },
+            title: { type: "string", description: "Optional title (default 'Continue: <predecessor title>')." },
+            description: { type: "string", description: "Optional description / the next work to do." }
+          },
+          required: ["card_id"]
         }
       }
     );
@@ -186,6 +224,8 @@ async function dispatchTool(name, input) {
   if (name === "record_improver_feedback") return callRecordImproverFeedback(input);
   if (name === "list_automations") return callListAutomations(input);
   if (name === "run_automation") return callRunAutomation(input);
+  if (name === "fetch_evidence") return callFetchEvidence(input);
+  if (name === "create_continuation") return callCreateContinuation(input);
   if (name === "talk_to") return callTalkTo(input);
   if (name === "wait_for") return callWaitFor(input);
   if (name === "list_active_sessions") return callListActiveSessions(input);

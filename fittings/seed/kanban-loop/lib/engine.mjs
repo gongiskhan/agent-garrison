@@ -22,7 +22,7 @@
 // scheduler-beat) so tick() only processes immediate agent lists; Test
 // batching preserved as list mechanics (batched + its own beat).
 import path from "node:path";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { saveCard, saveCardCAS, appendCardLog, writeCardLog, loadAllCards, loadCard, updateCardCAS } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
@@ -195,6 +195,53 @@ export function readCardBrief(root, cardId, max = 6000) {
   } catch {
     return null;
   }
+}
+
+// WS2 (D7): a continuation card's starting-context block, read FRESH at dispatch
+// from the predecessor's handoff.json (like readCardBrief). Inlines the completion
+// summary + decisions + files + a manifest of fetchable evidence refs + the chain,
+// and instructs the operative to pull deeper artifacts via fetch_evidence. Returns
+// null (prompt omits the block) when there is no continuation or no handoff yet.
+export function buildContinuationContext(root, card) {
+  if (!root || !card || typeof card.continues !== "string" || !card.continues) return null;
+  let packet;
+  try {
+    const p = path.join(root, "cards", card.continues, "handoff.json");
+    if (!existsSync(p)) return null;
+    packet = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+  if (!packet || typeof packet !== "object") return null;
+  const lines = [`## Continuing from ${packet.cardId || card.continues}${packet.title ? ` - ${packet.title}` : ""}`, ""];
+  // Cap the inline summary: the lastReply fallback path is uncapped upstream, and
+  // the successor's fresh context must stay fresh (pull deeper detail on demand).
+  if (packet.completionSummary) lines.push("Predecessor completion summary:", String(packet.completionSummary).slice(0, 2000), "");
+  if (Array.isArray(packet.keyDecisions) && packet.keyDecisions.length) {
+    lines.push("Key decisions carried forward:");
+    for (const d of packet.keyDecisions.slice(0, 20)) lines.push(`- ${d}`);
+    lines.push("");
+  }
+  if (Array.isArray(packet.filesTouched) && packet.filesTouched.length) {
+    lines.push("Files the predecessor touched:");
+    for (const f of packet.filesTouched.slice(0, 40)) lines.push(`- ${f}`);
+    lines.push("");
+  }
+  if (Array.isArray(packet.evidenceManifest) && packet.evidenceManifest.length) {
+    lines.push(`Predecessor evidence you can pull on demand via the garrison-control tool fetch_evidence("${card.continues}", <ref>):`);
+    for (const e of packet.evidenceManifest.slice(0, 40)) lines.push(`- ${e.ref}: ${e.oneLiner}`);
+    lines.push("");
+  }
+  if (Array.isArray(packet.chainIndex) && packet.chainIndex.length) {
+    lines.push("Predecessor chain (oldest first):");
+    for (const c of packet.chainIndex.slice(-20)) lines.push(`- ${c.cardId}${c.title ? ` (${c.title})` : ""}: ${c.oneLiner || ""}`);
+    lines.push("");
+  }
+  lines.push(
+    `Deeper artifacts are pull, not push: fetch them from predecessor ${card.continues} with ` +
+      `fetch_evidence("${card.continues}", "<ref>") using the refs above — do not assume anything not listed here.`
+  );
+  return lines.join("\n");
 }
 
 const AGENT_KIND = "agent";
@@ -400,7 +447,7 @@ export function parseNextList(routerOutput, validNext) {
 // next-list ids are injected so the router output can exact-match. D15: the per-list
 // mode line is GONE (mode is the gateway's job); the executing skill is resolved from
 // the compiled policy and named explicitly (the phase-skill binding, D3).
-export function buildCardPrompt({ list, card, validNext, discussionContext = null, skill = null, phase = null, coordinationEnabled = false }) {
+export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, skill = null, phase = null, coordinationEnabled = false }) {
   const parts = [];
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
@@ -430,6 +477,12 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
       "",
       String(discussionContext).trim()
     );
+  }
+  // WS2 (D7): a continuation card's starting context — the predecessor's completion
+  // summary, decisions, files, and a manifest of fetchable evidence refs (pull, not
+  // push). Pre-formatted by buildContinuationContext.
+  if (continuationContext && String(continuationContext).trim()) {
+    parts.push("", String(continuationContext).trim());
   }
   parts.push("");
   // Thread the per-run pointers so the phase skill writes its plan/gate files
@@ -535,6 +588,85 @@ export function focusContextForCard(card, phase) {
     files_touched: fences.length ? fences.join(", ") : card.runDir ? String(card.runDir) : "",
     steering: ""
   };
+}
+
+// Best-effort read of the phase's durable gate record summary/notes (WS2). Tries
+// the three accepted shapes: <runDir>/gate-status.<phase>.json (sidecar), the
+// run-level gate-status.json gates{<phase>}, and slices/<sliceId>/gate-status.json.
+// Returns the first non-empty summary|notes string, or null. Never throws.
+export function readGateSummary(cwd, runDir, phase, sliceId = null) {
+  if (!runDir || !phase) return null;
+  const abs = (rel) => path.resolve(cwd || process.cwd(), runDir, rel);
+  const readJson = (p) => {
+    try {
+      if (!existsSync(p)) return null;
+      return JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const pick = (rec) => {
+    if (!rec || typeof rec !== "object") return null;
+    const s = typeof rec.summary === "string" && rec.summary.trim() ? rec.summary.trim() : null;
+    const n = typeof rec.notes === "string" && rec.notes.trim() ? rec.notes.trim() : null;
+    return s || n || null;
+  };
+  const sidecar = readJson(abs(`gate-status.${phase}.json`));
+  if (pick(sidecar)) return pick(sidecar);
+  const runLevel = readJson(abs("gate-status.json"));
+  if (runLevel?.gates && typeof runLevel.gates === "object" && pick(runLevel.gates[phase])) return pick(runLevel.gates[phase]);
+  if (sliceId && /^[A-Za-z0-9._-]{1,128}$/.test(sliceId)) {
+    const sliceRec = readJson(abs(path.join("slices", sliceId, "gate-status.json")));
+    if (sliceRec?.gates && typeof sliceRec.gates === "object" && pick(sliceRec.gates[phase])) return pick(sliceRec.gates[phase]);
+    if (pick(sliceRec)) return pick(sliceRec);
+  }
+  return null;
+}
+
+// WS2 duty summary standard (D6): at every genuine advance the ENGINE writes a
+// durable per-duty record it owns (the operative self-attests the gate record; this
+// is the engine's own rollup) under <runDir>/duty-summary.<phase>.json. runDir may be
+// null for a card that never minted run fields — skip silently. Best-effort; never
+// throws, never affects the advance.
+export function writeDutySummary(cwd, { card, phase, listFrom, listTo, summary, logRef, gateSummary, context, now }) {
+  try {
+    if (!card?.runDir || !phase) return null;
+    const dir = path.resolve(cwd || process.cwd(), card.runDir);
+    const record = {
+      cardId: card.id,
+      phase,
+      level: card.level ?? null,
+      at: typeof now === "function" ? now() : new Date().toISOString(),
+      listFrom: listFrom ?? null,
+      listTo: listTo ?? null,
+      summary: typeof summary === "string" ? summary.slice(0, 1200) : null,
+      logRef: logRef ?? null,
+      gateSummary: gateSummary ?? null,
+      context: context ?? null
+    };
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `duty-summary.${phase}.json`);
+    const tmp = `${file}.tmp-${process.pid}`;
+    writeFileSync(tmp, JSON.stringify(record, null, 2), "utf8");
+    // rename is atomic on the same fs; fall back to the direct write if it races.
+    try {
+      renameSync(tmp, file);
+    } catch {
+      writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
+    }
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+// Append a session id to the card's sessionIds uniquely (WS2 — the E4 dead field).
+// The gateway's done frame carries the operative session id; appending it makes the
+// session:<i> transcript ref resolvable. Pure; returns the next array.
+export function appendSessionId(sessionIds, sessionId) {
+  const list = Array.isArray(sessionIds) ? sessionIds.slice() : [];
+  if (typeof sessionId === "string" && sessionId && !list.includes(sessionId)) list.push(sessionId);
+  return list;
 }
 
 // Fire the gateway's duty-boundary compact check (S1b) after a card advances a
@@ -762,7 +894,8 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // Fold the Discuss brief (if any) into the prompt so every downstream phase builds
   // from the agreed direction the discussion settled on.
   const discussionContext = readCardBrief(root, runningCard.id);
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, skill, phase, coordinationEnabled: coordActive });
+  const continuationContext = buildContinuationContext(root, runningCard);
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, skill, phase, coordinationEnabled: coordActive });
   // Explicit policy-derived classification (phase = taskType, card tier). A
   // missing/unreadable policy degrades to classifier routing (null) — never
   // blocks a card.
@@ -864,6 +997,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // compactions } off the gateway `done` frame, null when none flowed. Stamped onto
   // the routed event so per-duty context lands on the card timeline. Never load-bearing.
   const contextMeta = out?.context && typeof out.context === "object" ? out.context : null;
+  // WS2: record the operative session id (the E4 dead field) so transcript refs
+  // resolve. Mutating runningCard.sessionIds propagates to every target below (each
+  // built via ...runningCard); uniquely appended so a re-run never double-stamps.
+  runningCard.sessionIds = appendSessionId(runningCard.sessionIds, out?.sessionId);
   // Final clean log (overwrites any partial live-streamed content with the
   // authoritative reply the operative returned).
   await writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${reply}\n`);
@@ -1223,6 +1360,21 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   const res = await saveCardCAS(root, target, runRev, now());
   if (!res.ok) return { card: res.card, outcome: { status: "needs-attention", reason: "conflict-during-run" } };
+  // WS2 duty summary (D6): on a genuine advance the engine writes its own per-duty
+  // rollup under the run dir (best-effort; skips when runDir is null).
+  if (outcome?.status === "moved") {
+    writeDutySummary(cwd, {
+      card: res.card ?? runningCard,
+      phase,
+      listFrom: card.list,
+      listTo: outcome.to,
+      summary: replyText,
+      logRef: `log:${iteration}`,
+      gateSummary: readGateSummary(cwd, runningCard.runDir, phase, runningCard.sliceId),
+      context: contextMeta,
+      now
+    });
+  }
   // S1b duty boundary: the duty just completed and advanced — ask the gateway to
   // compact if needed (holds discharge here). After the CAS so the advance is
   // committed; best-effort so it never affects the outcome.
@@ -1515,6 +1667,21 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   }
   const res = await saveCardCAS(root, target, card.rev ?? 0, now());
   if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+  // WS2 duty summary parity: the in-session driver has no fresh reply/context, so the
+  // summary falls back to the card's lastReply and the log ref to its last iteration.
+  if (outcome?.status === "moved") {
+    writeDutySummary(cwd, {
+      card: res.card ?? card,
+      phase,
+      listFrom: card.list,
+      listTo: outcome.to,
+      summary: typeof card.lastReply === "string" ? card.lastReply : null,
+      logRef: card.iterations ? `log:${card.iterations}` : null,
+      gateSummary: readGateSummary(cwd, card.runDir, phase, card.sliceId),
+      context: null,
+      now
+    });
+  }
   // S1b duty boundary parity with the dispatched path — after the CAS commit.
   await fireDutyBoundary(onDutyBoundary, res.card ?? card, phase, outcome);
   for (const bw of blockerWrites) {

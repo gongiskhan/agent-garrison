@@ -18,7 +18,7 @@
 // them without a live socket.
 
 import { createReadStream, existsSync, statSync, accessSync, realpathSync, readFileSync, readdirSync, constants as fsConstants } from "node:fs";
-import { mkdir, readFile, unlink, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile, rm, appendFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -71,6 +71,16 @@ import { prepareRevert, executeRevert } from "../lib/fences.mjs";
 import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
+// WS2: the artifact-ref vocabulary lives in lib/links.mjs (shared with the handoff
+// packet generator). Re-exported below so existing importers (tests) keep working.
+import {
+  resolveArtifactRef,
+  isValidSliceId,
+  isSafeEvidenceName,
+  isEvidenceImage,
+  enumerateArtifactRefs
+} from "../lib/links.mjs";
+export { resolveArtifactRef, isValidSliceId, isSafeEvidenceName, isEvidenceImage };
 
 const FITTING_ID = "kanban-loop";
 const DEFAULT_PORT = 7089;
@@ -157,6 +167,8 @@ export function cardSummary(card) {
     duty: card.duty ?? null,
     level: card.level ?? null,
     sequence: Array.isArray(card.sequence) ? card.sequence : null,
+    // WS2 (D7): the predecessor card id this card continues (null for a fresh card).
+    continues: card.continues ?? null,
     // D19: a quick card is a trivial-plan task the gateway ran inline and
     // auto-advanced to Done. The Done column groups these under a collapsed
     // "quick tasks" strip, and they are never engine-owned (operator-touchable).
@@ -343,54 +355,8 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
   return links;
 }
 
-// resolveArtifactRef — the READ side. Given a card and an OPAQUE ref token, derive
-// the absolute path from the card's OWN stored pointers (NEVER from client input),
-// or null for an unknown/out-of-range ref. handleArtifact then confines + serves
-// it, so a client (which only ever names a card id + a fixed ref token) can read
-// ONLY the specific files THIS card points to — not an arbitrary absolute path.
-export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = projectRoot() } = {}) {
-  if (!card || typeof ref !== "string") return null;
-  if (ref === "plan") return card.runDir ? path.resolve(cwd, card.runDir, "FLOW_PLAN.md") : null;
-  // Card-scoped: each card mints its own runId, so the per-run evidence index lives
-  // under THIS card's run dir — not the shared project-global docs/autothing one.
-  if (ref === "evidenceIndex") return card.runDir ? path.resolve(cwd, card.runDir, "evidence-index.json") : null;
-  if (ref === "gateMarkers") {
-    // sliceId is client-editable → reject any value with separators/`..` so the
-    // read stays inside THIS card's run dir (a bad sliceId yields no ref).
-    return card.runDir && isValidSliceId(card.sliceId)
-      ? path.resolve(cwd, card.runDir, "slices", card.sliceId, "gate-status.json")
-      : null;
-  }
-  if (ref === "brief") {
-    // A legacy explicit briefPath (project-relative, e.g. briefs/<slug>.md) resolves
-    // against the project root; the card-owned marker (cards/<id>/brief.md — kanban-root
-    // relative) and the no-briefPath default both resolve to the deterministic
-    // card-owned file under the board root.
-    return card.briefPath && card.briefPath !== cardBriefRel(card.id)
-      ? path.resolve(cwd, card.briefPath)
-      : cardBriefFile(root, card.id);
-  }
-  // evidence:<filename> → <runDir>/evidence/<filename>. The name is guarded
-  // (isSafeEvidenceName: no separators, no `..`, no leading dot) so the read stays inside
-  // THIS card's evidence dir; handleArtifact re-confines the resolved path as well.
-  const em = ref.match(/^evidence:(.+)$/);
-  if (em) {
-    return card.runDir && isSafeEvidenceName(em[1])
-      ? path.resolve(cwd, card.runDir, "evidence", em[1])
-      : null;
-  }
-  const sm = ref.match(/^session:(\d+)$/);
-  if (sm) {
-    const sid = (Array.isArray(card.sessionIds) ? card.sessionIds : [])[Number(sm[1])];
-    return sid ? path.join(claudeProjectDirForCwd(cwd), `${sid}.jsonl`) : null;
-  }
-  const lm = ref.match(/^log:(\d+)$/);
-  if (lm) {
-    const n = Number(lm[1]);
-    return n >= 1 && n <= (card.iterations ?? 0) ? path.join(root, "cards", card.id, `log-${n}.md`) : null;
-  }
-  return null;
-}
+// resolveArtifactRef (the READ side: card + opaque ref token -> absolute path)
+// moved to lib/links.mjs and imported/re-exported at the top of this file.
 
 // One artifact pointer: { kind:"serve", ref, path:<abs>, url:"/cards/<id>/artifact?ref=…",
 // exists }. The url names the card + an OPAQUE ref token — NEVER an absolute path —
@@ -460,31 +426,8 @@ export function isValidCardId(id) {
   return typeof id === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
 }
 
-// A slice id is client-editable (PATCH) and flows into the gate-marker path
-// (<runDir>/slices/<sliceId>/gate-status.json), so it MUST NOT contain path
-// separators or `..`. Restrict to a safe filename grammar — a `/` or `..` would
-// otherwise steer the read to another run's (or any) gate-status.json file.
-export function isValidSliceId(s) {
-  return typeof s === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(s) && s !== "." && s !== "..";
-}
-
-// An evidence file name (under <runDir>/evidence/) flows into a served path, so it MUST
-// be a plain filename — no separators, no `..`, no leading dot. The first-char class
-// rejects ".", "..", and ".hidden"; the body allows only filename-safe chars, so a `/`
-// or `\` can never appear. Belt-and-suspenders: confinePath re-checks the resolved path.
-export function isSafeEvidenceName(s) {
-  return typeof s === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(s) && !s.includes("..");
-}
-
-// The image extensions the Evidence section renders inline as a thumbnail (everything
-// else — e.g. evidence.md / a .txt log — is surfaced as a link). SVG is deliberately
-// EXCLUDED: an SVG can carry script, and serving it as a navigable image/svg+xml
-// document on the board origin is a stored-XSS vector — evidence SVGs are served as an
-// inert download instead (see handleArtifact), so they never render inline.
-const EVIDENCE_IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
-export function isEvidenceImage(name) {
-  return EVIDENCE_IMAGE_EXT.has(path.extname(String(name || "")).toLowerCase());
-}
+// isValidSliceId / isSafeEvidenceName / isEvidenceImage moved to lib/links.mjs
+// (shared with the handoff generator) and imported/re-exported at the top.
 
 // A list id is client-editable (PATCH /lists/:listId) and flows into a board
 // lookup, so it MUST be a clean kebab token — no path separators or `..`. The
@@ -883,7 +826,10 @@ async function handleCreateCard(req, res, opts) {
     duty: typeof body.duty === "string" ? body.duty : null,
     level: Number.isInteger(body.level) ? body.level : null,
     sequence: Array.isArray(body.sequence) ? body.sequence : null,
-    outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null
+    outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null,
+    // WS2 (D7): a continuation card references its predecessor by ULID. createCard
+    // shape-validates it and stamps origin "continuation" when no origin is given.
+    continues: typeof body.continues === "string" ? body.continues : null
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
@@ -1592,6 +1538,12 @@ async function handleArtifact(req, res, opts, cardId, ref) {
   const confined = confinePath(absPath, allowedRoots(opts.cwd, opts.root));
   if (!confined) return jsonRes(res, 403, { error: "path outside allowed roots" });
   if (!isReadableFile(confined)) return jsonRes(res, 404, { error: "not a readable file" });
+  // WS2 (WS5 evidence dependency): append the fetch to the card's append-only fetch
+  // log. Fire-and-forget — a log-write failure must never affect the artifact serve.
+  void appendFile(
+    path.join(opts.root, "cards", cardId, "fetch-log.jsonl"),
+    JSON.stringify({ at: new Date().toISOString(), ref, ua: req.headers?.["user-agent"] || null }) + "\n"
+  ).catch(() => {});
   const ext = path.extname(confined).toLowerCase();
   const ct = {
     ".md": "text/markdown; charset=utf-8",

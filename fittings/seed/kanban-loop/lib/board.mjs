@@ -9,6 +9,7 @@ import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
 import { notifyOriginTransition } from "./notify-origin.mjs";
+import { generateHandoffIfDone } from "./handoff.mjs";
 
 export function kanbanRoot() {
   return process.env.GARRISON_KANBAN_DIR || path.join(os.homedir(), ".garrison", "kanban-loop");
@@ -68,8 +69,11 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, at = new Date().toISOString() }) {
   const id = ulid();
+  // WS2 (D7): a continuation card references its predecessor by ULID. When set and
+  // no explicit origin was given, the card's origin is "continuation".
+  const validContinues = typeof continues === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(continues) ? continues : null;
   const card = {
     id,
     title: title ?? "(untitled)",
@@ -90,7 +94,10 @@ export async function createCard(root, { title, description = "", project = null
     workKind: typeof workKind === "string" && workKind ? workKind : null,
     phases: phases && typeof phases === "object" ? phases : null,
     tier: typeof tier === "string" && tier ? tier : null,
-    origin: typeof origin === "string" && origin ? origin : null,
+    origin: typeof origin === "string" && origin ? origin : validContinues ? "continuation" : null,
+    // WS2 (D7): predecessor card id for a continuation (null for a fresh card). The
+    // engine reads the predecessor's handoff.json into the successor's prompt.
+    continues: validContinues,
     // The originating channel thread ({channel, threadId}) — where the engine
     // posts this card's outcome (done / needs-attention) back to. Absent for
     // board-created cards.
@@ -289,6 +296,9 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     // (engine, server PATCH, batch), so the edge fires exactly once per
     // outcome. Fire-and-forget — never delays or fails the write.
     notifyOriginTransition(disk, next);
+    // WS2 handoff packet: on the done edge, compose + write cards/<id>/handoff.json
+    // (deferred to the next tick, fully guarded — never blocks or fails this write).
+    generateHandoffIfDone(root, disk, next);
     return { ok: true, card: next };
   });
 }
