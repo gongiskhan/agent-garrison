@@ -34,6 +34,7 @@ describe("parseCompositionV4", () => {
             id: "develop",
             title: "Develop",
             description: "develop a change end to end",
+            context_hold: true,
             levels: [
               { description: "quick fix", cell: { skill: "implement", target: "fast", effort: "low" } },
               {
@@ -55,6 +56,9 @@ describe("parseCompositionV4", () => {
     expect(parsed.selectedDuties).toEqual(["develop", "review"]);
     expect(parsed.duties).toHaveLength(1);
     expect(parsed.duties[0].id).toBe("develop");
+    // S1b: the compact-controller hold survives the composition-inline parse
+    // (the schema previously stripped it as an undeclared key).
+    expect(parsed.duties[0].context_hold).toBe(true);
     expect(parsed.duties[0].levels[0].cell).toEqual({ skill: "implement", target: "fast", effort: "low" });
     expect(parsed.duties[0].levels[1].sequence).toEqual([
       { duty: "plan" },

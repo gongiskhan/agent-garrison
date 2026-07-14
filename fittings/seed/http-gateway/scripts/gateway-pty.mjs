@@ -222,14 +222,26 @@ async function readCompactLog(limit = 50) {
 }
 
 // Inject `/compact <focus>` into the operative and await the compaction. A generous
-// timeout (real compactions run 106-143s) overrides the 45s command default.
+// timeout (real compactions run 106-143s) overrides the 45s command default. Returns
+// the turn outcome so the controller can see claude's response (e.g. the
+// "Not enough messages to compact." refusal on very young sessions).
 async function injectCompactIntoOperative(line, timeoutMs) {
   const sess = operativeSessionForTelemetry();
   if (!sess || typeof sess.runTurn !== "function" || !sess.isAlive?.()) {
     throw new Error("no live operative session to compact");
   }
   const message = line ? `/compact ${line}` : "/compact";
-  await sess.runTurn({ message, timeoutMs: timeoutMs ?? COMPACT_TIMEOUT_MS });
+  const outcome = await sess.runTurn({ message, timeoutMs: timeoutMs ?? COMPACT_TIMEOUT_MS });
+  // Command results render as TUI output lines, not assistant text, so the reply
+  // may be empty — attach the visible screen tail so the controller can read
+  // claude's response to the command itself.
+  let screenTail = "";
+  try {
+    screenTail = captureLines(sess.handle).slice(-14).join("\n");
+  } catch {
+    /* screen unreadable — reply alone */
+  }
+  return { ...outcome, screenTail };
 }
 
 const compactController = createCompactController({

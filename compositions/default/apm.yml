@@ -71,6 +71,8 @@ x-garrison:
           config:
             port: 4777
             bind_host: 127.0.0.1
+            compact_enabled: true
+            compact_threshold_pct: 60
         - id: dispatcher
           config:
             dispatch_provider: ollama-local
@@ -252,6 +254,7 @@ x-garrison:
       - id: implement
         title: Implement
         description: Execute a planned change end to end.
+        context_hold: true
         levels:
           - description: 'carry a planned change end to end: code, verify, evidence'
             cell:

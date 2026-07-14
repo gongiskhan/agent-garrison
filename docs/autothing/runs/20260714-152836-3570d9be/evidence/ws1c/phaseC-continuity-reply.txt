@@ -1,0 +1,2 @@
+event: done
+data: {"reply":"Lisbon\n\n[route: cc-sonnet | rule: duty:test/L2 | profile: balanced]\n[orchestrator-active]","session_id":"4738f2aa-10f9-4bb5-a800-2fc4b0234fa5","cost_usd":null,"route":"cc-sonnet","honored":true,"runtime":"claude-code","provider":"anthropic-plan","model":"sonnet","taskType":"test","tier":"T1-standard","ruleId":"duty:test/L2","profile":"balanced","effort":"medium","context":{"contextPct":8,"peakContextPct":13,"compactions":{"count":0,"last":null}}}

@@ -179,7 +179,10 @@ const dutySpecSchema = z.object({
     .regex(/^[a-z][a-z0-9-]*$/, "duty id must be kebab-case"),
   title: z.string().min(1),
   description: z.string().min(1),
-  levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level")
+  levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level"),
+  // S1b compact-controller hold: composition-inline duties carry it too (zod
+  // strips undeclared keys, so omitting it here silently dropped the flag).
+  context_hold: z.boolean().optional()
 });
 
 const compositionTargetSchema = z.object({

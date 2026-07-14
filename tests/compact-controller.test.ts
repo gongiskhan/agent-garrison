@@ -139,6 +139,7 @@ function makeHarness(opts: any = {}) {
   let usage: any = { contextPct: 0, contextTokens: 0 };
   let compactions = { count: 0, last: null as any };
   let injected = 0;
+  const rejectsTooFew = opts.rejectsTooFew === true;
   const ctrl = createCompactController({
     resolveConfig: () => ({ "claude-code": { enabled: true, thresholdPct: 60, focusTemplate: DEFAULT_FOCUS_TEMPLATE, ...configOverride } }),
     now: () => "2026-07-14T00:00:00Z",
@@ -146,8 +147,12 @@ function makeHarness(opts: any = {}) {
     readCompactions: async () => compactions,
     injectCompact: async () => {
       injected += 1;
+      // A very young session refuses the command outright (observed live on
+      // 2.1.209): usage does NOT drop and the refusal renders as TUI output.
+      if (rejectsTooFew) return { reply: "", screenTail: "  ⎿  Not enough messages to compact." };
       usage = injectDropsTo === null ? { contextPct: null, contextTokens: null } : { contextPct: injectDropsTo, contextTokens: injectDropsTo * 1000 };
       if (persistsTranscript) compactions = { count: compactions.count + 1, last: { preTokens: 900, postTokens: 20, trigger: "manual", durationMs: 19700 } };
+      return { reply: "" };
     },
     logDecision: async (r: any) => logs.push(r),
   });
@@ -173,6 +178,21 @@ describe("compact controller — createCompactController.check (effectful, scree
     expect(record.afterPct).toBe(5);
     expect(record.preTokens).toBeUndefined(); // no transcript enrichment on PTY
     expect(h.logs).toHaveLength(1);
+  });
+
+  it("a 'Not enough messages to compact' refusal logs compact-rejected and does NOT consume the cooldown", async () => {
+    const h = makeHarness({ rejectsTooFew: true });
+    h.setUsage(72);
+    const first = await h.ctrl.check({ boundary: "turn" });
+    expect(first.record.kind).toBe("compact-rejected");
+    expect(first.record.reason).toBe("too-few-messages");
+    expect(h.injectedCount()).toBe(1);
+    // Context only grows on a young session; the very next boundary must retry
+    // (a disarm here would lock the controller out until a below-threshold
+    // re-arm that may never come).
+    const second = await h.ctrl.check({ boundary: "turn" });
+    expect(h.injectedCount()).toBe(2);
+    expect(second.record.kind).toBe("compact-rejected");
   });
 
   it("logs compact-unconfirmed when the post-compact ctx% is unavailable and no transcript confirms", async () => {

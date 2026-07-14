@@ -221,10 +221,42 @@ export function createCompactController(deps = {}) {
       const line = focusDigest(focusText);
       const startedAt = Date.now();
       let injectErr = null;
+      let injectOutcome = null;
       try {
-        await deps.injectCompact?.(line, COMPACT_TIMEOUT_MS);
+        injectOutcome = await deps.injectCompact?.(line, COMPACT_TIMEOUT_MS);
       } catch (err) {
         injectErr = err;
+      }
+      // claude refuses to compact very young sessions ("Not enough messages to
+      // compact.") — observed live on 2.1.209 when one giant paste crosses the
+      // threshold on the session's first exchange. That refusal must NOT consume
+      // the cooldown: context only grows, so a disarm here would lock the
+      // controller out until a below-threshold re-arm that may never come. Log
+      // it distinctly and leave the state armed so the next boundary retries.
+      const rejectedTooFew = /not enough messages to compact/i.test(
+        `${injectOutcome?.reply ?? ""}\n${injectOutcome?.screenTail ?? ""}`
+      );
+      if (rejectedTooFew) {
+        const rejState = {
+          ...prev,
+          turnCount: decision.nextState.turnCount,
+          lastSeenPct: typeof usagePct === "number" ? usagePct : prev.lastSeenPct,
+        };
+        states.set(sessionId, rejState);
+        const rejRecord = {
+          ...baseRecord,
+          kind: "compact-rejected",
+          reason: "too-few-messages",
+          durationMs: Date.now() - startedAt,
+          focusDigest: line.slice(0, 200),
+        };
+        lastDecision = rejRecord;
+        try {
+          await deps.logDecision?.(rejRecord);
+        } catch {
+          /* logging must never break the chain */
+        }
+        return { action: "compact-rejected", record: rejRecord };
       }
       // Confirmation is SCREEN-FIRST (S1b-fix1): a PTY operative persists no
       // transcript, so the authoritative signal is the post-compact context %.
