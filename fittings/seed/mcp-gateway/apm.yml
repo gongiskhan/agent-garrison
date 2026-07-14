@@ -45,6 +45,10 @@ x-garrison:
       - create_continuation(card_id, title?, description?): register a successor
         card (continues=<card_id>, moved to plan) whose prompt is seeded from the
         predecessor's handoff packet; returns { id, url }.
+      - poll_origin_events(origin_id, since?): PULL the lifecycle + duty-summary
+        events for a run origin (skill/terminal parity with a web thread's push
+        feed) - created | needs-input | blocked | failed | finished | duty-summary
+        | steering; poll again with the returned next_since for only new events.
     NOTE: "continuation" here is CARD CHAINING (one card continues another's work),
     DISTINCT from the Orchestrator policy's post-task "continuations" vocabulary
     (store|ask|route|notify steps by output kind).

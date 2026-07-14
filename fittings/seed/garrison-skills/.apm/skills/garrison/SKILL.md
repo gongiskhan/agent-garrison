@@ -35,7 +35,12 @@ board API (discover it from `~/.garrison/ui-fittings/kanban-loop.json`; never
 hardcode a port):
 
 1. `POST <board>/cards` with `{description: <brief>, goalMode: true,
-   workKind, phases, tier, origin: "garrison-doorway", project: <cwd repo>}`.
+   workKind, phases, tier, origin: "garrison-doorway",
+   origin_id: "skill:<$CLAUDE_CODE_SESSION_ID>", project: <cwd repo>}`. Stamp
+   `origin_id` as `skill:<your session id>` (use `$CLAUDE_CODE_SESSION_ID`, the
+   stable id this session already uses for its sentinel; mint one only if it is
+   unset) - that origin_id is what makes this run's lifecycle + duty-summary
+   events pollable.
 2. `PATCH <board>/cards/<id>` with `{list: "plan", rev}` and the
    `x-garrison-engine: garrison-doorway` header.
 3. Tell the user the card URL (`<board>/#/cards/<id>`). The board is now the
@@ -44,6 +49,13 @@ hardcode a port):
 If the board is unreachable, that is a blocker with a named cause — do NOT
 fall back to a boardless run (the board is the run's window; a run without a
 card is invisible).
+
+Because a skill session has no push surface (unlike a web thread), pull the
+run's lifecycle updates via the `poll_origin_events` MCP tool (garrison-control):
+`poll_origin_events {origin_id: "skill:<your session id>", since?}` returns the
+same created | needs-input | blocked | failed | finished | duty-summary events a
+web thread receives - poll again with the returned `next_since` for only new
+events. This is the skill/terminal parity path (S3e).
 
 ## Step 3 — drive the run in THIS session through the run engine
 

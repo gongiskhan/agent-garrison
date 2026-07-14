@@ -35,7 +35,8 @@ import {
   callRecordImproverFeedback,
   kanbanAvailable,
   callFetchEvidence,
-  callCreateContinuation
+  callCreateContinuation,
+  callPollOriginEvents
 } from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
@@ -123,6 +124,19 @@ async function discoverTools() {
             description: { type: "string", description: "Optional description / the next work to do." }
           },
           required: ["card_id"]
+        }
+      },
+      {
+        name: "poll_origin_events",
+        description:
+          "Poll the lifecycle + duty-summary events for a run ORIGIN (skill/terminal parity with a web thread's push feed): created | needs-input | blocked | failed | finished | duty-summary | steering. Pass the origin_id you stamped on the card (e.g. 'skill:<run id>'); poll again with the returned next_since to see only new events. This is the PULL delivery for a session with no push surface.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            origin_id: { type: "string", description: "The origin id stamped on the card(s) (e.g. 'skill:<run id>' or 'board')." },
+            since: { type: "string", description: "Optional: the previous next_since (a line offset) or an ISO timestamp - only newer events are returned." }
+          },
+          required: ["origin_id"]
         }
       }
     );
@@ -226,6 +240,7 @@ async function dispatchTool(name, input) {
   if (name === "run_automation") return callRunAutomation(input);
   if (name === "fetch_evidence") return callFetchEvidence(input);
   if (name === "create_continuation") return callCreateContinuation(input);
+  if (name === "poll_origin_events") return callPollOriginEvents(input);
   if (name === "talk_to") return callTalkTo(input);
   if (name === "wait_for") return callWaitFor(input);
   if (name === "list_active_sessions") return callListActiveSessions(input);

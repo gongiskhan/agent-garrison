@@ -19,7 +19,7 @@ process.env.GARRISON_RUNS_DIR = RUNS_DIR;
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 
 // @ts-ignore — pure .mjs
-import { safeOriginId, deriveOriginId, parseOriginId, ensureOriginRecord, appendOriginEvent, readOriginRecord, readOriginEvents } from "../fittings/seed/kanban-loop/lib/origins.mjs";
+import { safeOriginId, deriveOriginId, parseOriginId, ensureOriginRecord, appendOriginEvent, readOriginRecord, readOriginEvents, readOriginEventsSince, originEventsFile } from "../fittings/seed/kanban-loop/lib/origins.mjs";
 // @ts-ignore
 import { routeOriginEvent, routeTerminalTransition, routeNeedsInput, createdMessage, dutySummaryMessage, needsInputMessage } from "../fittings/seed/kanban-loop/lib/notify-origin.mjs";
 // @ts-ignore
@@ -294,5 +294,68 @@ describe("engine emission — duty-summary on advance, blocked/failed on park", 
     expect(parked.list).toBe("needs-attention");
     expect(parked.attentionKind).toBe("failed");
     expect(readOriginEvents(root, "board").some((e: any) => e.kind === "failed")).toBe(true);
+  });
+});
+
+// S3e - skill/terminal origin PARITY: a skill-origin card gets the same lifecycle
+// events a web thread does, PULLABLE via the board's /origins endpoints.
+describe("S3e - skill-origin parity + /origins endpoints (booted board)", () => {
+  const model: any = { version: 2, compositionId: "t", kanbanLists: ["implement"], sequences: { solo: { "1": ["implement"] } }, cells: {}, holds: {}, gates: {} };
+  const board = buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });
+  let server: http.Server;
+  let base = "";
+  beforeAll(async () => {
+    await saveBoard(board, KANBAN_DIR);
+    server = http.createServer(makeRequestHandler({ root: KANBAN_DIR, cwd: KANBAN_DIR, gatewayUrl: "", cap: 10 }, join(FITTING, "dist")));
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(server.address() as any).port}`;
+  });
+  afterAll(async () => {
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  it("a skill-origin card advanced to done yields created + duty-summary + finished, pollable via GET /origins/:id/events", async () => {
+    // 1. POST /cards with an explicit skill origin_id -> the `created` lifecycle event.
+    const created = await fetch(`${base}/cards`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ description: "parity run", project: "p", origin: "garrison-doorway", origin_id: "skill:parity-test", duty: "solo", level: 1, sequence: ["implement"] })
+    });
+    const { card } = (await created.json()) as any;
+    expect(card.id).toBeTruthy();
+    expect(card.origin_id).toBe("skill:parity-test");
+    // 2. drive a fake advance implement -> done (last in the single-phase sequence),
+    //    which emits the `duty-summary` (advance) + `finished` (terminal) events.
+    const loaded = { ...(await loadCard(KANBAN_DIR, card.id)), id: card.id, list: "implement" };
+    const runFn = async () => ({ reply: "done" });
+    const { outcome } = await processCard({ root: KANBAN_DIR, board, card: loaded, runFn, cap: 10, model, cwd: KANBAN_DIR });
+    expect(outcome.to).toBe("done");
+    // 3. the durable event log carries the SAME three lifecycle kinds a web thread gets.
+    const kinds = readOriginEvents(KANBAN_DIR, "skill:parity-test").filter((e: any) => e.cardId === card.id).map((e: any) => e.kind);
+    expect(kinds).toContain("created");
+    expect(kinds).toContain("duty-summary");
+    expect(kinds).toContain("finished");
+    // 4. the on-disk events file exists (the pull-delivery record).
+    expect(existsSync(originEventsFile(KANBAN_DIR, "skill:parity-test"))).toBe(true);
+    // 5. readable via GET /origins/:id/events (the PULL delivery a skill/terminal polls).
+    const polled = await fetch(`${base}/origins/${encodeURIComponent("skill:parity-test")}/events`);
+    expect(polled.status).toBe(200);
+    const doc = (await polled.json()) as any;
+    expect(doc.events.map((e: any) => e.kind)).toEqual(expect.arrayContaining(["created", "duty-summary", "finished"]));
+    expect(doc.nextSince).toBe(String(doc.total));
+    // 6. GET /origins/:id returns the record with the skill transport.
+    const rec = await fetch(`${base}/origins/${encodeURIComponent("skill:parity-test")}`);
+    expect(rec.status).toBe(200);
+    expect((await rec.json()).origin).toMatchObject({ transport: "skill", address: "parity-test" });
+    // 7. since=<total> (line offset) returns only newer events (none) - incremental poll.
+    const since = await fetch(`${base}/origins/${encodeURIComponent("skill:parity-test")}/events?since=${doc.total}`);
+    expect(((await since.json()) as any).events).toHaveLength(0);
+    // and readOriginEventsSince honours a line offset directly.
+    expect(readOriginEventsSince(KANBAN_DIR, "skill:parity-test", doc.total).events).toHaveLength(0);
+  });
+
+  it("GET /origins/:id 404s for an unknown origin", async () => {
+    const r = await fetch(`${base}/origins/${encodeURIComponent("skill:nope")}`);
+    expect(r.status).toBe(404);
   });
 });

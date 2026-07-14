@@ -41,6 +41,7 @@ import {
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
+import { readOriginRecord, readOriginEventsSince } from "../lib/origins.mjs";
 // S3c: steering sidecars (steering.md guidance + steering.json revisit directive).
 import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringApplied, readSteeringDirective, isEarlierPhase } from "../lib/steering.mjs";
 import {
@@ -684,6 +685,26 @@ async function handleListCards(req, res, opts, query) {
   if (originId) cards = cards.filter((c) => (c.origin_id ?? null) === originId);
   cards.sort((a, b) => String(b.created || "").localeCompare(String(a.created || "")));
   jsonRes(res, 200, { cards: cards.map(cardSummary) });
+}
+
+// GET /origins/:originId (S3e) - the origin record (transport, address, thread), or
+// 404 when the origin has no record yet. The id is sanitised to a safe filename by
+// safeOriginId (origins.mjs), so an encoded path cannot traverse out of the store.
+async function handleGetOrigin(req, res, opts, originId) {
+  const record = readOriginRecord(opts.root, originId);
+  if (!record) return jsonRes(res, 404, { error: `no origin record: ${originId}` });
+  return jsonRes(res, 200, { origin: record });
+}
+
+// GET /origins/:originId/events?since=<ISO|line-offset> (S3e) - the PULL delivery a
+// skill/terminal session polls: the durable lifecycle events (created/needs-input/
+// blocked/failed/finished/duty-summary/steering) written by S3a for EVERY transport,
+// capped to the last 200. `since` is a line offset (integer) or an ISO timestamp;
+// `total` is the full line count so the caller polls incrementally with since=total.
+async function handleGetOriginEvents(req, res, opts, originId, query) {
+  const since = typeof query?.since === "string" && query.since ? query.since : null;
+  const { events, total } = readOriginEventsSince(opts.root, originId, since);
+  return jsonRes(res, 200, { origin_id: originId, events, total, nextSince: String(total) });
 }
 
 // GET /cards/:id/handoff (S3b) — the WS2 handoff packet (completionSummary,
@@ -2052,6 +2073,16 @@ export function makeRequestHandler(opts, distDir) {
         const listId = decodeURIComponent(listMatch[1]);
         if (!isValidListId(listId)) return jsonRes(res, 400, { error: "invalid list id" });
         return await handlePatchList(req, res, opts, listId);
+      }
+
+      // GET /origins/:originId[/events] (S3e) - the durable per-origin event log +
+      // record, for PULL delivery (skill/terminal sessions poll_origin_events). The id
+      // is sanitised by safeOriginId before it touches the store (no traversal).
+      const originMatch = pathname.match(/^\/origins\/([^/]+)(\/events)?$/);
+      if (originMatch && method === "GET") {
+        const originId = decodeURIComponent(originMatch[1]);
+        if (originMatch[2] === "/events") return await handleGetOriginEvents(req, res, opts, originId, parsed.query);
+        return await handleGetOrigin(req, res, opts, originId);
       }
 
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can

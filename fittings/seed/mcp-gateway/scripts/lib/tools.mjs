@@ -146,6 +146,41 @@ export async function callCreateContinuation(input) {
   return { id, url, moved: movedOk, list: movedOk ? "plan" : "backlog" };
 }
 
+// GET <board>/origins/:origin_id/events?since=... - the PULL delivery a skill/terminal
+// session polls for lifecycle + duty-summary events (S3e origin parity). The board
+// serves JSON; we render compact lines the operative reads. `since` is a line offset
+// (integer) or an ISO timestamp; poll again with the returned next_since to see only
+// new events.
+export async function callPollOriginEvents(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const originId = input?.origin_id;
+  if (!originId) throw new Error("poll_origin_events requires origin_id");
+  const qs = input?.since != null && input.since !== "" ? `?since=${encodeURIComponent(String(input.since))}` : "";
+  const url = `${base}/origins/${encodeURIComponent(originId)}/events${qs}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`poll_origin_events ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json();
+  const events = Array.isArray(doc.events) ? doc.events : [];
+  const lines = events.map((e) => {
+    const at = e?.at ?? "?";
+    const kind = e?.kind ?? "?";
+    const cardId = e?.cardId ?? "-";
+    const msg = typeof e?.message === "string" ? e.message.replace(/\s+/g, " ").slice(0, 120) : "";
+    return `${at} ${kind} ${cardId}${msg ? ` - ${msg}` : ""}`;
+  });
+  return {
+    origin_id: originId,
+    count: events.length,
+    total: doc.total ?? events.length,
+    next_since: doc.nextSince ?? String(doc.total ?? events.length),
+    events: lines.join("\n") || "(no events yet)"
+  };
+}
+
 function resolveScript(fittingId, scriptName) {
   return path.join(COMPOSITION_DIR, "apm_modules", "_local", fittingId, "scripts", scriptName);
 }

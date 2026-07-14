@@ -130,3 +130,29 @@ export function readOriginEvents(root, origin_id) {
     return [];
   }
 }
+
+// S3e: read an origin's events for a PULL poll (skill/terminal delivery). `since` is
+// either a LINE OFFSET (a plain integer: return events at/after that index) or an ISO
+// timestamp (return events strictly after it). The result is capped to the last `cap`
+// (default 200), and `total` is the full line count so the caller can poll incrementally
+// by passing `since = total` next time. Pure read; never throws.
+export function readOriginEventsSince(root, origin_id, since = null, cap = 200) {
+  const all = readOriginEvents(root, origin_id);
+  const total = all.length;
+  let events = all;
+  const raw = since == null ? "" : String(since).trim();
+  if (raw) {
+    if (/^\d+$/.test(raw)) {
+      const offset = Math.min(parseInt(raw, 10), total);
+      events = all.slice(offset);
+    } else {
+      const t = Date.parse(raw);
+      if (!Number.isNaN(t)) {
+        const idx = all.findIndex((e) => Date.parse(e?.at) > t);
+        events = idx === -1 ? [] : all.slice(idx);
+      }
+    }
+  }
+  if (events.length > cap) events = events.slice(events.length - cap);
+  return { events, total };
+}

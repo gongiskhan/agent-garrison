@@ -26,7 +26,7 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
 import { saveBoard, createCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { kanbanAvailable, callFetchEvidence, callCreateContinuation } from "../fittings/seed/mcp-gateway/scripts/lib/tools.mjs";
+import { kanbanAvailable, callFetchEvidence, callCreateContinuation, callPollOriginEvents } from "../fittings/seed/mcp-gateway/scripts/lib/tools.mjs";
 
 let gateway: http.Server;
 let server: http.Server;
@@ -127,5 +127,30 @@ describe("WS2 — create_continuation tool", () => {
     const got = await jsend("GET", `/cards/${res.id}`);
     expect(got.body.card.continues).toBe(parent.id);
     expect(got.body.card.origin).toBe("continuation");
+  });
+});
+
+describe("S3e - poll_origin_events tool", () => {
+  it("polls a skill origin's lifecycle events from the real board as compact lines", async () => {
+    // A skill-origin card fires the `created` lifecycle event on POST /cards.
+    const create = await jsend("POST", "/cards", { description: "poll me", project: "garrison", origin: "garrison-doorway", origin_id: "skill:mcp-poll" });
+    expect(create.status).toBe(201);
+    const out = await callPollOriginEvents({ origin_id: "skill:mcp-poll" });
+    expect(out.origin_id).toBe("skill:mcp-poll");
+    expect(out.count).toBeGreaterThanOrEqual(1);
+    expect(out.events).toContain("created");
+    expect(out.next_since).toBe(String(out.total));
+    // incremental: polling with next_since returns no new events.
+    const again = await callPollOriginEvents({ origin_id: "skill:mcp-poll", since: out.next_since });
+    expect(again.count).toBe(0);
+  });
+
+  it("the poll_origin_events tool declaration + dispatch are wired in the gateway (kanban-gated)", () => {
+    const src = readFileSync(resolve(HERE, "..", "fittings", "seed", "mcp-gateway", "scripts", "gateway.mjs"), "utf8");
+    expect(src).toContain('name: "poll_origin_events"');
+    expect(src).toContain('if (name === "poll_origin_events") return callPollOriginEvents(input)');
+    // declared inside the kanbanAvailable() block (present only when the board is live).
+    const kanbanBlock = src.slice(src.indexOf("if (kanbanAvailable())"));
+    expect(kanbanBlock.indexOf('name: "poll_origin_events"')).toBeGreaterThan(-1);
   });
 });
