@@ -127,10 +127,16 @@ describe("compact controller — decideCompaction matrix", () => {
 });
 
 // A controller harness with injected effects; the test drives usage + compaction
-// count and inspects the logged decision records.
-function makeHarness(configOverride: any = {}) {
+// count and inspects the logged decision records. Screen-first (S1b-fix1): a real
+// /compact DROPS the screen ctx% (the live confirmation signal). By default the
+// harness is a PTY session — injectCompact lowers usage and writes NO transcript
+// (persistsTranscript:true makes it SDK-style, adding a compact_boundary too).
+function makeHarness(opts: any = {}) {
+  const configOverride = opts.config ?? {};
+  const injectDropsTo = opts.injectLeavesUnavailable ? null : typeof opts.injectDropsTo === "number" ? opts.injectDropsTo : 5;
+  const persistsTranscript = opts.persistsTranscript === true;
   const logs: any[] = [];
-  let usage = { contextPct: 0, contextTokens: 0 };
+  let usage: any = { contextPct: 0, contextTokens: 0 };
   let compactions = { count: 0, last: null as any };
   let injected = 0;
   const ctrl = createCompactController({
@@ -140,8 +146,8 @@ function makeHarness(configOverride: any = {}) {
     readCompactions: async () => compactions,
     injectCompact: async () => {
       injected += 1;
-      // A real /compact writes a new transcript compact_boundary.
-      compactions = { count: compactions.count + 1, last: { preTokens: 900, postTokens: 20, trigger: "manual" } };
+      usage = injectDropsTo === null ? { contextPct: null, contextTokens: null } : { contextPct: injectDropsTo, contextTokens: injectDropsTo * 1000 };
+      if (persistsTranscript) compactions = { count: compactions.count + 1, last: { preTokens: 900, postTokens: 20, trigger: "manual", durationMs: 19700 } };
     },
     logDecision: async (r: any) => logs.push(r),
   });
@@ -151,68 +157,121 @@ function makeHarness(configOverride: any = {}) {
     setUsage: (contextPct: number) => (usage = { contextPct, contextTokens: contextPct * 1000 }),
     setCompactions: (count: number) => (compactions = { count, last: null }),
     injectedCount: () => injected,
+    state: () => (ctrl as any)._state("operative"),
   };
 }
 
-describe("compact controller — createCompactController.check (effectful)", () => {
-  it("compacts at a turn boundary when over threshold, logging before/after", async () => {
-    const h = makeHarness();
+describe("compact controller — createCompactController.check (effectful, screen-first)", () => {
+  it("compacts at a turn boundary, screen-confirmed by the ctx% drop (no transcript)", async () => {
+    const h = makeHarness(); // PTY: transcript never grows
     h.setUsage(72);
     const { action, record } = await h.ctrl.check({ boundary: "turn" });
     expect(action).toBe("compact");
     expect(h.injectedCount()).toBe(1);
-    expect(record.kind).toBe("compacted");
+    expect(record.kind).toBe("compacted"); // confirmed by the screen drop 72 -> 5
     expect(record.beforePct).toBe(72);
+    expect(record.afterPct).toBe(5);
+    expect(record.preTokens).toBeUndefined(); // no transcript enrichment on PTY
     expect(h.logs).toHaveLength(1);
   });
 
-  it("defers at a turn boundary when the duty holds, but compacts at the duty boundary (holds discharge)", async () => {
+  it("logs compact-unconfirmed when the post-compact ctx% is unavailable and no transcript confirms", async () => {
+    const h = makeHarness({ injectLeavesUnavailable: true });
+    h.setUsage(72);
+    const { action, record } = await h.ctrl.check({ boundary: "turn" });
+    expect(action).toBe("compact");
+    expect(record.kind).toBe("compact-unconfirmed");
+    expect(record.afterPct).toBeNull();
+  });
+
+  it("attaches transcript enrichment when a compact_boundary IS persisted (SDK path)", async () => {
+    const h = makeHarness({ persistsTranscript: true });
+    h.setUsage(72);
+    const { record } = await h.ctrl.check({ boundary: "turn" });
+    expect(record.kind).toBe("compacted");
+    expect(record.preTokens).toBe(900);
+    expect(record.postTokens).toBe(20);
+    expect(record.compactDurationMs).toBe(19700);
+  });
+
+  it("defers when the duty holds, but compacts at the duty boundary (holds discharge)", async () => {
     const held = makeHarness();
     held.setUsage(80);
-    const deferred = await held.ctrl.check({ boundary: "turn", hold: true });
-    expect(deferred.action).toBe("deferred");
+    expect((await held.ctrl.check({ boundary: "turn", hold: true })).action).toBe("deferred");
     expect(held.injectedCount()).toBe(0);
 
     const discharged = makeHarness();
     discharged.setUsage(80);
-    const duty = await discharged.ctrl.check({ boundary: "duty", hold: true });
-    expect(duty.action).toBe("compact"); // a duty boundary ignores the hold
+    expect((await discharged.ctrl.check({ boundary: "duty", hold: true })).action).toBe("compact");
     expect(discharged.injectedCount()).toBe(1);
   });
 
-  it("holds a 3-turn cooldown after compacting", async () => {
+  it("holds a 3-turn cooldown after compacting (usage climbs back over threshold)", async () => {
     const h = makeHarness();
     h.setUsage(75);
-    const first = await h.ctrl.check({ boundary: "turn" });
-    expect(first.action).toBe("compact");
-    // usage still high on the very next turn -> cooldown skip (not a second compaction)
-    const second = await h.ctrl.check({ boundary: "turn" });
-    expect(second.action).toBe("skipped-cooldown");
+    expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("compact"); // drops to 5
+    h.setUsage(75); // usage climbed back over threshold next turn
+    expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("skipped-cooldown");
     expect(h.injectedCount()).toBe(1);
   });
 
   it("re-arms after usage drops below threshold and the cooldown clears", async () => {
     const h = makeHarness();
     h.setUsage(75);
-    expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("compact"); // turn 1
+    expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("compact"); // turn 1, drops to 5
     h.setUsage(20);
     expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("none"); // turn 2, re-arms
     h.setUsage(75);
-    // turns 3 and 4: the 3-turn cooldown (since turn 1) clears on turn 4
-    const t3 = await h.ctrl.check({ boundary: "turn" });
-    const t4 = await h.ctrl.check({ boundary: "turn" });
+    const t3 = await h.ctrl.check({ boundary: "turn" }); // turn 3, within 3 turns of turn 1
+    const t4 = await h.ctrl.check({ boundary: "turn" }); // turn 4, cooldown clears
     expect(t3.action).toBe("skipped-cooldown");
     expect(t4.action).toBe("compact");
     expect(h.injectedCount()).toBe(2);
   });
 
-  it("skips its own cycle when a native compaction already landed", async () => {
+  it("detects a NATIVE compaction from a sharp spontaneous ctx% drop (PTY, no transcript)", async () => {
     const h = makeHarness();
-    h.setUsage(90);
-    h.setCompactions(2); // a native auto-compact fired since the last check
+    h.setUsage(90); // high, but a hold keeps us from compacting — establishes lastSeenPct = 90
+    expect((await h.ctrl.check({ boundary: "turn", hold: true })).action).toBe("deferred");
+    h.setUsage(8); // native auto-compact fired externally (90 -> 8, an 82-point drop)
     const { action, record } = await h.ctrl.check({ boundary: "turn" });
     expect(action).toBe("skipped-native");
     expect(record.kind).toBe("skipped-native");
+    expect(record.detectedBy).toBe("screen");
+    expect(record.beforePct).toBe(90);
+    expect(record.afterPct).toBe(8);
+    expect(h.injectedCount()).toBe(0); // never injected — the native compaction sufficed
+    // Cooldown reset (re-armed after the native compaction).
+    expect(h.state().armed).toBe(false);
+  });
+
+  it("does NOT mis-read its OWN compaction drop as native on the next check", async () => {
+    const h = makeHarness();
+    h.setUsage(75);
+    expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("compact"); // 75 -> 5 (our drop)
+    h.setUsage(20); // usage rises a bit after our compaction
+    // lastSeenPct was reset to the post-compact 5, so 5 -> 20 is NOT a native drop.
+    expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("none");
+  });
+
+  it("bookkeeping: a PTY compaction (transcript absent) does not later trip a false transcript-native", async () => {
+    const h = makeHarness(); // PTY: compactions.count stays 0 throughout
+    h.setUsage(75);
+    expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("compact");
+    h.setUsage(75);
+    const second = await h.ctrl.check({ boundary: "turn" });
+    // Not skipped-native (the transcript count never grew): the cooldown catches it.
+    expect(second.action).toBe("skipped-cooldown");
+    expect(h.injectedCount()).toBe(1);
+  });
+
+  it("still skips on the transcript-count native signal (SDK sessions that persist)", async () => {
+    const h = makeHarness({ persistsTranscript: true });
+    h.setUsage(90);
+    h.setCompactions(2); // a native compaction already landed in the transcript
+    const { action, record } = await h.ctrl.check({ boundary: "turn" });
+    expect(action).toBe("skipped-native");
+    expect(record.detectedBy).toBe("transcript");
     expect(h.injectedCount()).toBe(0);
   });
 
@@ -226,7 +285,7 @@ describe("compact controller — createCompactController.check (effectful)", () 
   });
 
   it("does nothing when disabled", async () => {
-    const h = makeHarness({ enabled: false });
+    const h = makeHarness({ config: { enabled: false } });
     h.setUsage(90);
     expect((await h.ctrl.check({ boundary: "turn" })).action).toBe("none");
     expect(h.injectedCount()).toBe(0);

@@ -128,6 +128,15 @@ function operativeSessionForTelemetry() {
 // context-tokens estimate (contextTokensFrom), both off ONE cached read. Re-scans
 // only when the file grows (compaction count needs a full scan); cached by
 // (file, size) so a hot /claude/status poll doesn't re-read a multi-MB transcript.
+//
+// S1b-fix1 — reality check: this OPERATIVE is a PTY/TUI session (claude spawned
+// under node-pty), and claude 2.1.209 PTY sessions do NOT persist a transcript at
+// all — no <session-id>.jsonl is ever written under ~/.claude/projects for them
+// (verified live). So for the PTY operative `count` is always 0 and `contextTokens`
+// is null: the live context signal is the status-line ctx% scraped off the screen,
+// and the compact-log (./garrison/compact-log.jsonl) is the record of truth for
+// compactions. This read still works for SDK-driven sessions (which DO persist) and
+// for any future claude that journals PTY turns.
 let transcriptCache = { file: null, size: -1, compactions: { count: 0, last: null }, contextTokens: null };
 function readTranscript(sess) {
   const empty = { compactions: { count: 0, last: null }, contextTokens: null };
@@ -150,7 +159,7 @@ function readTranscript(sess) {
     const list = compactionsFrom(events);
     if (list.length) {
       const last = list[list.length - 1];
-      compactions = { count: list.length, last: { preTokens: last.preTokens, postTokens: last.postTokens, trigger: last.trigger } };
+      compactions = { count: list.length, last: { preTokens: last.preTokens, postTokens: last.postTokens, trigger: last.trigger, durationMs: last.durationMs } };
     }
     const t = contextTokensFrom(events);
     contextTokens = typeof t === "number" ? t : null;

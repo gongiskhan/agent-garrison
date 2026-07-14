@@ -27,8 +27,6 @@ export const COOLDOWN_TURNS = 3;
 // (E2/E3), far past the 45s default command timeout, so use a generous ceiling.
 export const COMPACT_TIMEOUT_MS = 300_000;
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 function toBool(v, dflt) {
   if (v === undefined || v === null || v === "") return dflt;
   if (typeof v === "boolean") return v;
@@ -75,19 +73,28 @@ export function resolveCompactConfig(env = process.env) {
   return out;
 }
 
-/** Fresh per-session decision state. */
+/** Fresh per-session decision state. `lastSeenPct` (S1b-fix1) is the context %
+ *  observed at the previous boundary check — the baseline for screen-based native
+ *  compaction detection (a sharp spontaneous drop) on PTY sessions, which do not
+ *  persist a transcript to count compact_boundary records. */
 export function initialCompactState() {
-  return { turnCount: 0, lastCompactTurn: -Infinity, armed: true, lastCompactionCount: 0 };
+  return { turnCount: 0, lastCompactTurn: -Infinity, armed: true, lastCompactionCount: 0, lastSeenPct: null };
 }
+
+// A context-% drop of at least this many points between checks, with no Garrison
+// injection in between, reads as a native (auto or manual) compaction on a PTY
+// session whose transcript we cannot inspect.
+export const NATIVE_PCT_DROP = 15;
 
 /**
  * Pure decision core. Given per-session `state` and `input`, returns
  * { action, nextState } where action is one of:
  *   compact | deferred | skipped-native | skipped-cooldown | none
  *
- * Rules (brief D1/D5):
- *  - native-race: a NEW transcript compact_boundary since we last looked (native
- *    auto or manual) is treated AS the compaction - skip and reset cooldown.
+ * Rules (brief D1/D5, screen-first per S1b-fix1):
+ *  - native-race: either a NEW transcript compact_boundary (SDK sessions) OR a
+ *    sharp spontaneous context-% drop (`nativeCompacted`, PTY sessions) is treated
+ *    AS the compaction - skip and reset cooldown.
  *  - disabled or usage below threshold -> none (usage below threshold re-arms).
  *  - hold active -> deferred (compaction waits for the duty boundary).
  *  - not armed (compacted since the last drop below threshold) -> skipped-cooldown.
@@ -96,12 +103,14 @@ export function initialCompactState() {
  */
 export function decideCompaction(state, input) {
   const prev = { ...initialCompactState(), ...state };
-  const { usagePct, thresholdPct, enabled, hold, compactionCount, turnCount } = input;
+  const { usagePct, thresholdPct, enabled, hold, compactionCount, nativeCompacted, turnCount } = input;
 
-  if (typeof compactionCount === "number" && compactionCount > prev.lastCompactionCount) {
+  const nativeByCount = typeof compactionCount === "number" && compactionCount > prev.lastCompactionCount;
+  if (nativeCompacted === true || nativeByCount) {
+    const count = typeof compactionCount === "number" ? Math.max(compactionCount, prev.lastCompactionCount) : prev.lastCompactionCount;
     return {
       action: "skipped-native",
-      nextState: { ...prev, lastCompactionCount: compactionCount, lastCompactTurn: turnCount, armed: false },
+      nextState: { ...prev, lastCompactionCount: count, lastCompactTurn: turnCount, armed: false },
     };
   }
   if (!enabled) return { action: "none", nextState: prev };
@@ -176,12 +185,21 @@ export function createCompactController(deps = {}) {
     }
     const usagePct = usagePctFrom(usage, deps.contextWindow ?? 0);
 
+    // Screen-based native-compaction detection (S1b-fix1): a PTY session persists
+    // no transcript, so a sharp spontaneous drop since the last check — with no
+    // Garrison injection in between (after our own compaction we reset lastSeenPct
+    // to the post-compact value, so that drop is never mis-read) — is the native
+    // signal. SDK sessions still also get the transcript-count signal below.
+    const nativeByPct =
+      typeof prev.lastSeenPct === "number" && typeof usagePct === "number" && prev.lastSeenPct - usagePct >= NATIVE_PCT_DROP;
+
     const decision = decideCompaction(state, {
       usagePct,
       thresholdPct: cfg.thresholdPct,
       enabled: cfg.enabled,
       hold,
       compactionCount: compactions.count,
+      nativeCompacted: nativeByPct,
       turnCount: state.turnCount,
     });
 
@@ -208,47 +226,76 @@ export function createCompactController(deps = {}) {
       } catch (err) {
         injectErr = err;
       }
-      // Confirm via a NEW compact_boundary in the transcript (authoritative even if
-      // screen-based turn detection was flaky). injectCompact already awaited the
-      // turn, so this is a short confirmation poll.
-      let afterCompactions = compactions;
-      const deadline = Date.now() + 10_000;
-      while (Date.now() < deadline) {
-        let c;
-        try {
-          c = await deps.readCompactions?.(sessionId);
-        } catch {
-          c = null;
-        }
-        if (c && typeof c.count === "number" && c.count > compactions.count) {
-          afterCompactions = c;
-          break;
-        }
-        await sleep(500);
-      }
+      // Confirmation is SCREEN-FIRST (S1b-fix1): a PTY operative persists no
+      // transcript, so the authoritative signal is the post-compact context %.
+      // injectCompact already awaited the turn, so sample once.
       let usageAfter = { contextPct: null, contextTokens: null };
       try {
         usageAfter = (await deps.sampleUsage?.(sessionId)) ?? usageAfter;
       } catch {
         /* ignore */
       }
-      const confirmed = afterCompactions.count > compactions.count;
-      nextState = { ...decision.nextState, lastCompactionCount: Math.max(decision.nextState.lastCompactionCount, afterCompactions.count) };
+      const afterPct = typeof usageAfter.contextPct === "number" ? usageAfter.contextPct : null;
+      const screenConfirmed = afterPct !== null && typeof usagePct === "number" && (afterPct < usagePct - 5 || afterPct < cfg.thresholdPct);
+      // Transcript check is now BEST-EFFORT ENRICHMENT only (SDK sessions / a future
+      // claude that journals PTY turns): a new compact_boundary lets us attach real
+      // pre/post token counts + duration. A SINGLE read, never a blocking poll and
+      // never the sole confirmation — the PTY operative persists no transcript, so a
+      // poll would just burn the deadline every compaction.
+      let afterCompactions = compactions;
+      try {
+        const c = await deps.readCompactions?.(sessionId);
+        if (c && typeof c.count === "number" && c.count > compactions.count) afterCompactions = c;
+      } catch {
+        /* transcript unreadable - screen confirmation stands alone */
+      }
+      const transcriptConfirmed = afterCompactions.count > compactions.count;
+      const enrich = transcriptConfirmed && afterCompactions.last && typeof afterCompactions.last === "object" ? afterCompactions.last : null;
+      const confirmed = screenConfirmed || transcriptConfirmed;
+      nextState = {
+        ...decision.nextState,
+        lastCompactionCount: Math.max(decision.nextState.lastCompactionCount, afterCompactions.count),
+        // Reset the native-detection baseline to the POST-compact value so our own
+        // drop is never mis-read as native next check; null (baseline cleared) when
+        // the post sample failed, which also suppresses a false native next check.
+        lastSeenPct: afterPct,
+      };
       record = {
         ...baseRecord,
         kind: confirmed ? "compacted" : "compact-unconfirmed",
-        afterPct: typeof usageAfter.contextPct === "number" ? usageAfter.contextPct : null,
+        afterPct,
         afterTokens: typeof usageAfter.contextTokens === "number" ? usageAfter.contextTokens : null,
         durationMs: Date.now() - startedAt,
         focusDigest: line.slice(0, 200),
+        ...(enrich
+          ? {
+              preTokens: typeof enrich.preTokens === "number" ? enrich.preTokens : null,
+              postTokens: typeof enrich.postTokens === "number" ? enrich.postTokens : null,
+              compactDurationMs: typeof enrich.durationMs === "number" ? enrich.durationMs : null,
+            }
+          : {}),
         ...(injectErr ? { injectError: String(injectErr?.message ?? injectErr) } : {}),
       };
     } else if (decision.action === "deferred") {
       record = { ...baseRecord, kind: "deferred" };
+      nextState = { ...decision.nextState, lastSeenPct: typeof usagePct === "number" ? usagePct : prev.lastSeenPct };
     } else if (decision.action === "skipped-native") {
-      record = { ...baseRecord, kind: "skipped-native", compactionCount: compactions.count };
+      // beforePct is the PRE-native value we last saw; afterPct is the current low.
+      record = {
+        ...baseRecord,
+        kind: "skipped-native",
+        beforePct: typeof prev.lastSeenPct === "number" ? prev.lastSeenPct : baseRecord.beforePct,
+        afterPct: typeof usagePct === "number" ? usagePct : null,
+        detectedBy: nativeByPct ? "screen" : "transcript",
+        compactionCount: compactions.count,
+      };
+      nextState = { ...decision.nextState, lastSeenPct: typeof usagePct === "number" ? usagePct : prev.lastSeenPct };
     } else if (decision.action === "skipped-cooldown") {
       record = { ...baseRecord, kind: "skipped-cooldown" };
+      nextState = { ...decision.nextState, lastSeenPct: typeof usagePct === "number" ? usagePct : prev.lastSeenPct };
+    } else {
+      // action === "none": still advance the native-detection baseline.
+      nextState = { ...decision.nextState, lastSeenPct: typeof usagePct === "number" ? usagePct : prev.lastSeenPct };
     }
 
     states.set(sessionId, nextState);

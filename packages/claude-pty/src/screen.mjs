@@ -1,11 +1,13 @@
 // Screen reading for the interactive Claude Code TUI.
 //
 // The headless xterm screen is the source of truth for the reply, status line,
-// mode, and turn lifecycle: it reflects the live TUI with no transcript-write
-// race. This is the "node-pty + headless xterm" technique — read structured
-// state off the mirror. (Current claude, 2.1.209 verified, DOES persist
-// conversation content and per-assistant-event `usage` to the session JSONL; the
-// context telemetry in jsonl.mjs reads that, but the reply path stays screen-based.)
+// mode, turn lifecycle, AND live context %: it is the ONLY live signal for a PTY
+// session. claude 2.1.209 sessions spawned under node-pty (this path) do NOT
+// persist a transcript — verified live, there is no <session-id>.jsonl to read
+// context or compaction from — so the status-line ctx% scraped here (parseStatus)
+// is it. This is the "node-pty + headless xterm" technique: read structured state
+// off the mirror. (SDK-driven sessions DO persist transcripts with per-assistant
+// usage; the jsonl.mjs helpers handle those, not this PTY path.)
 //
 // TUI anatomy (claude 2.1.x), top-to-bottom:
 //   - welcome box / prior transcript

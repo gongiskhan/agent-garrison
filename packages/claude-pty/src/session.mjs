@@ -3,11 +3,13 @@
 // coding-subagent).
 //
 // Detection is SCREEN-based, not JSONL-based: the headless xterm mirror is the
-// source of truth for the reply and the turn lifecycle (see screen.mjs) because
-// it reflects the live TUI without a transcript-write race. Note the transcript
-// itself is NOT empty on current claude (2.1.209 verified): it persists
-// conversation content AND per-assistant-event `usage`, which the context
-// telemetry helpers in jsonl.mjs read — screen scraping just isn't the reply path.
+// source of truth for the reply, the turn lifecycle, and the live context %
+// (see screen.mjs). This is load-bearing, not incidental: claude 2.1.209 sessions
+// spawned under node-pty (this PTY/TUI path) do NOT persist a transcript at all —
+// verified live, no <session-id>.jsonl is ever written under ~/.claude/projects for
+// a PTY session. SDK-driven sessions (the agent-sdk runtime) DO persist transcripts
+// with per-assistant-event `usage`; the jsonl.mjs helpers apply to THOSE (and to any
+// future claude that journals PTY turns), never to this PTY operative.
 //
 // Garrison arg shape:
 //   - permissionMode "bypassPermissions" -> --dangerously-skip-permissions,
