@@ -24,7 +24,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { MultiRuntimePool, ClaudeCodeAdapter } from "@garrison/claude-pty";
+import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -299,6 +299,11 @@ export class RoutedGateway {
     // classification-accuracy vs the haiku classifier is not, so retirement is not
     // forced (D6). dispatchRoute() is reachable only when a dispatcher is wired.
     this._dispatcher = opts.dispatcher ?? null;
+    // S3b: the operative spawn config (cwd / model / permission / claude binary) so a
+    // WEB materialized turn can run a one-shot claude WITHOUT touching the standing
+    // operative session. oneShotFn is injectable (tests); default = the real oneShotTurn.
+    this._operativeSpawnConfig = opts.operativeSpawnConfig ?? {};
+    this._oneShotFn = opts.oneShotFn ?? null;
   }
 
   async start() {
@@ -597,6 +602,51 @@ export class RoutedGateway {
   }
   forgetCard(sessionKey) {
     if (sessionKey) this._sessionCards.delete(sessionKey);
+  }
+
+  // S3b: DURABLE thread→card lookup (heals gateway restarts — the in-RAM
+  // _sessionCards map is memory-only). Query the board for THIS origin's cards
+  // (most recent first). The most recent LIVE card -> attach (keep today's inline
+  // behavior); else the most recent DONE card -> continueFrom (a post-done follow-up
+  // becomes a continuation ON THE BOARD). Returns { attach } | { continueFrom } | null.
+  async resolveThreadCard(origin_id) {
+    const list = await cards.cardsByOrigin(origin_id);
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const live = list.find(
+      (c) => c && c.list && c.list !== "done" && c.list !== "needs-attention" && !c.preparedRevert
+    );
+    if (live) return { attach: live };
+    const done = list.find((c) => c && c.list === "done");
+    if (done) return { continueFrom: done.id };
+    return null;
+  }
+
+  // S3b: run ONE web materialized turn as a one-shot (fresh disposable claude), so
+  // the standing operative session holds NO web context between messages. Injectable
+  // for tests via opts.oneShotFn. Returns { reply, sessionId }.
+  async runWebOneShot({ message, model, onScreen, onSession } = {}) {
+    const cfg = this._operativeSpawnConfig || {};
+    const fn = this._oneShotFn ?? oneShotTurn;
+    const outcome = await fn({
+      cwd: cfg.compositionDir ?? this.compositionDir,
+      appendSystemPromptFile: cfg.appendSystemPromptFile ?? this.appendSystemPromptFile,
+      model: model ?? cfg.model,
+      permissionMode: cfg.permissionMode ?? "bypassPermissions",
+      claudeBinary: cfg.claudeBinary,
+      message,
+      onScreen,
+      onSession
+    });
+    return { reply: outcome?.reply ?? "", sessionId: outcome?.sessionId ?? null };
+  }
+
+  // S3b introspection: no standing per-conversation session exists — the pool holds
+  // ONE operative checkout (shared by kanban duties), web turns are one-shots.
+  materializedStatus() {
+    return {
+      standingConversationSessions: 0,
+      operativeCheckout: Boolean(this.operative?.session),
+    };
   }
 
   // Stage A: ask the pinned warm classifier ONE question; code resolves.
@@ -1269,6 +1319,9 @@ export async function createRoutedGateway(opts = {}) {
     // The resolved primary adapter drives the operative session; Stage-B moves +
     // resume route through it (a non-claude primary is driven by its own adapter).
     operativeAdapter: primary.adapter,
+    // S3b: the operative spawn config + injectable one-shot for web materialized turns.
+    operativeSpawnConfig,
+    oneShotFn: opts.oneShotFn ?? null,
   });
   gw.secrets = opts.secrets ?? null;
   return gw;

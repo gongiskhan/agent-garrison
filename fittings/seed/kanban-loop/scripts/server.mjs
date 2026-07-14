@@ -667,6 +667,28 @@ async function readBody(req) {
 
 // ─────────────────────────── REST handlers
 
+// GET /cards[?origin_id=…] (S3b): the flat card list, optionally filtered to one
+// origin. Most-recent-first (by created). cardSummary already carries origin_id.
+async function handleListCards(req, res, opts, query) {
+  const originId = typeof query?.origin_id === "string" && query.origin_id ? query.origin_id : null;
+  let cards = await loadAllCards(opts.root);
+  if (originId) cards = cards.filter((c) => (c.origin_id ?? null) === originId);
+  cards.sort((a, b) => String(b.created || "").localeCompare(String(a.created || "")));
+  jsonRes(res, 200, { cards: cards.map(cardSummary) });
+}
+
+// GET /cards/:id/handoff (S3b) — the WS2 handoff packet (completionSummary,
+// decisions, files, evidence manifest, chain), or 404 when none exists yet.
+async function handleGetHandoff(req, res, opts, id) {
+  const file = path.join(opts.root, "cards", id, "handoff.json");
+  if (!isReadableFile(file)) return jsonRes(res, 404, { error: "no handoff for this card" });
+  try {
+    return jsonRes(res, 200, { handoff: JSON.parse(readFileSync(file, "utf8")) });
+  } catch {
+    return jsonRes(res, 404, { error: "handoff unreadable" });
+  }
+}
+
 async function handleBoard(req, res, opts) {
   const root = opts.root;
   const board = await loadBoard(root);
@@ -1907,6 +1929,7 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
       if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);
+      if (pathname === "/cards" && method === "GET") return await handleListCards(req, res, opts, parsed.query);
 
       // PATCH /lists/:listId — configure a list. Validate the id (clean kebab,
       // no traversal) before it reaches the board.
@@ -1920,7 +1943,7 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
@@ -1933,6 +1956,7 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/brief" && method === "POST") return await handleBriefCard(req, res, opts, id);
         if (sub === "/infer-project" && method === "POST") return await handleInferProject(req, res, opts, id);
         if (sub === "/watch" && method === "GET") return await handleWatchCard(req, res, opts, id);
+        if (sub === "/handoff" && method === "GET") return await handleGetHandoff(req, res, opts, id);
         if (sub === "" && method === "GET") return await handleGetCard(req, res, opts, id);
         if (sub === "" && method === "PATCH") return await handlePatchCard(req, res, opts, id);
         if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);

@@ -75,6 +75,7 @@ const SESSION_ID_FILE = path.join(COMPOSITION_DIR, ".garrison", "operative-sessi
 
 // ─────────────────────────────────────────────────────── module state
 let session = null;
+let lastMaterialized = null; // S3b: last web materialized turn (introspection evidence)
 let ptyStatus = "spawning"; // spawning | ready | failed
 let ptyError = null;
 let inflight = null; // promise chain — turns serialize
@@ -272,6 +273,10 @@ function focusContextFromHints(hints) {
 async function maybeCompactAtTurnBoundary(hints, result) {
   const sess = operativeSessionForTelemetry();
   if (!sess || !sess.isAlive?.()) return;
+  // S3b: a web materialized turn ran one-shot on a disposable claude — it did NOT
+  // accumulate context on the standing operative, so the compact controller must not
+  // fire for it (the controller applies to real working sessions / duty dispatches).
+  if (result?.materialized?.oneShot) return;
   const runtime = result?.runtime ?? "claude-code";
   if (runtime !== "claude-code") return;
   try {
@@ -597,7 +602,20 @@ async function runRoutedTurn(message, onChunk, hints) {
     const origin = String(hints?.channel || "").toLowerCase();
     const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board" || origin === "garrison";
     if (!cardOriginated && router.isTaskShaped(cls)) {
-      const attached = sessionKey ? await router.attachedCard(sessionKey, cls) : null;
+      let attached = sessionKey ? await router.attachedCard(sessionKey, cls) : null;
+      // S3b: a post-done follow-up on a web thread becomes a CONTINUATION card.
+      let continueFrom = null;
+      // S3b: durable thread→card lookup (heals gateway restarts — the in-RAM attach
+      // map is memory-only). Only for web origins with a thread id.
+      if (!attached && origin === "web" && sessionKey) {
+        const resolved = await router.resolveThreadCard(`web:${sessionKey}`);
+        if (resolved?.attach) {
+          attached = { cardId: resolved.attach.id };
+          router.rememberCard(sessionKey, { cardId: resolved.attach.id, quick: false, taskType: cls.taskType });
+        } else if (resolved?.continueFrom) {
+          continueFrom = resolved.continueFrom;
+        }
+      }
       if (attached) {
         logEvent("stdout", { kind: "card-attached", id: attached.cardId, taskType: cls.taskType });
       } else {
@@ -640,7 +658,10 @@ async function runRoutedTurn(message, onChunk, hints) {
           sequence: pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence,
           // Where the task came from, so the run engine can post the outcome
           // back to the originating channel thread when the card completes.
-          originChannel: origin && sessionKey ? { channel: origin, threadId: sessionKey } : null
+          originChannel: origin && sessionKey ? { channel: origin, threadId: sessionKey } : null,
+          // S3b: a post-done follow-up continues the predecessor card (its prompt is
+          // seeded from the predecessor's handoff packet — WS2).
+          ...(continueFrom ? { continues: continueFrom } : {})
         };
         const naturalSignificant =
           typeof router.core?.isSignificantAutonomous === "function" && router.core.isSignificantAutonomous(cls);
@@ -803,6 +824,76 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
   // operative (via its Workflow tool) — prepend the instruction; else a plain turn.
   const wfPrefix = router.isWorkflowTarget(pre.route) ? router.workflowTurnPrefix(pre.route) : "";
   const annotated = `${pre.annotation}\n${wfPrefix}${message}`;
+  // S3b: a WEB conversational / quick-inline turn MATERIALIZES — run it as a ONE-SHOT
+  // (fresh disposable claude) prefixed with the assembled context, so the standing
+  // operative session holds NO web context between messages. Non-web channels
+  // (kanban / dev-env / …) keep using the standing operative session unchanged.
+  if (hints?.channel === "web") {
+    const ctxBlock = typeof hints?.context === "string" && hints.context.trim() ? hints.context.trim() : "";
+    const oneShotMsg = ctxBlock ? `${ctxBlock}\n\n---\n\n${annotated}` : annotated;
+    const model = pre.route?.target?.model ?? MODEL;
+    let reply = "";
+    try {
+      // Stream the disposable session's reply incrementally (same closure shape as
+      // the standing path below); the final onChunk(reply, true) after the turn
+      // remains the authoritative replace.
+      let osSession = null;
+      let osEmitted = "";
+      const osOnScreen =
+        onChunk
+          ? () => {
+              if (!osSession?.handle) return;
+              const current = extractReply(osSession.handle, oneShotMsg);
+              if (current && current.length > osEmitted.length && current.startsWith(osEmitted)) {
+                onChunk(current.slice(osEmitted.length));
+                osEmitted = current;
+              } else if (current && current !== osEmitted) {
+                onChunk(current, true);
+                osEmitted = current;
+              }
+            }
+          : undefined;
+      const os1 = await router.runWebOneShot({
+        message: oneShotMsg,
+        model,
+        onScreen: osOnScreen,
+        onSession: (s) => {
+          osSession = s;
+        },
+      });
+      reply = os1.reply ?? "";
+    } catch (err) {
+      logEvent("stderr", { kind: "web-oneshot-failed", error: err?.message || String(err) });
+    }
+    lastMaterialized = { at: new Date().toISOString(), threadId: hints?.sessionId ?? null, assembledChars: ctxBlock.length, oneShot: true };
+    broadcastRich("status", {
+      rows: [`Garrison orchestrator → runtime: claude-code · web materialized (one-shot) · model: ${model}`],
+      mode: "claude-code",
+      contextPct: null,
+      model: `${model} · claude-code`,
+    });
+    broadcastRich("assistant", { text: reply });
+    broadcastRich("turn", { active: false });
+    if (onChunk && reply) onChunk(reply, true);
+    logEvent("stdout", { kind: "routed-turn", target: pre.route.targetId, runtime: "claude-code", web: true, oneShot: true });
+    return {
+      reply,
+      session_id: null, // nothing held — a one-shot spawns fresh and disposes
+      cost_usd: null,
+      route: pre.route.targetId,
+      honored: null,
+      runtime: "claude-code",
+      provider: pre.route?.target?.provider ?? null,
+      model: pre.route?.target?.model ?? null,
+      taskType: pre.decision?.taskType ?? null,
+      tier: pre.decision?.tier ?? null,
+      ruleId: pre.decision?.ruleId ?? null,
+      profile: pre.decision?.profile ?? null,
+      effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
+      // S3b acceptance evidence: prove this web turn ran one-shot (no standing session).
+      materialized: { oneShot: true, assembledChars: ctxBlock.length },
+    };
+  }
   let lastEmitted = "";
   const onScreen =
     onChunk && session.handle
@@ -917,6 +1008,9 @@ function routeHintsFromBody(body) {
     // card+phase the turn ran, folded into the compact-log record.
     contextHold: body?.contextHold === true,
     dutyKey: typeof body?.dutyKey === "string" && body.dutyKey ? body.dutyKey : null,
+    // S3b: the web-channel's assembled materialized-turn context — prefixed onto a
+    // web one-shot so the standing operative session holds no web context.
+    context: typeof body?.context === "string" ? body.context : null,
     workKind: typeof body?.workKind === "string" ? body.workKind : null,
     phases: body?.phases && typeof body.phases === "object" ? body.phases : null,
     project: typeof body?.project === "string" ? body.project : null,
@@ -1181,6 +1275,16 @@ const server = http.createServer(async (request, response) => {
       const limit = Number(url.searchParams.get("limit") ?? "50");
       const entries = await readCompactLog(limit);
       return sendJson(response, 200, { entries, lastDecision: compactController.getLastDecision() });
+    }
+
+    // S3b acceptance-7 introspection: no standing per-conversation session exists —
+    // one operative checkout (kanban duties), web turns are one-shots.
+    if (request.method === "GET" && url.pathname === "/materialized/status") {
+      const routerStatus =
+        router && typeof router.materializedStatus === "function"
+          ? router.materializedStatus()
+          : { standingConversationSessions: 0, operativeCheckout: Boolean(session) };
+      return sendJson(response, 200, { ...routerStatus, lastMaterialized });
     }
 
     // ───────────────────────── rich chat surface (/claude/*)

@@ -10,7 +10,7 @@
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
 import { createReadStream, existsSync, readFileSync, realpathSync } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile, appendFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
@@ -570,6 +570,121 @@ export function buildGatewayChatBody({ message, context, mode, classification, s
   return body;
 }
 
+// ─────────────────────────── S3b: materialized-turn context assembly (D8)
+//
+// A web thread is an ORIGIN, not a session: nothing runs and nothing holds context
+// between messages. Each user message MATERIALIZES a turn — the server assembles a
+// BOUNDED deterministic context block (recent thread window + this thread's board
+// cards + a fetch-on-demand trailer) and sends it as body.context, so the gateway
+// answers with assembled context instead of a standing accumulating session.
+
+const CTX_CAP = 6000; // hard cap on assembled context (chars)
+const THREAD_WINDOW = 12; // most recent thread messages
+const MSG_CLIP = 500; // per-message clip
+const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
+
+function boardBaseUrl() {
+  try {
+    // Resolve at CALL time (not from the frozen STATUS_ROOT const): the kanban board
+    // may come up after the web channel, and a sandbox sets GARRISON_HOME late.
+    const s = JSON.parse(readFileSync(path.join(garrisonDir(), "ui-fittings", "kanban-loop.json"), "utf8"));
+    return s.url || (s.port ? `http://127.0.0.1:${s.port}` : null);
+  } catch {
+    return null;
+  }
+}
+
+// A done card's one-liner: prefer its handoff completionSummary, else lastReply/title.
+async function doneOneLiner(base, c) {
+  try {
+    const r = await fetch(`${base}/cards/${encodeURIComponent(c.id)}/handoff`, { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      const { handoff } = await r.json();
+      const s = typeof handoff?.completionSummary === "string" ? handoff.completionSummary : "";
+      if (s.trim()) return `${c.id} ${c.title} — done: ${clip(s.trim(), 120)}`;
+    }
+  } catch {
+    /* fall back below */
+  }
+  const fallback = typeof c.lastReply === "string" && c.lastReply.trim() ? c.lastReply.trim() : c.title || "";
+  return `${c.id} ${c.title} — done: ${clip(String(fallback), 120)}`;
+}
+
+// Assemble the block, then truncate DETERMINISTICALLY under the cap: drop oldest
+// thread messages first, then done one-liners (active cards — the working state —
+// are never dropped).
+function buildContextBlock(threadMsgs, activeLines, doneLines, trailer, cap) {
+  const msgs = threadMsgs.slice();
+  const dones = doneLines.slice();
+  const render = () => {
+    const parts = [];
+    if (msgs.length) parts.push("## Recent conversation\n" + msgs.join("\n"));
+    if (activeLines.length) parts.push("## Active cards from this thread\n" + activeLines.join("\n"));
+    if (dones.length) parts.push("## Completed cards from this thread\n" + dones.join("\n"));
+    parts.push(trailer);
+    return parts.join("\n\n");
+  };
+  let out = render();
+  while (out.length > cap && msgs.length) {
+    msgs.shift();
+    out = render();
+  }
+  while (out.length > cap && dones.length) {
+    dones.pop();
+    out = render();
+  }
+  if (out.length > cap) out = out.slice(0, cap);
+  return out;
+}
+
+export async function assembleMaterializedContext(threadId) {
+  const telemetry = { threadId: threadId ?? null, assembledChars: 0, messages: 0, activeCards: 0, doneCards: 0 };
+  if (!threadId) return { context: null, telemetry };
+  let threadMsgs = [];
+  try {
+    const thread = await getThread(threadId);
+    const msgs = Array.isArray(thread?.messages) ? thread.messages : [];
+    threadMsgs = msgs.slice(-THREAD_WINDOW).map((m) => `${m.role}: ${clip(String(m.text ?? ""), MSG_CLIP)}`);
+  } catch {
+    /* no thread yet */
+  }
+  const activeLines = [];
+  const doneLines = [];
+  const base = boardBaseUrl();
+  if (base) {
+    try {
+      const r = await fetch(`${base}/cards?origin_id=${encodeURIComponent(`web:${threadId}`)}`, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) {
+        const { cards } = await r.json();
+        for (const c of Array.isArray(cards) ? cards : []) {
+          if (c.list === "done") doneLines.push(await doneOneLiner(base, c));
+          else if (c.list !== "needs-attention") activeLines.push(`${c.id} ${c.title} — ${c.list} (${clip(String(c.lastReply ?? ""), 150)})`);
+        }
+      }
+    } catch {
+      /* board down — assemble from the thread window alone */
+    }
+  }
+  telemetry.messages = threadMsgs.length;
+  telemetry.activeCards = activeLines.length;
+  telemetry.doneCards = doneLines.length;
+  const trailer = "Deeper detail for any card is available on demand via fetch_evidence(card_id, ref) — pull, do not assume.";
+  const context = buildContextBlock(threadMsgs, activeLines, doneLines, trailer, CTX_CAP);
+  telemetry.assembledChars = context.length;
+  return { context, telemetry };
+}
+
+// Acceptance-7 evidence: one line per materialized turn proving bounded context.
+async function appendMaterializedTurn(telemetry) {
+  try {
+    const dir = path.join(garrisonDir(), "web-channel");
+    await mkdir(dir, { recursive: true });
+    await appendFile(path.join(dir, "materialized-turns.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...telemetry }) + "\n");
+  } catch {
+    /* telemetry is best-effort */
+  }
+}
+
 async function handleChat(req, res, opts) {
   let body;
   try {
@@ -586,9 +701,14 @@ async function handleChat(req, res, opts) {
   // The client's thread id (never forwarded to the gateway) - the exchange is
   // persisted into it server-side when the upstream `done` event arrives.
   const threadId = typeof body?.thread === "string" && body.thread.trim() ? body.thread.trim() : null;
-  // Forward the opaque context + mode + optional routing hint through to the gateway.
+  // S3b: MATERIALIZE the turn — assemble bounded deterministic context from this
+  // thread's history + board cards, and record the bounded-context telemetry. Falls
+  // back to any client-supplied context when there is no thread id.
+  const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId);
+  void appendMaterializedTurn(telemetry);
+  // Forward the assembled context + mode + optional routing hint through to the gateway.
   const payload = JSON.stringify(
-    buildGatewayChatBody({ message, context: body?.context, mode: body?.mode, classification: body?.classification, sessionId: threadId })
+    buildGatewayChatBody({ message, context: assembledContext ?? body?.context, mode: body?.mode, classification: body?.classification, sessionId: threadId })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
   pipeChatSse(req, res, {

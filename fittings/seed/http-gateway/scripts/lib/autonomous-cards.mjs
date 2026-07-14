@@ -108,6 +108,7 @@ export async function createAutonomousCard({ message, classification, opts = {},
         })
       : { description: message, goalMode: true, originChannel: opts.originChannel ?? null };
     if (opts.quick) payload.quick = true; // D19: mark trivial-plan cards for the Done quick-tasks strip
+    if (opts.continues) payload.continues = opts.continues; // S3b: a post-done follow-up is a continuation card
     const created = await fetch(`${base}/cards`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -254,6 +255,23 @@ export async function parkQuickCard({ id, reason, parkedFrom = "implement", logF
   } catch (err) {
     logFn({ kind: "quick-card-park-failed", id, error: err?.message });
     return false;
+  }
+}
+
+// S3b: the board's cards for one origin (GET /cards?origin_id=…), most recent first.
+// A fetch failure / board-down returns [] (caller registers fresh).
+export async function cardsByOrigin(origin_id) {
+  try {
+    const base = boardBase();
+    if (!base || !origin_id) return [];
+    // 3s bound: this runs inside the serialized turn chain, so a HUNG (not
+    // down) board must not stall queued turns behind it.
+    const r = await fetch(`${base}/cards?origin_id=${encodeURIComponent(origin_id)}`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return [];
+    const doc = await r.json();
+    return Array.isArray(doc.cards) ? doc.cards : [];
+  } catch {
+    return [];
   }
 }
 

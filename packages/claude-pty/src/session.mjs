@@ -347,6 +347,15 @@ export async function oneShotTurn(opts) {
     readinessTimeoutMs: opts.readinessTimeoutMs,
     spawnImpl: opts.spawnImpl,
   });
+  // Optional peek at the disposable session (e.g. to build a streaming reply
+  // extractor over its handle). The session is disposed below regardless.
+  if (typeof opts.onSession === "function") {
+    try {
+      opts.onSession(session);
+    } catch {
+      /* observer errors never break the turn */
+    }
+  }
   try {
     const outcome = await session.runTurn({
       message: opts.message,
