@@ -76,6 +76,20 @@ export async function createCard(root, { title, description = "", project = null
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
   const validContinues = typeof continues === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(continues) ? continues : null;
+  // A continuation INHERITS the predecessor's duty journey when the creator did
+  // not pick one: a bare successor would fall back to the legacy board validNext
+  // and wander lists the predecessor never meant to visit. Server-side so every
+  // creation door (Continue button, create_continuation tool, gateway) gets it.
+  if (validContinues && !duty && !sequence) {
+    try {
+      const prev = JSON.parse(await fs.readFile(cardFile(root, validContinues), "utf8"));
+      duty = prev.duty ?? null;
+      level = prev.level ?? null;
+      sequence = Array.isArray(prev.sequence) && prev.sequence.length ? [...prev.sequence] : null;
+    } catch {
+      /* unknown predecessor - the successor stays bare */
+    }
+  }
   const card = {
     id,
     title: title ?? "(untitled)",

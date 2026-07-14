@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-13T22:35:43.405281+00:00'
+generated_at: '2026-07-14T22:31:28.223477+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -112,6 +112,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/kanban-loop
+- repo_url: _local/mcp-gateway
+  name: garrison-mcp-gateway
+  version: 0.2.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/mcp-gateway
 - repo_url: _local/monitor-default
   name: monitor-default
   version: 0.1.0

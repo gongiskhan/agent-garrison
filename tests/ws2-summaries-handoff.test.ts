@@ -212,3 +212,25 @@ describe("WS2 — continues field + continuation prompt injection", () => {
     expect(buildContinuationContext(root, { id: ULID_B, continues: null })).toBeNull();
   });
 });
+
+// WS5 prep: a continuation with no explicit journey inherits the predecessor's
+// duty/level/sequence (a bare successor would wander the legacy board validNext).
+describe("continuation journey inheritance", () => {
+  it("copies duty/level/sequence from the predecessor when absent", async () => {
+    const root = tmp("inherit-");
+    const a = await createCard(root, {
+      title: "A",
+      list: "backlog",
+      duty: "code",
+      level: 2,
+      sequence: ["plan", "implement", "review", "test"],
+    });
+    const b = await createCard(root, { title: "B", list: "backlog", continues: a.id });
+    expect(b.duty).toBe("code");
+    expect(b.level).toBe(2);
+    expect(b.sequence).toEqual(["plan", "implement", "review", "test"]);
+    const c = await createCard(root, { title: "C", list: "backlog", continues: a.id, duty: "other", sequence: ["other"] });
+    expect(c.duty).toBe("other"); // explicit choice wins
+    expect(c.sequence).toEqual(["other"]);
+  });
+});

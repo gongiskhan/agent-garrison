@@ -48,7 +48,18 @@ async function createTask(templateFile, project, targetList) {
   const template = readFileSync(templateFile, "utf8");
   const description = template.replaceAll("{{NONCE}}", nonce);
   const title = description.split("\n")[0].replace(/^#+\s*/, "").slice(0, 90);
-  const doc = await post(`${BOARD}/cards`, { title, description, project, origin_id: "board" });
+  // Explicit duty journey: a bare card follows the legacy board validNext and
+  // wanders (the smoke card drifted into image -> unauthed gemini). The demo
+  // flow is the standard code pipeline; the last sequence phase forwards to done.
+  const doc = await post(`${BOARD}/cards`, {
+    title,
+    description,
+    project,
+    origin_id: "board",
+    duty: "code",
+    level: 2,
+    sequence: ["plan", "implement", "review", "test"],
+  });
   const card = doc.card;
   if (targetList) {
     await fetch(`${BOARD}/cards/${card.id}`, {

@@ -19,6 +19,7 @@ dependencies:
     - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/orchestrator
@@ -73,6 +74,8 @@ x-garrison:
             bind_host: 127.0.0.1
             compact_enabled: true
             compact_threshold_pct: 60
+        - id: mcp-gateway
+          config: {}
         - id: dispatcher
           config:
             dispatch_provider: ollama-local
