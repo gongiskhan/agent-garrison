@@ -49,7 +49,7 @@ export function GarrisonHome() {
             </p>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-            <button className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
+            <button data-testid="operative-run" className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
               <span className="ic"><Play size={14} aria-hidden /></span>
               {isRunning ? "Restart Operative" : "Run the Operative"}
             </button>
