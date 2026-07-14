@@ -438,6 +438,69 @@ async function loadStubSpawnFn() {
 // Build + start the routing layer. Returns true when the operative is served by
 // the routing pool; false when routing is unavailable (caller falls back to the
 // legacy single-session spawn).
+// Wire the Dispatcher (D6/D9b) for the CLARITY judgment and steering's model
+// path: { core, model, call, callOpts } for RoutedGateway opts.dispatcher.
+// judgeClarity is the ONLY dispatchRoute caller, so wiring this changes no
+// routing behavior beyond clarity + steer classification. Best-effort: any
+// missing piece (dispatcher/garrison-call fittings, the control model) logs
+// dispatcher-not-wired and returns null - short-circuits + default-clear
+// remain, exactly the pre-wire behavior.
+async function loadDispatcher() {
+  try {
+    const dispatcherDir = path.join(COMPOSITION_DIR, "apm_modules", "_local", "dispatcher");
+    const core = await import(pathToFileURL(path.join(dispatcherDir, "lib", "dispatch-core.mjs")).href);
+    const callScript = path.join(COMPOSITION_DIR, "apm_modules", "_local", "garrison-call", "scripts", "call.mjs");
+    await fs.access(callScript);
+    const { spawn } = await import("node:child_process");
+    // The same spawn-and-pipe invoker the dispatcher CLI uses; never throws.
+    const call = (spec) =>
+      new Promise((resolve) => {
+        let child;
+        try {
+          child = spawn(process.execPath, [callScript], { stdio: ["pipe", "pipe", "pipe"] });
+        } catch (err) {
+          resolve({ ok: false, error: `spawn garrison-call failed: ${err?.message || String(err)}` });
+          return;
+        }
+        let out = "";
+        let errOut = "";
+        child.stdout.on("data", (d) => (out += d.toString()));
+        child.stderr.on("data", (d) => (errOut += d.toString()));
+        child.on("error", (err) => resolve({ ok: false, error: `garrison-call error: ${err?.message || String(err)}` }));
+        child.on("close", () => {
+          try {
+            resolve(JSON.parse(out.trim()));
+          } catch {
+            resolve({ ok: false, error: `garrison-call returned non-JSON: ${(out || errOut).slice(0, 200)}` });
+          }
+        });
+        child.stdin.write(JSON.stringify(spec));
+        child.stdin.end();
+      });
+    // The DispatchModel (duties w/ descriptions + selection) from the runner's
+    // garrison-control read model - the same source Muster and the board trust.
+    const controlBase = process.env.GARRISON_CONTROL_URL ?? "http://127.0.0.1:7777";
+    const r = await fetch(`${controlBase}/api/garrison-control`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) throw new Error(`garrison-control ${r.status}`);
+    const j = await r.json();
+    if (!j?.duties || !Array.isArray(j?.selectedDuties)) throw new Error("garrison-control returned no dispatch model");
+    const model = { duties: j.duties, selectedDuties: j.selectedDuties };
+    const callOpts = {
+      shape: process.env.GARRISON_DISPATCH_SHAPE ?? "ollama",
+      provider: process.env.GARRISON_DISPATCH_PROVIDER ?? "ollama-local",
+      model: process.env.GARRISON_DISPATCH_MODEL ?? "qwen2.5:3b",
+      maxTokens: Number(process.env.GARRISON_DISPATCH_MAX_TOKENS) || 256,
+      timeoutMs: Number(process.env.GARRISON_DISPATCH_TIMEOUT_MS) || 30000,
+      ...(process.env.GARRISON_DISPATCH_CLARITY_RUBRIC ? { clarityRubric: process.env.GARRISON_DISPATCH_CLARITY_RUBRIC } : {}),
+    };
+    logEvent("stdout", { kind: "dispatcher-wired", duties: Object.keys(model.duties).length, model: callOpts.model });
+    return { core, model, call, callOpts };
+  } catch (err) {
+    logEvent("stdout", { kind: "dispatcher-not-wired", reason: String(err?.message ?? err) });
+    return null;
+  }
+}
+
 // Write/refresh the shared stdio MCP config for spawned claude sessions (the
 // routed twin of the souls-mode writeSharedMcpConfig: same file, same contract).
 // Returns the claude extraArgs, or [] when the mcp-gateway fitting is absent.
@@ -483,6 +546,7 @@ async function initRouting() {
   // spawn so duty sessions can call fetch_evidence / create_continuation /
   // poll_origin_events. Graceful: no installed mcp-gateway -> no extra args.
   const mcpExtraArgs = await writeRoutedMcpConfig();
+  const dispatcher = await loadDispatcher();
   const spawnFn = await loadStubSpawnFn();
   const continueSession = await hasPriorSession();
   router = await createRoutedGateway({
@@ -490,6 +554,7 @@ async function initRouting() {
     appendSystemPromptFile: SYSTEM_PROMPT_PATH || undefined,
     permissionMode: PERMISSION_MODE,
     decisionsFile: path.join(COMPOSITION_DIR, ".garrison", "decisions.jsonl"),
+    ...(dispatcher ? { dispatcher } : {}),
     spawnFn,
     operativeSpawnConfig: {
       compositionDir: COMPOSITION_DIR,

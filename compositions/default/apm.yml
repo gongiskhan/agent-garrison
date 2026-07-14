@@ -14,6 +14,7 @@ dependencies:
     - path: ../../fittings/seed/dispatcher
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
+    - path: ../../fittings/seed/garrison-call
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/identity-gary
@@ -83,6 +84,8 @@ x-garrison:
             dispatch_model: qwen2.5:3b
       runtimes:
         - id: claude-code-runtime
+          config: {}
+        - id: garrison-call
           config: {}
         - id: codex-runtime
           config: {}
