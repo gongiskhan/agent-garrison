@@ -73,6 +73,7 @@ export { phaseForList };
 // for a legacy card with no duty/level/sequence, and the caller falls back to the
 // board's static validNext — so nothing changes for cards that don't carry a duty.
 import { loadResolvedModel, validNextForCard, nextListForCard, contextHoldFor } from "./resolved-model.mjs";
+import { routeOriginEvent, dutySummaryMessage } from "./notify-origin.mjs";
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
 // PREMATURE `done` event: the gateway's reply stream closed while the operative
@@ -403,12 +404,16 @@ export function routeStamp(route, phase = null) {
 // carrying WHY it parked (attentionReason) and WHERE it came from (parkedFrom) so the
 // board can show the reason + send it back. Moving a card OUT of needs-attention
 // (board PATCH) clears these + resets the iteration count for a clean retry.
-export function parkFields(card, fromList, reason) {
+export function parkFields(card, fromList, reason, eventKind = "blocked") {
   return {
     list: ATTENTION_LIST,
     status: "needs-attention",
     parkedFrom: fromList ?? card.parkedFrom ?? null,
-    attentionReason: reason
+    attentionReason: reason,
+    // S3a (D8): the lifecycle kind the saveCardCAS terminal edge routes for this park
+    // — "failed" (dispatch error / iteration cap / empty reply) or "blocked" (default:
+    // verdict-missing / gate-evidence / requiresEvidence / waiting / infra).
+    attentionKind: eventKind === "failed" ? "failed" : "blocked"
   };
 }
 
@@ -721,7 +726,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       root,
       {
         ...card,
-        ...parkFields(card, card.list, capReason),
+        ...parkFields(card, card.list, capReason, "failed"),
         lastDispatchError: null,
         events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: iteration cap (${cap})`, detail: capReason })
       },
@@ -965,7 +970,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     const failReason = `The ${listTitle} run errored: ${String(err?.message || err)}. Parked so you can see the failure — open the log for details, then move it back to retry.`;
     const res = await saveCardCAS(root, {
       ...runningCard,
-      ...parkFields(runningCard, card.list, failReason),
+      ...parkFields(runningCard, card.list, failReason, "failed"),
       runningSince: null,
       lastReply: replySnippet(String(err?.message || err)),
       lastDispatchError: {
@@ -1323,7 +1328,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     const emptyReason = buildEmptyFailureReason({ listTitle, phase, grace: emptyGraceResult, logTail });
     target = {
       ...runningCard,
-      ...parkFields(runningCard, card.list, emptyReason),
+      ...parkFields(runningCard, card.list, emptyReason, "failed"),
       runningSince: null,
       lastReply: "",
       lastDispatchError: null,
@@ -1363,7 +1368,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // WS2 duty summary (D6): on a genuine advance the engine writes its own per-duty
   // rollup under the run dir (best-effort; skips when runDir is null).
   if (outcome?.status === "moved") {
-    writeDutySummary(cwd, {
+    const dutyRec = writeDutySummary(cwd, {
       card: res.card ?? runningCard,
       phase,
       listFrom: card.list,
@@ -1374,6 +1379,16 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       context: contextMeta,
       now
     });
+    // S3a (D8): after the duty summary writes, route a duty-summary lifecycle event
+    // to the card's origin (web origins get a "<Duty> complete — …" thread message).
+    if (dutyRec) {
+      const advanced = res.card ?? runningCard;
+      routeOriginEvent(root, null, advanced, {
+        kind: "duty-summary",
+        message: dutySummaryMessage(advanced, { phase, summary: replyText }),
+        detail: { phase, level: advanced.level ?? null, summary: typeof replyText === "string" ? replyText.slice(0, 200) : null, listTo: outcome.to }
+      });
+    }
   }
   // S1b duty boundary: the duty just completed and advanced — ask the gateway to
   // compact if needed (holds discharge here). After the CAS so the advance is
@@ -1670,17 +1685,26 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   // WS2 duty summary parity: the in-session driver has no fresh reply/context, so the
   // summary falls back to the card's lastReply and the log ref to its last iteration.
   if (outcome?.status === "moved") {
-    writeDutySummary(cwd, {
+    const summaryText = typeof card.lastReply === "string" ? card.lastReply : null;
+    const dutyRec = writeDutySummary(cwd, {
       card: res.card ?? card,
       phase,
       listFrom: card.list,
       listTo: outcome.to,
-      summary: typeof card.lastReply === "string" ? card.lastReply : null,
+      summary: summaryText,
       logRef: card.iterations ? `log:${card.iterations}` : null,
       gateSummary: readGateSummary(cwd, card.runDir, phase, card.sliceId),
       context: null,
       now
     });
+    if (dutyRec) {
+      const advanced = res.card ?? card;
+      routeOriginEvent(root, null, advanced, {
+        kind: "duty-summary",
+        message: dutySummaryMessage(advanced, { phase, summary: summaryText }),
+        detail: { phase, level: advanced.level ?? null, summary: typeof summaryText === "string" ? summaryText.slice(0, 200) : null, listTo: outcome.to }
+      });
+    }
   }
   // S1b duty boundary parity with the dispatched path — after the CAS commit.
   await fireDutyBoundary(onDutyBoundary, res.card ?? card, phase, outcome);
@@ -1833,7 +1857,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         const capReason = `Hit the iteration cap on ${listTitle} (${cap} runs without converging). Parked so it stops looping — move it back to retry.`;
         const res = await saveCardCAS(root, {
           ...card,
-          ...parkFields(card, listId, capReason),
+          ...parkFields(card, listId, capReason, "failed"),
           events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: iteration cap (${cap})`, detail: capReason })
         }, baseRev, now());
         outcomes.push({ id: card.id, status: "needs-attention", reason: "iteration-cap", project });
@@ -1910,7 +1934,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         const failReason = `The ${listTitle} batch run for ${project} errored: ${String(err?.message || err)}. Parked — open the log, then move it back to retry.`;
         const res = await saveCardCAS(root, {
           ...a.running,
-          ...parkFields(a.running, listId, failReason),
+          ...parkFields(a.running, listId, failReason, "failed"),
           runningSince: null,
           lastReply: replySnippet(String(err?.message || err)),
           events: withEvent(a.running, { at: now(), kind: "failed", message: `Batch run errored on ${listTitle}`, detail: String(err?.message || err) })
@@ -2087,7 +2111,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         const emptyReason = buildEmptyFailureReason({ listTitle: `${listTitle} (batched for ${project})`, phase, grace: batchGrace, logTail });
         target = {
           ...a.running,
-          ...parkFields(a.running, listId, emptyReason),
+          ...parkFields(a.running, listId, emptyReason, "failed"),
           runningSince: null,
           lastReply: "",
           retryKeepsContext: true,

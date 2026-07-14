@@ -39,6 +39,8 @@ import {
   cardBriefRel,
   atomicWriteJSON
 } from "../lib/board.mjs";
+// S3a: the lifecycle event router — the server emits `created` after a card is made.
+import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
 import {
   getList,
   validNextFor,
@@ -169,6 +171,8 @@ export function cardSummary(card) {
     sequence: Array.isArray(card.sequence) ? card.sequence : null,
     // WS2 (D7): the predecessor card id this card continues (null for a fresh card).
     continues: card.continues ?? null,
+    // S3a (D8): the card's origin id ("web:<threadId>" | "skill:..." | "board").
+    origin_id: card.origin_id ?? null,
     // D19: a quick card is a trivial-plan task the gateway ran inline and
     // auto-advanced to Done. The Done column groups these under a collapsed
     // "quick tasks" strip, and they are never engine-owned (operator-touchable).
@@ -829,7 +833,9 @@ async function handleCreateCard(req, res, opts) {
     outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null,
     // WS2 (D7): a continuation card references its predecessor by ULID. createCard
     // shape-validates it and stamps origin "continuation" when no origin is given.
-    continues: typeof body.continues === "string" ? body.continues : null
+    continues: typeof body.continues === "string" ? body.continues : null,
+    // S3a (D8): an explicit origin_id (else createCard derives it from originChannel/origin).
+    origin_id: typeof body.origin_id === "string" ? body.origin_id : null
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
@@ -837,6 +843,9 @@ async function handleCreateCard(req, res, opts) {
     const q = await updateCard(opts.root, card.id, (c) => ({ ...c, quick: true }));
     if (q) Object.assign(card, q);
   }
+  // S3a (D8): emit the `created` lifecycle event to the card's origin (ensures the
+  // origin record + appends to its event log; web origins also get a thread ack).
+  routeOriginEvent(opts.root, null, card, { kind: "created", message: createdMessage(card) });
   // Coordination (GARRISON-FLOW-V2 S1, Q2 point 1): when coordination is active and
   // this project already has other LIVE cards, record an honest provisional note.
   // A fresh card has no touch-set yet (its runDir is minted on first plan dispatch),

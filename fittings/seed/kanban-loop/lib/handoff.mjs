@@ -3,7 +3,7 @@
 // close-out record: what got done, the key decisions, the files touched, the
 // fetchable evidence manifest, and the chain of predecessor cards.
 //
-// Generated at the saveCardCAS choke point beside notifyOriginTransition, so EVERY
+// Generated at the saveCardCAS choke point beside routeTerminalTransition, so EVERY
 // mover (engine, in-session, manual PATCH, gateway quick card) produces one. Fully
 // fire-and-forget-safe: it never blocks or fails the card write (deferred to the
 // next tick, every failure swallowed).

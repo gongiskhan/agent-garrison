@@ -8,8 +8,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
-import { notifyOriginTransition } from "./notify-origin.mjs";
+import { routeTerminalTransition } from "./notify-origin.mjs";
 import { generateHandoffIfDone } from "./handoff.mjs";
+import { deriveOriginId } from "./origins.mjs";
 
 export function kanbanRoot() {
   return process.env.GARRISON_KANBAN_DIR || path.join(os.homedir(), ".garrison", "kanban-loop");
@@ -69,7 +70,7 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
@@ -157,6 +158,11 @@ export async function createCard(root, { title, description = "", project = null
     created: at,
     updated: at
   };
+  // S3a (D8): every card carries an origin_id — an explicit one wins, else derive
+  // from originChannel/origin (web:<threadId> | skill:unknown | board). originChannel
+  // is kept in sync for back-compat (notify-origin's web delivery reads it).
+  card.origin_id =
+    typeof explicitOriginId === "string" && explicitOriginId ? explicitOriginId : deriveOriginId(card);
   await atomicWriteJSON(cardFile(root, id), card);
   return card;
 }
@@ -295,7 +301,10 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     // needs-attention). saveCardCAS is the one write path every mover uses
     // (engine, server PATCH, batch), so the edge fires exactly once per
     // outcome. Fire-and-forget — never delays or fails the write.
-    notifyOriginTransition(disk, next);
+    // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
+    // a finished | blocked | failed event — appends to the origin's durable event log
+    // for ALL transports, and posts the (legacy) web text to the originating thread.
+    routeTerminalTransition(root, disk, next);
     // WS2 handoff packet: on the done edge, compose + write cards/<id>/handoff.json
     // (deferred to the next tick, fully guarded — never blocks or fails this write).
     generateHandoffIfDone(root, disk, next);
