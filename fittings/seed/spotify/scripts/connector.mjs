@@ -113,7 +113,10 @@ function makeCall(access, fetchImpl) {
       if (res.status === 404) throw new Error("No active Spotify device — open the Spotify app on the phone, then try again.");
       throw new Error(`spotify ${res.status}: ${text}`);
     }
-    return text ? JSON.parse(text) : {};
+    if (!text) return {};
+    // Spotify sometimes answers 2xx with a non-JSON opaque body (e.g. the
+    // player control endpoints) — the action succeeded, so treat it as empty.
+    try { return JSON.parse(text); } catch { return {}; }
   };
 }
 
