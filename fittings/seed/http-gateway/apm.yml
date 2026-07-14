@@ -20,6 +20,28 @@ x-garrison:
       type: string
       default: 127.0.0.1
       description: Local bind address.
+    # Compact controller (S1b). Global defaults; a per-runtime override map may be
+    # carried in the same config object under `compaction` (keys: claude-code,
+    # agent-sdk, openai-agents, codex, opencode) and is projected as JSON to the
+    # gateway. The default focus template lives in the fitting
+    # (scripts/lib/compact-focus-template.mjs); leave compact_focus_template empty
+    # to use it.
+    - key: compact_enabled
+      type: boolean
+      default: true
+      description: Enable the Garrison compact controller (boundary-only /compact of the operative when context usage reaches the threshold).
+    - key: compact_threshold_pct
+      type: integer
+      default: 60
+      description: Context-usage percentage at or above which the controller compacts the operative at a turn/duty boundary.
+    - key: compact_focus_template
+      type: string
+      default: ""
+      description: >-
+        Custom compaction focus template. Placeholders {{card_id}} {{card_title}}
+        {{duty}} {{level}} {{decisions}} {{open_items}} {{files_touched}}
+        {{steering}} are filled from card context; a line whose placeholder is empty
+        is dropped. Leave empty to use the built-in default template.
   consumes:
     - kind: orchestrator
       cardinality: one

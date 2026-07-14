@@ -1416,6 +1416,31 @@ async function resolveGatewayFitting(
   return null;
 }
 
+// Project the gateway fitting's compact-controller config (S1b) into its spawn
+// env: the three scalar globals plus an optional per-runtime override map carried
+// in the same config object under `compaction` (serialized as JSON). Only set keys
+// present in config, so the gateway's own env-side defaults apply when unset.
+function compactEnv(config: Record<string, unknown>): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (config.compact_enabled !== undefined && config.compact_enabled !== null) {
+    env.GARRISON_COMPACT_ENABLED = String(config.compact_enabled);
+  }
+  if (config.compact_threshold_pct !== undefined && config.compact_threshold_pct !== null) {
+    env.GARRISON_COMPACT_THRESHOLD_PCT = String(config.compact_threshold_pct);
+  }
+  if (typeof config.compact_focus_template === "string" && config.compact_focus_template.trim()) {
+    env.GARRISON_COMPACT_FOCUS_TEMPLATE = config.compact_focus_template;
+  }
+  if (config.compaction && typeof config.compaction === "object") {
+    try {
+      env.GARRISON_COMPACT_CONFIG = JSON.stringify(config.compaction);
+    } catch {
+      /* a non-serialisable override map is dropped rather than aborting spawn */
+    }
+  }
+  return env;
+}
+
 async function spawnGateway(
   compositionId: string,
   cwd: string,
@@ -1439,6 +1464,7 @@ async function spawnGateway(
     GARRISON_PERMISSION_MODE:
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
     GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
+    ...compactEnv(gateway.config),
     ...(extraEnv ?? {})
   };
 

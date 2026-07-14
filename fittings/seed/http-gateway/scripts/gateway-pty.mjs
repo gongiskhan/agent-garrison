@@ -40,8 +40,10 @@ import {
   claudeProjectDirForCwd,
   readJsonlFrom,
   compactionsFrom,
+  contextTokensFrom,
 } from "@garrison/claude-pty";
 import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
+import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import { isEmptyQuickReply, quickEmptyFailureReason } from "./lib/autonomous-cards.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
@@ -122,34 +124,148 @@ function operativeSessionForTelemetry() {
   return session;
 }
 
-// Compaction summary from the transcript: { count, last:{preTokens,postTokens,trigger} }.
-// Re-scans only when the file grows (compaction count needs a full scan); cached by
+// Transcript telemetry: the compaction summary { count, last } AND the current
+// context-tokens estimate (contextTokensFrom), both off ONE cached read. Re-scans
+// only when the file grows (compaction count needs a full scan); cached by
 // (file, size) so a hot /claude/status poll doesn't re-read a multi-MB transcript.
-let compactCache = { file: null, size: -1, value: { count: 0, last: null } };
-function readCompactions(sess) {
+let transcriptCache = { file: null, size: -1, compactions: { count: 0, last: null }, contextTokens: null };
+function readTranscript(sess) {
+  const empty = { compactions: { count: 0, last: null }, contextTokens: null };
   const sid = sess?.getClaudeSessionId?.();
-  if (!sid) return { count: 0, last: null };
+  if (!sid) return empty;
   const file = path.join(claudeProjectDirForCwd(CANONICAL_COMPOSITION_DIR), `${sid}.jsonl`);
   let size = 0;
   try {
     size = statSync(file).size;
   } catch {
-    return { count: 0, last: null }; // transcript not written yet
+    return empty; // transcript not written yet
   }
-  if (compactCache.file === file && compactCache.size === size) return compactCache.value;
-  let value = { count: 0, last: null };
+  if (transcriptCache.file === file && transcriptCache.size === size) {
+    return { compactions: transcriptCache.compactions, contextTokens: transcriptCache.contextTokens };
+  }
+  let compactions = { count: 0, last: null };
+  let contextTokens = null;
   try {
     const { events } = readJsonlFrom(file, 0);
     const list = compactionsFrom(events);
     if (list.length) {
       const last = list[list.length - 1];
-      value = { count: list.length, last: { preTokens: last.preTokens, postTokens: last.postTokens, trigger: last.trigger } };
+      compactions = { count: list.length, last: { preTokens: last.preTokens, postTokens: last.postTokens, trigger: last.trigger } };
     }
+    const t = contextTokensFrom(events);
+    contextTokens = typeof t === "number" ? t : null;
   } catch {
     /* unreadable transcript — report no compactions rather than throw */
   }
-  compactCache = { file, size, value };
-  return value;
+  transcriptCache = { file, size, compactions, contextTokens };
+  return { compactions, contextTokens };
+}
+
+// The compaction summary alone (S1a shape, kept for /claude/status + the done frame).
+function readCompactions(sess) {
+  return readTranscript(sess).compactions;
+}
+
+// The operative's current usage sample for the compact controller: live contextPct
+// off the statusline (peak-tracked) plus the transcript context-tokens fallback.
+function operativeUsageSample() {
+  const sess = operativeSessionForTelemetry();
+  let contextPct = null;
+  try {
+    const st = sess?.status?.();
+    contextPct = typeof st?.contextPct === "number" ? st.contextPct : null;
+  } catch {
+    /* screen unreadable */
+  }
+  const { contextTokens } = readTranscript(sess);
+  return { contextPct, contextTokens };
+}
+
+// ─────────────────────────────────────── compact controller (S1b, D1/D2/D5)
+const COMPACT_LOG_FILE = path.join(COMPOSITION_DIR, ".garrison", "compact-log.jsonl");
+async function appendCompactLog(record) {
+  try {
+    await fs.mkdir(path.dirname(COMPACT_LOG_FILE), { recursive: true });
+    await fs.appendFile(COMPACT_LOG_FILE, JSON.stringify(record) + "\n");
+  } catch {
+    /* best-effort — a log-write failure must never break a boundary check */
+  }
+}
+async function readCompactLog(limit = 50) {
+  const n = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 50;
+  try {
+    const raw = await fs.readFile(COMPACT_LOG_FILE, "utf8");
+    return raw
+      .split("\n")
+      .filter((l) => l.trim())
+      .slice(-n)
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Inject `/compact <focus>` into the operative and await the compaction. A generous
+// timeout (real compactions run 106-143s) overrides the 45s command default.
+async function injectCompactIntoOperative(line, timeoutMs) {
+  const sess = operativeSessionForTelemetry();
+  if (!sess || typeof sess.runTurn !== "function" || !sess.isAlive?.()) {
+    throw new Error("no live operative session to compact");
+  }
+  const message = line ? `/compact ${line}` : "/compact";
+  await sess.runTurn({ message, timeoutMs: timeoutMs ?? COMPACT_TIMEOUT_MS });
+}
+
+const compactController = createCompactController({
+  resolveConfig: () => resolveCompactConfig(process.env),
+  sampleUsage: async () => operativeUsageSample(),
+  readCompactions: async () => readCompactions(operativeSessionForTelemetry()),
+  injectCompact: injectCompactIntoOperative,
+  logDecision: appendCompactLog,
+});
+
+// Lightweight focus context from a turn's route hints (the rich context comes from
+// the engine's duty-boundary call). Empty -> the generic focus template variant.
+function focusContextFromHints(hints) {
+  if (!hints || typeof hints !== "object") return {};
+  const out = {};
+  if (typeof hints.dutyKey === "string" && hints.dutyKey) {
+    const [cardId, phase] = hints.dutyKey.split(":");
+    if (cardId) out.card_id = cardId;
+    if (phase) out.duty = phase;
+  }
+  return out;
+}
+
+// Turn-boundary compaction check — runs inside the serialized chain AFTER a turn,
+// before the next dequeues. Only the claude-code operative accumulates context
+// across turns; a routed agent-sdk/secondary turn left it idle (its own runtime
+// handles its own rebuild), so skip the PTY check there.
+async function maybeCompactAtTurnBoundary(hints, result) {
+  const sess = operativeSessionForTelemetry();
+  if (!sess || !sess.isAlive?.()) return;
+  const runtime = result?.runtime ?? "claude-code";
+  if (runtime !== "claude-code") return;
+  try {
+    await compactController.check({
+      sessionId: "operative",
+      runtime: "claude-code",
+      boundary: "turn",
+      hold: hints?.contextHold === true,
+      cardId: typeof hints?.dutyKey === "string" ? hints.dutyKey.split(":")[0] || null : null,
+      dutyKey: typeof hints?.dutyKey === "string" ? hints.dutyKey : null,
+      focusContext: focusContextFromHints(hints),
+    });
+  } catch {
+    /* a boundary check must never break the turn chain */
+  }
 }
 
 // { contextPct, peakContextPct, compactions } for the operative session. Sampling
@@ -775,6 +891,11 @@ function routeHintsFromBody(body) {
     channel: typeof body?.channel === "string" ? body.channel : null,
     sessionId: typeof body?.sessionId === "string" && body.sessionId ? body.sessionId : null,
     mode: typeof body?.mode === "string" ? body.mode : undefined,
+    // S1b holds: a turn dispatched with contextHold=true never triggers a compaction
+    // after it (the compaction defers to the duty boundary); dutyKey identifies the
+    // card+phase the turn ran, folded into the compact-log record.
+    contextHold: body?.contextHold === true,
+    dutyKey: typeof body?.dutyKey === "string" && body.dutyKey ? body.dutyKey : null,
     workKind: typeof body?.workKind === "string" ? body.workKind : null,
     phases: body?.phases && typeof body.phases === "object" ? body.phases : null,
     project: typeof body?.project === "string" ? body.project : null,
@@ -792,8 +913,22 @@ function routeHintsFromBody(body) {
 
 function enqueueTurn(message, onChunk, hints) {
   const previous = inflight ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints));
-  inflight = next;
+  const runP = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints));
+  // Turn-boundary compaction check (S1b): chained AFTER the turn so the NEXT
+  // enqueued turn waits for any compaction, while the caller only awaits the turn
+  // result (runP). Never rejects the chain.
+  inflight = runP.then((result) => maybeCompactAtTurnBoundary(hints, result)).catch(() => {});
+  return runP;
+}
+
+// Enqueue an arbitrary boundary action (e.g. a duty-boundary compact check) onto
+// the same serialized turn chain, so it can never overlap a turn. Returns the
+// action's promise; the chain swallows its rejection so one failure never wedges
+// the next turn.
+function enqueue(fn) {
+  const previous = inflight ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(() => fn());
+  inflight = next.catch(() => {});
   return next;
 }
 
@@ -1001,6 +1136,32 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    // ───────────────────────── compact controller (S1b)
+    // Duty-boundary compact check: the engine calls this between duties with the
+    // card's focus context. Enqueued on the turn chain so it cannot overlap a turn;
+    // a boundary DISCHARGES holds. Fire-and-forget with a soft cap so the engine
+    // never blocks on the compaction itself.
+    if (request.method === "POST" && url.pathname === "/compact/boundary") {
+      const body = await readJsonBody(request);
+      const cardId = typeof body.cardId === "string" ? body.cardId : null;
+      const dutyKey = typeof body.dutyKey === "string" ? body.dutyKey : null;
+      const focusContext = body.focusContext && typeof body.focusContext === "object" ? body.focusContext : {};
+      const p = enqueue(() =>
+        compactController.check({ sessionId: "operative", runtime: "claude-code", boundary: "duty", cardId, dutyKey, focusContext })
+      );
+      const outcome = await Promise.race([
+        p.then((r) => ({ ok: true, action: r?.action ?? "none" })).catch((err) => ({ ok: false, error: String(err?.message ?? err) })),
+        sleepMs(500).then(() => ({ ok: true, queued: true })),
+      ]);
+      logEvent("stdout", { kind: "compact-boundary", cardId, dutyKey, outcome });
+      return sendJson(response, 202, outcome);
+    }
+    if (request.method === "GET" && url.pathname === "/compact/log") {
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      const entries = await readCompactLog(limit);
+      return sendJson(response, 200, { entries, lastDecision: compactController.getLastDecision() });
+    }
+
     // ───────────────────────── rich chat surface (/claude/*)
     if (url.pathname.startsWith("/claude/")) {
       if (!session || !session.isAlive()) {
@@ -1028,7 +1189,12 @@ const server = http.createServer(async (request, response) => {
       }
       if (request.method === "GET" && url.pathname === "/claude/status") {
         const base = richStatus(session.handle, { notePeak: (pct) => session.notePeakContextPct(pct) });
-        return sendJson(response, 200, { ...base, compactions: readCompactions(session) });
+        const cc = resolveCompactConfig(process.env)["claude-code"];
+        return sendJson(response, 200, {
+          ...base,
+          compactions: readCompactions(session),
+          compact: { enabled: cc.enabled, thresholdPct: cc.thresholdPct, lastDecision: compactController.getLastDecision() },
+        });
       }
       if (request.method === "GET" && url.pathname === "/claude/commands") {
         return sendJson(response, 200, { commands: enumerateCommandsCached({ cwd: COMPOSITION_DIR }) });

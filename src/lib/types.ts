@@ -337,6 +337,10 @@ export interface DutySpec {
   // Verb-shaped description ("develop a change end to end", "review a diff").
   description: string;
   levels: DutyLevel[];
+  // S1b: when true, a turn running this duty holds off the compact controller —
+  // compaction is deferred to the next duty boundary (which discharges the hold),
+  // never mid-duty. Optional/additive; absent reads as no hold.
+  context_hold?: boolean;
 }
 
 export interface GarrisonMetadata {

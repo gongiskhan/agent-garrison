@@ -55,7 +55,7 @@ import {
 } from "../lib/engine.mjs";
 import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
-import { gatewayRunFn, inferenceRunFn } from "../lib/gateway-client.mjs";
+import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { inferProject } from "../lib/infer-project.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
 import {
@@ -1103,7 +1103,7 @@ async function handlePatchCard(req, res, opts, id) {
       // agent list, and so on (Plan → Implement → Review → …) without waiting for a
       // Start press or the next tick. Fire-and-forget — the card flips to running and
       // is watchable; the PATCH returns at once.
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd })
+      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
         .catch((err) => console.error(`[kanban-loop] auto-dispatch on move failed for ${id}:`, err?.message || err));
       return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: true });
     }
@@ -1445,7 +1445,7 @@ async function handleStartCard(req, res, opts, id) {
     if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
     // If we advanced onto an immediate agent list, kick the automated flow.
     if (shouldAutoDispatch(board, targets[0]) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd })
+      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
         .catch((err) => console.error(`[kanban-loop] advance-chain failed for ${id}:`, err?.message || err));
     }
     return jsonRes(res, 200, { card: cardSummary(result.card), advanced: targets[0] });
@@ -1490,7 +1490,7 @@ async function handleStartCard(req, res, opts, id) {
   // the HTTP response on it). The card flips to running and is watchable; the response
   // returns at once. This is the manual Run / Retry path (the UI shows it on any agent
   // list card that isn't already running; immediate agent lists also auto-run on entry).
-  void processChain({ root, board, card, runFn: gatewayRunFn(gatewayUrl), cap, cwd: opts.cwd })
+  void processChain({ root, board, card, runFn: gatewayRunFn(gatewayUrl), cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(gatewayUrl) })
     .catch((err) => console.error(`[kanban-loop] start/chain failed for ${id}:`, err?.message || err));
   jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true });
 }

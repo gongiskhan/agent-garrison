@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
 import { processCard, processBatch, getList, triggerFor, isInteractive, withEvent, phaseForList } from "../lib/engine.mjs";
-import { gatewayRunFn } from "../lib/gateway-client.mjs";
+import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
 import { loadResolvedModel, buildBoard, reconcileBoardLists, validNextForCard } from "../lib/resolved-model.mjs";
@@ -383,6 +383,7 @@ async function tick() {
   const coordCfg = coordinationConfig(loadPolicy());
   const degraded = coordCfg.enabled && !coordinationAvailability().ok && coordCfg.serializeWhenUnavailable;
   const runFn = gatewayRunFn(gatewayUrl);
+  const onDutyBoundary = compactBoundaryFn(gatewayUrl);
   let processed = 0;
   for (const card of cards) {
     const list = getList(board, card.list);
@@ -397,7 +398,7 @@ async function tick() {
       const gate = serializeGate(cards, card, board);
       if (!gate.allowed) { console.log(`kanban-loop: card ${card.id} → ${gate.reason}`); continue; }
     }
-    const { outcome } = await processCard({ root, board, card, runFn, cap });
+    const { outcome } = await processCard({ root, board, card, runFn, cap, onDutyBoundary });
     console.log(`kanban-loop: card ${card.id} → ${outcome.status}${outcome.to ? " " + outcome.to : ""}`);
     processed++;
   }
@@ -441,6 +442,7 @@ async function tickList(listId) {
   }
 
   const runFn = gatewayRunFn(gatewayUrl);
+  const onDutyBoundary = compactBoundaryFn(gatewayUrl);
   let processed = 0;
   for (const card of cards) {
     if (card.list !== listId) continue;
@@ -450,7 +452,7 @@ async function tickList(listId) {
       const gate = serializeGate(cards, card, board);
       if (!gate.allowed) { console.log(`kanban-loop: card ${card.id} → ${gate.reason}`); continue; }
     }
-    const { outcome } = await processCard({ root, board, card, runFn, cap });
+    const { outcome } = await processCard({ root, board, card, runFn, cap, onDutyBoundary });
     console.log(`kanban-loop: card ${card.id} → ${outcome.status}${outcome.to ? " " + outcome.to : ""}`);
     processed++;
   }

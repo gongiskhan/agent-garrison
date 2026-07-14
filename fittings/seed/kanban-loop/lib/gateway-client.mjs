@@ -117,8 +117,32 @@ export function contextFromDone(done) {
 // {taskType,tier}): the gateway then classifies the turn itself and routes it, biased by
 // the mode the prompt leads with. A non-null classification is still forwarded verbatim
 // for callers that want to force one.
+// A fire-and-forget-with-timeout POST to the gateway's duty-boundary compact
+// check (S1b). The engine calls this after a card advances a duty; the gateway
+// enqueues the check on its serialized turn chain and returns 202 fast (it does
+// not block on the compaction). A gateway that is down/old just no-ops here — the
+// boundary compaction is advisory, never load-bearing for the run.
+export function compactBoundaryFn(gatewayUrl) {
+  return async ({ cardId, dutyKey, focusContext }) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      await fetch(`${gatewayUrl}/compact/boundary`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
+        body: JSON.stringify({ cardId: cardId ?? null, dutyKey: dutyKey ?? null, focusContext: focusContext ?? {} }),
+        signal: ctrl.signal
+      });
+    } catch {
+      /* gateway down / old / slow — advisory, swallow */
+    } finally {
+      clearTimeout(t);
+    }
+  };
+}
+
 export function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt, classification, list, skill, suppressContinuations, onChunk }) => {
+  return async ({ prompt, classification, list, skill, suppressContinuations, onChunk, contextHold, dutyKey }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
     // abort a blocking /chat request before the reply ever arrives. /chat/stream sends an
@@ -142,7 +166,11 @@ export function gatewayRunFn(gatewayUrl) {
           // never a per-list pin (list.skill is dead).
           skill: skill ?? null,
           suppressContinuations: suppressContinuations ?? true,
-          timeoutMs: KANBAN_TURN_TIMEOUT_MS
+          timeoutMs: KANBAN_TURN_TIMEOUT_MS,
+          // S1b: whether this duty holds off compaction + the card+phase key, so the
+          // gateway's turn-boundary check honors the hold and stamps the compact log.
+          contextHold: contextHold === true,
+          dutyKey: dutyKey ?? null
         })
       });
     } catch (err) {

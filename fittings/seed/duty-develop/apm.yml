@@ -32,6 +32,10 @@ x-garrison:
     - id: develop
       title: Develop
       description: Develop a change end to end.
+      # S1b: develop carries a change end to end — hold off compaction until the
+      # duty boundary (honored when develop is bound as a standalone leaf; when it
+      # expands to a sequence, its implement leg holds via duty-implement).
+      context_hold: true
       levels:
         - description: "level 1: quick fix, no plan — implement only"
           sequence:

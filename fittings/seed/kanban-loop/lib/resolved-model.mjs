@@ -106,6 +106,15 @@ export function resolveCardSequence(card, model = null) {
   return Array.isArray(seq) && seq.length ? seq : null;
 }
 
+// Whether a phase/duty holds off the compact controller (S1b). The projected
+// model carries holds[dutyId] === true for each duty declaring context_hold; a
+// card's CURRENT phase (card.list) IS a leaf-duty id (D15), so the engine passes
+// contextHoldFor(model, card.list) as the dispatch hint. Absent/false -> no hold.
+export function contextHoldFor(model, dutyId) {
+  if (!model || !model.holds || typeof model.holds !== "object") return false;
+  return model.holds[dutyId] === true;
+}
+
 // The fail edge for a gate phase: loop back to implement when the card's sequence
 // contains it, else the card's first phase (a gate with no implement upstream
 // still has somewhere to send failed work).

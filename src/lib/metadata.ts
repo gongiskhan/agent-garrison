@@ -146,7 +146,10 @@ const dutySchema = z
       .regex(/^[a-z][a-z0-9-]*$/, "duty id must be kebab-case"),
     title: z.string().min(1),
     description: z.string().min(1),
-    levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level")
+    levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level"),
+    // S1b compact-controller hold (optional): a turn running this duty defers
+    // compaction to the next duty boundary. Additive; absent = no hold.
+    context_hold: z.boolean().optional()
   })
   .strict();
 

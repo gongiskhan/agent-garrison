@@ -25,6 +25,9 @@ x-garrison:
     - id: implement
       title: Implement
       description: Write the code to satisfy a planned slice or a single well-scoped change.
+      # S1b: implement is heavy, multi-tool work — hold off compaction until the
+      # duty boundary so a compact never lands mid-implement.
+      context_hold: true
       levels:
         - description: >-
             Standard implementation — explore the affected code, then write it to satisfy the

@@ -41,6 +41,12 @@ export interface KanbanResolvedModel {
   sequences: Record<string, Record<string, string[]>>;
   // duty -> level -> resolved cell (the duties->router repoint input).
   cells: Record<string, Record<string, KanbanDutyCell>>;
+  // duty id -> context_hold (S1b): the duties that hold off the compact controller
+  // until a duty boundary. Only truthy entries are projected. The engine reads
+  // holds[card.list] (the current phase = leaf duty id) to hint contextHold.
+  // Optional so a hand-built model (tests, older callers) stays valid; the board's
+  // contextHoldFor treats an absent map as "no holds".
+  holds?: Record<string, boolean>;
 }
 
 // Where the board reads its model from — mirror the board's own convention
@@ -110,12 +116,22 @@ export function computeKanbanResolvedModel(
     }
   }
 
+  // Per-duty context_hold flags (S1b): project only the truthy ones so the board
+  // reads holds[dutyId] === true. Independent of the error gate — a hold is a
+  // single boolean off the merged duty spec, safe to project even when sequence
+  // expansion is skipped.
+  const holds: Record<string, boolean> = {};
+  for (const [id, duty] of Object.entries(model.duties)) {
+    if (duty.context_hold === true) holds[id] = true;
+  }
+
   return {
     version: 2,
     compositionId: composition.id,
     kanbanLists: model.errors.length === 0 ? model.kanbanLists : [],
     sequences,
-    cells
+    cells,
+    holds
   };
 }
 

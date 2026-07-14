@@ -72,7 +72,7 @@ export { phaseForList };
 // next-list ids (forward step + implement fail-edge for a gate); it returns null
 // for a legacy card with no duty/level/sequence, and the caller falls back to the
 // board's static validNext — so nothing changes for cards that don't carry a duty.
-import { loadResolvedModel, validNextForCard, nextListForCard } from "./resolved-model.mjs";
+import { loadResolvedModel, validNextForCard, nextListForCard, contextHoldFor } from "./resolved-model.mjs";
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
 // PREMATURE `done` event: the gateway's reply stream closed while the operative
@@ -517,10 +517,47 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   return parts.join("\n");
 }
 
+// S1b: the focus context the compact controller renders into its template at a
+// duty boundary. Best-effort off the card; empty fields collapse to the generic
+// template variant (the renderer drops empty-placeholder lines). Never throws.
+export function focusContextForCard(card, phase) {
+  if (!card || typeof card !== "object") return {};
+  const fences = Array.isArray(card.fences)
+    ? card.fences.filter((f) => f && f.sha).map((f) => String(f.sha).slice(0, 10))
+    : [];
+  return {
+    card_id: card.id ?? "",
+    card_title: card.title ?? "",
+    duty: card.duty ?? phase ?? "",
+    level: card.level != null ? String(card.level) : "",
+    decisions: card.briefPath ? `see ${card.briefPath}` : "",
+    open_items: "",
+    files_touched: fences.length ? fences.join(", ") : card.runDir ? String(card.runDir) : "",
+    steering: ""
+  };
+}
+
+// Fire the gateway's duty-boundary compact check (S1b) after a card advances a
+// duty. Best-effort: onDutyBoundary is fire-and-forget-with-timeout and a failure
+// must never affect the advance. No-op when the caller wired no boundary fn (tests,
+// souls mode) or the card did not move.
+async function fireDutyBoundary(onDutyBoundary, card, phase, outcome) {
+  if (typeof onDutyBoundary !== "function" || outcome?.status !== "moved") return;
+  try {
+    await onDutyBoundary({
+      cardId: card.id,
+      dutyKey: `${card.id}:${outcome.to}`,
+      focusContext: focusContextForCard(card, phase)
+    });
+  } catch {
+    /* boundary compaction is advisory — never fail the advance */
+  }
+}
+
 // Run ONE transition for a card on an agent list. runFn dispatches the prompt
 // through the orchestrator (preRoute) and returns { reply }. Returns the updated
 // card + an outcome ({status: moved|needs-attention|skipped, ...}).
-export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined }) {
+export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, card.list);
   // An interactive list (Discuss — kind "agent-interactive") is never auto-dispatched:
@@ -737,9 +774,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const onChunk = (full) => {
     void writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${full}\n`).catch(() => {});
   };
+  // S1b dispatch hints: whether THIS duty holds off compaction (read off the
+  // resolved model's holds[phase]) and a dutyKey identifying the card+phase, so the
+  // gateway's turn-boundary check honors the hold and stamps the compact log.
+  const contextHold = contextHoldFor(resolvedModel, phase);
+  const dutyKey = `${card.id}:${phase}`;
   let out;
   try {
-    out = await runFn({ prompt, card: runningCard, list, classification, skill, suppressContinuations: true, onChunk });
+    out = await runFn({ prompt, card: runningCard, list, classification, skill, suppressContinuations: true, onChunk, contextHold, dutyKey });
     // Stale-echo guard: a reply whose [route: X] token names a DIFFERENT target
     // than the one the gateway resolved for THIS turn is the previous turn's
     // screen content (the PTY model-switch extraction wedge), not a verdict on
@@ -1181,6 +1223,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   const res = await saveCardCAS(root, target, runRev, now());
   if (!res.ok) return { card: res.card, outcome: { status: "needs-attention", reason: "conflict-during-run" } };
+  // S1b duty boundary: the duty just completed and advanced — ask the gateway to
+  // compact if needed (holds discharge here). After the CAS so the advance is
+  // committed; best-effort so it never affects the outcome.
+  await fireDutyBoundary(onDutyBoundary, res.card ?? runningCard, phase, outcome);
   // Cross-card coordination side-writes, only after our own save committed.
   for (const bw of blockerWrites) {
     await applyBlockerWrite(root, bw, now);
@@ -1242,11 +1288,15 @@ export async function recoverInterruptedRuns(root, now = () => new Date().toISOS
   return recovered;
 }
 
-export async function processChain({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd() }) {
+export async function processChain({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), onDutyBoundary = undefined }) {
   let current = card;
   let lastOutcome = { status: "skipped", reason: "noop" };
   for (let hops = 0; hops < 50; hops++) {
-    const { card: c, outcome } = await processCard({ root, board, card: current, runFn, cap, now, cwd });
+    // onDutyBoundary is threaded into each hop's processCard, which fires it on a
+    // genuine advance — so every processChain hop already covers the duty boundary
+    // (no separate between-hop call needed; the controller's cooldown would skip a
+    // duplicate anyway).
+    const { card: c, outcome } = await processCard({ root, board, card: current, runFn, cap, now, cwd, onDutyBoundary });
     current = c;
     lastOutcome = outcome;
     if (outcome.status !== "moved") break; // parked, skipped, deferred, conflict → stop
@@ -1270,7 +1320,7 @@ export async function processChain({ root, board, card, runFn, cap = 10, now = (
 // must exist (D9), and the card's rail fast-forwards over OFF phases (D17).
 // The board stays the window on the run whether it started from chat, the
 // board, or the skill.
-export async function advanceCardPhase({ root, board, card, verdict, now = () => new Date().toISOString(), cwd = process.cwd() }) {
+export async function advanceCardPhase({ root, board, card, verdict, now = () => new Date().toISOString(), cwd = process.cwd(), onDutyBoundary = undefined }) {
   const list = getList(board, card.list);
   if (!list || list.kind !== AGENT_KIND) {
     return { card, outcome: { status: "skipped", reason: "not-an-agent-list" } };
@@ -1465,6 +1515,8 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   }
   const res = await saveCardCAS(root, target, card.rev ?? 0, now());
   if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+  // S1b duty boundary parity with the dispatched path — after the CAS commit.
+  await fireDutyBoundary(onDutyBoundary, res.card ?? card, phase, outcome);
   for (const bw of blockerWrites) {
     await applyBlockerWrite(root, bw, now);
   }

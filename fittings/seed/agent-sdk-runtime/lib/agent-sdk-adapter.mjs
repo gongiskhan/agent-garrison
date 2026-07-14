@@ -24,10 +24,59 @@ async function defaultCreateClient(args) {
   return mod.createSdkClient(args);
 }
 
+// S1b summarize-and-rebuild (D3/D6). The focus template + renderer are kept LOCAL:
+// the runtime fittings are independent packages and must not import from the
+// http-gateway fitting. The canonical copy lives at
+// http-gateway/scripts/lib/compact-focus-template.mjs; a short duplicate is
+// deliberate.
+const DEFAULT_FOCUS_TEMPLATE = `Compaction focus - preserve the following context exactly; summarize everything else freely.
+
+Active card: {{card_id}} - {{card_title}}
+Current duty: {{duty}} (level {{level}})
+Decisions made so far: {{decisions}}
+Open items still to do: {{open_items}}
+Files touched this run: {{files_touched}}
+Pending steering from the user: {{steering}}
+
+Do NOT drop the card id/title, the current duty and level, the decisions already made, the open items, the list of files touched, or any pending steering. Keep enough of the working context to continue the current duty without re-reading everything.`;
+
+const PLACEHOLDER = /\{\{\s*([a-z_]+)\s*\}\}/gi;
+
+function renderFocusTemplate(template, ctx = {}) {
+  const tpl = typeof template === "string" && template.trim() ? template : DEFAULT_FOCUS_TEMPLATE;
+  const c = ctx && typeof ctx === "object" ? ctx : {};
+  const valueFor = (k) => {
+    const v = c[k];
+    if (v === undefined || v === null) return "";
+    return typeof v === "string" ? v.trim() : String(v).trim();
+  };
+  const out = [];
+  for (const line of tpl.split("\n")) {
+    const keys = [...line.matchAll(PLACEHOLDER)].map((m) => m[1]);
+    if (keys.length === 0) {
+      out.push(line);
+      continue;
+    }
+    if (keys.some((k) => valueFor(k) === "")) continue;
+    out.push(line.replace(PLACEHOLDER, (_m, k) => valueFor(k)));
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// Rough context-window defaults by model family (tokens); unknown -> 200k.
+function contextWindowForModel(model) {
+  const m = String(model ?? "").toLowerCase();
+  if (m.includes("sonnet") || m.includes("opus")) return 1_000_000;
+  return 200_000;
+}
+
 export class AgentSdkAdapter {
   constructor(opts = {}) {
     this.id = "agent-sdk";
     this._createClient = opts.createClient ?? defaultCreateClient;
+    // S1b: an injectable one-shot summary call (tests override it); null -> the
+    // default implementation reuses _createClient.
+    this._summarizeImpl = opts.summarize ?? null;
     this._pending = new WeakMap();
   }
 
@@ -60,7 +109,17 @@ export class AgentSdkAdapter {
       budgetTokens: config.budgetTokens ?? null,
       usedTokens: 0,
       turns: 0,
-      sessionId: config.sessionId ?? null
+      sessionId: config.sessionId ?? null,
+      // S1b summarize-and-rebuild — OFF unless config enables it.
+      compactEnabled: config.compactEnabled === true,
+      compactThresholdPct:
+        Number.isFinite(config.compactThresholdPct) && config.compactThresholdPct > 0 ? config.compactThresholdPct : 60,
+      compactContextWindow:
+        Number.isFinite(config.compactContextWindow) && config.compactContextWindow > 0
+          ? config.compactContextWindow
+          : contextWindowForModel(config.model),
+      contextSeed: null,
+      rebuilds: 0
     };
   }
 
@@ -99,7 +158,11 @@ export class AgentSdkAdapter {
   // Consume the SDK's structured message stream directly (NO scraping). Stops and
   // reports on maxTurns / budget ceiling rather than looping on paid credits.
   async _consume(session, text, options) {
-    const client = await this._createClient({ prompt: text, options });
+    // S1b: a rebuilt session seeds the next turn with the focus summary (the SDK
+    // session/resume was cleared, so this restores the working context).
+    const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;
+    session.contextSeed = null;
+    const client = await this._createClient({ prompt: seeded, options });
     let textOut = "";
     const toolUses = [];
     let stoppedReason = null;
@@ -134,9 +197,59 @@ export class AgentSdkAdapter {
 
     session.turns += 1;
     session.sessionId = sessionId;
-    // Cumulative token usage across this session's turns (additive telemetry, S1a).
-    // Preserved through the runtime-bridge delegate result envelope.
+    // S1b: at the loop boundary, summarize-and-rebuild if usage crossed the
+    // threshold. This may reset session.usedTokens to 0 and clear the resume id.
+    await this._maybeRebuild(session);
+    // Cumulative token usage across this session's turns (additive telemetry, S1a),
+    // read AFTER any rebuild - a freshly rebuilt session reports 0.
     return { text: textOut, artifacts: [], toolUses, stoppedReason, usedTokens: session.usedTokens };
+  }
+
+  // S1b summarize-and-rebuild: when cumulative usage crosses the configured
+  // fraction of the context window, ask the model for a focus summary, drop the
+  // resume id (fresh SDK context next turn), and seed the next turn with the
+  // summary. OFF unless compactEnabled. A failed summary falls back to the focus
+  // text as the seed and never throws.
+  async _maybeRebuild(session) {
+    if (!session.compactEnabled || !(session.compactContextWindow > 0)) return;
+    const trigger = Math.floor((session.compactContextWindow * session.compactThresholdPct) / 100);
+    if (session.usedTokens < trigger) return;
+    const template =
+      typeof session.config.focusTemplate === "string" && session.config.focusTemplate.trim()
+        ? session.config.focusTemplate
+        : DEFAULT_FOCUS_TEMPLATE;
+    const focusText = renderFocusTemplate(template, session.config.focusContext ?? {});
+    let summary = "";
+    try {
+      summary = await this._summarize(session, focusText);
+    } catch {
+      summary = "";
+    }
+    session.sessionId = null;
+    session.contextSeed = summary && summary.trim() ? summary.trim() : focusText;
+    session.usedTokens = 0;
+    session.rebuilds += 1;
+  }
+
+  // One-shot summary call. Injectable (tests pass opts.summarize); the default
+  // reuses the SDK client against the CURRENT (pre-reset) session so it summarizes
+  // the conversation so far.
+  async _summarize(session, focusText) {
+    if (this._summarizeImpl) return this._summarizeImpl(session, focusText);
+    const prompt = `${focusText}\n\nSummarize the conversation so far into a compact briefing that preserves the above. Output only the briefing.`;
+    const client = await this._createClient({ prompt, options: this.buildQueryOptions(session) });
+    let out = "";
+    for await (const msg of client) {
+      const type = msg?.type;
+      if (type === "assistant") {
+        for (const block of msg.message?.content ?? []) {
+          if (block.type === "text") out += block.text;
+        }
+      } else if (type === "result") {
+        if (!out && typeof msg.result === "string") out = msg.result;
+      }
+    }
+    return out;
   }
 
   async awaitResponse(session) {
