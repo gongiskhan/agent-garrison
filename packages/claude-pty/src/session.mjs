@@ -2,10 +2,12 @@
 // `oneShotTurn` helper for one-and-done callers (tier-classifier,
 // coding-subagent).
 //
-// Detection is SCREEN-based, not JSONL-based: claude 2.1.175 fires hooks but
-// does not persist conversation content to the session transcript file
-// (verified empirically), so the headless xterm mirror is the source of truth
-// for the reply and the turn lifecycle. See screen.mjs.
+// Detection is SCREEN-based, not JSONL-based: the headless xterm mirror is the
+// source of truth for the reply and the turn lifecycle (see screen.mjs) because
+// it reflects the live TUI without a transcript-write race. Note the transcript
+// itself is NOT empty on current claude (2.1.209 verified): it persists
+// conversation content AND per-assistant-event `usage`, which the context
+// telemetry helpers in jsonl.mjs read — screen scraping just isn't the reply path.
 //
 // Garrison arg shape:
 //   - permissionMode "bypassPermissions" -> --dangerously-skip-permissions,
@@ -99,6 +101,10 @@ export class OperativePtySession {
     this.lastActivityAt = Date.now();
     this.disposed = false;
     this.inflight = null;
+    // Session-lifetime peak context percentage (max of every sampled contextPct).
+    // Fed by status(), runTurn, and any live sampler (the rich stream) via
+    // notePeakContextPct; null until the first numeric sample lands.
+    this.peakContextPct = null;
   }
 
   static async spawn(opts) {
@@ -165,9 +171,27 @@ export class OperativePtySession {
     return this.inflight !== null;
   }
 
-  /** Current parsed status line (model, context %, permission mode, rows). */
+  /** Fold a freshly-sampled context percentage into the session-lifetime peak.
+   *  Ignores non-numeric samples (e.g. a missing statusline → contextPct null).
+   *  Returns the current peak so a caller can read it back in one call. */
+  notePeakContextPct(pct) {
+    if (typeof pct === "number" && Number.isFinite(pct)) {
+      this.peakContextPct = this.peakContextPct === null ? pct : Math.max(this.peakContextPct, pct);
+    }
+    return this.peakContextPct;
+  }
+
+  /** The session-lifetime peak context percentage (null before any sample). */
+  getPeakContextPct() {
+    return this.peakContextPct;
+  }
+
+  /** Current parsed status line (model, context %, permission mode, rows) plus
+   *  the session-lifetime peakContextPct. Sampling here also updates the peak. */
   status() {
-    return parseStatus(this.handle);
+    const status = parseStatus(this.handle);
+    this.notePeakContextPct(status.contextPct);
+    return { ...status, peakContextPct: this.peakContextPct };
   }
 
   /** Send one prompt and wait for the turn to finish. One turn at a time. */
@@ -224,7 +248,14 @@ export class OperativePtySession {
       await sleep(900);
       reply = extractReply(this.handle, req.message);
     }
-    return { reply, sessionId: this.claudeSessionId, completion, status: parseStatus(this.handle) };
+    const status = parseStatus(this.handle);
+    this.notePeakContextPct(status.contextPct);
+    return {
+      reply,
+      sessionId: this.claudeSessionId,
+      completion,
+      status: { ...status, peakContextPct: this.peakContextPct },
+    };
   }
 
   /**

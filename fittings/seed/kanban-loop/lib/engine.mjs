@@ -818,6 +818,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const routeMeta = out?.route
     ? { ...out.route, tier: out.route.tier ?? runningCard.tier ?? null }
     : null;
+  // Per-turn context telemetry (S1a / D5b): { contextPct, peakContextPct,
+  // compactions } off the gateway `done` frame, null when none flowed. Stamped onto
+  // the routed event so per-duty context lands on the card timeline. Never load-bearing.
+  const contextMeta = out?.context && typeof out.context === "object" ? out.context : null;
   // Final clean log (overwrites any partial live-streamed content with the
   // authoritative reply the operative returned).
   await writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${reply}\n`);
@@ -1073,7 +1077,8 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         kind: "routed",
         message: `${listTitle} → ${getList(board, effectiveNext)?.title || effectiveNext}${nudged ? " (verdict via follow-up)" : ""}${routeSuffix}`,
         detail: snippet || null,
-        ...(routeObj ? { route: routeObj } : {})
+        ...(routeObj ? { route: routeObj } : {}),
+        ...(contextMeta ? { context: contextMeta } : {})
       });
       for (const ev of offEvents) events = withEvent({ events }, ev);
       if (stab) events = withEvent({ events }, stab.event);

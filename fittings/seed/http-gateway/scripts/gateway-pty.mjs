@@ -25,7 +25,7 @@
 
 import http from "node:http";
 import fs from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -38,6 +38,8 @@ import {
   cycleMode,
   enumerateCommandsCached,
   claudeProjectDirForCwd,
+  readJsonlFrom,
+  compactionsFrom,
 } from "@garrison/claude-pty";
 import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
 import { isEmptyQuickReply, quickEmptyFailureReason } from "./lib/autonomous-cards.mjs";
@@ -92,6 +94,81 @@ function broadcastRich(event, data) {
       /* client gone */
     }
   }
+}
+
+// ─────────────────────────────────────── context telemetry (D5b / S1a)
+// The operative's transcript (deterministic path from the pre-minted --session-id)
+// carries per-assistant-event usage + compact_boundary events. We surface, per
+// turn, the live contextPct + the session-lifetime peakContextPct (both off the
+// session's peak tracker) plus a compaction count + last record read from the
+// transcript. Every field is additive on the /claude/status + /chat/stream done
+// payloads and null/zero when unknown — never load-bearing.
+const CANONICAL_COMPOSITION_DIR = (() => {
+  try {
+    return realpathSync(COMPOSITION_DIR);
+  } catch {
+    return COMPOSITION_DIR;
+  }
+})();
+
+// The operative session that ran/serves the turn: the routed layer's operative
+// when routing, else the legacy single session. Null-safe.
+function operativeSessionForTelemetry() {
+  try {
+    if (router && typeof router.getOperativeSession === "function") return router.getOperativeSession();
+  } catch {
+    /* routing layer mid-teardown — fall through */
+  }
+  return session;
+}
+
+// Compaction summary from the transcript: { count, last:{preTokens,postTokens,trigger} }.
+// Re-scans only when the file grows (compaction count needs a full scan); cached by
+// (file, size) so a hot /claude/status poll doesn't re-read a multi-MB transcript.
+let compactCache = { file: null, size: -1, value: { count: 0, last: null } };
+function readCompactions(sess) {
+  const sid = sess?.getClaudeSessionId?.();
+  if (!sid) return { count: 0, last: null };
+  const file = path.join(claudeProjectDirForCwd(CANONICAL_COMPOSITION_DIR), `${sid}.jsonl`);
+  let size = 0;
+  try {
+    size = statSync(file).size;
+  } catch {
+    return { count: 0, last: null }; // transcript not written yet
+  }
+  if (compactCache.file === file && compactCache.size === size) return compactCache.value;
+  let value = { count: 0, last: null };
+  try {
+    const { events } = readJsonlFrom(file, 0);
+    const list = compactionsFrom(events);
+    if (list.length) {
+      const last = list[list.length - 1];
+      value = { count: list.length, last: { preTokens: last.preTokens, postTokens: last.postTokens, trigger: last.trigger } };
+    }
+  } catch {
+    /* unreadable transcript — report no compactions rather than throw */
+  }
+  compactCache = { file, size, value };
+  return value;
+}
+
+// { contextPct, peakContextPct, compactions } for the operative session. Sampling
+// status() also folds the current contextPct into the session peak.
+function contextTelemetry() {
+  const sess = operativeSessionForTelemetry();
+  if (!sess || typeof sess.status !== "function") {
+    return { contextPct: null, peakContextPct: null, compactions: { count: 0, last: null } };
+  }
+  let contextPct = null;
+  let peakContextPct = null;
+  try {
+    const st = sess.status();
+    contextPct = typeof st?.contextPct === "number" ? st.contextPct : null;
+    peakContextPct = typeof st?.peakContextPct === "number" ? st.peakContextPct : null;
+  } catch {
+    /* screen unreadable — leave nulls */
+  }
+  return { contextPct, peakContextPct, compactions: readCompactions(sess) };
 }
 
 // ─────────────────────────────────────── AskUserQuestion (tappable picker, D28)
@@ -850,7 +927,11 @@ const server = http.createServer(async (request, response) => {
             /* client gone */
           }
         }, routeHintsFromBody(body));
-        sseWrite(response, "done", result);
+        // Additive context telemetry (D5b): the turn's live/peak context % + any
+        // compactions, read off the operative session that just ran. A nested
+        // `context` object so consumers (the kanban engine) opt in without any
+        // change to the existing result shape.
+        sseWrite(response, "done", { ...result, context: contextTelemetry() });
         logEvent("stdout", { kind: "chat-stream-out", reply: result.reply.slice(0, 200) });
       } catch (err) {
         sseWrite(response, "error", { error: err.message });
@@ -935,6 +1016,9 @@ const server = http.createServer(async (request, response) => {
       }
       if (request.method === "GET" && url.pathname === "/claude/stream") {
         openRichStream(session.handle, response, {
+          // Feed each poll's contextPct into the session peak so streamed status
+          // events carry a live peakContextPct (additive field).
+          notePeak: (pct) => session.notePeakContextPct(pct),
           onEmit: (emit) => {
             richClients.add(emit);
             response.on("close", () => richClients.delete(emit));
@@ -943,7 +1027,8 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       if (request.method === "GET" && url.pathname === "/claude/status") {
-        return sendJson(response, 200, richStatus(session.handle));
+        const base = richStatus(session.handle, { notePeak: (pct) => session.notePeakContextPct(pct) });
+        return sendJson(response, 200, { ...base, compactions: readCompactions(session) });
       }
       if (request.method === "GET" && url.pathname === "/claude/commands") {
         return sendJson(response, 200, { commands: enumerateCommandsCached({ cwd: COMPOSITION_DIR }) });

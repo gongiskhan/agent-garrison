@@ -135,7 +135,11 @@ export async function delegate(spec, deps, opts = {}) {
   const artifactPath = await writeArtifact("delegations", `${adapter.id}-${(now ? now() : "0").replace(/[:.]/g, "-")}.md`, fullOutput);
   const result = {
     summary: summarize(fullOutput),
-    artifacts: [artifactPath, ...(resp?.artifacts ?? [])]
+    artifacts: [artifactPath, ...(resp?.artifacts ?? [])],
+    // Preserve cumulative token usage when the adapter reports it (additive
+    // telemetry, S1a). Unknown fields are otherwise dropped here because the
+    // result is rebuilt from scratch; validateDelegationResult ignores extras.
+    ...(typeof resp?.usedTokens === "number" ? { usedTokens: resp.usedTokens } : {})
   };
   const resErrors = validateDelegationResult(result);
   if (resErrors.length) throw new DelegationError("invalid-result", resErrors.join("; "), { resErrors });

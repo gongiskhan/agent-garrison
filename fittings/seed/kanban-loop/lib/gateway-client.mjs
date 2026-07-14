@@ -92,6 +92,27 @@ export function routeFromDone(done) {
   return { targetId, runtime, provider, model, taskType, tier, ruleId, profile, honored, effort };
 }
 
+// The gateway's `done` SSE event also carries an additive `context` object (S1a /
+// D5b): { contextPct, peakContextPct, compactions:{count,last} } for the operative
+// session that ran the turn. Fold it into a compact, validated object the engine can
+// stamp onto the card's routed event, or null when NOTHING context-related flowed
+// (souls mode / a non-PTY runtime → contextPct null, no compactions). Never
+// load-bearing: a missing context object just means no telemetry stamp.
+export function contextFromDone(done) {
+  if (!done || typeof done !== "object") return null;
+  const c = done.context;
+  if (!c || typeof c !== "object") return null;
+  const contextPct = typeof c.contextPct === "number" ? c.contextPct : null;
+  const peakContextPct = typeof c.peakContextPct === "number" ? c.peakContextPct : null;
+  const rawCompactions = c.compactions && typeof c.compactions === "object" ? c.compactions : null;
+  const compactions = {
+    count: typeof rawCompactions?.count === "number" ? rawCompactions.count : 0,
+    last: rawCompactions?.last ?? null,
+  };
+  if (contextPct == null && peakContextPct == null && compactions.count === 0) return null;
+  return { contextPct, peakContextPct, compactions };
+}
+
 // The board/tick pass `classification: null` here (the engine no longer pins a per-list
 // {taskType,tier}): the gateway then classifies the turn itself and routes it, biased by
 // the mode the prompt leads with. A non-null classification is still forwarded verbatim
@@ -196,9 +217,10 @@ export function gatewayRunFn(gatewayUrl) {
       e.transport = true;
       throw e;
     }
-    // Return the reply text AND the per-turn route metadata (null in souls mode). The
-    // shape stays an object every call site already destructures (`out?.reply`), so
-    // adding `route` is inert for callers that ignore it.
-    return { reply: done.reply ?? done.text ?? "", route: routeFromDone(done) };
+    // Return the reply text, the per-turn route metadata (null in souls mode), AND the
+    // per-turn context telemetry (null when none flowed). The shape stays an object every
+    // call site already destructures (`out?.reply`), so adding `route`/`context` is inert
+    // for callers that ignore them.
+    return { reply: done.reply ?? done.text ?? "", route: routeFromDone(done), context: contextFromDone(done) };
   };
 }

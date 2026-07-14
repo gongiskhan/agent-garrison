@@ -80,3 +80,10 @@ x-garrison:
     + artifact paths; every delegation is appended to decisions.jsonl.
     CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
     Probe: node scripts/bridge.mjs --probe   → prints "ok"
+
+    Context telemetry and compaction (degradation). Codex runs stateless — one
+    `codex exec` per turn with the prompt on stdin — so no context accumulates across
+    turns and compaction is structurally moot (there is no long-lived session to
+    compact). The `codex exec` text output carries no usage/token counters that this
+    adapter parses today, so a delegated Codex turn reports no context %, no peak
+    context, and no compactions.

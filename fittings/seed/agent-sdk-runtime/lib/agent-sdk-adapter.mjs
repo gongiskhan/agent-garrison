@@ -134,7 +134,9 @@ export class AgentSdkAdapter {
 
     session.turns += 1;
     session.sessionId = sessionId;
-    return { text: textOut, artifacts: [], toolUses, stoppedReason };
+    // Cumulative token usage across this session's turns (additive telemetry, S1a).
+    // Preserved through the runtime-bridge delegate result envelope.
+    return { text: textOut, artifacts: [], toolUses, stoppedReason, usedTokens: session.usedTokens };
   }
 
   async awaitResponse(session) {

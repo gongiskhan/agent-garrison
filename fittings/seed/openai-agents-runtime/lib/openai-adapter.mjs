@@ -114,7 +114,9 @@ export class OpenAiAgentsAdapter {
 
     session.turns += 1;
     if (envelope.history != null) session.thread = envelope.history;
-    return { text, artifacts: [], toolUses, stoppedReason };
+    // Cumulative token usage across this session's turns (additive telemetry, S1a).
+    // Preserved through the runtime-bridge delegate result envelope.
+    return { text, artifacts: [], toolUses, stoppedReason, usedTokens: session.usedTokens };
   }
 
   async awaitResponse(session) {

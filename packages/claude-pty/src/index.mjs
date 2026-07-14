@@ -16,6 +16,8 @@ export {
   emptyTurn,
   extractLocalCommandOutput,
   extractAskUserQuestions,
+  contextTokensFrom,
+  compactionsFrom,
 } from "./jsonl.mjs";
 export {
   waitForCompletion,
