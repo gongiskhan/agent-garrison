@@ -326,6 +326,11 @@ export class RoutedGateway {
     // dispatcher fitting's steer-core (explicit phrasing short-circuits without a model;
     // the dispatcher's garrison-call is used for the model path when a dispatcher is wired).
     this._steerFn = opts.steer ?? null;
+    // S3d: clarity judge - injectable (tests); default = phrasing short-circuit
+    // (lazy-loaded from dispatch-core) then, when a dispatcher is wired, its model
+    // verdict. The lazy short-circuit loader caches into this._clarityScFn.
+    this._clarityFn = opts.clarity ?? null;
+    this._clarityScFn = undefined;
   }
 
   async start() {
@@ -740,6 +745,53 @@ export class RoutedGateway {
       });
       if (!r.ok) return null;
       return await r.json().catch(() => ({}));
+    } catch {
+      return null;
+    }
+  }
+
+  // S3d (D9b): judge whether a task-shaped ask is CLEAR enough to plan against, or
+  // NEEDS a scope discussion first. A phrasing short-circuit decides first (pure code,
+  // both directions, no model - "just do it" → clear, "let's discuss first" →
+  // needs-discuss); otherwise, when a Dispatcher is wired (opt-in), its clarity verdict
+  // is consulted; default "clear" (never blocks a turn). Injectable via opts.clarity
+  // (tests). Returns { clarity, source }. Never throws.
+  async judgeClarity(message) {
+    if (typeof this._clarityFn === "function") {
+      try {
+        const r = await this._clarityFn({ message });
+        if (r && r.clarity) {
+          return { clarity: r.clarity === "needs-discuss" ? "needs-discuss" : "clear", source: r.source ?? "injected" };
+        }
+      } catch (err) {
+        this.logFn({ kind: "clarity-judge-failed", error: err?.message || String(err) });
+      }
+    }
+    const sc = await this._clarityShortCircuit(message);
+    if (sc) return { clarity: sc.clarity === "needs-discuss" ? "needs-discuss" : "clear", source: "message" };
+    if (this._dispatcher?.core && typeof this._dispatcher.core.dispatch === "function") {
+      try {
+        const r = await this.dispatchRoute(message);
+        return { clarity: r?.clarity === "needs-discuss" ? "needs-discuss" : "clear", source: "dispatch" };
+      } catch (err) {
+        this.logFn({ kind: "clarity-judge-failed", error: err?.message || String(err) });
+      }
+    }
+    return { clarity: "clear", source: "default" };
+  }
+
+  // Lazy-load the dispatcher's PURE clarity phrasing short-circuit (the SAME helper
+  // dispatch-core applies), so an explicit "just do it" / "let's discuss first" wins
+  // on the live classifier path too - no Dispatcher required. Cached; null when the
+  // dispatcher fitting isn't resolvable on disk (→ no short-circuit, default clear).
+  async _clarityShortCircuit(message) {
+    try {
+      if (this._clarityScFn === undefined) {
+        const dir = resolveDispatcherDir(this.compositionDir);
+        const mod = dir ? await import(pathToFileURL(path.join(dir, "lib", "dispatch-core.mjs")).href) : null;
+        this._clarityScFn = mod && typeof mod.clarityShortCircuit === "function" ? mod.clarityShortCircuit : null;
+      }
+      return this._clarityScFn ? this._clarityScFn(message) : null;
     } catch {
       return null;
     }
@@ -1420,6 +1472,8 @@ export async function createRoutedGateway(opts = {}) {
     oneShotFn: opts.oneShotFn ?? null,
     // S3c: injectable steering classifier (default lazy-loads the dispatcher steer-core).
     steer: opts.steer ?? null,
+    // S3d: injectable clarity judge (default = phrasing short-circuit + wired dispatcher).
+    clarity: opts.clarity ?? null,
   });
   gw.secrets = opts.secrets ?? null;
   return gw;

@@ -55,6 +55,12 @@ x-garrison:
       type: path
       default: .garrison/decisions.jsonl
       description: Decisions log (relative to the composition dir) the routing-evidence JSONL line is appended to.
+    - key: dispatch_clarity_rubric
+      type: string
+      default: >-
+        Judge whether the ask carries enough to plan against - a clear goal, a scope, and any hard
+        constraints. When the goal or scope is missing or vague, it is needs-discuss; otherwise clear.
+      description: The editable rubric folded into the dispatch prompt's clarity line (S3d) - how to judge whether an ask is specified enough to plan against, or needs a scope discussion first.
   provides:
     - kind: duty
       name: dispatch

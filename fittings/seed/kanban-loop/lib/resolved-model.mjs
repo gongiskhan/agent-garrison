@@ -115,6 +115,15 @@ export function contextHoldFor(model, dutyId) {
   return model.holds[dutyId] === true;
 }
 
+// Whether a duty carries the `explicit` gate (S3d D9b): the projected model carries
+// gates[dutyId] === "explicit" for each duty declaring gate: explicit. The engine
+// reads dutyGateExplicit(model, card.list) on the discuss duty to decide whether to
+// HOLD the card (explicit) or PASS THROUGH to plan (default). Absent map / value -> false.
+export function dutyGateExplicit(model, dutyId) {
+  if (!model || !model.gates || typeof model.gates !== "object") return false;
+  return model.gates[dutyId] === "explicit";
+}
+
 // The fail edge for a gate phase: loop back to implement when the card's sequence
 // contains it, else the card's first phase (a gate with no implement upstream
 // still has somewhere to send failed work).
@@ -159,10 +168,20 @@ export function validNextForCard(card, currentPhase, model = null) {
 // the union, plus an implement fail-edge for gate phases. Pure: no fs, no I/O.
 export function buildBoard(model, opts = {}) {
   const templates = opts.templates || {};
-  const phases = Array.isArray(model?.kanbanLists) ? model.kanbanLists.filter((x) => typeof x === "string") : [];
+  const allPhases = Array.isArray(model?.kanbanLists) ? model.kanbanLists.filter((x) => typeof x === "string") : [];
+  // S3d (D9b): discuss is NOT part of the linear pipeline chain - it is a pre-plan
+  // INTERACTIVE detour (James-mode, or a clarity-gated dispatch) entered via a move /
+  // targetList, never a forward edge from another phase. Pull it out of the forward-
+  // edge computation and add it as its own interactive list edged to the first
+  // pipeline phase, so the main pipeline (plan -> implement -> ...) stays unbroken.
+  const hasDiscuss = allPhases.includes("discuss");
+  const phases = allPhases.filter((id) => id !== "discuss");
   const first = phases[0] || "done";
   const hasImplement = phases.includes("implement");
   const failEdge = hasImplement ? "implement" : first;
+  // The discuss detour hands off to plan (the canonical build entry) when present,
+  // else the first pipeline phase.
+  const discussForward = phases.includes("plan") ? "plan" : first;
 
   const lists = [];
   let order = 0;
@@ -181,8 +200,17 @@ export function buildBoard(model, opts = {}) {
     title: "To Do",
     kind: "manual",
     trigger: "manual",
-    validNext: [first]
+    // A human can send a card to Discuss (James-mode) or straight to the pipeline.
+    validNext: hasDiscuss ? ["discuss", first] : [first]
   });
+  // The Discuss detour: an interactive list (never auto-dispatched for a James-mode
+  // card; the engine's gated-discuss exemption dispatches a clarity-gated one). Its
+  // behaviour comes from the interactive template (surface / onEnter / interactive
+  // flag); its forward edge is recomputed to the pipeline entry.
+  if (hasDiscuss) {
+    const cfg = phaseConfigFromTemplate(templates.discuss, "discuss");
+    push({ ...cfg, id: "discuss", title: cfg.title || titleFor("discuss"), validNext: [discussForward] });
+  }
 
   phases.forEach((id, i) => {
     const forward = i + 1 < phases.length ? phases[i + 1] : "done";

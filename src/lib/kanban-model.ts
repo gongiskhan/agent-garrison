@@ -47,6 +47,11 @@ export interface KanbanResolvedModel {
   // Optional so a hand-built model (tests, older callers) stays valid; the board's
   // contextHoldFor treats an absent map as "no holds".
   holds?: Record<string, boolean>;
+  // duty id -> gate (S3d D9b): the duties whose gate is `explicit` (the engine holds
+  // the card on the duty for an explicit human go instead of auto-advancing). Only
+  // explicit entries are projected; the board's dutyGateExplicit treats an absent map
+  // as "no gates" (pass-through). Optional for the same hand-built-model reason as holds.
+  gates?: Record<string, string>;
 }
 
 // Where the board reads its model from — mirror the board's own convention
@@ -125,13 +130,22 @@ export function computeKanbanResolvedModel(
     if (duty.context_hold === true) holds[id] = true;
   }
 
+  // Per-duty gate flags (S3d D9b): project only the `explicit` gates so the board
+  // reads gates[dutyId] === "explicit". Same independent-of-the-error-gate treatment
+  // as holds - a gate is a single flag off the merged duty spec.
+  const gates: Record<string, string> = {};
+  for (const [id, duty] of Object.entries(model.duties)) {
+    if (duty.gate === "explicit") gates[id] = "explicit";
+  }
+
   return {
     version: 2,
     compositionId: composition.id,
     kanbanLists: model.errors.length === 0 ? model.kanbanLists : [],
     sequences,
     cells,
-    holds
+    holds,
+    gates
   };
 }
 

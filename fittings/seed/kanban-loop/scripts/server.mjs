@@ -52,6 +52,7 @@ import {
   recoverInterruptedRuns,
   triggerFor,
   isInteractive,
+  isGatedDiscuss,
   withEvent,
   replySnippet,
   parkFields,
@@ -175,6 +176,12 @@ export function cardSummary(card) {
     continues: card.continues ?? null,
     // S3a (D8): the card's origin id ("web:<threadId>" | "skill:..." | "board").
     origin_id: card.origin_id ?? null,
+    // S3d (D9b): the dispatcher's specification-clarity verdict - "needs-discuss"
+    // means the card ran (or is running) the Discuss duty before plan.
+    clarity: card.clarity ?? null,
+    // S3d (D9b, review R3): true when the card is HELD on Discuss by an explicit gate,
+    // awaiting a human go (a Move, or an affirmative reply the gateway routes as a move).
+    discussHeld: card.discussHeld === true,
     // D19: a quick card is a trivial-plan task the gateway ran inline and
     // auto-advanced to Done. The Done column groups these under a collapsed
     // "quick tasks" strip, and they are never engine-owned (operator-touchable).
@@ -943,7 +950,14 @@ async function handleCreateCard(req, res, opts) {
     // shape-validates it and stamps origin "continuation" when no origin is given.
     continues: typeof body.continues === "string" ? body.continues : null,
     // S3a (D8): an explicit origin_id (else createCard derives it from originChannel/origin).
-    origin_id: typeof body.origin_id === "string" ? body.origin_id : null
+    origin_id: typeof body.origin_id === "string" ? body.origin_id : null,
+    // S3d (D9b): a board/API/gateway caller can pass the clarity verdict; a
+    // needs-discuss card is dispatched through the Discuss duty first. createCard
+    // normalises anything but "needs-discuss" to null. NOTE: a card is CREATED on
+    // backlog (title/project inference); the clarity is stamped now, but the card only
+    // REACHES Discuss when its creator moves it there (the gateway carding does this via
+    // targetList "discuss"; a bare API client must issue the follow-up move itself).
+    clarity: typeof body.clarity === "string" ? body.clarity : null
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
@@ -1138,7 +1152,17 @@ async function handlePatchCard(req, res, opts, id) {
   // background processChain — that double-drives the card (background flow races the
   // in-session driver → invalid-verdict/park). The header now genuinely suppresses
   // auto-dispatch, matching the doorway's intent + engine.mjs's own claim (rev2-s567 S5-2).
-  const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !isEngineRequest(req);
+  // S3d (D9b): a clarity-GATED card moved onto the interactive Discuss list IS
+  // dispatched (the discuss duty runs a scope-Q&A session → brief → plan). This is
+  // the intended run, so it fires even for an engine-header move (the gateway's
+  // carding move carries x-garrison-engine) - unlike a normal engine move, which the
+  // doorway drives itself. A James-mode discuss card (no gate marker) still just
+  // moves (shouldAutoDispatch is false for the interactive list).
+  const movedToGatedDiscuss =
+    typeof body.list === "string" && isGatedDiscuss(result.card, getList(board, body.list));
+  const autoDispatch =
+    (typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !isEngineRequest(req)) ||
+    movedToGatedDiscuss;
   if (autoDispatch && opts.gatewayUrl) {
     // Coordination (GARRISON-FLOW-V2 S1) gates, applied the same way the tick does
     // before dispatching: a card deferred behind an overlapping run does NOT
@@ -1481,16 +1505,20 @@ async function handleStartCard(req, res, opts, id) {
 
   // An INTERACTIVE list (Discuss) advances ONLY by a manual Move (PATCH) — never
   // by Start/Advance (brief decision 8: the advance is manual). Reject it here so
-  // a Start cannot skip the brief-to-disk hand-off.
-  if (isInteractive(list)) {
+  // a Start cannot skip the brief-to-disk hand-off. EXCEPTION (S3d): a clarity-gated
+  // discuss card runs the discuss duty as a real session, so Start dispatches it
+  // like any agent list; a James-mode discuss card (no gate marker) stays manual.
+  if (isInteractive(list) && !isGatedDiscuss(card, list)) {
     return jsonRes(res, 400, {
       error: "interactive list (Discuss) advances by manual Move, not Start — open the web chat, then Move when ready"
     });
   }
 
   // Manual column: Start just advances to the first valid next (the "move a card
-  // out of a manual column" path — Backlog/To Do/Done/needs-attention).
-  if (list.kind !== "agent") {
+  // out of a manual column" path - Backlog/To Do/Done/needs-attention). A gated
+  // discuss card (S3d) falls THROUGH to the agent-dispatch path below so Start
+  // actually runs the discuss duty session (not just a silent move to plan).
+  if (list.kind !== "agent" && !isGatedDiscuss(card, list)) {
     const targets = validNextFor(board, card.list);
     if (!targets.length) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
     const recover = card.list === "needs-attention"

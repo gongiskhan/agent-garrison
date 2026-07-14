@@ -71,7 +71,7 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
@@ -116,6 +116,10 @@ export async function createCard(root, { title, description = "", project = null
     duty: typeof duty === "string" && duty ? duty : null,
     level: Number.isInteger(level) ? level : null,
     sequence: Array.isArray(sequence) && sequence.every((s) => typeof s === "string") ? sequence : null,
+    // S3d (D9b): the dispatcher's specification-clarity verdict. A "needs-discuss"
+    // card is dispatched through the Discuss duty first (the engine's gated-discuss
+    // exemption keys on this); anything else is null (a clear card runs straight).
+    clarity: clarity === "needs-discuss" ? "needs-discuss" : null,
     // D27: single-outpost affinity — the run engine dispatches this card's
     // phase sessions to the named outpost; offline → needs-attention.
     outpost: typeof outpost === "string" && outpost ? outpost : null,

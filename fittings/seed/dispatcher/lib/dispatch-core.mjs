@@ -62,9 +62,21 @@ function defaultDutyFor(model) {
   return selected[0] ?? null;
 }
 
+// The EDITABLE clarity rubric (S3d D9b): the default text folded into the prompt
+// so the dispatcher judges specification-clarity alongside the (duty, level). A
+// composition overrides it via the dispatcher config `dispatch_clarity_rubric`,
+// threaded here as opts.clarityRubric - this default is the fallback.
+export const DEFAULT_CLARITY_RUBRIC =
+  "Judge whether the ask carries enough to plan against - a clear goal, a scope, and any hard " +
+  "constraints. When the goal or scope is missing or vague, it is needs-discuss; otherwise clear.";
+
 // ── Prompt (mirrors routing-core.buildClassifierPrompt) ──────────────────────
-export function buildDispatchPrompt(model, userPrompt) {
+export function buildDispatchPrompt(model, userPrompt, opts = {}) {
   const selected = selectedDutyList(model);
+  const rubric =
+    typeof opts.clarityRubric === "string" && opts.clarityRubric.trim()
+      ? opts.clarityRubric.trim()
+      : DEFAULT_CLARITY_RUBRIC;
   const lines = [];
   lines.push(
     "You are a work dispatcher. Read the task below and choose which DUTY should handle it, and at which LEVEL. Respond with ONLY a single-line JSON object — no prose, no code fence."
@@ -82,9 +94,13 @@ export function buildDispatchPrompt(model, userPrompt) {
   }
   lines.push("level — the 1-based level number within the chosen duty.");
   lines.push("confidence — one of: low, medium, high.");
+  // clarity is ORTHOGONAL to the duty (what the work is): it judges whether the
+  // ASK is specified enough to plan against. needs-discuss detours the card
+  // through a scope discussion first, keeping its real duty/level on the card.
+  lines.push(`clarity - one of: clear, needs-discuss. ${rubric}`);
   lines.push("reason — a short phrase (<= 120 chars) justifying the choice.");
   lines.push("");
-  lines.push('Respond exactly like: {"duty":"code","level":2,"confidence":"high","reason":"bounded bug fix"}');
+  lines.push('Respond exactly like: {"duty":"code","level":2,"confidence":"high","clarity":"clear","reason":"bounded bug fix"}');
   lines.push("");
   lines.push(`Task: """${String(userPrompt ?? "").slice(0, 4000)}"""`);
   return lines.join("\n");
@@ -93,7 +109,9 @@ export function buildDispatchPrompt(model, userPrompt) {
 // The JSON schema handed to garrison-call for STRUCTURED output. `duty` is left
 // as an open string (not an enum) so an out-of-vocab pick returns a parseable
 // object that parseDispatch then CLAMPS — matching the classifier's clamp
-// semantics rather than a hard schema rejection.
+// semantics rather than a hard schema rejection. `clarity` is OPTIONAL (never
+// required) so a model that omits it still returns a parseable object that
+// parseDispatch defaults to "clear".
 export function dispatchSchema() {
   return {
     type: "object",
@@ -102,6 +120,7 @@ export function dispatchSchema() {
       duty: { type: "string" },
       level: { type: "integer" },
       confidence: { type: "string" },
+      clarity: { type: "string" },
       reason: { type: "string" }
     }
   };
@@ -110,6 +129,31 @@ export function dispatchSchema() {
 // ── Parse + clamp (mirrors routing-core.parseClassification) ─────────────────
 
 const CONFIDENCE = new Set(["low", "medium", "high"]);
+// S3d (D9b): the two clarity verdicts. Anything else parses back to "clear" (the
+// safe default - a card only detours through Discuss on an explicit needs-discuss).
+export const CLARITY_VALUES = new Set(["clear", "needs-discuss"]);
+
+// PHRASING OVERRIDE for clarity (mirrors the S3c steering short-circuits + the
+// level override): an explicit instruction in the operator's words wins over the
+// model's clarity judgment, both directions. Returns { clarity, overrideSource } or
+// null (no explicit phrasing → the model / default decides). "let's discuss first"
+// forces needs-discuss; "just do it" / "no questions" / "skip discussion" force clear.
+export function clarityShortCircuit(message) {
+  const text = String(message ?? "");
+  // needs-discuss: the operator explicitly wants to talk scope through first.
+  if (
+    /\b(?:let'?s\s+(?:discuss|talk\s+it\s+through)|discuss\s+(?:this\s+)?first|discuss\s+before\s+building|talk\s+it\s+through\s+first)\b/i.test(
+      text
+    )
+  ) {
+    return { clarity: "needs-discuss", overrideSource: "message" };
+  }
+  // clear: the operator explicitly wants no discussion - proceed straight to work.
+  if (/\b(?:just\s+do\s+it|no\s+questions|skip\s+(?:the\s+)?discussion)\b/i.test(text)) {
+    return { clarity: "clear", overrideSource: "message" };
+  }
+  return null;
+}
 
 function extractJsonObject(text) {
   if (typeof text !== "string") return null;
@@ -169,17 +213,24 @@ export function parseDispatch(reply, model) {
   const confidence = typeof obj.confidence === "string" && CONFIDENCE.has(obj.confidence.toLowerCase())
     ? obj.confidence.toLowerCase()
     : "low";
+  // clarity (S3d): the model's specification-clarity judgment, clamped to the two
+  // verdicts; an absent/out-of-vocab value defaults to "clear" (never blocks work).
+  const clarity =
+    typeof obj.clarity === "string" && CLARITY_VALUES.has(obj.clarity.toLowerCase())
+      ? obj.clarity.toLowerCase()
+      : "clear";
   const reason = typeof obj.reason === "string" ? obj.reason.slice(0, 240) : "";
 
-  return { duty, level, confidence, reason };
+  return { duty, level, confidence, clarity, reason };
 }
 
 // The documented fallback when the model produced nothing usable — the (other,
 // standard) slot, parity with the classifier's {taskType:"other", tier:"T1-standard"}.
+// clarity defaults to "clear" (a parse failure never detours a card through Discuss).
 export function fallbackDispatch(model, reason = "dispatch parse failed; defaulted to standard") {
   const duty = defaultDutyFor(model);
   const spec = dutySpec(model, duty);
-  return { duty, level: defaultLevelFor(spec), confidence: "low", reason };
+  return { duty, level: defaultLevelFor(spec), confidence: "low", clarity: "clear", reason };
 }
 
 // ── Human override (an explicit "run at level N" or a card field wins) ────────
@@ -261,9 +312,12 @@ export function messageDigest(message) {
 // non-message fields (duty/level/confidence/override) so the Decisions panel
 // stays useful without a leak. The model's free-text reason remains in the live
 // dispatch return for immediate debugging, never on disk.
-export function routingEvidence({ message, duty, level, confidence, overrideSource, at }) {
+export function routingEvidence({ message, duty, level, confidence, clarity, clarityOverrideSource, overrideSource, at }) {
   const parts = [`→ ${duty ?? "?"} L${level ?? "?"}`];
   if (confidence) parts.push(`confidence ${confidence}`);
+  // S3d: the clarity verdict + whether a phrasing override set it (never the raw
+  // message - the digest is the only message trace on disk).
+  if (clarity) parts.push(`clarity ${clarity}${clarityOverrideSource ? ` (${clarityOverrideSource})` : ""}`);
   if (overrideSource) parts.push(`overridden by ${overrideSource}`);
   return {
     kind: "dispatch",
@@ -272,6 +326,8 @@ export function routingEvidence({ message, duty, level, confidence, overrideSour
     duty: duty ?? null,
     level: level ?? null,
     confidence: confidence ?? null,
+    clarity: clarity ?? null,
+    clarityOverrideSource: clarityOverrideSource ?? null,
     overrideSource: overrideSource ?? null,
     reason: parts.join(", ")
   };
@@ -302,7 +358,7 @@ export async function dispatch(model, message, opts = {}) {
     shape: opts.shape ?? "ollama",
     provider: opts.provider ?? "ollama-local",
     model: opts.model ?? "qwen2.5:3b",
-    prompt: buildDispatchPrompt(model, message),
+    prompt: buildDispatchPrompt(model, message, { clarityRubric: opts.clarityRubric }),
     schema: dispatchSchema(),
     maxTokens: Number.isFinite(opts.maxTokens) ? opts.maxTokens : 256,
     timeoutMs: Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 30000
@@ -320,6 +376,18 @@ export async function dispatch(model, message, opts = {}) {
   const base = parsed ?? fallbackDispatch(model);
   const chosen = applyOverride(base, { message, cardLevel: opts.cardLevel }, model);
 
+  // clarity (S3d D9b): the model's parsed verdict, then a PHRASING OVERRIDE wins
+  // (both directions) - an explicit "just do it" / "let's discuss first" beats the
+  // model, same discipline as the level override. Default "clear" (from base) when
+  // neither the model nor a phrasing hint decided.
+  let clarity = chosen.clarity ?? "clear";
+  let clarityOverrideSource = null;
+  const claritySc = clarityShortCircuit(message);
+  if (claritySc) {
+    clarity = claritySc.clarity;
+    clarityOverrideSource = claritySc.overrideSource;
+  }
+
   const evidence = routingEvidence({
     message,
     duty: chosen.duty,
@@ -327,6 +395,8 @@ export async function dispatch(model, message, opts = {}) {
     // NOT chosen.reason — that is model free text that saw the message. Persist
     // only non-message-derived fields (codex S3d finding).
     confidence: chosen.confidence,
+    clarity,
+    clarityOverrideSource,
     overrideSource: chosen.overridden ? chosen.overrideSource : null,
     at: now()
   });
@@ -342,6 +412,11 @@ export async function dispatch(model, message, opts = {}) {
     duty: chosen.duty,
     level: chosen.level,
     confidence: chosen.confidence,
+    // S3d: the specification-clarity verdict (clear | needs-discuss) + whether a
+    // phrasing override set it - the gateway carding step reads clarity to pick the
+    // card's first list (plan vs the interactive discuss).
+    clarity,
+    clarityOverrideSource,
     reason: chosen.reason,
     overridden: chosen.overridden,
     overrideSource: chosen.overrideSource ?? null,

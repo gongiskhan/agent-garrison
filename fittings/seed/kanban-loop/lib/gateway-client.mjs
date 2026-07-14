@@ -142,7 +142,7 @@ export function compactBoundaryFn(gatewayUrl) {
 }
 
 export function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt, classification, list, skill, suppressContinuations, onChunk, contextHold, dutyKey }) => {
+  return async ({ prompt, classification, list, skill, suppressContinuations, onChunk, onTool, contextHold, dutyKey }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
     // abort a blocking /chat request before the reply ever arrives. /chat/stream sends an
@@ -219,6 +219,12 @@ export function gatewayRunFn(gatewayUrl) {
           }
           if (event === "chunk") {
             try { const c = JSON.parse(data); if (typeof c.text === "string") { live += c.text; emit(false); } } catch { /* ignore */ }
+          } else if (event === "tool") {
+            // S3d (D9b): an AskUserQuestion the operative raised MID-TURN (the discuss
+            // duty asking for scope). Forward the tool payload ({tool_use_id, questions})
+            // so the engine can route the questions to the card's origin as a needs-input
+            // event. Previously DROPPED - the round-trip closes E6 gap (a).
+            if (onTool) { try { onTool(JSON.parse(data)); } catch { /* malformed tool frame - ignore */ } }
           } else if (event === "done") {
             try { done = JSON.parse(data); } catch { done = { reply: "" }; }
           } else if (event === "error") {

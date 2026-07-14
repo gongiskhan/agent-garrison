@@ -72,8 +72,8 @@ export { phaseForList };
 // next-list ids (forward step + implement fail-edge for a gate); it returns null
 // for a legacy card with no duty/level/sequence, and the caller falls back to the
 // board's static validNext — so nothing changes for cards that don't carry a duty.
-import { loadResolvedModel, validNextForCard, nextListForCard, contextHoldFor } from "./resolved-model.mjs";
-import { routeOriginEvent, dutySummaryMessage } from "./notify-origin.mjs";
+import { loadResolvedModel, validNextForCard, nextListForCard, contextHoldFor, dutyGateExplicit } from "./resolved-model.mjs";
+import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief } from "./notify-origin.mjs";
 import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPhase } from "./steering.mjs";
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
@@ -291,6 +291,16 @@ export function isInteractive(list) {
   return Boolean(list?.interactive);
 }
 
+// S3d (D9b): a CLARITY-GATED discuss card IS dispatched even though the Discuss list
+// is interactive - the discuss duty runs as a normal agent session (ask 1-3 scoping
+// questions, write the brief, advance to plan). The gate marker is card.clarity ===
+// "needs-discuss" (stamped by the gateway/API carding); it only applies on the
+// interactive Discuss list, so a HUMAN-initiated (James-mode) discuss card - no
+// marker - stays interactive/manual with zero regression.
+export function isGatedDiscuss(card, list) {
+  return Boolean(card && card.clarity === "needs-discuss" && isInteractive(list));
+}
+
 // Mint a runId + runDir for a card iff it does not have one yet. Called when a card
 // first enters an agent list (Start → plan). runDir is ABSOLUTE under the
 // evidence home (~/.garrison/runs/<project>/<runId>/, D19) so nothing
@@ -453,7 +463,7 @@ export function parseNextList(routerOutput, validNext) {
 // next-list ids are injected so the router output can exact-match. D15: the per-list
 // mode line is GONE (mode is the gateway's job); the executing skill is resolved from
 // the compiled policy and named explicitly (the phase-skill binding, D3).
-export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, steeringContext = null, skill = null, phase = null, coordinationEnabled = false }) {
+export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, steeringContext = null, skill = null, phase = null, coordinationEnabled = false, briefPath = null }) {
   const parts = [];
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
@@ -568,6 +578,30 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
         `"exclusive":["files that must not be touched concurrently"],"notes":"free text"} listing the repo-relative ` +
         `files and directory prefixes this run will modify. Be honest and complete; the engine uses it to detect ` +
         `overlap and order runs, and Plan cannot advance without a valid touch-set.json.`,
+      ""
+    );
+  }
+  // S3d (D9b): the DISCUSS duty session (a clarity-gated card runs this before plan).
+  // Talk the scope through in the origin thread, settle, write the brief, then advance.
+  // Human (James-mode) discuss never dispatches, so this only reaches a gated card.
+  if (phase === "discuss") {
+    const briefTarget = briefPath || (card.id ? `cards/${card.id}/brief.md` : "brief.md");
+    parts.push(
+      "## Discuss this run's scope before it is planned",
+      "",
+      "This ask was judged underspecified, so it enters Discuss first - talk the scope through with the " +
+        "person who asked. Do NOT start building or planning yet.",
+      "",
+      "1. Ask AT MOST 1-3 focused questions PER ROUND using the AskUserQuestion tool - only what genuinely " +
+        "blocks planning (the goal, the scope, hard constraints, how we will know it is done). Each question " +
+        "is delivered to the origin thread and the reply comes back as the answer. Ask EARLY and keep it " +
+        "tight; do NOT sit idle waiting (a discuss session that idles past the turn cap parks the card, and " +
+        "a later reply resumes it as a fresh turn).",
+      `2. When you have enough to plan against, WRITE THE BRIEF to exactly this path: \`${briefTarget}\` ` +
+        "(that absolute path - not a copy in the project) in the house format: what this is, the decisions " +
+        "already made, assumptions flagged, the approach, and the acceptance. The brief is the handoff the " +
+        "build reads; keep it proportional to the work.",
+      "3. Then end your reply with `plan` on its own final line to advance.",
       ""
     );
   }
@@ -753,14 +787,26 @@ async function fireDutyBoundary(onDutyBoundary, card, phase, outcome) {
 export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, card.list);
+  // S3d (D9b): a clarity-gated discuss card is dispatched THROUGH the interactive
+  // Discuss list (the discuss duty session) - the exemption below lets it past both
+  // the interactive skip and the agent-kind guard; a James-mode discuss card (no
+  // gate marker) still skips.
+  const gatedDiscuss = isGatedDiscuss(card, list);
   // An interactive list (Discuss — kind "agent-interactive") is never auto-dispatched:
   // the board opens the web chat and the human advances manually. Checked before the
   // agent-kind guard so it reports `interactive`, not `not-an-agent-list`.
-  if (isInteractive(list)) {
+  if (isInteractive(list) && !gatedDiscuss) {
     return { card, outcome: { status: "skipped", reason: "interactive" } };
   }
-  if (!list || list.kind !== AGENT_KIND) {
+  if (!list || (list.kind !== AGENT_KIND && !gatedDiscuss)) {
     return { card, outcome: { status: "skipped", reason: "not-an-agent-list" } };
+  }
+  // S3d (D9b, review R3): a gated discuss card HELD by an explicit gate (brief ready,
+  // awaiting a human "go") must NOT be re-dispatched by the tick / a stray processChain
+  // - it waits for the go (a Move, or the gateway's affirmative resume). Skip it here so
+  // the single dispatch seam covers every caller.
+  if (gatedDiscuss && card.discussHeld === true) {
+    return { card, outcome: { status: "skipped", reason: "discuss-held" } };
   }
   // Coordination waiting guard (GARRISON-FLOW-V2 Q4): a card deferred behind an
   // overlapping run SITS on its list with a waitingOn descriptor — it must not be
@@ -964,7 +1010,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const discussionContext = readCardBrief(root, runningCard.id);
   const continuationContext = buildContinuationContext(root, runningCard);
   const steeringContext = readSteeringMd(root, runningCard.id);
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, steeringContext, skill, phase, coordinationEnabled: coordActive });
+  // S3d: the absolute path the DISCUSS duty writes its brief to - the SAME card-owned
+  // location readCardBrief reads (so the brief becomes the card's downstream context).
+  const briefPath = path.join(root, "cards", runningCard.id, "brief.md");
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, steeringContext, skill, phase, coordinationEnabled: coordActive, briefPath });
   // Explicit policy-derived classification (phase = taskType, card tier). A
   // missing/unreadable policy degrades to classifier routing (null) — never
   // blocks a card.
@@ -976,6 +1025,30 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const onChunk = (full) => {
     void writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${full}\n`).catch(() => {});
   };
+  // S3d (D9b): AskUserQuestion tool events raised MID-TURN (the discuss duty asking
+  // for scope). Route the questions to the card's ORIGIN immediately (web = numbered
+  // thread message; board/skill = origin event log) so the human can answer while the
+  // session waits. routeNeedsInput writes ONLY to the origin log/thread - never the
+  // card file - so it is safe to fire mid-turn (no CAS race with the final save). The
+  // card-timeline needs-input event is DEFERRED into the final save (mutating the card
+  // mid-turn would bump the rev and lose the advance).
+  const needsInputEvents = [];
+  const onTool = (payload) => {
+    try {
+      const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+      if (!questions.length) return;
+      routeNeedsInput(root, null, runningCard, { questions });
+      const texts = questions.map((q) => (typeof q === "string" ? q : q?.question || q?.text || "")).filter(Boolean);
+      needsInputEvents.push({
+        at: now(),
+        kind: "needs-input",
+        message: `Asked the origin ${texts.length} scoping question(s) via the discuss session`,
+        detail: texts.map((t, i) => `${i + 1}. ${t}`).join("\n") || null
+      });
+    } catch {
+      /* never let a tool event break the turn */
+    }
+  };
   // S1b dispatch hints: whether THIS duty holds off compaction (read off the
   // resolved model's holds[phase]) and a dutyKey identifying the card+phase, so the
   // gateway's turn-boundary check honors the hold and stamps the compact log.
@@ -983,7 +1056,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const dutyKey = `${card.id}:${phase}`;
   let out;
   try {
-    out = await runFn({ prompt, card: runningCard, list, classification, skill, suppressContinuations: true, onChunk, contextHold, dutyKey });
+    out = await runFn({ prompt, card: runningCard, list, classification, skill, suppressContinuations: true, onChunk, onTool, contextHold, dutyKey });
     // Stale-echo guard: a reply whose [route: X] token names a DIFFERENT target
     // than the one the gateway resolved for THIS turn is the previous turn's
     // screen content (the PTY model-switch extraction wedge), not a verdict on
@@ -1070,6 +1143,12 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // resolve. Mutating runningCard.sessionIds propagates to every target below (each
   // built via ...runningCard); uniquely appended so a re-run never double-stamps.
   runningCard.sessionIds = appendSessionId(runningCard.sessionIds, out?.sessionId);
+  // S3d: fold any mid-turn needs-input events (AskUserQuestion the discuss session
+  // raised) into the card timeline. Done AFTER the turn - all onTool callbacks have
+  // fired by the time runFn resolves - so they land in the SAME final CAS save (each
+  // target below rebuilds events via withEvent(runningCard, …)), never a racing
+  // mid-turn card write that would conflict the final save.
+  for (const ev of needsInputEvents) runningCard.events = withEvent(runningCard, ev);
   // Final clean log (overwrites any partial live-streamed content with the
   // authoritative reply the operative returned).
   await writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${reply}\n`);
@@ -1179,6 +1258,31 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   let mails = []; // [{ toCardId, subject, body }] sent via coord-mail after save
   let coordAllCards = null;
   let coordRepoPath = null;
+  // S3d (D9b): an EXPLICIT-gate discuss duty does NOT auto-advance. The brief is
+  // written, but the card HOLDS on discuss for an explicit human go (a Move to plan,
+  // or a "go" reply). Default (no gate) is pass-through - the advance below runs.
+  if (next && phase === "discuss" && dutyGateExplicit(resolvedModel, phase)) {
+    const held = {
+      ...runningCard,
+      status: "ok",
+      runningSince: null,
+      lastReply: snippet,
+      lastDispatchError: null,
+      // Marks the card as HELD for an explicit go (review R3): the tick / processCard
+      // must NOT re-dispatch it, and the gateway's "go" resume keys on this flag.
+      discussHeld: true,
+      events: withEvent(runningCard, {
+        at: now(),
+        kind: "discuss-hold",
+        message: "Brief ready - holding in Discuss for an explicit go (Move the card, or reply to proceed)",
+        detail: snippet || null
+      })
+    };
+    const res = await saveCardCAS(root, held, runRev, now());
+    if (!res.ok) return { card: res.card, outcome: { status: "needs-attention", reason: "conflict-during-run" } };
+    routeBrief(root, res.card ?? runningCard, { brief: readCardBrief(root, runningCard.id, 2000), gate: "explicit" });
+    return { card: res.card, outcome: { status: "held", reason: "discuss-gate-explicit" } };
+  }
   if (next) {
     // D17 rail fast-forward AFTER the verdict: if the named next list's phase
     // is OFF for this card's rail, skip forward to the first ON phase,
@@ -1443,10 +1547,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       context: contextMeta,
       now
     });
-    // S3a (D8): after the duty summary writes, route a duty-summary lifecycle event
-    // to the card's origin (web origins get a "<Duty> complete — …" thread message).
-    if (dutyRec) {
-      const advanced = res.card ?? runningCard;
+    // S3a (D8): after the duty summary writes, route a lifecycle event to the card's
+    // origin (web origins get a thread message). S3d (D9b): the DISCUSS duty posts its
+    // BRIEF (the settled scope + "proceeding to plan; reply to adjust") instead of a
+    // generic "<Duty> complete" rollup - the thread sees the scope before the build.
+    const advanced = res.card ?? runningCard;
+    if (phase === "discuss") {
+      routeBrief(root, advanced, { brief: readCardBrief(root, runningCard.id, 2000), gate: "pass-through" });
+    } else if (dutyRec) {
       routeOriginEvent(root, null, advanced, {
         kind: "duty-summary",
         message: dutySummaryMessage(advanced, { phase, summary: replyText }),

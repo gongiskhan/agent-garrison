@@ -44,7 +44,8 @@ import {
 } from "@garrison/claude-pty";
 import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
-import { isEmptyQuickReply, quickEmptyFailureReason } from "./lib/autonomous-cards.mjs";
+import { isEmptyQuickReply, quickEmptyFailureReason, moveCardEngine } from "./lib/autonomous-cards.mjs";
+import { resolveDiscussInterception } from "./lib/discuss-intercept.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
 
@@ -318,13 +319,29 @@ function contextTelemetry() {
 // phone/web channel has no arrow keys, so a background watcher tails the session
 // JSONL, emits ONE `tool` SSE event per tool_use id (buttons on the client), and
 // the answer POST drives the picker via keySequence. See lib/ask-question.mjs.
-const pendingQuestions = new Map(); // tool_use_id -> { questions, at } (for label->index)
+const pendingQuestions = new Map(); // tool_use_id -> { questions, at, cardId } (for label->index + binding)
 const toolListeners = new Set(); // fn(payload) - sinks for the CURRENT /chat/stream turn
 let askWatcher = null;
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// S3d review R1: the cardId of the turn currently holding the operative session (parsed
+// from the engine's dutyKey "cardId:phase"). broadcastTool STAMPS it onto each pending
+// question so the HTTP-seam reply-as-answer can bind an answer to THIS card's live
+// discuss picker - never a stale entry from another card. Null for a non-dispatch turn
+// (web one-shot / plain chat), so those questions stay UNBOUND (conservative routing).
+let currentTurnCardId = null;
+
+// S3d review R1: drop pending questions bound to a turn that ENDED (answered elsewhere,
+// timed out, or parked) so a stale entry can never hijack a later thread's reply.
+function sweepPendingQuestions(cardId) {
+  if (!cardId) return;
+  for (const [id, entry] of pendingQuestions) {
+    if (entry?.cardId === cardId) pendingQuestions.delete(id);
+  }
+}
+
 function broadcastTool(payload) {
-  if (payload?.tool_use_id) pendingQuestions.set(payload.tool_use_id, { questions: payload.questions, at: Date.now() });
+  if (payload?.tool_use_id) pendingQuestions.set(payload.tool_use_id, { questions: payload.questions, at: Date.now(), cardId: currentTurnCardId });
   broadcastRich("tool", payload); // rich /claude/stream observers
   for (const fn of toolListeners) {
     try {
@@ -580,6 +597,10 @@ async function spawnOperative({ resume = true } = {}) {
  *  turn → honored check. The operative session is served by the routing pool. */
 async function runRoutedTurn(message, onChunk, hints) {
   await router.ensureOperative();
+  // NOTE (S3d review R1): the Discuss reply-as-answer / explicit-go interception is NOT
+  // here - it runs at the HTTP entry points BEFORE enqueueTurn (dispatchDiscussIntercept),
+  // out-of-band from the serialized turn chain, so it can drive the LIVE picker while the
+  // blocked discuss turn is holding the chain. Inside the chain it would deadlock.
   // hints (e.g. from the Kanban Loop) carry an EXPLICIT {taskType,tier} classification
   // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
   // skill + suppressContinuations controls. Absent hints → classify as before.
@@ -733,14 +754,26 @@ async function runRoutedTurn(message, onChunk, hints) {
           }
         }
         if (significant) {
-          const card = await router.createAutonomousCard(message, cls, cardOpts);
+          // S3d (D9b): judge whether the ask is specified enough to plan against. A
+          // needs-discuss verdict cards the run onto the interactive Discuss list
+          // (targetList) + stamps clarity, so the engine dispatches the discuss duty
+          // session (scope Q&A → brief → plan) before the build; a clear verdict runs
+          // straight to plan as before. Phrasing overrides both ways ("just do it" /
+          // "let's discuss first"). Never blocks - a judge failure defaults to clear.
+          const clarity = await router.judgeClarity(message);
+          const needsDiscuss = clarity?.clarity === "needs-discuss";
+          const createOpts = needsDiscuss
+            ? { ...cardOpts, targetList: "discuss", clarity: "needs-discuss" }
+            : cardOpts;
+          const card = await router.createAutonomousCard(message, cls, createOpts);
           if (card) {
             router.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: cls.taskType });
-            const reply =
-              `Registered as a run — the board's run engine will drive it through the pipeline.\n` +
-              `Card: ${card.url}`;
+            const reply = needsDiscuss
+              ? `Registered as a run - discussing scope first.\nCard: ${card.url}`
+              : `Registered as a run - the board's run engine will drive it through the pipeline.\n` +
+                `Card: ${card.url}`;
             broadcastRich("assistant", { text: reply });
-            logEvent("stdout", { kind: "run-card", id: card.id, url: card.url });
+            logEvent("stdout", { kind: "run-card", id: card.id, url: card.url, clarity: needsDiscuss ? "needs-discuss" : "clear" });
             return { reply, session_id: null, cost_usd: null, route: pre.route?.targetId ?? null, card: card.id, cardUrl: card.url };
           }
           // board unavailable → fall through inline (never hard-block on the window)
@@ -992,29 +1025,42 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
 /** Run one turn against the live operative. Spawns/respawns on demand.
  *  onChunk(text) streams the growing assistant reply (screen-derived). */
 async function runTurn(message, onChunk, hints) {
-  if (router) return runRoutedTurn(message, onChunk, hints);
-  if (!session || session.isDisposed() || !session.isAlive()) {
-    logEvent("stdout", { kind: "respawn-before-turn" });
-    ptyStatus = "spawning";
-    await spawnOperative({ resume: true });
-  }
-  let lastEmitted = "";
-  const onScreen = onChunk
-    ? () => {
-        const current = extractReply(session.handle, message);
-        if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
-          onChunk(current.slice(lastEmitted.length));
-          lastEmitted = current;
-        } else if (current && current !== lastEmitted) {
-          // Reflow / divergence — re-emit the whole thing as a correction.
-          onChunk(current, true);
-          lastEmitted = current;
+  // S3d review R1: bind AskUserQuestions raised during THIS turn to its card (the
+  // engine's dutyKey = "cardId:phase"), and sweep any that outlive the turn. Turns are
+  // serialized, so this module-level cursor is race-free.
+  const turnCardId = typeof hints?.dutyKey === "string" ? (hints.dutyKey.split(":")[0] || null) : null;
+  const prevTurnCardId = currentTurnCardId;
+  currentTurnCardId = turnCardId;
+  try {
+    if (router) return await runRoutedTurn(message, onChunk, hints);
+    if (!session || session.isDisposed() || !session.isAlive()) {
+      logEvent("stdout", { kind: "respawn-before-turn" });
+      ptyStatus = "spawning";
+      await spawnOperative({ resume: true });
+    }
+    let lastEmitted = "";
+    const onScreen = onChunk
+      ? () => {
+          const current = extractReply(session.handle, message);
+          if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
+            onChunk(current.slice(lastEmitted.length));
+            lastEmitted = current;
+          } else if (current && current !== lastEmitted) {
+            // Reflow / divergence - re-emit the whole thing as a correction.
+            onChunk(current, true);
+            lastEmitted = current;
+          }
         }
-      }
-    : undefined;
-  const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
-  await markPriorSession();
-  return { reply: outcome.reply, session_id: outcome.sessionId, cost_usd: null };
+      : undefined;
+    const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
+    await markPriorSession();
+    return { reply: outcome.reply, session_id: outcome.sessionId, cost_usd: null };
+  } finally {
+    // The turn ended (returned, timed out, or threw) - an unanswered question it raised
+    // is now dead; drop it so it cannot answer a future thread's reply.
+    sweepPendingQuestions(turnCardId);
+    currentTurnCardId = prevTurnCardId;
+  }
 }
 
 /** Serialize turns — the TUI is one-turn-at-a-time. */
@@ -1082,6 +1128,47 @@ function enqueue(fn) {
   const next = previous.catch(() => {}).then(() => fn());
   inflight = next.catch(() => {});
   return next;
+}
+
+// S3d review R1/R3: at the HTTP entry point (BEFORE enqueueTurn), decide whether a web
+// thread message ANSWERS a live discuss picker or is an explicit GO on a card held in
+// Discuss, and perform the effect OUT-OF-BAND (drive the live picker via handleAnswer,
+// or an engine-header Move discuss->plan). Returns { reply, card, action } when handled,
+// else null (the caller enqueues an ordinary turn). Never throws. This runs out-of-band
+// like POST /chat/answer, so it works while the blocked discuss turn holds the chain.
+async function dispatchDiscussIntercept(body) {
+  try {
+    const message = String(body?.message ?? "");
+    const decision = await resolveDiscussInterception({
+      text: message,
+      channel: body?.channel,
+      sessionId: typeof body?.sessionId === "string" ? body.sessionId : null,
+      pendingQuestions,
+      resolveThreadCard: (originId) => (router ? router.resolveThreadCard(originId) : Promise.resolve(null)),
+    });
+    if (!decision) return null;
+    if (decision.action === "answer") {
+      const r = await handleAnswer({ tool_use_id: decision.toolUseId, text: message });
+      const reply =
+        r?.status === 200
+          ? "Got it - passing that to the discussion."
+          : "Tried to pass that to the discussion, but the question may have already closed.";
+      logEvent("stdout", { kind: "discuss-answer", card: decision.card.id, tool_use_id: decision.toolUseId, status: r?.status ?? null });
+      return { reply, card: decision.card.id, action: "answer" };
+    }
+    if (decision.action === "go") {
+      const moved = await moveCardEngine({ id: decision.card.id, targetList: "plan", logFn: (e) => logEvent("stdout", e) });
+      const reply = moved
+        ? "Proceeding to plan."
+        : "Couldn't move the card to plan just now - try again, or move it on the board.";
+      logEvent("stdout", { kind: "discuss-go", card: decision.card.id, moved });
+      return { reply, card: decision.card.id, action: "go" };
+    }
+    return null;
+  } catch (err) {
+    logEvent("stderr", { kind: "discuss-intercept-failed", error: err?.message || String(err) });
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────── HTTP plumbing
@@ -1162,6 +1249,13 @@ const server = http.createServer(async (request, response) => {
       const message = String(body.message ?? "").trim();
       if (!message) return sendJson(response, 400, { error: "message is required" });
       await readyPromise;
+      // S3d review R1: intercept a Discuss answer / explicit-go BEFORE enqueueTurn.
+      const intercepted = await dispatchDiscussIntercept(body);
+      if (intercepted) {
+        logEvent("stdout", { kind: "chat-intercept", action: intercepted.action, card: intercepted.card });
+        sendJson(response, 200, { reply: intercepted.reply, session_id: null, cost_usd: null, card: intercepted.card, [intercepted.action]: true });
+        return;
+      }
       logEvent("stdout", { kind: "chat-in", message: message.slice(0, 200) });
       const result = await enqueueTurn(message, undefined, routeHintsFromBody(body));
       logEvent("stdout", { kind: "chat-out", reply: result.reply.slice(0, 200) });
@@ -1173,6 +1267,25 @@ const server = http.createServer(async (request, response) => {
       const body = await readJsonBody(request);
       const message = String(body.message ?? "").trim();
       if (!message) return sendJson(response, 400, { error: "message is required" });
+
+      // S3d review R1: intercept a Discuss answer / explicit-go BEFORE opening the stream
+      // and BEFORE enqueueTurn - out-of-band, so it drives the live picker held by the
+      // blocked discuss turn instead of queuing behind it. Emit a minimal open/done SSE.
+      await readyPromise;
+      const intercepted = await dispatchDiscussIntercept(body);
+      if (intercepted) {
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/event-stream");
+        response.setHeader("cache-control", "no-cache, no-transform");
+        response.setHeader("connection", "keep-alive");
+        response.setHeader("x-accel-buffering", "no");
+        response.flushHeaders?.();
+        sseWrite(response, "open", { ts: Date.now() });
+        sseWrite(response, "done", { reply: intercepted.reply, session_id: null, cost_usd: null, card: intercepted.card, [intercepted.action]: true });
+        logEvent("stdout", { kind: "chat-stream-intercept", action: intercepted.action, card: intercepted.card });
+        response.end();
+        return;
+      }
 
       response.statusCode = 200;
       response.setHeader("content-type", "text/event-stream");

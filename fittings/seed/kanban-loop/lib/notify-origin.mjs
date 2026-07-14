@@ -155,6 +155,35 @@ export function needsInputMessage(card, { questions } = {}) {
   return lines.join("\n\n");
 }
 
+// S3d (D9b): the DISCUSS brief message - the settled scope delivered to the origin
+// when the discuss duty finishes. Pass-through proceeds to plan ("reply to adjust");
+// the explicit gate holds for a go. Brief content capped so the thread stays readable.
+export function briefMessage(card, { brief, gate } = {}) {
+  const url = boardCardUrl(card.id);
+  const head =
+    gate === "explicit"
+      ? "Brief ready - holding in Discuss for your go. Reply 'go' or Move the card to proceed to plan; reply to adjust the scope."
+      : "Brief ready - proceeding to plan. Reply to adjust the scope.";
+  const lines = [head];
+  const body = typeof brief === "string" && brief.trim() ? brief.trim() : "";
+  if (body) lines.push(body.length > 2000 ? `${body.slice(0, 2000)}…` : body);
+  if (url) lines.push(`Card: ${url}`);
+  return lines.join("\n\n");
+}
+
+/**
+ * Route the DISCUSS brief to a card's origin (S3d). Rides the duty-summary kind so
+ * web delivery + origin-log append work unchanged; the message carries the brief +
+ * the proceed/hold notice. Fire-and-forget, never throws.
+ */
+export function routeBrief(root, card, { brief, gate } = {}) {
+  routeOriginEvent(root, null, card, {
+    kind: "duty-summary",
+    message: briefMessage(card, { brief, gate }),
+    detail: { phase: "discuss", gate: gate ?? "pass-through", brief: typeof brief === "string" ? brief.slice(0, 2000) : null }
+  });
+}
+
 // Fire-and-forget POST of an assistant message to the web channel thread. Extracted
 // so every transport-web delivery uses one path.
 function deliverWebMessage(threadId, text) {

@@ -104,9 +104,13 @@ export async function createAutonomousCard({ message, classification, opts = {},
           duty: opts.duty,
           level: opts.level,
           sequence: opts.sequence,
-          originChannel: opts.originChannel ?? null
+          originChannel: opts.originChannel ?? null,
+          // S3d (D9b): the dispatcher's clarity verdict - a needs-discuss card is
+          // carded onto the interactive Discuss list (targetList) and stamped so
+          // the engine dispatches the discuss duty session.
+          clarity: opts.clarity ?? null
         })
-      : { description: message, goalMode: true, originChannel: opts.originChannel ?? null };
+      : { description: message, goalMode: true, originChannel: opts.originChannel ?? null, ...(opts.clarity === "needs-discuss" ? { clarity: "needs-discuss" } : {}) };
     if (opts.quick) payload.quick = true; // D19: mark trivial-plan cards for the Done quick-tasks strip
     if (opts.continues) payload.continues = opts.continues; // S3b: a post-done follow-up is a continuation card
     const created = await fetch(`${base}/cards`, {
@@ -254,6 +258,43 @@ export async function parkQuickCard({ id, reason, parkedFrom = "implement", logF
     return false;
   } catch (err) {
     logFn({ kind: "quick-card-park-failed", id, error: err?.message });
+    return false;
+  }
+}
+
+// S3d (D9b, review R3): move a card to `targetList` as an ENGINE-context PATCH
+// (x-garrison-engine), rev-refresh retry like completeQuickCard. Used by the gateway's
+// explicit-go resume (Move a held-in-Discuss card to plan) and any gateway-driven move.
+// Returns true when the card reaches the target list; never throws.
+export async function moveCardEngine({ id, targetList, logFn = () => {} }) {
+  try {
+    const base = boardBase();
+    if (!base || !id || !targetList) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let rev = 0;
+      try {
+        const fresh = await fetch(`${base}/cards/${id}`);
+        if (fresh.ok) {
+          const doc = await fresh.json();
+          rev = doc.card?.rev ?? doc.rev ?? 0;
+          if ((doc.card?.list ?? doc.list) === targetList) return true; // already there
+        }
+      } catch { /* fall through with rev 0 */ }
+      const moved = await fetch(`${base}/cards/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        body: JSON.stringify({ list: targetList, rev })
+      });
+      if (moved.ok) {
+        logFn({ kind: "card-moved", id, targetList });
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+    }
+    logFn({ kind: "card-move-failed", id, targetList });
+    return false;
+  } catch (err) {
+    logFn({ kind: "card-move-failed", id, targetList, error: err?.message });
     return false;
   }
 }

@@ -12,7 +12,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive, withEvent, phaseForList } from "../lib/engine.mjs";
+import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
@@ -152,7 +152,10 @@ export function seedBoard() {
 export function phaseTemplatesFrom(board) {
   const out = {};
   for (const l of board.lists || []) {
-    if (l.kind === "agent") out[l.id] = l;
+    // Capture agent lists AND the interactive Discuss template (S3d) - the resolved-
+    // model board reuses its interactive/surface/onEnter behaviour when a composition
+    // selects a discuss duty (buildBoard recomputes only its structural edges).
+    if (l.kind === "agent" || l.kind === "agent-interactive") out[l.id] = l;
   }
   return out;
 }
@@ -387,9 +390,18 @@ async function tick() {
   let processed = 0;
   for (const card of cards) {
     const list = getList(board, card.list);
-    if (!list || list.kind !== "agent") continue;        // manual / agent-interactive skip
-    if (triggerFor(list) !== "immediate") continue;       // scheduler-beat / manual skip
-    if (isInteractive(list)) continue;                    // belt-and-suspenders
+    if (!list) continue;
+    // S3d review R2: a clarity-gated discuss card whose move-time dispatch failed is
+    // otherwise stranded (the tick skips agent-interactive lists). Let it THROUGH the
+    // list-kind/trigger/interactive guards so the tick self-heals it like any agent
+    // list; a card held-for-go is left alone (processCard's discuss-held guard skips it,
+    // and !discussHeld gates it here too).
+    const gatedDiscuss = isGatedDiscuss(card, list) && card.discussHeld !== true;
+    if (!gatedDiscuss) {
+      if (list.kind !== "agent") continue;                // manual / agent-interactive skip
+      if (triggerFor(list) !== "immediate") continue;     // scheduler-beat / manual skip
+      if (isInteractive(list)) continue;                  // belt-and-suspenders
+    }
     if (card.status === "running" || card.status === "needs-attention") continue;
     if (card.waitingOn) continue;                         // deferred behind an overlapping run
     // Serialize gate (D9): coordination enabled but its substrate is unusable —

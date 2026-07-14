@@ -35,10 +35,16 @@ export interface DispatchModel {
   selectedDuties: string[];
 }
 
+// S3d (D9b): the specification-clarity verdict - orthogonal to the (duty, level).
+export type Clarity = "clear" | "needs-discuss";
+
 export interface DispatchPick {
   duty: string;
   level: number;
   confidence: "low" | "medium" | "high";
+  // S3d (D9b): parseDispatch/fallbackDispatch always populate clarity; optional so a
+  // hand-built pick (a caller / test constructing one for applyOverride) may omit it.
+  clarity?: Clarity;
   reason: string;
 }
 export interface OverriddenPick extends DispatchPick {
@@ -53,6 +59,8 @@ export interface RoutingEvidence {
   duty: string | null;
   level: number | null;
   confidence: "low" | "medium" | "high" | null;
+  clarity: Clarity | null;
+  clarityOverrideSource: "message" | null;
   overrideSource: "message" | "card" | null;
   reason: string | null;
 }
@@ -83,15 +91,26 @@ export interface DispatchOptions {
   cardLevel?: number;
   now?: () => string;
   evidenceFile?: string;
+  // S3d (D9b): the editable rubric folded into the dispatch prompt's clarity line.
+  clarityRubric?: string;
 }
 
 export interface DispatchResult extends OverriddenPick {
+  // S3d: the specification-clarity verdict + whether a phrasing override set it.
+  clarityOverrideSource: "message" | null;
   dispatchOk: boolean;
   callError: string | null;
   evidence: RoutingEvidence;
 }
 
-export function buildDispatchPrompt(model: DispatchModel, userPrompt: string): string;
+// S3d (D9b): the default clarity rubric text + the valid verdict set.
+export const DEFAULT_CLARITY_RUBRIC: string;
+export const CLARITY_VALUES: Set<string>;
+// The phrasing short-circuit for clarity - an explicit "just do it" / "let's discuss
+// first" wins over the model, both directions. Null when no explicit phrasing matches.
+export function clarityShortCircuit(message: string): { clarity: Clarity; overrideSource: "message" } | null;
+
+export function buildDispatchPrompt(model: DispatchModel, userPrompt: string, opts?: { clarityRubric?: string }): string;
 export function dispatchSchema(): DispatchSchema;
 export function parseDispatch(reply: unknown, model: DispatchModel): DispatchPick | null;
 export function fallbackDispatch(model: DispatchModel, reason?: string): DispatchPick;
@@ -107,6 +126,8 @@ export function routingEvidence(input: {
   duty?: string | null;
   level?: number | null;
   confidence?: "low" | "medium" | "high" | string | null;
+  clarity?: Clarity | string | null;
+  clarityOverrideSource?: "message" | null;
   overrideSource?: "message" | "card" | null;
   at?: string | null;
 }): RoutingEvidence;

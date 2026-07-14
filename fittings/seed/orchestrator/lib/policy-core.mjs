@@ -766,7 +766,7 @@ export function isSignificantAutonomous(classification) {
 // Build the board-API card payload for an autonomous run (D8 card creation).
 // Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
 // optional per-card toggle map merged over the work kind's plan (D17).
-export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier, duty, level, sequence, originChannel } = {}) {
+export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier, duty, level, sequence, originChannel, clarity } = {}) {
   return {
     description: brief || "",
     project: project || null,
@@ -779,6 +779,10 @@ export function buildAutonomousCardPayload({ brief, project, workKind, phases, t
     // identified one — the run engine posts the card's outcome back to it.
     originChannel: originChannel && typeof originChannel === "object" ? originChannel : null,
     classification: taskType && tier ? { taskType, tier } : null,
+    // S3d (D9b): the dispatcher's specification-clarity verdict. Only the
+    // needs-discuss verdict is carried (it flips the card's first list to the
+    // interactive Discuss); a clear card keeps the pre-S3d payload shape.
+    ...(clarity === "needs-discuss" ? { clarity: "needs-discuss" } : {}),
     // S4b completion (D15 acceptance 9): carry the resolved (duty, level) + its
     // ordered sequence onto the card so a gateway/skill-entered card FLOWS through
     // the IDENTICAL resolved sequence a board-entered card would (door-1

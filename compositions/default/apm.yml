@@ -243,6 +243,16 @@ x-garrison:
             cell:
               target: cc-opus
               effort: high
+      - id: discuss
+        title: Discuss
+        description: Talk a problem through and write a brief when the thinking settles.
+        levels:
+          - description: >-
+              level 1: quick discussion - talk a focused question or tradeoff through
+              in prose, then write the brief when the thinking settles.
+            cell:
+              target: cc-sonnet
+              effort: medium
       - id: plan
         title: Plan
         description: Design an implementation plan before building.
@@ -410,6 +420,7 @@ x-garrison:
       - code
       - other
       - research
+      - discuss
       - plan
       - implement
       - review

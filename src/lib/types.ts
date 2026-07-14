@@ -341,6 +341,11 @@ export interface DutySpec {
   // compaction is deferred to the next duty boundary (which discharges the hold),
   // never mid-duty. Optional/additive; absent reads as no hold.
   context_hold?: boolean;
+  // S3d (D9b): a duty gate. `explicit` means the engine does NOT auto-advance the
+  // card off this duty - it holds pending an explicit human go (a Move, or a "go"
+  // message routed as steering). Only meaningful on the discuss duty today. Absent
+  // (the default) = pass-through: the card advances automatically on the verdict.
+  gate?: "explicit";
 }
 
 export interface GarrisonMetadata {

@@ -182,7 +182,11 @@ const dutySpecSchema = z.object({
   levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level"),
   // S1b compact-controller hold: composition-inline duties carry it too (zod
   // strips undeclared keys, so omitting it here silently dropped the flag).
-  context_hold: z.boolean().optional()
+  context_hold: z.boolean().optional(),
+  // S3d (D9b) duty gate: composition-inline duties carry it too - zod strips
+  // undeclared keys, so an unlisted `gate` would be silently dropped here exactly
+  // as context_hold was. `explicit` holds the card on the duty for an explicit go.
+  gate: z.enum(["explicit"]).optional()
 });
 
 const compositionTargetSchema = z.object({

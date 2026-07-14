@@ -81,6 +81,7 @@ describe("dispatch parser (mirrors parseClassification clamping)", () => {
       duty: "code",
       level: 3,
       confidence: "high",
+      clarity: "clear", // S3d additive: absent in the reply -> default clear
       reason: "tricky"
     });
   });
@@ -114,7 +115,7 @@ describe("dispatch parser (mirrors parseClassification clamping)", () => {
 
   it("reads a garrison-call structured result and a text result", () => {
     const structured = parseDispatch({ ok: true, structured: { duty: "code", level: 3 } }, model());
-    expect(structured).toEqual({ duty: "code", level: 3, confidence: "low", reason: "" });
+    expect(structured).toEqual({ duty: "code", level: 3, confidence: "low", clarity: "clear", reason: "" });
     const text = parseDispatch({ ok: true, text: '{"duty":"other","level":1,"confidence":"high"}' }, model());
     expect(text?.duty).toBe("other");
     expect(text?.confidence).toBe("high");
@@ -125,6 +126,7 @@ describe("dispatch parser (mirrors parseClassification clamping)", () => {
       duty: "other",
       level: 2,
       confidence: "low",
+      clarity: "clear", // S3d additive: a parse failure never detours a card through Discuss
       reason: "dispatch parse failed; defaulted to standard"
     });
   });

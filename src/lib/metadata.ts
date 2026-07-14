@@ -149,7 +149,11 @@ const dutySchema = z
     levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level"),
     // S1b compact-controller hold (optional): a turn running this duty defers
     // compaction to the next duty boundary. Additive; absent = no hold.
-    context_hold: z.boolean().optional()
+    context_hold: z.boolean().optional(),
+    // S3d (D9b) duty gate (optional): `explicit` holds the card on this duty until
+    // an explicit human go (Move / steering), instead of auto-advancing on the
+    // verdict. Additive; absent = pass-through.
+    gate: z.enum(["explicit"]).optional()
   })
   .strict();
 
