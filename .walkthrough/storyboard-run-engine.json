@@ -2,229 +2,657 @@
   "title": "One task, end to end: web channel to kanban to composition-routed phases",
   "project": "agent-garrison",
   "folder": "run-engine",
-  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "video": {
+    "width": 1280,
+    "height": 800,
+    "fps": 30
+  },
   "segments": [
-    { "type": "title", "id": "intro", "text": "One task, end to end",
-      "subtitle": "agent-garrison · the run engine, routed by the composition", "duration": 2.8, "reflectFlag": true },
-
-    { "type": "browser", "id": "ask", "baseURL": "http://127.0.0.1:7083", "startPath": "/",
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "One task, end to end",
+      "subtitle": "agent-garrison · the run engine, routed by the composition",
+      "duration": 2.8,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "ask",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
       "runTimeoutMs": 300000,
       "beats": [
-        { "id": "channel", "caption": "The Web Channel: where you ask the Operative for real work.",
+        {
+          "id": "channel",
+          "caption": "The Web Channel: where you ask the Operative for real work.",
           "expectedScreen": "the web channel chat with a message input at the bottom and a sessions sidebar toggle",
-          "actions": [ { "type": "waitFor", "selector": ".cc-input", "timeout": 30000 },
-                       { "type": "click", "selector": ".wc-new" },
-                       { "type": "waitFor", "selector": ".cc-input", "timeout": 15000 } ],
-          "assert": { "selector": ".cc-input", "highlight": true },
-          "hold": 3600 },
-        { "id": "task", "caption": "A standard, bounded task - the kind a team would put on its board.",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".cc-input",
+              "timeout": 30000
+            },
+            {
+              "type": "click",
+              "selector": ".wc-new"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".cc-input",
+              "timeout": 15000
+            }
+          ],
+          "assert": {
+            "selector": ".cc-input",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "task",
+          "caption": "A standard, bounded task - the kind a team would put on its board.",
           "expectedScreen": "the chat input filled with a request to add a truncateWords utility with unit tests in the garrison-e2e-demo project",
-          "actions": [ { "type": "fill", "selector": ".cc-input", "text": "In the garrison-e2e-demo project, add a truncateWords(text, maxWords) utility in src/truncate-words.mjs that appends an ellipsis when it truncates, with unit tests in test/truncate-words.test.mjs." } ],
-          "assert": { "selector": ".cc-input", "highlight": true },
-          "hold": 4200 },
-        { "id": "carded", "caption": "The Orchestrator classifies it, registers a run, and hands back the card.",
+          "actions": [
+            {
+              "type": "fill",
+              "selector": ".cc-input",
+              "text": "In the garrison-e2e-demo project, add a truncateWords(text, maxWords) utility in src/truncate-words.mjs that appends an ellipsis when it truncates, with unit tests in test/truncate-words.test.mjs."
+            }
+          ],
+          "assert": {
+            "selector": ".cc-input",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "carded",
+          "caption": "The Orchestrator classifies it, registers a run, and hands back the card.",
           "expectedScreen": "an assistant reply saying Registered as a run with a card link to the board",
-          "actions": [ { "type": "click", "selector": ".cc-send" },
-                       { "type": "waitFor", "selector": ".cc-assistant:has-text(\"Registered as a run\")", "timeout": 150000 } ],
-          "assert": { "selector": ".cc-assistant:has-text(\"Registered as a run\")", "highlight": true },
-          "hold": 4600 }
-      ] },
-
-    { "type": "browser", "id": "muster", "baseURL": "http://localhost:7777", "startPath": "/muster",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".cc-send"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".cc-assistant:has-text(\"Registered as a run\")",
+              "timeout": 150000
+            }
+          ],
+          "assert": {
+            "selector": ".cc-assistant:has-text(\"Registered as a run\")",
+            "highlight": true
+          },
+          "hold": 4600
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "muster",
+      "baseURL": "http://localhost:7777",
+      "startPath": "/muster",
       "runTimeoutMs": 300000,
       "beats": [
-        { "id": "duties", "caption": "The Composition page is the routing truth: every phase of a run is a duty.",
+        {
+          "id": "duties",
+          "caption": "The Composition page is the routing truth: every phase of a run is a duty.",
           "expectedScreen": "the Muster page duty list showing Plan, Implement, Review and Test duty rows with a green Ready to run pill",
-          "actions": [ { "type": "waitFor", "selector": "testid:duty-list", "timeout": 30000 } ],
-          "assert": { "selector": "testid:duty-list", "highlight": false },
-          "hold": 4600 },
-        { "id": "implladder", "caption": "Implement: Opus at high effort. Plan runs on Fable; review and test on Sonnet.",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "testid:duty-list",
+              "timeout": 30000
+            }
+          ],
+          "assert": {
+            "selector": "testid:duty-list",
+            "highlight": false
+          },
+          "hold": 4600
+        },
+        {
+          "id": "implladder",
+          "caption": "Implement: Opus at high effort. Plan runs on Fable; review and test on Sonnet.",
           "expectedScreen": "the Implement duty expanded showing one level with the opus target and the high effort segment active",
-          "actions": [ { "type": "click", "selector": "testid:duty-toggle-implement" } ],
-          "assert": { "selector": "testid:duty-levels-implement", "highlight": true },
-          "hold": 5000 }
-      ] },
-
-    { "type": "browser", "id": "board1", "baseURL": "http://127.0.0.1:7089", "startPath": "/",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:duty-toggle-implement"
+            }
+          ],
+          "assert": {
+            "selector": "testid:duty-levels-implement",
+            "highlight": true
+          },
+          "hold": 5000
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "board1",
+      "baseURL": "http://127.0.0.1:7089",
+      "startPath": "/",
       "runTimeoutMs": 480000,
       "beats": [
-        { "id": "cardonboard", "caption": "The card is on the board - the run engine owns it from here.",
+        {
+          "id": "cardonboard",
+          "caption": "The card is on the board - the run engine owns it from here.",
           "expectedScreen": "the kanban board with phase columns and the truncateWords card visible on an early phase list",
-          "actions": [ { "type": "waitFor", "selector": ".card:has-text(\"truncateWords\")", "timeout": 60000 } ],
-          "assert": { "selector": ".card:has-text(\"truncateWords\")", "highlight": true },
-          "hold": 4600 },
-        { "id": "offchips", "caption": "A standard-tier run keeps the deep gates visibly OFF - recorded, never silently skipped.",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".card:has-text(\"truncateWords\")",
+              "timeout": 60000
+            }
+          ],
+          "assert": {
+            "selector": ".card:has-text(\"truncateWords\")",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "offchips",
+          "caption": "A standard-tier run keeps the deep gates visibly OFF - recorded, never silently skipped.",
           "expectedScreen": "dimmed off chips on the card such as adversarial-review: off and walkthrough: off",
-          "assert": { "selector": ".card:has-text(\"truncateWords\") .chip.off", "highlight": true },
-          "hold": 4600 },
-        { "id": "planroute", "caption": "Plan completes on Fable - the card is stamped with exactly who ran it.",
+          "assert": {
+            "selector": ".card:has-text(\"truncateWords\") .chip.off:has-text(\"walkthrough\")",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "planroute",
+          "caption": "Plan completes on Fable - the card is stamped with exactly who ran it.",
           "expectedScreen": "the truncateWords card carrying a route chip reading plan @ claude-fable-5 or a later phase chip",
-          "actions": [ { "type": "waitFor", "selector": ".card:has-text(\"truncateWords\") .chip.route", "timeout": 300000 } ],
-          "assert": { "selector": ".card:has-text(\"truncateWords\") .chip.route", "highlight": true },
-          "hold": 4600 }
-      ] },
-
-    { "type": "title", "id": "cut1", "text": "The engine drives Implement and Review", "subtitle": "≈ a few minutes, unattended", "duration": 2.4 },
-
-    { "type": "browser", "id": "board2", "continue": true,
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".card:has-text(\"truncateWords\") .chip.route",
+              "timeout": 300000
+            }
+          ],
+          "assert": {
+            "selector": ".card:has-text(\"truncateWords\") .chip.route",
+            "highlight": true
+          },
+          "hold": 4600
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "cut1",
+      "text": "The engine drives Implement and Review",
+      "subtitle": "≈ a few minutes, unattended",
+      "duration": 2.4
+    },
+    {
+      "type": "browser",
+      "id": "board2",
+      "continue": true,
       "runTimeoutMs": 900000,
-      "waitBefore": { "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\")", "timeout": 780000 },
+      "waitBefore": {
+        "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\")",
+        "timeout": 780000
+      },
       "beats": [
-        { "id": "attest", "caption": "Implemented and reviewed, each phase on its own engine. Test batches on a schedule - kick it now.",
+        {
+          "id": "attest",
+          "caption": "Implemented and reviewed, each phase on its own engine. Test batches on a schedule - kick it now.",
           "expectedScreen": "the truncateWords card sitting in the Test column with a Run button",
-          "assert": { "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\")", "highlight": true },
-          "hold": 4600 },
-        { "id": "kicktest", "caption": "Run the Test phase on demand.",
+          "assert": {
+            "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\")",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "kicktest",
+          "caption": "Run the Test phase on demand.",
           "expectedScreen": "the truncateWords card in the Test column showing a live running state",
-          "actions": [ { "type": "click", "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\") button:has-text(\"Run\")" },
-                       { "type": "waitFor", "selector": ".card:has-text(\"truncateWords\") .run-live", "timeout": 60000 } ],
-          "assert": { "selector": ".card:has-text(\"truncateWords\") .run-live", "highlight": true },
-          "hold": 4600 },
-        { "id": "done", "caption": "Green. The run completes - the card lands in Done.",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\") button:has-text(\"Run\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".card:has-text(\"truncateWords\") .run-live",
+              "timeout": 60000
+            }
+          ],
+          "assert": {
+            "selector": ".card:has-text(\"truncateWords\") .run-live",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "done",
+          "caption": "Green. The run completes - the card lands in Done.",
           "expectedScreen": "the truncateWords card in the Done column",
-          "actions": [ { "type": "waitFor", "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\")", "timeout": 480000 } ],
-          "assert": { "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\")", "highlight": true },
-          "hold": 4600 },
-        { "id": "opendetail", "caption": "Open the card: the whole journey, phase by phase.",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\")",
+              "timeout": 480000
+            }
+          ],
+          "assert": {
+            "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\")",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "opendetail",
+          "caption": "Open the card: the whole journey, phase by phase.",
           "expectedScreen": "the card detail overlay with an activity timeline listing dispatch and routed entries",
-          "actions": [ { "type": "click", "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\") button:has-text(\"Open\")" },
-                       { "type": "waitFor", "selector": ".tl-route", "timeout": 30000 } ],
-          "assert": { "selector": ".tl-route", "highlight": false },
-          "hold": 4600 },
-        { "id": "stamps", "caption": "Every phase turn carries its proof: runtime, model, tier - and effort.",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\") button:has-text(\"Open\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".tl-msg:has-text(\"Plan → Implement\")",
+              "timeout": 30000
+            }
+          ],
+          "assert": {
+            "selector": ".tl-msg:has-text(\"Plan → Implement\")",
+            "highlight": false
+          },
+          "hold": 4600
+        },
+        {
+          "id": "stamps",
+          "caption": "Every phase turn carries its proof: runtime, model, tier - and effort.",
           "expectedScreen": "timeline routed entries reading claude-code/claude-fable-5 · T1-standard · high and claude-code/claude-opus-4.8 · T1-standard · high and claude-code/sonnet · T1-standard · medium",
-          "assert": { "selector": ".tl-route:has-text(\"claude-fable-5 · T1-standard · high\")", "highlight": true },
-          "hold": 5600 },
-        { "id": "sessionlog", "caption": "Each turn's full session log is one click away.",
-          "expectedScreen": "the card detail showing per-iteration log links or an opened session log with the operative's reply",
-          "actions": [ { "type": "click", "selector": ".tl-toggle" } ],
-          "assert": { "selector": ".tl-msg", "highlight": true },
-          "hold": 5000 }
-      ] },
-
-    { "type": "evidence", "id": "decisions-proof",
+          "assert": {
+            "selector": ".tl-msg:has-text(\"Plan → Implement\")",
+            "text": "claude-fable-5 (T1-standard · high)",
+            "highlight": true
+          },
+          "hold": 5600
+        },
+        {
+          "id": "sessionlog",
+          "caption": "Each turn's reply is right there - and the full session log one link away.",
+          "expectedScreen": "the implement timeline entry expanded showing the operative's reply detail text",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".tl-ev:has(.tl-msg:has-text(\"Implement → Review\")) .tl-toggle"
+            }
+          ],
+          "assert": {
+            "selector": ".tl-detail",
+            "highlight": true
+          },
+          "hold": 5000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "decisions-proof",
       "command": "tail -n 8 compositions/default/.garrison/decisions.jsonl | jq -c '{taskType, tier, targetId, model, effort, ruleId}' | tail -n 6",
       "source": "compositions/default/.garrison/decisions.jsonl",
       "kind": "output",
       "caption": "The decision log agrees: each phase resolved to its duty cell - target, model, effort.",
       "expectedScreen": "JSON lines showing per-phase decisions with duty rules like duty:implement/L1 and efforts high and medium",
-      "highlight": { "match": "duty:implement/L1", "note": "the Implement phase resolved by the composition's Implement duty ladder - Opus at high effort" },
-      "hold": 6000 },
-
-    { "type": "browser", "id": "feedback1", "baseURL": "http://127.0.0.1:7083", "startPath": "/",
+      "highlight": {
+        "match": "duty:implement/L1",
+        "note": "the Implement phase resolved by the composition's Implement duty ladder - Opus at high effort"
+      },
+      "hold": 6000
+    },
+    {
+      "type": "browser",
+      "id": "feedback1",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
       "runTimeoutMs": 300000,
       "beats": [
-        { "id": "outcome", "caption": "And the thread that asked hears the outcome - the loop closes.",
+        {
+          "id": "outcome",
+          "caption": "And the thread that asked hears the outcome - the loop closes.",
           "expectedScreen": "the web channel thread showing a Run complete message with the card link after the original ask",
-          "actions": [ { "type": "waitFor", "selector": ".cc-input", "timeout": 30000 },
-                       { "type": "waitFor", "selector": ".cc-assistant:has-text(\"Run complete\")", "timeout": 120000 } ],
-          "assert": { "selector": ".cc-assistant:has-text(\"Run complete\")", "highlight": true },
-          "hold": 5200 }
-      ] },
-
-    { "type": "title", "id": "cut2", "text": "Now change the routing", "subtitle": "re-point one phase in the composition", "duration": 2.4 },
-
-    { "type": "browser", "id": "reroute", "baseURL": "http://localhost:7777", "startPath": "/muster",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".cc-input",
+              "timeout": 30000
+            },
+            {
+              "type": "waitFor",
+              "selector": ".cc-assistant:has-text(\"Run complete\")",
+              "timeout": 120000
+            }
+          ],
+          "assert": {
+            "selector": ".cc-assistant:has-text(\"Run complete\")",
+            "highlight": true
+          },
+          "hold": 5200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "cut2",
+      "text": "Now change the routing",
+      "subtitle": "re-point one phase in the composition",
+      "duration": 2.4
+    },
+    {
+      "type": "browser",
+      "id": "reroute",
+      "baseURL": "http://localhost:7777",
+      "startPath": "/muster",
       "runTimeoutMs": 300000,
       "beats": [
-        { "id": "openimpl", "caption": "Back on the Composition page: re-point the Implement duty.",
+        {
+          "id": "openimpl",
+          "caption": "Back on the Composition page: re-point the Implement duty.",
           "expectedScreen": "the Muster duty list with the Implement duty expanded showing its single level on opus",
-          "actions": [ { "type": "waitFor", "selector": "testid:duty-list", "timeout": 30000 },
-                       { "type": "click", "selector": "testid:duty-toggle-implement" } ],
-          "assert": { "selector": "testid:duty-levels-implement", "highlight": true },
-          "hold": 4200 },
-        { "id": "arm", "caption": "Arm the Sonnet target from the tray...",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "testid:duty-list",
+              "timeout": 30000
+            },
+            {
+              "type": "click",
+              "selector": "testid:duty-toggle-implement"
+            }
+          ],
+          "assert": {
+            "selector": "testid:duty-levels-implement",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "arm",
+          "caption": "Arm the Sonnet target from the tray...",
           "expectedScreen": "the cc-sonnet target chip highlighted as armed in the targets tray",
-          "actions": [ { "type": "click", "selector": "testid:target-chip-cc-sonnet" } ],
-          "assert": { "selector": "testid:target-chip-cc-sonnet", "highlight": true },
-          "hold": 3000 },
-        { "id": "place", "caption": "...place it on Implement, and dial the effort to medium. It autosaves.",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:target-chip-cc-sonnet"
+            }
+          ],
+          "assert": {
+            "selector": "testid:target-chip-cc-sonnet",
+            "highlight": true
+          },
+          "hold": 3000
+        },
+        {
+          "id": "place",
+          "caption": "...place it on Implement, and dial the effort to medium. It autosaves.",
           "expectedScreen": "the Implement level cell showing cc-sonnet with the medium effort segment active",
-          "actions": [ { "type": "click", "selector": "testid:cell-target-implement-1" },
-                       { "type": "click", "selector": "testid:cell-effort-implement-1-medium" } ],
-          "assert": { "selector": "testid:cell-target-implement-1", "text": "cc-sonnet", "highlight": true },
-          "hold": 4600 }
-      ] },
-
-    { "type": "browser", "id": "relaunch", "baseURL": "http://localhost:7777", "startPath": "/",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:cell-target-implement-1"
+            },
+            {
+              "type": "click",
+              "selector": "testid:cell-effort-implement-1-medium"
+            }
+          ],
+          "assert": {
+            "selector": "testid:cell-target-implement-1",
+            "text": "cc-sonnet",
+            "highlight": true
+          },
+          "hold": 4600
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "relaunch",
+      "baseURL": "http://localhost:7777",
+      "startPath": "/",
       "runTimeoutMs": 300000,
       "beats": [
-        { "id": "restart", "caption": "Relaunch the Operative - the routing recompiles from the composition.",
+        {
+          "id": "restart",
+          "caption": "Relaunch the Operative - the routing recompiles from the composition.",
           "expectedScreen": "the Garrison dashboard with the runtime log streaming install and verify lines after pressing Restart",
-          "actions": [ { "type": "waitFor", "selector": "button:has-text(\"Restart Operative\")", "timeout": 30000 },
-                       { "type": "click", "selector": "button:has-text(\"Restart Operative\")" },
-                       { "type": "waitTimeout", "ms": 8000 } ],
-          "assert": { "selector": "button:has-text(\"Restart Operative\")", "highlight": false },
-          "hold": 5000 }
-      ] },
-
-    { "type": "title", "id": "cut3", "text": "≈ one minute later", "subtitle": "installed, verified, relaunched", "duration": 2.2 },
-
-    { "type": "browser", "id": "ask2", "baseURL": "http://127.0.0.1:7083", "startPath": "/",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "button:has-text(\"Restart Operative\")",
+              "timeout": 30000
+            },
+            {
+              "type": "click",
+              "selector": "button:has-text(\"Restart Operative\")"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 8000
+            }
+          ],
+          "assert": {
+            "selector": "button:has-text(\"Restart Operative\")",
+            "highlight": false
+          },
+          "hold": 5000
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "cut3",
+      "text": "≈ one minute later",
+      "subtitle": "installed, verified, relaunched",
+      "duration": 2.2
+    },
+    {
+      "type": "browser",
+      "id": "ask2",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
       "runTimeoutMs": 480000,
-      "waitBefore": { "selector": ".cc-input", "timeout": 120000 },
+      "waitBefore": {
+        "selector": ".cc-input",
+        "timeout": 120000
+      },
       "beats": [
-        { "id": "task2", "caption": "Same shape of ask, fresh conversation.",
+        {
+          "id": "task2",
+          "caption": "Same shape of ask, fresh conversation.",
           "expectedScreen": "a new chat with the input filled with a request for a kebabToCamel utility with tests",
-          "actions": [ { "type": "waitTimeout", "ms": 45000 },
-                       { "type": "click", "selector": ".wc-new" },
-                       { "type": "waitFor", "selector": ".cc-input", "timeout": 15000 },
-                       { "type": "fill", "selector": ".cc-input", "text": "In the garrison-e2e-demo project, add a kebabToCamel(str) utility in src/kebab-to-camel.mjs that converts kebab-case to camelCase, with unit tests in test/kebab-to-camel.test.mjs." } ],
-          "assert": { "selector": ".cc-input", "highlight": true },
-          "hold": 4200 },
-        { "id": "carded2", "caption": "Registered as a run again - a new card on the board.",
+          "actions": [
+            {
+              "type": "waitTimeout",
+              "ms": 45000
+            },
+            {
+              "type": "click",
+              "selector": ".wc-new"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".cc-input",
+              "timeout": 15000
+            },
+            {
+              "type": "fill",
+              "selector": ".cc-input",
+              "text": "In the garrison-e2e-demo project, add a kebabToCamel(str) utility in src/kebab-to-camel.mjs that converts kebab-case to camelCase, with unit tests in test/kebab-to-camel.test.mjs."
+            }
+          ],
+          "assert": {
+            "selector": ".cc-input",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "carded2",
+          "caption": "Registered as a run again - a new card on the board.",
           "expectedScreen": "an assistant reply saying Registered as a run with a card link",
-          "actions": [ { "type": "click", "selector": ".cc-send" },
-                       { "type": "waitFor", "selector": ".cc-assistant:has-text(\"Registered as a run\")", "timeout": 180000 } ],
-          "assert": { "selector": ".cc-assistant:has-text(\"Registered as a run\")", "highlight": true },
-          "hold": 4200 }
-      ] },
-
-    { "type": "title", "id": "cut4", "text": "The engine runs it again", "subtitle": "plan · implement · review - unattended", "duration": 2.4 },
-
-    { "type": "browser", "id": "board3", "baseURL": "http://127.0.0.1:7089", "startPath": "/",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".cc-send"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".cc-assistant:has-text(\"Registered as a run\")",
+              "timeout": 180000
+            }
+          ],
+          "assert": {
+            "selector": ".cc-assistant:has-text(\"Registered as a run\")",
+            "highlight": true
+          },
+          "hold": 4200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "cut4",
+      "text": "The engine runs it again",
+      "subtitle": "plan · implement · review - unattended",
+      "duration": 2.4
+    },
+    {
+      "type": "browser",
+      "id": "board3",
+      "baseURL": "http://127.0.0.1:7089",
+      "startPath": "/",
       "runTimeoutMs": 900000,
-      "waitBefore": { "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"kebabToCamel\")", "timeout": 780000 },
+      "waitBefore": {
+        "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"kebabToCamel\")",
+        "timeout": 780000
+      },
       "beats": [
-        { "id": "kicktest2", "caption": "Through plan, implement and review - kick the Test batch once more.",
+        {
+          "id": "kicktest2",
+          "caption": "Through plan, implement and review - kick the Test batch once more.",
           "expectedScreen": "the kebabToCamel card in the Test column",
-          "actions": [ { "type": "click", "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"kebabToCamel\") button:has-text(\"Run\")" },
-                       { "type": "waitFor", "selector": ".card:has-text(\"kebabToCamel\") .run-live", "timeout": 60000 } ],
-          "assert": { "selector": ".card:has-text(\"kebabToCamel\") .run-live", "highlight": true },
-          "hold": 4200 },
-        { "id": "done2", "caption": "Done again.",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"kebabToCamel\") button:has-text(\"Run\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".card:has-text(\"kebabToCamel\") .run-live",
+              "timeout": 60000
+            }
+          ],
+          "assert": {
+            "selector": ".card:has-text(\"kebabToCamel\") .run-live",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "done2",
+          "caption": "Done again.",
           "expectedScreen": "the kebabToCamel card in the Done column",
-          "actions": [ { "type": "waitFor", "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\")", "timeout": 480000 } ],
-          "assert": { "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\")", "highlight": true },
-          "hold": 3800 },
-        { "id": "diff", "caption": "Open it: ONLY the implement phase changed - Sonnet at medium. Plan still ran on Fable at high.",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\")",
+              "timeout": 480000
+            }
+          ],
+          "assert": {
+            "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\")",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "diff",
+          "caption": "Open it: ONLY the implement phase changed - Sonnet at medium. Plan still ran on Fable at high.",
           "expectedScreen": "the card timeline showing implement routed to claude-code/sonnet · T1-standard · medium while plan shows claude-fable-5 · T1-standard · high",
-          "actions": [ { "type": "click", "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\") button:has-text(\"Open\")" },
-                       { "type": "waitFor", "selector": ".tl-route", "timeout": 30000 } ],
-          "assert": { "selector": ".tl-route:has-text(\"sonnet · T1-standard · medium\")", "highlight": true },
-          "hold": 6000 }
-      ] },
-
-    { "type": "evidence", "id": "decisions-proof-2",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\") button:has-text(\"Open\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".tl-msg:has-text(\"Implement → Review\")",
+              "timeout": 30000
+            }
+          ],
+          "assert": {
+            "selector": ".tl-msg:has-text(\"Implement → Review\")",
+            "text": "sonnet (T1-standard · medium)",
+            "highlight": true
+          },
+          "hold": 6000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "decisions-proof-2",
       "command": "grep '\"taskType\":\"implement\"' compositions/default/.garrison/decisions.jsonl | tail -n 2 | jq -c '{taskType, tier, targetId, model, effort, ruleId}'",
       "source": "compositions/default/.garrison/decisions.jsonl",
       "kind": "output",
       "caption": "Before and after, from the decision log: the same phase, re-routed by one composition edit.",
       "expectedScreen": "two implement decision lines - the earlier one on opus at high effort, the later one on cc-sonnet at medium effort",
-      "highlight": { "match": "cc-sonnet", "note": "the implement phase now resolves to Sonnet at medium - exactly the cell edited on the Composition page" },
-      "hold": 6000 },
-
-    { "type": "browser", "id": "feedback2", "baseURL": "http://127.0.0.1:7083", "startPath": "/",
+      "highlight": {
+        "match": "cc-sonnet",
+        "note": "the implement phase now resolves to Sonnet at medium - exactly the cell edited on the Composition page"
+      },
+      "hold": 6000
+    },
+    {
+      "type": "browser",
+      "id": "feedback2",
+      "baseURL": "http://127.0.0.1:7083",
+      "startPath": "/",
       "runTimeoutMs": 300000,
       "beats": [
-        { "id": "outcome2", "caption": "The thread hears this run's outcome too. Ask, watch, adjust, run again.",
+        {
+          "id": "outcome2",
+          "caption": "The thread hears this run's outcome too. Ask, watch, adjust, run again.",
           "expectedScreen": "the web channel thread with a Run complete message for the kebabToCamel run",
-          "actions": [ { "type": "waitFor", "selector": ".cc-input", "timeout": 30000 },
-                       { "type": "waitFor", "selector": ".cc-assistant:has-text(\"Run complete\")", "timeout": 120000 } ],
-          "assert": { "selector": ".cc-assistant:has-text(\"Run complete\")", "highlight": true },
-          "hold": 5200 }
-      ] },
-
-    { "type": "title", "id": "outro", "text": "The composition routes it. The board proves it.", "duration": 2.4 }
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".cc-input",
+              "timeout": 30000
+            },
+            {
+              "type": "waitFor",
+              "selector": ".cc-assistant:has-text(\"Run complete\")",
+              "timeout": 120000
+            }
+          ],
+          "assert": {
+            "selector": ".cc-assistant:has-text(\"Run complete\")",
+            "highlight": true
+          },
+          "hold": 5200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "The composition routes it. The board proves it.",
+      "duration": 2.4
+    }
   ]
 }
