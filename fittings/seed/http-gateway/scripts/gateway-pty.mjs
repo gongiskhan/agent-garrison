@@ -438,12 +438,51 @@ async function loadStubSpawnFn() {
 // Build + start the routing layer. Returns true when the operative is served by
 // the routing pool; false when routing is unavailable (caller falls back to the
 // legacy single-session spawn).
+// Write/refresh the shared stdio MCP config for spawned claude sessions (the
+// routed twin of the souls-mode writeSharedMcpConfig: same file, same contract).
+// Returns the claude extraArgs, or [] when the mcp-gateway fitting is absent.
+async function writeRoutedMcpConfig() {
+  const gatewayScriptPath = path.join(COMPOSITION_DIR, "apm_modules", "_local", "mcp-gateway", "scripts", "gateway.mjs");
+  try {
+    await fs.access(gatewayScriptPath);
+  } catch {
+    logEvent("stdout", { kind: "mcp-config-skipped", reason: "mcp-gateway fitting not installed" });
+    return [];
+  }
+  const filePath = path.join(COMPOSITION_DIR, ".garrison", "mcp.json");
+  const cfg = {
+    mcpServers: {
+      garrison: {
+        command: "node",
+        args: [gatewayScriptPath, "stdio"],
+        env: {
+          GARRISON_COMPOSITION_DIR: COMPOSITION_DIR,
+          GARRISON_HTTP_GATEWAY_BASE_URL: `http://${HOST}:${PORT}`,
+        },
+      },
+    },
+  };
+  try {
+    await fs.writeFile(filePath, JSON.stringify(cfg, null, 2), "utf8");
+    logEvent("stdout", { kind: "mcp-config-written", path: filePath });
+    return ["--mcp-config", filePath, "--strict-mcp-config"];
+  } catch (err) {
+    logEvent("stderr", { kind: "mcp-config-write-failed", error: String(err?.message ?? err) });
+    return [];
+  }
+}
+
 async function initRouting() {
   if (!resolveModelRouterDir(COMPOSITION_DIR)) {
     logEvent("stdout", { kind: "routing-absent", message: "model-router fitting not found — legacy single-session" });
     return false;
   }
   await fs.mkdir(path.join(COMPOSITION_DIR, ".garrison"), { recursive: true });
+  // garrison-control MCP for the operative (WS5 prep): write/refresh the shared
+  // stdio mcp.json (same contract as the souls-mode gateway) and pass it at
+  // spawn so duty sessions can call fetch_evidence / create_continuation /
+  // poll_origin_events. Graceful: no installed mcp-gateway -> no extra args.
+  const mcpExtraArgs = await writeRoutedMcpConfig();
   const spawnFn = await loadStubSpawnFn();
   const continueSession = await hasPriorSession();
   router = await createRoutedGateway({
@@ -460,6 +499,10 @@ async function initRouting() {
       continueSession,
       claudeBinary: CLAUDE_BINARY,
       providerLaunch: PROVIDER_LAUNCH,
+      // --mcp-config args (or []) so the operative carries the garrison MCP
+      // tools; ClaudeCodeAdapter forwards this config verbatim to
+      // OperativePtySession.spawn, which appends extraArgs to the claude argv.
+      extraArgs: mcpExtraArgs,
       // Consumed only by the agent-sdk primary path (claude-code ignores it and
       // uses providerLaunch env). Makes an ollama-local / z.ai / … primary run
       // on its own provider spec instead of defaulting to "anthropic".

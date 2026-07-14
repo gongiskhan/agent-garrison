@@ -660,6 +660,7 @@ export class RoutedGateway {
       model: model ?? cfg.model,
       permissionMode: cfg.permissionMode ?? "bypassPermissions",
       claudeBinary: cfg.claudeBinary,
+      extraArgs: cfg.extraArgs,
       message,
       onScreen,
       onSession
@@ -1099,6 +1100,9 @@ export class RoutedGateway {
       appendSystemPromptFile: this.appendSystemPromptFile,
       baseEnv: process.env,
       secrets: this.secrets ?? null,
+      // Keep the operative's spawn-time extra claude args (e.g. --mcp-config)
+      // across a model-switch respawn.
+      extraArgs: this._operativeSpawnConfig?.extraArgs,
       // Providers are policy data (P2): resolve the section from the loaded
       // routing config (ensureProviders seeds the historical four for a
       // pre-migration file) so buildLaunchEnv never falls back silently.

@@ -167,6 +167,9 @@ export function buildRespawnOpts(resolved, opts = {}) {
     // providerLaunch tells the spawner to KEEP them (else session.mjs scrubs the
     // base URL back to the Max plan). Verified live U4 (ollama-local).
     providerLaunch: provider !== "anthropic-plan",
-    permissionMode: opts.permissionMode ?? "bypassPermissions"
+    permissionMode: opts.permissionMode ?? "bypassPermissions",
+    // Carry the spawn-time extra claude args (e.g. --mcp-config) across a
+    // model-switch respawn so the fresh operative keeps its MCP tools.
+    ...(Array.isArray(opts.extraArgs) && opts.extraArgs.length ? { extraArgs: opts.extraArgs } : {})
   };
 }

@@ -346,6 +346,7 @@ export async function oneShotTurn(opts) {
     rows: opts.rows,
     readinessTimeoutMs: opts.readinessTimeoutMs,
     spawnImpl: opts.spawnImpl,
+    extraArgs: opts.extraArgs,
   });
   // Optional peek at the disposable session (e.g. to build a streaming reply
   // extractor over its handle). The session is disposed below regardless.
