@@ -1,0 +1,30 @@
+{
+  "title": "WS4 time-lapse machinery: timestamps + long horizon",
+  "project": "agent-garrison",
+  "folder": "ws4-timelapse-proof",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "timestamps": true,
+  "horizon": "long",
+  "segments": [
+    { "type": "title", "id": "intro", "text": "Time-lapse machinery", "subtitle": "wall-clock overlay + long horizon", "reflectFlag": true, "duration": 2.6 },
+    { "type": "browser", "id": "board", "baseURL": "http://127.0.0.1:7089", "startPath": "/",
+      "beats": [
+        { "id": "live", "caption": "The Garrison Kanban loop board, live",
+          "expectedScreen": "the kanban board with Backlog, To Do and Code columns and a wall-clock in the caption bar",
+          "actions": [ { "type": "waitFor", "selector": ".board", "state": "visible" } ],
+          "assert": { "selector": ".lname-text:has-text(\"Backlog\")", "highlight": true }, "hold": 3200 }
+      ] },
+    { "type": "browser", "id": "timelapse", "continue": true, "speed": 8,
+      "beats": [
+        { "id": "scan", "caption": "Scanning the lists at 8x",
+          "expectedScreen": "the board mid-scroll with the cursor over a column header and a wall-clock in the caption bar",
+          "actions": [ { "type": "hover", "selector": ".lname-text:has-text(\"To Do\")" }, { "type": "hover", "selector": ".lname-text:has-text(\"Code\")" } ],
+          "hold": 7000 },
+        { "id": "tick", "caption": "Real time keeps ticking under the speed-up",
+          "expectedScreen": "the board scrolled further right with a wall-clock in the caption bar showing a later time than the previous beat",
+          "actions": [ { "type": "hover", "selector": ".lname-text:has-text(\"Research\")" }, { "type": "hover", "selector": ".lname-text:has-text(\"Done\")" } ],
+          "hold": 7000 }
+      ] },
+    { "type": "title", "id": "outro", "text": "Timelapse, kept honest", "subtitle": "the clock shows the real elapsed time", "duration": 2.4 }
+  ]
+}

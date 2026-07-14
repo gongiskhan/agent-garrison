@@ -173,3 +173,14 @@
   phase waits honestly; the board's 5s poll gives real on-camera card movement.
 - The Test list is a scheduler beat: click the card's Run on camera ("kick it now")
   instead of waiting 5h.
+
+## 2026-07-14 — time-lapse timestamps (WS4, CONTINUITY run)
+- The caption HUD + title cards can now carry a wall-clock (storyboard
+  `timestamps: true`); long recordings set `horizon: "long"` (15-min
+  runTimeoutMs, 10-min wait defaults) instead of hand-raising every knob.
+- Authoring gotcha: on heavily-sped-up beats (8x+), give caption beats a
+  LONG enough hold (7000ms+) that the compressed window survives the vision
+  gate's midpoint sampling — a 2600ms hold at 8x compresses to ~325ms and
+  the tMid frame can land in the next beat's action gap.
+- The rendered board UI is at http://127.0.0.1:7089/ (NOT /board — that
+  path returns the JSON API).

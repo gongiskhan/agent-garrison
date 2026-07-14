@@ -1,0 +1,66 @@
+{
+  "project": "agent-garrison",
+  "folder": "ws4-timelapse-proof",
+  "title": "WS4 time-lapse machinery: timestamps + long horizon",
+  "createdAt": "2026-07-14T18:17:14.430Z",
+  "video": {
+    "width": 1280,
+    "height": 800,
+    "fps": 30
+  },
+  "duration": 16.633,
+  "calibrationMs": 0,
+  "flagged": false,
+  "beats": [
+    {
+      "id": "intro",
+      "segId": "clip-0-intro.mp4",
+      "caption": "Time-lapse machinery",
+      "expectedScreen": "title card reading \"Time-lapse machinery\"",
+      "expectFailure": false,
+      "tStart": 0,
+      "tMid": 1.3,
+      "tEnd": 2.6
+    },
+    {
+      "id": "live",
+      "segId": "clip-1-board.mp4",
+      "caption": "The Garrison Kanban loop board, live",
+      "expectedScreen": "the kanban board with Backlog, To Do and Code columns and a wall-clock in the caption bar",
+      "expectFailure": false,
+      "tStart": 3.41,
+      "tMid": 4.81,
+      "tEnd": 11.867
+    },
+    {
+      "id": "scan",
+      "segId": "clip-2-timelapse.fast.mp4",
+      "caption": "Scanning the lists at 8x",
+      "expectedScreen": "the board mid-scroll with the cursor over a column header and a wall-clock in the caption bar",
+      "expectFailure": false,
+      "tStart": 12.204,
+      "tMid": 12.779,
+      "tEnd": 13.354
+    },
+    {
+      "id": "tick",
+      "segId": "clip-2-timelapse.fast.mp4",
+      "caption": "Real time keeps ticking under the speed-up",
+      "expectedScreen": "the board scrolled further right with a wall-clock in the caption bar showing a later time than the previous beat",
+      "expectFailure": false,
+      "tStart": 13.354,
+      "tMid": 13.794,
+      "tEnd": 14.233
+    },
+    {
+      "id": "outro",
+      "segId": "clip-3-outro.mp4",
+      "caption": "Timelapse, kept honest",
+      "expectedScreen": "title card reading \"Timelapse, kept honest\"",
+      "expectFailure": false,
+      "tStart": 14.233,
+      "tMid": 15.433,
+      "tEnd": 16.633
+    }
+  ]
+}
