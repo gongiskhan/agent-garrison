@@ -337,15 +337,17 @@ export function routeStamp(route, phase = null) {
   const provider = route.provider ?? null;
   const model = route.model ?? null;
   const tier = route.tier ?? null;
-  if (targetId == null && runtime == null && provider == null && model == null && tier == null) {
+  const effort = route.effort ?? null;
+  if (targetId == null && runtime == null && provider == null && model == null && tier == null && effort == null) {
     return { route: null, suffix: "" };
   }
-  const stamp = { targetId, runtime, provider, model, tier, phase: phase ?? null };
-  // "runtime/model" (runtime preferred, provider as fallback), then "(tier)".
+  const stamp = { targetId, runtime, provider, model, tier, effort, phase: phase ?? null };
+  // "runtime/model" (runtime preferred, provider as fallback), then "(tier · effort)".
   const idPart = [runtime || provider, model].filter(Boolean).join("/");
   let suffix = "";
   if (idPart) suffix = ` · ${idPart}`;
-  if (tier) suffix += suffix ? ` (${tier})` : ` · (${tier})`;
+  const paren = [tier, effort].filter(Boolean).join(" · ");
+  if (paren) suffix += suffix ? ` (${paren})` : ` · (${paren})`;
   return { route: stamp, suffix };
 }
 

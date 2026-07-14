@@ -29,11 +29,14 @@ import type { CompositionTarget } from "./compositions";
 //
 // Back up routing.json beside itself (routing.json.v3.bak), print a unified
 // diff of apm.yml, and refuse to run twice (the .v3.bak marker). The routing
-// core (routing-core.mjs / policy-core.mjs) is only READ, never modified - the
-// live runtime keeps consuming routing.json until the Dispatcher slice repoints
-// it. NO behavior change: effort is read from the target's authoritative
-// `.effort` field (what compilePolicy uses today), not from the id suffix or
-// the `_effortWas` breadcrumb.
+// core (routing-core.mjs / policy-core.mjs) is only READ, never modified.
+// The repoint has since LANDED: at up() the runner projects the duty cells
+// into ~/.garrison/kanban-loop/model.json (kanban-model.ts) and both policy
+// compilation (resolveRoutingSection) and the gateway's spawn-time config
+// (createRoutedGateway) merge them over the matrix rows via applyDutyCells —
+// so the composition's duty ladders, not routing.json's rows, are what routes.
+// Effort is read from the target's authoritative `.effort` field, not from the
+// id suffix or the `_effortWas` breadcrumb.
 
 // ── Loose input shapes (routing.json is JSON, not a typed contract here) ──────
 

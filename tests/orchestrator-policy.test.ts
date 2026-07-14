@@ -243,12 +243,120 @@ describe("orchestrator policy core (S1)", () => {
     const cfg = seedConfig();
     const t2 = mod.inferPhasePlan(cfg, "balanced", "T2-deep");
     expect(t2.inferred).toBe(true);
-    expect(t2.phases.map((p: { id: string }) => p.id)).toContain("implement");
-    expect(t2.phases.map((p: { id: string }) => p.id)).toContain("test");
+    const t2ids = t2.phases.map((p: { id: string }) => p.id);
+    expect(t2ids).toContain("implement");
+    expect(t2ids).toContain("test");
+    // full-gates testing pulls in the deep gates; video evidence pulls walkthrough.
+    expect(t2ids).toContain("adversarial-test");
+    expect(t2ids).toContain("walkthrough");
     expect(t2.evidence).toBe("video");
+    // plan is ALWAYS on — a goal card enters through the Plan list; a rail
+    // without it would fast-forward past the phase the run starts in.
+    expect(t2ids[0]).toBe("plan");
+    // order is pipeline order (PHASES), never insertion order.
+    expect(t2ids).toEqual(mod.PHASES.filter((id: string) => t2ids.includes(id)));
     const t0 = mod.inferPhasePlan(cfg, "balanced", "T0-trivial");
-    expect(t0.phases.map((p: { id: string }) => p.id)).toEqual(["implement"]);
+    expect(t0.phases.map((p: { id: string }) => p.id)).toEqual(["plan", "implement"]);
     expect(t0.evidence).toBe("none");
+    // T1-standard: plan/implement/review/test — the discipline table's own
+    // promise (self-review + tests, no adversarial gates, no video).
+    const t1 = mod.inferPhasePlan(cfg, "balanced", "T1-standard");
+    expect(t1.phases.map((p: { id: string }) => p.id)).toEqual(["plan", "implement", "review", "test"]);
+  });
+
+  it("phaseTogglesFor turns an inferred plan into the card phases-toggle map", async () => {
+    const mod = await core();
+    const cfg = seedConfig();
+    const t1 = mod.inferPhasePlan(cfg, "balanced", "T1-standard");
+    const toggles = mod.phaseTogglesFor(t1);
+    // Every pipeline phase the plan leaves off is explicitly false…
+    expect(toggles["adversarial-review"]).toBe(false);
+    expect(toggles["walkthrough"]).toBe(false);
+    expect(toggles["codex-checkpoint"]).toBe(false);
+    // …and phases IN the plan are absent (on by default in the rail merge).
+    expect(toggles).not.toHaveProperty("plan");
+    expect(toggles).not.toHaveProperty("implement");
+    expect(toggles).not.toHaveProperty("review");
+    expect(toggles).not.toHaveProperty("test");
+    // An all-on plan needs no toggles at all.
+    expect(mod.phaseTogglesFor({ phases: mod.PHASES.map((id: string) => ({ id, on: true })) })).toBeNull();
+  });
+});
+
+// The duties repoint: composition duty ladders drive the matrix rows.
+describe("applyDutyCells (duties drive the routed matrix)", () => {
+  const dutyModel = {
+    version: 2,
+    compositionId: "default",
+    kanbanLists: ["code", "plan"],
+    sequences: {},
+    cells: {
+      code: {
+        "1": { target: "sdk-haiku", effort: "low", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", type: "runtime-target" },
+        "2": { target: "cc-sonnet", effort: "medium", runtime: "claude-code", model: "sonnet", provider: "anthropic-plan", type: "runtime-target" },
+        "3": { target: "cc-opus", effort: "high", runtime: "claude-code", model: "opus", provider: "anthropic-plan", type: "runtime-target" }
+      },
+      plan: {
+        "1": { target: "fable", effort: "high", runtime: "claude-code", model: "claude-fable-5", provider: "anthropic-plan", type: "runtime-target" }
+      },
+      "not-a-task-type": {
+        "1": { target: "cc-sonnet", effort: "low", runtime: "claude-code", model: "sonnet", provider: "anthropic-plan", type: "runtime-target" }
+      }
+    }
+  };
+
+  it("derives per-tier cells from the ladder (tier k -> rung min(k+1, n)) with cell-level effort", async () => {
+    const mod = await core();
+    const merged = mod.applyDutyCells(seedConfig(), dutyModel);
+    expect(mod.validatePolicyConfig(merged)).toEqual([]);
+    const t0 = mod.resolveRouteV2(merged, "balanced", { taskType: "code", tier: "T0-trivial" });
+    const t1 = mod.resolveRouteV2(merged, "balanced", { taskType: "code", tier: "T1-standard" });
+    const t2 = mod.resolveRouteV2(merged, "balanced", { taskType: "code", tier: "T2-deep" });
+    expect([t0.targetId, t1.targetId, t2.targetId]).toEqual(["sdk-haiku", "cc-sonnet", "cc-opus"]);
+    // The duty cell's effort OVERLAYS the target spec — the resolved target IS
+    // the effective spec the switch planner and the decision log see.
+    expect(t1.target?.effort).toBe("medium");
+    expect(t1.effort).toBe("medium");
+    expect(t1.ruleId).toBe("duty:code/L2");
+    // A 1-rung ladder clamps every tier onto its only cell.
+    const planT2 = mod.resolveRouteV2(merged, "balanced", { taskType: "plan", tier: "T2-deep" });
+    expect(planT2.targetId).toBe("fable");
+    expect(planT2.ruleId).toBe("duty:plan/L1");
+  });
+
+  it("compiles the duty-derived cells into policy.json's matrix", async () => {
+    const mod = await core();
+    const merged = mod.applyDutyCells(seedConfig(), dutyModel);
+    const policy = mod.compilePolicy(merged);
+    expect(policy.matrix.code["T1-standard"].targetId).toBe("cc-sonnet");
+    expect(policy.matrix.code["T1-standard"].effort).toBe("medium");
+    expect(policy.matrix.code["T1-standard"].model).toBe("sonnet");
+    expect(policy.matrix.code["T1-standard"].rule).toBe("duty:code/L2");
+  });
+
+  it("ignores duties outside the task-type vocabulary and appends unknown targets", async () => {
+    const mod = await core();
+    const cfg = seedConfig();
+    const merged = mod.applyDutyCells(cfg, dutyModel);
+    for (const p of Object.values(merged.profiles) as Array<{ matrix: { rows: Record<string, unknown> } }>) {
+      expect(p.matrix.rows).not.toHaveProperty("not-a-task-type");
+    }
+    // Targets referenced only by duty cells got appended from the cell spec…
+    const ids = merged.targets.map((t: { id: string }) => t.id);
+    expect(ids).toContain("cc-sonnet");
+    expect(ids).toContain("fable");
+    // …and pre-existing target entries are never overwritten.
+    expect(merged.targets.length).toBeGreaterThanOrEqual(cfg.targets.length);
+  });
+
+  it("is a no-op for an absent/empty cells model and never mutates its input", async () => {
+    const mod = await core();
+    const cfg = seedConfig();
+    const before = JSON.stringify(cfg);
+    expect(mod.applyDutyCells(cfg, null)).toBe(cfg);
+    expect(mod.applyDutyCells(cfg, { cells: {} })).toBe(cfg);
+    mod.applyDutyCells(cfg, dutyModel);
+    expect(JSON.stringify(cfg)).toBe(before);
   });
 });
 

@@ -21,11 +21,26 @@ import { resolveModel, resolveSequence } from "./resolver";
 import type { CompositionV4 } from "./compositions";
 import type { LibraryEntry } from "./types";
 
+// One duty level's resolved execution cell: the muster cell (target id +
+// effort) joined with the target's spec so .mjs consumers (the board, the
+// gateway's applyDutyCells merge) need no second lookup. Leaf levels only —
+// a composite (sequence) level has no cell of its own.
+export interface KanbanDutyCell {
+  target: string;
+  effort: string | null;
+  runtime: string | null;
+  model: string | null;
+  provider: string | null;
+  type: string | null;
+}
+
 export interface KanbanResolvedModel {
-  version: 1;
+  version: 2;
   compositionId: string;
   kanbanLists: string[];
   sequences: Record<string, Record<string, string[]>>;
+  // duty -> level -> resolved cell (the duties->router repoint input).
+  cells: Record<string, Record<string, KanbanDutyCell>>;
 }
 
 // Where the board reads its model from — mirror the board's own convention
@@ -38,7 +53,7 @@ export function kanbanModelPath(): string {
 // Compute the board's resolved model from the composition's duties + the selected
 // fittings' duty provisions. Pure: builds the shape, does not touch disk.
 export function computeKanbanResolvedModel(
-  composition: Pick<CompositionV4, "id" | "duties" | "selectedDuties">,
+  composition: Pick<CompositionV4, "id" | "duties" | "selectedDuties"> & Partial<Pick<CompositionV4, "targets">>,
   entries: Pick<LibraryEntry, "id" | "metadata">[]
 ): KanbanResolvedModel {
   const model = resolveModel({
@@ -68,18 +83,46 @@ export function computeKanbanResolvedModel(
     }
   }
 
+  // Per-duty per-level resolved cells (leaf levels only): the muster cell
+  // joined with its target's spec. This is what repoints the router matrix at
+  // the composition's duty ladders (applyDutyCells) — without it a muster duty
+  // edit would be dead weight on the live routing path.
+  const targetsById = new Map((composition.targets ?? []).map((t) => [t.id, t]));
+  const cells: Record<string, Record<string, KanbanDutyCell>> = {};
+  if (model.errors.length === 0) {
+    for (const [id, duty] of Object.entries(model.duties)) {
+      const perLevel: Record<string, KanbanDutyCell> = {};
+      duty.levels.forEach((level, index) => {
+        const target = level.cell?.target;
+        if (!target) return;
+        const spec = targetsById.get(target);
+        const params = spec?.params ?? {};
+        perLevel[String(index + 1)] = {
+          target,
+          effort: level.cell?.effort ?? null,
+          runtime: spec?.runtime ?? null,
+          model: spec?.model ?? null,
+          provider: spec?.provider ?? null,
+          type: typeof params.type === "string" ? params.type : null
+        };
+      });
+      if (Object.keys(perLevel).length) cells[id] = perLevel;
+    }
+  }
+
   return {
-    version: 1,
+    version: 2,
     compositionId: composition.id,
     kanbanLists: model.errors.length === 0 ? model.kanbanLists : [],
-    sequences
+    sequences,
+    cells
   };
 }
 
 // Compute + write the board's resolved model. Returns the written model. The
 // caller wraps this best-effort so a projection failure never aborts up().
 export async function writeKanbanResolvedModel(
-  composition: Pick<CompositionV4, "id" | "duties" | "selectedDuties">,
+  composition: Pick<CompositionV4, "id" | "duties" | "selectedDuties"> & Partial<Pick<CompositionV4, "targets">>,
   entries: Pick<LibraryEntry, "id" | "metadata">[]
 ): Promise<KanbanResolvedModel> {
   const model = computeKanbanResolvedModel(composition, entries);

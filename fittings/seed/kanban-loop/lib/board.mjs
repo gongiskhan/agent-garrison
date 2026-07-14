@@ -8,6 +8,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
+import { notifyOriginTransition } from "./notify-origin.mjs";
 
 export function kanbanRoot() {
   return process.env.GARRISON_KANBAN_DIR || path.join(os.homedir(), ".garrison", "kanban-loop");
@@ -67,7 +68,7 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, outpost = null, duty = null, level = null, sequence = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, at = new Date().toISOString() }) {
   const id = ulid();
   const card = {
     id,
@@ -90,6 +91,13 @@ export async function createCard(root, { title, description = "", project = null
     phases: phases && typeof phases === "object" ? phases : null,
     tier: typeof tier === "string" && tier ? tier : null,
     origin: typeof origin === "string" && origin ? origin : null,
+    // The originating channel thread ({channel, threadId}) — where the engine
+    // posts this card's outcome (done / needs-attention) back to. Absent for
+    // board-created cards.
+    originChannel:
+      originChannel && typeof originChannel === "object" && typeof originChannel.channel === "string" && typeof originChannel.threadId === "string"
+        ? { channel: originChannel.channel, threadId: originChannel.threadId }
+        : null,
     // ── resolved-model flow (D15, S4a) ────────────────────────────────────
     // The card's duty + level (its journey through the board): its resolved
     // sequence (resolver.resolveSequence) is the ordered leaf phase lists it
@@ -276,6 +284,11 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     }
     const next = { ...card, rev: expectedRev + 1, updated: at };
     await atomicWriteJSON(cardFile(root, card.id), next);
+    // Feedback to the originating channel on a terminal transition (done /
+    // needs-attention). saveCardCAS is the one write path every mover uses
+    // (engine, server PATCH, batch), so the edge fires exactly once per
+    // outcome. Fire-and-forget — never delays or fails the write.
+    notifyOriginTransition(disk, next);
     return { ok: true, card: next };
   });
 }

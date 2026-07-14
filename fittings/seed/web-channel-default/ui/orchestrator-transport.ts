@@ -92,6 +92,7 @@ export function createOrchestratorTransport(base = "/api", threadId?: string): C
             model: data.model ?? null,
             taskType: data.taskType ?? null,
             tier: data.tier ?? null,
+            effort: data.effort ?? null,
             ruleId: data.ruleId ?? null,
             profile: data.profile ?? null,
             honored: typeof data.honored === "boolean" ? data.honored : null,

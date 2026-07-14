@@ -16,6 +16,10 @@ process.env.MODEL_ROUTER_DECISIONS = DECISIONS;
 process.env.GARRISON_POLICY_PATH = POLICY;
 const GARRISON_HOME = join(dir, "garrison-home");
 process.env.GARRISON_HOME = GARRISON_HOME;
+// The compile merges the runner-projected duty cells (applyDutyCells) when a
+// kanban model.json exists — point it at an empty sandbox so this machine's
+// real ~/.garrison/kanban-loop/model.json never repoints the fixture matrix.
+process.env.GARRISON_KANBAN_DIR = join(dir, "kanban-empty");
 delete process.env.GARRISON_COMPOSITION_DIR;
 const IMPROVER_STATUS = join(GARRISON_HOME, "ui-fittings", "improver.json");
 

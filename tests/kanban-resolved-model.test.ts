@@ -397,10 +397,63 @@ describe("S4a codex finding #4 — the runner does NOT project an empty resolved
   });
 
   it("a non-empty resolved duty model DOES project, logging the real list count", () => {
-    const plan = kanbanProjectionPlan({ version: 1, compositionId: "c", kanbanLists: ["plan", "implement", "review"], sequences: {} });
+    const plan = kanbanProjectionPlan({ version: 2, compositionId: "c", kanbanLists: ["plan", "implement", "review"], sequences: {}, cells: {} });
     expect(plan.write).toBe(true);
     expect(plan.log).toContain("projected 3 phase list(s)");
     expect(plan.log).toContain("plan, implement, review");
+  });
+});
+
+describe("duty cells projection (the duties->router repoint input)", () => {
+  const duties: import("../src/lib/types").DutySpec[] = [
+    {
+      id: "code",
+      title: "Code",
+      description: "write code",
+      levels: [
+        { description: "trivial", cell: { target: "sdk-haiku", effort: "low" } },
+        { description: "standard", cell: { target: "cc-sonnet", effort: "medium" } }
+      ]
+    },
+    {
+      id: "pipeline",
+      title: "Pipeline",
+      description: "composite",
+      levels: [{ description: "seq", sequence: [{ duty: "code", level: 1 }] }]
+    }
+  ];
+  const targets = [
+    { id: "sdk-haiku", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", params: { type: "runtime-target" } },
+    { id: "cc-sonnet", runtime: "claude-code", model: "sonnet", provider: "anthropic-plan", params: { type: "runtime-target" } }
+  ];
+
+  it("joins each leaf level's cell with its target spec; composite levels have no cell", () => {
+    const model = computeKanbanResolvedModel({ id: "c", duties, selectedDuties: ["code", "pipeline"], targets }, []);
+    expect(model.version).toBe(2);
+    expect(model.cells.code["1"]).toEqual({
+      target: "sdk-haiku",
+      effort: "low",
+      runtime: "agent-sdk",
+      model: "claude-haiku-4-5",
+      provider: "anthropic",
+      type: "runtime-target"
+    });
+    expect(model.cells.code["2"].model).toBe("sonnet");
+    expect(model.cells.code["2"].effort).toBe("medium");
+    // The composite duty's only level is a sequence — no cell projected.
+    expect(model.cells).not.toHaveProperty("pipeline");
+  });
+
+  it("a cell whose target is not in the composition still projects (specs null)", () => {
+    const model = computeKanbanResolvedModel({ id: "c", duties: [duties[0]], selectedDuties: ["code"], targets: [] }, []);
+    expect(model.cells.code["1"]).toEqual({
+      target: "sdk-haiku",
+      effort: "low",
+      runtime: null,
+      model: null,
+      provider: null,
+      type: null
+    });
   });
 });
 

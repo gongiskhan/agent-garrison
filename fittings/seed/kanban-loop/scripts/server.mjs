@@ -873,6 +873,16 @@ async function handleCreateCard(req, res, opts) {
     phases: body.phases && typeof body.phases === "object" ? body.phases : null,
     tier: typeof body.tier === "string" ? body.tier : (typeof body.classification?.tier === "string" ? body.classification.tier : null),
     origin: typeof body.origin === "string" ? body.origin : null,
+    // Where the task came from ({channel, threadId}) — createCard validates the
+    // shape; the engine posts the card's outcome back to that thread.
+    originChannel: body.originChannel && typeof body.originChannel === "object" ? body.originChannel : null,
+    // S4b door-1 persistence (D15 acceptance 9): the gateway's resolved
+    // (duty, level, sequence) must survive the server boundary, or a
+    // channel-entered card walks the default pipeline instead of its duty's
+    // resolved sequence. createCard validates each field's shape.
+    duty: typeof body.duty === "string" ? body.duty : null,
+    level: Number.isInteger(body.level) ? body.level : null,
+    sequence: Array.isArray(body.sequence) ? body.sequence : null,
     outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.

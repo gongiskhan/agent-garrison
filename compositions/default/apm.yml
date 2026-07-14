@@ -261,6 +261,10 @@ x-garrison:
         title: Review
         description: Review a change for correctness and quality.
         levels:
+          - description: 'light: sanity-pass a small, low-risk diff'
+            cell:
+              target: cc-sonnet
+              effort: low
           - description: 'standard: review a focused diff for correctness and style'
             cell:
               target: cc-sonnet
@@ -273,6 +277,10 @@ x-garrison:
         title: Test
         description: Exercise a change with tests.
         levels:
+          - description: 'smoke: run the existing suite and confirm it stays green'
+            cell:
+              target: cc-sonnet
+              effort: low
           - description: 'standard: run and extend the tests that cover the change'
             cell:
               target: cc-sonnet

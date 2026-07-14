@@ -206,6 +206,24 @@ export function loadRoutingConfig(compositionDir, modelRouterDir) {
   return JSON.parse(fs.readFileSync(seed, "utf8"));
 }
 
+// The runner-projected resolved duty model (~/.garrison/kanban-loop/model.json,
+// written at up() by src/lib/kanban-model.ts). Its per-duty per-level cells
+// repoint the router matrix at the composition's duty ladders (applyDutyCells)
+// — the same merge resolveRoutingSection applies before compiling policy.json,
+// so the gateway routes against the identical duty-derived matrix. Absent or
+// unreadable file → null (the config routes un-repointed, as before).
+export function loadKanbanDutyModel() {
+  try {
+    const dir = process.env.GARRISON_KANBAN_DIR?.trim() || path.join(os.homedir(), ".garrison", "kanban-loop");
+    const file = path.join(dir, "model.json");
+    if (!fs.existsSync(file)) return null;
+    const model = JSON.parse(fs.readFileSync(file, "utf8"));
+    return model && typeof model === "object" && model.cells && typeof model.cells === "object" ? model : null;
+  } catch {
+    return null;
+  }
+}
+
 // The annotation the operative reads to honor the gateway's resolved route. The
 // compiled routing.md instructs it to END its reply with the matching token.
 export function routeAnnotation(route) {
@@ -720,6 +738,10 @@ export class RoutedGateway {
     decision.runtime = route.target?.runtime ?? null;
     decision.provider = route.target?.provider ?? null;
     decision.model = route.target?.model ?? null;
+    // Effort is part of the resolved route (duty cells overlay it onto the
+    // target) — persist it so "which effort served this turn" is provable
+    // from the decision log alone.
+    decision.effort = route.target?.effort ?? route.effort ?? null;
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
       kind: "route-resolved",
@@ -1171,7 +1193,15 @@ export function resolveClassifierAdapter(ctx) {
 export async function createRoutedGateway(opts = {}) {
   const compositionDir = opts.compositionDir;
   const core = opts.core ?? (await loadRoutingCore(compositionDir));
-  const config = opts.config ?? loadRoutingConfig(compositionDir, core.dir);
+  let config = opts.config ?? loadRoutingConfig(compositionDir, core.dir);
+  // Duties repoint: merge the composition's duty-ladder cells over the matrix
+  // rows so a Muster duty edit (target/effort/level) is what actually routes.
+  // Skipped when the caller injected a config (tests own their fixture) or no
+  // projected model exists.
+  if (!opts.config && typeof core.applyDutyCells === "function") {
+    const dutyModel = opts.dutyModel ?? loadKanbanDutyModel();
+    if (dutyModel) config = core.applyDutyCells(config, dutyModel);
+  }
   const spawnFn = opts.spawnFn ?? null;
 
   const operativeSpawnConfig = opts.operativeSpawnConfig ?? {

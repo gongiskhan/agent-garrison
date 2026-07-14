@@ -393,13 +393,40 @@ async function runRoutedTurn(message, onChunk, hints) {
         // undefined and the payload builder keeps the pre-S4b card shape, so a
         // web-channel card FLOWS through the resolved sequence exactly when the
         // Dispatcher is active (divergence-zero at runtime, gated on the opt-in).
+        // Tier discipline decides the card's phase plan when the caller sent
+        // none (D2: inferPhasePlan, "recorded by the caller on the card") — a
+        // T1-standard card runs plan/implement/review/test; only T2-deep walks
+        // the adversarial/walkthrough/validate gates. Stamped TWICE, from the
+        // same inference: as the phases-toggle map (the rail's honest off-chips)
+        // AND as the card's ordered `sequence` (what it actually walks). Without
+        // the sequence, a duty-less goal card follows the board's list-union
+        // order — duty declaration order, not a pipeline — and marches from its
+        // last phase into whatever list is declared next (seen live: Test → Image).
+        let inferredPhases = hints?.phases ?? null;
+        let pipelineSequence = null;
+        if (!inferredPhases && !hints?.workKind && cls.tier && router.core?.inferPhasePlan && router.core?.phaseTogglesFor) {
+          try {
+            const inferredPlan = router.core.inferPhasePlan(router.config, router.config.activeProfile, cls.tier);
+            inferredPhases = router.core.phaseTogglesFor(inferredPlan);
+            pipelineSequence = (inferredPlan.phases || [])
+              .filter((ph) => (typeof ph === "string" ? true : ph.on !== false))
+              .map((ph) => (typeof ph === "string" ? ph : ph.id));
+            if (!pipelineSequence.length) pipelineSequence = null;
+          } catch {
+            inferredPhases = null;
+            pipelineSequence = null;
+          }
+        }
         const cardOpts = {
           workKind: hints?.workKind ?? null,
-          phases: hints?.phases ?? null,
+          phases: inferredPhases,
           project: hints?.project ?? null,
           duty: pre?.duty ?? pre?.route?.duty,
           level: pre?.level ?? pre?.route?.level,
-          sequence: pre?.sequence ?? pre?.route?.sequence
+          sequence: pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence,
+          // Where the task came from, so the run engine can post the outcome
+          // back to the originating channel thread when the card completes.
+          originChannel: origin && sessionKey ? { channel: origin, threadId: sessionKey } : null
         };
         const naturalSignificant =
           typeof router.core?.isSignificantAutonomous === "function" && router.core.isSignificantAutonomous(cls);
@@ -516,6 +543,7 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       tier: pre.decision?.tier ?? null,
       ruleId: pre.decision?.ruleId ?? null,
       profile: pre.decision?.profile ?? null,
+      effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
     };
   }
   // Secondary runtime (gpt/codex or gemini): the orchestrator delegates this step
@@ -553,6 +581,7 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       tier: pre.decision?.tier ?? null,
       ruleId: pre.decision?.ruleId ?? null,
       profile: pre.decision?.profile ?? null,
+      effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
     };
   }
   session = router.getOperativeSession();
@@ -614,6 +643,7 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     tier: pre.decision?.tier ?? null,
     ruleId: pre.decision?.ruleId ?? null,
     profile: pre.decision?.profile ?? null,
+    effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
   };
 }
 

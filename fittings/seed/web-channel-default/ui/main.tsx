@@ -404,9 +404,39 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // thread when the upstream `done` event arrives (the transport sends the thread
   // id on every POST /api/chat), so a mid-turn navigation or tab close never loses
   // it. On turn completion the client only refreshes the session list metadata.
+  // Server-side appends land in the thread file without a client turn — the run
+  // engine posts a card's outcome back to its originating thread (kanban
+  // notify-origin). Poll the open thread while idle and, when its message count
+  // GREW server-side, bump historyRev so ClaudeChat re-mounts with the fresh
+  // transcript. Suppressed mid-turn (a re-mount would orphan the streaming
+  // reply), with a 20-minute expiry so a lost turn can't mute feedback forever.
+  const busyRef = useRef(false);
+  const busySinceRef = useRef(0);
+  const [historyRev, setHistoryRev] = useState(0);
+
   const onTurnSettled = useCallback(async () => {
+    busyRef.current = false;
     await refreshList();
   }, [refreshList]);
+  useEffect(() => {
+    if (!activeId) return;
+    const tick = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (busyRef.current && Date.now() - busySinceRef.current < 20 * 60_000) return;
+      const fresh = await apiGetThread(activeId);
+      if (!fresh) return;
+      setActiveThread((current) => {
+        if (!current || fresh.id !== current.id) return current;
+        if ((fresh.messages?.length ?? 0) > (current.messages?.length ?? 0)) {
+          setHistoryRev((r) => r + 1);
+          return fresh;
+        }
+        return current;
+      });
+    };
+    const timer = window.setInterval(() => { void tick(); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [activeId]);
 
   const history = useMemo(() => {
     if (!activeThread) return [] as { user: string; assistant: string; hideUser?: boolean }[];
@@ -461,8 +491,20 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const mode = activeThread?.mode ?? url.mode;
   const kickoff = activeId && kickoffFor === activeId ? url.kickoff : undefined;
   // One transport per open thread (ClaudeChat re-mounts on activeId anyway), so
-  // every send carries the thread id the server persists under.
-  const transport = useMemo(() => createOrchestratorTransport("/api", activeId ?? undefined), [activeId]);
+  // every send carries the thread id the server persists under. sendMessage is
+  // wrapped to mark the turn busy — the idle poll must never re-mount the chat
+  // while a reply is streaming.
+  const transport = useMemo(() => {
+    const t = createOrchestratorTransport("/api", activeId ?? undefined);
+    return {
+      ...t,
+      sendMessage: ((...args: Parameters<typeof t.sendMessage>) => {
+        busyRef.current = true;
+        busySinceRef.current = Date.now();
+        return t.sendMessage(...args);
+      }) as typeof t.sendMessage
+    };
+  }, [activeId]);
 
   return (
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}`}>
@@ -549,7 +591,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
           <div className="wc-loading">Loading…</div>
         ) : (
           <ClaudeChat
-            key={activeId}
+            key={`${activeId}:${historyRev}`}
             transport={transport}
             title="Operative"
             composerAdornment={voiceAdornment}

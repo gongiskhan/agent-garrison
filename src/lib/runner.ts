@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
-import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries } from "./compositions";
+import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries, type CompositionV4 } from "./compositions";
 import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
 import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import {
@@ -262,7 +262,8 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
           routingSection: await resolveRoutingSection(
             composition.directory,
             buildRuntimeEntries(soulEntries, composition.selections),
-            (message) => appendLog(compositionId, "stderr", `routing: ${message}`)
+            (message) => appendLog(compositionId, "stderr", `routing: ${message}`),
+            safeKanbanModel(composition, soulEntries)
           ),
           routingCorePath: ROUTING_CORE_PATH
         });
@@ -1018,7 +1019,8 @@ async function assembleSystemPrompt(compositionId: string): Promise<string> {
   const routingSection = await resolveRoutingSection(
     composition.directory,
     buildRuntimeEntries(entries, composition.selections),
-    (message) => routingDiagnostics.push(message)
+    (message) => routingDiagnostics.push(message),
+    safeKanbanModel(composition, entries)
   );
   if (orchestrator.includes("{{routing}}") && routingSection == null) {
     for (const message of routingDiagnostics) {
@@ -1115,6 +1117,20 @@ export async function resolveProvidersList(
   return mod.ensureProviders(config ?? {}).providers as Awaited<ReturnType<typeof resolveProvidersList>>;
 }
 
+// The duty model for the routing compile, best-effort: a malformed duty graph
+// must degrade to the un-repointed routing.json (a diagnostic-worthy but
+// launchable state), never abort prompt assembly.
+function safeKanbanModel(
+  composition: Pick<CompositionV4, "id" | "duties" | "selectedDuties"> & Partial<Pick<CompositionV4, "targets">>,
+  entries: Pick<LibraryEntry, "id" | "metadata">[]
+): KanbanResolvedModel | null {
+  try {
+    return computeKanbanResolvedModel(composition, entries);
+  } catch {
+    return null;
+  }
+}
+
 // Pure: replace {{routing}} with the compiled section (or strip it cleanly when
 // unavailable, so the placeholder never leaks into the assembled prompt).
 export function substituteRoutingPlaceholder(prompt: string, section: string | null): string {
@@ -1133,7 +1149,13 @@ export function substituteRoutingPlaceholder(prompt: string, section: string | n
 export async function resolveRoutingSection(
   compositionDir: string,
   runtimeEntries: RuntimeEntry[] = [],
-  onDiagnostic?: (message: string) => void
+  onDiagnostic?: (message: string) => void,
+  // The composition's resolved duty model (computeKanbanResolvedModel). When
+  // present, its per-duty per-level cells REPOINT the router matrix rows at
+  // the duty ladders (applyDutyCells) before validation/compile — so the
+  // Muster page's duties are the routing truth for both the compiled
+  // policy.json and the {{routing}} prompt section.
+  dutyModel?: KanbanResolvedModel | null
 ): Promise<string | null> {
   const scoped = path.join(compositionDir, ".garrison", "routing.json");
   let raw: string | null = null;
@@ -1178,7 +1200,13 @@ export async function resolveRoutingSection(
       validateRoutingConfig: (c: unknown) => string[];
       compilePolicy: (c: unknown, p?: string | null) => unknown;
       stableStringify: (v: unknown) => string;
+      applyDutyCells: (c: unknown, m: unknown) => unknown;
     };
+    // Duties repoint (before validation, so a bad merge fails loudly here and
+    // never ships a policy that contradicts the composition).
+    if (dutyModel && typeof mod.applyDutyCells === "function") {
+      config = mod.applyDutyCells(config, dutyModel);
+    }
     const errors = mod.validateRoutingConfig(config);
     if (errors.length) {
       onDiagnostic?.(

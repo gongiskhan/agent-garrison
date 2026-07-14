@@ -129,16 +129,17 @@ function routeTitle(r: RouteStamp): string {
     r.provider ? `provider: ${r.provider}` : null,
     r.model ? `model: ${r.model}` : null,
     r.tier ? `tier: ${r.tier}` : null,
+    r.effort ? `effort: ${r.effort}` : null,
     r.targetId ? `route: ${r.targetId}` : null
   ].filter(Boolean);
   return parts.length ? `routed to ${parts.join(", ")}` : "routed";
 }
 
 // A compact one-liner for a routed event in the Activity timeline:
-// "claude-code/opus · T2-deep". "" when no attribution fields are present.
+// "claude-code/opus · T2-deep · high". "" when no attribution fields are present.
 function routeLine(r: RouteStamp): string {
   const idPart = [r.runtime || r.provider, r.model].filter(Boolean).join("/");
-  return [idPart, r.tier].filter(Boolean).join(" · ");
+  return [idPart, r.tier, r.effort].filter(Boolean).join(" · ");
 }
 
 // A short, legible label for the card a wait is blocked on: its title plus the

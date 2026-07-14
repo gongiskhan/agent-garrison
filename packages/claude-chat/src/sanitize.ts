@@ -128,10 +128,10 @@ export function routeChipLabel(meta: AssistantRouteMeta): string | null {
  * emitting the "[route: …]" text badge. Returns null when there is nothing worth
  * showing, so the caller can fall back to the text-badge-derived meta chip.
  *
- * Label: "<runtime>/<model> · <tier>", dropping any missing part —
- *   "agent-sdk/claude-haiku-4-5 · T0-trivial", "claude-code/opus" (no tier), or
- *   the friendly model-family label (routeChipLabel) when neither runtime nor
- *   model is known but a target id is.
+ * Label: "<runtime>/<model> · <tier> · <effort>", dropping any missing part —
+ *   "agent-sdk/claude-haiku-4-5 · T0-trivial · low", "claude-code/opus" (no
+ *   tier/effort), or the friendly model-family label (routeChipLabel) when
+ *   neither runtime nor model is known but a target id is.
  * Title: "target <route> · rule <ruleId> · profile <profile>", plus
  *   "honored: yes/no" when the router reported it.
  */
@@ -144,6 +144,8 @@ export function routeChipFromAttribution(
   if (!label) label = routeChipLabel({ route: s(route.route) || undefined }) ?? "";
   const tier = s(route.tier);
   if (label && tier) label = `${label} · ${tier}`;
+  const effort = s(route.effort);
+  if (label && effort) label = `${label} · ${effort}`;
   if (!label) return null;
 
   const titleParts: string[] = [];

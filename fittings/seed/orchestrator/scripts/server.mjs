@@ -33,6 +33,7 @@ import {
   classifyExecution,
   isV2,
   migrateRoutingConfig,
+  applyDutyCells,
   DEFAULT_PRIMARY_RUNTIME_ID
 } from "../lib/routing-core.mjs";
 import jsYaml from "js-yaml";
@@ -129,12 +130,31 @@ function policyPath() {
   return path.join(GARRISON_HOME, "orchestrator", "policy.json");
 }
 
+// The runner-projected resolved duty model (~/.garrison/kanban-loop/model.json).
+// Its per-duty per-level cells REPOINT the matrix rows at the composition's
+// duty ladders (applyDutyCells) — the same merge the runner applies at up() —
+// so this server's recompiles (startup, PUT) never clobber the duties-derived
+// policy with the raw routing.json rows. Absent/unreadable file → null.
+function loadKanbanDutyModel() {
+  try {
+    const dir = process.env.GARRISON_KANBAN_DIR?.trim() || path.join(os.homedir(), ".garrison", "kanban-loop");
+    const file = path.join(dir, "model.json");
+    if (!existsSync(file)) return null;
+    const model = JSON.parse(readFileSync(file, "utf8"));
+    return model && typeof model === "object" && model.cells && typeof model.cells === "object" ? model : null;
+  } catch {
+    return null;
+  }
+}
+
 // Compile the active profile into policy.json — atomic (temp+rename),
 // byte-stable. Called on startup and on every accepted PUT. Failures are
 // reported, never silent (a stale policy.json must not masquerade as fresh).
 async function writeCompiledPolicy(config) {
   const target = policyPath();
-  const bytes = stableStringify(compilePolicy(config));
+  const dutyModel = loadKanbanDutyModel();
+  const merged = dutyModel ? applyDutyCells(config, dutyModel) : config;
+  const bytes = stableStringify(compilePolicy(merged));
   await mkdir(path.dirname(target), { recursive: true });
   const tmp = `${target}.tmp-${process.pid}`;
   await writeFile(tmp, bytes, "utf8");

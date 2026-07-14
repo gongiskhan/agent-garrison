@@ -134,6 +134,13 @@ describe("autonomy axis (D8)", () => {
     expect(partial).not.toHaveProperty("duty");
     expect(partial).not.toHaveProperty("level");
     expect(partial).not.toHaveProperty("sequence");
+    // A goal card with NO dispatcher resolution still carries a bare pipeline
+    // sequence (its rail) - without it the card walks the board's list-union
+    // order instead of a pipeline (seen live: Test -> Image).
+    const goal = mod.buildAutonomousCardPayload({ brief: "w", sequence: ["plan", "implement", "review", "test"] });
+    expect(goal.sequence).toEqual(["plan", "implement", "review", "test"]);
+    expect(goal).not.toHaveProperty("duty");
+    expect(goal).not.toHaveProperty("level");
   });
 });
 

@@ -50,6 +50,7 @@ export interface RouteAttribution {
   model?: string | null;
   taskType?: string | null;
   tier?: string | null;
+  effort?: string | null;
   ruleId?: string | null;
   profile?: string | null;
   honored?: boolean | null;

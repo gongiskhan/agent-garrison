@@ -2,6 +2,14 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// The routed gateway merges the runner-projected duty cells over its config at
+// spawn (applyDutyCells) — sandbox the kanban dir so this machine's real
+// ~/.garrison/kanban-loop/model.json never repoints the fixture matrix.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_KANBAN_DIR = __join(__mkdtemp(__join(__tmpdir(), "gar-gw-kanban-")), "empty");
 // @ts-ignore — pure .mjs routing layer
 import { createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 

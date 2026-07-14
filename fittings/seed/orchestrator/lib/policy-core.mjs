@@ -229,6 +229,20 @@ export function getProfileV2(config, profile) {
 // profile matrix cell > row default > column default > global default → a
 // TARGET id. The `role` in the result is a derived label (ladder position, or
 // the taskType for non-ladder targets) kept for logging/back-compat.
+
+// A matrix cell/default is either a bare target-id string (historical) or an
+// object ref {target, effort?} — the duty-derived form (GARRISON duties
+// repoint), where the EFFORT lives on the cell because one target (e.g.
+// cc-sonnet) serves different duties at different efforts. Normalizes to
+// {target, effort} or null.
+export function cellRef(value) {
+  if (typeof value === "string" && value.length) return { target: value, effort: null };
+  if (value && typeof value === "object" && typeof value.target === "string" && value.target.length) {
+    return { target: value.target, effort: typeof value.effort === "string" && value.effort.length ? value.effort : null };
+  }
+  return null;
+}
+
 export function resolveTargetId(config, profileName, classification) {
   const { profile: p } = getProfileV2(config, profileName);
   const { taskType, tier, matchedException } = classification || {};
@@ -236,21 +250,23 @@ export function resolveTargetId(config, profileName, classification) {
     const ex = (config.exceptions || []).find((e) => e.id === matchedException);
     if (ex) {
       const overridden = (p.exceptionOverrides || {})[ex.id];
-      return { targetId: overridden || ex.target, ruleId: `exception:${ex.id}`, via: "exception" };
+      return { targetId: overridden || ex.target, ruleId: `exception:${ex.id}`, via: "exception", effort: null };
     }
   }
   const matrix = p.matrix || {};
   const row = (matrix.rows || {})[taskType];
   if (row && row.cells && Object.prototype.hasOwnProperty.call(row.cells, tier)) {
-    return { targetId: row.cells[tier], ruleId: `cell:${taskType}/${tier}`, via: "cell" };
+    const ref = cellRef(row.cells[tier]);
+    if (ref) return { targetId: ref.target, ruleId: row.cells[tier]?.rule ?? `cell:${taskType}/${tier}`, via: "cell", effort: ref.effort };
   }
   if (row && row.default) {
-    return { targetId: row.default, ruleId: `row:${taskType}`, via: "row-default" };
+    const ref = cellRef(row.default);
+    if (ref) return { targetId: ref.target, ruleId: `row:${taskType}`, via: "row-default", effort: ref.effort };
   }
-  const col = (matrix.columns || {})[tier];
-  if (col) return { targetId: col, ruleId: `col:${tier}`, via: "column-default" };
-  const def = (matrix.defaults || {}).target;
-  return { targetId: def || null, ruleId: "default", via: "global-default" };
+  const col = cellRef((matrix.columns || {})[tier]);
+  if (col) return { targetId: col.target, ruleId: `col:${tier}`, via: "column-default", effort: col.effort };
+  const def = cellRef((matrix.defaults || {}).target);
+  return { targetId: def?.target || null, ruleId: "default", via: "global-default", effort: def?.effort ?? null };
 }
 
 export function ladderLabelFor(config, profileName, targetId) {
@@ -261,10 +277,15 @@ export function ladderLabelFor(config, profileName, targetId) {
 
 export function resolveRouteV2(config, profile, classification) {
   const { name } = getProfileV2(config, profile);
-  const { targetId, ruleId, via } = resolveTargetId(config, name, classification);
-  const target = (config.targets || []).find((t) => t.id === targetId) || null;
+  const { targetId, ruleId, via, effort: cellEffort } = resolveTargetId(config, name, classification);
+  const base = (config.targets || []).find((t) => t.id === targetId) || null;
+  // A cell-level effort OVERLAYS the target's own: the returned target IS the
+  // effective spec, so the switch planner (/effort inject), the decision log,
+  // and the done-event attribution all see the duty cell's effort with no
+  // extra plumbing. The config's target entry itself is never mutated.
+  const target = base && cellEffort ? { ...base, effort: cellEffort } : base;
   const role = ladderLabelFor(config, name, targetId) || (classification || {}).taskType || null;
-  return { profile: name, role, ruleId, via, targetId: targetId || null, target };
+  return { profile: name, role, ruleId, via, targetId: targetId || null, target, effort: target?.effort ?? cellEffort ?? null };
 }
 
 // ── Mode bias on the ladder (behavior-preserving v1 biasRole port) ──────────
@@ -339,17 +360,40 @@ export function railFor(config, workKindName, cardToggles) {
 }
 
 // Infer a phase plan from the discipline defaults of a tier (D2: work matching
-// no named kind). Pure + recorded by the caller on the card.
+// no named kind). Pure + recorded by the caller on the card. `plan` is always
+// on: a goal card enters the pipeline through the Plan list, so a rail that
+// omitted it would fast-forward straight past the phase the run starts in.
+// Order comes from PHASES (pipeline order), never from insertion order.
 export function inferPhasePlan(config, profileName, tier) {
   const d = resolveDisciplineV2(config, profileName, tier);
-  const phases = ["implement"];
-  if (d.testing !== "none") phases.push("test");
-  if (d.review === "self-review") phases.splice(1, 0, "review");
-  if (String(d.review).startsWith("review-by")) phases.splice(1, 0, "review", "adversarial-review");
-  if (d.evidence === "video") phases.push("walkthrough");
-  if (d.distribution !== "none") phases.push("validate", "report");
+  const on = new Set(["plan", "implement"]);
+  if (d.testing !== "none") on.add("test");
+  if (d.testing === "full-gates") {
+    on.add("adversarial-test");
+    on.add("ux-qa");
+    on.add("validate");
+    on.add("codex-checkpoint");
+  }
+  if (d.review !== "none") on.add("review");
+  if (String(d.review).startsWith("review-by")) on.add("adversarial-review");
+  if (d.evidence === "video") on.add("walkthrough");
+  if (d.distribution !== "none") {
+    on.add("validate");
+    on.add("report");
+  }
   const evidence = d.evidence === "video" ? "video" : d.evidence === "none" ? "none" : d.evidence === "text" ? "text" : "logs";
-  return { inferred: true, tier, evidence, phases: phases.map((id) => ({ id, on: true })) };
+  return { inferred: true, tier, evidence, phases: PHASES.filter((id) => on.has(id)).map((id) => ({ id, on: true })) };
+}
+
+// The card-toggle map for an inferred plan: every pipeline phase the plan
+// leaves OFF becomes {phase: false} — the shape buildAutonomousCardPayload's
+// `phases` field and the engine's rail merge already speak (D17). Returns null
+// when nothing is off (an all-on plan needs no toggles on the card).
+export function phaseTogglesFor(inferredPlan) {
+  const onIds = new Set((inferredPlan?.phases || []).map((p) => (typeof p === "string" ? p : p.id)));
+  const toggles = {};
+  for (const id of PHASES) if (!onIds.has(id)) toggles[id] = false;
+  return Object.keys(toggles).length ? toggles : null;
 }
 
 // ── Validation ───────────────────────────────────────────────────────────────
@@ -389,8 +433,20 @@ export function validatePolicyConfig(config) {
   }
   for (const [pname, p] of Object.entries(config.profiles || {})) {
     const m = p.matrix || {};
-    const check = (tid, where) => {
-      if (tid && !targetIds.has(tid)) errors.push(`profile ${pname}: ${where} -> unknown target ${tid}`);
+    // A cell value is a target-id string or an object ref {target, effort?}
+    // (duty-derived cells). Both resolve through cellRef; anything else, or a
+    // ref naming an unknown target, is a config bug.
+    const check = (value, where) => {
+      if (value === undefined || value === null) return;
+      const ref = cellRef(value);
+      if (!ref) {
+        errors.push(`profile ${pname}: ${where} -> invalid cell ${JSON.stringify(value)} (expected a target id or {target, effort})`);
+        return;
+      }
+      if (!targetIds.has(ref.target)) errors.push(`profile ${pname}: ${where} -> unknown target ${ref.target}`);
+      if (value && typeof value === "object" && value.effort !== undefined && value.effort !== null && typeof value.effort !== "string") {
+        errors.push(`profile ${pname}: ${where} -> effort must be a string when present`);
+      }
     };
     check((m.defaults || {}).target, "matrix default");
     for (const [tier, tid] of Object.entries(m.columns || {})) {
@@ -505,7 +561,7 @@ export function compilePolicy(config, profile) {
   for (const tt of taskTypes) {
     matrix[tt] = {};
     for (const tier of tiers) {
-      const { targetId, ruleId } = resolveTargetId(cfg, name, { taskType: tt, tier });
+      const { targetId, ruleId, effort: cellEffort } = resolveTargetId(cfg, name, { taskType: tt, tier });
       const t = targetsById[targetId] || null;
       matrix[tt][tier] = {
         targetId: targetId || null,
@@ -514,7 +570,9 @@ export function compilePolicy(config, profile) {
         runtime: t?.runtime ?? null,
         provider: t?.provider ?? null,
         model: t?.model ?? null,
-        effort: t?.effort ?? null
+        // Cell-level effort (duty-derived cells) wins over the target's own —
+        // the same overlay resolveRouteV2 applies at turn time.
+        effort: cellEffort ?? t?.effort ?? null
       };
     }
   }
@@ -561,6 +619,92 @@ export function compilePolicy(config, profile) {
     // serializeWhenUnavailable; fences + leaseTtlMinutes pass through verbatim.
     ...(cfg.coordination && typeof cfg.coordination === "object" ? { coordination: cfg.coordination } : {})
   };
+}
+
+// ── Duties drive the matrix (the "repoint" slice) ────────────────────────────
+// The composition's duty ladders (Muster page, apm.yml x-garrison.composition)
+// are the user-facing routing truth; the router matrix rows must derive from
+// them or the Muster page lies. `dutyModel` is the runner-projected resolved
+// model (~/.garrison/kanban-loop/model.json, kanban-model.ts) extended with
+// per-duty per-level CELLS:
+//   { cells: { <dutyId>: { "<level>": {target, effort, runtime, model, provider, type?} } } }
+//
+// Tier -> level rule: tier index k (in config.tiers order) uses ladder rung
+// min(k+1, ladder length) — T0-trivial -> L1, T1-standard -> L2, T2-deep -> L3,
+// clamped to the duty's real ladder. This matches the Dispatcher's standard
+// slot (defaultLevelFor = min(2, n)) for T1. A rung without a leaf cell (a
+// composite level) falls DOWN to the nearest lower rung that has one.
+//
+// The derived row replaces the row in EVERY profile: duty ladders are
+// composition-level truth, not a per-profile preference (profiles keep their
+// other knobs — preRoute, ladder, exceptions, discipline overrides). Targets
+// referenced by duty cells that the config does not know are appended from the
+// cell's own spec (provider dropped when unknown, mirroring migration). Pure —
+// returns a new config, never mutates.
+export function applyDutyCells(config, dutyModel) {
+  const cells = dutyModel && typeof dutyModel === "object" ? dutyModel.cells : null;
+  if (!cells || typeof cells !== "object" || !Object.keys(cells).length) return config;
+  const cfg = ensureProviders(isV2(config) ? config : migrateRoutingConfig(config));
+  const taskTypes = new Set(cfg.taskTypes || TASK_TYPES_V2);
+  const tiers = cfg.tiers || TIERS;
+  const knownProviders = new Set((cfg.providers || []).map((p) => p && p.id));
+  const targets = (cfg.targets || []).slice();
+  const targetIds = new Set(targets.map((t) => t && t.id));
+
+  const rows = {};
+  for (const [duty, perLevel] of Object.entries(cells)) {
+    if (!taskTypes.has(duty) || !perLevel || typeof perLevel !== "object") continue;
+    const rungs = Object.keys(perLevel)
+      .map((k) => Number(k))
+      .filter((n) => Number.isInteger(n) && n >= 1)
+      .sort((a, b) => a - b);
+    if (!rungs.length) continue;
+    const maxRung = rungs[rungs.length - 1];
+    const cellAt = (rung) => {
+      // Walk down from the mapped rung to the nearest one with a leaf cell.
+      for (let r = rung; r >= 1; r--) {
+        const spec = perLevel[String(r)];
+        if (spec && typeof spec.target === "string" && spec.target.length) return { spec, rung: r };
+      }
+      return null;
+    };
+    const rowCells = {};
+    for (let k = 0; k < tiers.length; k++) {
+      const hit = cellAt(Math.min(k + 1, maxRung));
+      if (!hit) continue;
+      rowCells[tiers[k]] = {
+        target: hit.spec.target,
+        ...(hit.spec.effort ? { effort: hit.spec.effort } : {}),
+        rule: `duty:${duty}/L${hit.rung}`
+      };
+      if (!targetIds.has(hit.spec.target)) {
+        targetIds.add(hit.spec.target);
+        targets.push({
+          id: hit.spec.target,
+          ...(hit.spec.runtime ? { runtime: hit.spec.runtime } : {}),
+          ...(hit.spec.model ? { model: hit.spec.model } : {}),
+          ...(hit.spec.provider && knownProviders.has(hit.spec.provider) ? { provider: hit.spec.provider } : {}),
+          ...(hit.spec.type ? { type: hit.spec.type } : {})
+        });
+      }
+    }
+    if (!Object.keys(rowCells).length) continue;
+    // Row default = the standard slot (the same rung T1 maps to), so an
+    // out-of-vocab tier still lands on the duty's standard cell.
+    const std = cellAt(Math.min(2, maxRung));
+    rows[duty] = {
+      cells: rowCells,
+      ...(std ? { default: { target: std.spec.target, ...(std.spec.effort ? { effort: std.spec.effort } : {}) } } : {})
+    };
+  }
+  if (!Object.keys(rows).length) return cfg;
+
+  const profiles = {};
+  for (const [name, p] of Object.entries(cfg.profiles || {})) {
+    const matrix = p.matrix || {};
+    profiles[name] = { ...p, matrix: { ...matrix, rows: { ...(matrix.rows || {}), ...rows } } };
+  }
+  return { ...cfg, targets, profiles };
 }
 
 // Resolve a phase to its execution triple straight off a COMPILED policy —
@@ -622,7 +766,7 @@ export function isSignificantAutonomous(classification) {
 // Build the board-API card payload for an autonomous run (D8 card creation).
 // Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
 // optional per-card toggle map merged over the work kind's plan (D17).
-export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier, duty, level, sequence } = {}) {
+export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier, duty, level, sequence, originChannel } = {}) {
   return {
     description: brief || "",
     project: project || null,
@@ -631,6 +775,9 @@ export function buildAutonomousCardPayload({ brief, project, workKind, phases, t
     workKind: workKind || null,
     phases: phases || null,
     origin: "orchestrator",
+    // The originating channel thread ({channel, threadId}), when the surface
+    // identified one — the run engine posts the card's outcome back to it.
+    originChannel: originChannel && typeof originChannel === "object" ? originChannel : null,
     classification: taskType && tier ? { taskType, tier } : null,
     // S4b completion (D15 acceptance 9): carry the resolved (duty, level) + its
     // ordered sequence onto the card so a gateway/skill-entered card FLOWS through
@@ -638,9 +785,17 @@ export function buildAutonomousCardPayload({ brief, project, workKind, phases, t
     // persistence). ALL THREE are gated on a RESOLVED sequence (codex S4b finding):
     // without a sequence the resolution is incomplete, so we keep the pre-S4b card
     // shape byte-for-byte rather than stamping a partial (duty, level).
+    //
+    // A goal card with NO dispatcher resolution still gets a bare `sequence` when
+    // the caller derived one (the tier discipline's ON phases): without it the
+    // card walks the board's LIST-UNION order — duty declaration order, not a
+    // pipeline — and marches into whatever list happens to follow its last phase
+    // (observed live: Test → Image). The sequence IS the card's rail.
     ...(Array.isArray(sequence) && sequence.length && duty && Number.isInteger(level)
       ? { duty, level, sequence }
-      : {})
+      : Array.isArray(sequence) && sequence.length
+        ? { sequence }
+        : {})
   };
 }
 

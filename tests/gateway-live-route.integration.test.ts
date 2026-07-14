@@ -90,6 +90,9 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
         // Isolate the improver queue + board discovery from the ambient ~/.garrison
         // so the D19 carding path never reaches a real board during the test.
         GARRISON_HOME: tmp,
+        // ...and the duty-cells merge (applyDutyCells) from the machine's real
+        // kanban model.json, which would repoint the fixture matrix.
+        GARRISON_KANBAN_DIR: path.join(tmp, "kanban-empty"),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

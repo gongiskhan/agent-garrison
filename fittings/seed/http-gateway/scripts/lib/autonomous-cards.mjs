@@ -97,9 +97,10 @@ export async function createAutonomousCard({ message, classification, opts = {},
           // sequence a board card would. Additive — absent when no dispatcher.
           duty: opts.duty,
           level: opts.level,
-          sequence: opts.sequence
+          sequence: opts.sequence,
+          originChannel: opts.originChannel ?? null
         })
-      : { description: message, goalMode: true };
+      : { description: message, goalMode: true, originChannel: opts.originChannel ?? null };
     if (opts.quick) payload.quick = true; // D19: mark trivial-plan cards for the Done quick-tasks strip
     const created = await fetch(`${base}/cards`, {
       method: "POST",

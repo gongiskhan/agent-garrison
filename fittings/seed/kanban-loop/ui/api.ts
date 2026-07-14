@@ -18,6 +18,7 @@ export interface RouteStamp {
   provider: string | null;
   model: string | null;
   tier: string | null;
+  effort?: string | null;
   phase?: string | null;
 }
 

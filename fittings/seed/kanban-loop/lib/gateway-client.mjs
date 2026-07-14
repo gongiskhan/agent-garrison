@@ -81,13 +81,15 @@ export function routeFromDone(done) {
   const ruleId = done.ruleId ?? null;
   const profile = done.profile ?? null;
   const honored = done.honored ?? null;
+  const effort = done.effort ?? null;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
-    taskType == null && tier == null && ruleId == null && profile == null && honored == null
+    taskType == null && tier == null && ruleId == null && profile == null && honored == null &&
+    effort == null
   ) {
     return null;
   }
-  return { targetId, runtime, provider, model, taskType, tier, ruleId, profile, honored };
+  return { targetId, runtime, provider, model, taskType, tier, ruleId, profile, honored, effort };
 }
 
 // The board/tick pass `classification: null` here (the engine no longer pins a per-list
