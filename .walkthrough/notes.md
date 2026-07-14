@@ -156,3 +156,20 @@
   materialised defaults), so `git checkout compositions/default/apm.yml` after recording.
 - The orchestrator doctrine edit creates .garrison/orchestrator-authored.json - rm it
   after recording to restore the shipped doctrine.
+
+## 2026-07-14 - run-engine video learnings
+- Live-run storyboards MUST use fresh task names per recording attempt: the demo
+  repo accumulates real implementations, and a repeat ask legitimately answers
+  "already done" inline (no card, no run to film).
+- The board's committed seed dist bundles go stale silently - apm install copies
+  them over the installed dist. Rebuild seed dist after UI edits (ui/build.mjs)
+  and probe the RENDERED text headlessly before recording.
+- Timeline/off-chip asserts need unique anchors: .tl-msg:has-text("Plan → Implement"),
+  .chip.off:has-text("walkthrough") - bare .tl-route/.chip.off multi-match and the
+  recorder refuses ambiguous asserts.
+- The dashboard Run button flips label (Restart Operative <-> Run the Operative)
+  while busy - assert testid:operative-run, never the label.
+- waitBefore on "card in <list>" selectors + title-card cuts hide multi-minute
+  phase waits honestly; the board's 5s poll gives real on-camera card movement.
+- The Test list is a scheduler beat: click the card's Run on camera ("kick it now")
+  instead of waiting 5h.
