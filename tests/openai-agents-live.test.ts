@@ -109,7 +109,10 @@ describe("openai-agents vs a MOCKED OpenAI-compatible endpoint (real SDK)", () =
         baseUrl: `http://127.0.0.1:${port}/v1`,
         promptMode: "lean",
         compositionDir: tmpdir(),
-        secrets: { OPENAI_API_KEY: "sk-test-mock" } // by-name Vault key
+        secrets: { OPENAI_API_KEY: "sk-test-mock" }, // by-name Vault key
+        // The key-egress fence only attaches the key to the TRUSTED base (the
+        // server-side env OPENAI_BASE_URL) - mark the mock endpoint trusted.
+        env: { OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1` }
       });
       await adapter.sendTurn(s, "produce a summary");
       const r = await adapter.awaitResponse(s);

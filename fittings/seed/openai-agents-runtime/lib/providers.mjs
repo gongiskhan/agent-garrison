@@ -128,6 +128,18 @@ export function resolveBaseUrl(target = {}, opts = {}) {
   return assertValidBaseUrl(baseUrl, target.provider);
 }
 
+// Canonical form for base-URL COMPARISON only (never used to build the request
+// URL): lowercase scheme+host via URL parsing (default ports collapse), trailing
+// slashes trimmed - so "https://Host/v1/" and "https://host:443/v1" compare equal.
+function normalizeBaseUrl(u) {
+  try {
+    const url = new URL(String(u));
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return String(u ?? "").trim().replace(/\/+$/, "").toLowerCase();
+  }
+}
+
 // Resolve the endpoint {baseUrl, apiKey, apiKeyEnv} for a target. The key is
 // resolved BY NAME (OPENAI_API_KEY) from the materialized Vault secrets (or, for
 // the primary path, the same server-side env). A needed-but-missing key fails

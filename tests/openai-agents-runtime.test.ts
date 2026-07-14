@@ -212,7 +212,10 @@ describe("OpenAiAgentsAdapter - RuntimeAdapter conformance, no scraping (openai-
       model: "llama-3.1",
       baseUrl: "http://localhost:8000/v1",
       compositionDir: "/work",
-      secrets: { OPENAI_API_KEY: "sk-compat" }
+      secrets: { OPENAI_API_KEY: "sk-compat" },
+      // The key-egress fence (codex checkpoint) only attaches the key to the
+      // TRUSTED base - the server-side env OPENAI_BASE_URL - so declare it.
+      env: { OPENAI_BASE_URL: "http://localhost:8000/v1" }
     });
     expect(s.alive).toBe(true);
     expect(s.baseUrl).toBe("http://localhost:8000/v1");

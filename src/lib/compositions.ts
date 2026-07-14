@@ -252,12 +252,28 @@ export async function listCompositions(): Promise<Composition[]> {
   await ensureDefaultComposition();
   await ensureDir(COMPOSITIONS_DIR);
   const entries = await fs.readdir(COMPOSITIONS_DIR, { withFileTypes: true });
+  // Tolerant reads, deliberately NOT readComposition: its ensureComposition
+  // would scaffold a manifest back into any directory listed here, resurrecting
+  // a composition that is mid-delete (a real race with a concurrent session or
+  // test fixture removing one). A directory whose manifest is missing or
+  // unreadable is SKIPPED - listing never creates state.
   const compositions = await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
-      .map((entry) => readComposition(entry.name))
+      .map(async (entry) => {
+        try {
+          const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(entry.name));
+          if (!manifest) return null;
+          const overlay = await readLocalOverlay(entry.name);
+          return manifestToComposition(entry.name, applyLocalOverlay(manifest, overlay));
+        } catch {
+          return null;
+        }
+      })
   );
-  return compositions.sort((left, right) => left.name.localeCompare(right.name));
+  return compositions
+    .filter((c): c is CompositionV4 => c !== null)
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {

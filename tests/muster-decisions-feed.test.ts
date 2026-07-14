@@ -52,7 +52,9 @@ describe("normalizeDecision", () => {
       level: 2,
       target: null,
       reason: "→ develop L2, confidence high",
-      messageDigest: null
+      // The digest IS surfaced - it is the safe correlation handle (a sha256
+      // prefix, never the raw message; codex S5b/S5c).
+      messageDigest: "abc123"
     });
   });
 
@@ -97,7 +99,7 @@ describe("normalizeDecision", () => {
     expect(normalizeDecision([1, 2, 3])).toBeNull();
   });
 
-  it("NEVER surfaces a path or arbitrary field — only the 6 whitelisted keys", () => {
+  it("NEVER surfaces a path or arbitrary field — only the 7 whitelisted keys", () => {
     const v = normalizeDecision({
       at: "x",
       kind: "dispatch",
@@ -109,7 +111,15 @@ describe("normalizeDecision", () => {
       rawMessage: "my private prompt text",
       apiKey: "sk-should-never-appear"
     })!;
-    expect(Object.keys(v).sort()).toEqual(["at", "duty", "kind", "level", "reason", "target"]);
+    expect(Object.keys(v).sort()).toEqual([
+      "at",
+      "duty",
+      "kind",
+      "level",
+      "messageDigest",
+      "reason",
+      "target"
+    ]);
     const serialized = JSON.stringify(v);
     expect(serialized).not.toContain("/home/");
     expect(serialized).not.toContain("private prompt");

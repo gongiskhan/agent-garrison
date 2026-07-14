@@ -32,7 +32,12 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  await fs.writeFile(LIBRARY_PATH, librarySnapshot, "utf8");
+  // Restore ATOMICALLY (temp + rename): parallel test files read the registry
+  // (readLibrary in the muster model/standing paths), and a plain truncate-and-
+  // write here hands them an empty/partial JSON file mid-restore.
+  const tmp = `${LIBRARY_PATH}.tmp-${process.pid}`;
+  await fs.writeFile(tmp, librarySnapshot, "utf8");
+  await fs.rename(tmp, LIBRARY_PATH);
   while (createdIds.length) {
     const id = createdIds.pop()!;
     await fs.rm(path.join(LOCAL_DIR, id), { recursive: true, force: true }).catch(() => {});

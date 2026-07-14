@@ -72,7 +72,16 @@ export async function appendRawLibraryEntry(entry: RawLibraryEntry): Promise<voi
 export async function readLibrary(): Promise<LibraryEntry[]> {
   const entries = await readRawLibrary();
   const resolved = await Promise.all(entries.map(resolveLibraryEntry));
-  return resolved.sort((left, right) => left.id.localeCompare(right.id));
+  const skipped = entries.filter((_, i) => resolved[i] === null).map((e) => e.id);
+  if (skipped.length > 0) {
+    console.warn(
+      `[garrison] library entries with no manifest on disk skipped: ${skipped.join(", ")} ` +
+        "(fitting removed while registered - re-clone or remove the registry entry)"
+    );
+  }
+  return resolved
+    .filter((entry): entry is LibraryEntry => entry !== null)
+    .sort((left, right) => left.id.localeCompare(right.id));
 }
 
 export async function getLibraryEntry(id: string): Promise<LibraryEntry | undefined> {
@@ -80,7 +89,12 @@ export async function getLibraryEntry(id: string): Promise<LibraryEntry | undefi
   return entries.find((entry) => entry.id === id);
 }
 
-async function resolveLibraryEntry(entry: RawLibraryEntry): Promise<LibraryEntry> {
+// Resolve one raw registry entry against its on-disk manifest. Returns null
+// when the manifest is MISSING (a clone removed mid-read, a hand-deleted local
+// fitting) - the registry listing must not brick every library consumer over a
+// vanished member. A PRESENT manifest that fails metadata validation still
+// throws: that is an authoring error to surface, never to skip.
+async function resolveLibraryEntry(entry: RawLibraryEntry): Promise<LibraryEntry | null> {
   const manifestPath = entry.localPath
     ? path.join(ROOT_DIR, entry.localPath, "apm.yml")
     : undefined;
@@ -88,7 +102,8 @@ async function resolveLibraryEntry(entry: RawLibraryEntry): Promise<LibraryEntry
     throw new Error(`Library entry ${entry.id} does not have a localPath in v1 bootstrap mode`);
   }
   const manifest = await readYamlFile<RawManifest>(manifestPath);
-  const metadata = parseGarrisonMetadata(manifest?.["x-garrison"]);
+  if (!manifest) return null;
+  const metadata = parseGarrisonMetadata(manifest["x-garrison"]);
   return {
     ...entry,
     faculty: metadata.faculty,
