@@ -816,7 +816,11 @@ export class RoutedGateway {
       }
       for (const inj of plan.injections) {
         this.operative.session.writeKeys(inj + "\r");
-        await sleep(this.injectSettleMs ?? 250);
+        // 1s, not 250ms: a /model switch between real models re-renders the
+        // TUI; a message written into that re-render gets swallowed and the
+        // turn's reply extraction then reads the PREVIOUS turn still on
+        // screen (the stale-echo wedge that parks kanban phase turns).
+        await sleep(this.injectSettleMs ?? 1000);
       }
       this.currentTarget = route.target;
     } else if (plan.path === "respawn-resume") {

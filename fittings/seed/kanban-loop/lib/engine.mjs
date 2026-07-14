@@ -740,6 +740,19 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   let out;
   try {
     out = await runFn({ prompt, card: runningCard, list, classification, skill, suppressContinuations: true, onChunk });
+    // Stale-echo guard: a reply whose [route: X] token names a DIFFERENT target
+    // than the one the gateway resolved for THIS turn is the previous turn's
+    // screen content (the PTY model-switch extraction wedge), not a verdict on
+    // this phase. Treat it like transport — revert the acquire and retry —
+    // instead of letting a ghost reply park the card for missing gate evidence.
+    const echoToken = /\[route:\s*([^\s|\]]+)/.exec(String(out?.reply || ""))?.[1] ?? null;
+    if (echoToken && out?.route?.targetId && echoToken !== out.route.targetId) {
+      const e = new Error(
+        `stale reply echo: the reply carries [route: ${echoToken}] but this turn resolved to ${out.route.targetId} — previous turn's screen content, retrying`
+      );
+      e.transport = true;
+      throw e;
+    }
   } catch (err) {
     // A TRANSPORT failure (gateway unreachable / restarting — err.transport from the
     // gateway client) is NOT the card's fault: REVERT the acquire (back to the prior

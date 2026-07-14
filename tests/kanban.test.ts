@@ -103,6 +103,31 @@ describe("kanban CAS (s5 cross-model gate — lost-update guard)", () => {
     expect((await loadCard(root, c.id)).title).toBe("A");
   });
 
+  it("a stale-echo reply (route token for a DIFFERENT target) reverts like transport, never parks", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "T", list: "implement" });
+    // The gateway resolved opus for this turn, but the reply text carries the
+    // PREVIOUS turn's [route: fable] - the PTY extraction wedge. Must revert
+    // the acquire (retriable) instead of parking for missing gate evidence.
+    const runFn = async () => ({
+      reply: "Plan complete blah\n[route: fable | rule: duty:plan/L1 | profile: balanced]\n\nreview",
+      route: { targetId: "opus", runtime: "claude-code", model: "claude-opus-4.8", tier: "T1-standard" }
+    });
+    const { card: after, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
+    expect(outcome.status).toBe("deferred");
+    expect(after.list).toBe("implement");
+    expect(after.status).not.toBe("needs-attention");
+    expect(after.iterations).toBe(0); // un-consumed, retries next tick
+    expect(after.lastDispatchError?.message).toMatch(/stale reply echo/);
+    // An HONORED reply (token matches the resolved target) still advances.
+    const okFn = async () => ({
+      reply: "Implemented.\n[route: opus | rule: duty:implement/L1 | profile: balanced]\n\nreview",
+      route: { targetId: "opus", runtime: "claude-code", model: "claude-opus-4.8", tier: "T1-standard" }
+    });
+    const again = await processCard({ root, board, card: after, runFn: okFn, cap: 10 });
+    expect(again.card.list).toBe("review");
+  });
+
   it("processCard increments rev and a re-run with the STALE card skips on conflict", async () => {
     const root = tmp();
     const card = await createCard(root, { title: "T", list: "implement" });
