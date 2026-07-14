@@ -112,6 +112,24 @@ export function resolveKanbanLoopDir(compositionDir) {
   return null;
 }
 
+// Locate the dispatcher fitting dir so the gateway can run the SAME steering
+// classifier (S3c steer-core) the composition ships. Same resolution shape.
+export function resolveDispatcherDir(compositionDir) {
+  const candidates = [
+    process.env.GARRISON_DISPATCHER_DIR,
+    compositionDir && path.join(compositionDir, "apm_modules", "_local", "dispatcher"),
+    path.resolve(HERE, "..", "..", "..", "dispatcher"),
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(path.join(c, "lib", "steer-core.mjs"))) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
 // BUILD MODE helper: commit a locally-generated file verbatim. The local model
 // (ollama via the agent-sdk runtime) can't drive file-edit tools over ollama's
 // Anthropic-compat endpoint, so it generates the code in chat mode and the
@@ -304,6 +322,10 @@ export class RoutedGateway {
     // operative session. oneShotFn is injectable (tests); default = the real oneShotTurn.
     this._operativeSpawnConfig = opts.operativeSpawnConfig ?? {};
     this._oneShotFn = opts.oneShotFn ?? null;
+    // S3c: mid-run steering classifier — injectable (tests); default lazy-loads the
+    // dispatcher fitting's steer-core (explicit phrasing short-circuits without a model;
+    // the dispatcher's garrison-call is used for the model path when a dispatcher is wired).
+    this._steerFn = opts.steer ?? null;
   }
 
   async start() {
@@ -647,6 +669,80 @@ export class RoutedGateway {
       standingConversationSessions: 0,
       operativeCheckout: Boolean(this.operative?.session),
     };
+  }
+
+  // S3c: classify a mid-run thread message as absorb | revisit | acknowledge.
+  // Injectable via opts.steer (tests); default lazy-loads the dispatcher's steer-core
+  // (explicit phrasing short-circuits with no model call). Never throws.
+  async runSteerClassification({ message, card } = {}) {
+    if (this._steerFn) return this._steerFn({ message, card });
+    try {
+      const dir = resolveDispatcherDir(this.compositionDir);
+      if (!dir) return { action: "acknowledge", reason: "no steering classifier", confidence: "low" };
+      const mod = await import(pathToFileURL(path.join(dir, "lib", "steer-core.mjs")).href);
+      return await mod.classifySteering({
+        message,
+        card,
+        call: typeof this._dispatcher?.call === "function" ? this._dispatcher.call : undefined,
+        evidenceFile: this.decisionsFile,
+        now: this.nowFn,
+      });
+    } catch (err) {
+      this.logFn({ kind: "steering-classify-failed", error: err?.message || String(err) });
+      return { action: "acknowledge", reason: "steering classifier unavailable", confidence: "low" };
+    }
+  }
+
+  // S3c-fix1: fetch a card by id from the board and return it ONLY when it is still a
+  // LIVE engine run (the in-RAM attach map carries no card fields, so a same-session
+  // follow-up needs this to reach steering). null when absent / terminal / abandoned.
+  async getLiveCard(cardId) {
+    try {
+      const base = cards.boardBase();
+      if (!base || !cardId) return null;
+      const r = await fetch(`${base}/cards/${encodeURIComponent(cardId)}`, { signal: AbortSignal.timeout(3000) });
+      if (!r.ok) return null;
+      const doc = await r.json();
+      const card = doc.card ?? doc;
+      const list = card?.list;
+      if (!list || list === "done" || list === "needs-attention") return null;
+      if (card.preparedRevert) return null;
+      return card;
+    } catch {
+      return null;
+    }
+  }
+
+  // S3c-fix1: classify steering for a web attach, resolving the full card from EITHER
+  // the durable-lookup attach (.card) OR the in-RAM attach (.cardId → getLiveCard).
+  // Returns { steer, card } for a live web card, or null (not web / not live) so the
+  // caller falls through to a plain one-shot answer.
+  async classifyAttachSteering({ attached, origin, message } = {}) {
+    if (origin !== "web" || !attached) return null;
+    const card = attached.card ?? (await this.getLiveCard(attached.cardId));
+    if (!card) return null;
+    const steer = await this.runSteerClassification({ message, card });
+    return { steer, card };
+  }
+
+  // S3c: POST the steering directive to the board's steer endpoint. viaTurn:true so
+  // the endpoint records the event but does not double-post to the thread (the
+  // gateway turn's own SSE reply is the delivery). Returns { applied } or null.
+  async postSteer(cardId, { message, action, revisitDuty = null, reason = null } = {}) {
+    try {
+      const base = cards.boardBase();
+      if (!base || !cardId) return null;
+      const r = await fetch(`${base}/cards/${encodeURIComponent(cardId)}/steer`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        body: JSON.stringify({ message, action, revisitDuty, reason, viaTurn: true }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!r.ok) return null;
+      return await r.json().catch(() => ({}));
+    } catch {
+      return null;
+    }
   }
 
   // Stage A: ask the pinned warm classifier ONE question; code resolves.
@@ -1322,6 +1418,8 @@ export async function createRoutedGateway(opts = {}) {
     // S3b: the operative spawn config + injectable one-shot for web materialized turns.
     operativeSpawnConfig,
     oneShotFn: opts.oneShotFn ?? null,
+    // S3c: injectable steering classifier (default lazy-loads the dispatcher steer-core).
+    steer: opts.steer ?? null,
   });
   gw.secrets = opts.secrets ?? null;
   return gw;

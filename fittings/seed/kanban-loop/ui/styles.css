@@ -423,6 +423,7 @@ body {
 .chip.attn { border-color: rgba(155,54,45,0.4); color: var(--alarm); background: var(--alarm-soft); }
 .chip.goal { border-color: rgba(180,134,42,0.5); color: var(--brass); background: var(--warn-soft); }
 .chip.waiting { border-color: rgba(176,114,21,0.45); color: var(--warn-ink); background: var(--warn-soft); }
+.chip.steering { border-color: rgba(90,74,140,0.45); color: #5a4a8c; background: rgba(90,74,140,0.08); }
 /* a fence chip — deliberately subtle (the latest commit fence sha), mono + muted */
 .chip.fence { color: var(--mute); background: var(--paper); border-color: var(--rule); }
 /* an "applied" / success tag — sage, distinct from the alarm/attn tags */

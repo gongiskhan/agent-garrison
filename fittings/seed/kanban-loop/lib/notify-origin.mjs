@@ -116,7 +116,7 @@ export function notifyOriginTransition(prev, next) {
 // only for now). Failure isolation identical to notifyOriginTransition: fire-and-
 // forget, never throws, never blocks a save.
 
-export const ORIGIN_EVENT_KINDS = ["created", "needs-input", "blocked", "failed", "finished", "duty-summary"];
+export const ORIGIN_EVENT_KINDS = ["created", "needs-input", "blocked", "failed", "finished", "duty-summary", "steering"];
 
 function titleCaseWord(s) {
   const w = String(s || "").trim();
@@ -197,7 +197,11 @@ export function routeOriginEvent(root, disk, card, event) {
     // Transport delivery. Web posts the message into the originating thread (quick
     // cards excluded — their outcome was the inline channel reply). board/skill/
     // terminal are event-log-only for now (skill/terminal pull delivery lands in S3e).
-    if (transport === "web" && !card.quick && event.message && card.originChannel?.threadId) {
+    // S3c: a steering event whose confirmation was ALREADY delivered by the gateway
+    // turn's own SSE reply (detail.viaTurn) records the event but does NOT re-post to
+    // the thread (no double confirmation).
+    const skipWeb = event.kind === "steering" && event.detail?.viaTurn === true;
+    if (transport === "web" && !card.quick && event.message && card.originChannel?.threadId && !skipWeb) {
       deliverWebMessage(card.originChannel.threadId, event.message);
     }
   } catch {

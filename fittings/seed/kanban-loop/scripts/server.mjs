@@ -41,6 +41,8 @@ import {
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
+// S3c: steering sidecars (steering.md guidance + steering.json revisit directive).
+import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringApplied, readSteeringDirective, isEarlierPhase } from "../lib/steering.mjs";
 import {
   getList,
   validNextFor,
@@ -689,6 +691,82 @@ async function handleGetHandoff(req, res, opts, id) {
   }
 }
 
+// POST /cards/:id/steer {message, action, revisitDuty?, reason?, viaTurn?} (S3c):
+// write the steering sidecars, record a timeline + origin event, and — when the
+// card is NOT running and the action is revisit — apply the re-stage immediately.
+async function handleSteerCard(req, res, opts, id) {
+  const body = (await readBody(req)) || {};
+  const message = typeof body.message === "string" ? body.message : "";
+  const action = typeof body.action === "string" ? body.action : "";
+  if (!STEER_ACTIONS.includes(action)) return jsonRes(res, 400, { error: "action must be absorb | revisit | acknowledge" });
+  let card;
+  try {
+    card = await loadCard(opts.root, id);
+  } catch {
+    return jsonRes(res, 404, { error: "no such card" });
+  }
+  card.id = id;
+  const at = new Date().toISOString();
+  const revisitDuty = typeof body.revisitDuty === "string" && body.revisitDuty ? body.revisitDuty : null;
+  const reason = typeof body.reason === "string" ? body.reason : null;
+  // Go-back invariant: a revisit must target an EARLIER phase in the card's sequence
+  // — reject a direct POST that would march the card FORWARD past gates.
+  if (action === "revisit") {
+    if (!revisitDuty) return jsonRes(res, 400, { error: "revisit requires revisitDuty" });
+    if (!isEarlierPhase(card, revisitDuty)) {
+      return jsonRes(res, 400, { error: `revisitDuty "${revisitDuty}" is not an earlier phase in the card's sequence` });
+    }
+  }
+
+  // (a) steering.md — always (the absorb guidance the prompt folds in).
+  appendSteeringMd(opts.root, id, { at, action, message });
+  // (b) steering.json — the pending revisit directive.
+  if (action === "revisit" && revisitDuty) {
+    writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
+  }
+  // (c) timeline event (engine-context, rev-safe reload+retry; non-fatal).
+  await updateCard(opts.root, id, (c) => ({
+    ...c,
+    events: withEvent(c, { at, kind: "steering", message: `Steering: ${action}${revisitDuty ? ` → ${revisitDuty}` : ""}`, detail: reason || null })
+  })).catch(() => null);
+  // (d) an idle card with a revisit directive re-stages IMMEDIATELY.
+  let applied = false;
+  if (action === "revisit" && revisitDuty && card.status !== "running") {
+    const board = await loadBoard(opts.root);
+    if (getList(board, revisitDuty)) {
+      const moved = await updateCard(opts.root, id, (c) => ({
+        ...c,
+        list: revisitDuty,
+        status: "ok",
+        runningSince: null,
+        events: withEvent(c, { at: new Date().toISOString(), kind: "steering-restage", message: `Re-staged to ${revisitDuty} (steering)` })
+      }));
+      if (moved) {
+        applied = true;
+        markSteeringApplied(opts.root, id);
+      }
+    }
+  }
+  // The short confirmation, recorded to the origin event log (web-delivered unless
+  // the gateway turn already delivered it — detail.viaTurn).
+  const confirmation =
+    action === "absorb"
+      ? `Noted — folded into the current ${card.list} work.`
+      : action === "revisit"
+        ? applied
+          ? `Going back to ${revisitDuty} to include that.`
+          : `Going back to ${revisitDuty} at the next duty boundary.`
+        : "Noted.";
+  try {
+    const fresh = await loadCard(opts.root, id).catch(() => card);
+    fresh.id = id;
+    routeOriginEvent(opts.root, null, fresh, { kind: "steering", message: confirmation, detail: { action, revisitDuty, viaTurn: body.viaTurn === true, applied } });
+  } catch {
+    /* origin routing is best-effort */
+  }
+  jsonRes(res, 200, { ok: true, action, revisitDuty, applied });
+}
+
 async function handleBoard(req, res, opts) {
   const root = opts.root;
   const board = await loadBoard(root);
@@ -700,10 +778,18 @@ async function handleBoard(req, res, opts) {
   // (usually 0–1), so the cost is negligible. Both the per-list and the flat card
   // projections are separate objects, so patch both.
   const tails = {};
+  const steeringPending = {};
   for (const c of cards) {
     if (c.status === "running") tails[c.id] = liveTailFor(root, c);
+    // S3c: a cheap sidecar check (existsSync-gated) so the board renders a steering
+    // chip while a revisit directive is pending (unapplied).
+    if (readSteeringDirective(root, c.id)) steeringPending[c.id] = true;
   }
-  const patch = (cs) => { if (cs && tails[cs.id]) cs.liveTail = tails[cs.id]; };
+  const patch = (cs) => {
+    if (!cs) return;
+    if (tails[cs.id]) cs.liveTail = tails[cs.id];
+    if (steeringPending[cs.id]) cs.steeringPending = true;
+  };
   for (const l of view.lists) l.cards.forEach(patch);
   view.cards.forEach(patch);
   jsonRes(res, 200, view);
@@ -1943,7 +2029,7 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
@@ -1957,6 +2043,7 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/infer-project" && method === "POST") return await handleInferProject(req, res, opts, id);
         if (sub === "/watch" && method === "GET") return await handleWatchCard(req, res, opts, id);
         if (sub === "/handoff" && method === "GET") return await handleGetHandoff(req, res, opts, id);
+        if (sub === "/steer" && method === "POST") return await handleSteerCard(req, res, opts, id);
         if (sub === "" && method === "GET") return await handleGetCard(req, res, opts, id);
         if (sub === "" && method === "PATCH") return await handlePatchCard(req, res, opts, id);
         if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);

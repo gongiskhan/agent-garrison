@@ -11,6 +11,7 @@ import { ulid } from "./ulid.mjs";
 import { routeTerminalTransition } from "./notify-origin.mjs";
 import { generateHandoffIfDone } from "./handoff.mjs";
 import { deriveOriginId } from "./origins.mjs";
+import { markSteeringApplied } from "./steering.mjs";
 
 export function kanbanRoot() {
   return process.env.GARRISON_KANBAN_DIR || path.join(os.homedir(), ".garrison", "kanban-loop");
@@ -308,6 +309,12 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     // WS2 handoff packet: on the done edge, compose + write cards/<id>/handoff.json
     // (deferred to the next tick, fully guarded — never blocks or fails this write).
     generateHandoffIfDone(root, disk, next);
+    // S3c: a card reaching a terminal list strands any unapplied revisit directive
+    // (the boundary guard early-returns before it) — clear it so the chip resolves and
+    // it can never fire on a reopened card. No-op when there is no pending directive.
+    if ((next.list === "done" || next.list === "needs-attention") && (disk?.list ?? null) !== next.list) {
+      markSteeringApplied(root, next.id, "obsolete-terminal");
+    }
     return { ok: true, card: next };
   });
 }

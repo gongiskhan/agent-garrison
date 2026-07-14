@@ -133,6 +133,8 @@ export interface CardSummary {
   runningSince?: string | null;
   liveTail?: string | null;
   inferState?: string | null;
+  // S3c: a mid-run revisit steering directive is pending (unapplied) on this card.
+  steeringPending?: boolean;
   updated: string | null;
 }
 

@@ -74,6 +74,7 @@ export { phaseForList };
 // board's static validNext — so nothing changes for cards that don't carry a duty.
 import { loadResolvedModel, validNextForCard, nextListForCard, contextHoldFor } from "./resolved-model.mjs";
 import { routeOriginEvent, dutySummaryMessage } from "./notify-origin.mjs";
+import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPhase } from "./steering.mjs";
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
 // PREMATURE `done` event: the gateway's reply stream closed while the operative
@@ -452,7 +453,7 @@ export function parseNextList(routerOutput, validNext) {
 // next-list ids are injected so the router output can exact-match. D15: the per-list
 // mode line is GONE (mode is the gateway's job); the executing skill is resolved from
 // the compiled policy and named explicitly (the phase-skill binding, D3).
-export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, skill = null, phase = null, coordinationEnabled = false }) {
+export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, steeringContext = null, skill = null, phase = null, coordinationEnabled = false }) {
   const parts = [];
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
@@ -488,6 +489,16 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   // push). Pre-formatted by buildContinuationContext.
   if (continuationContext && String(continuationContext).trim()) {
     parts.push("", String(continuationContext).trim());
+  }
+  // S3c: mid-run steering guidance from the origin thread (absorb directives fold
+  // into the current duty's work). Read fresh each dispatch, like the brief.
+  if (steeringContext && String(steeringContext).trim()) {
+    parts.push(
+      "",
+      "## Steering guidance from the origin (mid-run — honor it):",
+      "",
+      String(steeringContext).trim()
+    );
   }
   parts.push("");
   // Thread the per-run pointers so the phase skill writes its plan/gate files
@@ -674,6 +685,51 @@ export function appendSessionId(sessionIds, sessionId) {
   return list;
 }
 
+// S3c: apply a PENDING revisit steering directive by re-staging the card BACK to
+// the directive's earlier phase (a normal column move — visible on the board).
+// Called at the top of processCard / advanceCardPhase (the duty boundary): since
+// processChain re-enters processCard per hop, this one seam covers both the
+// idle-pickup race and the between-hop boundary. Returns { card, outcome:moved }
+// when it re-staged, or null (no directive / already there / raced / bad list).
+async function applyPendingRevisit(root, card, board, now = () => new Date().toISOString()) {
+  const directive = readSteeringDirective(root, card.id);
+  if (!directive || directive.action !== "revisit" || !directive.revisitDuty) return null;
+  // Already on the target (or the target is not a real list) — just clear it.
+  if (directive.revisitDuty === card.list || (board && !getList(board, directive.revisitDuty))) {
+    markSteeringApplied(root, card.id);
+    return null;
+  }
+  // Go-back invariant (defense in depth — the endpoint rejects these): a re-stage must
+  // never march the card FORWARD past gates. Clear a forward/off-sequence directive.
+  if (!isEarlierPhase(card, directive.revisitDuty)) {
+    console.warn(`[kanban] steering revisit for ${card.id} → ${directive.revisitDuty} is not an earlier phase; skipping`);
+    markSteeringApplied(root, card.id, "not-earlier");
+    return null;
+  }
+  const at = now();
+  const target = {
+    ...card,
+    list: directive.revisitDuty,
+    status: "ok",
+    runningSince: null,
+    events: withEvent(card, {
+      at,
+      kind: "steering-restage",
+      message: `Re-staged to ${directive.revisitDuty} (steering)`,
+      detail: directive.reason || null
+    })
+  };
+  const res = await saveCardCAS(root, target, card.rev ?? 0, at);
+  if (!res.ok) return null; // raced — the next tick retries
+  markSteeringApplied(root, card.id);
+  routeOriginEvent(root, null, res.card ?? target, {
+    kind: "steering",
+    message: `Going back to ${directive.revisitDuty} to include that.`,
+    detail: { action: "revisit", revisitDuty: directive.revisitDuty, applied: true }
+  });
+  return { card: res.card ?? target, outcome: { status: "moved", from: card.list, to: directive.revisitDuty, reason: "steering-revisit" } };
+}
+
 // Fire the gateway's duty-boundary compact check (S1b) after a card advances a
 // duty. Best-effort: onDutyBoundary is fire-and-forget-with-timeout and a failure
 // must never affect the advance. No-op when the caller wired no boundary fn (tests,
@@ -713,6 +769,13 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // skips, so no path re-dispatches a waiting card.
   if (card.waitingOn) {
     return { card, outcome: { status: "waiting", reason: "waiting-on", waitingOn: card.waitingOn } };
+  }
+  // S3c pre-dispatch steering guard: a pending revisit directive re-stages the card
+  // to its earlier phase BEFORE dispatching the current one (duty-boundary only;
+  // processChain re-enters here per hop, so this covers the between-hop boundary too).
+  {
+    const restaged = await applyPendingRevisit(root, card, board, now);
+    if (restaged) return restaged;
   }
   // A human label for the list, used in every event/park message so the timeline reads
   // "Plan", not "plan".
@@ -900,7 +963,8 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // from the agreed direction the discussion settled on.
   const discussionContext = readCardBrief(root, runningCard.id);
   const continuationContext = buildContinuationContext(root, runningCard);
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, skill, phase, coordinationEnabled: coordActive });
+  const steeringContext = readSteeringMd(root, runningCard.id);
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, steeringContext, skill, phase, coordinationEnabled: coordActive });
   // Explicit policy-derived classification (phase = taskType, card tier). A
   // missing/unreadable policy degrades to classifier routing (null) — never
   // blocks a card.
@@ -1491,6 +1555,12 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   const list = getList(board, card.list);
   if (!list || list.kind !== AGENT_KIND) {
     return { card, outcome: { status: "skipped", reason: "not-an-agent-list" } };
+  }
+  // S3c parity: a pending revisit steering directive re-stages the card at this
+  // in-session boundary too (instead of advancing forward on the verdict).
+  {
+    const restaged = await applyPendingRevisit(root, card, board, now);
+    if (restaged) return restaged;
   }
   const listTitle = list.title || card.list;
   const policy = loadPolicy();

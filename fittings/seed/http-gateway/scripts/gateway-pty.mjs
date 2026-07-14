@@ -610,7 +610,8 @@ async function runRoutedTurn(message, onChunk, hints) {
       if (!attached && origin === "web" && sessionKey) {
         const resolved = await router.resolveThreadCard(`web:${sessionKey}`);
         if (resolved?.attach) {
-          attached = { cardId: resolved.attach.id };
+          // Carry the full card (title/list/sequence) so we can classify steering.
+          attached = { cardId: resolved.attach.id, card: resolved.attach };
           router.rememberCard(sessionKey, { cardId: resolved.attach.id, quick: false, taskType: cls.taskType });
         } else if (resolved?.continueFrom) {
           continueFrom = resolved.continueFrom;
@@ -618,6 +619,42 @@ async function runRoutedTurn(message, onChunk, hints) {
       }
       if (attached) {
         logEvent("stdout", { kind: "card-attached", id: attached.cardId, taskType: cls.taskType });
+        // S3c: a mid-run message on a LIVE web card is STEERING. absorb/revisit post
+        // to the board's steer endpoint and confirm in the thread; acknowledge falls
+        // through to a normal one-shot answer (the classifier already logged evidence).
+        // classifyAttachSteering resolves the full card even on the in-RAM attach path
+        // (which carries only a cardId), so a 2nd+ same-session message still steers.
+        const steered = origin === "web" ? await router.classifyAttachSteering({ attached, origin, message }) : null;
+        if (steered) {
+          const { steer, card } = steered;
+          logEvent("stdout", { kind: "steering", id: card.id, action: steer.action, revisitDuty: steer.revisitDuty ?? null });
+          if (steer.action === "absorb" || steer.action === "revisit") {
+            const posted = await router.postSteer(card.id, {
+              message,
+              action: steer.action,
+              revisitDuty: steer.revisitDuty ?? null,
+              reason: steer.reason ?? null,
+            });
+            const reply =
+              steer.action === "absorb"
+                ? `Noted — folded into the current ${card.list} work.`
+                : posted?.applied
+                  ? `Going back to ${steer.revisitDuty} to include that.`
+                  : `Going back to ${steer.revisitDuty} at the next duty boundary.`;
+            broadcastRich("assistant", { text: reply });
+            broadcastRich("turn", { active: false });
+            if (onChunk && reply) onChunk(reply, true);
+            return {
+              reply,
+              session_id: null,
+              cost_usd: null,
+              route: pre.route?.targetId ?? null,
+              card: card.id,
+              steering: { action: steer.action, revisitDuty: steer.revisitDuty ?? null },
+            };
+          }
+          // acknowledge → fall through to execRoutedTurn (the S3b web one-shot).
+        }
       } else {
         // S4b door-1 persistence: carry the resolved (duty, level, sequence) onto
         // the card when preRoute produced one — this happens when the Dispatcher

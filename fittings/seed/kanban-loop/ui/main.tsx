@@ -225,6 +225,7 @@ function Card({
           : <span className="chip muted" title="no project assigned">no project</span>}
         {inferring && <span className="chip infer" title="inferring the project from the description"><SparkIcon /> inferring project…</span>}
         {parked && <span className="chip attn">needs-attention</span>}
+        {card.steeringPending && <span className="chip steering" title="a mid-run revisit directive is pending — the card will re-stage at the next duty boundary">steering</span>}
         {card.waitingOn && <span className="chip waiting" title={card.waitingOn.reason}>waiting</span>}
         {card.blocking && card.blocking.length > 0 && (
           <span className="chip" title={`${card.blocking.length} card(s) are waiting on this one`}>blocks {card.blocking.length}</span>
