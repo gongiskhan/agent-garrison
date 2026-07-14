@@ -141,3 +141,18 @@
   "Box is busy" and `.signal-list` text "Working sessions" matches as written.
 - When busy, the hero shows "Box is busy" instead of a countdown clock, so
   "countdown held" is proven by the busy hero (no ticking number), not by a value.
+
+## 2026-07-14 — muster walkthroughs (levels/fittings/orchestrator)
+- assert.text compares RENDERED text: pills/badges styled text-transform:uppercase need
+  "READY TO RUN" / "SAVED", never the source casing.
+- Evidence panels TRUNCATE long unwrapped lines before highlight-matching — a raw JSONL
+  tail fails its match even when present. Pipe through `jq .` (one record) so the proving
+  line is short and wrapped.
+- Never highlight a muster standing SLOT card as a beat's target: the masonry column is
+  tall and mostly empty, so the frame reads as a blank yellow box. Highlight the concrete
+  fitting block / toggle, or use highlight:false for whole-board establishing shots.
+- The muster on-camera state changes can be authored self-reverting (add level -> remove
+  it; station -> remove): the manifest still churns cosmetically (selection key reorder +
+  materialised defaults), so `git checkout compositions/default/apm.yml` after recording.
+- The orchestrator doctrine edit creates .garrison/orchestrator-authored.json - rm it
+  after recording to restore the shipped doctrine.

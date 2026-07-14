@@ -1,0 +1,144 @@
+{
+  "title": "Muster: the layered Orchestrator prompt and the decisions feed",
+  "project": "agent-garrison",
+  "folder": "muster",
+  "video": {
+    "width": 1280,
+    "height": 800,
+    "fps": 30
+  },
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Orchestrator and Decisions",
+      "subtitle": "agent-garrison \u00b7 the Composition page",
+      "duration": 2.6,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "orchestrator",
+      "baseURL": "http://localhost:7777",
+      "startPath": "/muster",
+      "runTimeoutMs": 420000,
+      "beats": [
+        {
+          "id": "opentab",
+          "caption": "The Orchestrator prompt, layered: doctrine you write, blocks the composition regenerates.",
+          "expectedScreen": "the Orchestrator tab with editable doctrine textareas at the top and greyed locked blocks below",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "testid:duty-list",
+              "timeout": 30000
+            },
+            {
+              "type": "click",
+              "selector": "testid:section-nav-orchestrator"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:orchestrator-authored-routing-philosophy",
+              "timeout": 30000
+            }
+          ],
+          "assert": {
+            "selector": "testid:orchestrator-authored-routing-philosophy",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "doctrine",
+          "caption": "Rewrite the routing philosophy - it autosaves in place.",
+          "expectedScreen": "the routing philosophy textarea with the new doctrine typed and a small saved status beside its title",
+          "actions": [
+            {
+              "type": "fill",
+              "selector": "testid:orchestrator-authored-routing-philosophy",
+              "text": "Route every request to the cheapest engine that can genuinely finish it. Escalate a level on evidence - a failed gate, a blown estimate - never on vibes. When two duties both fit, prefer the narrower one."
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:orchestrator-authored-status-routing-philosophy",
+              "timeout": 15000
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 2000
+            }
+          ],
+          "assert": {
+            "selector": "testid:orchestrator-authored-status-routing-philosophy",
+            "text": "SAVED",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "assembled",
+          "caption": "The assembled system prompt already carries the new doctrine - exactly what the Operative receives.",
+          "expectedScreen": "the assembled-system-prompt panel of mono text with its character count header",
+          "assert": {
+            "selector": "testid:orchestrator-assembled",
+            "text": "never on vibes",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "locked",
+          "caption": "Generated blocks are locked: badged, greyed, regenerated from the composition on every load.",
+          "expectedScreen": "the Composition readiness locked block with its regenerated-from-composition badge",
+          "assert": {
+            "selector": "testid:orchestrator-locked-readiness",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "decisions",
+          "caption": "Decisions: the live routing evidence - which duty, which level, which engine, and why.",
+          "expectedScreen": "the Decisions tab showing a feed of routing decision rows with kind, duty/level, reason and target columns",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:section-nav-decisions"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:decisions-list",
+              "timeout": 30000
+            }
+          ],
+          "assert": {
+            "selector": "testid:decision-row-0",
+            "highlight": true
+          },
+          "hold": 5000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "log-proof",
+      "command": "tail -n 1 compositions/default/.garrison/decisions.jsonl | jq .",
+      "source": "compositions/default/.garrison/decisions.jsonl",
+      "kind": "json",
+      "caption": "The on-disk evidence log behind the panel - digests only, never message content.",
+      "expectedScreen": "a pretty-printed JSON decision record with the cc-opus-high targetId line highlighted",
+      "highlight": {
+        "match": "cc-opus-high",
+        "note": "a real routed decision from this composition's history - the expert Claude Code target"
+      },
+      "hold": 5200
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Doctrine in, evidence out",
+      "duration": 2.2
+    }
+  ]
+}

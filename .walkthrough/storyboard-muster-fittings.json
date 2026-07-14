@@ -1,0 +1,226 @@
+{
+  "title": "Muster: standing fittings - fold, configure, station, edit",
+  "project": "agent-garrison",
+  "folder": "muster",
+  "video": {
+    "width": 1280,
+    "height": 800,
+    "fps": 30
+  },
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "Standing Fittings",
+      "subtitle": "agent-garrison \u00b7 the Composition page",
+      "duration": 2.6,
+      "reflectFlag": true
+    },
+    {
+      "type": "browser",
+      "id": "fittings",
+      "baseURL": "http://localhost:7777",
+      "startPath": "/muster",
+      "runTimeoutMs": 420000,
+      "beats": [
+        {
+          "id": "opentab",
+          "caption": "The Fittings tab: every infrastructure slot of the composition on one board.",
+          "expectedScreen": "the top of the Standing Fittings board: the STANDING FITTINGS \u00b7 8 SLOTS header under the section tabs, with the first slot cards (Channels, Gateway, Runtimes) and their stationed fittings",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "testid:duty-list",
+              "timeout": 30000
+            },
+            {
+              "type": "click",
+              "selector": "testid:section-nav-fittings"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:standing-section",
+              "timeout": 30000
+            }
+          ],
+          "assert": {
+            "selector": "testid:standing-section",
+            "highlight": false
+          },
+          "hold": 4600
+        },
+        {
+          "id": "folded",
+          "caption": "Fittings scan as identities - configuration stays folded until you need it.",
+          "expectedScreen": "the Improver fitting block showing name, shape tag and a folded 'Configuration 12' toggle, with no form fields visible",
+          "assert": {
+            "selector": "testid:standing-config-toggle-improver",
+            "highlight": true
+          },
+          "hold": 4000
+        },
+        {
+          "id": "unfold",
+          "caption": "One tap unfolds the full config: twelve fields, autosaving as you type.",
+          "expectedScreen": "the Improver configuration form expanded showing fields like cron, port, stale_days, max_proposals",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:standing-config-toggle-improver"
+            }
+          ],
+          "assert": {
+            "selector": "testid:standing-config-observability-improver-max_proposals",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "editcfg",
+          "caption": "Raise max proposals to 10 - persisted as you type, no Save button.",
+          "expectedScreen": "the max_proposals number field showing 10",
+          "actions": [
+            {
+              "type": "fill",
+              "selector": "testid:standing-config-observability-improver-max_proposals",
+              "text": "10"
+            }
+          ],
+          "assert": {
+            "selector": "testid:standing-config-observability-improver-max_proposals",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "revertcfg",
+          "caption": "Dial it back to 8 - every change is one autosaved write to the manifest.",
+          "expectedScreen": "the max_proposals number field showing 8 again",
+          "actions": [
+            {
+              "type": "fill",
+              "selector": "testid:standing-config-observability-improver-max_proposals",
+              "text": "8"
+            }
+          ],
+          "assert": {
+            "selector": "testid:standing-config-observability-improver-max_proposals",
+            "highlight": true
+          },
+          "hold": 3000
+        },
+        {
+          "id": "swappicker",
+          "caption": "Swap opens the library picker, scoped to the slot's faculty.",
+          "expectedScreen": "a modal titled Swap http-gateway with a search box and the MCP Gateway candidate listed",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:standing-swap-gateway-http-gateway"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:standing-swap-modal",
+              "timeout": 15000
+            }
+          ],
+          "assert": {
+            "selector": "testid:standing-picker-item-mcp-gateway",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "station",
+          "caption": "Station a new runtime: the OpenAI Agents engine joins the composition, for real.",
+          "expectedScreen": "the Runtimes slot now listing an OpenAI Agents runtime block alongside the existing engines",
+          "actions": [
+            {
+              "type": "press",
+              "key": "Escape"
+            },
+            {
+              "type": "click",
+              "selector": "testid:standing-add-runtimes"
+            },
+            {
+              "type": "waitFor",
+              "selector": "testid:standing-swap-modal",
+              "timeout": 15000
+            },
+            {
+              "type": "fill",
+              "selector": "testid:standing-picker-search",
+              "text": "openai"
+            },
+            {
+              "type": "click",
+              "selector": "testid:standing-picker-item-openai-agents-runtime"
+            }
+          ],
+          "assert": {
+            "selector": "testid:standing-fitting-openai-agents-runtime",
+            "highlight": true
+          },
+          "hold": 4400
+        },
+        {
+          "id": "unstation",
+          "caption": "And stands down just as cleanly - membership is one tap each way.",
+          "expectedScreen": "the Runtimes slot back to its original engines, no OpenAI Agents block",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:standing-remove-runtimes-openai-agents-runtime"
+            }
+          ],
+          "assert": {
+            "selector": "testid:standing-slot-runtimes",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "editfiles",
+          "caption": "Edit files opens the fitting's real source in a Monaco editor.",
+          "expectedScreen": "a modal file editor with the HTTP Gateway's file tree on the left and apm.yml YAML source open on the right",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "testid:standing-edit-http-gateway"
+            },
+            {
+              "type": "waitFor",
+              "selector": "text:apm.yml",
+              "timeout": 20000
+            },
+            {
+              "type": "click",
+              "selector": "text:apm.yml"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".monaco-editor",
+              "timeout": 30000
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "assert": {
+            "selector": ".monaco-editor",
+            "highlight": false
+          },
+          "hold": 5200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Every fitting: folded, configured, stationed, editable",
+      "duration": 2.2
+    }
+  ]
+}
