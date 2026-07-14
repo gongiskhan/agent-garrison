@@ -82,9 +82,12 @@ import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPh
 // AFTER the empty done, parking a genuinely-succeeding run). So on an empty reply
 // we do NOT park immediately — we poll the phase's gate file over a bounded grace
 // window and, if it lands and names a next step, advance per the gate. Bounded
-// (default 6 checks × 30s ≈ 3 min) and configurable via env; the sleep is
-// injectable so tests drive the race deterministically without real waits.
-const EMPTY_GATE_GRACE_CHECKS = Math.max(0, Number(process.env.GARRISON_EMPTY_GATE_GRACE_CHECKS) || 6);
+// (default 24 checks × 30s ≈ 12 min — observed live: a high-effort implement
+// turn was falsely-completed at ~2 min while the operative kept working for
+// 8m11s, and the passing gate landed after the old 3-min window expired,
+// parking a run whose work was complete) and configurable via env; the sleep
+// is injectable so tests drive the race deterministically without real waits.
+const EMPTY_GATE_GRACE_CHECKS = Math.max(0, Number(process.env.GARRISON_EMPTY_GATE_GRACE_CHECKS) || 24);
 const EMPTY_GATE_GRACE_INTERVAL_MS = Math.max(0, Number(process.env.GARRISON_EMPTY_GATE_GRACE_INTERVAL_MS) || 30000);
 const defaultGraceSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
