@@ -237,10 +237,12 @@
 }
 
 /* ── section rail (tabs) ────────────────────────────────────────────────── */
+/* The four working areas ARE the page's table of contents - full display-serif
+   headings, not fine print, so it is obvious there is more to configure here. */
 .sectionNav {
   display: flex;
-  gap: 2px;
-  margin: 16px 0 22px;
+  gap: 30px;
+  margin: 18px 0 26px;
   border-bottom: 1px solid var(--rule);
   overflow-x: auto;
   scrollbar-width: none;
@@ -252,26 +254,26 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 11px 17px;
+  gap: 9px;
+  min-height: 48px;
+  padding: 10px 2px 13px;
   border: none;
   background: transparent;
   color: var(--mute);
   cursor: pointer;
-  font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 .navItem::after {
   content: "";
   position: absolute;
-  left: 14px;
-  right: 14px;
+  left: 0;
+  right: 0;
   bottom: -1px;
-  height: 2px;
+  height: 3px;
   background: transparent;
   transition: background-color 0.15s ease;
 }
@@ -290,11 +292,12 @@
 }
 .navCount {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.04em;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border: 1px solid var(--rule-2);
   color: var(--mute);
+  transform: translateY(-1px);
 }
 .navActive .navCount {
   border-color: var(--sage);
@@ -320,6 +323,14 @@
   font-size: 21px;
   letter-spacing: -0.01em;
   color: var(--ink);
+}
+.stageLead {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--mute);
+  max-width: 560px;
 }
 .stageTools {
   display: inline-flex;
@@ -550,14 +561,78 @@
   color: var(--brass);
   padding-top: 2px;
 }
+.levelRail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.levelRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--rule-2);
+  cursor: pointer;
+}
+.level:hover .levelRemove {
+  color: var(--mute);
+}
+.levelRemove:hover {
+  border-color: var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
 .levelBody {
   min-width: 0;
 }
-.levelDesc {
+/* The level's routing criterion - editable in place (the Dispatcher routes by
+   it). Reads as text at rest; reveals itself as a field on hover/focus. */
+.levelDescInput {
+  display: block;
+  width: 100%;
+  margin: 0 0 9px;
+  padding: 3px 6px 3px 0;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  font-family: inherit;
   font-size: 12px;
   color: var(--mute);
   line-height: 1.5;
-  margin: 0 0 9px;
+}
+.levelDescInput:hover {
+  border-bottom-color: var(--rule-2);
+  color: var(--ink);
+}
+.levelDescInput:focus {
+  outline: none;
+  border-bottom: 1px dashed var(--sage);
+  color: var(--ink);
+}
+.addLevelBtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  margin: 10px 0 2px 64px;
+  padding: 5px 12px;
+  border: 1px dashed var(--rule-2);
+  background: transparent;
+  color: var(--mute);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.addLevelBtn:hover {
+  border-color: var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
 }
 
 /* leaf cell */
@@ -957,9 +1032,37 @@
   background: var(--alarm);
 }
 
-/* config form (config_schema-driven; mirrors the Compose ConfigInput branches) */
+/* config form (config_schema-driven; mirrors the Compose ConfigInput branches).
+   Folded by default behind the Configuration toggle - identity scans first. */
+.cfgToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 4px 8px 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cfgToggle:hover {
+  color: var(--ink);
+}
+.cfgCount {
+  font-size: 9.5px;
+  padding: 0 5px;
+  border: 1px solid var(--rule-2);
+  color: var(--mute);
+}
 .configForm {
-  margin-top: 10px;
+  margin-top: 4px;
+  padding: 10px 0 4px 19px;
+  border-left: 2px solid var(--rule);
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -1410,9 +1513,12 @@
   }
   .sectionNav {
     margin: 12px 0 18px;
+    gap: 20px;
   }
   .navItem {
-    padding: 11px 13px;
+    min-height: 44px;
+    padding: 9px 2px 11px;
+    font-size: 16px;
   }
   .dutySummary {
     display: none;
@@ -1423,6 +1529,14 @@
   }
   .levelTag {
     padding-top: 0;
+  }
+  .levelRail {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  .addLevelBtn {
+    margin-left: 0;
   }
   .tray {
     padding: 10px;

@@ -121,6 +121,24 @@ test("(d) the create-runtime flow opens a clone-from-template picker", async ({ 
   await expect(page.getByTestId("standing-template-agent-sdk-runtime")).toBeVisible();
 });
 
+test("(f) config folds by default and the fitting files editor opens", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-fittings").click();
+  await expect(page.getByTestId("standing-fitting-http-gateway")).toBeVisible();
+
+  // Config is FOLDED by default: the toggle shows, the form fields do not.
+  await expect(page.getByTestId("standing-config-toggle-http-gateway")).toBeVisible();
+  await expect(page.getByTestId("standing-config-gateway-http-gateway-port")).toHaveCount(0);
+  await page.getByTestId("standing-config-toggle-http-gateway").click();
+  await expect(page.getByTestId("standing-config-gateway-http-gateway-port")).toBeVisible();
+
+  // Edit files opens the shell's Monaco editor on the fitting's directory.
+  await page.getByTestId("standing-edit-http-gateway").click();
+  const editor = page.getByRole("dialog", { name: /edit files/i });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByText("apm.yml")).toBeVisible({ timeout: 15000 });
+});
+
 test("(e) no horizontal overflow at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/muster?composition=${FIXTURE_ID}`);

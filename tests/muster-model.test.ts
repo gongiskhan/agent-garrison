@@ -4,8 +4,11 @@ import path from "node:path";
 import yaml from "js-yaml";
 
 import {
+  addDutyLevel,
   assembleMusterModel,
   buildMusterPayload,
+  describeDutyLevel,
+  removeDutyLevel,
   setCellTarget,
   setSelectedDuty
 } from "@/app/api/muster/model";
@@ -29,7 +32,18 @@ const choreDuty: DutySpec = {
   id: "chore",
   title: "Chore",
   description: "a small chore",
-  levels: [{ description: "quick", cell: { target: "cc-sonnet", effort: "low" } }]
+  levels: [
+    { description: "quick", cell: { target: "cc-sonnet", effort: "low" } },
+    { description: "thorough", cell: { target: "cc-sonnet", effort: "medium" } }
+  ]
+};
+// A composite duty that runs chore at its LEVEL 2 - the level-removal guard must
+// refuse to remove chore L2 while this reference stands.
+const pipelineDuty: DutySpec = {
+  id: "pipeline",
+  title: "Pipeline",
+  description: "a composite pipeline",
+  levels: [{ description: "runs chore thoroughly", sequence: [{ duty: "chore", level: 2 }] }]
 };
 const TARGETS: CompositionTarget[] = [
   { id: "cc-sonnet", runtime: "claude-code", model: "sonnet" },
@@ -49,7 +63,7 @@ async function writeFixture(): Promise<void> {
         id: FIXTURE_ID,
         name: "Muster Unit Fixture",
         selections: {},
-        duties: [developDuty, choreDuty],
+        duties: [developDuty, choreDuty, pipelineDuty],
         selected_duties: ["develop"],
         targets: TARGETS,
         prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md", soul: ".garrison/prompts/soul.md" }
@@ -204,6 +218,49 @@ describe("write-path server-side validation + payload sanitization (codex S5a)",
     const model = await setCellTarget(FIXTURE_ID, "develop", 1, { target: "cc-sonnet", effort: "high" });
     expect(model.duties.develop?.levels[0].cell?.target).toBe("cc-sonnet");
     expect(model.duties.develop?.levels[0].cell?.effort).toBe("high");
+  });
+
+  it("level-management writers persist and guard (add / describe / remove)", async () => {
+    // ADD: appends a level cloned from the last leaf cell with a bumped effort
+    // and a placeholder description telling the operator to write the criterion.
+    const before = (await assembleMusterModel(FIXTURE_ID)).duties.develop!.levels.length;
+    const added = await addDutyLevel(FIXTURE_ID, "develop");
+    const levels = added.duties.develop!.levels;
+    expect(levels.length).toBe(before + 1);
+    const appended = levels[levels.length - 1];
+    expect(appended.cell?.target).toBe("cc-sonnet"); // cloned from the last level
+    expect(appended.cell?.effort).toBe("xhigh"); // bumped one notch from "high"
+    expect(appended.description).toMatch(/Dispatcher/);
+
+    // DESCRIBE: rewrites the routing criterion; empty is refused.
+    const described = await describeDutyLevel(FIXTURE_ID, "develop", levels.length, "deep: architecture work");
+    expect(described.duties.develop!.levels[levels.length - 1].description).toBe("deep: architecture work");
+    await expect(describeDutyLevel(FIXTURE_ID, "develop", 1, "   ")).rejects.toThrow(/empty/);
+
+    // The manifest holds the new ladder (not just the returned model).
+    const comp = await readManifestComposition();
+    const duties = comp.duties as Array<{ id: string; levels: Array<{ description: string }> }>;
+    expect(duties.find((d) => d.id === "develop")?.levels.length).toBe(before + 1);
+
+    // REMOVE: drops the appended level again.
+    const removed = await removeDutyLevel(FIXTURE_ID, "develop", levels.length);
+    expect(removed.duties.develop!.levels.length).toBe(before);
+
+    // GUARD 1: a duty is never left level-less.
+    await expect(removeDutyLevel(FIXTURE_ID, "pipeline", 1)).rejects.toThrow(/only one level/);
+
+    // GUARD 2: removing a level another duty's sequence runs is refused
+    // (pipeline runs chore at level 2).
+    await expect(removeDutyLevel(FIXTURE_ID, "chore", 2)).rejects.toThrow(/cannot remove level 2/);
+  });
+
+  it("addDutyLevel on a composite duty clones the sequence", async () => {
+    const added = await addDutyLevel(FIXTURE_ID, "pipeline", "runs chore thoroughly, twice as deep");
+    const last = added.duties.pipeline!.levels.at(-1)!;
+    expect(last.sequence).toEqual([{ duty: "chore", level: 2 }]);
+    expect(last.cell).toBeUndefined();
+    // clean up: the composite's extra level is removable (nothing references it)
+    await removeDutyLevel(FIXTURE_ID, "pipeline", 2);
   });
 
   it("sanitizes secret/path params out of the GET payload targets", () => {

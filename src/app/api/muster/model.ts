@@ -13,6 +13,7 @@
 import path from "node:path";
 import {
   resolveModel,
+  validateDutyGraph,
   type DutyGraphError,
   type ResolvedDuty,
   type ResolverFittingInput,
@@ -39,11 +40,13 @@ import { readYamlFile } from "@/lib/yaml";
 import { writeFileAtomic } from "@/lib/atomic-write";
 import { validateCellCompatibility } from "@/lib/router-migrate";
 import { dump as dumpYaml } from "js-yaml";
+import { dutyEfforts } from "@/lib/types";
 import type {
   Cardinality,
   CapabilityIssue,
   ConfigSchemaField,
   DutyEffort,
+  DutyLevel,
   DutyLevelCell,
   DutySpec,
   FacultyId,
@@ -281,6 +284,127 @@ export async function setCellTarget(
     const cell = (target.cell ?? (target.cell = {})) as DutyLevelCell;
     if (patch.target !== undefined) cell.target = patch.target;
     if (patch.effort !== undefined) cell.effort = patch.effort;
+  });
+  return assembleMusterModel(id);
+}
+
+// ── Level management (add / remove / describe) ────────────────────────────────
+// A duty's level ladder is editable: levels can be appended, removed, and have
+// their descriptions rewritten. The Dispatcher reads level DESCRIPTIONS to pick
+// a depth, so the description is first-class here, not cosmetic. All three
+// writers materialise the duty spec into the composition (the composition file
+// wins, D8) exactly like setCellTarget, then write atomically.
+
+// Find (or materialise) the manifest duties[] entry for a resolved duty.
+function materializeDutyEntry(
+  block: CompositionBlock,
+  duty: ResolvedDuty
+): { id?: unknown; title?: unknown; description?: unknown; levels?: unknown } {
+  const duties: Array<{ id?: unknown; levels?: unknown }> = Array.isArray(block.duties)
+    ? (block.duties as Array<{ id?: unknown; levels?: unknown }>)
+    : (block.duties = []);
+  let entry = duties.find((d) => d && d.id === duty.id);
+  if (!entry) {
+    entry = toDutySpec(duty);
+    duties.push(entry);
+  }
+  return entry;
+}
+
+// The default effort for a level appended after `prev`: one notch deeper,
+// capped at the scale's end. A deeper level defaults to more effort.
+function bumpedEffort(prev?: DutyEffort): DutyEffort {
+  const at = dutyEfforts.indexOf(prev ?? "medium");
+  return dutyEfforts[Math.min(at + 1, dutyEfforts.length - 1)];
+}
+
+// Append a level to a duty. The new level clones the last one's shape (a leaf
+// cell keeps its skill + target with a bumped effort; a composite keeps its
+// sequence) under a placeholder description that tells the operator to write
+// the real routing criterion — the Dispatcher picks levels BY description.
+export async function addDutyLevel(
+  compositionId: string | undefined,
+  dutyId: string,
+  description?: string
+): Promise<MusterModel> {
+  const id = await resolveCompositionId(compositionId);
+  const model = await assembleMusterModel(id);
+  const duty = model.duties[dutyId];
+  if (!duty) throw new Error(`unknown duty "${dutyId}"`);
+  const last = duty.levels[duty.levels.length - 1];
+  const n = duty.levels.length + 1;
+  const desc =
+    description?.trim() ||
+    `level ${n}: deeper than level ${n - 1} - describe when the Dispatcher should pick this level`;
+  const next: DutyLevel = last?.cell
+    ? { description: desc, cell: { ...structuredClone(last.cell), effort: bumpedEffort(last.cell.effort) } }
+    : { description: desc, sequence: structuredClone(last?.sequence ?? []) };
+  await mutateCompositionBlock(id, (block) => {
+    const entry = materializeDutyEntry(block, duty);
+    const levels = (entry.levels ?? (entry.levels = [])) as DutyLevel[];
+    levels.push(next);
+  });
+  return assembleMusterModel(id);
+}
+
+// Remove one level from a duty. Refuses to leave a duty level-less, and refuses
+// a removal that would break the duty graph (another duty's sequence running
+// this duty at a level that would no longer exist) — the same validateDutyGraph
+// the resolver runs, applied to the hypothetical post-removal model, so the
+// guard can never drift from the live validation.
+export async function removeDutyLevel(
+  compositionId: string | undefined,
+  dutyId: string,
+  level: number
+): Promise<MusterModel> {
+  const id = await resolveCompositionId(compositionId);
+  const model = await assembleMusterModel(id);
+  const duty = model.duties[dutyId];
+  if (!duty) throw new Error(`unknown duty "${dutyId}"`);
+  if (!duty.levels[level - 1]) {
+    throw new Error(`duty "${dutyId}" has no level ${level} (has ${duty.levels.length})`);
+  }
+  if (duty.levels.length === 1) {
+    throw new Error(`duty "${dutyId}" has only one level - a duty cannot be level-less; remove the duty instead`);
+  }
+  const hypothetical = structuredClone(model.duties);
+  hypothetical[dutyId].levels.splice(level - 1, 1);
+  const before = new Set(validateDutyGraph(model.duties).map((e) => e.message));
+  const broken = validateDutyGraph(hypothetical).filter((e) => !before.has(e.message));
+  if (broken.length > 0) {
+    throw new Error(`cannot remove level ${level} of "${dutyId}": ${broken[0].message}`);
+  }
+  await mutateCompositionBlock(id, (block) => {
+    const entry = materializeDutyEntry(block, duty);
+    const levels = entry.levels as DutyLevel[] | undefined;
+    if (!levels || !levels[level - 1]) throw new Error(`duty "${dutyId}" level ${level} missing in manifest`);
+    levels.splice(level - 1, 1);
+  });
+  return assembleMusterModel(id);
+}
+
+// Rewrite one level's description — the Dispatcher's routing criterion for
+// that depth. Autosaved from the Muster UI (debounced), never a Save button.
+export async function describeDutyLevel(
+  compositionId: string | undefined,
+  dutyId: string,
+  level: number,
+  description: string
+): Promise<MusterModel> {
+  const id = await resolveCompositionId(compositionId);
+  const desc = description.trim();
+  if (!desc) throw new Error("a level description cannot be empty - the Dispatcher routes by it");
+  const model = await assembleMusterModel(id);
+  const duty = model.duties[dutyId];
+  if (!duty) throw new Error(`unknown duty "${dutyId}"`);
+  if (!duty.levels[level - 1]) {
+    throw new Error(`duty "${dutyId}" has no level ${level} (has ${duty.levels.length})`);
+  }
+  await mutateCompositionBlock(id, (block) => {
+    const entry = materializeDutyEntry(block, duty);
+    const levels = entry.levels as Array<{ description?: string }> | undefined;
+    if (!levels || !levels[level - 1]) throw new Error(`duty "${dutyId}" level ${level} missing in manifest`);
+    levels[level - 1].description = desc;
   });
   return assembleMusterModel(id);
 }

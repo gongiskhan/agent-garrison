@@ -15,7 +15,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { OrchestratorPreview, PromptSection } from "@/lib/orchestrator-sections";
-import { CollapsibleSection } from "./CollapsibleSection";
 import styles from "./Orchestrator.module.css";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -129,7 +128,14 @@ export function OrchestratorPanel({ compositionId }: { compositionId: string }) 
 
   return (
     <section className={styles.section} data-testid="orchestrator-panel">
-      <CollapsibleSection label="Orchestrator prompt" summary={summary} testId="orchestrator-section">
+      <div className={styles.panelHead}>
+        <span className={styles.panelLead}>
+          The operative&apos;s system prompt, layered: your editable doctrine plus blocks
+          regenerated from the composition, assembled below exactly as the operative receives it.
+        </span>
+        {summary ? <span className={styles.panelSummary}>{summary}</span> : null}
+      </div>
+      <>
         {status === "loading" && !preview ? (
           <div className={styles.panelSkel} data-testid="orchestrator-loading" />
         ) : status === "error" && !preview ? (
@@ -213,7 +219,7 @@ export function OrchestratorPanel({ compositionId }: { compositionId: string }) 
             </div>
           </>
         ) : null}
-      </CollapsibleSection>
+      </>
     </section>
   );
 }

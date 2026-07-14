@@ -130,6 +130,87 @@ describe("dispatch parser (mirrors parseClassification clamping)", () => {
   });
 });
 
+// Ladders are PER-DUTY: the Muster UI can grow or shrink any duty's level list,
+// so the Dispatcher must never assume 3. One-level, two-level, and four-level
+// duties coexist; every clamp lands inside the chosen duty's REAL range.
+describe("variable level ladders (never assume 3)", () => {
+  function ladders() {
+    return {
+      duties: {
+        plan: {
+          id: "plan",
+          title: "Plan",
+          description: "design a plan",
+          levels: [{ description: "the plan", cell: { target: "fable", effort: "high" } }]
+        },
+        code: {
+          id: "code",
+          title: "Code",
+          description: "write code",
+          levels: [
+            { description: "trivial", cell: { target: "sdk-haiku", effort: "low" } },
+            { description: "standard", cell: { target: "cc-sonnet", effort: "medium" } },
+            { description: "deep", cell: { target: "cc-opus", effort: "high" } },
+            { description: "epic", cell: { target: "cc-opus", effort: "max" } }
+          ]
+        },
+        other: {
+          id: "other",
+          title: "Other",
+          description: "anything else",
+          levels: [
+            { description: "quick", cell: { target: "sdk-haiku", effort: "low" } },
+            { description: "involved", cell: { target: "cc-sonnet", effort: "medium" } }
+          ]
+        }
+      },
+      selectedDuties: ["plan", "code", "other"]
+    };
+  }
+
+  it("the prompt lists exactly each duty's real levels - 1, 4, and 2", () => {
+    const p = buildDispatchPrompt(ladders(), "some task");
+    // code's ladder reaches level 4; nothing lists a level 5.
+    expect(p).toContain("level 4: epic");
+    expect(p).not.toContain("level 5");
+    // plan stops at its single level.
+    expect(p).toContain("level 1: the plan");
+    expect(p).not.toContain("level 2: the plan");
+  });
+
+  it("an out-of-range pick clamps to the duty's OWN standard slot", () => {
+    // plan has 1 level: the standard slot is min(2, 1) = 1.
+    expect(parseDispatch('{"duty":"plan","level":3}', ladders())?.level).toBe(1);
+    // code has 4 levels: 9 is out of range -> standard slot 2; 4 is in range.
+    expect(parseDispatch('{"duty":"code","level":9}', ladders())?.level).toBe(2);
+    expect(parseDispatch('{"duty":"code","level":4}', ladders())?.level).toBe(4);
+    // other has 2 levels: 2 is valid, 3 clamps to the standard slot 2.
+    expect(parseDispatch('{"duty":"other","level":3}', ladders())?.level).toBe(2);
+  });
+
+  it("fallbackDispatch clamps to the fallback duty's ladder", () => {
+    const fb = fallbackDispatch(ladders());
+    expect(fb.duty).toBe("other");
+    expect(fb.level).toBe(2); // other's standard slot on a 2-level ladder
+
+    const oneLevelOnly = {
+      duties: { plan: ladders().duties.plan },
+      selectedDuties: ["plan"]
+    };
+    const fb1 = fallbackDispatch(oneLevelOnly);
+    expect(fb1.duty).toBe("plan");
+    expect(fb1.level).toBe(1); // a 1-level ladder's only slot
+  });
+
+  it("a human override clamps into the chosen duty's real range", () => {
+    const m = ladders();
+    const deep = applyOverride({ duty: "code", level: 2, confidence: "high", reason: "" }, { message: "run this at level 9" }, m);
+    expect(deep.level).toBe(4); // clamped to code's 4-level ceiling
+    const solo = applyOverride({ duty: "plan", level: 1, confidence: "high", reason: "" }, { message: "run this at level 3" }, m);
+    expect(solo.level).toBe(1); // plan only has one level
+  });
+});
+
 describe("human override (always wins over the pick)", () => {
   it("extracts an explicit level instruction from the message", () => {
     expect(parseLevelOverride("run this at level 3")).toBe(3);

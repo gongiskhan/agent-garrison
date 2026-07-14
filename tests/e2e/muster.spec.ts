@@ -156,6 +156,46 @@ test("(d) live validation flags a garrison-call target on a skill cell", async (
   await expect(cell).toHaveAttribute("data-target", "oneshot");
 });
 
+test("(f) a duty's level ladder is editable: add, describe, remove", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("duty-toggle-develop").click();
+
+  // A single-level duty offers no remove control (a duty is never level-less).
+  await expect(page.getByTestId("cell-target-develop-1")).toBeVisible();
+  await expect(page.getByTestId("level-remove-develop-1")).toHaveCount(0);
+
+  // ADD: clones the last leaf cell - target kept, effort bumped one notch
+  // (medium -> high) - under a placeholder routing criterion.
+  await page.getByTestId("level-add-develop").click();
+  const cell2 = page.getByTestId("cell-target-develop-2");
+  await expect(cell2).toBeVisible();
+  await expect(cell2).toHaveAttribute("data-target", "cc-sonnet");
+  await expect(page.getByTestId("cell-effort-develop-2-high")).toHaveAttribute("aria-pressed", "true");
+
+  // DESCRIBE: the criterion autosaves (debounced) - poll the API until the
+  // write lands, then prove it survives a reload.
+  await page.getByTestId("level-desc-develop-2").fill("deep: architecture-grade work");
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async (id) => {
+          const res = await fetch(`/api/muster?composition=${id}`);
+          const m = await res.json();
+          return m.duties?.develop?.levels?.[1]?.description ?? null;
+        }, FIXTURE_ID),
+      { timeout: 8000 }
+    )
+    .toBe("deep: architecture-grade work");
+  await page.reload();
+  await page.getByTestId("duty-toggle-develop").click();
+  await expect(page.getByTestId("level-desc-develop-2")).toHaveValue("deep: architecture-grade work");
+
+  // REMOVE: back to one level; the remove control disappears with it.
+  await page.getByTestId("level-remove-develop-2").click();
+  await expect(page.getByTestId("cell-target-develop-2")).toHaveCount(0);
+  await expect(page.getByTestId("level-remove-develop-1")).toHaveCount(0);
+});
+
 test("(e) no horizontal overflow at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/muster");

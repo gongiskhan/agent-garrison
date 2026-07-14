@@ -14,6 +14,8 @@
 // removal via a confirm banner - never auto-applied.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
+import { useAppShell } from "@/components/chrome/AppShell";
 import styles from "./Muster.module.css";
 
 type ConfigValue = string | number | boolean;
@@ -101,10 +103,26 @@ function XMark() {
     </svg>
   );
 }
+function Caret({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={clsx(styles.caret, open && styles.open)}
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+    >
+      <path d="M4 2.5L8 6l-4 3.5" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 type SwapTarget = { faculty: string; fromId?: string };
 
 export function StandingFittings({ compositionId }: { compositionId: string }) {
+  // The shell owns the Fitting file editor (Monaco modal + tree) and the library
+  // index it needs; the Edit-files action on each fitting block opens it.
+  const { library, openFittingEditor } = useAppShell();
   const [model, setModel] = useState<StandingModel | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -274,6 +292,20 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
     [doSwap]
   );
 
+  // Open the shell's Monaco file editor on a fitting. Only local fittings (a
+  // localPath in the library) have files on disk to edit.
+  const editFitting = useCallback(
+    (fittingId: string) => {
+      const entry = library.find((e) => e.id === fittingId);
+      if (entry) openFittingEditor(entry);
+    },
+    [library, openFittingEditor]
+  );
+  const isEditable = useCallback(
+    (fittingId: string) => Boolean(library.find((e) => e.id === fittingId)?.localPath),
+    [library]
+  );
+
   const runtimeSlot = useMemo(() => model?.slots.find((s) => s.faculty === "runtimes") ?? null, [model]);
 
   if (status === "loading" && !model) {
@@ -348,6 +380,8 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
             onConfig={commitConfig}
             onSetPrimary={setPrimary}
             onTest={testRuntime}
+            onEdit={editFitting}
+            isEditable={isEditable}
             onNewRuntime={slot.faculty === "runtimes" ? () => setCreateOpen(true) : undefined}
           />
         ))}
@@ -420,6 +454,8 @@ function SlotCard({
   onConfig,
   onSetPrimary,
   onTest,
+  onEdit,
+  isEditable,
   onNewRuntime
 }: {
   slot: StandingSlot;
@@ -431,6 +467,8 @@ function SlotCard({
   onConfig: (faculty: string, fittingId: string, field: ConfigSchemaField, value: ConfigValue) => void;
   onSetPrimary: (fittingId: string) => void;
   onTest: (fittingId: string) => void;
+  onEdit: (fittingId: string) => void;
+  isEditable: (fittingId: string) => boolean;
   onNewRuntime?: () => void;
 }) {
   const empty = slot.fittings.length === 0;
@@ -463,6 +501,7 @@ function SlotCard({
               onConfig={(field, value) => onConfig(slot.faculty, fitting.id, field, value)}
               onSetPrimary={() => onSetPrimary(fitting.id)}
               onTest={() => onTest(fitting.id)}
+              onEdit={isEditable(fitting.id) ? () => onEdit(fitting.id) : undefined}
             />
           ))}
         </div>
@@ -502,7 +541,8 @@ function FittingBlock({
   onRemove,
   onConfig,
   onSetPrimary,
-  onTest
+  onTest,
+  onEdit
 }: {
   fitting: StandingFittingView;
   health: boolean | undefined;
@@ -513,7 +553,11 @@ function FittingBlock({
   onConfig: (field: ConfigSchemaField, value: ConfigValue) => void;
   onSetPrimary: () => void;
   onTest: () => void;
+  onEdit?: () => void;
 }) {
+  // Config starts folded: the scan view is fitting identities, not forms. A
+  // fitting's knobs open on demand.
+  const [cfgOpen, setCfgOpen] = useState(false);
   return (
     <div className={styles.fittingBlock} data-testid={`standing-fitting-${fitting.id}`}>
       <div className={styles.fittingHead}>
@@ -538,18 +582,33 @@ function FittingBlock({
       </div>
 
       {fitting.configSchema.length > 0 ? (
-        <div className={styles.configForm}>
-          {fitting.configSchema.map((field) => (
-            <ConfigField
-              key={field.key}
-              faculty={fitting.faculty}
-              fittingId={fitting.id}
-              field={field}
-              value={fitting.config[field.key] ?? field.default ?? ""}
-              onChange={(value) => onConfig(field, value)}
-            />
-          ))}
-        </div>
+        <>
+          <button
+            type="button"
+            className={styles.cfgToggle}
+            aria-expanded={cfgOpen}
+            onClick={() => setCfgOpen((v) => !v)}
+            data-testid={`standing-config-toggle-${fitting.id}`}
+          >
+            <Caret open={cfgOpen} />
+            Configuration
+            <span className={styles.cfgCount}>{fitting.configSchema.length}</span>
+          </button>
+          {cfgOpen ? (
+            <div className={styles.configForm}>
+              {fitting.configSchema.map((field) => (
+                <ConfigField
+                  key={field.key}
+                  faculty={fitting.faculty}
+                  fittingId={fitting.id}
+                  field={field}
+                  value={fitting.config[field.key] ?? field.default ?? ""}
+                  onChange={(value) => onConfig(field, value)}
+                />
+              ))}
+            </div>
+          ) : null}
+        </>
       ) : (
         <p className={styles.cfgEmpty}>No configuration for this fitting.</p>
       )}
@@ -586,6 +645,17 @@ function FittingBlock({
       ) : null}
 
       <div className={styles.runtimeControls} style={{ borderTop: "none", paddingTop: 6, marginTop: 8 }}>
+        {onEdit ? (
+          <button
+            type="button"
+            className={styles.testBtn}
+            onClick={onEdit}
+            title="Open this fitting's files in the editor"
+            data-testid={`standing-edit-${fitting.id}`}
+          >
+            Edit files
+          </button>
+        ) : null}
         <button
           type="button"
           className={styles.testBtn}

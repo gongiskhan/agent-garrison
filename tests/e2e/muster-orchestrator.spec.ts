@@ -67,14 +67,10 @@ function clearAuthored(): void {
 }
 
 
-// On mobile the Muster CollapsibleSections auto-collapse; expand every collapsed
-// section so content assertions see the rendered body (S5c mobile-collapse, D12).
-// The orchestrator panel loads content async from /api/orchestrator/preview, so
-// WAIT for that load to settle (the loading skeleton detaches) before toggling —
-// otherwise expandAll runs before the section + its toggle exist.
-// Muster now presents its areas as section tabs (Duties / Fittings / Orchestrator /
-// Decisions); only the active one mounts. Select the tab that owns the panel under
-// test before asserting on it.
+// Muster presents its areas as section tabs (Duties / Fittings / Orchestrator /
+// Decisions); only the active one mounts, and a panel never collapses behind its
+// own title (the tab owns navigation). Select the tab that owns the panel under
+// test, then wait for its async load (the loading skeleton detaching).
 async function openSection(
   page: import("@playwright/test").Page,
   id: "duties" | "fittings" | "orchestrator" | "decisions"
@@ -83,16 +79,11 @@ async function openSection(
   await page.getByTestId(`section-nav-${id}`).click();
 }
 
-async function expandAll(page: import("@playwright/test").Page): Promise<void> {
-  // The panel's content loads async (preview/decisions fetch); let its loading
-  // skeleton detach, then expand any CollapsibleSection collapsed on mobile.
-  await page.getByTestId("orchestrator-loading").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
-  await page.waitForTimeout(400);
-  for (let pass = 0; pass < 6; pass++) {
-    const collapsed = page.locator('[data-testid$="-toggle"][aria-expanded="false"]');
-    if ((await collapsed.count()) === 0) break;
-    try { await collapsed.first().click({ timeout: 2000 }); } catch { break; }
-  }
+async function waitForPanel(
+  page: import("@playwright/test").Page,
+  id: "orchestrator" | "decisions"
+): Promise<void> {
+  await page.getByTestId(`${id}-loading`).waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
 }
 
 test.beforeEach(() => {
@@ -104,7 +95,7 @@ test.afterAll(() => fs.rmSync(FIXTURE_DIR, { recursive: true, force: true }));
 test("(a) orchestrator panel renders locked (greyed, non-editable) + authored + assembled", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await openSection(page, "orchestrator");
-  await expandAll(page);
+  await waitForPanel(page, "orchestrator");
   await expect(page.getByTestId("orchestrator-panel")).toBeVisible();
 
   // A LOCKED block with its "regenerated from composition" badge, and NO edit control inside it.
@@ -127,7 +118,7 @@ test("(a) orchestrator panel renders locked (greyed, non-editable) + authored + 
 test("(b) editing an authored section autosaves and survives reload; locked stays put", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await openSection(page, "orchestrator");
-  await expandAll(page);
+  await waitForPanel(page, "orchestrator");
   const authored = page.getByTestId("orchestrator-authored-routing-philosophy");
   await expect(authored).toBeVisible();
 
@@ -143,7 +134,7 @@ test("(b) editing an authored section autosaves and survives reload; locked stay
   // Reload: the authored edit persisted, and the locked block is unchanged.
   await page.reload();
   await openSection(page, "orchestrator"); // reload lands on the default (Duties) tab
-  await expandAll(page); // re-expand: reload re-collapses the section on mobile
+  await waitForPanel(page, "orchestrator");
   await expect(page.getByTestId("orchestrator-authored-routing-philosophy")).toHaveValue(custom);
   const lockedAfter = (await page.getByTestId("orchestrator-locked-readiness").innerText()).trim();
   expect(lockedAfter).toBe(lockedBefore);
@@ -152,7 +143,7 @@ test("(b) editing an authored section autosaves and survives reload; locked stay
 test("(c) the decisions panel renders the evidence feed", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await openSection(page, "decisions");
-  await expandAll(page);
+  await waitForPanel(page, "decisions");
   await expect(page.getByTestId("decisions-panel")).toBeVisible();
 
   const list = page.getByTestId("decisions-list");
@@ -166,7 +157,7 @@ test("(e) no horizontal overflow at 390px on the orchestrator panel (widest cont
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await openSection(page, "orchestrator");
-  await expandAll(page);
+  await waitForPanel(page, "orchestrator");
   // The assembled prompt is the widest content in the app; with it on screen the
   // page must still not scroll horizontally at 390px.
   await expect(page.getByTestId("orchestrator-assembled")).toBeVisible();

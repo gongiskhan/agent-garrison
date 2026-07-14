@@ -19,6 +19,7 @@ import {
 } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import clsx from "clsx";
+import { dutyEfforts } from "@/lib/types";
 import { AddDuty, DutyList, MusterHeader, ReadinessDetail, TargetsTray } from "./MusterView";
 import { StandingFittings } from "./StandingFittings";
 import { OrchestratorPanel } from "./OrchestratorPanel";
@@ -52,6 +53,35 @@ function patchCell(
   const levels = duty.levels.map((lv, i) =>
     i === level - 1 ? { ...lv, cell: { ...lv.cell, ...patch } } : lv
   );
+  return { ...model, duties: { ...model.duties, [dutyId]: { ...duty, levels } } };
+}
+
+// Mirror of the server's addDutyLevel default (clone the last level; a leaf cell
+// bumps its effort one notch) so the optimistic append matches what persists.
+function patchAddLevel(model: MusterModel, dutyId: string): MusterModel {
+  const duty = model.duties[dutyId];
+  if (!duty || duty.levels.length === 0) return model;
+  const last = duty.levels[duty.levels.length - 1];
+  const n = duty.levels.length + 1;
+  const description = `level ${n}: deeper than level ${n - 1} - describe when the Dispatcher should pick this level`;
+  const bumped = dutyEfforts[Math.min(dutyEfforts.indexOf(last.cell?.effort ?? "medium") + 1, dutyEfforts.length - 1)];
+  const next = last.cell
+    ? { description, cell: { ...last.cell, effort: bumped } }
+    : { description, sequence: (last.sequence ?? []).map((s) => ({ ...s })) };
+  return { ...model, duties: { ...model.duties, [dutyId]: { ...duty, levels: [...duty.levels, next] } } };
+}
+
+function patchRemoveLevel(model: MusterModel, dutyId: string, level: number): MusterModel {
+  const duty = model.duties[dutyId];
+  if (!duty || duty.levels.length <= 1 || !duty.levels[level - 1]) return model;
+  const levels = duty.levels.filter((_, i) => i !== level - 1);
+  return { ...model, duties: { ...model.duties, [dutyId]: { ...duty, levels } } };
+}
+
+function patchDescribeLevel(model: MusterModel, dutyId: string, level: number, description: string): MusterModel {
+  const duty = model.duties[dutyId];
+  if (!duty || !duty.levels[level - 1]) return model;
+  const levels = duty.levels.map((lv, i) => (i === level - 1 ? { ...lv, description } : lv));
   return { ...model, duties: { ...model.duties, [dutyId]: { ...duty, levels } } };
 }
 
@@ -164,6 +194,49 @@ export function MusterPage() {
     [persist]
   );
 
+  const addLevel = useCallback(
+    (dutyId: string) => {
+      setModel((m) => (m ? patchAddLevel(m, dutyId) : m));
+      void persist("/api/muster/level", { dutyId, action: "add" });
+    },
+    [persist]
+  );
+
+  const removeLevel = useCallback(
+    (dutyId: string, level: number) => {
+      setModel((m) => (m ? patchRemoveLevel(m, dutyId, level) : m));
+      void persist("/api/muster/level", { dutyId, action: "remove", level });
+    },
+    [persist]
+  );
+
+  // Level descriptions are free text: patch optimistically per keystroke, persist
+  // debounced per (duty, level) so the manifest write settles once typing stops.
+  const describeTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const describeLevel = useCallback(
+    (dutyId: string, level: number, description: string) => {
+      setModel((m) => (m ? patchDescribeLevel(m, dutyId, level, description) : m));
+      const key = `${dutyId}:${level}`;
+      const existing = describeTimers.current.get(key);
+      if (existing) clearTimeout(existing);
+      describeTimers.current.set(
+        key,
+        setTimeout(() => {
+          describeTimers.current.delete(key);
+          void persist("/api/muster/level", { dutyId, action: "describe", level, description });
+        }, 600)
+      );
+    },
+    [persist]
+  );
+
+  useEffect(() => {
+    const timers = describeTimers.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+    };
+  }, []);
+
   const switchComposition = useCallback(async (id: string) => {
     try {
       await fetch("/api/composition/active", {
@@ -249,6 +322,9 @@ export function MusterPage() {
     setEffort,
     addDuty,
     removeDuty,
+    addLevel,
+    removeLevel,
+    describeLevel,
     switchComposition
   };
 
@@ -302,7 +378,10 @@ export function MusterPage() {
               <div className={styles.dutiesPanel} data-testid="duties-panel">
                 <div className={styles.dutiesMain}>
                   <div className={styles.stageHead}>
-                    <span className={styles.stageTitle}>Duties</span>
+                    <span className={styles.stageLead}>
+                      The work this composition routes. The Dispatcher picks a duty, then a level -
+                      each level&apos;s description is its routing criterion.
+                    </span>
                     <span className={styles.stageTools}>
                       {saving ? <span className={styles.saving}>saving…</span> : null}
                       <AddDuty model={model} actions={actions} />

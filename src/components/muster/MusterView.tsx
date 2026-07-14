@@ -297,9 +297,32 @@ function DutyRow({
         <div className={styles.levels} data-testid={`duty-levels-${duty.id}`}>
           {duty.levels.map((level, index) => (
             <div className={styles.level} key={index}>
-              <div className={styles.levelTag}>L{index + 1}</div>
+              <div className={styles.levelRail}>
+                <div className={styles.levelTag}>L{index + 1}</div>
+                {duty.levels.length > 1 ? (
+                  <button
+                    type="button"
+                    className={styles.levelRemove}
+                    onClick={() => actions.removeLevel(duty.id, index + 1)}
+                    title={`Remove level ${index + 1}`}
+                    aria-label={`Remove level ${index + 1} of ${duty.title}`}
+                    data-testid={`level-remove-${duty.id}-${index + 1}`}
+                  >
+                    <XMark />
+                  </button>
+                ) : null}
+              </div>
               <div className={styles.levelBody}>
-                <p className={styles.levelDesc}>{level.description}</p>
+                <input
+                  type="text"
+                  className={styles.levelDescInput}
+                  value={level.description}
+                  onChange={(e) => actions.describeLevel(duty.id, index + 1, e.target.value)}
+                  spellCheck={false}
+                  aria-label={`Level ${index + 1} routing criterion`}
+                  title="The Dispatcher routes by this description - say when this depth is the right one"
+                  data-testid={`level-desc-${duty.id}-${index + 1}`}
+                />
                 {level.cell ? (
                   <LeafCell
                     dutyId={duty.id}
@@ -314,6 +337,14 @@ function DutyRow({
               </div>
             </div>
           ))}
+          <button
+            type="button"
+            className={styles.addLevelBtn}
+            onClick={() => actions.addLevel(duty.id)}
+            data-testid={`level-add-${duty.id}`}
+          >
+            + Add level
+          </button>
         </div>
       ) : null}
     </div>

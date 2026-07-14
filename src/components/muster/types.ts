@@ -35,5 +35,8 @@ export interface MusterActions {
   setEffort: (dutyId: string, level: number, effort: DutyEffort) => void;
   addDuty: (dutyId: string) => void;
   removeDuty: (dutyId: string) => void;
+  addLevel: (dutyId: string) => void;
+  removeLevel: (dutyId: string, level: number) => void;
+  describeLevel: (dutyId: string, level: number, description: string) => void;
   switchComposition: (id: string) => void;
 }

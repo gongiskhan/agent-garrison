@@ -6,61 +6,34 @@
    horizontally at 390px, whether a section is expanded or collapsed. Light-only,
    matching the app's single locked theme. */
 
-/* Matches Muster.module.css .section spacing so the two panels sit in the same
-   vertical rhythm as the Duties + Standing sections above them. */
+/* Each panel is a section TAB now - the rail above it owns navigation, so
+   nothing here collapses. The head is a static lead + a mono summary. */
 .section {
-  margin-top: 30px;
+  margin-top: 0;
 }
 
-/* ── collapsible section shell ──────────────────────────────────────────── */
-.collapseHead {
+.panelHead {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 44px;
-  padding: 8px 2px;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--rule);
-  cursor: pointer;
-  text-align: left;
-  color: var(--ink);
-  font: inherit;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
 }
-.collapseHead:hover .collapseLabel {
-  color: var(--ink);
-}
-.collapseCaret {
+.panelLead {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
   color: var(--mute);
-  flex-shrink: 0;
-  transition: transform 0.15s ease;
+  max-width: 560px;
 }
-.collapseCaret.open {
-  transform: rotate(90deg);
-}
-.collapseLabel {
-  font-family: var(--font-mono), "JetBrains Mono", monospace;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--brass);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-.collapseSummary {
+.panelSummary {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: 10.5px;
   color: var(--mute);
   letter-spacing: 0.02em;
-  margin-left: auto;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.collapseBody {
-  padding-top: 14px;
 }
 
 /* ── orchestrator panel ─────────────────────────────────────────────────── */
@@ -341,6 +314,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .collapseCaret { transition: none; }
   .panelSkel { animation: none; }
 }

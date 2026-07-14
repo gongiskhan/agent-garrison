@@ -197,413 +197,201 @@ x-garrison:
     duties:
       - id: code
         title: Code
-        description: Code work (migrated from routing task-type "code")
+        description: 'Write or change code: features, fixes, refactors.'
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
             cell:
               target: sdk-haiku
               effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
+          - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
             cell:
               target: cc-sonnet
-              effort: low
+              effort: medium
           - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
+              security-sensitive or multi-subsystem work
             cell:
               target: cc-opus
-              effort: low
+              effort: high
       - id: other
         title: Other
-        description: Other work (migrated from routing task-type "other")
+        description: Anything that fits no other duty.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
             cell:
               target: sdk-haiku
               effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
             cell:
               target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
-            cell:
-              target: cc-sonnet
-              effort: low
+              effort: medium
       - id: research
         title: Research
-        description: Research work (migrated from routing task-type "research")
+        description: 'Find things out: look up, survey, investigate.'
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'lookup: a fact check or a single-source answer'
             cell:
               target: sdk-haiku
               effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
+          - description: 'focused: survey a topic or compare a few options, with sources'
             cell:
               target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+              effort: medium
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
             cell:
               target: cc-opus
-              effort: low
+              effort: high
       - id: plan
         title: Plan
-        description: Plan work (migrated from routing task-type "plan")
+        description: Design an implementation plan before building.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: fable
-              effort: high
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: fable
-              effort: high
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: 'design the implementation plan for the work at hand: explore, decide, write the plan'
             cell:
               target: fable
               effort: high
       - id: implement
         title: Implement
-        description: Implement work (migrated from routing task-type "implement")
+        description: Execute a planned change end to end.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: opus
-              effort: high
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: opus
-              effort: high
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: 'carry a planned change end to end: code, verify, evidence'
             cell:
               target: opus
               effort: high
       - id: review
         title: Review
-        description: Review work (migrated from routing task-type "review")
+        description: Review a change for correctness and quality.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'standard: review a focused diff for correctness and style'
             cell:
               target: cc-sonnet
-              effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
+              effort: medium
+          - description: 'deep: review a large or risky change; hunt for real defects, not nits'
             cell:
-              target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
-            cell:
-              target: cc-sonnet
-              effort: low
+              target: cc-opus
+              effort: high
       - id: test
         title: Test
-        description: Test work (migrated from routing task-type "test")
+        description: Exercise a change with tests.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'standard: run and extend the tests that cover the change'
             cell:
               target: cc-sonnet
-              effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
+              effort: medium
+          - description: 'thorough: build out missing coverage, e2e included'
             cell:
               target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
-            cell:
-              target: cc-sonnet
-              effort: low
+              effort: high
       - id: image
         title: Image
-        description: Image work (migrated from routing task-type "image")
+        description: Create or edit images.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: sec-gemini
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: sec-gemini
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: generate or edit an image
             cell:
               target: sec-gemini
       - id: video
         title: Video
-        description: Video work (migrated from routing task-type "video")
+        description: Create or edit videos.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: sec-gemini
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: sec-gemini
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: generate or edit a video
             cell:
               target: sec-gemini
       - id: writing
         title: Writing
-        description: Writing work (migrated from routing task-type "writing")
+        description: 'Write prose: notes, docs, posts, specs.'
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'short-form: a note, a summary, an announcement, a doc tweak'
             cell:
               target: cc-sonnet
               effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
+          - description: 'long-form: a document, a spec, a post with structure and polish'
             cell:
               target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
-            cell:
-              target: cc-sonnet
-              effort: low
+              effort: medium
       - id: ops
         title: Ops
-        description: Ops work (migrated from routing task-type "ops")
+        description: 'Operate the system: run, restart, configure, deploy.'
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'routine: restart a service, check a status, run a known command'
             cell:
               target: cc-sonnet
               effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
+          - description: 'careful: config changes, migrations, anything with blast radius'
             cell:
               target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
-            cell:
-              target: cc-sonnet
-              effort: low
+              effort: high
       - id: adversarial-review
         title: Adversarial Review
-        description: Adversarial Review work (migrated from routing task-type "adversarial-review")
+        description: Independent cross-model review that tries to refute the change.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'standard: an independent cross-model pass over the change'
             cell:
               target: sol
-              effort: high
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: sol
-              effort: high
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+              effort: medium
+          - description: 'deep: decorrelated scrutiny of a risky or security-adjacent change'
             cell:
               target: sol
               effort: high
       - id: adversarial-test
         title: Adversarial Test
-        description: Adversarial Test work (migrated from routing task-type "adversarial-test")
+        description: Independent cross-model attempt to break the change.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'standard: an independent attempt to break the change'
             cell:
               target: sol
-              effort: high
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: sol
-              effort: high
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+              effort: medium
+          - description: 'deep: sustained adversarial testing of a critical path'
             cell:
               target: sol
               effort: high
       - id: ux-qa
-        title: Ux Qa
-        description: Ux Qa work (migrated from routing task-type "ux-qa")
+        title: UX QA
+        description: Walk the UI like a picky end user and flag what looks off.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
+          - description: 'spot-check: a quick pass over the changed surface'
             cell:
               target: fable
-              effort: high
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: fable
-              effort: high
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+              effort: low
+          - description: 'full pass: a pixel-level UX audit of the whole flow'
             cell:
               target: fable
               effort: high
       - id: walkthrough
         title: Walkthrough
-        description: Walkthrough work (migrated from routing task-type "walkthrough")
+        description: Record a self-verified evidence walkthrough (video) of a working flow.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: opus
-              effort: high
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: opus
-              effort: high
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: record and self-verify an evidence walkthrough of a working flow
             cell:
               target: opus
               effort: high
       - id: validate
         title: Validate
-        description: Validate work (migrated from routing task-type "validate")
+        description: Run the validation pipeline over the work.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: run the validation gates over the current work
             cell:
               target: cc-sonnet
               effort: low
       - id: codex-checkpoint
         title: Codex Checkpoint
-        description: Codex Checkpoint work (migrated from routing task-type "codex-checkpoint")
+        description: Run the decorrelated codex checkpoint over the run.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: run the cross-model codex checkpoint
             cell:
               target: cc-sonnet
               effort: low
       - id: report
         title: Report
-        description: Report work (migrated from routing task-type "report")
+        description: Compose and deliver the run report.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: compose and deliver the end-of-run report
             cell:
               target: cc-sonnet
               effort: low
       - id: probe-question
         title: Probe Question
-        description: Probe Question work (migrated from routing task-type "probe-question")
+        description: Answer a health-probe question with one short reply.
         levels:
-          - description: >-
-              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
-              lookup, a one-line config tweak.
-            cell:
-              target: sdk-ollama-probe
-              effort: low
-          - description: >-
-              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
-              refactor, a normal review.
-            cell:
-              target: sdk-ollama-probe
-              effort: low
-          - description: >-
-              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
-              cause, a security-sensitive change, a multi-subsystem migration.
+          - description: answer a routing probe with a single short reply
             cell:
               target: sdk-ollama-probe
               effort: low

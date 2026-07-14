@@ -10,7 +10,6 @@
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import type { DecisionView } from "@/lib/decisions-feed";
-import { CollapsibleSection } from "./CollapsibleSection";
 import styles from "./Orchestrator.module.css";
 
 type Status = "loading" | "ready" | "error";
@@ -59,7 +58,14 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
 
   return (
     <section className={styles.section} data-testid="decisions-panel">
-      <CollapsibleSection label="Recent decisions" summary={summary} testId="decisions-section">
+      <div className={styles.panelHead}>
+        <span className={styles.panelLead}>
+          The evidence feed: every routing decision the Dispatcher and gateway logged for this
+          composition - which duty, at which level, to which target. Newest first.
+        </span>
+        {summary ? <span className={styles.panelSummary}>{summary}</span> : null}
+      </div>
+      <>
         {status === "loading" ? (
           <div className={styles.panelSkel} data-testid="decisions-loading" />
         ) : status === "error" ? (
@@ -103,7 +109,7 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
             })}
           </div>
         )}
-      </CollapsibleSection>
+      </>
     </section>
   );
 }
