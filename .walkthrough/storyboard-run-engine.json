@@ -52,12 +52,12 @@
         {
           "id": "task",
           "caption": "A standard, bounded task - the kind a team would put on its board.",
-          "expectedScreen": "the chat input filled with a request to add a truncateWords utility with unit tests in the garrison-e2e-demo project",
+          "expectedScreen": "the chat input filled with a request to add a wordWrap utility with unit tests in the garrison-e2e-demo project",
           "actions": [
             {
               "type": "fill",
               "selector": ".cc-input",
-              "text": "In the garrison-e2e-demo project, add a truncateWords(text, maxWords) utility in src/truncate-words.mjs that appends an ellipsis when it truncates, with unit tests in test/truncate-words.test.mjs."
+              "text": "In the garrison-e2e-demo project, add a wordWrap(text, width) utility in src/word-wrap.mjs that wraps text at word boundaries to the given width, with unit tests in test/word-wrap.test.mjs."
             }
           ],
           "assert": {
@@ -141,16 +141,16 @@
         {
           "id": "cardonboard",
           "caption": "The card is on the board - the run engine owns it from here.",
-          "expectedScreen": "the kanban board with phase columns and the truncateWords card visible on an early phase list",
+          "expectedScreen": "the kanban board with phase columns and the wordWrap card visible on an early phase list",
           "actions": [
             {
               "type": "waitFor",
-              "selector": ".card:has-text(\"truncateWords\")",
+              "selector": ".card:has-text(\"wordWrap\")",
               "timeout": 60000
             }
           ],
           "assert": {
-            "selector": ".card:has-text(\"truncateWords\")",
+            "selector": ".card:has-text(\"wordWrap\")",
             "highlight": true
           },
           "hold": 4600
@@ -160,7 +160,7 @@
           "caption": "A standard-tier run keeps the deep gates visibly OFF - recorded, never silently skipped.",
           "expectedScreen": "dimmed off chips on the card such as adversarial-review: off and walkthrough: off",
           "assert": {
-            "selector": ".card:has-text(\"truncateWords\") .chip.off:has-text(\"walkthrough\")",
+            "selector": ".card:has-text(\"wordWrap\") .chip.off:has-text(\"walkthrough\")",
             "highlight": true
           },
           "hold": 4600
@@ -168,16 +168,16 @@
         {
           "id": "planroute",
           "caption": "Plan completes on Fable - the card is stamped with exactly who ran it.",
-          "expectedScreen": "the truncateWords card carrying a route chip reading plan @ claude-fable-5 or a later phase chip",
+          "expectedScreen": "the wordWrap card carrying a route chip reading plan @ claude-fable-5 or a later phase chip",
           "actions": [
             {
               "type": "waitFor",
-              "selector": ".card:has-text(\"truncateWords\") .chip.route",
+              "selector": ".card:has-text(\"wordWrap\") .chip.route",
               "timeout": 300000
             }
           ],
           "assert": {
-            "selector": ".card:has-text(\"truncateWords\") .chip.route",
+            "selector": ".card:has-text(\"wordWrap\") .chip.route",
             "highlight": true
           },
           "hold": 4600
@@ -197,16 +197,16 @@
       "continue": true,
       "runTimeoutMs": 900000,
       "waitBefore": {
-        "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\")",
+        "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"wordWrap\")",
         "timeout": 780000
       },
       "beats": [
         {
           "id": "attest",
           "caption": "Implemented and reviewed, each phase on its own engine. Test batches on a schedule - kick it now.",
-          "expectedScreen": "the truncateWords card sitting in the Test column with a Run button",
+          "expectedScreen": "the wordWrap card sitting in the Test column with a Run button",
           "assert": {
-            "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\")",
+            "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"wordWrap\")",
             "highlight": true
           },
           "hold": 4600
@@ -214,20 +214,20 @@
         {
           "id": "kicktest",
           "caption": "Run the Test phase on demand.",
-          "expectedScreen": "the truncateWords card in the Test column showing a live running state",
+          "expectedScreen": "the wordWrap card in the Test column showing a live running state",
           "actions": [
             {
               "type": "click",
-              "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"truncateWords\") button:has-text(\"Run\")"
+              "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"wordWrap\") button:has-text(\"Run\")"
             },
             {
               "type": "waitFor",
-              "selector": ".card:has-text(\"truncateWords\") .run-live",
+              "selector": ".card:has-text(\"wordWrap\") .run-live",
               "timeout": 60000
             }
           ],
           "assert": {
-            "selector": ".card:has-text(\"truncateWords\") .run-live",
+            "selector": ".card:has-text(\"wordWrap\") .run-live",
             "highlight": true
           },
           "hold": 4600
@@ -235,16 +235,16 @@
         {
           "id": "done",
           "caption": "Green. The run completes - the card lands in Done.",
-          "expectedScreen": "the truncateWords card in the Done column",
+          "expectedScreen": "the wordWrap card in the Done column",
           "actions": [
             {
               "type": "waitFor",
-              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\")",
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"wordWrap\")",
               "timeout": 480000
             }
           ],
           "assert": {
-            "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\")",
+            "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"wordWrap\")",
             "highlight": true
           },
           "hold": 4600
@@ -256,7 +256,7 @@
           "actions": [
             {
               "type": "click",
-              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"truncateWords\") button:has-text(\"Open\")"
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"wordWrap\") button:has-text(\"Open\")"
             },
             {
               "type": "waitFor",
@@ -445,7 +445,7 @@
             }
           ],
           "assert": {
-            "selector": "button:has-text(\"Restart Operative\")",
+            "selector": "button:has-text(\"Operative\")",
             "highlight": false
           },
           "hold": 5000
@@ -473,7 +473,7 @@
         {
           "id": "task2",
           "caption": "Same shape of ask, fresh conversation.",
-          "expectedScreen": "a new chat with the input filled with a request for a kebabToCamel utility with tests",
+          "expectedScreen": "a new chat with the input filled with a request for a snakeToCamel utility with tests",
           "actions": [
             {
               "type": "waitTimeout",
@@ -491,7 +491,7 @@
             {
               "type": "fill",
               "selector": ".cc-input",
-              "text": "In the garrison-e2e-demo project, add a kebabToCamel(str) utility in src/kebab-to-camel.mjs that converts kebab-case to camelCase, with unit tests in test/kebab-to-camel.test.mjs."
+              "text": "In the garrison-e2e-demo project, add a snakeToCamel(str) utility in src/snake-to-camel.mjs that converts snake_case to camelCase, with unit tests in test/snake-to-camel.test.mjs."
             }
           ],
           "assert": {
@@ -537,27 +537,27 @@
       "startPath": "/",
       "runTimeoutMs": 900000,
       "waitBefore": {
-        "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"kebabToCamel\")",
+        "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"snakeToCamel\")",
         "timeout": 780000
       },
       "beats": [
         {
           "id": "kicktest2",
           "caption": "Through plan, implement and review - kick the Test batch once more.",
-          "expectedScreen": "the kebabToCamel card in the Test column",
+          "expectedScreen": "the snakeToCamel card in the Test column",
           "actions": [
             {
               "type": "click",
-              "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"kebabToCamel\") button:has-text(\"Run\")"
+              "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"snakeToCamel\") button:has-text(\"Run\")"
             },
             {
               "type": "waitFor",
-              "selector": ".card:has-text(\"kebabToCamel\") .run-live",
+              "selector": ".card:has-text(\"snakeToCamel\") .run-live",
               "timeout": 60000
             }
           ],
           "assert": {
-            "selector": ".card:has-text(\"kebabToCamel\") .run-live",
+            "selector": ".card:has-text(\"snakeToCamel\") .run-live",
             "highlight": true
           },
           "hold": 4200
@@ -565,16 +565,16 @@
         {
           "id": "done2",
           "caption": "Done again.",
-          "expectedScreen": "the kebabToCamel card in the Done column",
+          "expectedScreen": "the snakeToCamel card in the Done column",
           "actions": [
             {
               "type": "waitFor",
-              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\")",
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"snakeToCamel\")",
               "timeout": 480000
             }
           ],
           "assert": {
-            "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\")",
+            "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"snakeToCamel\")",
             "highlight": true
           },
           "hold": 3800
@@ -586,7 +586,7 @@
           "actions": [
             {
               "type": "click",
-              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"kebabToCamel\") button:has-text(\"Open\")"
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"snakeToCamel\") button:has-text(\"Open\")"
             },
             {
               "type": "waitFor",
@@ -627,7 +627,7 @@
         {
           "id": "outcome2",
           "caption": "The thread hears this run's outcome too. Ask, watch, adjust, run again.",
-          "expectedScreen": "the web channel thread with a Run complete message for the kebabToCamel run",
+          "expectedScreen": "the web channel thread with a Run complete message for the snakeToCamel run",
           "actions": [
             {
               "type": "waitFor",

@@ -17,9 +17,15 @@ import os from "node:os";
 import path from "node:path";
 
 // D19: a turn is "task-shaped" (worth a card) when its task type names real
-// work — code / research / writing / image / video / ops. Plain conversation
-// (`other`) and review verbs are not carded here. Matches RUN_SPEC A14.
-export const TASK_SHAPED = new Set(["code", "research", "writing", "image", "video", "ops"]);
+// work — code / research / writing / image / video / ops, plus `implement`:
+// the classifier's vocabulary includes the pipeline verbs, and a channel ask
+// like "add a helper with tests" lands on code OR implement depending on the
+// classifier's mood — both mean "build this". Excluding implement made the
+// same message card one time and run inline the next (seen live), and was
+// inconsistent with isSignificantAutonomous, which already counts it as
+// significant. Plain conversation (`other`) and review verbs stay un-carded
+// ("review this diff" is an inline ask — rev-s2 finding). Matches RUN_SPEC A14.
+export const TASK_SHAPED = new Set(["code", "implement", "research", "writing", "image", "video", "ops"]);
 
 export function isTaskShaped(classification) {
   return !!classification && TASK_SHAPED.has(classification.taskType);

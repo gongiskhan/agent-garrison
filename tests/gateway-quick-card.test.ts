@@ -87,12 +87,16 @@ afterAll(() => {
 });
 
 describe("isTaskShaped — real work is carded, conversation is not (A14)", () => {
-  it("code/research/writing/image/video/ops are task-shaped; other is not", async () => {
+  it("code/implement/research/writing/image/video/ops are task-shaped; other and review are not", async () => {
     const gw = await makeGateway("http://127.0.0.1:1", home);
-    for (const t of ["code", "research", "writing", "image", "video", "ops"]) {
+    // `implement` included: the classifier's vocab has the pipeline verbs, and
+    // a "build this" ask lands on code OR implement - both must card, or the
+    // same message cards one time and runs inline the next (seen live).
+    for (const t of ["code", "implement", "research", "writing", "image", "video", "ops"]) {
       expect(gw.isTaskShaped({ taskType: t })).toBe(true);
     }
     expect(gw.isTaskShaped({ taskType: "other" })).toBe(false);
+    expect(gw.isTaskShaped({ taskType: "review" })).toBe(false);
     expect(gw.isTaskShaped(null)).toBe(false);
   });
 });
