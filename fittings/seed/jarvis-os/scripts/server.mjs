@@ -45,6 +45,18 @@ const VOICE_STATUS_FILES = [
 // cards by reaching the kanban-loop Fitting server-to-server (its own port,
 // discovered here — not hardcoded, since findFreePort may bump 7089).
 const KANBAN_STATUS_FILE = path.join(STATUS_ROOT, "kanban-loop.json");
+// Connector CLIs (spotify/google/trello): sibling fittings when installed under
+// apm_modules/_local, seed paths in dev. Connectors self-resolve their tokens
+// via Garrison's auth-env route (internal token) — no secrets pass through
+// this server.
+const HERE_DIR = path.dirname(url.fileURLToPath(import.meta.url));
+function connectorCandidates(name) {
+  return [
+    path.resolve(HERE_DIR, "..", "..", name, "scripts", "connector.mjs"),
+    path.resolve(HERE_DIR, "..", "..", "..", "..", "..", "fittings", "seed", name, "scripts", "connector.mjs")
+  ];
+}
+const SPOTIFY_CONNECTOR_CANDIDATES = connectorCandidates("spotify");
 // Dev-env discovery: the HUD's session switcher lists / creates / commands the
 // real multi-session engine (the dev-env Fitting, FITTING_ID "dev-env" →
 // dev-env.json). The switcher talks to it server-to-server so a browser never
@@ -537,6 +549,170 @@ async function tailnetServeMap() {
 }
 
 // deriveStatusLine + timeAgo live in ./kanban-status.mjs (pure + unit-tested).
+
+// ── spotify now-playing (HUD music widget) ──────────────────────────────────
+// GET /api/music → { available, is_playing, track, artist, album, art, … }.
+// POST /api/music/cmd {action} → pause/resume/next/previous (whitelist).
+// 8s cache: the widget polls; an unconnected/absent spotify is a cheap
+// { available:false } (negative cache 30s), never an error to the HUD.
+let musicCache = { expires: 0, data: null };
+const MUSIC_TTL_MS = 8_000;
+const MUSIC_NEG_TTL_MS = 30_000;
+const MUSIC_CMDS = new Set(["pause", "resume", "next", "previous"]);
+
+function spotifyConnectorPath() {
+  for (const p of SPOTIFY_CONNECTOR_CANDIDATES) if (existsSync(p)) return p;
+  return null;
+}
+
+async function spotifyCall(action) {
+  const cli = spotifyConnectorPath();
+  if (!cli) return null;
+  try {
+    const { stdout } = await execFileP(process.execPath, [cli, "call", action], { timeout: 8000, maxBuffer: 256 * 1024 });
+    const out = JSON.parse(stdout);
+    return out?.ok ? out.result : null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleMusic(res) {
+  const now = Date.now();
+  if (musicCache.data && now < musicCache.expires) { jsonRes(res, 200, musicCache.data); return; }
+  const cur = await spotifyCall("current");
+  const data = cur ? { available: true, ...cur } : { available: false };
+  musicCache = { expires: now + (cur ? MUSIC_TTL_MS : MUSIC_NEG_TTL_MS), data };
+  jsonRes(res, 200, data);
+}
+
+async function handleMusicCmd(req, res) {
+  let body;
+  try { body = await readJsonBody(req); } catch { jsonRes(res, 400, { error: "invalid json" }); return; }
+  const action = String(body?.action || "");
+  if (!MUSIC_CMDS.has(action)) { jsonRes(res, 400, { error: "unknown action" }); return; }
+  const result = await spotifyCall(action);
+  musicCache = { expires: 0, data: null }; // bust — the widget refetches state
+  jsonRes(res, result ? 200 : 502, result ?? { error: "spotify unavailable" });
+}
+
+// ── ambient mode data (/api/ambient) ─────────────────────────────────────────
+// One aggregate for the idle smart-display: weather (Open-Meteo, keyless) +
+// today/tomorrow agenda (google connector) + inbox (gmail) + personal Trello
+// board. Sections are independent and fail-soft (null = card hidden); each has
+// its own TTL so a dead connector never blanks the clock or the weather.
+const ambientCache = {
+  weather: { expires: 0, data: null, ttl: 15 * 60_000 },
+  agenda: { expires: 0, data: null, ttl: 5 * 60_000 },
+  emails: { expires: 0, data: null, ttl: 5 * 60_000 },
+  board: { expires: 0, data: null, ttl: 5 * 60_000 }
+};
+
+async function connectorCall(name, action, args) {
+  const cli = connectorCandidates(name).find((p) => existsSync(p));
+  if (!cli) return null;
+  try {
+    const argv = [cli, "call", action];
+    if (args !== undefined) argv.push(JSON.stringify(args));
+    const { stdout } = await execFileP(process.execPath, argv, { timeout: 10_000, maxBuffer: 1024 * 1024 });
+    const out = JSON.parse(stdout);
+    return out?.ok ? out.result : null;
+  } catch {
+    return null;
+  }
+}
+
+// Lisbon calendar-day boundary as a Date, offset by `plusDays`.
+function lisbonDayStart(plusDays = 0) {
+  const now = new Date();
+  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Lisbon" }).format(now); // YYYY-MM-DD
+  const d = new Date(`${ymd}T00:00:00`);
+  d.setDate(d.getDate() + plusDays);
+  return d;
+}
+
+async function ambientWeather() {
+  const u = "https://api.open-meteo.com/v1/forecast?latitude=38.72&longitude=-9.14" +
+    "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code" +
+    "&timezone=Europe%2FLisbon&forecast_days=2";
+  const r = await fetch(u, { signal: AbortSignal.timeout(6000) });
+  if (!r.ok) return null;
+  const j = await r.json();
+  return {
+    temp: Math.round(j.current?.temperature_2m ?? NaN),
+    code: j.current?.weather_code ?? null,
+    today: { max: Math.round(j.daily?.temperature_2m_max?.[0] ?? NaN), min: Math.round(j.daily?.temperature_2m_min?.[0] ?? NaN), code: j.daily?.weather_code?.[0] ?? null },
+    tomorrow: { max: Math.round(j.daily?.temperature_2m_max?.[1] ?? NaN), min: Math.round(j.daily?.temperature_2m_min?.[1] ?? NaN), code: j.daily?.weather_code?.[1] ?? null }
+  };
+}
+
+async function ambientAgenda() {
+  const start = lisbonDayStart(0);
+  const endTomorrow = lisbonDayStart(2);
+  const r = await connectorCall("google", "calendar.list_events", { time_min: start.toISOString(), max: 12 });
+  if (!r || !Array.isArray(r.items)) return null;
+  const tomorrowStart = lisbonDayStart(1);
+  const events = [];
+  for (const it of r.items) {
+    const rawStart = it.start?.dateTime ?? (it.start?.date ? `${it.start.date}T00:00:00` : null);
+    if (!rawStart) continue;
+    const d = new Date(rawStart);
+    if (d >= endTomorrow || d < start) continue; // only today + tomorrow
+    events.push({
+      when: d >= tomorrowStart ? "amanhã" : "hoje",
+      time: it.start?.dateTime
+        ? new Intl.DateTimeFormat("pt-PT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Lisbon" }).format(d)
+        : "dia todo",
+      title: it.summary || "(sem título)"
+    });
+    if (events.length >= 5) break;
+  }
+  return { events };
+}
+
+async function ambientEmails() {
+  const r = await connectorCall("google", "gmail.list", { query: "in:inbox", max: 6 });
+  if (!r || !Array.isArray(r.messages)) return null;
+  const unread = r.messages.filter((m) => m.unread);
+  const strip = (from) => String(from || "").replace(/<[^>]*>/g, "").replace(/"/g, "").trim();
+  return {
+    unread: unread.length,
+    items: (unread.length ? unread : r.messages).slice(0, 3).map((m) => ({ from: strip(m.from), subject: m.subject, unread: Boolean(m.unread) }))
+  };
+}
+
+async function ambientBoard() {
+  const lists = await connectorCall("trello", "lists");
+  if (!Array.isArray(lists)) return null;
+  const wanted = lists.filter((l) => !/starter guide/i.test(l.name || "")).slice(0, 3);
+  const columns = await Promise.all(wanted.map(async (l) => {
+    const cards = await connectorCall("trello", "list_cards", { list_id: l.id });
+    return { name: l.name, cards: (Array.isArray(cards) ? cards : []).slice(0, 5).map((c) => c.name) };
+  }));
+  return { columns };
+}
+
+async function ambientSection(key, fn) {
+  const slot = ambientCache[key];
+  const now = Date.now();
+  if (now < slot.expires) return slot.data;
+  let data = null;
+  try { data = await fn(); } catch { data = null; }
+  // negative results retry sooner (a connector mid-boot shouldn't blank 5 min)
+  slot.data = data;
+  slot.expires = now + (data ? slot.ttl : 60_000);
+  return data;
+}
+
+async function handleAmbient(res) {
+  const [weather, agenda, emails, board] = await Promise.all([
+    ambientSection("weather", ambientWeather),
+    ambientSection("agenda", ambientAgenda),
+    ambientSection("emails", ambientEmails),
+    ambientSection("board", ambientBoard)
+  ]);
+  jsonRes(res, 200, { weather, agenda, emails, board });
+}
 
 async function handleKanban(res) {
   const now = Date.now();
@@ -1189,6 +1365,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/endpointing" && method === "GET") return handleEndpointing(res);
       if (pathname === "/api/project" && method === "GET") return handleProject(res, liveOpts);
       if (pathname === "/api/diff" && method === "GET") return handleDiff(res, liveOpts);
+      if (pathname === "/api/ambient" && method === "GET") return handleAmbient(res);
+      if (pathname === "/api/ui-config" && method === "GET") return jsonRes(res, 200, { ambient_after_s: Math.max(0, Number(process.env.AMBIENT_AFTER_S || 180) || 0) });
+      if (pathname === "/api/music" && method === "GET") return handleMusic(res);
+      if (pathname === "/api/music/cmd" && method === "POST") return handleMusicCmd(req, res);
       if (pathname === "/api/kanban" && method === "GET") return handleKanban(res);
       if (pathname === "/api/kanban/cards" && method === "POST") return handleKanbanCreate(req, res);
       const kbStart = pathname.match(/^\/api\/kanban\/cards\/([0-9A-HJKMNP-TV-Z]{26})\/start$/i);

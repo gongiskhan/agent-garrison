@@ -21,10 +21,17 @@ import GraphCore, { type CoreMode } from "./cores/GraphCore";
 import ReportOverlay from "./ReportOverlay";
 import DiffOverlay from "./DiffOverlay";
 import KanbanOverlay from "./KanbanOverlay";
+import SearchOverlay from "./SearchOverlay";
+import SearchDock from "./SearchDock";
+import YouTubeWidget, { parseYtMarker, type YtPlay } from "./YouTubeWidget";
+import InfoDock, { InfoOverlay, parseInfoMarker, type InfoWidgetState } from "./InfoWidgets";
+import MusicWidget, { type MusicState } from "./MusicWidget";
+import AmbientMode, { type AmbientData } from "./AmbientMode";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 import { parseSessionIntent, type SessionIntent } from "./session-intent";
 import { resolveKanbanCardUrl } from "./deep-link";
 import { classifyStandbyUtterance, isStopPhrase } from "./voice-phrases";
+import { normalizeNumbersPt } from "./speakable-numbers";
 import { EP_DEFAULTS, graceWindowMs, coerceEpCfg, type EpCfg } from "./endpointing";
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -169,11 +176,30 @@ function parseSseEvent(raw: string): { event: string; data: any } | null {
 // in the model's reply but never be displayed/spoken) and the tool-call / TUI
 // echoes the PTY screen-scrape leaks into a Soul's reply (e.g.
 // `Web Search("…") ⎿ Did 1 search in 5s`). URLs are kept here (visible on screen).
+// The model's self-written search-card digest: a `[card] …` line at the end of
+// a web-search reply. Extracted for the docked card, stripped everywhere else.
+const CARD_RE = /^[ \t]*\[card\][ \t]*(.+)$/im;
+// Play-in-HUD marker: `[youtube] <url — título>` on a "toca X" reply opens the
+// embedded player widget. Extracted at done, stripped from chat and speech.
+const YT_RE = /^[ \t]*\[youtube\][ \t]*(.+)$/im;
+// Info-widget markers: `[agenda] {json}` / `[emails] {json}` / `[board] {json}`
+// open the Calendar / Gmail / Trello card on the right flank (see InfoWidgets).
+const INFO_RE = /^[ \t]*\[(agenda|emails|board)\][ \t]*(\{.+\})[ \t]*$/im;
+// Dev-kanban fallback trigger. Deliberately NARROW: the HUD's own feed is the
+// kanban-loop DEV board (Backlog/Plan/Implement…), which is the wrong data for
+// a personal-Trello question — those must come via the model's [board] marker
+// (only the orchestrator can read Trello). "kanban" is the one word that
+// unambiguously means the dev board in this house.
+const TRELLO_Q_RE = /\bkanban\b/i;
+
 function stripMarkers(s: string): string {
   return (s || "")
     .replace(/\[orchestrator-active\]/gi, "")
     .replace(/\[gateway-route:[^\]]*\]/gi, "")
     .replace(/\[delegated\]/gi, "")
+    .replace(/^[ \t]*\[card\][^\n]*$/gim, "")
+    .replace(/^[ \t]*\[youtube\][^\n]*$/gim, "")
+    .replace(/^[ \t]*\[(?:agenda|emails|board)\][^\n]*$/gim, "")
     // tool-call invocations + result framing leaked from the Claude Code TUI
     .replace(/\b(?:Web\s*Search|WebFetch|Bash|Read|Write|Edit|Grep|Glob|Task)\s*\([^)]*\)/gi, "")
     .replace(/\bDid \d+ search(?:es)? in \d+(?:\.\d+)?\s*s\b/gi, "")
@@ -212,6 +238,9 @@ function toSpeakable(s: string): string {
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{2,}/g, "\n")
     .trim();
+  // Amounts and separator-grouped numbers → PT words ("€100.000" would be read
+  // "cem, zero, zero, zero" by the local TTS; it becomes "cem mil euros").
+  t = normalizeNumbersPt(t);
   if (t.length > SPEAK_CAP) {
     const cut = t.slice(0, SPEAK_CAP);
     const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("\n"));
@@ -256,6 +285,12 @@ function takeSentences(text: string, from: number): { sentences: { text: string;
 type Turn = { id: string; role: "user" | "assistant" | "error"; content: string };
 type Callout = { id: string; label: string; content: string };
 type Activity = { id: string; tool: string; detail: string };
+// One web search in the current turn. Lifecycle: centre overlay (typing) →
+// `leaving` (fly-right exit) → `docked` (SearchDock card tethered to the orb).
+// `summary` is the 1–2 line digest of the turn's ANSWER, stamped at `done`;
+// undefined = this turn's card (awaiting its answer), "" = never fill (the
+// turn ended without one — keeps later turns from backfilling old cards).
+type SearchRun = { id: string; query: string; fetches: string[]; docked: boolean; leaving: boolean; summary?: string };
 
 // Workspace panel data (right flank) — read-only repo/session state polled from
 // /api/project, /api/sessions and /api/worktrees every WORKSPACE_POLL_MS.
@@ -408,6 +443,65 @@ function toolVerb(name: string): string {
   );
 }
 
+// Reply-verbosity dial (bottom-left bar): the chosen level rides along as a
+// bracketed directive appended to the outgoing message (hidden from the shown
+// turn, same trick as the barge-in note). "média" is the prompt's default —
+// no directive. Spoken replies stay brief regardless; the dial governs the
+// WRITTEN answer on screen.
+const VERBOSITY: Array<{ key: string; label: string; directive: string }> = [
+  { key: "minima", label: "mínima", directive: "responde no mínimo absoluto — uma frase curta, só o facto essencial, sem contexto" },
+  { key: "curta", label: "curta", directive: "responde de forma curta: 1–2 frases, sem detalhe além do pedido" },
+  { key: "media", label: "média", directive: "" },
+  { key: "detalhada", label: "detalhada", directive: "responde de forma detalhada no ecrã — contexto, números e passos relevantes (a fala continua breve)" },
+  { key: "maxima", label: "máxima", directive: "responde de forma extremamente detalhada e completa no ecrã — tudo o que for relevante, bem estruturado (a fala continua breve)" },
+];
+const VERBOSITY_LS_KEY = "jarvis.verbosity";
+function loadVerbosity(): number {
+  try {
+    const v = Number(localStorage.getItem(VERBOSITY_LS_KEY));
+    return Number.isInteger(v) && v >= 0 && v < VERBOSITY.length ? v : 2;
+  } catch { return 2; }
+}
+
+// Keep at most 3 docked searches — FIFO, the 4th replaces the oldest — so the
+// dock always shows the last few questions without ever growing past three.
+function capDocked(arr: SearchRun[]): SearchRun[] {
+  let excess = arr.filter((s) => s.docked).length - 3;
+  return excess > 0 ? arr.filter((s) => !(s.docked && excess-- > 0)) : arr;
+}
+
+// 1–2 line digest of a reply for a docked search card: markdown stripped, first
+// sentence(s) up to ~160 chars. The card clamps to 2 lines; this keeps the cut
+// on a sentence boundary when one lands early enough.
+function answerSummary(md: string): string {
+  const t = md
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*+•]\s+/gm, "")
+    .replace(/(\*\*|__|\*|_|~~)/g, "")
+    .replace(/\bhttps?:\/\/\S+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.length <= 160) return t;
+  const cut = t.slice(0, 160);
+  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  return stop > 60 ? cut.slice(0, stop + 1) : cut.trimEnd() + "…";
+}
+
+// Hostname for a WebFetch detail (a URL, possibly truncated by the gateway to
+// 60 chars). URL parse first; fall back to a lenient regex. "" if unrecoverable.
+function hostOf(urlish: string): string {
+  const s = urlish.trim();
+  try {
+    return new URL(s).hostname.replace(/^www\./, "");
+  } catch {
+    const m = s.match(/^(?:https?:\/\/)?([^/\s?#]+)/i);
+    return m ? m[1].replace(/^www\./, "") : "";
+  }
+}
+
 // ── component ────────────────────────────────────────────────────────────────
 
 function App() {
@@ -432,6 +526,153 @@ function App() {
   const [boardUrl, setBoardUrl] = useState<string | null>(null);
   // Live "what Jarvis is doing" — tool calls of the current turn, newest last.
   const [activity, setActivity] = useState<Activity[]>([]);
+  // In-HUD YouTube player, opened by the `[youtube]` marker on a "toca X" turn.
+  const [ytPlay, setYtPlay] = useState<YtPlay | null>(null);
+  // Ambient mode (idle smart-display): opens after AMBIENT_AFTER_MS with no
+  // interaction while the session sits in "idle" and no overlay is up; any
+  // pointer/key/voice activity dismisses it. Data fetched on open + refreshed
+  // every 5 min while visible.
+  const [ambientOn, setAmbientOn] = useState(false);
+  const [ambientData, setAmbientData] = useState<AmbientData | null>(null);
+  const [ambientTickAt, setAmbientTickAt] = useState(0);
+  const lastActivityRef = useRef(Date.now());
+  const ambientOnRef = useRef(false);
+  useEffect(() => { ambientOnRef.current = ambientOn; }, [ambientOn]);
+  // Delay before auto-entering ambient — served by /api/ui-config (the
+  // fitting's ambient_after_s; 0 = never auto-enter, voice command still works).
+  const ambientAfterMsRef = useRef(3 * 60_000);
+  useEffect(() => {
+    fetch("/api/ui-config").then((r) => (r.ok ? r.json() : null)).then((c) => {
+      if (c && typeof c.ambient_after_s === "number") {
+        ambientAfterMsRef.current = c.ambient_after_s * 1000;
+      }
+    }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const bump = () => {
+      lastActivityRef.current = Date.now();
+      if (ambientOnRef.current) setAmbientOn(false);
+    };
+    let lastMove = 0;
+    const onMove = () => { const t = Date.now(); if (t - lastMove > 2000) { lastMove = t; bump(); } };
+    window.addEventListener("pointerdown", bump);
+    window.addEventListener("keydown", bump);
+    window.addEventListener("pointermove", onMove);
+    const tick = setInterval(() => {
+      if (ambientOnRef.current) return;
+      if (ambientAfterMsRef.current <= 0) return; // 0 = auto-entry disabled
+      if (modeRef.current !== "idle") { lastActivityRef.current = Date.now(); return; }
+      if (Date.now() - lastActivityRef.current < ambientAfterMsRef.current) return;
+      setAmbientOn(true);
+    }, 15_000);
+    // test hook: window.__jarvisAmbient(true|false)
+    (window as any).__jarvisAmbient = (on: boolean) => setAmbientOn(Boolean(on));
+    return () => {
+      window.removeEventListener("pointerdown", bump);
+      window.removeEventListener("keydown", bump);
+      window.removeEventListener("pointermove", onMove);
+      clearInterval(tick);
+      delete (window as any).__jarvisAmbient;
+    };
+  }, []);
+  // Speaking/working while ambient is up (a voice turn started) → dismiss.
+  useEffect(() => { if (mode !== "idle" && ambientOnRef.current) setAmbientOn(false); }, [mode]);
+  // Fetch data on open + 5-min refresh while visible.
+  useEffect(() => {
+    if (!ambientOn) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/ambient");
+        if (res.ok && alive) setAmbientData(await res.json());
+      } catch { /* cards simply stay hidden */ }
+      if (alive) setAmbientTickAt(Date.now() + 5 * 60_000); // real: next data refresh
+    };
+    load();
+    const t = setInterval(load, 5 * 60_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [ambientOn]);
+  // Spotify now-playing: polls /api/music; the widget shows itself whenever
+  // something is playing (or paused mid-track) and hides when playback stops.
+  // `musicDismissed` lets the × silence it until the TRACK changes.
+  const [music, setMusic] = useState<MusicState | null>(null);
+  const [musicDismissed, setMusicDismissed] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        if (!document.hidden) {
+          const res = await fetch("/api/music");
+          const data = res.ok ? await res.json() : { available: false };
+          if (alive) setMusic(data);
+        }
+      } catch { /* widget simply stays hidden */ }
+      if (alive) timer = setTimeout(poll, 10_000);
+    };
+    poll();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+  }, []);
+  const musicCmd = useCallback(async (action: "pause" | "resume" | "next" | "previous") => {
+    try {
+      await fetch("/api/music/cmd", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const res = await fetch("/api/music");
+      if (res.ok) setMusic(await res.json());
+    } catch { /* voice remains the fallback control */ }
+  }, []);
+  // Info widget (Calendar / Gmail / Trello card), opened by [agenda]/[emails]/
+  // [board] markers. Choreography mirrors the search reveal: centre-stage
+  // overlay first (infoCenter, rows cascading while the answer is spoken),
+  // then a fly-right exit (infoLeaving) into the docked card (infoWidget),
+  // which persists across turns until × or replaced.
+  const [infoWidget, setInfoWidget] = useState<InfoWidgetState | null>(null);
+  const [infoCenter, setInfoCenter] = useState<InfoWidgetState | null>(null);
+  const [infoLeaving, setInfoLeaving] = useState(false);
+  const dockInfo = useCallback(() => {
+    setInfoLeaving(true);
+    setTimeout(() => {
+      setInfoCenter((c) => {
+        if (c) setInfoWidget(c);
+        return null;
+      });
+      setInfoLeaving(false);
+    }, 380);
+  }, []);
+  // Reply-verbosity dial (0..4, 2 = média/default). Ref mirrors state so `send`
+  // reads the latest without re-wiring finalizeTurn.
+  const [verbosity, setVerbosityRaw] = useState(loadVerbosity);
+  const verbosityRef = useRef(verbosity);
+  const setVerbosity = useCallback((v: number) => {
+    verbosityRef.current = v;
+    setVerbosityRaw(v);
+    try { localStorage.setItem(VERBOSITY_LS_KEY, String(v)); } catch {}
+  }, []);
+  // Web-search reveal: each WebSearch becomes a SearchRun — a Google-style box
+  // types the query centre-screen, then docks to the right flank tethered to
+  // the orb (SearchDock). Docked cards PERSIST across turns (max 3, FIFO) so
+  // the last few questions stay visible as a connected constellation.
+  const [searches, setSearches] = useState<SearchRun[]>([]);
+  // Retire the centre overlay into the dock: play the fly-right exit, then flip
+  // to docked. Idempotent — safe to call per streamed chunk; the timer flip is
+  // a no-op when nothing is leaving.
+  const retireSearch = useCallback(() => {
+    setSearches((prev) =>
+      prev.some((s) => !s.docked && !s.leaving)
+        ? prev.map((s) => (s.docked || s.leaving ? s : { ...s, leaving: true }))
+        : prev,
+    );
+    setTimeout(() => {
+      setSearches((prev) =>
+        prev.some((s) => s.leaving)
+          ? capDocked(prev.map((s) => (s.leaving ? { ...s, leaving: false, docked: true } : s)))
+          : prev,
+      );
+    }, 380);
+  }, []);
   // Workspace panel (right flank): repo state + live gateway lists. Errors keep
   // the last good state (a flaky poll must not blank the panel).
   const [project, setProject] = useState<ProjectState | null>(null);
@@ -473,15 +714,26 @@ function App() {
   const kanbanRef = useRef<KanbanState | null>(null);
   useEffect(() => { kanbanRef.current = kanban; }, [kanban]);
 
-  // Scrollable transcript: keep the newest turn in view, but only auto-scroll
-  // when the user is already near the bottom — so scrolling up to read history
-  // is not yanked back down by an incoming turn.
+  // Scrollable transcript: stick to the newest turn. We track whether the user
+  // has deliberately scrolled up to read history (stickToBottomRef=false) and
+  // only then hold position; otherwise every new line/turn auto-scrolls to the
+  // end. This survives streaming (where the near-bottom gap grows mid-turn),
+  // which a point-in-time near-bottom check missed.
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
     const el = transcriptRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    const onScroll = () => {
+      stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (!el) return;
+    if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [turns]);
 
   const modeRef = useRef<CoreMode>("idle");
@@ -865,6 +1117,14 @@ function App() {
   const send = useCallback(async (message: string, shownAs?: string) => {
     const msg = (message || "").trim();
     if (!msg || sendingRef.current) return;
+    // Local intent: "modo ambiente" enters the idle smart-display immediately —
+    // no round-trip to the orchestrator. Mode must stay idle or the ambient
+    // auto-dismiss effect (mode !== idle) would kill it in the same tick.
+    if (/\b(modo\s+(ambiente|descanso)|ecr[ãa]\s+de\s+descanso)\b/i.test(msg)) {
+      setMode("idle");
+      setAmbientOn(true);
+      return;
+    }
     sendingRef.current = true;
     hasInteractedRef.current = true; // from now on, async Soul replies are live
     stopSpeech(); // a new turn interrupts any in-flight speech
@@ -882,9 +1142,16 @@ function App() {
         : "o utilizador não chegou a ouvir nada da resposta";
       payload = `[interrupção de voz: a tua resposta anterior foi interrompida — ${heard}. A mensagem seguinte pode ser uma correção, um esclarecimento ou uma continuação; interpreta-a nesse contexto e não repitas o que já foi ouvido.]\n\n${msg}`;
     }
+    // Verbosity dial: ride the chosen level along as a hidden directive ("média"
+    // = prompt default, no directive). The shown turn stays the clean msg.
+    const verbDir = VERBOSITY[verbosityRef.current]?.directive;
+    if (verbDir) payload = `${payload}\n\n[formato da resposta: ${verbDir}]`;
     spokenTextRef.current = "";
     speakingNowRef.current = "";
-    setActivity([]); // clear last turn's tool feed
+    setActivity([]); // clear last turn's tool feed (docked searches persist)
+    // Seal summary-less cards from previous turns ("" = never backfill), so the
+    // coming reply only lands on THIS turn's searches.
+    setSearches((prev) => prev.map((s) => (s.summary === undefined ? { ...s, summary: "" } : s)));
     setTurns((prev) => [...prev.slice(-6), { id: genId("u"), role: "user", content: shownAs || msg }]);
     setMode("working");
     const bubbleId = genId("a");
@@ -941,6 +1208,9 @@ function App() {
           if (!ev) continue;
           if (ev.event === "chunk" && typeof ev.data?.text === "string") {
             assembled += ev.data.text;
+            // The answer is streaming — searching is over; dock the centre box
+            // (it stays visible on the right while Jarvis reads the answer).
+            retireSearch();
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, content: t.content + ev.data.text } : t));
             // Suppress speech the instant a delegation is detected (cut anything
@@ -969,18 +1239,80 @@ function App() {
             if (tool !== "ToolSearch") {
               const detail = typeof ev.data.detail === "string" ? ev.data.detail : "";
               setActivity((prev) => [...prev.slice(-4), { id: genId("act"), tool, detail }]);
+              // Cinematic web-search reveal. Each WebSearch opens the Google box
+              // typing its query (instantly docking any previous one — docked
+              // searches persist across turns on the right flank, max 3 FIFO);
+              // a WebFetch adds its host to the latest search's results.
+              if (tool === "WebSearch" && detail) {
+                setSearches((prev) => [
+                  ...capDocked(prev.map((s) => ({ ...s, leaving: false, docked: true }))),
+                  { id: genId("srch"), query: detail, fetches: [], docked: false, leaving: false },
+                ]);
+              } else if (tool === "WebFetch" && detail) {
+                const host = hostOf(detail);
+                if (host) {
+                  setSearches((prev) =>
+                    prev.length === 0 ? prev : prev.map((s, i) =>
+                      i === prev.length - 1 ? { ...s, fetches: [...s.fetches, host].slice(-6) } : s,
+                    ),
+                  );
+                }
+              }
             }
           } else if (ev.event === "error") {
+            // Seal this turn's cards without a summary (the turn has no answer).
+            setSearches((prev) => prev.map((s) => (s.summary === undefined ? { ...s, summary: "" } : s)));
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, role: "error", content: t.content || (ev.data?.error ?? "error") } : t));
           } else if (ev.event === "done") {
             clearTimeout(killer); // turn completed; don't abort the lingering stream
+            retireSearch(); // covers the chunkless path (no chunk event fired)
             const finalReply = typeof ev.data?.reply === "string" ? ev.data.reply : "";
             if (!assembled && finalReply) assembled = finalReply; // chunkless gateway path
             // Re-check on the RAW reply (covers the chunkless path, where no chunk
             // event ran the incremental detector above).
             delegated = delegated || /\[delegated\]/i.test(assembled);
             const finalContent = stripMarkers(assembled);
+            // Stamp the answer digest onto this turn's search cards (undefined
+            // summary = created this turn; older cards were sealed at send).
+            // Prefer the model's own `[card] …` line (a REAL summary, prompted
+            // for web-search turns); fall back to truncating the reply.
+            if (finalContent) {
+              const digest = assembled.match(CARD_RE)?.[1]?.trim() || answerSummary(finalContent);
+              setSearches((prev) => prev.map((s) => (s.summary === undefined ? { ...s, summary: digest } : s)));
+            }
+            // `[youtube] url — título` → open (or swap) the in-HUD player.
+            const ytPayload = assembled.match(YT_RE)?.[1];
+            if (ytPayload) {
+              const play = parseYtMarker(ytPayload);
+              if (play) setYtPlay(play);
+            }
+            // `[agenda]/[emails]/[board] {json}` → centre-stage reveal (the
+            // card animates over the orb while the reply is spoken, then docks).
+            const infoMatch = assembled.match(INFO_RE);
+            if (infoMatch) {
+              const widget = parseInfoMarker(infoMatch[1].toLowerCase(), infoMatch[2]);
+              if (widget) {
+                setInfoLeaving(false);
+                setInfoCenter(widget);
+              }
+            } else if (TRELLO_Q_RE.test(msg) && (kanbanRef.current?.cards?.length ?? 0) > 0) {
+              // Deterministic Trello fallback: the model answered a board-ish
+              // question without its [board] marker — build the widget from the
+              // HUD's own kanban feed (same data the tarefas panel shows), so
+              // the reveal never depends on prompt compliance.
+              const byList = new Map<string, string[]>();
+              for (const c of kanbanRef.current!.cards!) {
+                const col = byList.get(c.listTitle) ?? [];
+                if (col.length < 6) col.push(c.title);
+                byList.set(c.listTitle, col);
+              }
+              const columns = [...byList].slice(0, 4).map(([name, cards]) => ({ name, cards }));
+              if (columns.length) {
+                setInfoLeaving(false);
+                setInfoCenter({ kind: "board", data: { title: "Kanban", columns } });
+              }
+            }
             setTurns((prev) => prev.map((t) => t.id === bubbleId
               ? { ...t, content: stripMarkers(t.content || finalReply) } : t));
             if (finalContent) pushCallout("reply", finalContent);
@@ -1255,6 +1587,14 @@ function App() {
     if (sid) return sendToSession(sid, message, shownAs);
     return send(message, shownAs);
   }, [send, sendToSession]);
+
+  // Debug/test hook: inject a turn through the EXACT voice pipeline (dispatch →
+  // send → SSE → markers → widgets) from the console or Playwright. Lets us
+  // verify the client pipeline headlessly — the HUD has no text input.
+  useEffect(() => {
+    (window as any).__jarvisSay = (text: string) => dispatch(text);
+    return () => { delete (window as any).__jarvisSay; };
+  }, [dispatch]);
 
   // Create a new dev-env session (button or voice). Defaults to the active
   // workspace project (server-side) unless a path is given; selects it on success.
@@ -1721,7 +2061,7 @@ function App() {
       if (e.code === "Space") { e.preventDefault(); onToggle(); }
       else if (e.key === "m" || e.key === "M") { e.preventDefault(); toggleMute(); }
     };
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { setReport(null); setDiff(null); setBoardUrl(null); } };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { setReport(null); setDiff(null); setBoardUrl(null); retireSearch(); dockInfo(); } };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keydown", onEsc);
     return () => {
@@ -1914,6 +2254,18 @@ function App() {
         <span className="jarvis-status-text">{statusLabel}</span>
       </div>
 
+      {/* TEMP (pedido do Gabriel): entrada no modo ambiente por clique, sob o
+          orbe — remover quando a UX de entrada estiver consolidada. */}
+      {!ambientOn && (
+        <button
+          className="jarvis-ambient-btn"
+          onClick={() => { setMode("idle"); setAmbientOn(true); }}
+          title="Entrar no modo ambiente"
+        >
+          ✦ modo ambiente
+        </button>
+      )}
+
       {debugOn && (
         <pre className="jarvis-debug" data-tick={dbgTick}>
 {`mode:${mode}  sr:${audioCtxRef.current?.sampleRate ?? "?"}  ctx:${audioCtxRef.current?.state ?? "?"}  vad:${vadRunningRef.current ? "RUN" : "off"}  mut:${micMutedRef.current ? "Y" : "n"}  ptt:${pttOpenRef.current ? "Y" : "n"}
@@ -1947,6 +2299,26 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
           <span className="jarvis-mute-label">{micMuted ? "muted" : "mic on"}</span>
         </button>
       )}
+
+      {/* Reply-verbosity dial — 5 stops, persists, rides along as a hidden
+          directive on each sent turn. Bottom-left mirror of the mute pill. */}
+      <div className="jarvis-verbosity" title="Nível de detalhe das respostas">
+        <span className="jarvis-verbosity-head">resposta</span>
+        <div className="jarvis-verbosity-track" role="radiogroup" aria-label="Nível de detalhe da resposta">
+          {VERBOSITY.map((v, i) => (
+            <button
+              key={v.key}
+              className={`jarvis-verbosity-stop${i <= verbosity ? " is-filled" : ""}${i === verbosity ? " is-active" : ""}`}
+              onClick={() => setVerbosity(i)}
+              role="radio"
+              aria-checked={i === verbosity}
+              aria-label={`resposta ${v.label}`}
+              title={v.label}
+            />
+          ))}
+        </div>
+        <span className="jarvis-verbosity-value">{VERBOSITY[verbosity].label}</span>
+      </div>
 
       {/* Left rail — a single flex column so NOW / Operative / transcript
           stack deterministically and can never overlap, however tall each grows. */}
@@ -2156,6 +2528,15 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
 
       {/* Right rail — callouts + Workspace, same non-overlapping flex column. */}
       <div className="jarvis-rail jarvis-rail-right">
+        {/* Info widget (Calendar / Gmail / Trello) — opened by reply markers,
+            shows the data while the spoken answer stays short. */}
+        {infoWidget ? <InfoDock widget={infoWidget} onClose={() => setInfoWidget(null)} /> : null}
+        {/* Docked web searches of the current turn — cards tethered to the orb
+            by the fixed SVG layer SearchDock renders alongside. */}
+        <SearchDock
+          searches={searches.filter((s) => s.docked)}
+          onDismiss={(id) => setSearches((prev) => prev.filter((s) => s.id !== id))}
+        />
         <div className="jarvis-callouts">
           {callouts.map((c) => (
             <button key={c.id} className="jarvis-callout" onClick={() => setReport({ path: c.label, content: c.content })}>
@@ -2553,6 +2934,44 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
         </div>
       </aside>
 
+      {(() => {
+        // Centre reveal: the one search still typing/searching (docked runs
+        // render as tethered cards inside the right rail, see SearchDock above).
+        const center = searches.find((s) => !s.docked);
+        return center ? (
+          <SearchOverlay
+            key={center.id}
+            query={center.query}
+            fetches={center.fetches}
+            leaving={center.leaving}
+            onClose={retireSearch}
+          />
+        ) : null;
+      })()}
+      {/* Ambient mode — idle smart-display over the orb (z below the reveals,
+          above the rails). Any pointer/key/voice interaction dismisses it. */}
+      {ambientOn ? (
+        <AmbientMode
+          data={ambientData}
+          music={music}
+          operative={operative}
+          idleSince={lastActivityRef.current}
+          nextTickAt={ambientTickAt}
+          onMusicCmd={musicCmd}
+          onDismiss={() => setAmbientOn(false)}
+        />
+      ) : null}
+      {/* Centre-stage info reveal (Calendar/Gmail/Trello) — plays over the orb
+          while the answer is spoken, then flies right into the rail dock. */}
+      {infoCenter ? <InfoOverlay widget={infoCenter} leaving={infoLeaving} onDock={dockInfo} /> : null}
+      {/* In-HUD YouTube player — persists across turns (background music);
+          only its × closes it, deliberately NOT Esc. */}
+      {ytPlay ? <YouTubeWidget play={ytPlay} onClose={() => setYtPlay(null)} /> : null}
+      {/* Spotify now-playing — shows whenever a track is loaded; × silences it
+          until the track changes. */}
+      {!ambientOn && music?.available && music.track && musicDismissed !== music.track ? (
+        <MusicWidget music={music} onCmd={musicCmd} onClose={() => setMusicDismissed(music.track ?? null)} />
+      ) : null}
       {report ? <ReportOverlay report={report} onClose={() => setReport(null)} /> : null}
       {diff ? <DiffOverlay title={diff.title} patch={diff.patch} truncated={diff.truncated} onClose={() => setDiff(null)} /> : null}
       {boardUrl ? <KanbanOverlay url={boardUrl} onClose={() => setBoardUrl(null)} /> : null}

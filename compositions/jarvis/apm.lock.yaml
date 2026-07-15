@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-10T14:42:10.683337+00:00'
+generated_at: '2026-07-15T16:10:47.006917+00:00'
 apm_version: 0.20.0
 dependencies:
 - repo_url: _local/dev-env
@@ -47,6 +47,10 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/local-voice
+- repo_url: _local/spotify
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/spotify
 - repo_url: _local/trello
   package_type: apm_package
   deployed_files:

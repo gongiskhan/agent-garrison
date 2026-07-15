@@ -58,6 +58,10 @@ x-garrison:
       type: integer
       default: 90
       description: Seconds of inactivity (session armed, nothing said either way) before a hands-free session returns to wake-word standby. Only applies when the voice Fitting reports the wake word armed — "hey jarvis" re-arms by voice. 0 keeps sessions armed forever.
+    - key: ambient_after_s
+      type: integer
+      default: 180
+      description: Seconds of total inactivity (idle session, no pointer/keys, no overlays) before the HUD enters ambient mode (the idle smart-display). 0 disables the automatic entry; "modo ambiente" by voice always works.
     - key: project_root
       type: path
       default: ""

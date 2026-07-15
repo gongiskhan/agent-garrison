@@ -12,6 +12,7 @@ dependencies:
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/model-router
@@ -61,19 +62,9 @@ x-garrison:
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
             kokoro_speed: 1
-            # large-v3 transcribes European PT reliably (small mangles it).
-            # Pinned to pt: bilingual auto-detect flips wildly on real short mic
-            # clips (PT heard as es/fr/en) and switches the TTS voice mid-reply,
-            # so pin STT to pt + force TTS voice to pt for a PT-primary user.
-            # Clear whisper_lang + tts_force_lang to go back to bilingual.
             whisper_model: large-v3
             whisper_lang: pt
             tts_force_lang: pt
-            # STT engine: whisper-cpp runs large-v3 on the Apple GPU (Metal) via a
-            # supervised whisper-server, ~3x faster than faster-whisper's CPU int8
-            # (~4s vs ~12s on a 33s clip), same weights so same accuracy. Falls
-            # back to faster-whisper if set to that. Needs `brew install
-            # whisper-cpp` + the ggml model (scripts/setup.sh fetches both).
             stt_engine: whisper-cpp
             whisper_cpp_model: ~/.cache/whisper-cpp/ggml-large-v3.bin
             stt_normalize_gain: 'on'
@@ -81,6 +72,20 @@ x-garrison:
             piper_voices: ''
             wake_word: 'off'
             python_bin: ''
+        - id: jarvis-os
+          config:
+            port: 7092
+            bind_host: 127.0.0.1
+            gateway_url: ''
+            tls_cert: ''
+            tls_key: ''
+            vad_redemption_ms: 550
+            endpoint_min_ms: 350
+            endpoint_max_ms: 2600
+            bargein_confirm_ms: 350
+            bargein_prob: 0.55
+            wake_idle_timeout_s: 90
+            project_root: ''
       gateway:
         - id: http-gateway
           config:

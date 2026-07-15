@@ -12,6 +12,7 @@ dependencies:
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/google
+    - path: ../../fittings/seed/spotify
 x-garrison:
   composition:
     id: jarvis
@@ -80,12 +81,27 @@ x-garrison:
             pause_ellipsis: 0.34    # … / ...
             pause_para: 0.42        # line break / paragraph / topic change
             min_clause: 26          # a comma only becomes its own pause past this many chars
-            # large-v3 is the only checkpoint that transcribes European Portuguese
-            # reliably. Round-trip test on clean audio ("Que horas são em Lisboa?"):
-            # small → "Então é só uma luz boa"; medium → "Então horas são é Lisboa";
-            # large-v3-turbo → "Então, olha só em Lisboa"; large-v3 → exact. Costs
-            # ~5-6s decode on CPU (no CUDA on this Mac) + a one-time ~30s warm load.
-            # Accuracy over latency: a fast wrong transcript is useless downstream.
+            # 2026-07-14 — European Portuguese fix. Stock large-v3 (whisper-cpp,
+            # beam 5) measured 50.8% WER on a Piper pt_PT round-trip bench (8
+            # frases; "Que horas são em Lisboa?" → "Então era só um jogo") — the
+            # boss's PT-PT was misheard constantly while PT-BR sailed through
+            # (Whisper's pt training data is BR-dominated). INESC-ID's CAMÕES
+            # fine-tune for European Portuguese (WhisperLv3-EP-X, CT2 format,
+            # MIT) measured 19.8% WER on the same bench — less than half the
+            # errors. It only runs on the faster-whisper engine (CPU int8,
+            # ~6s/clip vs ~2s on Metal) — accuracy over latency, same trade as
+            # before. Revert: whisper_model large-v3 + stt_engine whisper-cpp.
+            # Next step up: convert inesc-id/WhisperLv3-FT-EP-CPP (safetensors)
+            # to ggml to get EP accuracy back on the Metal engine.
+            # 2026-07-14 FINAL: INESC-ID WhisperLv3-FT-EP (European Portuguese
+            # fine-tune) converted to ggml f16, running on the SAME Metal engine.
+            # Bench (8 Piper pt_PT wavs, warm): 25.6% WER @ 1.4s/clip vs stock
+            # large-v3's 50.8% @ ~2.4s — better on BOTH axes. Needs
+            # whisper_cpp_no_timestamps (the fine-tune has no timestamp tokens;
+            # without -nt it decodes to empty "."). whisper_model below is the
+            # faster-whisper fallback only (cpp path ignores it).
+            # Revert: whisper_cpp_model → ~/.cache/whisper-cpp/ggml-large-v3.bin
+            # + whisper_cpp_no_timestamps false.
             whisper_model: large-v3
             # Pinned to Portuguese. Bilingual auto-detect was tried but on real
             # short mic clips whisper.cpp flips wildly (PT heard as es/fr/en →
@@ -103,10 +119,10 @@ x-garrison:
             # marca um email" (verbatim from the old prompt). small needed the
             # prime; large-v3 is strong without it, so leave it empty.
             # STT on the Apple GPU (Metal) via whisper.cpp — ~3x faster than
-            # faster-whisper's CPU int8, same large-v3 weights. setup.sh installs
-            # whisper-cpp + the ggml model.
+            # faster-whisper's CPU int8. (EP-X needs faster-whisper; reverted.)
             stt_engine: whisper-cpp
-            whisper_cpp_model: ~/.cache/whisper-cpp/ggml-large-v3.bin
+            whisper_cpp_model: ~/.cache/whisper-cpp/ggml-WhisperLv3-FT-EP-f16.bin
+            whisper_cpp_no_timestamps: true
             stt_normalize_gain: "on"
             # Wake word ON (2026-07-02): openWakeWord "hey jarvis" no mic do host,
             # emit-only — a deteção arma a sessão hands-free do HUD via /events.
@@ -162,6 +178,8 @@ x-garrison:
         - id: trello
           config: {}
         - id: google
+          config: {}
+        - id: spotify
           config: {}
     # Specialist Souls the Orchestrator delegates to via talk_to (2026-07-03).
     # The runner folds these into GARRISON_SOULS_CONFIG at gateway spawn; prompts
