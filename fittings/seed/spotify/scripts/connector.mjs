@@ -109,7 +109,7 @@ function makeCall(access, fetchImpl) {
     const text = await res.text();
     if (!res.ok) {
       if (res.status === 401) throw new NotConnectedError("Spotify token rejected (reconnect the connector)");
-      if (res.status === 403) throw new Error(`Spotify refused (403): playback control needs Spotify Premium. ${text}`.trim());
+      if (res.status === 403) throw new Error(`Spotify refused (403) — Premium required for playback control, or the token lacks a scope. ${text}`.trim());
       if (res.status === 404) throw new Error("No active Spotify device — open the Spotify app on the phone, then try again.");
       throw new Error(`spotify ${res.status}: ${text}`);
     }
@@ -143,10 +143,14 @@ async function resolveDeviceId(call, env) {
 
 // Body for a play request from free text: prefer a track hit (play that track),
 // else an artist hit (play the artist's top tracks via its context).
-async function resolvePlayFromQuery(call, query) {
+async function resolvePlayFromQuery(call, query, env = process.env) {
   const q = encodeURIComponent(String(query || "").trim());
   if (!q) throw new Error("play needs a query");
-  const s = await call("GET", `/search?q=${q}&type=track,artist&limit=5&market=from_token`);
+  // NB: no `market=from_token` — it requires the user-read-private scope (403
+  // "Insufficient client scope" without it, verified 2026-07-15). SPOTIFY_MARKET
+  // (ISO country, e.g. PT) scopes results when set; omitted = global catalog.
+  const mkt = String(env.SPOTIFY_MARKET || "").trim().toUpperCase();
+  const s = await call("GET", `/search?q=${q}&type=track,artist&limit=5${mkt ? `&market=${mkt}` : ""}`);
   const track = s.tracks?.items?.[0];
   if (track) {
     return { body: { uris: [track.uri] }, label: `${track.name} — ${(track.artists || []).map((a) => a.name).join(", ")}` };
@@ -173,7 +177,12 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
         is_playing: Boolean(p.is_playing),
         track: p.item?.name ?? null,
         artist: (p.item?.artists || []).map((a) => a.name).join(", ") || null,
-        device: p.device?.name ?? null
+        device: p.device?.name ?? null,
+        // extras for the HUD's now-playing widget (additive, nothing breaks)
+        album: p.item?.album?.name ?? null,
+        art: p.item?.album?.images?.[0]?.url ?? null,
+        progress_ms: p.progress_ms ?? null,
+        duration_ms: p.item?.duration_ms ?? null
       };
     }
     case "devices": {
@@ -195,7 +204,7 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
       await call("POST", "/me/player/previous");
       return { back: true };
     case "play": {
-      const { body, label } = await resolvePlayFromQuery(call, args.query);
+      const { body, label } = await resolvePlayFromQuery(call, args.query, env);
       const dev = await resolveDeviceId(call, env);
       if (!dev) throw new Error("No Spotify device available — open the Spotify app on the phone, then try again.");
       await call("PUT", withDevice("/me/player/play", dev), body);

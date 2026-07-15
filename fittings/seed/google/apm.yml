@@ -24,6 +24,12 @@ x-garrison:
           - attachments
         mutates: true
         description: Send an email (optionally with attachments) via Gmail.
+      - name: gmail.list
+        args:
+          - query
+          - max
+        mutates: false
+        description: List recent Gmail messages — metadata only (from, subject, date, unread, snippet). query defaults to in:inbox; max 8 (cap 20).
       - name: drive.list
         args:
           - query
@@ -50,6 +56,7 @@ x-garrison:
       token_url: https://oauth2.googleapis.com/token
       scopes:
         - https://www.googleapis.com/auth/gmail.send
+        - https://www.googleapis.com/auth/gmail.readonly
         - https://www.googleapis.com/auth/drive.readonly
         - https://www.googleapis.com/auth/calendar
       client_id_secret: GOOGLE_OAUTH_CLIENT_ID
@@ -78,6 +85,8 @@ x-garrison:
     logged.
 
       node apm_modules/_local/google/scripts/connector.mjs catalog
+      node .../connector.mjs call gmail.list '{"query":"is:unread","max":8}'
+        -> { messages: [{ from, subject, date, unread, snippet }] } — metadata only, never bodies.
       node .../connector.mjs call gmail.send '{"to":"a@b.com","subject":"Report","body":"see attached","attachments":[{"filename":"report.pdf","mime_type":"application/pdf","path":"/abs/report.pdf"}]}'
       node .../connector.mjs call drive.list '{"query":"name contains '\''Q3'\''"}'
       node .../connector.mjs call calendar.create_event '{"summary":"Sync","start":"2026-07-01T09:00:00Z","end":"2026-07-01T09:30:00Z"}'

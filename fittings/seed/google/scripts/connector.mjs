@@ -29,6 +29,12 @@ export const CATALOG = {
       mutates: true,
       description: "Send an email (optionally with attachments) via Gmail."
     },
+    {
+      name: "gmail.list",
+      args: ["query", "max"],
+      mutates: false,
+      description: "List recent Gmail messages — metadata only (from, subject, date, unread, snippet), never bodies. query defaults to in:inbox (Gmail search syntax, e.g. 'is:unread', 'newer_than:1d'); max defaults to 8 (cap 20)."
+    },
     { name: "drive.list", args: ["query", "page_size"], mutates: false, description: "List Drive files (most-recently-modified first)." },
     { name: "calendar.create_event", args: ["summary", "start", "end", "calendar_id", "location", "description", "all_day", "time_zone"], mutates: true, description: "Create a calendar event. Timed: start/end as RFC3339 dateTime (e.g. 2026-07-08T20:30:00+01:00). All-day: pass date-only start/end (YYYY-MM-DD, end exclusive) or all_day:true. Optional location, description, time_zone." },
     { name: "calendar.list_events", args: ["calendar_id", "time_min", "max"], mutates: false, description: "List upcoming calendar events." }
@@ -167,6 +173,30 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ raw })
       });
+    }
+    case "gmail.list": {
+      // Metadata-only inbox listing for the HUD's [emails] widget: one id-list
+      // call + one metadata call per message (5 quota units each — negligible).
+      // Bodies are deliberately never fetched (gmail.readonly scope, privacy).
+      const params = new URLSearchParams();
+      params.set("q", args.query ?? "in:inbox");
+      params.set("maxResults", String(Math.min(Number(args.max ?? 8) || 8, 20)));
+      const list = await call(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`);
+      const messages = [];
+      for (const { id } of list.messages ?? []) {
+        const m = await call(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
+        );
+        const h = Object.fromEntries((m.payload?.headers ?? []).map((x) => [x.name.toLowerCase(), x.value]));
+        messages.push({
+          from: h.from ?? "",
+          subject: h.subject ?? "(sem assunto)",
+          date: h.date ?? "",
+          unread: (m.labelIds ?? []).includes("UNREAD"),
+          snippet: m.snippet ?? ""
+        });
+      }
+      return { messages };
     }
     case "drive.list": {
       const params = new URLSearchParams();
