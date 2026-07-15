@@ -1596,6 +1596,7 @@ function App() {
     return () => { delete (window as any).__jarvisSay; };
   }, [dispatch]);
 
+
   // Create a new dev-env session (button or voice). Defaults to the active
   // workspace project (server-side) unless a path is given; selects it on success.
   const createDevSession = useCallback(async (opts?: { path?: string; title?: string }): Promise<string | null> => {
@@ -2254,17 +2255,6 @@ function App() {
         <span className="jarvis-status-text">{statusLabel}</span>
       </div>
 
-      {/* TEMP (pedido do Gabriel): entrada no modo ambiente por clique, sob o
-          orbe — remover quando a UX de entrada estiver consolidada. */}
-      {!ambientOn && (
-        <button
-          className="jarvis-ambient-btn"
-          onClick={() => { setMode("idle"); setAmbientOn(true); }}
-          title="Entrar no modo ambiente"
-        >
-          ✦ modo ambiente
-        </button>
-      )}
 
       {debugOn && (
         <pre className="jarvis-debug" data-tick={dbgTick}>

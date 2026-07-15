@@ -2313,31 +2313,4 @@ a.yt-btn { text-decoration: none; }
   .am3, .am3-enter, .am3-tick { animation: none; }
 }
 
-/* TEMP: botão de entrada no modo ambiente (sob a status line) — remover
-   quando a UX de entrada estiver consolidada (pedido do Gabriel). */
-.jarvis-ambient-btn {
-  position: fixed;
-  left: 50%;
-  bottom: 11.5vh;
-  transform: translateX(-50%);
-  z-index: 6;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
-}
-.jarvis-ambient-btn:hover {
-  color: var(--ink);
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 0 16px oklch(0.7 0.1 40 / 0.25);
-}
-@media (max-width: 640px) {
-  .jarvis-ambient-btn { bottom: calc(1.5vh + env(safe-area-inset-bottom)); }
 }
