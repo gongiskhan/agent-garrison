@@ -106,6 +106,11 @@ WHISPER_CPP_VAD_MODEL = os.path.expanduser(os.environ.get(
     "WHISPER_CPP_VAD_MODEL",
     "~/.cache/whisper-cpp/ggml-silero-vad.bin",
 ))
+# Decode without timestamp tokens (-nt). REQUIRED by fine-tunes trained without
+# timestamps (INESC WhisperLv3-FT-EP); leave off for stock checkpoints.
+WHISPER_CPP_NO_TIMESTAMPS = os.environ.get(
+    "WHISPER_CPP_NO_TIMESTAMPS", ""
+).strip().lower() in ("1", "true", "on", "yes")
 _whisper_cpp_proc = None
 _whisper_cpp_port = None
 _whisper_cpp_log = None  # open file handle for the whisper-server child's log
@@ -279,6 +284,13 @@ def start_whisper_cpp():
         "-bs", str(WHISPER_BEAM), "-l", (WHISPER_LANG or "auto"),
         "--suppress-nst",  # drop non-speech tokens ([music], blanks) — free
     ]
+    if WHISPER_CPP_NO_TIMESTAMPS:
+        # Fine-tunes trained WITHOUT timestamp tokens (e.g. INESC-ID's European
+        # Portuguese WhisperLv3-FT-EP) derail whisper.cpp's timestamped decode
+        # into empty "." transcripts; -nt restores clean text. Harmless for /stt
+        # (we never use segment times), but keep it opt-in — stock checkpoints
+        # decode fine (and marginally better) with timestamps on.
+        args.append("-nt")
     if WHISPER_CPP_VAD_MODEL and os.path.exists(WHISPER_CPP_VAD_MODEL):
         args += [
             "--vad", "--vad-model", WHISPER_CPP_VAD_MODEL,
@@ -325,7 +337,13 @@ def transcribe_cpp(audio_f32):
     # e.g. "Agent Garrison"). Keep WHISPER_PROMPT a COMMA-SEPARATED TERM LIST, not
     # example sentences — full sentences get regurgitated verbatim on unclear
     # audio (learned the hard way with faster-whisper).
-    if WHISPER_PROMPT:
+    # Fine-tune mode (WHISPER_CPP_NO_TIMESTAMPS): send NO prompt. Checkpoints
+    # trained without timestamps (INESC WhisperLv3-FT-EP) also collapse under a
+    # long initial_prompt — the .env.local 1245-char vocab list turned whole
+    # utterances into "for"/"to" (verified 2026-07-14; short prompts are
+    # tolerated, but the safe default is none — the orchestrator glossary
+    # recovers tech terms downstream).
+    if WHISPER_PROMPT and not WHISPER_CPP_NO_TIMESTAMPS:
         data["prompt"] = WHISPER_PROMPT
     r = httpx.post(
         f"http://127.0.0.1:{_whisper_cpp_port}/inference",

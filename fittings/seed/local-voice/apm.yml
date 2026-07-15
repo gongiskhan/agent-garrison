@@ -73,6 +73,10 @@ x-garrison:
       type: string
       default: ~/.cache/whisper-cpp/ggml-large-v3.bin
       description: Path to the ggml whisper model used when stt_engine is whisper-cpp (~ is expanded). Ignored by the faster-whisper engine, which loads whisper_model by name instead.
+    - key: whisper_cpp_no_timestamps
+      type: boolean
+      default: false
+      description: Pass -nt (no timestamps) to whisper-server. REQUIRED for fine-tunes trained without timestamp tokens (e.g. INESC-ID WhisperLv3-FT-EP for European Portuguese) — without it they decode to empty "." transcripts. Leave off for stock OpenAI checkpoints.
     - key: whisper_lang
       type: string
       default: ""
