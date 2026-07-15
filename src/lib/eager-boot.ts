@@ -116,7 +116,10 @@ export interface EagerBootOptions {
 // compositions, so the merge is deterministic and correct. Best-effort: a read
 // failure yields an empty map (eager boot then spawns on server defaults, the
 // prior behavior) rather than aborting the boot.
-async function resolveConfigById(): Promise<Map<string, Record<string, unknown>>> {
+// Exported for the manual restart route, which must project the same apm.yml
+// config into the respawn (a restart that silently drops WHISPER_MODEL et al.
+// boots the fitting on server defaults).
+export async function resolveConfigById(): Promise<Map<string, Record<string, unknown>>> {
   const configById = new Map<string, Record<string, unknown>>();
   try {
     const compositions = await listCompositions();
