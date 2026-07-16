@@ -2688,6 +2688,14 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
       </div>
 
       <div className="jarvis-dock">
+        {/* ação local (não vai ao orquestrador): entra no modo ambiente */}
+        <button
+          className="jarvis-dock-btn jarvis-dock-ambient"
+          onClick={() => { setMode("idle"); setAmbientOn(true); }}
+          title="Entrar no modo ambiente"
+        >
+          ✦ ambiente
+        </button>
         {DOCK_ACTIONS.map((a) => (
           <button
             key={a.label}

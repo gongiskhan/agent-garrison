@@ -2314,3 +2314,15 @@ a.yt-btn { text-decoration: none; }
 }
 
 }
+
+/* botão de modo ambiente no dock — mesma pílula das ações, com um toque ember
+   para se distinguir das ações que falam com o orquestrador */
+.jarvis-dock-ambient {
+  color: var(--ink-dim);
+  border-color: hsl(var(--accent-h) 50% 50% / 0.35);
+}
+.jarvis-dock-ambient:hover {
+  color: var(--ink);
+  border-color: hsl(var(--accent-h) 60% 60% / 0.7);
+  box-shadow: 0 0 12px hsl(var(--accent-h) 60% 50% / 0.2);
+}
