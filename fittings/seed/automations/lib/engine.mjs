@@ -425,12 +425,21 @@ export async function runAutomation(opts) {
         // FIXER_ALLOWED_STEP_TYPES allowlist (no shell/connector escalation).
         patch = validatePatch(await fixerFn({ step, error: safeMsg, observation, failureKind }));
       } catch (e) {
+        // An unusable fixer reply (model drifted off the patch grammar, fixer
+        // endpoint down) is a failed FIX ATTEMPT, not a new failure mode: the
+        // step fails with its ORIGINAL error - "unknown patch kind: hover" must
+        // never mask the verify failure the report needs to show (live-fire
+        // 2026-07-17: a vision model replied with an action instead of a patch
+        // and every such step surfaced as a fixer crash instead of a finding).
+        const fixerNote = `fixer unusable: ${redactDeep(e.message, secretValues)}`;
+        const rec = { stepIndex: i, stepId: step.id, type: step.type, status: "failed", durationMs: Date.now() - stepStart, error: safeMsg, fixerNote };
+        record.steps.push(rec);
         record.status = "failed";
         record.endedAt = nowIso();
-        record.error = `fixer failed: ${redactDeep(e.message, secretValues)}`;
+        record.error = safeMsg;
         await persist(record);
-        safeEmit({ type: "run_patch", runId, stepIndex: i, phase: "aborted", reasoning: record.error });
-        safeEmit({ type: "run_error", runId, stepIndex: i, error: record.error });
+        safeEmit({ type: "run_patch", runId, stepIndex: i, phase: "aborted", reasoning: fixerNote });
+        safeEmit({ type: "run_error", runId, stepIndex: i, error: safeMsg });
         return record;
       }
       if (patch.kind === "abort") {
