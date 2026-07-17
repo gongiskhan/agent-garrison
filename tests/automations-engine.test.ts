@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runAutomation } from "../fittings/seed/automations/lib/engine.mjs";
-import { getRun } from "../fittings/seed/automations/lib/store.mjs";
+import { runAutomation, runAutomationMatrix } from "../fittings/seed/automations/lib/engine.mjs";
+import { getRun, getMatrixRun } from "../fittings/seed/automations/lib/store.mjs";
 import { interpolate, interpolateDeep } from "../fittings/seed/automations/lib/template-vars.mjs";
 
 // E2 — the run engine for non-browser steps. Inject deps so no real connector
@@ -230,6 +230,70 @@ describe("run engine (E2)", () => {
     });
     expect(record.status).toBe("awaiting_consent");
     expect(record.pause).toMatchObject({ kind: "awaiting_consent" });
+  });
+
+  it("delta 1: carries a caller-supplied contextTag + ephemeral flag on the run record", async () => {
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "wait", durationMs: 1 }] },
+      contextTag: "drill",
+      ephemeral: true,
+      deps: { sleep: noSleep }
+    });
+    expect(record.status).toBe("completed");
+    expect(record.contextTag).toBe("drill");
+    expect(record.ephemeral).toBe(true);
+    const loaded = await getRun(record.id);
+    expect(loaded.contextTag).toBe("drill");
+  });
+
+  it("delta 4: a disabled step is skipped (tier skipped), not executed, and later steps still run", async () => {
+    let ran = false;
+    const record = await runAutomation({
+      automation: {
+        id: "a",
+        name: "A",
+        steps: [
+          { id: "s1", type: "local_command", command: "printf skip-me", enabled: false },
+          { id: "s2", type: "wait", durationMs: 1 }
+        ]
+      },
+      deps: { sleep: noSleep, runCommand: async () => { ran = true; return { stdout: "", stderr: "", exitCode: 0 }; } }
+    });
+    expect(record.status).toBe("completed");
+    expect(record.steps[0]).toMatchObject({ status: "skipped", tier: "skipped" });
+    expect(record.steps[1].status).toBe("completed");
+    expect(ran).toBe(false);
+  });
+
+  it("delta 7: writes a browser step's evidence to a plain file and strips the base64 from the persisted record", async () => {
+    const tinyJpegB64 = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"); // minimal SOI/EOI JPEG markers
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "click" }] },
+      deps: { runBrowser: async () => ({ tier: "vision", action: { kind: "click" }, evidence: { screenshotB64: tinyJpegB64 } }) }
+    });
+    expect(record.status).toBe("completed");
+    expect(record.steps[0].evidencePath).toMatch(/step-000\.jpg$/);
+    const { existsSync, readFileSync } = await import("node:fs");
+    expect(existsSync(record.steps[0].evidencePath)).toBe(true);
+    expect(readFileSync(record.steps[0].evidencePath)).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    // no base64 blob leaks into the persisted/emitted result
+    expect(JSON.stringify(record)).not.toContain(tinyJpegB64);
+  });
+
+  it("delta 6: runAutomationMatrix runs the same automation once per viewport and groups results", async () => {
+    const seen: any[] = [];
+    const matrix = await runAutomationMatrix({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "x" }] },
+      viewports: [{ id: "desktop", width: 1280, height: 800 }, { id: "mobile", width: 390, height: 844 }],
+      contextTag: "drill",
+      deps: { runBrowser: async ({ step }: any) => { seen.push(step); return { tier: "vision" }; } }
+    });
+    expect(matrix.results).toHaveLength(2);
+    expect(matrix.results.map((r: any) => r.viewportId).sort()).toEqual(["desktop", "mobile"]);
+    expect(matrix.results.every((r: any) => r.status === "completed")).toBe(true);
+    expect(seen).toHaveLength(2); // ran twice — once per viewport
+    const loaded = await getMatrixRun(matrix.matrixId);
+    expect(loaded.results).toHaveLength(2);
   });
 
   it("fails a browser step cleanly when the Browser Fitting is not running", async () => {

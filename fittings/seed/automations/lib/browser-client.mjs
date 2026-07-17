@@ -19,7 +19,11 @@ export function browserBaseUrl() {
   }
 }
 
-export function makeBrowserClient({ fetchImpl = globalThis.fetch } = {}) {
+// `viewport` (engine delta 3, e.g. { width, height, isMobile?, deviceScaleFactor? })
+// is applied at tab-creation time so responsive CSS sees the right size from
+// first paint — a run matrix (delta 6) gets a fresh client (fresh tab) per
+// viewport, so there is no mid-run re-emulation ordering hazard to handle here.
+export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = null } = {}) {
   const base = browserBaseUrl();
   if (!base) throw new Error("browser fitting not running (no GARRISON_BROWSER_URL / status file)");
   let tabId = null;
@@ -33,7 +37,7 @@ export function makeBrowserClient({ fetchImpl = globalThis.fetch } = {}) {
     const created = await json(await fetchImpl(`${base}/tabs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: url ?? "about:blank" })
+      body: JSON.stringify({ url: url ?? "about:blank", viewport: viewport ?? undefined })
     }));
     tabId = created.id || created.tabId;
     return tabId;
@@ -63,6 +67,39 @@ export function makeBrowserClient({ fetchImpl = globalThis.fetch } = {}) {
         body: JSON.stringify({ action })
       }));
       if (!r.ok) throw new Error(r.error || "execute failed");
+      return r;
+    },
+    // Deterministic assertion kinds needing live locator access (count/visible/
+    // attribute-equals) — text-contains/url-matches are resolved locally from
+    // observe() and never reach this call (see assertions.mjs).
+    async assert(assertion) {
+      if (!tabId) await openTab();
+      const r = await json(await fetchImpl(`${base}/tabs/${tabId}/assert`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ assertion })
+      }));
+      if (!r.ok) throw new Error(r.error || "assert failed");
+      return r;
+    },
+    // Re-emulate an already-open tab's viewport (the picker/authoring surface
+    // uses this; a run's own viewport is set at tab-creation time above).
+    async setViewport(vp) {
+      if (!tabId) return openTab();
+      return json(await fetchImpl(`${base}/tabs/${tabId}/viewport`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(vp)
+      }));
+    },
+    async evalJs(js) {
+      if (!tabId) await openTab();
+      const r = await json(await fetchImpl(`${base}/tabs/${tabId}/eval`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ js })
+      }));
+      if (!r.ok) throw new Error(r.error || "eval failed");
       return r;
     }
   };

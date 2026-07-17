@@ -119,6 +119,52 @@ export async function listRuns(automationId) {
   return out.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
 }
 
+function runEvidenceDir(runId) {
+  const safe = String(runId).replace(/[^A-Za-z0-9_-]/g, "");
+  if (!safe || safe !== String(runId)) throw new Error(`invalid run id: ${runId}`);
+  return path.join(runsDir(), safe, "evidence");
+}
+
+// Per-step evidence (engine delta 7, R13): a plain JPEG file with a filesystem
+// link, no artifact store. Atomic (temp-write + rename) so a reader never sees
+// a partial file. Returns the absolute path written.
+export async function writeStepEvidence(runId, stepIndex, base64Jpeg) {
+  const dir = runEvidenceDir(runId);
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, `step-${String(stepIndex).padStart(3, "0")}.jpg`);
+  const tmp = `${file}.${process.pid}.${ulid()}.tmp`;
+  await fs.writeFile(tmp, Buffer.from(base64Jpeg, "base64"));
+  await fs.rename(tmp, file);
+  return file;
+}
+
+function matrixPath(matrixId) {
+  const safe = String(matrixId).replace(/[^A-Za-z0-9_-]/g, "");
+  if (!safe || safe !== String(matrixId)) throw new Error(`invalid matrix id: ${matrixId}`);
+  return path.join(runsDir(), `matrix-${safe}.json`);
+}
+
+// Run-matrix summary (engine delta 6): grouped per-viewport results, atomic
+// write (temp + rename) — the individual per-viewport runs are still saved as
+// ordinary run records via saveRun.
+export async function saveMatrixRun(record) {
+  await fs.mkdir(runsDir(), { recursive: true });
+  const file = matrixPath(record.matrixId);
+  const tmp = `${file}.${process.pid}.${ulid()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(record, null, 2), "utf8");
+  await fs.rename(tmp, file);
+  return record;
+}
+
+export async function getMatrixRun(matrixId) {
+  try {
+    return JSON.parse(await fs.readFile(matrixPath(matrixId), "utf8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+}
+
 export async function saveBrief(slug, markdown) {
   const safe = String(slug).replace(/[^A-Za-z0-9_-]/g, "");
   if (!safe) throw new Error(`invalid brief slug: ${slug}`);

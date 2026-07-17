@@ -15,7 +15,11 @@
 import { fingerprintFromParts } from "./fingerprint.mjs";
 import { lookupActionCache, writeActionCache, evictAction, lookupAssertionCache, writeAssertionCache } from "./cache.mjs";
 
-export async function runBrowserStep({ automationId, step, deps }) {
+// bypassCache (engine delta 2, R12): the blind adversarial pass runs vision-
+// forced with the cache ignored — no lookup, no write, so it neither reuses a
+// prior (possibly implementer-biased) resolution nor pollutes the shared cache
+// with an adversarial run's actions/assertions.
+export async function runBrowserStep({ automationId, step, deps, bypassCache = false }) {
   const observe = deps.observe;
   if (step.type === "navigate") {
     try {
@@ -35,24 +39,34 @@ export async function runBrowserStep({ automationId, step, deps }) {
   // Page-level failures below ARE recoverable — the fixer can dismiss an overlay,
   // replace the action, etc.
   try {
-    return await resolvePageStep({ automationId, step, deps, obs, fp });
+    return await resolvePageStep({ automationId, step, deps, obs, fp, bypassCache });
   } catch (err) {
     if (err.recoverable === undefined) err.recoverable = true;
     throw err;
   }
 }
 
-async function resolvePageStep({ automationId, step, deps, obs, fp }) {
+// Evidence (engine delta 7): every resolved step carries back the screenshot
+// already fetched by observe({screenshot:true}) — no extra round trip. The
+// engine writes it to a plain file and drops the base64 before persisting/
+// emitting the step result (R13 — no artifact store, just a file + a link).
+function withEvidence(result, obs) {
+  return obs?.screenshotB64 ? { ...result, evidence: { screenshotB64: obs.screenshotB64 } } : result;
+}
+
+async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache }) {
   if (step.type === "verify") {
     // Deterministic assertion first (planner-authored or cached), else vision.
-    const cached = step.cachedAssertion || (await lookupAssertionCache(automationId, step.id, fp))?.assertion;
+    // bypassCache (R12) ignores BOTH the shared cache store and any planner-
+    // authored cachedAssertion on the step — the blind pass is blind to specs too.
+    const cached = !bypassCache && (step.cachedAssertion || (await lookupAssertionCache(automationId, step.id, fp))?.assertion);
     if (cached) {
       const passed = await deps.executeAssertion(cached);
-      if (passed) return { tier: "cached", passed: true, assertion: cached };
+      if (passed) return withEvidence({ tier: "cached", passed: true, assertion: cached }, obs);
       // fall through to vision on a failed deterministic assertion
     }
     const verdict = await deps.verifyViaVision({ observation: obs, step });
-    if (verdict.passed && verdict.assertion) {
+    if (verdict.passed && verdict.assertion && !bypassCache) {
       await writeAssertionCache({ automationId, stepId: step.id, fingerprint: fp, assertion: verdict.assertion });
     }
     if (!verdict.passed) {
@@ -60,15 +74,18 @@ async function resolvePageStep({ automationId, step, deps, obs, fp }) {
       err.recoverable = true;
       throw err;
     }
-    return { tier: cached ? "recovered" : "vision", passed: true, reasoning: verdict.reasoning };
+    // Surface the model-discovered assertion on the result too (not just the
+    // cache write above) — a consumer that graduates vision to a committed
+    // spec (Drill's B8) needs to know WHAT was verified, not just that it was.
+    return withEvidence({ tier: cached ? "recovered" : "vision", passed: true, reasoning: verdict.reasoning, assertion: verdict.assertion }, obs);
   }
 
   // browser action step
-  const cached = await lookupActionCache(automationId, step.id, fp);
+  const cached = !bypassCache && (await lookupActionCache(automationId, step.id, fp));
   if (cached) {
     try {
       await deps.executeAction(cached.action);
-      return { tier: "cached", action: cached.action };
+      return withEvidence({ tier: "cached", action: cached.action }, obs);
     } catch {
       // cached selector stale — evict and recover via vision
       await evictAction(automationId, step.id, fp);
@@ -76,6 +93,8 @@ async function resolvePageStep({ automationId, step, deps, obs, fp }) {
   }
   const action = await deps.resolveViaVision({ observation: obs, step });
   await deps.executeAction(action);
-  await writeActionCache({ automationId, stepId: step.id, fingerprint: fp, action, confidence: cached ? "medium" : "high" });
-  return { tier: cached ? "recovered" : "vision", action };
+  if (!bypassCache) {
+    await writeActionCache({ automationId, stepId: step.id, fingerprint: fp, action, confidence: cached ? "medium" : "high" });
+  }
+  return withEvidence({ tier: cached ? "recovered" : "vision", action }, obs);
 }

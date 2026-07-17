@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { STEP_TYPES, validateAutomation, normalizeAutomation } from "../fittings/seed/automations/lib/types.mjs";
-import { saveAutomation, getAutomation, listAutomations, deleteAutomation } from "../fittings/seed/automations/lib/store.mjs";
+import { saveAutomation, getAutomation, listAutomations, deleteAutomation, writeStepEvidence, saveMatrixRun, getMatrixRun } from "../fittings/seed/automations/lib/store.mjs";
 
 // E1 — the Automations engine scaffold: YAML store + the 8 step types + a
 // validator. Sandbox GARRISON_AUTOMATIONS_DIR so tests never touch the real
@@ -92,5 +92,38 @@ describe("YAML automation store (E1)", () => {
 
   it("rejects a path-traversal id", async () => {
     await expect(getAutomation("../escape")).rejects.toThrow(/invalid automation id/);
+  });
+
+  it("step enable flags: normalizeAutomation defaults enabled=true and tags=[] per step", async () => {
+    const auto = normalizeAutomation({
+      id: "a",
+      name: "A",
+      steps: [{ type: "wait" }, { type: "wait", enabled: false, tags: ["smoke"] }]
+    });
+    expect(auto.steps[0]).toMatchObject({ enabled: true, tags: [] });
+    expect(auto.steps[1]).toMatchObject({ enabled: false, tags: ["smoke"] });
+  });
+});
+
+describe("step evidence + run matrix (E7/E6, atomic writes)", () => {
+  it("writeStepEvidence writes a plain JPEG file under runs/<id>/evidence and rejects a traversal run id", async () => {
+    const b64 = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64");
+    const file = await writeStepEvidence("run1", 2, b64);
+    expect(file).toMatch(/runs[/\\]run1[/\\]evidence[/\\]step-002\.jpg$/);
+    expect(existsSync(file)).toBe(true);
+    await expect(writeStepEvidence("../escape", 0, b64)).rejects.toThrow(/invalid run id/);
+  });
+
+  it("saveMatrixRun/getMatrixRun round-trip and reject a traversal matrix id atomically (temp+rename, no partial file)", async () => {
+    const record = { matrixId: "mx1", automationId: "a", viewports: [{ id: "d" }], results: [{ viewportId: "d", status: "completed" }] };
+    await saveMatrixRun(record);
+    const loaded = await getMatrixRun("mx1");
+    expect(loaded).toMatchObject({ matrixId: "mx1" });
+    expect(await getMatrixRun("missing")).toBeNull();
+    await expect(saveMatrixRun({ matrixId: "../escape", results: [] })).rejects.toThrow(/invalid matrix id/);
+    // no leftover .tmp files after a successful write
+    const { readdirSync } = await import("node:fs");
+    const runsFiles = readdirSync(path.join(dir, "runs"));
+    expect(runsFiles.some((f) => f.endsWith(".tmp"))).toBe(false);
   });
 });

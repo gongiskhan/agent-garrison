@@ -8,9 +8,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { mkdir, writeFile, unlink, readFile, readdir } from "node:fs/promises";
-import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, automationsDir } from "../lib/store.mjs";
-import { runAutomation } from "../lib/engine.mjs";
+import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, getMatrixRun, automationsDir } from "../lib/store.mjs";
+import { runAutomation, runAutomationMatrix } from "../lib/engine.mjs";
 import { planFromBrief } from "../lib/planner.mjs";
+import { normalizeAutomation, validateAutomation } from "../lib/types.mjs";
 import { buildDiscussParams, freshAutomationSlug } from "../lib/discuss.mjs";
 import { ulid } from "../lib/ulid.mjs";
 import { readFile as readFileAsync } from "node:fs/promises";
@@ -186,6 +187,80 @@ async function handle(req, res) {
       }
       runPromise.catch((err) => publishEvent(runId, { type: "run_error", runId, error: err.message }));
       return send(res, 202, { runId });
+    }
+    // Inline ephemeral run (engine delta 1): run a NOT-persisted automation body
+    // directly — no prior POST /api/automations required. Generic (no caller-
+    // specific naming); Drill (and anything else) passes contextTag to label the
+    // run on its record. Same {runId}/{run} + ?sync=1 shape as the saved-run route.
+    if (pathname === "/api/automations/run-inline" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.automation || !Array.isArray(body.automation.steps)) {
+        return send(res, 400, { error: "automation.steps (array) required" });
+      }
+      let automation;
+      try {
+        automation = normalizeAutomation({ id: body.automation.id ?? `inline-${ulid()}`, name: body.automation.name ?? "inline run", ...body.automation });
+        validateAutomation(automation);
+      } catch (err) {
+        return send(res, 400, { error: err.message });
+      }
+      const runId = ulid();
+      const runPromise = runAutomation({
+        automation,
+        inputs: body.inputs ?? {},
+        triggeredBy: body.triggeredBy ?? "inline",
+        runId,
+        contextTag: body.contextTag ?? null,
+        bypassCache: body.bypassCache === true,
+        viewport: body.viewport ?? null,
+        ephemeral: true,
+        emit: (ev) => publishEvent(runId, ev),
+        deps: { runSubAutomation: makeSubRunner(), waitForResume: waitForResumeFor(runId) }
+      }).finally(() => pendingResumes.delete(runId));
+      if (url.searchParams.get("sync") === "1") {
+        return send(res, 200, { run: await runPromise });
+      }
+      runPromise.catch((err) => publishEvent(runId, { type: "run_error", runId, error: err.message }));
+      return send(res, 202, { runId });
+    }
+    // Run matrix (engine delta 6): the SAME step set, once per named viewport,
+    // grouped. Steps can be inline (ephemeral) or reference a saved automation id.
+    if (pathname === "/api/automations/run-matrix" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!Array.isArray(body.viewports) || body.viewports.length === 0) {
+        return send(res, 400, { error: "viewports (non-empty array) required" });
+      }
+      let automation;
+      if (body.automation) {
+        try {
+          automation = normalizeAutomation({ id: body.automation.id ?? `inline-${ulid()}`, name: body.automation.name ?? "matrix run", ...body.automation });
+          validateAutomation(automation);
+        } catch (err) {
+          return send(res, 400, { error: err.message });
+        }
+      } else if (body.automationId) {
+        automation = await getAutomation(body.automationId);
+        if (!automation) return send(res, 404, { error: "not found" });
+      } else {
+        return send(res, 400, { error: "automation or automationId required" });
+      }
+      const matrix = await runAutomationMatrix({
+        automation,
+        viewports: body.viewports,
+        inputs: body.inputs ?? {},
+        triggeredBy: body.triggeredBy ?? "inline",
+        contextTag: body.contextTag ?? null,
+        bypassCache: body.bypassCache === true,
+        ephemeral: !body.automationId,
+        emit: (ev) => publishEvent(ev.runId, ev),
+        deps: { runSubAutomation: makeSubRunner() }
+      });
+      return send(res, 200, { matrix });
+    }
+    const matrixGet = pathname.match(/^\/api\/runs\/matrix\/([^/]+)$/);
+    if (matrixGet && req.method === "GET") {
+      const rec = await getMatrixRun(decodeURIComponent(matrixGet[1]));
+      return rec ? send(res, 200, { matrix: rec }) : send(res, 404, { error: "not found" });
     }
     // Live SSE stream of a run's events (replays buffered events first).
     const streamMatch = pathname.match(/^\/api\/runs\/([^/]+)\/stream$/);

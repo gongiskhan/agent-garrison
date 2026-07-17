@@ -737,9 +737,54 @@ async function handleCreateTab(req, res) {
   if (!isAllowedNavScheme(initialUrl)) return jsonRes(res, 400, { error: "navigation scheme not allowed" });
   try {
     const tab = await openTab(initialUrl);
+    // Viewport emulation at creation (Automations engine delta 3): applied
+    // before the caller's first navigation is even visible to them, so
+    // responsive CSS sees the right size from first paint.
+    if (body.viewport && typeof body.viewport === "object") {
+      await applyViewportEmulation(tab, body.viewport).catch((err) => {
+        console.warn(`[browser] viewport-at-creation failed: ${err.message}`);
+      });
+    }
     jsonRes(res, 201, { tabId: tab.tabId, url: tab.page.url() });
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Device emulation shared by tab-creation and the standalone /viewport route.
+// `isMobile`/`deviceScaleFactor` go through CDP (Playwright's setViewportSize
+// alone doesn't touch those); a plain width/height uses Playwright directly.
+// The CDP path bypasses Playwright's own viewport bookkeeping, so
+// `page.viewportSize()` keeps reporting the tab's ORIGINAL size afterward —
+// `tab.emulatedViewport` is the source of truth handleObserve must read
+// instead, or every observation for a mobile-emulated tab reports the wrong
+// width to callers (including a real vision call).
+async function applyViewportEmulation(tab, vp) {
+  const width = Math.round(Number(vp.width) || 0);
+  const height = Math.round(Number(vp.height) || 0);
+  if (!width || !height) throw new Error("viewport requires numeric width and height");
+  if (vp.isMobile || vp.deviceScaleFactor) {
+    await tab.cdpSession.send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      deviceScaleFactor: Number(vp.deviceScaleFactor) || 1,
+      mobile: !!vp.isMobile
+    });
+  } else {
+    await tab.page.setViewportSize({ width, height });
+  }
+  tab.emulatedViewport = { width, height };
+}
+
+async function handleSetViewport(req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
+  const body = (await readBody(req)) || {};
+  try {
+    await applyViewportEmulation(tab, body);
+    jsonRes(res, 200, { ok: true });
+  } catch (err) {
+    jsonRes(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -929,7 +974,7 @@ async function handleObserve(_req, res, tabId, query) {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}:${v}`)
       .join(",");
-    const vp = page.viewportSize() || { width: 0, height: 0 };
+    const vp = tab.emulatedViewport || page.viewportSize() || { width: 0, height: 0 };
     const observation = { url: pageUrl, title, headingText: parts.headingText, shapeSketch, viewport: { w: vp.width, h: vp.height } };
     if (query && query.a11y === "1") {
       observation.a11y = await accessibilityTree(tab);
@@ -1002,6 +1047,60 @@ async function handleExecute(req, res, tabId) {
       else throw new Error(`unknown action kind: ${kind}`);
     }
     jsonRes(res, 200, { ok: true });
+  } catch (err) {
+    jsonRes(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Same locator ladder as resolveActionLocator, but WITHOUT `.first()` — count
+// needs every match, not just the first, unlike an action's single target.
+function resolveAssertionLocator(page, a) {
+  if (a.selector) return page.locator(a.selector);
+  if (a.role && a.name) return page.getByRole(a.role, { name: a.name });
+  if (a.testId) return page.getByTestId(a.testId);
+  if (a.label) return page.getByLabel(a.label);
+  if (a.placeholder) return page.getByPlaceholder(a.placeholder);
+  if (a.text) return page.getByText(a.text);
+  if (a.role) return page.getByRole(a.role);
+  throw new Error("assertion has no locator hint (selector/role+name/testId/label/placeholder/text)");
+}
+
+// Richer deterministic assertions (Automations engine delta 5): the kinds
+// needing live Playwright locator access (count/visible/attribute-equals) —
+// text-contains/url-matches are resolved by the caller from observe() and
+// never reach this endpoint.
+async function handleAssert(req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
+  const body = (await readBody(req)) || {};
+  const assertion = body.assertion ?? body;
+  const page = tab.page;
+  try {
+    const kind = assertion.kind;
+    if (kind === "count") {
+      const loc = resolveAssertionLocator(page, assertion);
+      const n = await loc.count();
+      const op = assertion.op ?? "eq";
+      const value = Number(assertion.value ?? 0);
+      const passed = op === "eq" ? n === value
+        : op === "gte" ? n >= value
+        : op === "lte" ? n <= value
+        : op === "gt" ? n > value
+        : op === "lt" ? n < value
+        : (() => { throw new Error(`unknown count op: ${op}`); })();
+      return jsonRes(res, 200, { ok: true, passed, actual: n });
+    }
+    if (kind === "visible") {
+      const loc = resolveAssertionLocator(page, assertion).first();
+      const passed = await loc.isVisible({ timeout: assertion.timeoutMs ?? 3000 }).catch(() => false);
+      return jsonRes(res, 200, { ok: true, passed });
+    }
+    if (kind === "attribute-equals") {
+      const loc = resolveAssertionLocator(page, assertion).first();
+      const actual = await loc.getAttribute(assertion.attribute, { timeout: assertion.timeoutMs ?? 3000 }).catch(() => null);
+      return jsonRes(res, 200, { ok: true, passed: actual === assertion.value, actual });
+    }
+    return jsonRes(res, 400, { ok: false, error: `unsupported assertion kind: ${kind}` });
   } catch (err) {
     jsonRes(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -1690,6 +1789,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (a11yMatch && method === "GET") return await handleA11y(req, res, decodeURIComponent(a11yMatch[1]));
       const execMatch = pathname.match(/^\/tabs\/([^/]+)\/execute$/);
       if (execMatch && method === "POST") return await handleExecute(req, res, decodeURIComponent(execMatch[1]));
+
+      const assertMatch = pathname.match(/^\/tabs\/([^/]+)\/assert$/);
+      if (assertMatch && method === "POST") return await handleAssert(req, res, decodeURIComponent(assertMatch[1]));
+
+      const viewportMatch = pathname.match(/^\/tabs\/([^/]+)\/viewport$/);
+      if (viewportMatch && method === "POST") return await handleSetViewport(req, res, decodeURIComponent(viewportMatch[1]));
 
       const evalMatch = pathname.match(/^\/tabs\/([^/]+)\/eval$/);
       if (evalMatch && method === "POST") return await handleEval(req, res, decodeURIComponent(evalMatch[1]));

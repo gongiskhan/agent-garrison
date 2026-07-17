@@ -13,13 +13,14 @@ import os from "node:os";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { interpolate, interpolateDeep } from "./template-vars.mjs";
-import { saveRun, getAutomation } from "./store.mjs";
+import { saveRun, getAutomation, writeStepEvidence, saveMatrixRun } from "./store.mjs";
 import { ulid } from "./ulid.mjs";
 import { redactDeep } from "./redact.mjs";
 import { makeBrowserClient } from "./browser-client.mjs";
 import { runBrowserStep } from "./browser-orchestrator.mjs";
 import { REHEARSAL_BUDGET, detectHumanActionable, applyPatch, proposePatch, validatePatch } from "./fixer.mjs";
 import { shapeForStep, isShapeApproved, approveShape } from "./command-shape.mjs";
+import { needsRemoteProbe, evaluateTextContains, evaluateUrlMatches } from "./assertions.mjs";
 
 const BROWSER_STEP_TYPES = new Set(["browser", "verify", "navigate"]);
 
@@ -108,12 +109,17 @@ function defaultRunCommand({ command, argv, cwd, timeoutMs = 300000, onChunk }) 
 }
 
 // Per-step vision/fixer model call, routed through the backend Model Router.
-async function visionResolve(observation, step, mode, fetchImpl = globalThis.fetch) {
+// contextTag (opt-in, e.g. "drill-adversarial") becomes part of the routed
+// classification's contextKind, so a composition's routing config can target
+// it at a different model than the caller's default vision resolution — the
+// mechanism R12's "a different model set in the composition" needs, with no
+// caller-specific naming baked into the engine itself.
+async function visionResolve(observation, step, mode, contextTag, fetchImpl = globalThis.fetch) {
   const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
   const res = await fetchImpl(`${base}/api/automations/vision`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-garrison-internal": internalToken() },
-    body: JSON.stringify({ observation, step, mode })
+    body: JSON.stringify({ observation, step, mode, contextTag })
   });
   if (!res.ok) throw new Error(`vision ${res.status}`);
   const json = await res.json();
@@ -123,27 +129,32 @@ async function visionResolve(observation, step, mode, fetchImpl = globalThis.fet
 // The live runBrowser: lazily opens ONE browser tab per run, then routes each
 // browser/verify/navigate step through the cache->vision->execute orchestration.
 // Replaces the E2 throwing stub. Tests still inject deps.runBrowser to stay
-// browser-free.
-function makeLiveRunBrowser(automation) {
+// browser-free. `viewport` (delta 3) is applied at tab creation; `bypassCache`
+// (delta 2) is threaded straight into runBrowserStep; `contextTag` (delta 1)
+// flows into every vision call's classification.
+function makeLiveRunBrowser(automation, { viewport = null, bypassCache = false, contextTag = null } = {}) {
   let client = null;
   return async ({ step, emit, runId, stepIndex }) => {
-    client ??= makeBrowserClient();
+    client ??= makeBrowserClient({ viewport });
     emit?.({ type: "run_streaming_available", runId, stepIndex, wsUrl: `${browserViewportUrl()}/${client.tabId ?? ""}` });
     return runBrowserStep({
       automationId: automation.id,
       step,
+      bypassCache,
       deps: {
         observe: () => client.observe({ screenshot: true }),
         executeAction: (a) => client.execute(a),
         navigate: (u) => client.navigate(u),
-        resolveViaVision: ({ observation, step: s }) => visionResolve(observation, s, "action"),
-        verifyViaVision: ({ observation, step: s }) => visionResolve(observation, s, "verify"),
+        resolveViaVision: ({ observation, step: s }) => visionResolve(observation, s, "action", contextTag),
+        verifyViaVision: ({ observation, step: s }) => visionResolve(observation, s, "verify", contextTag),
+        // Richer deterministic assertions (delta 5): text-contains/url-matches
+        // resolve locally from observe(); count/visible/attribute-equals need a
+        // live Playwright locator, resolved by the Browser fitting.
         executeAssertion: async (assertion) => {
-          const obs = await client.observe();
-          const text = (assertion?.text ?? "").toLowerCase();
-          if (!text) return false;
-          const hay = `${obs.title} ${obs.headingText} ${(obs.a11y ?? []).map((n) => n.name).join(" ")}`.toLowerCase();
-          return hay.includes(text);
+          const kind = assertion?.kind || "text-contains";
+          if (kind === "url-matches") return evaluateUrlMatches(assertion, await client.observe());
+          if (needsRemoteProbe(kind)) return !!(await client.assert(assertion)).passed;
+          return evaluateTextContains(assertion, await client.observe());
         }
       }
     });
@@ -165,6 +176,17 @@ export async function runAutomation(opts) {
     runId = ulid(),
     emit = () => {},
     visited = new Set(),
+    // contextTag (delta 1): a caller-supplied label carried on the run record
+    // (e.g. "drill" or "drill-adversarial") — generic plumbing, no drill-
+    // specific naming here (Garrison Honesty Test; the label is data, not code).
+    contextTag = null,
+    // bypassCache (delta 2, R12): forwarded to the browser orchestration.
+    bypassCache = false,
+    // viewport (delta 3): applied when the live browser client opens its tab.
+    viewport = null,
+    // ephemeral (delta 1): true for a run whose `automation` was never saved to
+    // the store — informational only, changes no engine behavior.
+    ephemeral = false,
     deps = {}
   } = opts;
 
@@ -172,7 +194,7 @@ export async function runAutomation(opts) {
   const connectorAuthEnv = deps.connectorAuthEnv || ((id) => defaultConnectorAuthEnv(id, fetchImpl));
   const runConnector = deps.runConnector || defaultRunConnector;
   const runCommand = deps.runCommand || defaultRunCommand;
-  const runBrowser = deps.runBrowser || makeLiveRunBrowser(automation);
+  const runBrowser = deps.runBrowser || makeLiveRunBrowser(automation, { viewport, bypassCache, contextTag });
   const runSubAutomation = deps.runSubAutomation;
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const persist = deps.persist || saveRun;
@@ -222,6 +244,9 @@ export async function runAutomation(opts) {
     status: "running",
     triggeredBy,
     inputs,
+    contextTag,
+    ephemeral,
+    viewport: viewport ?? null,
     steps: []
   };
 
@@ -237,6 +262,17 @@ export async function runAutomation(opts) {
   while (i < steps.length) {
     const step = steps[i];
     const resolved = interpolateDeep(step, scope);
+
+    // Step enable flags (delta 4): a disabled step is skipped, not removed, so
+    // Drill's checkbox toggle needs no re-plan/re-compile round trip.
+    if (resolved.enabled === false) {
+      const rec = { stepIndex: i, stepId: step.id, type: step.type, status: "skipped", tier: "skipped", durationMs: 0 };
+      record.steps.push(rec);
+      safeEmit({ type: "run_step", runId, stepIndex: i, stepId: step.id, stepType: step.type, status: "skipped", tier: "skipped" });
+      i += 1;
+      continue;
+    }
+
     const stepStart = Date.now();
     safeEmit({ type: "run_step", runId, stepIndex: i, stepId: step.id, stepType: step.type, status: "running" });
 
@@ -319,13 +355,25 @@ export async function runAutomation(opts) {
         throw new Error(`unsupported step type: ${step.type}`);
       }
 
+      // Per-step evidence (delta 7, R13): a browser/verify/navigate step may
+      // carry back a screenshot already fetched during resolution — write it as
+      // a plain file with a link and strip the base64 before it reaches
+      // scope.capture/the persisted record/the SSE stream.
+      let evidencePath = null;
+      if (result?.evidence?.screenshotB64) {
+        try {
+          evidencePath = await writeStepEvidence(runId, i, result.evidence.screenshotB64);
+        } catch { /* evidence capture is best-effort; never fails the step */ }
+        delete result.evidence;
+      }
+
       // Capture the RAW result for downstream {{capture.<stepId>}}; persist +
       // emit a redacted copy (no injected secret/token reaches disk or the SSE).
       scope.capture[step.id] = result;
       const safeResult = redactDeep(result, secretValues);
-      const rec = { stepIndex: i, stepId: step.id, type: step.type, status: "completed", tier, durationMs: Date.now() - stepStart, result: safeResult };
+      const rec = { stepIndex: i, stepId: step.id, type: step.type, status: "completed", tier, durationMs: Date.now() - stepStart, result: safeResult, ...(evidencePath ? { evidencePath } : {}) };
       record.steps.push(rec);
-      safeEmit({ type: "run_step", runId, stepIndex: i, stepId: step.id, stepType: step.type, status: "completed", tier, durationMs: rec.durationMs, result: result });
+      safeEmit({ type: "run_step", runId, stepIndex: i, stepId: step.id, stepType: step.type, status: "completed", tier, durationMs: rec.durationMs, result: result, ...(evidencePath ? { evidencePath } : {}) });
       i += 1;
     } catch (err) {
       const safeMsg = redactDeep(err.message, secretValues);
@@ -450,6 +498,58 @@ function connectorScriptPath(connectorId) {
   // installed connectors live at apm_modules/_local/<id>/scripts/connector.mjs
   const id = connectorId === "google" ? "google" : connectorId === "slack" ? "slack-channel" : connectorId === "deepgram" ? "deepgram-voice" : connectorId;
   return `${base}/apm_modules/_local/${id}/scripts/connector.mjs`;
+}
+
+// Run the SAME automation once per viewport (delta 6) and group the results.
+// Each viewport gets its own runId/run record (so existing per-run tooling —
+// SSE, evidence, the results view — needs no special-casing); this just fans
+// runAutomation out and writes one small grouped summary alongside them.
+export async function runAutomationMatrix(opts) {
+  const {
+    automation,
+    viewports,
+    inputs = {},
+    triggeredBy = "user",
+    contextTag = null,
+    bypassCache = false,
+    ephemeral = false,
+    matrixId = ulid(),
+    emit = () => {},
+    deps = {},
+    persistMatrix = deps.persistMatrix || saveMatrixRun
+  } = opts;
+  if (!Array.isArray(viewports) || viewports.length === 0) {
+    throw new Error("runAutomationMatrix requires a non-empty viewports array");
+  }
+  const startedAt = nowIso();
+  const results = [];
+  for (const viewport of viewports) {
+    const runId = deps.runIdFor ? deps.runIdFor(viewport) : ulid();
+    const record = await runAutomation({
+      automation,
+      inputs,
+      triggeredBy,
+      runId,
+      contextTag,
+      bypassCache,
+      ephemeral,
+      viewport,
+      emit: (ev) => emit({ ...ev, matrixId, viewportId: viewport.id }),
+      deps
+    });
+    results.push({ viewportId: viewport.id, viewport, runId, status: record.status });
+  }
+  const matrixRecord = {
+    matrixId,
+    automationId: automation.id,
+    contextTag,
+    startedAt,
+    endedAt: nowIso(),
+    viewports,
+    results
+  };
+  await persistMatrix(matrixRecord);
+  return matrixRecord;
 }
 
 export { getAutomation };
