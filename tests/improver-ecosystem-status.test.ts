@@ -56,7 +56,19 @@ describe("Slice 3 - GET /api/ecosystem-status", () => {
     data = path.join(tmp, "improver-data");
     fs.mkdirSync(data, { recursive: true });
     proc = spawn("node", [SERVER], {
-      env: { ...process.env, IMPROVER_PORT: String(port), IMPROVER_HOST: "127.0.0.1", IMPROVER_DATA: data, GARRISON_HOME: tmp },
+      env: {
+        ...process.env,
+        // Cleared: resolveCompositionDir() falls back to "no apm.yml" only when
+        // this is absent/empty. Running this suite from inside a live Garrison
+        // Operative shell inherits a REAL GARRISON_COMPOSITION_DIR via
+        // process.env, which would otherwise leak through the spread and break
+        // the "no real composition dir in this test env" assumption below.
+        GARRISON_COMPOSITION_DIR: "",
+        IMPROVER_PORT: String(port),
+        IMPROVER_HOST: "127.0.0.1",
+        IMPROVER_DATA: data,
+        GARRISON_HOME: tmp
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     await waitHealth(port);

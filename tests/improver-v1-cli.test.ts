@@ -27,6 +27,13 @@ describe("Improver v1 skills CLI — hermetic acceptance (MR5c)", () => {
         encoding: "utf8",
         env: {
           ...process.env,
+          // Cleared, not just left unset: resolveCompositionDir() falls back to
+          // "no apm.yml" only when this is absent/empty. Running this suite from
+          // inside a live Garrison Operative shell inherits a REAL
+          // GARRISON_COMPOSITION_DIR via process.env, which would otherwise leak
+          // through the spread and break the "no composition dir in this test
+          // env" assumption elsewhere in this file.
+          GARRISON_COMPOSITION_DIR: "",
           IMPROVER_PROJECTS_DIR: join(FIXTURES, "projects"),
           GARRISON_CLAUDE_HOME: claudeHome,
           IMPROVER_LOCK: join(FIXTURES, "apm.lock.yaml"),
@@ -113,6 +120,13 @@ describe("Improver v1 skills CLI — hermetic acceptance (MR5c)", () => {
         encoding: "utf8",
         env: {
           ...process.env,
+          // Cleared, not just left unset: resolveCompositionDir() falls back to
+          // "no apm.yml" only when this is absent/empty. Running this suite from
+          // inside a live Garrison Operative shell inherits a REAL
+          // GARRISON_COMPOSITION_DIR via process.env, which would otherwise leak
+          // through the spread and break the "no composition dir in this test
+          // env" assumption elsewhere in this file.
+          GARRISON_COMPOSITION_DIR: "",
           IMPROVER_PROJECTS_DIR: join(FIXTURES, "projects"),
           GARRISON_CLAUDE_HOME: claudeHome,
           IMPROVER_LOCK: join(FIXTURES, "apm.lock.yaml"),
