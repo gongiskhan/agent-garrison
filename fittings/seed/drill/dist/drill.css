@@ -117,6 +117,17 @@ body {
   font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--mute); margin: 0 0 8px;
 }
+.dr-help { font-size: 11.5px; color: var(--mute); line-height: 1.55; margin: 0 0 12px; max-width: 760px; }
+.dr-banner {
+  border: 1px solid var(--alarm); background: var(--alarm-soft); color: var(--alarm);
+  font-size: 12px; padding: 8px 12px; margin-bottom: 12px;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.dr-link {
+  background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--sage-2);
+  cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.dr-link:hover { color: var(--sage); }
 
 /* ── buttons ── */
 .btn {
@@ -143,6 +154,10 @@ body {
 .chip.brass { border-color: var(--brass); background: var(--warn-soft); color: var(--brass); }
 .chip.alarm { border-color: var(--alarm); background: var(--alarm-soft); color: var(--alarm); }
 .chip.ink.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+/* Long labels (state names, tags) must wrap INSIDE their card, never spill
+   past its border - `nowrap` chips overflowing fixed-width cards was the
+   audit's "boxes outside the containers". */
+.chip.wrap { white-space: normal; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
 
 /* ── cards ── */
 .card { background: var(--paper-2); border: 1px solid var(--rule); padding: 12px 14px; }
@@ -173,9 +188,10 @@ body {
 /* ── Authoring (B1-B12) ── */
 .dr-au { display: flex; flex-direction: column; gap: 16px; position: relative; }
 @media (min-width: 1000px) {
-  .dr-au { flex-direction: row; align-items: flex-start; }
+  .dr-au { flex-direction: row; align-items: flex-start; gap: 22px; }
   .dr-au-canvas { flex: 1; min-width: 0; }
-  .dr-au-plan { width: 320px; flex: none; }
+  /* Steps/plan on the LEFT, the live app on the right. */
+  .dr-au-plan { width: 380px; flex: none; order: -1; }
 }
 /* Hide the FAB / sheet-close / sheet-highlight affordances outside phone
    width — desktop keeps the plan as a normal side column, always visible,
@@ -209,8 +225,45 @@ body {
   .dr-step, .dr-checkbox, .dr-xbtn { min-height: 34px; }
   .dr-checkbox { width: 22px; height: 22px; }
 }
-.dr-cv { position: relative; width: 100%; border: 1px solid var(--rule-2); background: var(--ink); overflow: hidden; }
-.dr-cv-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* The preview stage: the iframe is laid out at the REAL viewport size (the
+   embed canvas resizes the live tab to the iframe's layout box) and only
+   VISUALLY scaled to fit the column - .dr-cv is the scaled display box, so
+   overlay clicks and area badges map 1:1 onto the page viewport. */
+.dr-cv-outer { width: 100%; }
+.dr-cv { position: relative; border: 1px solid var(--rule-2); background: var(--paper-3); overflow: hidden; margin: 0 auto; max-width: 100%; }
+.dr-cv-frame { position: absolute; top: 0; left: 0; border: 0; transform-origin: top left; }
+/* Manual-testing toolbar over the preview: history controls + a real urlbar
+   + restart/full-view/console. Wraps at narrow widths; the URL input takes
+   whatever room the row has left. */
+.dr-cv-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.dr-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center; width: 31px; min-height: 31px;
+  border: 1px solid var(--rule); background: white; color: var(--ink-2); cursor: pointer; padding: 0;
+}
+.dr-iconbtn:hover { border-color: var(--ink); background: var(--paper-2); }
+.dr-urlin {
+  flex: 1 1 220px; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  padding: 7px 9px; border: 1px solid var(--rule); background: white; min-height: 31px; box-sizing: border-box;
+}
+.dr-urlin:focus { border-color: var(--ink); outline: none; color: var(--ink); }
+.dr-vpsize { display: inline-flex; align-items: center; gap: 4px; }
+.dr-vpnum {
+  width: 58px; font-family: var(--mono); font-size: 11.5px; padding: 5px 6px;
+  border: 1px solid var(--rule); background: white; color: var(--ink-2);
+}
+.dr-vpnum:focus { border-color: var(--ink); outline: none; color: var(--ink); }
+/* The page's console buffer - errors are findings material, so they read
+   loud; everything scrolls in place under the preview. */
+.dr-console {
+  margin-top: 8px; border: 1px solid var(--rule-2); background: var(--paper-3);
+  max-height: 220px; overflow-y: auto; font-family: var(--mono); font-size: 11px;
+}
+.dr-con-row { display: flex; gap: 8px; padding: 3px 8px; border-bottom: 1px dashed var(--rule); align-items: baseline; }
+.dr-con-lvl { flex: none; width: 52px; font-weight: 700; color: var(--mute-2); text-transform: uppercase; font-size: 9.5px; }
+.dr-con-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--ink-2); }
+.dr-con-row.err .dr-con-lvl, .dr-con-row.err .dr-con-text { color: var(--alarm); }
+.dr-con-row.warn .dr-con-lvl, .dr-con-row.warn .dr-con-text { color: var(--brass); }
+.dr-con-empty { padding: 10px; color: var(--mute-2); font-family: var(--sans); font-size: 11.5px; }
 .dr-cv-overlay { position: absolute; inset: 0; }
 .dr-abox { position: absolute; border: 2px dashed var(--brass); pointer-events: none; }
 .dr-abadge {
@@ -238,4 +291,33 @@ body {
 
 /* ── Results (D1-D10) ── */
 .dr-res { padding: 10px 12px; background: var(--paper-2); margin-bottom: 10px; border: 1px solid var(--rule); }
-.dr-feedback { flex: 1; min-width: 180px; font-size: 11px; padding: 6px 9px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font-family: var(--sans); }
+.dr-feedback { flex: 1 1 180px; min-width: 0; font-size: 11px; padding: 6px 9px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font-family: var(--sans); }
+.dr-evidence { font-size: 9.5px; color: var(--mute-2); overflow-wrap: anywhere; margin-top: 3px; }
+
+/* Runs table */
+.dr-runs tbody tr { cursor: pointer; }
+.dr-runs tbody tr.sel { background: var(--sage-soft); }
+.dr-runs tbody tr.sel:hover { background: var(--sage-soft); }
+
+/* Harness-errors group */
+.dr-infra { margin-top: 6px; }
+.dr-infra summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--mute); padding: 6px 0; }
+.dr-infra[open] summary { margin-bottom: 6px; }
+
+/* Findings rows: text grows and wraps; the status chip + triage buttons stay
+   one inline cluster that drops BELOW the text as a unit on narrow widths. */
+.dr-finding { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px dashed var(--rule); }
+.dr-finding-text { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; }
+.dr-finding-actions { display: flex; gap: 6px; flex: none; align-items: center; }
+
+/* ── States ── */
+.dr-cardrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.dr-statecard { flex: 1 1 240px; max-width: 340px; min-width: 0; }
+.dr-stateimg {
+  width: 100%; height: 130px; object-fit: cover; object-position: top;
+  border: 1px solid var(--rule); margin-bottom: 6px; display: block; background: var(--paper-3);
+}
+.dr-noimg {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  color: var(--mute-2); font-size: 10.5px; padding: 10px; line-height: 1.4;
+}

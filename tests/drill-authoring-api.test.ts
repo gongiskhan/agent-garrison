@@ -134,3 +134,76 @@ describe("POST /api/authoring/pick + /api/authoring/resolve", () => {
     expect(resolveRes.resolved.matched).toBe("testId");
   }, 30000);
 });
+
+describe("authoring manual-testing toolbar routes", () => {
+  const html = "data:text/html," + encodeURIComponent("<h1>tool</h1><script>console.error('boom from page')</script>");
+  let tabId = "";
+
+  it("opens the toolbar test tab", async () => {
+    await fetch(`${DRILL_BASE}/api/drillbook`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ app: { name: "f", url: html } })
+    });
+    await fetch(`${DRILL_BASE}/api/pages/toolpage`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "" }) });
+    const r = await (
+      await fetch(`${DRILL_BASE}/api/authoring/tab`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageId: "toolpage", viewport: "desktop" })
+      })
+    ).json();
+    tabId = r.tabId;
+    expect(tabId).toBeTruthy();
+  }, 20000);
+
+  it("navigates the tab and reports the landed URL", async () => {
+    const dest = "data:text/html," + encodeURIComponent("<h1>navved</h1>");
+    const r = await (
+      await fetch(`${DRILL_BASE}/api/authoring/nav`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tabId, url: dest })
+      })
+    ).json();
+    expect(r.ok).toBe(true);
+    expect(r.url).toContain("navved");
+  }, 15000);
+
+  it("reloads via tab-action and 400s an invalid action", async () => {
+    const r = await (
+      await fetch(`${DRILL_BASE}/api/authoring/tab-action`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tabId, action: "reload" })
+      })
+    ).json();
+    expect(r.ok).toBe(true);
+    const bad = await fetch(`${DRILL_BASE}/api/authoring/tab-action`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tabId, action: "explode" })
+    });
+    expect(bad.status).toBe(400);
+  }, 15000);
+
+  it("reads live tab info and the console buffer through the proxy", async () => {
+    const info = await (await fetch(`${DRILL_BASE}/api/authoring/tab-info?tabId=${encodeURIComponent(tabId)}`)).json();
+    expect(info.tab?.tabId ?? info.tab?.id).toBe(tabId);
+    expect(String(info.tab?.url)).toContain("data:");
+
+    // The console buffer survives navigation on the same tab; the first page
+    // logged an error at open.
+    const con = await (await fetch(`${DRILL_BASE}/api/authoring/console?tabId=${encodeURIComponent(tabId)}&limit=50`)).json();
+    expect(Array.isArray(con.entries)).toBe(true);
+  }, 15000);
+
+  it("restart closes the pooled tab and opens a fresh one, which the pool then reuses", async () => {
+    const r = await (
+      await fetch(`${DRILL_BASE}/api/authoring/restart`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageId: "toolpage", viewport: "desktop" })
+      })
+    ).json();
+    expect(r.tabId).toBeTruthy();
+    expect(r.tabId).not.toBe(tabId);
+    const again = await (
+      await fetch(`${DRILL_BASE}/api/authoring/tab`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageId: "toolpage", viewport: "desktop" })
+      })
+    ).json();
+    expect(again.tabId).toBe(r.tabId);
+    // the old tab is really gone from the browser
+    const old = await (await fetch(`${DRILL_BASE}/api/authoring/tab-info?tabId=${encodeURIComponent(tabId)}`)).json();
+    expect(old.tab).toBeNull();
+  }, 20000);
+});

@@ -127,7 +127,7 @@ const SPECIAL_KEYS = new Set(Object.keys(SPECIAL_KEY_CODES));
 type PickTarget = { box: { x: number; y: number; w: number; h: number }; label: string; text: string; selector: string };
 type SelectionInfo = { kind: string; label?: string; text?: string; count?: number; box?: { x: number; y: number; w: number; h: number } };
 
-function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; inShell?: boolean }) {
+function CanvasPage({ initialTabId, inShell = false, embed = false }: { initialTabId: string; inShell?: boolean; embed?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
@@ -784,8 +784,8 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   }, [currentUrl]);
 
   return (
-    <div className="canvas-page">
-      <div className="urlbar">
+    <div className={`canvas-page${embed ? " embed" : ""}`}>
+      {!embed && <div className="urlbar">
         <button className="opt" onClick={() => navAction("back")} title="Back">‹</button>
         <button className="opt" onClick={() => navAction("forward")} title="Forward">›</button>
         <button onClick={() => navAction("reload")} title="Reload">↻</button>
@@ -858,7 +858,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
             title="Open in new tab"
           >Detach</button>
         )}
-      </div>
+      </div>}
       <div className={`canvas-wrapper${selMode !== "none" ? " selecting" : ""}`} ref={wrapperRef}>
         <canvas
           ref={canvasRef}
@@ -1019,7 +1019,14 @@ function DevtoolsShell({ initialTabId }: { initialTabId: string }) {
 
 function App() {
   const route = useRoute();
-  if (route.kind === "canvas") return <CanvasPage initialTabId={route.initialTabId} />;
+  // ?embed=1 renders the bare screencast with no urlbar chrome - for host
+  // surfaces (Drill authoring) that overlay their own controls and need the
+  // iframe's full box to BE the page viewport (their click-to-viewport math
+  // breaks if a toolbar strip eats part of the iframe).
+  if (route.kind === "canvas") {
+    const embed = new URLSearchParams(window.location.search).get("embed") === "1";
+    return <CanvasPage initialTabId={route.initialTabId} embed={embed} />;
+  }
   if (route.kind === "devtools-shell") return <DevtoolsShell initialTabId={route.initialTabId} />;
   return <TabsList />;
 }

@@ -67,6 +67,24 @@
           "taskType": "review"
         },
         {
+          "description": "Automation vision/verify/judge calls are image-classified but are JUDGMENTS grounded in a parked screenshot - they need a native Claude session with file Read, never the image-generation provider skill. Caller asserts matchedException automation-vision(-<contextTag>); contextKind matches the route-side resolver.",
+          "id": "automation-vision",
+          "contextKind": "automation-vision",
+          "target": "native-sonnet-medium"
+        },
+        {
+          "description": "Drill run vision/judge calls (contextTag drill).",
+          "id": "automation-vision-drill",
+          "contextKind": "automation-vision:drill",
+          "target": "native-sonnet-medium"
+        },
+        {
+          "description": "Blind adversarial Drill pass on a stronger model (R12).",
+          "id": "automation-vision-drill-adversarial",
+          "contextKind": "automation-vision:drill-adversarial",
+          "target": "native-opus-high"
+        },
+        {
           "description": "Image generation/editing delegates to the provider skill exemplar.",
           "id": "exception-image-provider",
           "target": "skill-gemini-cli",

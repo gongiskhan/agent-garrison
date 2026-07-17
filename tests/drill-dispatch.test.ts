@@ -118,6 +118,57 @@ describe("dispatch: one batch fix card carrying the report", () => {
     expect(receivedBody.description).toContain(runId);
     expect(receivedBody.origin).toBe("drill");
   }, 20000);
+
+  it("dispatch is idempotent: re-dispatch 400s, and a later-confirmed finding goes out alone", async () => {
+    await fetch(`${DRILL_BASE}/api/pages/idem`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Idem", path: "/idem" }) });
+    const runRes = await fetch(`${DRILL_BASE}/api/runs`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageIds: ["idem"], viewports: ["desktop"] })
+    });
+    const runId = (await runRes.json()).run.id;
+
+    const mkConfirmed = async (text: string) => {
+      const { observation } = await (await fetch(`${DRILL_BASE}/api/runs/${runId}/observation`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text })
+      })).json();
+      const { finding } = await (await fetch(`${DRILL_BASE}/api/runs/${runId}/observation/${observation.id}/convert-finding`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageId: "idem" })
+      })).json();
+      await fetch(`${DRILL_BASE}/api/runs/${runId}/findings/${finding.id}`, {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "confirmed" })
+      });
+      return finding;
+    };
+
+    const first = await mkConfirmed("first defect");
+    const d1 = await (await fetch(`${DRILL_BASE}/api/runs/${runId}/dispatch`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "manual" })
+    })).json();
+    expect(d1.dispatched).toBe(true);
+    expect(d1.card.url).toContain(`/#/cards/${d1.card.id}`);
+    // The finding now carries its card stamp in the run view.
+    const stamped = d1.run.findings.find((f: any) => f.id === first.id);
+    expect(stamped.card.id).toBe(d1.card.id);
+
+    // Double-click / re-dispatch: nothing new -> 400, and NO extra card hit
+    // the board.
+    const cardsBefore = receivedBodies.length;
+    const again = await fetch(`${DRILL_BASE}/api/runs/${runId}/dispatch`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "manual" })
+    });
+    expect(again.status).toBe(400);
+    expect((await again.json()).error).toContain("already on a fix card");
+    expect(receivedBodies.length).toBe(cardsBefore);
+
+    // A finding confirmed AFTER the dispatch goes out alone on the next one.
+    await mkConfirmed("second defect");
+    const d2 = await (await fetch(`${DRILL_BASE}/api/runs/${runId}/dispatch`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "manual" })
+    })).json();
+    expect(d2.dispatched).toBe(true);
+    const lastBody = receivedBodies[receivedBodies.length - 1];
+    expect(lastBody.description).toContain("second defect");
+    expect(lastBody.description).not.toContain("first defect");
+  }, 30000);
 });
 
 describe("heartbeat dispatch pickup — no button (D10/S29, self-test item 7)", () => {

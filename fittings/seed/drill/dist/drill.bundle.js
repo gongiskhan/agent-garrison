@@ -24564,6 +24564,18 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
+// ../../../node_modules/lucide-react/dist/esm/icons/arrow-left.js
+var ArrowLeft = createLucideIcon("ArrowLeft", [
+  ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
+  ["path", { d: "M19 12H5", key: "x3x0zl" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/arrow-right.js
+var ArrowRight = createLucideIcon("ArrowRight", [
+  ["path", { d: "M5 12h14", key: "1ays0h" }],
+  ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
+]);
+
 // ../../../node_modules/lucide-react/dist/esm/icons/camera.js
 var Camera = createLucideIcon("Camera", [
   [
@@ -24586,6 +24598,13 @@ var Crosshair = createLucideIcon("Crosshair", [
   ["line", { x1: "6", x2: "2", y1: "12", y2: "12", key: "13hhkx" }],
   ["line", { x1: "12", x2: "12", y1: "6", y2: "2", key: "10w3f3" }],
   ["line", { x1: "12", x2: "12", y1: "22", y2: "18", key: "15g9kq" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/external-link.js
+var ExternalLink = createLucideIcon("ExternalLink", [
+  ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
+  ["path", { d: "M10 14 21 3", key: "gplh6r" }],
+  ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
 // ../../../node_modules/lucide-react/dist/esm/icons/eye.js
@@ -24637,6 +24656,35 @@ var Plus = createLucideIcon("Plus", [
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
+// ../../../node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
+var RefreshCcw = createLucideIcon("RefreshCcw", [
+  ["path", { d: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "14sxne" }],
+  ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
+  ["path", { d: "M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16", key: "1hlbsb" }],
+  ["path", { d: "M16 16h5v5", key: "ccwih5" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+var RotateCw = createLucideIcon("RotateCw", [
+  ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
+  ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/ruler.js
+var Ruler = createLucideIcon("Ruler", [
+  [
+    "path",
+    {
+      d: "M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z",
+      key: "icamh8"
+    }
+  ],
+  ["path", { d: "m14.5 12.5 2-2", key: "inckbg" }],
+  ["path", { d: "m11.5 9.5 2-2", key: "fmmyf7" }],
+  ["path", { d: "m8.5 6.5 2-2", key: "vc6u1g" }],
+  ["path", { d: "m17.5 15.5 2-2", key: "wo5hmg" }]
+]);
+
 // ../../../node_modules/lucide-react/dist/esm/icons/smartphone.js
 var Smartphone = createLucideIcon("Smartphone", [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
@@ -24647,6 +24695,12 @@ var Smartphone = createLucideIcon("Smartphone", [
 var Tablet = createLucideIcon("Tablet", [
   ["rect", { width: "16", height: "20", x: "4", y: "2", rx: "2", ry: "2", key: "76otgf" }],
   ["line", { x1: "12", x2: "12.01", y1: "18", y2: "18", key: "1dp563" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/terminal.js
+var Terminal = createLucideIcon("Terminal", [
+  ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
+  ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
 ]);
 
 // ../../../node_modules/lucide-react/dist/esm/icons/x.js
@@ -24682,6 +24736,28 @@ var stepSeq = 0;
 function newStepId() {
   stepSeq += 1;
   return `s${Date.now()}-${stepSeq}`;
+}
+function Help({ children }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dr-help", children });
+}
+function fmtDate(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "-";
+  return d.toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function chipAction(onClick) {
+  return {
+    role: "button",
+    tabIndex: 0,
+    onClick,
+    onKeyDown: (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onClick();
+      }
+    }
+  };
 }
 async function ensureAppUp(onPhase) {
   let st = await apiGet("/api/app/status");
@@ -24895,7 +24971,7 @@ function AppStatusChip() {
 function Checkbox({ on, onClick }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-checkbox" + (on ? " on" : ""), onClick, "aria-pressed": on, children: on && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 10, strokeWidth: 3 }) });
 }
-function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
+function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpenPage }) {
   const [book, setBook] = (0, import_react3.useState)(null);
   const [pages, setPages] = (0, import_react3.useState)([]);
   const [error, setError] = (0, import_react3.useState)(null);
@@ -24980,9 +25056,14 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", onClick: onOpenPicker, children: "Select project" })
     ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Help, { children: [
+      "The Drill Book is this project's QA plan, stored in the repo under ",
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "drills/" }),
+      ": every page of the app, the checks (steps) to run on it, and the named states they apply to. Tick the pages you care about and Run selected - or Plan book to have an agent author the plan for you. Click a page name to open it in Authoring."
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec dr-rowwrap", style: { justifyContent: "space-between" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "App" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "App under test" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: book.app.name || "(not configured)" }),
           book.app.url && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { color: "var(--mute)", fontSize: 11 }, children: book.app.url }),
@@ -25009,7 +25090,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       pages.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { marginLeft: 8 }, onClick: onGoAuthoring, children: "Open Authoring" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec dr-rowwrap", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip click ink" + (book.fullDrill ? " active" : ""), onClick: toggleFullDrill, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip click ink" + (book.fullDrill ? " active" : ""), "aria-pressed": book.fullDrill, ...chipAction(toggleFullDrill), children: [
         "Full Drill ",
         book.fullDrill ? "on" : "off"
       ] }),
@@ -25054,7 +25135,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
         pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Checkbox, { on: book.fullDrill || selectedIds.has(p.id), onClick: () => togglePageSelected(p.id) }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.title }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-link", onClick: () => onOpenPage(p.id), title: "Open this page in Authoring", children: p.title }),
             " ",
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { color: "var(--mute-2)", fontSize: 10.5 }, children: p.path })
           ] }),
@@ -25098,14 +25179,14 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
           step.mode === "vision" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 10 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileCode2, { size: 10 }),
           step.mode
         ] }),
-        step.mode === "vision" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click" + (step.judgment ? " brass active" : ""), onClick: onToggleJudgment, title: "Needs ongoing model judgment (drillJudge), not a one-time deterministic find", children: "judgment" }),
+        step.mode === "vision" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click" + (step.judgment ? " brass active" : ""), "aria-pressed": !!step.judgment, ...chipAction(onToggleJudgment), title: "Needs ongoing model judgment (drillJudge), not a one-time deterministic find", children: "judgment" }),
         step.spec && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: step.spec }),
         step.viewports.map((v) => {
           const vp = VIEWPORTS.find((x) => x.id === v);
           const Icon2 = vp?.icon ?? Monitor;
           return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 11, style: { color: "var(--mute)" } }, v);
         }),
-        step.ref && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click sage", onClick: () => onJumpRef(step.ref), children: step.ref }),
+        step.ref && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click sage", ...chipAction(() => onJumpRef(step.ref)), children: step.ref }),
         step.state !== "default" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: step.state })
       ] })
     ] }),
@@ -25114,19 +25195,41 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
 }
 function AuthoringView() {
   const [pages, setPages] = (0, import_react3.useState)([]);
-  const [pageId, setPageId] = (0, import_react3.useState)(null);
+  const [pageId, setPageId] = (0, import_react3.useState)(() => localStorage.getItem("drill.authoring.page"));
   const [viewportId, setViewportId] = (0, import_react3.useState)("desktop");
   const [tab, setTab] = (0, import_react3.useState)(null);
   const [pickMode, setPickMode] = (0, import_react3.useState)(false);
   const [stateSel, setStateSel] = (0, import_react3.useState)("default");
   const [error, setError] = (0, import_react3.useState)(null);
+  const [authError, setAuthError] = (0, import_react3.useState)(null);
   const [newPageId, setNewPageId] = (0, import_react3.useState)("");
   const [mobileSheetOpen, setMobileSheetOpen] = (0, import_react3.useState)(true);
   const overlayRef = (0, import_react3.useRef)(null);
+  const [cvEl, setCvEl] = (0, import_react3.useState)(null);
+  const [cvWidth, setCvWidth] = (0, import_react3.useState)(0);
+  const [urlDraft, setUrlDraft] = (0, import_react3.useState)("");
+  const urlFocused = (0, import_react3.useRef)(false);
+  const [liveUrl, setLiveUrl] = (0, import_react3.useState)(null);
+  const [consoleOpen, setConsoleOpen] = (0, import_react3.useState)(false);
+  const [consoleEntries, setConsoleEntries] = (0, import_react3.useState)([]);
+  const consoleEndRef = (0, import_react3.useRef)(null);
+  const [customVp, setCustomVp] = (0, import_react3.useState)(null);
+  const [vpDraft, setVpDraft] = (0, import_react3.useState)({ w: "", h: "" });
+  const [resolveTick, setResolveTick] = (0, import_react3.useState)(0);
+  (0, import_react3.useEffect)(() => {
+    if (!cvEl) return;
+    const ro = new ResizeObserver(() => setCvWidth(cvEl.clientWidth));
+    ro.observe(cvEl);
+    setCvWidth(cvEl.clientWidth);
+    return () => ro.disconnect();
+  }, [cvEl]);
+  (0, import_react3.useEffect)(() => {
+    if (pageId) localStorage.setItem("drill.authoring.page", pageId);
+  }, [pageId]);
   const loadPages = () => {
     apiGet("/api/pages").then((r) => {
       setPages(r.pages);
-      setPageId((prev) => prev ?? (r.pages.length > 0 ? r.pages[0].id : null));
+      setPageId((prev) => prev && r.pages.some((p) => p.id === prev) ? prev : r.pages.length > 0 ? r.pages[0].id : null);
     }).catch((e) => setError(e.message));
   };
   (0, import_react3.useEffect)(loadPages, []);
@@ -25134,17 +25237,102 @@ function AuthoringView() {
   (0, import_react3.useEffect)(() => {
     if (!pageId) return;
     setTab(null);
-    apiPost("/api/authoring/tab", { pageId, viewport: viewportId }).then((r) => setTab({ tabId: r.tabId, canvasUrl: r.canvasUrl, viewport: r.viewport })).catch((e) => setError(e.message));
+    setAuthError(null);
+    apiPost("/api/authoring/tab", { pageId, viewport: viewportId }).then((r) => setTab({ tabId: r.tabId, canvasUrl: r.canvasUrl, viewport: r.viewport })).catch((e) => setAuthError(`Could not open the app preview: ${e.message}`));
   }, [pageId, viewportId]);
-  const savePage = async (patch) => {
+  (0, import_react3.useEffect)(() => {
+    if (!tab) {
+      setLiveUrl(null);
+      setConsoleEntries([]);
+      return;
+    }
+    let stop = false;
+    const poll = async () => {
+      try {
+        const [info, con] = await Promise.all([
+          apiGet(`/api/authoring/tab-info?tabId=${encodeURIComponent(tab.tabId)}`),
+          apiGet(`/api/authoring/console?tabId=${encodeURIComponent(tab.tabId)}&limit=150`)
+        ]);
+        if (stop) return;
+        const u = info.tab?.url ?? null;
+        setLiveUrl(u);
+        if (!urlFocused.current && u) setUrlDraft(u);
+        setConsoleEntries(con.entries ?? []);
+      } catch {
+      }
+    };
+    poll();
+    const t = setInterval(poll, 2500);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [tab]);
+  (0, import_react3.useEffect)(() => {
+    if (consoleOpen) consoleEndRef.current?.scrollIntoView({ block: "nearest" });
+  }, [consoleOpen, consoleEntries.length]);
+  const doNav = async (dest) => {
+    if (!tab) return;
+    const target = dest.trim();
+    if (!target) return;
+    try {
+      const r = await apiPost("/api/authoring/nav", { tabId: tab.tabId, url: /^[a-z][a-z0-9+.-]*:/i.test(target) ? target : `http://${target}` });
+      if (r.ok === false && r.error) setAuthError(`Navigation failed: ${r.error}`);
+      else setAuthError(null);
+      if (r.url) {
+        setLiveUrl(r.url);
+        if (!urlFocused.current) setUrlDraft(r.url);
+      }
+      setResolveTick((n) => n + 1);
+    } catch (err) {
+      setAuthError(`Navigation failed: ${err.message}`);
+    }
+  };
+  const doTabAction = async (action) => {
+    if (!tab) return;
+    try {
+      const r = await apiPost("/api/authoring/tab-action", { tabId: tab.tabId, action });
+      if (r.url) {
+        setLiveUrl(r.url);
+        if (!urlFocused.current) setUrlDraft(r.url);
+      }
+      setAuthError(null);
+      setResolveTick((n) => n + 1);
+    } catch (err) {
+      setAuthError(`Could not ${action}: ${err.message}`);
+    }
+  };
+  const restartTab = async () => {
     if (!pageId) return;
-    const r = await fetch(`/api/pages/${encodeURIComponent(pageId)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(patch)
+    setTab(null);
+    setAuthError(null);
+    setConsoleEntries([]);
+    try {
+      const r = await apiPost("/api/authoring/restart", { pageId, viewport: viewportId });
+      setTab({ tabId: r.tabId, canvasUrl: r.canvasUrl, viewport: r.viewport });
+    } catch (err) {
+      setAuthError(`Could not restart the app preview: ${err.message}`);
+    }
+  };
+  const saveChain = (0, import_react3.useRef)(Promise.resolve());
+  const freshPage = (0, import_react3.useRef)(null);
+  freshPage.current = page ?? freshPage.current;
+  const savePage = (make) => {
+    const id = pageId;
+    if (!id) return Promise.resolve();
+    saveChain.current = saveChain.current.then(async () => {
+      const current = freshPage.current;
+      if (!current || current.id !== id) return;
+      const r = await fetch(`/api/pages/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(make(current))
+      });
+      const j = await r.json();
+      freshPage.current = j.page;
+      setPages((ps) => ps.map((p) => p.id === id ? j.page : p));
     });
-    const j = await r.json();
-    setPages((ps) => ps.map((p) => p.id === pageId ? j.page : p));
+    return saveChain.current;
   };
   const createPage = async () => {
     const id = newPageId.trim();
@@ -25161,37 +25349,47 @@ function AuthoringView() {
   const onOverlayClick = async (e) => {
     if (!pickMode || !tab || !page) return;
     const box = overlayRef.current.getBoundingClientRect();
-    const x = (e.clientX - box.left) / box.width * tab.viewport.width;
-    const y = (e.clientY - box.top) / box.height * tab.viewport.height;
+    const effVp = customVp ?? tab.viewport;
+    const x = (e.clientX - box.left) / box.width * effVp.width;
+    const y = (e.clientY - box.top) / box.height * effVp.height;
     setPickMode(false);
     try {
       const r = await apiPost("/api/authoring/pick", { tabId: tab.tabId, x, y });
       if (!r.anchors) {
-        setError("No element at that point");
+        setAuthError("No element under that point - try clicking directly on the element you want.");
         return;
       }
-      const n = page.areas.length + 1;
-      const a = {
-        n,
-        id: `${page.id}#${n}`,
-        label: r.anchors.testId || r.anchors.ariaLabel || (r.anchors.text ? r.anchors.text.slice(0, 24) : `Area ${n}`),
-        anchors: {
-          testId: r.anchors.testId,
-          role: r.anchors.role,
-          ariaLabel: r.anchors.ariaLabel,
-          text: r.anchors.text,
-          tag: r.anchors.tag,
-          css: r.anchors.css,
-          cssMethod: r.anchors.cssMethod,
-          xpath: r.anchors.xpath
-        },
-        pct: r.anchors.pct
-      };
-      await savePage({ areas: [...page.areas, a] });
+      await savePage((current) => {
+        const n = current.areas.reduce((m, a2) => Math.max(m, a2.n), 0) + 1;
+        const a = {
+          n,
+          id: `${current.id}#${n}`,
+          label: r.anchors.testId || r.anchors.ariaLabel || (r.anchors.text ? r.anchors.text.replace(/\s+/g, " ").trim().slice(0, 32) : `Area ${n}`),
+          anchors: {
+            testId: r.anchors.testId,
+            role: r.anchors.role,
+            ariaLabel: r.anchors.ariaLabel,
+            text: r.anchors.text,
+            tag: r.anchors.tag,
+            css: r.anchors.css,
+            cssMethod: r.anchors.cssMethod,
+            xpath: r.anchors.xpath
+          },
+          pct: r.anchors.pct
+        };
+        return { areas: [...current.areas, a] };
+      });
+      setAuthError(null);
       setMobileSheetOpen(true);
     } catch (err) {
-      setError(err.message);
+      setAuthError(`Pick failed: ${err.message}`);
     }
+  };
+  const removeArea = (n) => {
+    savePage((current) => ({
+      areas: current.areas.filter((a) => a.n !== n),
+      steps: current.steps.filter((s) => s.area !== n)
+    }));
   };
   const startHighlight = () => {
     setMobileSheetOpen(false);
@@ -25219,19 +25417,16 @@ function AuthoringView() {
     return () => {
       cancelled = true;
     };
-  }, [tab, page?.areas.length, page?.id]);
+  }, [tab, page?.areas.length, page?.id, customVp, resolveTick]);
   const addStep = (area) => {
-    if (!page) return;
     const step = { id: newStepId(), area, mode: "vision", enabled: true, viewports: [viewportId], state: stateSel, description: "", tags: [] };
-    savePage({ steps: [...page.steps, step] });
+    savePage((current) => ({ steps: [...current.steps, step] }));
   };
   const patchStep = (stepId, patch) => {
-    if (!page) return;
-    savePage({ steps: page.steps.map((s) => s.id === stepId ? { ...s, ...patch } : s) });
+    savePage((current) => ({ steps: current.steps.map((s) => s.id === stepId ? { ...s, ...patch } : s) }));
   };
   const removeStep = (stepId) => {
-    if (!page) return;
-    savePage({ steps: page.steps.filter((s) => s.id !== stepId) });
+    savePage((current) => ({ steps: current.steps.filter((s) => s.id !== stepId) }));
   };
   if (error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
     error,
@@ -25262,85 +25457,225 @@ function AuthoringView() {
   const states = ["default", ...page.states.map((s) => s.id).filter((s) => s !== "default")];
   const pageSteps = page.steps.filter((s) => s.area === 0 && s.state === stateSel);
   const areaSteps = (n) => page.steps.filter((s) => s.area === n && s.state === stateSel);
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au-canvas", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "App under test" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: pageId ?? "", onChange: (e) => setPageId(e.target.value), style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", children: VIEWPORTS.map((v) => {
-          const Icon2 = v.icon;
-          return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip click" + (viewportId === v.id ? " ink active" : " sage"), onClick: () => setViewportId(v.id), children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 11 }),
-            " ",
-            v.label
-          ] }, v.id);
-        }) })
-      ] }),
-      tab ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cv", style: { aspectRatio: `${tab.viewport.width} / ${tab.viewport.height}` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("iframe", { title: "app under test", src: tab.canvasUrl, className: "dr-cv-frame" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          "div",
-          {
-            ref: overlayRef,
-            className: "dr-cv-overlay",
-            style: { cursor: pickMode ? "crosshair" : "default", pointerEvents: pickMode ? "auto" : "none" },
-            onClick: onOverlayClick
-          }
-        ),
-        page.areas.map((a) => {
-          const pct = livePct[a.id] ?? a.pct;
-          if (!pct) return null;
-          return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-abox", style: { left: `${pct.leftPct}%`, top: `${pct.topPct}%`, width: `${pct.widthPct}%`, height: `${pct.heightPct}%` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-abadge", children: a.n }) }, a.id);
-        })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "Opening tab\u2026" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (pickMode ? " primary" : ""), onClick: () => pickMode ? setPickMode(false) : startHighlight(), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Crosshair, { size: 11 }),
-        " ",
-        pickMode ? "Click an element\u2026" : "Highlight new area"
-      ] }) }),
-      !pickMode && !mobileSheetOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-fab", onClick: () => setMobileSheetOpen((v) => !v), "aria-label": "Toggle plan", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotebookPen, { size: 18 }) })
+  const vp = customVp ?? tab?.viewport ?? null;
+  const scale = vp && cvWidth > 0 ? Math.min(1, cvWidth / vp.width) : 1;
+  const dispW = vp ? Math.round(vp.width * scale) : 0;
+  const dispH = vp ? Math.round(vp.height * scale) : 0;
+  const consoleErrors = consoleEntries.filter((e) => e.level === "error").length;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "The manual authoring surface: your step plan alongside the live app (on a phone it slides up as a sheet). Highlight an area, then write steps against it (or page-level steps) - plain-language checks. Steps start as vision checks (a model judges the page); when a vision check passes and grounds a deterministic assertion it graduates to e2e automatically. The preview is interactive - click and type in it to steer the app, use the toolbar to navigate, reload, restart the tab fresh, or watch the page's console while you test by hand." }),
+    authError && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-banner", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 240px" }, children: authError }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setAuthError(null), children: "Dismiss" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au-plan" + (mobileSheetOpen ? " dr-sheet-open" : " dr-sheet-closed"), children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("b", { children: [
-          "Drill: ",
-          page.title
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au-canvas", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "App under test" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: pageId ?? "", onChange: (e) => setPageId(e.target.value), style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+            VIEWPORTS.map((v) => {
+              const Icon2 = v.icon;
+              const active = !customVp && viewportId === v.id;
+              return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                "span",
+                {
+                  className: "chip click" + (active ? " ink active" : " sage"),
+                  "aria-pressed": active,
+                  title: `Author at the ${v.label} viewport - the app really reflows to this size`,
+                  ...chipAction(() => {
+                    setCustomVp(null);
+                    setViewportId(v.id);
+                  }),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 11 }),
+                    " ",
+                    v.label
+                  ]
+                },
+                v.id
+              );
+            }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+              "span",
+              {
+                className: "chip click" + (customVp ? " ink active" : " sage"),
+                "aria-pressed": !!customVp,
+                title: "Author at any viewport size - type width x height",
+                ...chipAction(() => {
+                  const base = customVp ?? tab?.viewport ?? { width: 1280, height: 800 };
+                  setVpDraft({ w: String(base.width), h: String(base.height) });
+                  setCustomVp(base);
+                }),
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Ruler, { size: 11 }),
+                  " custom"
+                ]
+              }
+            ),
+            customVp && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-vpsize", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                "input",
+                {
+                  className: "dr-vpnum",
+                  type: "number",
+                  min: 280,
+                  max: 3840,
+                  value: vpDraft.w,
+                  onChange: (e) => setVpDraft((d) => ({ ...d, w: e.target.value })),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter") e.target.blur();
+                  },
+                  onBlur: () => {
+                    const width = Math.max(280, Math.min(3840, Number(vpDraft.w) || 0)) || customVp.width;
+                    setVpDraft((d) => ({ ...d, w: String(width) }));
+                    setCustomVp((c) => c ? { ...c, width } : c);
+                  },
+                  "aria-label": "viewport width"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "t11", children: "x" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                "input",
+                {
+                  className: "dr-vpnum",
+                  type: "number",
+                  min: 280,
+                  max: 3840,
+                  value: vpDraft.h,
+                  onChange: (e) => setVpDraft((d) => ({ ...d, h: e.target.value })),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter") e.target.blur();
+                  },
+                  onBlur: () => {
+                    const height = Math.max(280, Math.min(3840, Number(vpDraft.h) || 0)) || customVp.height;
+                    setVpDraft((d) => ({ ...d, h: String(height) }));
+                    setCustomVp((c) => c ? { ...c, height } : c);
+                  },
+                  "aria-label": "viewport height"
+                }
+              )
+            ] })
+          ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-sheet-close", onClick: () => setMobileSheetOpen(false), title: "Close plan sheet", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16 }) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small dr-sheet-highlight", onClick: startHighlight, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Crosshair, { size: 11 }),
-        " Highlight new area"
-      ] }),
-      states.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "State" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 12 }, children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click brass" + (stateSel === s ? " active" : ""), onClick: () => setStateSel(s), children: s }, s)) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Page steps" }),
-      pageSteps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        StepRow,
-        {
-          step: s,
-          onToggleEnabled: () => patchStep(s.id, { enabled: !s.enabled }),
-          onToggleMode: () => patchStep(s.id, { mode: s.mode === "vision" ? "e2e" : "vision" }),
-          onToggleJudgment: () => patchStep(s.id, { judgment: !s.judgment }),
-          onRemove: () => removeStep(s.id),
-          onEditDescription: (text) => patchStep(s.id, { description: text }),
-          onJumpRef: (ref) => setPageId(ref.split("#")[0])
-        },
-        s.id
-      )),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(0), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
-        " Page step"
-      ] }),
-      page.areas.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: 14 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 4 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-area-n", children: a.n }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: a.label }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute-2)" }, children: a.id })
+        tab && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cv-bar", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Back", onClick: () => doTabAction("back"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 13 }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Forward", onClick: () => doTabAction("forward"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { size: 13 }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Reload the page", onClick: () => doTabAction("reload"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RotateCw, { size: 13 }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "input",
+            {
+              className: "dr-urlin",
+              value: urlDraft,
+              spellCheck: false,
+              onFocus: () => {
+                urlFocused.current = true;
+              },
+              onBlur: () => {
+                urlFocused.current = false;
+                if (liveUrl) setUrlDraft(liveUrl);
+              },
+              onChange: (e) => setUrlDraft(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key === "Enter") doNav(urlDraft);
+              },
+              placeholder: "URL - press Enter to navigate",
+              "aria-label": "preview URL"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", title: "Close this preview tab and reopen the page fresh (resets app state)", onClick: restartTab, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 11 }),
+            " Restart"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "a",
+            {
+              className: "btn small",
+              href: tab.canvasUrl.replace(/\?embed=1$/, ""),
+              target: "_blank",
+              rel: "noreferrer",
+              title: "Open this same live tab full-size in the Browser fitting",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ExternalLink, { size: 11 }),
+                " Full view"
+              ]
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "button",
+            {
+              className: "btn small" + (consoleOpen ? " primary" : ""),
+              onClick: () => setConsoleOpen((v) => !v),
+              title: "The page's browser console - errors here are findings material",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Terminal, { size: 11 }),
+                " Console",
+                consoleErrors > 0 ? ` (${consoleErrors})` : ""
+              ]
+            }
+          )
         ] }),
-        areaSteps(a.n).map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cv-outer", ref: setCvEl, children: tab ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cv", style: { width: dispW, height: dispH }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "iframe",
+            {
+              title: "app under test",
+              src: tab.canvasUrl,
+              className: "dr-cv-frame",
+              style: { width: vp.width, height: vp.height, transform: `scale(${scale})` }
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "div",
+            {
+              ref: overlayRef,
+              className: "dr-cv-overlay",
+              style: { cursor: pickMode ? "crosshair" : "default", pointerEvents: pickMode ? "auto" : "none" },
+              onClick: onOverlayClick
+            }
+          ),
+          page.areas.map((a) => {
+            const pct = livePct[a.id] ?? a.pct;
+            if (!pct) return null;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-abox", style: { left: `${pct.leftPct}%`, top: `${pct.topPct}%`, width: `${pct.widthPct}%`, height: `${pct.heightPct}%` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-abadge", children: a.n }) }, a.id);
+          })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: authError ? "App preview unavailable." : "Opening the app preview\u2026" }) }),
+        consoleOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-console", children: [
+          consoleEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-con-empty", children: "No console output from the page yet." }),
+          consoleEntries.slice(-80).map((e, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-con-row" + (e.level === "error" ? " err" : e.level === "warning" ? " warn" : ""), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-con-lvl", children: e.level }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-con-text", children: e.text })
+          ] }, `${e.ts}-${i}`)),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { ref: consoleEndRef })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (pickMode ? " primary" : ""), onClick: () => pickMode ? setPickMode(false) : startHighlight(), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Crosshair, { size: 11 }),
+            " ",
+            pickMode ? "Now click an element in the preview\u2026" : "Highlight new area"
+          ] }),
+          pickMode && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 11, color: "var(--brass)" }, children: "Click the element you want to check - it becomes a numbered area you can attach steps to." })
+        ] }),
+        !pickMode && !mobileSheetOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-fab", onClick: () => setMobileSheetOpen((v) => !v), "aria-label": "Toggle plan", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotebookPen, { size: 18 }) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au-plan" + (mobileSheetOpen ? " dr-sheet-open" : " dr-sheet-closed"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("b", { children: [
+            "Drill: ",
+            page.title
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-sheet-close", onClick: () => setMobileSheetOpen(false), title: "Close plan sheet", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16 }) })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small dr-sheet-highlight", onClick: startHighlight, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Crosshair, { size: 11 }),
+          " Highlight new area"
+        ] }),
+        states.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "State" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 12 }, children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click brass" + (stateSel === s ? " active" : ""), "aria-pressed": stateSel === s, ...chipAction(() => setStateSel(s)), children: s }, s)) })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Page steps" }),
+        pageSteps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           StepRow,
           {
             step: s,
@@ -25353,11 +25688,44 @@ function AuthoringView() {
           },
           s.id
         )),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(a.n), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(0), children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
-          " Step"
-        ] })
-      ] }, a.id))
+          " Page step"
+        ] }),
+        page.areas.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: 14 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 4 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-area-n", children: a.n }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: a.label }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute-2)" }, children: a.id }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                className: "dr-xbtn",
+                onClick: () => removeArea(a.n),
+                title: areaSteps(a.n).length > 0 ? `Remove area ${a.n} and its ${areaSteps(a.n).length} step(s)` : `Remove area ${a.n}`,
+                children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 13 })
+              }
+            )
+          ] }),
+          areaSteps(a.n).map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            StepRow,
+            {
+              step: s,
+              onToggleEnabled: () => patchStep(s.id, { enabled: !s.enabled }),
+              onToggleMode: () => patchStep(s.id, { mode: s.mode === "vision" ? "e2e" : "vision" }),
+              onToggleJudgment: () => patchStep(s.id, { judgment: !s.judgment }),
+              onRemove: () => removeStep(s.id),
+              onEditDescription: (text) => patchStep(s.id, { description: text }),
+              onJumpRef: (ref) => setPageId(ref.split("#")[0])
+            },
+            s.id
+          )),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(a.n), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
+            " Step"
+          ] })
+        ] }, a.id))
+      ] })
     ] })
   ] });
 }
@@ -25385,6 +25753,9 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
   const [error, setError] = (0, import_react3.useState)(null);
   const [obsText, setObsText] = (0, import_react3.useState)("");
   const [dispatchMode, setDispatchMode] = (0, import_react3.useState)("manual");
+  const [dispatchedCard, setDispatchedCard] = (0, import_react3.useState)(null);
+  const [runsPage, setRunsPage] = (0, import_react3.useState)(0);
+  const [deleteArm, setDeleteArm] = (0, import_react3.useState)(null);
   const [pendingGate, setPendingGate] = (0, import_react3.useState)(null);
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")]).then(([p, b, r]) => {
@@ -25444,6 +25815,22 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
     }
   };
   const refreshRun = (r) => setRun(r);
+  const openRun = (id) => {
+    setDispatchedCard(null);
+    return apiGet(`/api/runs/${encodeURIComponent(id)}`).then((r) => setRun(r.run)).catch((e) => setError(e.message));
+  };
+  const deleteRun = async (id) => {
+    await fetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {
+    });
+    setDeleteArm(null);
+    const r = await apiGet("/api/runs").catch(() => null);
+    const rows = r?.runs ?? [];
+    setRuns(rows);
+    if (run?.id === id) {
+      if (rows.length > 0) void openRun(rows[0].id);
+      else setRun(null);
+    }
+  };
   const giveFeedback = async (pageId, stepId, note) => {
     const r = await apiPost(`/api/runs/${run.id}/feedback`, { pageId, stepId, note });
     refreshRun(r.run);
@@ -25478,24 +25865,36 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
   const dispatch = async () => {
     try {
       const j = await apiPost(`/api/runs/${run.id}/dispatch`, { mode: dispatchMode });
-      setError(j.dispatched ? null : `Heartbeat: ${j.pending} confirmed finding(s) queued for the next beat.`);
+      if (j.dispatched) {
+        setError(null);
+        setDispatchedCard(j.card ? { id: j.card.id, url: j.card.url ?? null } : null);
+        if (j.run) refreshRun(j.run);
+      } else {
+        setError(`Heartbeat: ${j.pending} confirmed finding(s) queued for the next beat.`);
+      }
     } catch (e) {
       setError(e.message);
     }
   };
   const confirmedCount = run ? run.findings.filter((f) => f.status === "confirmed").length : 0;
+  const dispatchableCount = run ? run.findings.filter((f) => f.status === "confirmed" && !f.card).length : 0;
+  const RUNS_PER_PAGE = 8;
+  const totalRunPages = Math.max(1, Math.ceil(runs.length / RUNS_PER_PAGE));
+  const runRows = runs.slice(runsPage * RUNS_PER_PAGE, (runsPage + 1) * RUNS_PER_PAGE);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Run selected" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Start a run" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "Pick the pages and viewports to check, then Run. If the app is down it is started through the project's run skill first. With gated autonomy the run pauses and shows you the exact step plan before executing." }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "span",
         {
           className: "chip click" + (selectedPages.has(p.id) ? " ink active" : ""),
-          onClick: () => setSelectedPages((s) => {
+          "aria-pressed": selectedPages.has(p.id),
+          ...chipAction(() => setSelectedPages((s) => {
             const n = new Set(s);
             n.has(p.id) ? n.delete(p.id) : n.add(p.id);
             return n;
-          }),
+          })),
           children: p.title
         },
         p.id
@@ -25504,173 +25903,343 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
         "span",
         {
           className: "chip click" + (selectedViewports.has(v.id) ? " sage active" : ""),
-          onClick: () => setSelectedViewports((s) => {
+          "aria-pressed": selectedViewports.has(v.id),
+          ...chipAction(() => setSelectedViewports((s) => {
             const n = new Set(s);
             n.has(v.id) ? n.delete(v.id) : n.add(v.id);
             return n;
-          }),
+          })),
           children: v.label
         },
         v.id
       )) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: () => startRun(), children: running ? phase ?? "Running\u2026" : "Run" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {}),
-      runs.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "select",
-        {
-          style: { marginLeft: 8, fontSize: 11, padding: "5px 8px" },
-          value: run?.id ?? "",
-          onChange: (e) => apiGet(`/api/runs/${e.target.value}`).then((r) => setRun(r.run)),
-          children: runs.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: r.id, children: [
-            r.id,
-            " (",
-            r.contextTag,
-            ")"
-          ] }, r.id))
-        }
-      )
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: () => startRun(), children: running ? phase ?? "Running\u2026" : "Run" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
+      ] })
     ] }),
-    error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: error }),
+    error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-banner", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 240px" }, children: error }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setError(null), children: "Dismiss" })
+    ] }),
+    runs.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Past runs" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: 'Newest first - click a row to open its results below. "drill-adversarial" tags a blind re-check pass. Failed counts real app failures; infra counts harness outages (vision route, gateway, or browser fitting down) that say nothing about the app.' }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-tablewrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "dr-table dr-runs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Started" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Tag" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Steps" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Failed" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Infra" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Findings" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { "aria-label": "actions" })
+        ] }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: runRows.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: run?.id === r.id ? "sel" : "", onClick: () => void openRun(r.id), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { whiteSpace: "nowrap" }, children: fmtDate(r.startedAt) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: r.contextTag }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: r.steps }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { color: r.summary && r.summary.failed > 0 ? "var(--alarm)" : "var(--mute)" }, children: r.summary ? r.summary.failed : "-" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { color: "var(--mute)" }, children: r.summary ? r.summary.infra : "-" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { whiteSpace: "nowrap" }, children: r.findings.proposed + r.findings.confirmed === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--mute)" }, children: "none" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            r.findings.proposed > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              r.findings.proposed,
+              " open"
+            ] }),
+            r.findings.confirmed > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { color: "var(--sage)" }, children: [
+              r.findings.proposed > 0 ? " \xB7 " : "",
+              r.findings.confirmed,
+              " confirmed"
+            ] })
+          ] }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { onClick: (e) => e.stopPropagation(), style: { whiteSpace: "nowrap" }, children: deleteArm === r.id ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-rowwrap", style: { gap: 4 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { color: "var(--alarm)", borderColor: "var(--alarm)" }, onClick: () => void deleteRun(r.id), children: "Delete run" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setDeleteArm(null), children: "Keep" })
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-xbtn", title: "Delete this run and its results", onClick: () => setDeleteArm(r.id), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 13 }) }) })
+        ] }, r.id)) })
+      ] }) }),
+      totalRunPages > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: runsPage === 0, onClick: () => setRunsPage((p) => p - 1), children: "Newer" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: 11, color: "var(--mute)" }, children: [
+          "page ",
+          runsPage + 1,
+          " of ",
+          totalRunPages
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: runsPage >= totalRunPages - 1, onClick: () => setRunsPage((p) => p + 1), children: "Older" })
+      ] })
+    ] }),
     pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { className: "t12", children: "Plan ready - gated, awaiting approval" }) }),
-      pendingGate.plan.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "t11", style: { marginBottom: 6 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.pageId }),
-        " ",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: p.viewportId }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: "4px 0 0 18px", padding: 0 }, children: [
-          p.steps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "t11", children: [
-            s.description,
+      pendingGate.plan.map((p) => (
+        // A whole-book run previews hundreds of steps; per-group <details>
+        // keeps the gate scannable (a page's step list is one click away),
+        // while a small scoped run stays fully expanded.
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "t11", style: { marginBottom: 6 }, open: pendingGate.plan.length <= 4, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { style: { cursor: "pointer" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.pageId }),
+            " ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: p.viewportId }),
             " ",
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
-              "(",
-              s.mode,
-              ")"
+              p.steps.length,
+              " step",
+              p.steps.length === 1 ? "" : "s"
             ] })
-          ] }, s.id)),
-          p.steps.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", style: { color: "var(--mute)" }, children: "(no enabled steps)" })
-        ] })
-      ] }, `${p.pageId}:${p.viewportId}`)),
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: "4px 0 0 18px", padding: 0 }, children: [
+            p.steps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "t11", children: [
+              s.description,
+              " ",
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
+                "(",
+                s.mode,
+                ")"
+              ] })
+            ] }, s.id)),
+            p.steps.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", style: { color: "var(--mute)" }, children: "(no enabled steps)" })
+          ] })
+        ] }, `${p.pageId}:${p.viewportId}`)
+      )),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: approveGate, children: running ? "Running\u2026" : "Approve and run" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setPendingGate(null), children: "Cancel" })
       ] })
     ] }),
-    !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet." }),
-    run && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-lbl", children: [
-          "Results - run ",
-          run.id
-        ] }),
-        run.pages.map((entry) => {
-          const passed = stepPassed(entry);
-          const key = `${entry.pageId}:${entry.stepId}`;
-          const override_ = run.overrides[key];
-          const notes = run.feedback[key] ?? [];
-          return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed && !override_ ? "--sage" : "--alarm"})` }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-              passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
-                entry.pageId,
-                "#",
-                entry.stepId
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
-              entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier }),
-              entry.result?.evidencePath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 9.5, color: "var(--mute-2)" }, children: entry.result.evidencePath })
-            ] }),
-            entry.result?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4 }, children: entry.result.error }),
-            override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
-              "Overridden -> ",
-              override_.verdict,
-              " (",
-              override_.note,
-              ")"
-            ] }),
-            notes.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10.5, color: "var(--sage)", marginTop: 3 }, children: n.note }, n.id)),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 6 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "input",
-                {
-                  className: "dr-feedback",
-                  placeholder: "Add feedback\u2026",
-                  onKeyDown: (e) => {
-                    if (e.key === "Enter") {
-                      giveFeedback(entry.pageId, entry.stepId, e.target.value);
-                      e.target.value = "";
-                    }
-                  }
-                }
-              ),
-              passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, "failed", "marked failed by reviewer"), children: "Mark failed" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, "passed", "marked passed by reviewer"), children: "Mark passed" })
-            ] })
-          ] }, key);
-        })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Observations" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 10, color: "var(--mute)" }, children: "things no step covers, no re-run needed" })
-        ] }),
-        run.observations.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { padding: "5px 0", borderTop: "1px dashed var(--rule)" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 220px" }, children: o.text }),
-          o.convertedToStep ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "-> step added" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { onChange: (e) => e.target.value && convertObsToStep(o.id, e.target.value), defaultValue: "", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> draft step on\u2026" }),
-            pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
-          ] }),
-          o.convertedToFinding ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "-> finding" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => convertObsToFinding(o.id, pages[0]?.id ?? run.pages[0]?.pageId), children: "-> finding" })
-        ] }, o.id)),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "input",
-            {
-              className: "dr-feedback",
-              placeholder: "Add an observation\u2026",
-              value: obsText,
-              onChange: (e) => setObsText(e.target.value),
-              onKeyDown: (e) => {
-                if (e.key === "Enter") addObs();
+    !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
+    run && (() => {
+      const stepOf = (pageId, stepId) => pages.find((p) => p.id === pageId)?.steps.find((s) => s.id === stepId) ?? null;
+      const pageTitle = (pageId) => pages.find((p) => p.id === pageId)?.title ?? pageId;
+      const liveEntries = run.pages.filter((e) => !e.infra);
+      const infraEntries = run.pages.filter((e) => e.infra);
+      const byPage = [];
+      for (const e of liveEntries) {
+        const g = byPage.find((x) => x.pageId === e.pageId);
+        if (g) g.entries.push(e);
+        else byPage.push({ pageId: e.pageId, entries: [e] });
+      }
+      const renderEntry = (entry) => {
+        const passed = stepPassed(entry);
+        const key = `${entry.pageId}:${entry.stepId}`;
+        const override_ = run.overrides[key];
+        const notes = run.feedback[key] ?? [];
+        const desc = stepOf(entry.pageId, entry.stepId)?.description || null;
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed && !override_ ? "--sage" : "--alarm"})` }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 260px", fontSize: 12.5, minWidth: 0, overflowWrap: "anywhere" }, children: desc ?? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 11 }, children: entry.stepId }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
+            entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "span",
+              {
+                className: "chip " + tierTone(entry.result.tier),
+                title: entry.result.tier === "cached" ? "Checked with a deterministic assertion graduated from an earlier vision pass - fast and stable" : entry.result.tier === "vision" ? "A model judged the live page (screenshot + accessibility tree)" : entry.result.tier === "recovered" ? "The step failed and the self-healing fixer patched it mid-run" : entry.result.tier ?? "",
+                children: entry.result.tier
               }
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: addObs, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
-            " Add"
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", style: { borderColor: "var(--sage-2)", borderWidth: 1.5 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run report - findings" }) }),
-        run.findings.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--mute)", fontSize: 12 }, children: "No findings yet." }),
-        run.findings.map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { padding: "5px 0", borderTop: "1px dashed var(--rule)" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { flex: "1 1 220px", textDecoration: f.status === "dismissed" ? "line-through" : "none" }, children: [
-            "[",
-            f.kind,
-            "] ",
-            f.pageId,
-            f.stepId ? `#${f.stepId}` : "",
-            ": ",
-            f.text
+            )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (f.status === "confirmed" ? " sage active" : ""), children: f.status }),
-          f.status !== "confirmed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "confirmed"), children: "Confirm" }),
-          f.status !== "dismissed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "dismissed"), children: "Dismiss" })
-        ] }, f.id)),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 10 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { value: dispatchMode, onChange: (e) => setDispatchMode(e.target.value), style: { fontSize: 11, padding: "5px 8px" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "manual", children: "Dispatch: Manual" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "heartbeat", children: "Dispatch: Heartbeat (autonomous)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "immediate", children: "Dispatch: Immediate" })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mono", style: { fontSize: 9.5, color: "var(--mute-2)", marginTop: 2 }, children: [
+            entry.pageId,
+            "#",
+            entry.stepId
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn primary", disabled: confirmedCount === 0, onClick: dispatch, children: [
-            "Fix all confirmed (",
-            confirmedCount,
+          entry.result?.evidencePath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-evidence", children: entry.result.evidencePath }),
+          (entry.error || entry.result?.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4, overflowWrap: "anywhere" }, children: entry.error || entry.result?.error }),
+          entry.result?.result?.reasoning && !passed && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--ink-2)", fontSize: 11, marginTop: 4 }, children: entry.result.result.reasoning }),
+          override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
+            "Overridden -> ",
+            override_.verdict,
+            " (",
+            override_.note,
             ")"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 10, color: "var(--mute)" }, children: "one batch card carrying the report" })
+          notes.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10.5, color: "var(--sage)", marginTop: 3 }, children: n.note }, n.id)),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 6 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "input",
+              {
+                className: "dr-feedback",
+                placeholder: "Add feedback\u2026",
+                onKeyDown: (e) => {
+                  if (e.key === "Enter") {
+                    giveFeedback(entry.pageId, entry.stepId, e.target.value);
+                    e.target.value = "";
+                  }
+                }
+              }
+            ),
+            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, "failed", "marked failed by reviewer"), children: "Mark failed" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, "passed", "marked passed by reviewer"), children: "Mark passed" })
+          ] })
+        ] }, `${key}:${entry.viewportId}`);
+      };
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-lbl", children: [
+            "Results - ",
+            fmtDate(run.startedAt)
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag }),
+            run.state !== "default" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: run.state }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute-2)" }, children: run.id })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "One row per step and viewport. A red row failed: read the reasoning, then either confirm the matching finding below or Mark passed if the check is wrong (that feedback tunes future runs)." }),
+          byPage.map((g) => {
+            const passCount = g.entries.filter(stepPassed).length;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: 16 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 6 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { style: { fontSize: 13 }, children: pageTitle(g.pageId) }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: 11, color: passCount === g.entries.length ? "var(--sage)" : "var(--alarm)" }, children: [
+                  passCount,
+                  "/",
+                  g.entries.length,
+                  " passed"
+                ] })
+              ] }),
+              g.entries.map(renderEntry)
+            ] }, g.pageId);
+          }),
+          liveEntries.length === 0 && infraEntries.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "Every step in this run hit a harness error - the app was never actually judged. See below, fix the harness (or just re-run once it is back), and consider deleting this run." }),
+          infraEntries.length > 0 && // Collapsed when real results exist (noise control); open when
+          // the run is NOTHING BUT harness errors - hiding the only
+          // information on screen behind a closed disclosure helps nobody.
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-infra", open: liveEntries.length === 0, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+              "Harness errors (",
+              infraEntries.length,
+              ") - infrastructure failures, not app bugs"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "The vision route, model gateway, or browser fitting was unavailable while these steps ran, so the app was not judged at all. They never pool into findings. Re-run once the harness is healthy." }),
+            infraEntries.map((e) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: "3px solid var(--rule-2)" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
+                  e.pageId,
+                  "#",
+                  e.stepId
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: e.viewportId })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--mute)", fontSize: 11, marginTop: 4, overflowWrap: "anywhere" }, children: e.error || e.result?.error })
+            ] }, `${e.pageId}:${e.stepId}:${e.viewportId}`))
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Observations" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "Things you noticed that no step covers - no re-run needed to record them. Convert one into a draft step (future runs will check it) or into a finding (it goes into the fix report below)." }),
+          run.observations.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { padding: "5px 0", borderTop: "1px dashed var(--rule)" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 220px" }, children: o.text }),
+            o.convertedToStep ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "-> step added" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { onChange: (e) => e.target.value && convertObsToStep(o.id, e.target.value), defaultValue: "", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> draft step on\u2026" }),
+              pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
+            ] }),
+            o.convertedToFinding ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "-> finding" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => convertObsToFinding(o.id, pages[0]?.id ?? run.pages[0]?.pageId), children: "-> finding" })
+          ] }, o.id)),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "input",
+              {
+                className: "dr-feedback",
+                placeholder: "Add an observation\u2026",
+                value: obsText,
+                onChange: (e) => setObsText(e.target.value),
+                onKeyDown: (e) => {
+                  if (e.key === "Enter") addObs();
+                }
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: addObs, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
+              " Add"
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", style: { borderColor: "var(--sage-2)", borderWidth: 1.5 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Findings - the fix report" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: 'Everything this run caught: failed steps pool here automatically as proposed, and converted observations join them. Confirm what is real, Dismiss what is not - then Fix all confirmed sends ONE batch fix card to the Kanban board for an agent to work through. A finding already on a card shows an "on card" link and is never re-sent.' }),
+          (() => {
+            const active = run.findings.filter((f) => f.status !== "dismissed");
+            const dismissed = run.findings.filter((f) => f.status === "dismissed");
+            const renderFinding = (f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-finding", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-finding-text", style: { textDecoration: f.status === "dismissed" ? "line-through" : "none" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", style: { marginRight: 6 }, children: f.kind }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10.5, color: "var(--mute)" }, children: [
+                  f.pageId,
+                  f.stepId ? `#${f.stepId}` : ""
+                ] }),
+                " ",
+                f.text
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-finding-actions", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (f.status === "confirmed" ? " sage active" : ""), children: f.status }),
+                f.card && (f.card.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip brass", href: f.card.url, target: "_blank", rel: "noreferrer", title: "This finding is already on a Kanban fix card - click to open it", children: "on card" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "This finding is already on a Kanban fix card", children: "on card" })),
+                f.status !== "confirmed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "confirmed"), children: "Confirm" }),
+                f.status !== "dismissed" && !f.card && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "dismissed"), children: "Dismiss" })
+              ] })
+            ] }, f.id);
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+              active.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--mute)", fontSize: 12 }, children: dismissed.length > 0 ? "No open findings - everything was dismissed." : "No findings - every step passed." }),
+              active.map(renderFinding),
+              dismissed.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { style: { marginTop: 8 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { style: { cursor: "pointer", fontSize: 11.5, color: "var(--mute)" }, children: [
+                  "Dismissed (",
+                  dismissed.length,
+                  ")"
+                ] }),
+                dismissed.map(renderFinding)
+              ] })
+            ] });
+          })(),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 10 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+              "select",
+              {
+                value: dispatchMode,
+                onChange: (e) => setDispatchMode(e.target.value),
+                style: { fontSize: 11, padding: "5px 8px" },
+                title: "Manual: dispatch now, with this button. Heartbeat: the periodic sweep dispatches once findings are confirmed. Immediate: dispatch as soon as a run ends.",
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "manual", children: "Dispatch: Manual" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "heartbeat", children: "Dispatch: Heartbeat (autonomous)" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "immediate", children: "Dispatch: Immediate" })
+                ]
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn primary", disabled: dispatchableCount === 0, onClick: dispatch, children: [
+              "Fix all confirmed (",
+              dispatchableCount,
+              ")"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 10, color: "var(--mute)" }, children: confirmedCount > 0 && dispatchableCount === 0 ? "every confirmed finding is already on a fix card" : "one batch card carrying the new confirmed findings" }),
+            dispatchedCard && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip sage active", children: [
+              "Sent to card",
+              " ",
+              dispatchedCard.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { href: dispatchedCard.url, target: "_blank", rel: "noreferrer", style: { color: "inherit" }, children: dispatchedCard.id.slice(-6) }) : dispatchedCard.id.slice(-6)
+            ] })
+          ] })
         ] })
-      ] })
-    ] })
+      ] });
+    })()
+  ] });
+}
+function SnapshotCard({ pageId, snap, onPromote }) {
+  const [label, setLabel] = (0, import_react3.useState)("");
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card dr-statecard", children: [
+    snap.screenshotPath ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { alt: `snapshot: ${snap.headingText || snap.id}`, src: `/api/states/${encodeURIComponent(pageId)}/snapshots/${encodeURIComponent(snap.id)}/screenshot`, className: "dr-stateimg" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-stateimg dr-noimg", children: "no image captured" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: fmtDate(snap.at) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, margin: "4px 0" }, children: snap.headingText || "(no heading)" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "input",
+      {
+        placeholder: "state name, e.g. logged-out",
+        value: label,
+        onChange: (e) => setLabel(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter" && label.trim()) onPromote(snap.id, label.trim());
+        },
+        style: { width: "100%", fontSize: 11, padding: "4px 6px", border: "1px solid var(--rule)", marginBottom: 4 }
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { width: "100%", justifyContent: "center" }, disabled: !label.trim(), onClick: () => onPromote(snap.id, label.trim()), children: "Promote to state" })
   ] });
 }
 function StatesView() {
@@ -25678,7 +26247,8 @@ function StatesView() {
   const [pageId, setPageId] = (0, import_react3.useState)(null);
   const [snapshots, setSnapshots] = (0, import_react3.useState)([]);
   const [error, setError] = (0, import_react3.useState)(null);
-  const [label, setLabel] = (0, import_react3.useState)("");
+  const [stateError, setStateError] = (0, import_react3.useState)(null);
+  const [capturing, setCapturing] = (0, import_react3.useState)(false);
   const load = () => {
     apiGet("/api/pages").then((r) => {
       setPages(r.pages);
@@ -25686,28 +26256,32 @@ function StatesView() {
     }).catch((e) => setError(e.message));
   };
   (0, import_react3.useEffect)(load, []);
-  const loadSnapshots = (pid) => apiGet(`/api/states/${pid}/snapshots`).then((r) => setSnapshots(r.snapshots)).catch((e) => setError(e.message));
+  const loadSnapshots = (pid) => apiGet(`/api/states/${pid}/snapshots`).then((r) => setSnapshots(r.snapshots)).catch((e) => setStateError(e.message));
   (0, import_react3.useEffect)(() => {
     if (pageId) loadSnapshots(pageId);
   }, [pageId]);
   const page = pages.find((p) => p.id === pageId) ?? null;
   const takeSnapshot = async () => {
-    if (!pageId) return;
+    if (!pageId || capturing) return;
+    setCapturing(true);
+    setStateError(null);
     try {
       await apiPost(`/api/states/${pageId}/snapshot`, { viewport: "desktop" });
       loadSnapshots(pageId);
     } catch (e) {
-      setError(e.message);
+      setStateError(`Capture failed: ${e.message}`);
+    } finally {
+      setCapturing(false);
     }
   };
-  const promote = async (snapshotId) => {
-    if (!pageId || !label.trim()) return;
+  const promote = async (snapshotId, label) => {
+    if (!pageId) return;
+    setStateError(null);
     try {
-      await apiPost(`/api/states/${pageId}/promote`, { snapshotId, label: label.trim(), reachPath: [] });
-      setLabel("");
+      await apiPost(`/api/states/${pageId}/promote`, { snapshotId, label, reachPath: [] });
       load();
     } catch (e) {
-      setError(e.message);
+      setStateError(`Promote failed: ${e.message}`);
     }
   };
   if (error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
@@ -25715,58 +26289,57 @@ function StatesView() {
     " ",
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setError(null), children: "dismiss" })
   ] });
-  if (!page) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No pages yet." });
+  if (!page) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No pages yet - plan the Book (Drill Book tab) or add a page in Authoring first." });
   const states = page.states ?? [];
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "A state is a distinct condition a page can be in - logged out, empty, error - that changes what should be checked. Steps in Authoring can be scoped to a state, and each state records how to REACH it so runs can reproduce it. States are normally authored by the planning agent (Plan book on the Drill Book tab); this page is where you inspect them and hand-author extras." }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec dr-rowwrap", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: pageId ?? "", onChange: (e) => setPageId(e.target.value), style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: takeSnapshot, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-lbl", style: { margin: 0 }, children: "Page" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: pageId ?? "", onChange: (e) => {
+        setStateError(null);
+        setPageId(e.target.value);
+      }, style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) })
+    ] }),
+    stateError && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-banner", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 240px" }, children: stateError }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setStateError(null), children: "Dismiss" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-lbl", children: [
+        "Named states - ",
+        page.title
+      ] }),
+      states.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--mute)", fontSize: 12, marginBottom: 8 }, children: "No named states yet for this page - Plan book authors them, or promote a manual snapshot below." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cardrow", children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card dr-statecard", children: [
+        s.screenshotPath ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { alt: `state: ${s.label}`, src: `/api/states/${encodeURIComponent(pageId)}/${encodeURIComponent(s.id)}/screenshot`, className: "dr-stateimg" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-stateimg dr-noimg", children: "no reference image - promoting a snapshot of this condition attaches one" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 6 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass active wrap", children: s.label }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)", overflowWrap: "anywhere" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Recognized by:" }),
+          " ",
+          s.fingerprint ? `heading "${s.fingerprint.headingText}" + page shape` : "nothing yet"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)", overflowWrap: "anywhere" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "How to reach it:" }),
+          " ",
+          s.reachPath && s.reachPath.length > 0 ? s.reachPath.map((r) => r.description).join(" -> ") : "(page entry)"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 10, color: "var(--mute)", marginTop: 4 }, children: (() => {
+          const n = page.steps.filter((st) => st.state === s.id).length;
+          return `${n} step${n === 1 ? "" : "s"} scoped to this state`;
+        })() })
+      ] }, s.id)) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Manual snapshots" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "A snapshot captures the page exactly as it renders right now. To hand-author a state: steer the app into the condition you want (use the interactive preview in Authoring), capture a snapshot here, then name it and promote it." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: takeSnapshot, disabled: capturing, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Camera, { size: 11 }),
-        " Take snapshot"
-      ] })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Snapshots" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+        " ",
+        capturing ? "Capturing\u2026" : "Capture snapshot"
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cardrow", children: [
         snapshots.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--mute)", fontSize: 12 }, children: "No snapshots yet." }),
-        snapshots.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card", style: { width: 160 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: new Date(s.at).toLocaleTimeString() }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, margin: "4px 0" }, children: s.headingText || "(no heading)" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "input",
-            {
-              placeholder: "name\u2026",
-              value: label,
-              onChange: (e) => setLabel(e.target.value),
-              style: { width: "100%", fontSize: 11, padding: "4px 6px", border: "1px solid var(--rule)", marginBottom: 4 }
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { width: "100%", justifyContent: "center" }, onClick: () => promote(s.id), children: "Promote to state" })
-        ] }, s.id))
-      ] })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "States" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { alignItems: "stretch" }, children: [
-        states.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--mute)", fontSize: 12 }, children: "No named states yet - promote a snapshot above." }),
-        states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card", style: { width: 240 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 6 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass active", children: s.label }) }),
-          s.screenshotPath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { alt: s.label, src: `/api/states/${pageId}/${s.id}/screenshot`, style: { width: "100%", height: 90, objectFit: "cover", marginBottom: 6, border: "1px solid var(--rule)" } }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Matcher:" }),
-            " ",
-            s.fingerprint ? `shape ~${s.fingerprint.shapeSketch.split(",").length} tokens, heading "${s.fingerprint.headingText}"` : "none"
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Reach:" }),
-            " ",
-            s.reachPath && s.reachPath.length > 0 ? s.reachPath.map((r) => r.description).join(" -> ") : "(entry)"
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 10, color: "var(--mute)", marginTop: 4 }, children: [
-            page.steps.filter((st) => st.state === s.id).length,
-            " scoped steps"
-          ] })
-        ] }, s.id))
+        snapshots.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SnapshotCard, { pageId, snap: s, onPromote: promote }, s.id))
       ] })
     ] })
   ] });
@@ -25793,6 +26366,13 @@ function App() {
     setPendingRun({ pageIds, viewports });
     setView("results");
   };
+  const openPage = (pid) => {
+    try {
+      localStorage.setItem("drill.authoring.page", pid);
+    } catch {
+    }
+    setView("authoring");
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-header", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "topbar", children: [
@@ -25806,7 +26386,7 @@ function App() {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-tabs", children: VIEWS.map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-tab" + (view === v.id ? " on" : ""), onClick: () => setView(v.id), children: v.label }, v.id)) })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-body", children: [
-      view === "book" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BookView, { onRunSelected: runSelected, projInfo, onOpenPicker: () => setPickerOpen(true), onGoAuthoring: () => setView("authoring") }),
+      view === "book" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BookView, { onRunSelected: runSelected, projInfo, onOpenPicker: () => setPickerOpen(true), onGoAuthoring: () => setView("authoring"), onOpenPage: openPage }),
       view === "authoring" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthoringView, {}),
       view === "states" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatesView, {}),
       view === "results" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultsView, { initialRun: pendingRun, onConsumeInitialRun: () => setPendingRun(null) })
@@ -25879,16 +26459,23 @@ lucide-react/dist/esm/shared/src/utils.js:
 lucide-react/dist/esm/defaultAttributes.js:
 lucide-react/dist/esm/Icon.js:
 lucide-react/dist/esm/createLucideIcon.js:
+lucide-react/dist/esm/icons/arrow-left.js:
+lucide-react/dist/esm/icons/arrow-right.js:
 lucide-react/dist/esm/icons/camera.js:
 lucide-react/dist/esm/icons/check.js:
 lucide-react/dist/esm/icons/crosshair.js:
+lucide-react/dist/esm/icons/external-link.js:
 lucide-react/dist/esm/icons/eye.js:
 lucide-react/dist/esm/icons/file-code-2.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/notebook-pen.js:
 lucide-react/dist/esm/icons/plus.js:
+lucide-react/dist/esm/icons/refresh-ccw.js:
+lucide-react/dist/esm/icons/rotate-cw.js:
+lucide-react/dist/esm/icons/ruler.js:
 lucide-react/dist/esm/icons/smartphone.js:
 lucide-react/dist/esm/icons/tablet.js:
+lucide-react/dist/esm/icons/terminal.js:
 lucide-react/dist/esm/icons/x.js:
 lucide-react/dist/esm/lucide-react.js:
   (**

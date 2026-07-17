@@ -68,6 +68,67 @@ export async function getDrillRun(id) {
   }
 }
 
+export async function deleteDrillRun(id) {
+  try {
+    await fs.unlink(runPath(safeId(id)));
+    return true;
+  } catch (err) {
+    if (err.code === "ENOENT") return false;
+    throw err;
+  }
+}
+
+// Harness failures - the vision route, gateway, browser or automations
+// fittings being down - say NOTHING about the app under test. They must not
+// pool as findings (a wall of "vision 503" findings buries the real report)
+// and the results UI renders them separately. Patterns match the exact error
+// strings each layer emits: the engine's visionResolve (`vision 503`), the
+// vision route (`gateway unreachable`/`gateway 502`, `model router
+// unavailable`, `vision reply had no JSON`), the fitting clients
+// (`browser fitting not running`, `browser 502:`, `automations fitting not
+// running`) and node's connection-level failures.
+const INFRA_PATTERNS = [
+  /\bvision \d{3}\b/i,
+  /\bfixer \d{3}\b/i,
+  /\bgateway (unreachable|\d{3})\b/i,
+  /model router unavailable/i,
+  /vision reply had no JSON/i,
+  /gateway reply unparseable/i,
+  /vision result parse failed/i,
+  /browser fitting not running/i,
+  /\bbrowser \d{3}:/i,
+  /automations fitting not running/i,
+  /\bautomations \d{3}\b/i,
+  /ECONNREFUSED|fetch failed/i
+];
+
+export function isInfraError(text) {
+  if (!text) return false;
+  const s = String(text);
+  return INFRA_PATTERNS.some((re) => re.test(s));
+}
+
+// Slim row for the runs table: dates + counts only, no automation-run
+// resolution (listing must stay cheap over many runs).
+export function runListingRow(record) {
+  const findings = { proposed: 0, confirmed: 0, dismissed: 0 };
+  for (const f of record.findings ?? []) {
+    if (findings[f.status] !== undefined) findings[f.status] += 1;
+  }
+  return {
+    id: record.id,
+    startedAt: record.startedAt,
+    endedAt: record.endedAt ?? null,
+    contextTag: record.contextTag,
+    state: record.state,
+    project: record.project ?? null,
+    dispatchedAt: record.dispatchedAt ?? null,
+    steps: (record.pages ?? []).length,
+    summary: record.summary ?? null,
+    findings
+  };
+}
+
 export async function listDrillRuns() {
   let entries;
   try {
@@ -126,4 +187,22 @@ export function setFindingStatus(record, findingId, status) {
 
 export function confirmedFindings(record) {
   return record.findings.filter((f) => f.status === "confirmed");
+}
+
+// A finding already sent to a fix card carries `card` {id, url, at}. Dispatch
+// only ever sends confirmed findings NOT yet on a card - double-clicking the
+// button, or re-dispatching after some findings were already fixed, must not
+// mint duplicate cards carrying the same work (observed live 2026-07-17: two
+// identical batch cards 8s apart).
+export function undispatchedConfirmedFindings(record) {
+  return record.findings.filter((f) => f.status === "confirmed" && !f.card);
+}
+
+export function markFindingsDispatched(record, findingIds, card) {
+  const at = new Date().toISOString();
+  for (const id of findingIds) {
+    const f = record.findings.find((x) => x.id === id);
+    if (f) f.card = { id: card.id, url: card.url ?? null, at };
+  }
+  return record;
 }

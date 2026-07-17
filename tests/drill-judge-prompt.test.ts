@@ -46,3 +46,29 @@ describe("buildVisionPrompt — action mode (unchanged)", () => {
     expect(prompt).toContain("button: Send");
   });
 });
+
+describe("buildVisionPrompt - size bounds (oversized-page hardening)", () => {
+  it("clips a megabyte-scale a11y node name so the prompt stays inside the gateway envelope", () => {
+    const hugeName = "cell ".repeat(400_000); // ~2MB - a table region node's accessible name
+    const prompt = buildVisionPrompt("verify",
+      { url: "https://x/usage", title: "Usage", headingText: "Utilização", a11y: [{ role: "region", name: hugeName }, { role: "button", name: "Reset" }] },
+      { description: "table renders" });
+    expect(prompt.length).toBeLessThan(210_000);
+    expect(prompt).toContain("[...clipped");
+    expect(prompt).toContain("button: Reset"); // later nodes survive the clipping
+  });
+
+  it("caps the whole prompt with an explicit marker when everything together is still too large", () => {
+    const nodes = Array.from({ length: 80 }, (_, i) => ({ role: "row", name: `${"x".repeat(5000)} ${i}` }));
+    const prompt = buildVisionPrompt("action", { url: "https://x", title: "T", headingText: "H", a11y: nodes }, { description: "click" });
+    expect(prompt.length).toBeLessThanOrEqual(200_000 + 200);
+  });
+
+  it("bounds fixer JSON blobs (failed step + error text)", () => {
+    const prompt = buildVisionPrompt("fix",
+      { url: "https://x", title: "T", headingText: "H", a11y: [] },
+      { description: "d".repeat(50_000), __fix: { failureKind: "timeout", error: "e".repeat(50_000) } });
+    expect(prompt.length).toBeLessThan(30_000);
+    expect(prompt).toContain("[...clipped");
+  });
+});

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findPendingHeartbeatRuns, runHeartbeatSweep } from "../fittings/seed/drill/lib/heartbeat.mjs";
-import { newDrillRun, saveDrillRun, addFinding, setFindingStatus, getDrillRun } from "../fittings/seed/drill/lib/runs-store.mjs";
+import { newDrillRun, saveDrillRun, addFinding, setFindingStatus, getDrillRun, markFindingsDispatched } from "../fittings/seed/drill/lib/runs-store.mjs";
 
 // D10/S29/self-test-item-7 — heartbeat dispatch pickup: the autonomous flow
 // confirms high-confidence findings itself and picks them up on its next
@@ -39,11 +39,32 @@ describe("findPendingHeartbeatRuns", () => {
     expect(pending.map((r) => r.id)).toEqual([heartbeatRun.id]);
   });
 
-  it("excludes a heartbeat run that was already dispatched", async () => {
+  it("excludes a heartbeat run whose confirmed findings are all on a card already", async () => {
     const r = await runWithConfirmedFinding("heartbeat");
+    markFindingsDispatched(r, r.findings.map((f: any) => f.id), { id: "card-1" });
     r.dispatchedAt = new Date().toISOString();
     await saveDrillRun(r);
     expect(await findPendingHeartbeatRuns()).toHaveLength(0);
+  });
+
+  it("re-finds an already-dispatched run when a NEW finding gets confirmed after the dispatch", async () => {
+    const r = await runWithConfirmedFinding("heartbeat");
+    markFindingsDispatched(r, r.findings.map((f: any) => f.id), { id: "card-1" });
+    r.dispatchedAt = new Date().toISOString();
+    const late = addFinding(r, { kind: "observation", pageId: "chat", text: "found later" });
+    setFindingStatus(r, late.id, "confirmed");
+    await saveDrillRun(r);
+
+    const pending = await findPendingHeartbeatRuns();
+    expect(pending.map((x: any) => x.id)).toEqual([r.id]);
+
+    // The sweep sends ONLY the new finding, never the ones already on a card.
+    const batches: any[] = [];
+    await runHeartbeatSweep(async (_record: any, confirmed: any[]) => { batches.push(confirmed); return { id: "card-2" }; });
+    expect(batches).toHaveLength(1);
+    expect(batches[0].map((f: any) => f.id)).toEqual([late.id]);
+    const reloaded = await getDrillRun(r.id);
+    expect(reloaded?.findings.find((f: any) => f.id === late.id)?.card?.id).toBe("card-2");
   });
 });
 

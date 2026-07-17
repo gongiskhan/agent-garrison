@@ -103,3 +103,72 @@ describe("findings report: triage (D10/R10)", () => {
     expect(() => setFindingStatus(r, f.id, "archived" as any)).toThrow(/invalid finding status/);
   });
 });
+
+describe("infra-error classification (harness noise never pools as findings)", () => {
+  it("classifies each layer's real error strings as infra", async () => {
+    const { isInfraError } = await import("../fittings/seed/drill/lib/runs-store.mjs");
+    for (const s of [
+      "vision 503",
+      "vision 403",
+      "fixer failed: fixer 403",
+      "gateway unreachable: fetch failed",
+      "gateway 502",
+      "model router unavailable: no routing config",
+      "vision reply had no JSON",
+      "gateway reply unparseable",
+      "vision result parse failed: Bad control character in string literal in JSON at position 191",
+      "browser fitting not running (no GARRISON_BROWSER_URL / status file)",
+      "browser 502: tab not found",
+      "automations fitting not running (no GARRISON_AUTOMATIONS_URL / status file)",
+      "automations 500",
+      "fetch failed",
+      "connect ECONNREFUSED 127.0.0.1:4777"
+    ]) {
+      expect(isInfraError(s), s).toBe(true);
+    }
+  });
+
+  it("never classifies app-level failures as infra", async () => {
+    const { isInfraError } = await import("../fittings/seed/drill/lib/runs-store.mjs");
+    for (const s of [
+      "the heading is rendered in Inter, not Lora",
+      "expected 'Utilizacao' but the page shows 'Usage'",
+      "verify failed: element role img name logo not visible",
+      "navigate: page.goto timeout at /usage",
+      "run failed before this step completed",
+      ""
+    ]) {
+      expect(isInfraError(s), s || "(empty)").toBe(false);
+    }
+  });
+});
+
+describe("runListingRow + deleteDrillRun (runs table contract)", () => {
+  it("reduces a record to dates + counts, never the page entries", async () => {
+    const { runListingRow } = await import("../fittings/seed/drill/lib/runs-store.mjs");
+    const r = newDrillRun({ contextTag: "drill", project: "/tmp/proj" });
+    r.pages.push({ pageId: "chat", stepId: "s1", viewportId: "desktop", automationRunId: "a1", status: "completed" });
+    r.pages.push({ pageId: "chat", stepId: "s2", viewportId: "mobile", automationRunId: "a2", status: "failed" });
+    r.summary = { steps: 2, failed: 1, infra: 0 };
+    addFinding(r, { kind: "step-fail", pageId: "chat", stepId: "s2", text: "broken" });
+    const f2 = addFinding(r, { kind: "ux", pageId: "chat", text: "meh" });
+    setFindingStatus(r, f2.id, "dismissed");
+    const row = runListingRow(r);
+    expect(row).toMatchObject({
+      id: r.id, contextTag: "drill", project: "/tmp/proj", steps: 2,
+      summary: { steps: 2, failed: 1, infra: 0 },
+      findings: { proposed: 1, confirmed: 0, dismissed: 1 }
+    });
+    expect((row as Record<string, unknown>).pages).toBeUndefined();
+  });
+
+  it("deleteDrillRun removes the record; deleting a missing id reports false", async () => {
+    const { deleteDrillRun } = await import("../fittings/seed/drill/lib/runs-store.mjs");
+    const r = newDrillRun();
+    await saveDrillRun(r);
+    expect(await getDrillRun(r.id)).not.toBeNull();
+    expect(await deleteDrillRun(r.id)).toBe(true);
+    expect(await getDrillRun(r.id)).toBeNull();
+    expect(await deleteDrillRun(r.id)).toBe(false);
+  });
+});

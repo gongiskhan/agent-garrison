@@ -105,7 +105,7 @@ describe("Drill's own UI at phone width", () => {
 
     // The sheet closed automatically (E2) so the canvas is reachable.
     await p.locator(".dr-au-plan.dr-sheet-closed").waitFor({ timeout: 15000 });
-    await p.getByText("Click an element…").waitFor({ timeout: 15000 });
+    await p.getByText("Now click an element in the preview…").waitFor({ timeout: 15000 });
 
     const overlay = p.locator(".dr-cv-overlay");
     const box = await overlay.boundingBox();

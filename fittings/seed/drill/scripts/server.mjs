@@ -12,18 +12,19 @@ import { getDrillBook, saveDrillBook, listPages, getPage, savePage, deletePage, 
 import { listProjects, selectProject, findRunSkill, projectInfo, activeProjectRoot, readDevRoot, canonicalRoot } from "../lib/projects.mjs";
 import { urlReachable, startApp, getJob, publicJob } from "../lib/app-runner.mjs";
 import { startPlan, getPlanJob, publicPlanJob, reapOrphanPlanAgents } from "../lib/planner.mjs";
-import { openTab, evalJs, observeTab, canvasUrl, browserBaseUrl } from "../lib/browser-fitting-client.mjs";
+import { openTab, evalJs, observeTab, canvasUrl, browserBaseUrl, navigateTab, tabAction, closeTab, tabInfo, readConsole } from "../lib/browser-fitting-client.mjs";
 import { buildPickScript, buildResolveScript, rectToPercent } from "../lib/picker.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
 import { selectSteps, compileStepAutomation } from "../lib/compile.mjs";
 import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
-import { saveSnapshot, listSnapshots } from "../lib/snapshots.mjs";
+import { saveSnapshot, listSnapshots, getSnapshot } from "../lib/snapshots.mjs";
 import { promoteSnapshotToState } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
 import { runInline, getRun as getAutomationRun } from "../lib/automations-client.mjs";
 import {
-  newDrillRun, saveDrillRun, getDrillRun, listDrillRuns,
-  addFeedback, setOverride, addObservation, addFinding, setFindingStatus, confirmedFindings
+  newDrillRun, saveDrillRun, getDrillRun, listDrillRuns, deleteDrillRun,
+  addFeedback, setOverride, addObservation, addFinding, setFindingStatus, confirmedFindings,
+  undispatchedConfirmedFindings, markFindingsDispatched, isInfraError, runListingRow
 } from "../lib/runs-store.mjs";
 
 // Authoring tabs (B1): one live tab per (pageId, viewportId) for the duration
@@ -71,7 +72,10 @@ async function assembleRunView(record) {
       const automationRun = await getAutomationRun(pr.automationRunId).catch(() => null);
       result = resolveStepOutcome(automationRun, pr.stepId);
     }
-    pages.push({ ...pr, result });
+    // Harness failures render apart from real step verdicts - computed here
+    // (not stored) so runs recorded before the classifier existed group
+    // correctly too.
+    pages.push({ ...pr, result, infra: isInfraError(pr.error || result?.error) });
   }
   return { ...record, pages };
 }
@@ -104,7 +108,11 @@ async function dispatchBatchFixCard(record, confirmed) {
     body: JSON.stringify({ description, duty: "code", level: 2, sequence: ["code"], origin: "drill", project: record.project || drillTargetRoot() })
   });
   if (!res.ok) throw new Error(`kanban-loop ${res.status}: ${await res.text()}`);
-  return (await res.json()).card;
+  const card = (await res.json()).card;
+  // Attach the board's card URL so the UI (and the finding's `card` stamp)
+  // can link straight to it - "did my fixes reach the kanban?" should never
+  // require opening the board and hunting.
+  return { ...card, url: `${base}/#/cards/${card.id}` };
 }
 
 // A long-lived client flow (an app start, a plan, a gated-run approval) pins
@@ -349,6 +357,78 @@ async function handle(req, res) {
         return send(res, 502, { error: err.message });
       }
     }
+    // Authoring manual-testing controls (the browser toolbar): navigate,
+    // back/forward/reload, restart the pooled tab fresh, and read the live
+    // URL/title + console buffer - thin proxies over browser-default's tab
+    // endpoints so a manual test session can be driven from the authoring
+    // surface itself.
+    if (pathname === "/api/authoring/nav" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.tabId || !body.url) return send(res, 400, { error: "tabId and url required" });
+      try {
+        return send(res, 200, await navigateTab(body.tabId, String(body.url)));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/authoring/tab-action" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.tabId) return send(res, 400, { error: "tabId required" });
+      try {
+        return send(res, 200, await tabAction(body.tabId, String(body.action ?? "")));
+      } catch (err) {
+        return send(res, err.message.startsWith("invalid tab action") ? 400 : 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/authoring/restart" && req.method === "POST") {
+      // Close the pooled tab and open a fresh one at the page's URL - the
+      // reset for a manual session that wandered off (auth state, SPA state).
+      const body = await readJsonBody(req);
+      const pageId = String(body.pageId ?? "");
+      const viewportId = String(body.viewport ?? "desktop");
+      if (!pageId) return send(res, 400, { error: "pageId required" });
+      let viewport;
+      try { viewport = resolveViewport(viewportId); } catch (err) { return send(res, 400, { error: err.message }); }
+      const book = await getDrillBook();
+      const page = await getPage(pageId);
+      const appUrl = book.app.url || "http://localhost:3000";
+      let target;
+      try { target = page?.path ? new URL(page.path, appUrl).toString() : appUrl; } catch { target = appUrl; }
+      const key = `${pageId}|${viewportId}`;
+      const old = authoringTabs.get(key);
+      if (old) {
+        await closeTab(old).catch(() => {});
+        authoringTabs.delete(key);
+      }
+      let tabId;
+      try {
+        tabId = await openTab(target, { viewport });
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+      authoringTabs.set(key, tabId);
+      return send(res, 200, { tabId, canvasUrl: canvasUrl(tabId), viewport, url: target });
+    }
+    if (pathname === "/api/authoring/tab-info" && req.method === "GET") {
+      const tabId = url.searchParams.get("tabId");
+      if (!tabId) return send(res, 400, { error: "tabId required" });
+      try {
+        return send(res, 200, { tab: await tabInfo(tabId) });
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/authoring/console" && req.method === "GET") {
+      const tabId = url.searchParams.get("tabId");
+      if (!tabId) return send(res, 400, { error: "tabId required" });
+      try {
+        const limit = Number(url.searchParams.get("limit")) || 120;
+        return send(res, 200, await readConsole(tabId, { limit }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+
     // States (C3/C4): capture a snapshot from the authoring tab (reuses the
     // Phase 3 tab-per-page-viewport pool), list snapshots, promote one to a
     // named state, and serve a state's reference screenshot.
@@ -399,6 +479,20 @@ async function handle(req, res) {
         return send(res, 200, { state });
       } catch (err) {
         return send(res, 404, { error: err.message });
+      }
+    }
+    // A snapshot's own screenshot (the States gallery) - distinct from a
+    // promoted STATE's reference screenshot below.
+    const snapShotFileMatch = pathname.match(/^\/api\/states\/([^/]+)\/snapshots\/([^/]+)\/screenshot$/);
+    if (snapShotFileMatch && req.method === "GET") {
+      const snap = await getSnapshot(decodeURIComponent(snapShotFileMatch[1]), decodeURIComponent(snapShotFileMatch[2]));
+      if (!snap?.screenshotPath) return send(res, 404, { error: "no screenshot for this snapshot" });
+      try {
+        const bytes = await readFile(snap.screenshotPath);
+        res.writeHead(200, { "content-type": "image/jpeg" });
+        return res.end(bytes);
+      } catch {
+        return send(res, 404, { error: "screenshot file missing" });
       }
     }
     const stateShotMatch = pathname.match(/^\/api\/states\/([^/]+)\/([^/]+)\/screenshot$/);
@@ -508,8 +602,15 @@ async function handle(req, res) {
       }
       record.endedAt = new Date().toISOString();
 
+      // Failed steps pool as findings ONLY when the failure is about the app.
+      // Infra errors (vision route / gateway / browser fitting down) are
+      // counted in the run summary instead - a harness outage must never
+      // read as thirty app bugs.
+      const summary = { steps: record.pages.length, failed: 0, infra: 0 };
       for (const pr of record.pages) {
         if (pr.status === "error") {
+          if (isInfraError(pr.error)) { summary.infra += 1; continue; }
+          summary.failed += 1;
           addFinding(record, { kind: "step-fail", pageId: pr.pageId, stepId: pr.stepId, text: pr.error });
           continue;
         }
@@ -517,12 +618,10 @@ async function handle(req, res) {
         const automationRun = await getAutomationRun(pr.automationRunId).catch(() => null);
         const outcome = resolveStepOutcome(automationRun, pr.stepId);
         if (outcome && (outcome.status === "failed" || outcome.result?.passed === false)) {
-          addFinding(record, {
-            kind: "step-fail",
-            pageId: pr.pageId,
-            stepId: pr.stepId,
-            text: outcome.error || outcome.result?.reasoning || `${pr.stepId} failed`
-          });
+          const text = outcome.error || outcome.result?.reasoning || `${pr.stepId} failed`;
+          if (isInfraError(text)) { summary.infra += 1; continue; }
+          summary.failed += 1;
+          addFinding(record, { kind: "step-fail", pageId: pr.pageId, stepId: pr.stepId, text });
           continue;
         }
         // Graduation (B8/B12, and the B7 healer path re-emitting on a stale
@@ -547,6 +646,7 @@ async function handle(req, res) {
         }
       }
 
+      record.summary = summary;
       await saveDrillRun(record);
       return send(res, 200, { run: await assembleRunView(record) });
     }
@@ -556,12 +656,16 @@ async function handle(req, res) {
       const all = url.searchParams.get("all") === "1";
       const active = drillTargetRoot();
       const runs = await listDrillRuns();
-      return send(res, 200, { runs: all ? runs : runs.filter((r) => !r.project || r.project === active) });
+      const scoped = all ? runs : runs.filter((r) => !r.project || r.project === active);
+      return send(res, 200, { runs: scoped.map(runListingRow) });
     }
     const runGet = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (runGet && req.method === "GET") {
       const record = await getDrillRun(decodeURIComponent(runGet[1]));
       return record ? send(res, 200, { run: await assembleRunView(record) }) : send(res, 404, { error: "not found" });
+    }
+    if (runGet && req.method === "DELETE") {
+      return send(res, 200, { deleted: await deleteDrillRun(decodeURIComponent(runGet[1])) });
     }
 
     const feedbackMatch = pathname.match(/^\/api\/runs\/([^/]+)\/feedback$/);
@@ -694,19 +798,26 @@ async function handle(req, res) {
       }
     }
 
-    // R10: dispatch every confirmed finding as ONE batch fix card. Manual
+    // R10: dispatch the confirmed findings as ONE batch fix card. Manual
     // (the button) and Immediate dispatch now; Heartbeat records intent -
     // the actual periodic pickup is a self-contained sweep (heartbeat.mjs)
     // over runs whose OWN dispatch mode is "heartbeat", triggered by the
     // timer in startServer() or on demand via POST /api/heartbeat/run-once.
+    // Only findings NOT already on a card go out - dispatch is idempotent.
     const dispatchMatch = pathname.match(/^\/api\/runs\/([^/]+)\/dispatch$/);
     if (dispatchMatch && req.method === "POST") {
       const record = await getDrillRun(decodeURIComponent(dispatchMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
       const mode = body.mode || "manual";
-      const confirmed = confirmedFindings(record);
-      if (confirmed.length === 0) return send(res, 400, { error: "no confirmed findings to dispatch" });
+      const confirmed = undispatchedConfirmedFindings(record);
+      if (confirmed.length === 0) {
+        return send(res, 400, {
+          error: confirmedFindings(record).length > 0
+            ? "every confirmed finding is already on a fix card - nothing new to dispatch"
+            : "no confirmed findings to dispatch"
+        });
+      }
       if (mode === "heartbeat") {
         return send(res, 200, { dispatched: false, mode: "heartbeat", pending: confirmed.length });
       }
@@ -716,9 +827,10 @@ async function handle(req, res) {
         // POST is a long await, and a concurrent triage/feedback write on
         // this run must not be clobbered by saving the pre-fetch snapshot.
         const fresh = (await getDrillRun(record.id)) ?? record;
+        markFindingsDispatched(fresh, confirmed.map((f) => f.id), card);
         fresh.dispatchedAt = new Date().toISOString();
         await saveDrillRun(fresh);
-        return send(res, 200, { dispatched: true, mode, card });
+        return send(res, 200, { dispatched: true, mode, card, run: await assembleRunView(fresh) });
       } catch (err) {
         return send(res, 502, { error: err.message });
       }

@@ -90,7 +90,7 @@ describe("Authoring surface — real UI", () => {
     await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 15000 });
 
     await p.getByRole("button", { name: /Highlight new area/i }).click();
-    await p.getByText("Click an element…").waitFor({ timeout: 5000 });
+    await p.getByText("Now click an element in the preview…").waitFor({ timeout: 5000 });
 
     // Click the overlay at the point corresponding to the fixture button's
     // center (top:100 left:100 width:160 height:44 in a 1280x800 viewport).

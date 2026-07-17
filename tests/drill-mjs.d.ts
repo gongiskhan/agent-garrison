@@ -54,6 +54,11 @@ declare module "*/drill/lib/runs-store.mjs" {
   export function addFinding(record: any, input: any): any;
   export function setFindingStatus(record: any, findingId: string, status: string): any;
   export function confirmedFindings(record: any): any[];
+  export function undispatchedConfirmedFindings(record: any): any[];
+  export function markFindingsDispatched(record: any, findingIds: string[], card: any): any;
+  export function deleteDrillRun(id: string): Promise<boolean>;
+  export function isInfraError(text: unknown): boolean;
+  export function runListingRow(record: any): any;
 }
 declare module "*/drill/lib/spec-emit.mjs" {
   export function emitAssertionCode(assertion: any): string;
@@ -103,4 +108,9 @@ declare module "*/drill/lib/browser-fitting-client.mjs" {
   export function observeTab(tabId: string, opts?: any): Promise<any>;
   export function setViewport(tabId: string, vp: any, opts?: any): Promise<any>;
   export function canvasUrl(tabId: string): string | null;
+  export function navigateTab(tabId: string, url: string, opts?: any): Promise<any>;
+  export function tabAction(tabId: string, action: string, opts?: any): Promise<any>;
+  export function closeTab(tabId: string, opts?: any): Promise<any>;
+  export function tabInfo(tabId: string, opts?: any): Promise<any | null>;
+  export function readConsole(tabId: string, opts?: any): Promise<any>;
 }

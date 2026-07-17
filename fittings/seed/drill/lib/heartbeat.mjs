@@ -3,11 +3,15 @@
 // whose dispatch mode is "heartbeat" and carries confirmed findings gets
 // dispatched automatically, without a human pressing the button.
 
-import { listDrillRuns, getDrillRun, saveDrillRun, confirmedFindings } from "./runs-store.mjs";
+import { listDrillRuns, getDrillRun, saveDrillRun, undispatchedConfirmedFindings, markFindingsDispatched } from "./runs-store.mjs";
 
+// Per-finding dispatch tracking (not the run-level dispatchedAt): a run that
+// already dispatched once but gained a NEWLY confirmed finding since must be
+// picked up again - for exactly the new finding, never the ones already on a
+// card.
 export async function findPendingHeartbeatRuns() {
   const runs = await listDrillRuns();
-  return runs.filter((r) => r.dispatch === "heartbeat" && !r.dispatchedAt && confirmedFindings(r).length > 0);
+  return runs.filter((r) => r.dispatch === "heartbeat" && undispatchedConfirmedFindings(r).length > 0);
 }
 
 // dispatchFn(record, confirmed) -> card. The same batch-fix-card dispatch the
@@ -18,11 +22,13 @@ export async function runHeartbeatSweep(dispatchFn) {
   const results = [];
   for (const record of pending) {
     try {
-      const card = await dispatchFn(record, confirmedFindings(record));
+      const confirmed = undispatchedConfirmedFindings(record);
+      const card = await dispatchFn(record, confirmed);
       // Re-load before stamping: the kanban POST is a long await, and a
       // concurrent triage/feedback write on this run must not be clobbered
       // by saving this pre-fetch snapshot.
       const fresh = (await getDrillRun(record.id)) ?? record;
+      markFindingsDispatched(fresh, confirmed.map((f) => f.id), card);
       fresh.dispatchedAt = new Date().toISOString();
       await saveDrillRun(fresh);
       results.push({ runId: record.id, dispatched: true, card });
