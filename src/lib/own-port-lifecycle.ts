@@ -4,6 +4,7 @@ import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, writeSync } 
 import { readFile, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { garrisonDir } from "./claude-home";
+import { getInternalToken } from "./internal-token";
 import { ROOT_DIR } from "./paths";
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
@@ -355,6 +356,12 @@ export async function startOwnPortFitting(
   if (!isValidFittingId(entry.id)) {
     return { ok: false, error: "invalid fittingId", status: 400 };
   }
+  // Fittings that call token-gated backend routes (the automations engine's
+  // vision/connector calls, drill) read ~/.garrison/internal-token directly at
+  // call time and send "" when it is absent - a guaranteed 403. The backend is
+  // the token's only minter (create-on-first-use), and nothing else guarantees
+  // a first use before a consumer boots on a fresh machine, so mint it here.
+  await getInternalToken();
   return withFittingLock(entry.id, () => startOwnPortFittingLocked(entry, extraEnv, options));
 }
 

@@ -1,3 +1,5 @@
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -5,9 +7,11 @@ import {
   isValidFittingId,
   logFilePath,
   spawnRecordPath,
+  startOwnPortFitting,
   statusFilePath,
   vaultEnvForEntry
 } from "@/lib/own-port-lifecycle";
+import { resetInternalTokenCache } from "@/lib/internal-token";
 import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry } from "@/lib/types";
 
 // Mock the vault so the positive injection path is testable without touching
@@ -73,6 +77,36 @@ describe("own-port lifecycle classification", () => {
   it("returns false for non-own-port Fittings even when lifecycle is set", () => {
     expect(isOperativeBound(makeEntry(false))).toBe(false);
     expect(isOperativeBound(makeEntry(false, "operative-bound"))).toBe(false);
+  });
+});
+
+describe("startOwnPortFitting internal-token mint", () => {
+  let ghome: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    ghome = mkdtempSync(path.join(os.tmpdir(), "garrison-oplt-"));
+    prevHome = process.env.GARRISON_HOME;
+    process.env.GARRISON_HOME = ghome;
+    resetInternalTokenCache();
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.GARRISON_HOME;
+    else process.env.GARRISON_HOME = prevHome;
+    resetInternalTokenCache();
+    rmSync(ghome, { recursive: true, force: true });
+  });
+
+  it("mints ~/.garrison/internal-token (0600) before any spawn attempt", async () => {
+    // Consumers (automations engine, drill) read this file directly at call
+    // time and send "" when absent - every token-gated backend route then
+    // 403s. A refused start still exercises the mint, keeping this hermetic.
+    const result = await startOwnPortFitting(makeEntry(false));
+    expect(result.ok).toBe(false);
+    const tokenFile = path.join(ghome, "internal-token");
+    expect(existsSync(tokenFile)).toBe(true);
+    expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
   });
 });
 

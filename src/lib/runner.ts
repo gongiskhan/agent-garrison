@@ -503,8 +503,11 @@ export async function down(compositionId: string): Promise<RunnerState> {
     record.process = undefined;
   }
   // A gateway from a previous server process is not in record.process - the
-  // on-disk pid record is the only handle a fresh server has on it.
-  await reapRecordedGateway(compositionId);
+  // on-disk pid record is the only handle a fresh server has on it. The port
+  // comes from the live record when we have one, else from the composition's
+  // gateway config - the same resolution spawnGateway would use.
+  const gatewayPort = record.gateway?.port ?? (await resolveGatewayFitting(compositionId))?.port;
+  if (gatewayPort !== undefined) await reapRecordedGateway(compositionId, gatewayPort);
   record.gateway = undefined;
   const composition = await readCompositionWithDerivedTasks(compositionId);
   await wipeMaterializedEnv(composition.directory);
@@ -1461,7 +1464,17 @@ interface GatewayPidRecord {
   fittingId: string;
 }
 
-function gatewayPidRecordPath(compositionId: string): string {
+// Records are keyed by composition AND port: two Garrison checkouts sharing
+// one ~/.garrison (e.g. a clone under test on shifted ports) run the same
+// composition id, and a composition-only key made each instance's spawn
+// pre-flight reap the OTHER's live gateway (observed live 2026-07-17).
+function gatewayPidRecordPath(compositionId: string, port: number): string {
+  return path.join(garrisonDir(), "gateway-pids", `${compositionId}-${port}.json`);
+}
+
+// Pre-port-keyed record location; still read (and reaped, port-matched) so a
+// gateway recorded by an older server generation is not orphaned.
+function legacyGatewayPidRecordPath(compositionId: string): string {
   return path.join(garrisonDir(), "gateway-pids", `${compositionId}.json`);
 }
 
@@ -1469,28 +1482,32 @@ async function writeGatewayPidRecord(
   compositionId: string,
   record: GatewayPidRecord
 ): Promise<void> {
-  const file = gatewayPidRecordPath(compositionId);
+  const file = gatewayPidRecordPath(compositionId, record.port);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, JSON.stringify(record), "utf8");
 }
 
-function clearGatewayPidRecord(compositionId: string): Promise<void> {
-  return fs.unlink(gatewayPidRecordPath(compositionId)).catch(() => undefined);
+function clearGatewayPidRecord(compositionId: string, port: number): Promise<void> {
+  return fs.unlink(gatewayPidRecordPath(compositionId, port)).catch(() => undefined);
 }
 
 // Exit-handler variant: only clear the record if it still names THIS child.
 // An old child's late exit event must never delete the record a successor
 // gateway just wrote.
-async function clearGatewayPidRecordForPid(compositionId: string, pid: number): Promise<void> {
+async function clearGatewayPidRecordForPid(
+  compositionId: string,
+  port: number,
+  pid: number
+): Promise<void> {
   try {
     const record = JSON.parse(
-      await fs.readFile(gatewayPidRecordPath(compositionId), "utf8")
+      await fs.readFile(gatewayPidRecordPath(compositionId, port), "utf8")
     ) as GatewayPidRecord;
     if (record.pid !== pid) return;
   } catch {
     return;
   }
-  await clearGatewayPidRecord(compositionId);
+  await clearGatewayPidRecord(compositionId, port);
 }
 
 function pidAlive(pid: number): boolean {
@@ -1504,39 +1521,47 @@ function pidAlive(pid: number): boolean {
 
 // Kill the gateway a previous server process left behind. Only recorded pids
 // are ever signalled; a record from before the machine's last boot can only
-// name a recycled pid, so it is cleared without signalling.
+// name a recycled pid, so it is cleared without signalling. Scoped to ONE
+// port: a record for a different port belongs to another Garrison instance
+// sharing this ~/.garrison and is never touched.
 // Exported for the gateway-reap vitest gate (sandbox GARRISON_HOME); the app
 // itself only reaches this through down()/spawnGateway.
-export async function reapRecordedGateway(compositionId: string): Promise<void> {
-  let record: GatewayPidRecord;
-  try {
-    record = JSON.parse(await fs.readFile(gatewayPidRecordPath(compositionId), "utf8"));
-  } catch {
-    return;
-  }
+export async function reapRecordedGateway(compositionId: string, port: number): Promise<void> {
+  const candidates = [gatewayPidRecordPath(compositionId, port), legacyGatewayPidRecordPath(compositionId)];
   const bootTime = Date.now() - os.uptime() * 1000;
-  if (record.pid && Date.parse(record.startedAt) > bootTime && pidAlive(record.pid)) {
-    appendLog(
-      compositionId,
-      "runner",
-      `Reaping stale gateway pid ${record.pid} on ${record.host}:${record.port} (left by a previous server process)`
-    );
+  for (const file of candidates) {
+    let record: GatewayPidRecord;
     try {
-      process.kill(record.pid, "SIGTERM");
+      record = JSON.parse(await fs.readFile(file, "utf8"));
     } catch {
-      /* raced its exit */
+      continue;
     }
-    const deadline = Date.now() + 2000;
-    while (pidAlive(record.pid) && Date.now() < deadline) await delay(100);
-    if (pidAlive(record.pid)) {
+    // A legacy (composition-only) record naming a different port is another
+    // instance's live gateway - leave both the process and the file alone.
+    if (record.port !== port) continue;
+    if (record.pid && Date.parse(record.startedAt) > bootTime && pidAlive(record.pid)) {
+      appendLog(
+        compositionId,
+        "runner",
+        `Reaping stale gateway pid ${record.pid} on ${record.host}:${record.port} (left by a previous server process)`
+      );
       try {
-        process.kill(record.pid, "SIGKILL");
+        process.kill(record.pid, "SIGTERM");
       } catch {
         /* raced its exit */
       }
+      const deadline = Date.now() + 2000;
+      while (pidAlive(record.pid) && Date.now() < deadline) await delay(100);
+      if (pidAlive(record.pid)) {
+        try {
+          process.kill(record.pid, "SIGKILL");
+        } catch {
+          /* raced its exit */
+        }
+      }
     }
+    await fs.unlink(file).catch(() => undefined);
   }
-  await clearGatewayPidRecord(compositionId);
 }
 
 // Bind-probe: the truthful "is this port free" check - it attempts exactly
@@ -1561,7 +1586,7 @@ async function spawnGateway(
   // from whatever already holds the port while our own child dies of
   // EADDRINUSE - and the up() proceeds against a gateway running a previous
   // composition config.
-  await reapRecordedGateway(compositionId);
+  await reapRecordedGateway(compositionId, gateway.port);
   if (await portOccupied(gateway.host, gateway.port)) {
     throw new Error(
       `${gateway.baseUrl} is already in use by a process Garrison did not record; ` +
@@ -1616,7 +1641,7 @@ async function spawnGateway(
   child.on("exit", (code, signal) => {
     const record = getRecord(compositionId);
     record.process = undefined;
-    if (child.pid) void clearGatewayPidRecordForPid(compositionId, child.pid);
+    if (child.pid) void clearGatewayPidRecordForPid(compositionId, gateway.port, child.pid);
     appendLog(
       compositionId,
       "runner",
