@@ -340,6 +340,21 @@
     }
   },
   {
+    "id": "drill",
+    "name": "Drill",
+    "repo": "local:fittings/seed/drill",
+    "localPath": "fittings/seed/drill",
+    "summary": "Visual, agent-driven QA. Author a Drill Book (pages, areas, steps, states) against the target app, run it live via the automations engine (vision-first, deterministic once graduated), and graduate passing vision steps into committed Playwright specs. Findings triage into batch fix cards on the normal code pipeline; a blind adversarial pass and a viewport matrix catch regressions and mobile-only bugs the graduated specs alone would miss. Provides duty:drill; consumes automation-runner.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-drill",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "vault-git-sync",
     "name": "Vault Git Sync",
     "repo": "local:fittings/seed/vault-git-sync",

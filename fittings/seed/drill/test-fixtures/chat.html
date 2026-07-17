@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drill fixture — Chat</title>
+<style>
+  body { font-family: sans-serif; margin: 0; display: flex; height: 100vh; }
+  .composer-col { flex: 1; display: flex; flex-direction: column; padding: 12px; }
+  .sources-col { width: 220px; padding: 12px; border-left: 1px solid #ddd; }
+  .cite { padding: 0 4px; border-radius: 3px; font-weight: 700; background: #dfe8f5; color: #2b4d8f; cursor: pointer; }
+  .source-row { border: 1px solid #e2e2e2; border-radius: 6px; padding: 6px; margin-bottom: 6px; }
+  textarea { width: 100%; }
+</style>
+</head>
+<body>
+  <div class="composer-col">
+    <div data-testid="answer" role="article">
+      As horas extra em dia feriado pagam-se com acrescimo de 50%
+      <span class="cite" data-testid="citation-1" data-source-index="1">[1]</span>
+      ou descanso compensatorio
+      <span class="cite" data-testid="citation-2" data-source-index="2">[2]</span>.
+    </div>
+    <textarea data-testid="chat-composer" placeholder="Ask anything..."></textarea>
+  </div>
+  <div class="sources-col" data-testid="sources-panel">
+    <div class="source-row" data-testid="source-1">1. CT art. 269</div>
+    <div class="source-row" data-testid="source-2">2. CT art. 229</div>
+  </div>
+  <script>
+    // D5 bug flag: ?bug=1 flips citation [2] to point at source 1 instead of
+    // source 2 (an index mismatch) — the one intentional, reproducible bug
+    // this fixture ships with, for the judge-helper and adversarial-pass
+    // tests. Changes BOTH the deterministic attribute (attribute-equals
+    // assertions) AND the visible source text (so a text-reading judge can
+    // also catch it — a real citation mismatch is visually detectable, not
+    // just a hidden DOM attribute).
+    const params = new URLSearchParams(location.search);
+    if (params.get("bug") === "1") {
+      document.querySelector('[data-testid="citation-2"]').setAttribute("data-source-index", "1");
+      document.querySelector('[data-testid="source-2"]').textContent = "2. CT art. 269";
+    }
+    // Self-test item 5 (healing): ?renameTestId=old:new simulates a testid
+    // rename so a graduated step's cached selector goes stale.
+    const rename = params.get("renameTestId");
+    if (rename) {
+      const [oldId, newId] = rename.split(":");
+      const el = document.querySelector(`[data-testid="${oldId}"]`);
+      if (el) el.setAttribute("data-testid", newId);
+    }
+  </script>
+</body>
+</html>

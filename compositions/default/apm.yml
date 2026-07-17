@@ -12,6 +12,7 @@ dependencies:
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/dispatcher
+    - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/garrison-call
@@ -102,6 +103,11 @@ x-garrison:
       design:
         - id: taste
           config: {}
+      building:
+        - id: drill
+          config:
+            port: 7096
+            bind_host: 127.0.0.1
       memory:
         - id: basic-memory
           config:
@@ -346,6 +352,24 @@ x-garrison:
             cell:
               target: cc-sonnet
               effort: high
+      - id: drill
+        title: Drill
+        description: >-
+          Plan-driven, page-level QA: author or update the Drill Book for
+          changed pages, gate for approval (configurable), then run the plan
+          (vision or graduated e2e) per selected viewport and report
+          findings. One duty, two internal stages (plan, then run) with a
+          gate between (R7). Replaces the Walkthrough evidence job and the
+          separate Validate phase (D8); absorbs Adversarial Test as a second,
+          blind, vision-forced run (R12).
+        gate: explicit
+        levels:
+          - description: >-
+              standard drill pass: plan/update the plan for changed pages,
+              gate for approval, then run and report findings.
+            cell:
+              target: cc-sonnet
+              effort: medium
       - id: adversarial-review
         title: Adversarial Review
         description: Independent cross-model review that tries to refute the change.
@@ -358,6 +382,9 @@ x-garrison:
             cell:
               target: sol
               effort: high
+      # PARKED (D3/D8/F8, BRIEF-DRILL-V1): not deleted, deselected below.
+      # Absorbed by drill's blind second run (R12) — a fresh-context,
+      # vision-forced, cache-bypassed pass over the same plan.
       - id: adversarial-test
         title: Adversarial Test
         description: Independent cross-model attempt to break the change.
@@ -382,6 +409,9 @@ x-garrison:
             cell:
               target: fable
               effort: high
+      # PARKED (D3/D8/F2, BRIEF-DRILL-V1): not deleted, deselected below.
+      # Its evidence job is subsumed by drill's per-step evidence capture
+      # (engine delta 7) plus automations-grown video recording (roadmap).
       - id: walkthrough
         title: Walkthrough
         description: Record a self-verified evidence walkthrough (video) of a working flow.
@@ -390,6 +420,8 @@ x-garrison:
             cell:
               target: opus
               effort: high
+      # PARKED (D8, BRIEF-DRILL-V1) — already unselected before this change;
+      # drill run verdicts + feedback ARE the validation now.
       - id: validate
         title: Validate
         description: Run the validation pipeline over the work.
@@ -430,17 +462,20 @@ x-garrison:
       - plan
       - implement
       - review
+      - drill
       - test
       - image
       - video
       - writing
       - ops
       - adversarial-review
-      - adversarial-test
       - ux-qa
-      - walkthrough
       - probe-question
       - dispatch
+      # PARKED, not deleted (D3/D8/F2/F8, BRIEF-DRILL-V1): adversarial-test
+      # and walkthrough — see their duties: entries above for why.
+      # - adversarial-test
+      # - walkthrough
     targets:
       - id: dispatch-fast
         runtime: garrison-call

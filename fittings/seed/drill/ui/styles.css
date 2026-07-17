@@ -1,0 +1,241 @@
+/* Drill — Garrison's visual, agent-driven QA fitting. Same "field manual"
+   idiom as kanban-loop/browser-default: tokens + component idioms lifted
+   verbatim from Garrison's src/app/globals.css (warm cream paper, sage-green +
+   brass accents, SHARP corners — zero border-radius, Source Serif 4 titles,
+   JetBrains Mono for metadata, Inter body). The annotated mock (drill-mock.jsx)
+   used rounded corners as a standalone-artifact placeholder; this ports its
+   structure/copy but drops that in favor of the real house shape so Drill
+   reads as native to the shell, not a pasted-in prototype. No emoji — text
+   labels + inline SVG icons only. */
+
+:root {
+  color-scheme: light;
+  --paper: #fbf8f1;
+  --paper-2: #f4ede0;
+  --paper-3: #ece2cc;
+  --ink: #18211c;
+  --ink-2: #2a342e;
+  --ink-mute: #3a423d;
+  --sage: #2f4a3a;
+  --sage-2: #3d6249;
+  --sage-soft: #eaf1e7;
+  --brass: #b4862a;
+  --brass-2: #d8a82e;
+  --rule: #d6cdba;
+  --rule-2: #c4b89f;
+  --mute: #66695f;
+  --mute-2: #7d8077;
+  --alarm: #9b362d;
+  --alarm-soft: #f7eae6;
+  --warn: #b07215;
+  --warn-soft: #f6ecd0;
+  --warn-ink: #8a5a10;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.55;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+#root { display: flex; flex-direction: column; min-height: 100%; }
+
+/* ── top bar ──
+   .topbar and .dr-tabs stick together as one unit (.dr-header) — if only
+   .topbar stuck, .dr-tabs would scroll up behind it on any page tall enough
+   to scroll (e.g. the Drill Book list with many pages), leaving the tab
+   buttons visually hidden behind the pinned topbar and unclickable. */
+.dr-header { flex: 0 0 auto; position: sticky; top: 0; z-index: 5; background: var(--paper); }
+.topbar {
+  display: flex; align-items: center; gap: 14px; padding: 11px 18px;
+  background: var(--paper); border-bottom: 1px solid var(--rule);
+}
+.topbar .brand { display: flex; align-items: baseline; gap: 8px; }
+.topbar .brand .name { font-family: var(--serif); font-weight: 600; font-size: 17px; }
+.topbar .brand .sub { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); }
+.topbar .spacer { flex: 1 1 auto; }
+.topbar .status {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--mute); border: 1px solid var(--rule); background: var(--paper-2); padding: 4px 9px;
+}
+/* Must never widen the layout viewport at phone width - the plan sheet's
+   close control hangs off the right edge if this overflows (fixed elements
+   span the LAYOUT viewport, and 390px devices can't reach past it). */
+.dr-project { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; }
+.dr-project select {
+  font-size: 12px; padding: 5px 8px; max-width: min(220px, 40vw); min-width: 0;
+  border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink); font-family: var(--sans);
+}
+@media (max-width: 640px) {
+  .dr-project .dr-lbl { display: none; }
+}
+
+/* ── project picker dialog (dev-env's modal pattern, house shape) ── */
+.dr-modal-overlay {
+  position: fixed; inset: 0; background: rgba(24, 33, 28, 0.45); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.dr-modal {
+  background: var(--paper); border: 1px solid var(--rule-2);
+  box-shadow: 0 12px 40px rgba(24, 33, 28, 0.3); padding: 18px 20px;
+  width: 440px; max-width: 100%;
+}
+.dr-modal h2 { font-family: var(--serif); font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+.dr-modal .hint { font-size: 11.5px; color: var(--mute); margin: 0 0 14px; line-height: 1.5; }
+.dr-modal label { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); margin-bottom: 12px; }
+.dr-modal select, .dr-modal input {
+  display: block; width: 100%; margin-top: 5px; font-size: 12.5px; padding: 7px 9px;
+  border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink);
+  font-family: var(--sans); box-sizing: border-box; letter-spacing: normal; text-transform: none; font-weight: 400;
+}
+.dr-modal .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+
+/* ── tabs ── */
+.dr-tabs {
+  display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--rule);
+  padding: 0 18px; background: var(--paper); -webkit-overflow-scrolling: touch;
+}
+.dr-tab {
+  padding: 10px 14px; font-size: 12.5px; font-weight: 600; color: var(--mute);
+  border: 0; background: none; border-bottom: 2px solid transparent; white-space: nowrap;
+  cursor: pointer; font-family: var(--sans);
+}
+.dr-tab.on { color: var(--ink); border-bottom-color: var(--brass); }
+.dr-tab:hover:not(.on) { color: var(--ink-2); }
+
+.dr-body { flex: 1 1 auto; padding: 18px; max-width: 1280px; width: 100%; margin: 0 auto; }
+.dr-sec { margin-bottom: 22px; }
+.dr-lbl {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--mute); margin: 0 0 8px;
+}
+
+/* ── buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px; font-family: var(--sans);
+  font-size: 12.5px; font-weight: 500; border: 1px solid var(--ink); background: transparent;
+  color: var(--ink); padding: 8px 14px; cursor: pointer; text-decoration: none;
+}
+.btn:hover:not(:disabled) { background: var(--paper-2); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.primary:hover:not(:disabled) { background: var(--ink-2); }
+.btn.small { font-size: 11.5px; padding: 6px 10px; min-height: 31px; border-color: var(--rule); color: var(--ink-2); background: white; }
+.btn.small:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn svg { width: 13px; height: 13px; flex: 0 0 auto; }
+
+/* ── chips ── */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; font-size: 11px;
+  border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink-2); white-space: nowrap;
+}
+.chip.click { cursor: pointer; }
+.chip.sage { border-color: var(--sage-2); background: var(--sage-soft); color: var(--sage); }
+.chip.brass { border-color: var(--brass); background: var(--warn-soft); color: var(--brass); }
+.chip.alarm { border-color: var(--alarm); background: var(--alarm-soft); color: var(--alarm); }
+.chip.ink.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* ── cards ── */
+.card { background: var(--paper-2); border: 1px solid var(--rule); padding: 12px 14px; }
+
+/* ── Book: page table ── */
+.dr-tablewrap { overflow-x: auto; border: 1px solid var(--rule); }
+.dr-table { width: 100%; min-width: 640px; border-collapse: collapse; }
+.dr-table th, .dr-table td { text-align: left; padding: 9px 12px; font-size: 12.5px; border-top: 1px solid var(--rule); }
+.dr-table thead th {
+  border-top: 0; background: var(--paper-3); color: var(--mute); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.dr-table tbody tr:hover { background: var(--paper-2); }
+.dr-checkbox {
+  width: 16px; height: 16px; border: 1.5px solid var(--sage-2); background: transparent;
+  cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+}
+.dr-checkbox.on { background: var(--sage); color: var(--paper); }
+
+/* ── placeholder panel (phases not yet built in this session) ── */
+.dr-placeholder {
+  border: 1px dashed var(--rule-2); padding: 24px; text-align: center; color: var(--mute); font-size: 12.5px;
+}
+
+.dr-rowwrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mono { font-family: var(--mono); }
+
+/* ── Authoring (B1-B12) ── */
+.dr-au { display: flex; flex-direction: column; gap: 16px; position: relative; }
+@media (min-width: 1000px) {
+  .dr-au { flex-direction: row; align-items: flex-start; }
+  .dr-au-canvas { flex: 1; min-width: 0; }
+  .dr-au-plan { width: 320px; flex: none; }
+}
+/* Hide the FAB / sheet-close / sheet-highlight affordances outside phone
+   width — desktop keeps the plan as a normal side column, always visible,
+   with the canvas column's own Highlight button. */
+.dr-fab, .dr-sheet-close, .dr-sheet-highlight { display: none; }
+/* Deliberately its own class, not .dr-xbtn — a step's remove button and this
+   sheet-close control must never collide under a shared ".dr-xbtn" query. */
+.dr-sheet-close { background: none; border: 0; color: var(--mute-2); cursor: pointer; padding: 2px; flex: none; }
+.dr-sheet-close:hover { color: var(--alarm); }
+
+/* E1/E2/E3: phone width — canvas full width, plan becomes a FAB-toggled
+   bottom sheet, touch targets enlarged (S17/S18). */
+@media (max-width: 760px) {
+  .dr-au-canvas { position: relative; }
+  .dr-fab {
+    display: flex; align-items: center; justify-content: center; position: fixed; bottom: 18px; right: 18px;
+    width: 52px; height: 52px; border-radius: 50%; background: var(--sage); color: var(--paper); border: 0;
+    cursor: pointer; box-shadow: 0 3px 12px rgba(24,33,28,0.35); z-index: 40;
+  }
+  .dr-au-plan {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; background: var(--paper);
+    border-top: 2px solid var(--rule-2); border-radius: 16px 16px 0 0; box-shadow: 0 -8px 28px rgba(24,33,28,0.22);
+    padding: 14px 16px 20px; max-height: 62vh; overflow-y: auto;
+    transform: translateY(0); transition: transform 0.2s ease;
+  }
+  .dr-au-plan.dr-sheet-closed { transform: translateY(110%); }
+  .dr-sheet-close { display: inline-flex; margin-left: auto; }
+  .dr-sheet-highlight { display: inline-flex; margin-bottom: 12px; }
+  /* Enlarged touch targets (S17/S18): bigger badge + bigger pick button. */
+  .dr-abadge { width: 30px; height: 30px; top: -15px; left: -15px; font-size: 13px; }
+  .dr-step, .dr-checkbox, .dr-xbtn { min-height: 34px; }
+  .dr-checkbox { width: 22px; height: 22px; }
+}
+.dr-cv { position: relative; width: 100%; border: 1px solid var(--rule-2); background: var(--ink); overflow: hidden; }
+.dr-cv-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.dr-cv-overlay { position: absolute; inset: 0; }
+.dr-abox { position: absolute; border: 2px dashed var(--brass); pointer-events: none; }
+.dr-abadge {
+  position: absolute; top: -11px; left: -11px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--brass); color: var(--paper); font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.dr-area-n {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--brass); color: var(--paper);
+  font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none;
+}
+.dr-step { display: flex; gap: 8px; padding: 8px 4px; border-bottom: 1px dashed var(--rule); align-items: flex-start; }
+.dr-step-desc {
+  width: 100%; font-size: 12px; padding: 5px 7px; border: 1px solid var(--rule); background: var(--paper);
+  color: var(--ink); font-family: var(--sans); resize: vertical;
+}
+.dr-mode {
+  padding: 2px 7px; border-radius: 0; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center;
+  gap: 4px; cursor: pointer; border: 1px solid; font-family: var(--sans); background: transparent;
+}
+.dr-mode.vision { background: var(--warn-soft); color: var(--brass); border-color: var(--brass); }
+.dr-mode.e2e { background: var(--sage-soft); color: var(--sage); border-color: var(--sage-2); }
+.dr-xbtn { background: none; border: 0; color: var(--mute-2); cursor: pointer; padding: 2px; flex: none; }
+.dr-xbtn:hover { color: var(--alarm); }
+
+/* ── Results (D1-D10) ── */
+.dr-res { padding: 10px 12px; background: var(--paper-2); margin-bottom: 10px; border: 1px solid var(--rule); }
+.dr-feedback { flex: 1; min-width: 180px; font-size: 11px; padding: 6px 9px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font-family: var(--sans); }

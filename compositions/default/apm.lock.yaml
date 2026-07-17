@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-14T22:31:28.223477+00:00'
+generated_at: '2026-07-16T06:31:51.690689+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -66,6 +66,17 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dispatcher
+- repo_url: _local/drill
+  name: drill
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-drill
+  - .claude/skills/garrison-drill/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-drill/SKILL.md: sha256:ccfbdabbf4b099ed2d9b4f0cd70745218fced48f5030bd53e57471101dd1e2a9
+  source: local
+  local_path: ../../fittings/seed/drill
 - repo_url: _local/file-browser
   name: file-browser
   version: 0.1.0
@@ -78,6 +89,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/garrison-assistant
+- repo_url: _local/garrison-call
+  name: garrison-call
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/garrison-call
 - repo_url: _local/gemini-runtime
   name: gemini-runtime
   version: 0.1.0

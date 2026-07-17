@@ -1,0 +1,110 @@
+name: drill
+version: 0.1.0
+description: >-
+  Drill — Garrison's visual, agent-driven QA fitting. Author a plan against a
+  live screencast of the target app, run it through the automations engine
+  (vision or graduated e2e), and triage the resulting findings into a batch
+  fix.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: building
+  own_port: true
+  default_port: 7096
+  component_shape: plugin
+  cardinality_hint: single
+  platforms:
+    - claude-code
+  summary: >-
+    Drill Book (drills/drillbook.yml + drills/pages/*.yml in the target app
+    repo) authors a page-level test plan against a live screencast of the app
+    under test, compiles enabled steps to ephemeral inline automations engine
+    runs (vision or graduated e2e), and surfaces run results, findings, and
+    page states. Provides the `drill` duty (plan, gate, run) so it slots into
+    the Garrison roster after review.
+  config_schema:
+    # Key is `target_repo` (not `drill_target_repo`) deliberately: the runner
+    # projects config as GARRISON_<ID>_<KEY>, so this lands as the
+    # GARRISON_DRILL_TARGET_REPO env the server actually reads.
+    - key: target_repo
+      type: path
+      default: .
+      description: >-
+        The DEFAULT app-under-test repo root - drills/drillbook.yml and
+        drills/pages/*.yml live here (R6), diffable and PR reviewable.
+        Projected as GARRISON_DRILL_TARGET_REPO. The UI's project picker
+        selection persists in ~/.garrison/drill/active-project.json and
+        wins over this default.
+  provides:
+    - kind: duty
+      name: drill
+  consumes:
+    - kind: automation-runner
+      name: automations
+      cardinality: one
+    - kind: view
+      cardinality: any
+  duties:
+    - id: drill
+      title: Drill
+      description: >-
+        Plan-driven, page-level QA: author a plan against the live app, run it
+        (vision or graduated e2e) per selected viewport, and triage the
+        resulting findings into a batch fix. One duty, two internal stages —
+        plan, then a configurable gate, then run.
+      levels:
+        - description: >-
+            Standard drill pass — plan/update the plan for changed pages, gate
+            for approval (configurable), then run and report findings.
+          cell:
+            skill: garrison-drill
+            target: cc-sonnet
+            effort: medium
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 180000
+  verify:
+    # Verify hooks run with cwd = the COMPOSITION dir (unlike setup, which
+    # runs in the fitting dir) - the path must carry the install prefix, same
+    # as every other seed fitting's verify command.
+    command: node apm_modules/_local/drill/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Drill authors a page-level QA plan (the Drill Book) against a live
+    screencast of the app under test, and runs it through the automations
+    engine's inline ephemeral runs (engine delta 1), tagged `contextTag: drill`
+    (or `drill-adversarial` for the blind second pass, R12) so those runs are
+    identifiable without any drill-specific naming inside the automations
+    engine itself. A vision step graduates to a committed Playwright spec
+    under tests/drills/<page>.spec.ts on first pass (B8); judgment assertions
+    emit as a drillJudge() Router helper so they graduate too (Q3). Findings
+    (failures, flipped verdicts, accepted UX findings, observations) pool into
+    a run report; confirmed findings dispatch as one batch fix card via the
+    kanban-loop fitting (R10). Drill Book plans live in the target app repo
+    (drills/drillbook.yml + drills/pages/*.yml); run records, snapshots, and
+    per-step evidence stay machine-local as plain files with links, browsed in
+    the File Browser (R13 — no artifact store).
+
+    Direct runs need no Kanban card: GET /api/projects lists the dev-root
+    repos (same discovery contract as the dev-env/Kanban pickers) and POST
+    /api/projects/select retargets the Book/pages/runs live - the selection
+    persists and wins over the GARRISON_DRILL_TARGET_REPO boot pin. When the
+    app under test is down, POST /api/app/start boots it through the
+    project's own run-<project> skill (a headless Claude Code session in the
+    project root; poll GET /api/app/status until reachable). Run records are
+    stamped with their project root; GET /api/runs scopes to the selected
+    project (?all=1 lifts the scope).
+
+    Planning is agent-driven on the direct path too: an empty Book never asks
+    the user to author pages - Run kicks POST /api/plan/start, a headless
+    agent session in the project root that authors drills/drillbook.yml +
+    drills/pages/*.yml on its own judgment (pages, steps, states - the duty's
+    stage 1, card-free), then the run continues over what it authored. An
+    optional {brief} scopes the plan to a described change (new feature ->
+    updated pages/steps). Poll GET /api/plan/status until the job is done or
+    failed; a DRILL_PLAN_OK sentinel is verified against the page files on
+    disk before the job reports done. The Authoring UI is the manual override
+    surface, never the required entry path.

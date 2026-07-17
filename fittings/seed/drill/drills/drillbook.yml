@@ -1,0 +1,10 @@
+app:
+  name: ''
+  url: ''
+fullDrill: true
+autonomy: gated
+viewports:
+  - desktop
+globalRules: ''
+dispatch: manual
+pages: []
