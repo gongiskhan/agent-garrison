@@ -52,7 +52,7 @@ async function readServeStatusJson(): Promise<string | null> {
   return null;
 }
 
-// Map of local loopback port -> its HTTPS tailnet URL (e.g. 7086 ->
+// Map of local loopback port -> its HTTPS tailnet URL (e.g. 27086 ->
 // "https://host.ts.net:8486"). Empty when Tailscale isn't installed/serving.
 export async function getTailnetServeMap(): Promise<Map<number, string>> {
   const now = Date.now();

@@ -22,10 +22,10 @@ type Row = {
 // no `users:(())` process column at all.
 const SS_OUTPUT = [
   "LISTEN 0      4096                 127.0.0.53%lo:53    0.0.0.0:*",
-  'LISTEN 0      511                        0.0.0.0:3702  0.0.0.0:* users:(("node",pid=183476,fd=18))',
+  'LISTEN 0      511                        0.0.0.0:23702  0.0.0.0:* users:(("node",pid=183476,fd=18))',
   "LISTEN 0      4096                       0.0.0.0:22    0.0.0.0:*",
   'LISTEN 0      511                        0.0.0.0:5983  0.0.0.0:* users:(("next-server (v1",pid=615645,fd=19))',
-  'LISTEN 0      511                      127.0.0.1:7088  0.0.0.0:* users:(("node",pid=277350,fd=18))',
+  'LISTEN 0      511                      127.0.0.1:27093  0.0.0.0:* users:(("node",pid=277350,fd=18))',
   'LISTEN 0      128                              *:21118       *:* users:(("rustdesk",pid=828238,fd=35))',
   "LISTEN 0      4096                         [::1]:631      [::]:*",
   "LISTEN 0      4096                          [::]:22       [::]:*",
@@ -34,8 +34,8 @@ const SS_OUTPUT = [
 
 describe("splitAddressPort", () => {
   it("splits IPv4 host:port", () => {
-    expect(splitAddressPort("127.0.0.1:7088")).toEqual({ address: "127.0.0.1", port: 7088 });
-    expect(splitAddressPort("0.0.0.0:3702")).toEqual({ address: "0.0.0.0", port: 3702 });
+    expect(splitAddressPort("127.0.0.1:27088")).toEqual({ address: "127.0.0.1", port: 27088 });
+    expect(splitAddressPort("0.0.0.0:23702")).toEqual({ address: "0.0.0.0", port: 23702 });
   });
   it("keeps an interface scope in the address", () => {
     expect(splitAddressPort("127.0.0.53%lo:53")).toEqual({ address: "127.0.0.53%lo", port: 53 });
@@ -115,7 +115,7 @@ describe("parseSs", () => {
 
   it("parses every listening row", () => {
     expect(rows.map((r: Row) => r.port).sort((a: number, b: number) => a - b)).toEqual([
-      22, 22, 53, 443, 631, 3702, 5983, 7088, 21118
+      22, 22, 53, 443, 631, 5983, 21118, 23702, 27093
     ]);
   });
 
@@ -128,7 +128,7 @@ describe("parseSs", () => {
   });
 
   it("classifies the IPv4 wildcard row with a process", () => {
-    const row = rows.find((r: Row) => r.port === 3702);
+    const row = rows.find((r: Row) => r.port === 23702);
     expect(row.address).toBe("0.0.0.0");
     expect(row.wildcard).toBe(true);
     expect(row.loopback).toBe(false);
@@ -178,31 +178,31 @@ describe("severity", () => {
 describe("buildStatusIndex", () => {
   it("maps ports to fittingIds", () => {
     const idx = buildStatusIndex([
-      { fittingId: "improver", port: 7088 },
-      { fittingId: "monitor-default", port: 7077 },
+      { fittingId: "improver", port: 27093 },
+      { fittingId: "monitor-default", port: 27077 },
       { nope: true }, // ignored
       null // ignored
     ]);
-    expect(idx.get(7088)).toBe("improver");
-    expect(idx.get(7077)).toBe("monitor-default");
+    expect(idx.get(27093)).toBe("improver");
+    expect(idx.get(27077)).toBe("monitor-default");
     expect(idx.size).toBe(2);
   });
 });
 
 describe("resolveLabel — resolution order", () => {
   const statusIndex = buildStatusIndex([
-    { fittingId: "improver", port: 7088 }
+    { fittingId: "improver", port: 27093 }
   ]);
   const indexes = { statusIndex };
 
   it("status file beats cmdline", () => {
-    const label = resolveLabel({ port: 7088, command: "node", pid: 99 }, indexes);
+    const label = resolveLabel({ port: 27093, command: "node", pid: 99 }, indexes);
     expect(label.source).toBe("fitting");
     expect(label.label).toBe("improver");
   });
 
   it("falls back to the owning command + pid", () => {
-    const label = resolveLabel({ port: 3702, command: "node", pid: 183476 }, indexes);
+    const label = resolveLabel({ port: 23702, command: "node", pid: 183476 }, indexes);
     expect(label.source).toBe("process");
     expect(label.label).toBe("node");
     expect(label.detail).toBe("pid 183476");
@@ -218,16 +218,16 @@ describe("resolveLabel — resolution order", () => {
 describe("buildPortRows", () => {
   it("labels a full scan and sorts by port", () => {
     const parsed = parseSs(SS_OUTPUT);
-    const statusIndex = buildStatusIndex([{ fittingId: "improver", port: 7088 }]);
+    const statusIndex = buildStatusIndex([{ fittingId: "improver", port: 27093 }]);
     const rows = buildPortRows(parsed, { statusIndex });
     // sorted ascending by port
     const ports = rows.map((r: { port: number }) => r.port);
     expect(ports).toEqual([...ports].sort((a, b) => a - b));
-    const improver = rows.find((r: { port: number }) => r.port === 7088);
+    const improver = rows.find((r: { port: number }) => r.port === 27093);
     expect(improver.labelSource).toBe("fitting");
     expect(improver.label).toBe("improver");
     expect(improver.severity).toBe("local");
-    const exposed = rows.find((r: { port: number }) => r.port === 3702);
+    const exposed = rows.find((r: { port: number }) => r.port === 23702);
     expect(exposed.severity).toBe("exposed");
     expect(exposed.labelSource).toBe("process");
   });
@@ -291,7 +291,7 @@ describe("killGuard", () => {
 describe("parseLsof (macOS)", () => {
   const LSOF = [
     "COMMAND   PID   USER   FD   TYPE  DEVICE SIZE/OFF NODE NAME",
-    "node     1234 ggomes  18u  IPv4  0x1      0t0     TCP  127.0.0.1:7088 (LISTEN)",
+    "node     1234 ggomes  18u  IPv4  0x1      0t0     TCP  127.0.0.1:27088 (LISTEN)",
     "node     1234 ggomes  19u  IPv6  0x2      0t0     TCP  [::1]:631 (LISTEN)",
     "sshd      777 root     3u   IPv4  0x3      0t0     TCP  *:22 (LISTEN)",
     "Chrome    900 ggomes  40u  IPv4  0x4      0t0     TCP  127.0.0.1:5000->127.0.0.1:6000 (ESTABLISHED)"
@@ -299,8 +299,8 @@ describe("parseLsof (macOS)", () => {
 
   it("parses listening rows and skips the header + non-listening rows", () => {
     const rows = parseLsof(LSOF);
-    expect(rows.map((r: { port: number }) => r.port).sort((a: number, b: number) => a - b)).toEqual([22, 631, 7088]);
-    const loopback = rows.find((r: { port: number }) => r.port === 7088);
+    expect(rows.map((r: { port: number }) => r.port).sort((a: number, b: number) => a - b)).toEqual([22, 631, 27088]);
+    const loopback = rows.find((r: { port: number }) => r.port === 27088);
     expect(loopback.command).toBe("node");
     expect(loopback.pid).toBe(1234);
     expect(loopback.loopback).toBe(true);
@@ -332,18 +332,18 @@ function fakeReqRes(headers: Record<string, string>) {
 
 describe("crossSiteBlocked (S11 CSRF / DNS-rebinding guard)", () => {
   it("allows a same-origin loopback request (Host + Origin loopback)", () => {
-    const { req, res, out } = fakeReqRes({ host: "127.0.0.1:7088", origin: "http://127.0.0.1:7088" });
+    const { req, res, out } = fakeReqRes({ host: "127.0.0.1:27088", origin: "http://127.0.0.1:27088" });
     expect(crossSiteBlocked(req, res, {})).toBe(false);
     expect(out.ended).toBe(false);
   });
 
   it("allows a request with no Origin header (curl / same-origin GET-turned-POST)", () => {
-    const { req, res } = fakeReqRes({ host: "localhost:7088" });
+    const { req, res } = fakeReqRes({ host: "localhost:27088" });
     expect(crossSiteBlocked(req, res, {})).toBe(false);
   });
 
   it("blocks a cross-site Origin (CSRF)", () => {
-    const { req, res, out } = fakeReqRes({ host: "127.0.0.1:7088", origin: "http://evil.example.com" });
+    const { req, res, out } = fakeReqRes({ host: "127.0.0.1:27088", origin: "http://evil.example.com" });
     expect(crossSiteBlocked(req, res, {})).toBe(true);
     expect(out.statusCode).toBe(403);
     expect(String(out.body && (out.body as { reason?: string }).reason)).toMatch(/CSRF/);
@@ -357,6 +357,6 @@ describe("crossSiteBlocked (S11 CSRF / DNS-rebinding guard)", () => {
   });
 
   it("allows IPv6 loopback and the bound 0.0.0.0 form", () => {
-    expect(crossSiteBlocked(fakeReqRes({ host: "[::1]:7088" }).req, fakeReqRes({}).res, {})).toBe(false);
+    expect(crossSiteBlocked(fakeReqRes({ host: "[::1]:27088" }).req, fakeReqRes({}).res, {})).toBe(false);
   });
 });

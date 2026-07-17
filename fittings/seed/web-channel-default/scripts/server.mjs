@@ -38,7 +38,7 @@ const CHANNEL_ID = "web";
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.WEB_CHANNEL_PORT || 7083),
+    port: Number(process.env.WEB_CHANNEL_PORT || 27083),
     host: process.env.WEB_CHANNEL_HOST || "127.0.0.1",
     gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
     tlsCert: process.env.WEB_CHANNEL_TLS_CERT || "",
@@ -54,7 +54,7 @@ function parseArgs(argv) {
   }
   if (!out.gatewayUrl) {
     const h = process.env.GARRISON_GATEWAY_HOST || "127.0.0.1";
-    const p = process.env.GARRISON_GATEWAY_PORT || "4777";
+    const p = process.env.GARRISON_GATEWAY_PORT || "24777";
     out.gatewayUrl = `http://${h}:${p}`;
   }
   return out;

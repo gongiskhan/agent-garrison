@@ -19,7 +19,7 @@
     {
       "type": "browser",
       "id": "flow",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/compose?tour=compose-demo&mode=demo",
       "beats": [
         {

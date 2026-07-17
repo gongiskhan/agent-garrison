@@ -30,7 +30,7 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { parseInferredProject, buildInferencePrompt, inferProject } from "../fittings/seed/kanban-loop/lib/infer-project.mjs";
+import { parseInferredProject, buildInferencePrompt, inferProject, explicitWorkspaceFromCard } from "../fittings/seed/kanban-loop/lib/infer-project.mjs";
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-vis-"));
@@ -46,6 +46,18 @@ describe("V1d buildCardPrompt — the operative is TOLD what the card is", () =>
     expect(p).toContain("site word change");
     expect(p).toContain("Automatizar");
     expect(p).toContain("ekoa");
+  });
+  it("explains the safe touch-set form for an external workspace", () => {
+    const p = buildCardPrompt({
+      list: planList,
+      card: { id: "C", runId: "R", runDir: "/tmp/run", title: "external", project: "garrison" },
+      validNext: ["implement"],
+      phase: "plan",
+      coordinationEnabled: true
+    });
+    expect(p).toContain("filesystem:/absolute/workspace");
+    expect(p).toContain("Never put absolute paths");
+    expect(p).toContain("rewrite the existing touch-set.json");
   });
 
   it("a no-project card asks the operative to INFER the project", () => {
@@ -199,6 +211,14 @@ describe("V1d withEvent / replySnippet", () => {
 });
 
 describe("V1d project inference — parse + injected runFn", () => {
+  it("takes an explicitly named absolute workspace directly from the task", () => {
+    expect(explicitWorkspaceFromCard({
+      title: "Build a cache",
+      description: "Implement the package in /tmp/cache-proof. Run its tests."
+    })).toBe("/tmp/cache-proof");
+    expect(explicitWorkspaceFromCard({ title: "Document https://example.test/tmp/cache" })).toBeNull();
+    expect(explicitWorkspaceFromCard({ description: "Mention /tmp/cache as an incidental example" })).toBeNull();
+  });
   it("parseInferredProject accepts a clean slug, rejects NONE / uncertainty / junk", () => {
     expect(parseInferredProject("ekoa")).toBe("ekoa");
     expect(parseInferredProject("blah\nproject: my-repo")).toBe("my-repo");

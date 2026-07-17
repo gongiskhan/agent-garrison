@@ -47,11 +47,11 @@ Build a per-run directory of **symlinks** to the real files (symlinks reference 
 mkdir -p ~/.garrison/report/<runId>
 # The evidence home is served DIRECTLY at /runs/ (D20) — no per-run symlink
 # needed for run artifacts; the canonical link is
-#   http://<tailnet>:8091/runs/<project>/<runId>/
+#   http://<tailnet>:28091/runs/<project>/<runId>/
 # (symlinks under ~/.garrison/report remain supported for extra artifacts)
 TRANSCRIPT="$(find ~/.claude/projects -name "$CLAUDE_CODE_SESSION_ID.jsonl" 2>/dev/null | head -1)"
 [ -n "$TRANSCRIPT" ] && ln -sfn "$TRANSCRIPT" ~/.garrison/report/<runId>/session-transcript.jsonl
-node ~/.claude/skills/garrison-report/scripts/serve.mjs   # prints the Tailscale base URL, e.g. http://100.x.y.z:8091/
+node ~/.claude/skills/garrison-report/scripts/serve.mjs   # prints the Tailscale base URL, e.g. http://100.x.y.z:28091/
 ```
 `serve.mjs` is **idempotent + standing** (self-daemonizes, reuses an already-running instance, survives the session so the links stay live). The per-run logs URL is `<base>/<runId>/`.
 - **Default to the curated `run/` artifacts** (plan + gate-status + evidence-index + friction-log — no raw secrets). Symlinking the **raw session transcript** is optional: it is the full session log but **may contain secrets** — only include it if that is acceptable on your tailnet, or redact (`sk-*` / `ghp_*` / `xoxb-*`) first.

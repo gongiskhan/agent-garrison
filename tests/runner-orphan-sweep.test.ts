@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Regression gate for the deselected-fitting orphan (the Jul 9 model-router
-// squatting port 7087): the startup sweep used to enumerate ONLY the current
+// squatting port 27087): the startup sweep used to enumerate ONLY the current
 // compositions' selections, so a fitting Garrison had spawned but later
 // deselected (or whose status slot was clobbered) was unreapable forever. The
 // sweep now also enumerates ~/.garrison/ui-fittings/spawn/*.json - Garrison's

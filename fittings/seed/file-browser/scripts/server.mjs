@@ -13,7 +13,7 @@ import { readFile, writeFile, readdir, stat, lstat, mkdir, realpath, rename, ope
 import { constants as FS } from "node:fs";
 
 const FITTING_ID = "file-browser";
-const DEFAULT_PORT = 7091;
+const DEFAULT_PORT = 27091;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);

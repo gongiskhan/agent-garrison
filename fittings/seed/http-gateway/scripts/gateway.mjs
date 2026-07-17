@@ -15,12 +15,12 @@
  * Environment (orchestrator mode):
  *   GARRISON_SOULS_CONFIG          JSON blob with orchestratorFittingId, orchestrator, souls
  *   GARRISON_ORCHESTRATOR_FITTING_ID
- *   GARRISON_MCP_GATEWAY_BASE_URL  e.g. http://127.0.0.1:9876
+ *   GARRISON_MCP_GATEWAY_BASE_URL  e.g. http://127.0.0.1:29876
  *   GARRISON_MCP_GATEWAY_TOKEN     bearer
- *   GARRISON_NEXT_BASE_URL         http://127.0.0.1:3000
+ *   GARRISON_NEXT_BASE_URL         http://127.0.0.1:27777
  *   GARRISON_COMPOSITION_DIR       composition working directory
  *   GARRISON_GATEWAY_HOST          (default 127.0.0.1)
- *   GARRISON_GATEWAY_PORT          (default 4777)
+ *   GARRISON_GATEWAY_PORT          (default 24777)
  *
  * Single-operative mode respects:
  *   GARRISON_SYSTEM_PROMPT_PATH, GARRISON_MODEL, GARRISON_PERMISSION_MODE
@@ -52,7 +52,7 @@ import { CardRegistrar, isTaskShaped, isCardOriginatedChannel, heuristicClassify
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
-const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
+const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "24777");
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 const MCP_GATEWAY_BASE_URL = process.env.GARRISON_MCP_GATEWAY_BASE_URL ?? "";
 const MCP_GATEWAY_TOKEN = process.env.GARRISON_MCP_GATEWAY_TOKEN ?? "";

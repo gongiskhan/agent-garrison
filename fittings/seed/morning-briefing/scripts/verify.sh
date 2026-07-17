@@ -25,7 +25,7 @@ fi
 
 # 3. Gateway /health reachable.
 HOST="${GARRISON_GATEWAY_HOST:-127.0.0.1}"
-PORT="${GARRISON_GATEWAY_PORT:-4777}"
+PORT="${GARRISON_GATEWAY_PORT:-24777}"
 HEALTH_URL="http://${HOST}:${PORT}/health"
 if ! curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
   log_err "gateway /health unreachable at $HEALTH_URL"

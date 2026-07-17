@@ -39,7 +39,7 @@ GARRISON_COMPOSITION_DIR=/path/to/composition \
 
 # HTTP mode (port + token required)
 GARRISON_COMPOSITION_DIR=/path/to/composition \
-  node scripts/gateway.mjs http --port 9876 --token <hex> --host 0.0.0.0
+  node scripts/gateway.mjs http --port 29876 --token <hex> --host 0.0.0.0
 ```
 
 ## Policy

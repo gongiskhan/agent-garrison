@@ -114,6 +114,29 @@ describe("plan-completion coordination — the later run waits on the earlier", 
     expect(typeof disk.planCompletedAt).toBe("string");
   });
 
+  it("an out-of-repo filesystem surface is valid coordination evidence", async () => {
+    const root = tmp();
+    const c = await createCard(root, { title: "external", project: "proj", list: "plan" });
+    const runDir = join(root, "runs", "external");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "touch-set.json"), JSON.stringify({
+      version: 1,
+      files: [],
+      dirs: [],
+      exclusive: [],
+      surfaces: ["filesystem:/tmp/external-package"]
+    }));
+    const card = await saveCard(root, { ...c, runId: "01EEEEEEEEEEEEEEEEEEEEEEEE", runDir });
+    const { outcome } = await processCard({
+      root,
+      board,
+      card,
+      runFn: async () => ({ reply: "implement" }),
+      now: () => "2026-07-10T12:00:00.000Z"
+    });
+    expect(outcome).toMatchObject({ status: "moved", to: "implement" });
+  });
+
   it("PARKS when coordination is enabled but the plan wrote no touch-set", async () => {
     const root = tmp();
     // a card on Plan with a runDir but NO touch-set.json written
@@ -121,12 +144,35 @@ describe("plan-completion coordination — the later run waits on the earlier", 
     const runDir = join(root, "runs", "noTS");
     mkdirSync(runDir, { recursive: true });
     c = await saveCard(root, { ...c, runId: "01CCCCCCCCCCCCCCCCCCCCCCCC", runDir });
-    const runFn = async () => ({ reply: "implement" });
+    const runFn = async () => ({
+      reply: "implement",
+      route: {
+        targetId: "sdk-sonnet-full",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        effort: "medium",
+        effortApplied: true
+      }
+    });
     const { outcome } = await processCard({ root, board, card: c, runFn, cap: 10, now: () => "2026-07-10T12:00:00.000Z" });
     expect(outcome.status).toBe("needs-attention");
     expect(outcome.reason).toBe("no-touch-set");
     const disk = await loadCard(root, c.id);
     expect(disk.list).toBe("needs-attention");
+    expect(disk.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "runtime",
+        route: expect.objectContaining({
+          targetId: "sdk-sonnet-full",
+          runtime: "agent-sdk",
+          model: "claude-sonnet-4-6",
+          effort: "medium",
+          effortApplied: true,
+          phase: "plan"
+        })
+      })
+    ]));
   });
 });
 

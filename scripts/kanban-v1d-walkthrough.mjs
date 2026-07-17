@@ -4,7 +4,7 @@
 // auto-passes a finding: the brief is explicit that each FINDING must be
 // vision-verified by an operative READING the screenshot. This script:
 //
-//   1. Preflight: pings 127.0.0.1:7777 + the gateway /health endpoint.
+//   1. Preflight: pings 127.0.0.1:27777 + the gateway /health endpoint.
 //   2. Runs the playwright spec with KANBAN_V1D_RUN_DIR=<runDir>.
 //   3. Reads <runDir>/FINDINGS.md, counts OK vs TODO.
 //   4. Exits NON-ZERO unless every finding is OK (the operative flips TODO→OK
@@ -31,8 +31,8 @@ function usage(code = 1) {
       "              touch the live composition.",
       "",
       "env:",
-      "  GARRISON_BASE_URL      default http://127.0.0.1:7777",
-      "  GARRISON_GATEWAY_URL   default http://127.0.0.1:4777",
+      "  GARRISON_BASE_URL      default http://127.0.0.1:27777",
+      "  GARRISON_GATEWAY_URL   default http://127.0.0.1:24777",
       "  KANBAN_V1D_TURN_BUDGET_MS  per-Plan-turn budget (default 25 min)",
       ""
     ].join("\n")
@@ -46,8 +46,8 @@ const dryRun = args.includes("--dry-run");
 const runId = args.find((a) => !a.startsWith("--"));
 if (!runId) usage(1);
 
-const baseUrl = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
-const gatewayUrl = process.env.GARRISON_GATEWAY_URL || "http://127.0.0.1:4777";
+const baseUrl = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
+const gatewayUrl = process.env.GARRISON_GATEWAY_URL || "http://127.0.0.1:24777";
 const runDir = `docs/autothing/runs/${runId}`;
 const visionDir = path.resolve(REPO_ROOT, runDir, "vision");
 const findingsPath = path.resolve(REPO_ROOT, runDir, "FINDINGS.md");

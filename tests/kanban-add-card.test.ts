@@ -119,6 +119,20 @@ describe("POST /cards — the Backlog quick-add contract", () => {
     expect(create.body.card.list).toBe("backlog");
   });
 
+  it("synchronously scopes an auto-project card to its explicit absolute workspace", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Build an isolated cache",
+      description: "Implement the package in /tmp/kanban-explicit-workspace-proof. Run its tests."
+    });
+    expect(create.status).toBe(201);
+    expect(create.body.card.project).toBe("/tmp/kanban-explicit-workspace-proof");
+    expect(create.body.card.inferState).toBe("done");
+    const detail = await jget(`/cards/${create.body.card.id}`);
+    expect(detail.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "inference", message: expect.stringContaining("Detected explicit workspace") })
+    ]));
+  });
+
   it("infers the title from the description when title is blank (the sheet path)", async () => {
     const create = await jsend("POST", "/cards", {
       title: "   ",

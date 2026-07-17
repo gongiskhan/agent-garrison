@@ -254,7 +254,10 @@ export async function listCompositions(): Promise<Composition[]> {
   const entries = await fs.readdir(COMPOSITIONS_DIR, { withFileTypes: true });
   const compositions = await Promise.all(
     entries
-      .filter((entry) => entry.isDirectory())
+      // Hidden siblings are private staging directories (for example an
+      // in-progress composition clone). Never try to materialise them as real
+      // compositions while another request is still preparing their manifest.
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
       .map((entry) => readComposition(entry.name))
   );
   return compositions.sort((left, right) => left.name.localeCompare(right.name));

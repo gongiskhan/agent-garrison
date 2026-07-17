@@ -7,10 +7,10 @@
 // server and just print the URL. Read-only (GET), with a directory index.
 //
 // Usage:  node serve.mjs [--root <dir>] [--port <n>] [--runs-root <dir>]
-//   default root = ~/.garrison/report   default port = 8091
+//   default root = ~/.garrison/report   default port = 28091
 //   /runs/... additionally serves the evidence home (GARRISON-UNIFY-V1 S6/D20):
 //   default runs-root = ~/.garrison/runs — cards and the final report link
-//   http://<tailnet>:8091/runs/<project>/<runId>/...
+//   http://<tailnet>:28091/runs/<project>/<runId>/...
 // Status file: ~/.garrison/report-serve.json  ({pid, port, root, runsRoot, url, startedAt})
 import http from 'node:http';
 import fs from 'node:fs';
@@ -23,7 +23,7 @@ const argVal = (f) => { const i = process.argv.indexOf(f); return i >= 0 ? proce
 const ROOT = path.resolve(argVal('--root') || path.join(HOME, '.garrison', 'report'));
 const RUNS_ROOT = path.resolve(argVal('--runs-root') || process.env.GARRISON_RUNS_DIR
   || path.join(process.env.GARRISON_HOME || path.join(HOME, '.garrison'), 'runs'));
-const PORT = parseInt(argVal('--port') || '8091', 10);
+const PORT = parseInt(argVal('--port') || '28091', 10);
 // Files this server may serve after symlink resolution: the report root, the
 // runs home, and the garrison home (where legit in-place log/artifact symlinks
 // point). realpath must land under one of these or the request is 403'd.

@@ -87,11 +87,11 @@ interface UrlState {
 }
 
 // Return to whatever page the user came from (the board / Automations), robust across
-// every access mode - the web channel is reached at its OWN port (127.0.0.1:7083), via
-// Garrison's /embed proxy (127.0.0.1:7777), or over the tailnet, and the host's URL
+// every access mode - the web channel is reached at its OWN port (127.0.0.1:27083), via
+// Garrison's /embed proxy (127.0.0.1:27777), or over the tailnet, and the host's URL
 // differs in each. history.back() returns to the previous page regardless of its URL,
 // so we never guess a route (an earlier version hard-coded "/embed/kanban-loop", which
-// 404'd → SPA-fell-back to the default console when opened directly on :7083). Prefer the
+// 404'd → SPA-fell-back to the default console when opened directly on :27083). Prefer the
 // TOP window when it's same-origin (Garrison embed); fall back to this window (direct
 // access - the common case) if the top is cross-origin or is this window.
 function goBackToHost(): void {

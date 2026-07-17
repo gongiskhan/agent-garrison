@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Run-driver for Agent Garrison — smoke-tests routes and screenshots them.
 //
-// Garrison is a Next.js 14 web app on 127.0.0.1:7777. There is no chromium-cli
+// Garrison is a Next.js 14 web app on 127.0.0.1:27777. There is no chromium-cli
 // on this machine, but `playwright` is a dev dependency with a cached Chromium,
 // so this script IS the browser driver. It must live inside the repo tree (so
 // `import 'playwright'` resolves the project's node_modules) — keep it here.
@@ -10,13 +10,13 @@
 //   node .claude/skills/run-garrison/driver.mjs                # default 6 routes
 //   node .claude/skills/run-garrison/driver.mjs /quarters /vault
 // Env:
-//   GARRISON_URL   base URL            (default http://127.0.0.1:7777)
+//   GARRISON_URL   base URL            (default http://127.0.0.1:27777)
 //   SHOT_DIR       screenshot out dir  (default /tmp)
 //
 // Exit 0 = every route served < 400 and screenshotted. Exit 1 = something is wrong.
 import { chromium } from 'playwright';
 
-const BASE = process.env.GARRISON_URL || 'http://127.0.0.1:7777';
+const BASE = process.env.GARRISON_URL || 'http://127.0.0.1:27777';
 const SHOT_DIR = process.env.SHOT_DIR || '/tmp';
 const argRoutes = process.argv.slice(2);
 const ROUTES = argRoutes.length

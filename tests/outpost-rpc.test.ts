@@ -70,7 +70,7 @@ describe("outpostRpc", () => {
     );
     expect(result).toEqual({ content: "hello" });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:3702/outposts/dev/rpc",
+      "http://127.0.0.1:23702/outposts/dev/rpc",
       expect.objectContaining({ method: "POST" })
     );
   });
@@ -97,7 +97,7 @@ describe("outpostRpc", () => {
     });
     await outpostRpc("my outpost", "fs.list", {});
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:3702/outposts/my%20outpost/rpc",
+      "http://127.0.0.1:23702/outposts/my%20outpost/rpc",
       expect.anything()
     );
   });

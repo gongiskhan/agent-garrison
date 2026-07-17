@@ -21,11 +21,11 @@ describe("composition faculty migration (2026-06-18 sessions split)", () => {
   it("re-buckets moved fittings to their current faculty, preserving config", () => {
     const stored: FittingSelectionMap = {
       sessions: [
-        { id: "dev-env", config: { port: 7086 } },
+        { id: "dev-env", config: { port: 27086 } },
         { id: "file-browser", config: {} },
         { id: "codex-runtime", config: {} },
         { id: "gemini-runtime", config: {} },
-        { id: "browser-default", config: { port: 7084 } },
+        { id: "browser-default", config: { port: 27084 } },
         { id: "screen-share-default", config: {} }
       ]
     };
@@ -34,7 +34,7 @@ describe("composition faculty migration (2026-06-18 sessions split)", () => {
     expect(out.runtimes?.map((s) => s.id).sort()).toEqual(["codex-runtime", "gemini-runtime"]);
     expect(out.surfaces?.map((s) => s.id).sort()).toEqual(["browser-default", "screen-share-default"]);
     // config preserved across the move
-    expect(out.surfaces?.find((s) => s.id === "browser-default")?.config).toEqual({ port: 7084 });
+    expect(out.surfaces?.find((s) => s.id === "browser-default")?.config).toEqual({ port: 27084 });
   });
 
   it("returns the same object reference when nothing moved (already correct)", () => {

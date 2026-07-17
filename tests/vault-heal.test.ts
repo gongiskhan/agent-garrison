@@ -26,7 +26,7 @@ import type { LibraryEntry } from "@/lib/types";
 // GARRISON_HOME tmp dir, fixture fittings inside the repo tree (start paths
 // must live under ROOT_DIR), fixture start scripts honour GARRISON_HOME. The
 // real deepgram-voice is never spawned (it writes to the real ~/.garrison and
-// binds 7085); the fixture proves env delivery by writing a probe env var to
+// binds 27085); the fixture proves env delivery by writing a probe env var to
 // a capture file.
 
 const PROBE_KEY = "HEAL_PROBE_KEY";

@@ -301,7 +301,7 @@ async function attachInstrumentation(tab) {
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.BROWSER_PORT || 7084),
+    port: Number(process.env.BROWSER_PORT || 27084),
     host: process.env.BROWSER_HOST || "127.0.0.1",
     // Defaults match the LOW quality preset — responsive over Tailscale beats
     // sharpness for the common case. The canvas's quality toggle bumps it.

@@ -14,7 +14,7 @@ x-garrison:
   faculty: memory
   cardinality_hint: single
   own_port: true
-  default_port: 8765
+  default_port: 28765
   # Standing server (not tied to an operative): direct `claude` sessions in any
   # repo reach it as a user-scope http MCP, so it must outlive operative up/down.
   # `detached` opts out of operative start/stop; eager-boot (eager-boot.json) owns
@@ -25,7 +25,7 @@ x-garrison:
     - claude-code
   summary: >-
     Shared local agent-coordination server (mcp_agent_mail, FastMCP HTTP on
-    127.0.0.1:8765). One server across all projects; sessions are tagged by repo so
+    127.0.0.1:28765). One server across all projects; sessions are tagged by repo so
     leases/messages are repo-scoped. Registered as an http MCP server in
     ~/.claude.json (user scope) so a direct `claude` run in any repo and the
     orchestrator both reach it. License-isolated arm's-length process — never
@@ -33,7 +33,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 8765
+      default: 28765
       description: HTTP port the agent-mail server binds to (127.0.0.1). MCP endpoint is <url>/mcp.
     - key: pin
       type: string
@@ -57,7 +57,7 @@ x-garrison:
     MESSAGING (send/reply/inbox), and BUILD SLOTS. Leases/messages are repo-scoped
     (tagged by cwd) — a session only ever sees its own repo's coordination state.
 
-    The server is reachable as an http MCP server at http://127.0.0.1:8765/mcp
+    The server is reachable as an http MCP server at http://127.0.0.1:28765/mcp
     (registered in ~/.claude.json on start). Key tools:
       file_reservation_paths(paths, ttl_seconds>=60, reason, exclusive)  - claim a lease
       renew_file_reservations(...)                                       - heartbeat/extend

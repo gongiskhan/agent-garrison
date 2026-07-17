@@ -61,10 +61,10 @@ const PRESENCE_RETENTION_MS = 24 * 3600 * 1000; // prune presence records older 
 
 const KEEP_AWAKE_HOURS = new Set([1, 4, 8]);
 
-// 7092, not 7090: the automations engine holds 7090 as its canonical port, and
+// 27092, not 27090: the automations engine holds 27090 as its canonical port, and
 // own-port servers bind exactly or exit 1 (no findFreePort shift since 07ba683).
 const DEFAULT_CONFIG = {
-  port: 7092,
+  port: 27092,
   bind_host: "127.0.0.1",
   idle_minutes: 30,
   load_threshold: 1.0,

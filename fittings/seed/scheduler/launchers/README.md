@@ -3,7 +3,7 @@
 The scheduler is a plain, OS-agnostic Node process:
 
 ```
-node scheduler.mjs daemon --health-port 7099
+node scheduler.mjs daemon --health-port 27099
 ```
 
 It depends on nothing from Claude Code and nothing OS-specific — it ticks cron
@@ -16,12 +16,12 @@ All units reference these env vars (set them to absolute paths for your install)
 - `SCHEDULER` — absolute path to `scheduler.mjs`
 - `GARRISON_SCHEDULER_JOBS` — jobs file (default `~/.garrison/scheduler-jobs.json`)
 - `GARRISON_SCHEDULER_LOG` — log file (default `~/.garrison/scheduler.log`)
-- `GARRISON_SCHEDULER_HEALTH_PORT` — `/health` port (default `7099`)
+- `GARRISON_SCHEDULER_HEALTH_PORT` — `/health` port (default `27099`)
 
 Health check (any platform):
 
 ```
-curl -s http://127.0.0.1:7099/health
+curl -s http://127.0.0.1:27099/health
 # {"status":"ok","startedAt":"…","ticks":N,"pid":…,"listeners":[…]}
 ```
 

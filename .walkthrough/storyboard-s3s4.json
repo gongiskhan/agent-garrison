@@ -19,7 +19,7 @@
     {
       "type": "browser",
       "id": "flow",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/",
       "beats": [
         {
@@ -43,7 +43,7 @@
     {
       "type": "evidence",
       "id": "clone-status",
-      "command": "curl -s http://127.0.0.1:7777/api/fittings/taste-copy/clone-status",
+      "command": "curl -s http://127.0.0.1:27777/api/fittings/taste-copy/clone-status",
       "json": true,
       "highlight": {
         "match": "taste@0.1.0",

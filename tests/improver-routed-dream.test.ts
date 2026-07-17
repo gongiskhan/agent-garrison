@@ -12,7 +12,7 @@ describe("improver dream routing (s6b — route the Improver through preRoute)",
     expect(chooseDreamRunTurn()).toBe(defaultRunTurn);
     expect(chooseDreamRunTurn({ routeViaGateway: false, gatewayUrl: "http://x" })).toBe(defaultRunTurn);
     expect(chooseDreamRunTurn({ routeViaGateway: true, gatewayUrl: null })).toBe(defaultRunTurn);
-    const routed = chooseDreamRunTurn({ routeViaGateway: true, gatewayUrl: "http://127.0.0.1:4777" });
+    const routed = chooseDreamRunTurn({ routeViaGateway: true, gatewayUrl: "http://127.0.0.1:24777" });
     expect(routed).not.toBe(defaultRunTurn);
     expect(typeof routed).toBe("function");
   });
@@ -20,12 +20,12 @@ describe("improver dream routing (s6b — route the Improver through preRoute)",
   it("makeRoutedRunTurn posts the dream turn to the gateway /chat (pre-routed) and returns {reply}", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ reply: "consolidated", session_id: "s1" }) }));
     vi.stubGlobal("fetch", fetchMock);
-    const rt = makeRoutedRunTurn("http://127.0.0.1:4777");
+    const rt = makeRoutedRunTurn("http://127.0.0.1:24777");
     const out = await rt({ systemPrompt: "SYS", message: "MSG", timeoutMs: 1000 });
     expect(out).toEqual({ reply: "consolidated" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
-    expect(url).toBe("http://127.0.0.1:4777/chat");
+    expect(url).toBe("http://127.0.0.1:24777/chat");
     const body = JSON.parse(opts.body);
     expect(body.channel).toBe("improver");
     expect(body.message).toContain("SYS");

@@ -58,7 +58,7 @@ describe("C2-4 durable backups (~/.garrison/snapshots, not /tmp)", () => {
   it("coord-agentmail register-mcp snapshots durably too", () => {
     const cj = path.join(gh, ".claude.json");
     writeFileSync(cj, JSON.stringify({ mcpServers: {} }));
-    registerMcp("coord-agentmail", ["add", "8765"], cj);
+    registerMcp("coord-agentmail", ["add", "28765"], cj);
     expect(existsSync(snapPath("coord-agentmail"))).toBe(true);
   });
 

@@ -23,7 +23,7 @@ import { AddDuty, DutyList, MusterHeader, ReadinessDetail, TargetsTray } from ".
 import { StandingFittings } from "./StandingFittings";
 import { OrchestratorPanel } from "./OrchestratorPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
-import type { DutyEffort, MusterActions, MusterModel } from "./types";
+import type { DutyEffort, MusterActions, MusterModel, MusterTargetUpdate } from "./types";
 import styles from "./Muster.module.css";
 
 type Status = "loading" | "ready" | "error";
@@ -164,16 +164,51 @@ export function MusterPage() {
     [persist]
   );
 
+  const saveTarget = useCallback(
+    async (target: MusterTargetUpdate): Promise<boolean> => {
+      setSaving(true);
+      try {
+        const res = await fetch("/api/muster/target", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ composition: compositionRef.current, ...target })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        setModel(data as MusterModel);
+        setErrorMsg(null);
+        return true;
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : String(err));
+        await load(compositionRef.current);
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [load]
+  );
+
   const switchComposition = useCallback(async (id: string) => {
+    setSaving(true);
+    setErrorMsg(null);
     try {
-      await fetch("/api/composition/active", {
-        method: "PUT",
+      const res = await fetch("/api/composition/switch", {
+        method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ target: id })
       });
-    } finally {
-      // Reload onto the now-active composition so the whole shell reflects it.
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
+      }
+      // Reload only after clean down → pointer update → up succeeded, so the
+      // shell can never point at one composition while another stays running.
       window.location.assign("/muster");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }, []);
 
@@ -249,6 +284,7 @@ export function MusterPage() {
     setEffort,
     addDuty,
     removeDuty,
+    saveTarget,
     switchComposition
   };
 

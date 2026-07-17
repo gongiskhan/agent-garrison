@@ -7,7 +7,10 @@ import {
   assembleStandingModel,
   buildStandingPayload,
   createRuntime,
+  assembleMusterModel,
   setPrimaryRuntime,
+  setSelectedDuty,
+  upsertCompositionTarget,
   setStandingConfig,
   swapStandingFitting,
   testRuntimeConnection
@@ -43,16 +46,25 @@ function fixtureManifest() {
           observability_config: { log_sink: "runner" }
         },
         selections: {
-          gateway: [{ id: "http-gateway", config: { port: 4777 } }],
+          gateway: [{ id: "http-gateway", config: { port: 24777 } }],
           runtimes: [
             { id: "claude-code-runtime", config: {} },
-            { id: "agent-sdk-runtime", config: {} }
+            { id: "agent-sdk-runtime", config: {} },
+            { id: "codex-runtime", config: {} }
           ],
           observability: [{ id: "scheduler", config: {} }],
           // vault-git-sync (sessions) consumes automation-runner:scheduler (one),
           // provided ONLY by `scheduler` — so swapping scheduler out orphans it.
           sessions: [{ id: "vault-git-sync", config: {} }]
         },
+        duties: ["plan", "implement", "review", "test"].map((id) => ({
+          id,
+          title: id[0].toUpperCase() + id.slice(1),
+          description: `${id} a change`,
+          levels: [{ description: "standard", cell: { effort: "medium" } }]
+        })),
+        selected_duties: [],
+        targets: [],
         prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md", soul: ".garrison/prompts/soul.md" }
       }
     }
@@ -60,6 +72,7 @@ function fixtureManifest() {
 }
 
 async function writeFixture(): Promise<void> {
+  await fs.rm(path.join(FIXTURE_DIR, ".garrison"), { recursive: true, force: true });
   await fs.mkdir(FIXTURE_DIR, { recursive: true });
   const target = path.join(FIXTURE_DIR, "apm.yml");
   const tmp = path.join(FIXTURE_DIR, `apm.yml.tmp-${process.pid}`);
@@ -111,7 +124,7 @@ describe("buildStandingPayload (pure)", () => {
   const channelEntry = entry("web-channel-default", "channels", {
     component_shape: "plugin",
     own_port: true,
-    config_schema: [{ key: "port", type: "integer", default: 7083, description: "port" }],
+    config_schema: [{ key: "port", type: "integer", default: 27083, description: "port" }],
     provides: [{ kind: "channel", name: "web" }]
   });
   const runtimeEntry = entry(
@@ -188,7 +201,7 @@ describe("standing model (fs-backed)", () => {
     expect(model.compositionId).toBe(FIXTURE_ID);
     const gateway = model.slots.find((s) => s.faculty === "gateway")!;
     expect(gateway.fittings.map((f) => f.id)).toEqual(["http-gateway"]);
-    expect(gateway.fittings[0].config.port).toBe(4777);
+    expect(gateway.fittings[0].config.port).toBe(24777);
     // candidates for the swap picker are the library's gateway fittings.
     expect(gateway.candidates.some((c) => c.id === "mcp-gateway")).toBe(true);
   });
@@ -262,10 +275,117 @@ describe("standing model (fs-backed)", () => {
     const runtimes = model.slots.find((s) => s.faculty === "runtimes")!;
     expect(runtimes.fittings.find((f) => f.id === "agent-sdk-runtime")!.isPrimaryRuntime).toBe(true);
 
+    const policy = JSON.parse(
+      await fs.readFile(path.join(FIXTURE_DIR, ".garrison", "routing.json"), "utf8")
+    ) as { primaryRuntime?: string; version?: number };
+    expect(policy.primaryRuntime).toBe("agent-sdk-runtime");
+    expect(policy.version).toBe(2); // the complete seed policy was retained
+
     const block = await readManifestComposition();
-    expect((block.global_config as { primary_runtime?: string }).primary_runtime).toBe("agent-sdk-runtime");
+    expect((block.global_config as { primary_runtime?: string }).primary_runtime).toBeUndefined();
+    // Integration seam: this is the same policy resolver runner.up() consumes.
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+    expect(await resolvePrimaryFromPolicy(FIXTURE_DIR)).toBe("agent-sdk-runtime");
 
     await expect(setPrimaryRuntime(FIXTURE_ID, "gemini-runtime")).rejects.toThrow(/not a stationed runtime/);
+  });
+
+  it("materialises displayed Codex defaults before making it primary", async () => {
+    const before = await readManifestComposition();
+    expect(selectionsOf(before).runtimes.find((selection) => selection.id === "codex-runtime")?.config).toEqual({});
+
+    const model = await setPrimaryRuntime(FIXTURE_ID, "codex-runtime");
+    expect(model.primaryRuntime).toBe("codex-runtime");
+    expect(
+      model.slots
+        .find((slot) => slot.faculty === "runtimes")!
+        .fittings.find((fitting) => fitting.id === "codex-runtime")!.config.model
+    ).toBe("gpt-5-codex");
+
+    const block = await readManifestComposition();
+    const persisted = selectionsOf(block).runtimes.find((selection) => selection.id === "codex-runtime");
+    expect(persisted?.config).toEqual({ model: "gpt-5-codex" });
+    const policy = JSON.parse(
+      await fs.readFile(path.join(FIXTURE_DIR, ".garrison", "routing.json"), "utf8")
+    ) as { primaryRuntime?: string };
+    expect(policy.primaryRuntime).toBe("codex-runtime");
+
+    const { buildPrimaryRuntimeEnv, resolvePrimaryRuntime } = await import("@/lib/runtime-selection");
+    const descriptor = resolvePrimaryRuntime({
+      primaryRuntimeId: "codex-runtime",
+      runtimeEntries: [{
+        id: "codex-runtime",
+        provides: [{ kind: "runtime", name: "codex" }],
+        config: persisted?.config as Record<string, string | number | boolean> | undefined
+      }]
+    });
+    expect(
+      buildPrimaryRuntimeEnv(descriptor, () => undefined, [{ id: "anthropic-plan", kind: "anthropic-plan" }]).env
+        .GARRISON_MODEL
+    ).toBe("gpt-5-codex");
+  });
+
+  it("surfaces an unstationed composite duty and stations + selects it atomically", async () => {
+    const before = await assembleMusterModel(FIXTURE_ID);
+    expect(before.duties.develop).toBeUndefined();
+    expect(before.dutyCandidates).toContainEqual(
+      expect.objectContaining({ id: "develop", fittingId: "duty-develop" })
+    );
+
+    const after = await setSelectedDuty(FIXTURE_ID, "develop", "add");
+    expect(after.selectedDuties).toContain("develop");
+    expect(after.duties.develop.levels[1].sequence?.map((step) => step.duty)).toEqual([
+      "plan",
+      "implement",
+      "review",
+      "test"
+    ]);
+
+    const block = await readManifestComposition();
+    expect(selectionsOf(block).building.map((selection) => selection.id)).toContain("duty-develop");
+    expect(block.selected_duties).toContain("develop");
+    const manifest = await fs.readFile(path.join(FIXTURE_DIR, "apm.yml"), "utf8");
+    expect(manifest).toContain("duty-develop");
+  });
+
+  it("creates a full-harness Agent SDK composition target", async () => {
+    const model = await upsertCompositionTarget(FIXTURE_ID, {
+      id: "sdk-haiku-full",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      promptMode: "full",
+      maxTurns: 8
+    });
+    expect(model.targets).toContainEqual({
+      id: "sdk-haiku-full",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      params: { promptMode: "full", maxTurns: 8 }
+    });
+    const block = await readManifestComposition();
+    expect(block.targets).toContainEqual(
+      expect.objectContaining({ id: "sdk-haiku-full", params: { promptMode: "full", maxTurns: 8 } })
+    );
+
+    const edited = await upsertCompositionTarget(FIXTURE_ID, {
+      originalId: "sdk-haiku-full",
+      id: "sdk-haiku-full",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      promptMode: "lean",
+      maxTurns: null
+    });
+    expect(edited.targets).toContainEqual({
+      id: "sdk-haiku-full",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      params: { promptMode: "lean" }
+    });
+    expect(edited.targets.filter((target) => target.id === "sdk-haiku-full")).toHaveLength(1);
   });
 
   it("test-connection is a static readiness check (stationed runtime passes; a non-runtime fails)", async () => {

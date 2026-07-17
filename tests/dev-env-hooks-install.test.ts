@@ -33,11 +33,16 @@ type Settings = { hooks?: Record<string, HookGroup[]> } & Record<string, unknown
 let sandbox: string;
 let settingsPath: string;
 
-function runInstaller(): void {
+function runInstaller(extraEnv: Partial<NodeJS.ProcessEnv> = {}): void {
   // HOME points at the sandbox so the installer's first-install snapshot
   // (~/.garrison/snapshots) never touches the real home directory.
   execFileSync(process.execPath, [SCRIPT], {
-    env: { ...process.env, HOME: sandbox, GARRISON_CLAUDE_SETTINGS_PATH: settingsPath },
+    env: {
+      ...process.env,
+      HOME: sandbox,
+      GARRISON_CLAUDE_SETTINGS_PATH: settingsPath,
+      ...extraEnv
+    },
     stdio: "pipe"
   });
 }
@@ -116,7 +121,7 @@ describe("dev-env install-hooks.mjs", () => {
       );
       expect(eventGroups, `event ${event} needs exactly one dev-env group`).toHaveLength(1);
       expect(eventGroups[0].hooks?.[0].command).toContain(`/_hook?event=${event}`);
-      expect(eventGroups[0].hooks?.[0].command).toContain("7086");
+      expect(eventGroups[0].hooks?.[0].command).toContain("27086");
     }
 
     expect(settings.model).toBe("opus");
@@ -132,5 +137,14 @@ describe("dev-env install-hooks.mjs", () => {
       (g) => g._garrison === undefined
     );
     expect(userGroups).toHaveLength(1);
+  });
+
+  it("uses the composition-projected DEV_ENV_PORT when configured", () => {
+    runInstaller({ DEV_ENV_PORT: "32086" });
+    const settings = readSettings();
+
+    for (const group of groupsByOwner(settings, "fitting:dev-env")) {
+      expect(group.hooks?.[0].command).toContain("127.0.0.1:32086/_hook");
+    }
   });
 });

@@ -64,7 +64,9 @@ export function inferenceRunFn(gatewayUrl) {
 
 // The gateway's `done` SSE event carries per-turn ROUTING metadata whenever the turn
 // actually routed (PTY routed mode): { route: <targetId>, runtime, provider, model,
-// taskType, tier, ruleId, profile, honored } — EVERY field possibly null. In souls
+// effort, effortApplied, stoppedReason, taskType, tier, ruleId, profile, honored } — EVERY field
+// possibly null. `effort` is what policy requested; `effortApplied` is true/false
+// only when the runtime can state whether it honored that request. In souls
 // mode `done` carries only { reply } (no routing happened). Fold whatever is present
 // into a compact object the engine can stamp onto the card, or null when NOTHING
 // routing-related flowed — so a caller never invents attribution it wasn't given. The
@@ -76,6 +78,8 @@ export function routeFromDone(done) {
   const runtime = done.runtime ?? null;
   const provider = done.provider ?? null;
   const model = done.model ?? null;
+  const effort = done.effort ?? null;
+  const effortApplied = typeof done.effortApplied === "boolean" ? done.effortApplied : null;
   const taskType = done.taskType ?? null;
   const tier = done.tier ?? null;
   const ruleId = done.ruleId ?? null;
@@ -83,11 +87,12 @@ export function routeFromDone(done) {
   const honored = done.honored ?? null;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
+    effort == null && effortApplied == null &&
     taskType == null && tier == null && ruleId == null && profile == null && honored == null
   ) {
     return null;
   }
-  return { targetId, runtime, provider, model, taskType, tier, ruleId, profile, honored };
+  return { targetId, runtime, provider, model, effort, effortApplied, taskType, tier, ruleId, profile, honored };
 }
 
 // The board/tick pass `classification: null` here (the engine no longer pins a per-list
@@ -95,7 +100,19 @@ export function routeFromDone(done) {
 // the mode the prompt leads with. A non-null classification is still forwarded verbatim
 // for callers that want to force one.
 export function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt, classification, list, skill, suppressContinuations, onChunk }) => {
+  return async ({
+    prompt,
+    classification,
+    list,
+    skill,
+    suppressContinuations,
+    onChunk,
+    duty,
+    level,
+    phase,
+    stepIndex,
+    sequence
+  }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
     // abort a blocking /chat request before the reply ever arrives. /chat/stream sends an
@@ -118,6 +135,14 @@ export function gatewayRunFn(gatewayUrl) {
           // D15: the skill is the POLICY-resolved phase binding the engine hands us,
           // never a per-list pin (list.skill is dead).
           skill: skill ?? null,
+          // V4 execution identity is authoritative for a composed card. The
+          // gateway resolves this exact leaf cell from model.json; old callers
+          // omit the fields and retain legacy taskType/tier routing.
+          duty: typeof duty === "string" ? duty : null,
+          level: Number.isInteger(level) ? level : null,
+          phase: typeof phase === "string" ? phase : null,
+          stepIndex: Number.isInteger(stepIndex) ? stepIndex : null,
+          sequence: Array.isArray(sequence) ? sequence : null,
           suppressContinuations: suppressContinuations ?? true,
           timeoutMs: KANBAN_TURN_TIMEOUT_MS
         })
@@ -194,9 +219,14 @@ export function gatewayRunFn(gatewayUrl) {
       e.transport = true;
       throw e;
     }
-    // Return the reply text AND the per-turn route metadata (null in souls mode). The
-    // shape stays an object every call site already destructures (`out?.reply`), so
-    // adding `route` is inert for callers that ignore it.
-    return { reply: done.reply ?? done.text ?? "", route: routeFromDone(done) };
+    // Return the reply text, per-turn route metadata (null in souls mode), and an
+    // explicit runtime stop reason. The latter lets the engine distinguish a
+    // bounded max-turn result from ordinary completion without converting it back
+    // into a lossy transport-style exception.
+    return {
+      reply: done.reply ?? done.text ?? "",
+      route: routeFromDone(done),
+      stoppedReason: typeof done.stoppedReason === "string" ? done.stoppedReason : null
+    };
   };
 }

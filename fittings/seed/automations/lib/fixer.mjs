@@ -107,7 +107,7 @@ export function validatePatch(value) {
 // step, error, observation) -> rawPatch` is injectable.
 export async function proposePatch({ step, error, observation = {}, failureKind = "other", invoke, fetchImpl = globalThis.fetch }) {
   const run = invoke || (async () => {
-    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
     const res = await fetchImpl(`${base}/api/automations/vision`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-garrison-internal": internalToken() },

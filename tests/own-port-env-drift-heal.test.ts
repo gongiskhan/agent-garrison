@@ -11,27 +11,27 @@ import { envFingerprintForExtraEnv, ownPortConfigEnv } from "@/lib/own-port-life
 
 describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
   it("returns a stable 64-char hex digest for any input", () => {
-    const fp = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777" });
+    const fp = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24777" });
     expect(fp).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("is deterministic for the same input", () => {
-    const a = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777", GARRISON_COMPOSITION_ID: "default" });
-    const b = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777", GARRISON_COMPOSITION_ID: "default" });
+    const a = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24777", GARRISON_COMPOSITION_ID: "default" });
+    const b = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24777", GARRISON_COMPOSITION_ID: "default" });
     expect(a).toBe(b);
   });
 
   it("changes when a tracked key's value changes", () => {
-    const before = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777" });
-    const after = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4778" });
+    const before = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24777" });
+    const after = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24778" });
     expect(after).not.toBe(before);
   });
 
   it("does NOT change when an UNTRACKED key changes", () => {
     // If untracked keys leaked in, every dev-env spawn would heal every other
     // fitting on every up — a noisy regression.
-    const a = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777", SOMETHING_ELSE: "a" });
-    const b = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777", SOMETHING_ELSE: "b" });
+    const a = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24777", SOMETHING_ELSE: "a" });
+    const b = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24777", SOMETHING_ELSE: "b" });
     expect(a).toBe(b);
   });
 
@@ -55,15 +55,15 @@ describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
     // Object iteration order in JS is insertion-ordered. The fingerprint
     // iterates the TRACKED_KEYS list (fixed order), so two runs that build
     // extraEnv in different key orders still hash identically.
-    const a = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777", GARRISON_COMPOSITION_ID: "default" });
-    const b = envFingerprintForExtraEnv({ GARRISON_COMPOSITION_ID: "default", GARRISON_GATEWAY_URL: "http://127.0.0.1:4777" });
+    const a = envFingerprintForExtraEnv({ GARRISON_GATEWAY_URL: "http://127.0.0.1:24777", GARRISON_COMPOSITION_ID: "default" });
+    const b = envFingerprintForExtraEnv({ GARRISON_COMPOSITION_ID: "default", GARRISON_GATEWAY_URL: "http://127.0.0.1:24777" });
     expect(a).toBe(b);
   });
 
   it("a heal-then-restart with the same env produces the SAME fingerprint", () => {
     // Pins the no-loop property: after a heal respawns with the desired env,
     // the next `up` sees fingerprint match → alreadyRunning, no heal.
-    const desired = { GARRISON_GATEWAY_URL: "http://127.0.0.1:4777", GARRISON_COMPOSITION_ID: "default" };
+    const desired = { GARRISON_GATEWAY_URL: "http://127.0.0.1:24777", GARRISON_COMPOSITION_ID: "default" };
     const firstSpawnFingerprint = envFingerprintForExtraEnv(desired);
     const secondSpawnFingerprint = envFingerprintForExtraEnv(desired);
     expect(secondSpawnFingerprint).toBe(firstSpawnFingerprint);
@@ -73,7 +73,7 @@ describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
     // Changing the file-browser's root in apm.yml must drift the fingerprint
     // so the next `up` heal-restarts the fitting with the new value instead of
     // silently ignoring the config change.
-    const base = { GARRISON_GATEWAY_URL: "http://127.0.0.1:4777" };
+    const base = { GARRISON_GATEWAY_URL: "http://127.0.0.1:24777" };
     const a = envFingerprintForExtraEnv({ ...base, GARRISON_FILEBROWSER_ROOT: "~/.garrison/files" });
     const b = envFingerprintForExtraEnv({ ...base, GARRISON_FILEBROWSER_ROOT: "/srv/files" });
     const absent = envFingerprintForExtraEnv(base);
@@ -84,10 +84,10 @@ describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
   it("projected key order never changes the fingerprint", () => {
     const a = envFingerprintForExtraEnv({
       GARRISON_FILEBROWSER_ROOT: "~/.garrison/files",
-      GARRISON_FILEBROWSER_PORT: "7091"
+      GARRISON_FILEBROWSER_PORT: "27091"
     });
     const b = envFingerprintForExtraEnv({
-      GARRISON_FILEBROWSER_PORT: "7091",
+      GARRISON_FILEBROWSER_PORT: "27091",
       GARRISON_FILEBROWSER_ROOT: "~/.garrison/files"
     });
     expect(a).toBe(b);
@@ -99,7 +99,7 @@ describe("ownPortConfigEnv (composition config → spawn env projection)", () =>
     expect(
       ownPortConfigEnv("file-browser", {
         root: "~/.garrison/files",
-        port: 7091,
+        port: 27091,
         read_only: false,
         nested: { a: 1 },
         list: [1, 2],
@@ -107,7 +107,7 @@ describe("ownPortConfigEnv (composition config → spawn env projection)", () =>
       })
     ).toEqual({
       GARRISON_FILEBROWSER_ROOT: "~/.garrison/files",
-      GARRISON_FILEBROWSER_PORT: "7091",
+      GARRISON_FILEBROWSER_PORT: "27091",
       GARRISON_FILEBROWSER_READ_ONLY: "false"
     });
   });

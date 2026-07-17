@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const COMPOSITION_ID = process.argv[2] ?? "default";
-const GATEWAY_URL = (process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:4777").replace(/\/$/, "");
+const GATEWAY_URL = (process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:24777").replace(/\/$/, "");
 const COMPOSITION_DIR = path.join(REPO_ROOT, "compositions", COMPOSITION_ID);
 
 const results = [];

@@ -16,7 +16,7 @@
     {
       "type": "browser",
       "id": "chat",
-      "baseURL": "http://127.0.0.1:7083",
+      "baseURL": "http://127.0.0.1:27083",
       "startPath": "/",
       "runTimeoutMs": 180000,
       "beats": [

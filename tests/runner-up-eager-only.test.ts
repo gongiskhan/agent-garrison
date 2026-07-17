@@ -112,12 +112,12 @@ describe("operativeEnvForFitting (manual Views start env parity)", () => {
   });
 
   it("returns the runner env — gateway URL + composition id — for a running composition's fitting", async () => {
-    seedRunningRecord("default", "http://127.0.0.1:4777");
+    seedRunningRecord("default", "http://127.0.0.1:24777");
     const env = await operativeEnvForFitting(PLAIN_ID);
     expect(env).not.toBeNull();
     expect(env?.GARRISON_COMPOSITION_ID).toBe("default");
     expect(env?.GARRISON_COMPOSITION_DIR).toMatch(/compositions[/\\]default$/);
-    expect(env?.GARRISON_GATEWAY_URL).toBe("http://127.0.0.1:4777");
+    expect(env?.GARRISON_GATEWAY_URL).toBe("http://127.0.0.1:24777");
   });
 
   it("omits the gateway URL when the running record has no gateway, and rejects unknown fittings", async () => {

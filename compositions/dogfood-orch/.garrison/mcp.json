@@ -8,7 +8,7 @@
       ],
       "env": {
         "GARRISON_COMPOSITION_DIR": "/Users/ggomes/dev/garrison/compositions/dogfood-orch",
-        "GARRISON_HTTP_GATEWAY_BASE_URL": "http://127.0.0.1:4777"
+        "GARRISON_HTTP_GATEWAY_BASE_URL": "http://127.0.0.1:24777"
       }
     }
   }

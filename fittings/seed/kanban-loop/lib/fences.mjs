@@ -104,6 +104,18 @@ export function commitFence({ repoPath, card, phase, touchSet, otherClaims = [],
       events: [{ at, kind: "fence", message: `Fence skipped for ${phase}: could not resolve a repo path for project ${card.project || "(none)"} - changes on this branch stay unattributable.` }]
     };
   }
+  try {
+    if (git(repoPath, ["rev-parse", "--is-inside-work-tree"]).trim() !== "true") throw new Error("not a work tree");
+  } catch {
+    return {
+      record: null,
+      events: [{
+        at,
+        kind: "fence",
+        message: `Fence skipped for ${phase}: workspace ${repoPath} is not a Git repository - coordination remains active, but there is no commit fence to record.`
+      }]
+    };
+  }
   const events = [];
   try {
     const claims = [...(touchSet?.files || []), ...(touchSet?.dirs || [])];

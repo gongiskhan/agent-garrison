@@ -33,8 +33,8 @@ afterEach(() => {
 describe("/board/runtime — readWebChannelStatus (V1d channel discovery)", () => {
   it("returns null id when no web channel status file is present", async () => {
     // Other fittings present must not be misread as a channel.
-    writeStatus("dev-env.json", { fittingId: "dev-env", url: "http://127.0.0.1:7086", pid: 1 });
-    writeStatus("monitor-default.json", { fittingId: "monitor-default", url: "http://127.0.0.1:7077", pid: 2 });
+    writeStatus("dev-env.json", { fittingId: "dev-env", url: "http://127.0.0.1:27086", pid: 1 });
+    writeStatus("monitor-default.json", { fittingId: "monitor-default", url: "http://127.0.0.1:27077", pid: 2 });
     const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
     expect(got).toEqual({ id: null, url: null });
   });
@@ -42,12 +42,12 @@ describe("/board/runtime — readWebChannelStatus (V1d channel discovery)", () =
   it("returns the channel id + url when one web channel is installed", async () => {
     writeStatus("web-channel-default.json", {
       fittingId: "web-channel-default",
-      url: "http://127.0.0.1:7083",
+      url: "http://127.0.0.1:27083",
       pid: 12345,
       startedAt: "2026-06-25T00:00:00.000Z"
     });
     const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
-    expect(got).toEqual({ id: "web-channel-default", url: "http://127.0.0.1:7083" });
+    expect(got).toEqual({ id: "web-channel-default", url: "http://127.0.0.1:27083" });
   });
 
   it("prefers the conventional `web-channel-default.json` when multiple channels exist", async () => {
@@ -55,15 +55,15 @@ describe("/board/runtime — readWebChannelStatus (V1d channel discovery)", () =
     // preferring the seed name keeps the test surface (and the UI choice)
     // stable when a composition adds a second channel.
     writeStatus("web-channel-alpha.json", { fittingId: "web-channel-alpha", url: "http://127.0.0.1:7100", pid: 1 });
-    writeStatus("web-channel-default.json", { fittingId: "web-channel-default", url: "http://127.0.0.1:7083", pid: 2 });
+    writeStatus("web-channel-default.json", { fittingId: "web-channel-default", url: "http://127.0.0.1:27083", pid: 2 });
     const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
     expect(got.id).toBe("web-channel-default");
-    expect(got.url).toBe("http://127.0.0.1:7083");
+    expect(got.url).toBe("http://127.0.0.1:27083");
   });
 
   it("falls through to the next file when one is malformed JSON", async () => {
     writeFileSync(path.join(tmp, "web-channel-bad.json"), "{ not valid json", "utf8");
-    writeStatus("web-channel-default.json", { fittingId: "web-channel-default", url: "http://127.0.0.1:7083", pid: 1 });
+    writeStatus("web-channel-default.json", { fittingId: "web-channel-default", url: "http://127.0.0.1:27083", pid: 1 });
     const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
     expect(got.id).toBe("web-channel-default");
   });

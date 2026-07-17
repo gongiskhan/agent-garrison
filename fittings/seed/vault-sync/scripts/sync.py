@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-OUTPOST_HOST = "http://127.0.0.1:3702"
+OUTPOST_HOST = "http://127.0.0.1:23702"
 MAX_WARN_BYTES = 5 * 1024 * 1024  # warn on files > 5 MB
 DEFAULT_INTERVAL_S = 60
 

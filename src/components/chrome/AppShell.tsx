@@ -347,18 +347,75 @@ export function AppShell({ children }: { children: ReactNode }) {
           body: JSON.stringify({ target })
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
+        if (!res.ok || data?.ok !== true) {
           setSwitchError(typeof data?.error === "string" ? data.error : res.statusText);
           return;
         }
-        await refreshAll();
+        // Composition-scoped pages own models outside AppShell. Remount the
+        // current surface only after the clean switch succeeds, and discard an
+        // explicit old composition query that would otherwise pin that model to
+        // the source after reload.
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.delete("composition");
+        window.location.assign(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
       } catch (err) {
         setSwitchError(err instanceof Error ? err.message : String(err));
       } finally {
         setSwitching(false);
       }
     },
-    [switching, refreshAll]
+    [switching]
+  );
+
+  // Clone the active composition, then activate it through the SAME clean
+  // switch path as the selector (resolve -> down -> pointer -> up). The clone is
+  // complete before switch begins, so a launch failure still leaves a valid,
+  // selectable composition that can be inspected and retried.
+  const createAndSwitch = useCallback(
+    async (name: string): Promise<boolean> => {
+      if (switching || !composition || activeExternal) return false;
+      setSwitching(true);
+      setSwitchError(null);
+      let createdId: string | null = null;
+      try {
+        const createRes = await fetch("/api/compositions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, sourceId: composition.id })
+        });
+        const created = await createRes.json().catch(() => ({}));
+        if (!createRes.ok) {
+          throw new Error(typeof created?.error === "string" ? created.error : createRes.statusText);
+        }
+        createdId = typeof created?.composition?.id === "string" ? created.composition.id : null;
+        if (!createdId) throw new Error("composition clone returned no id");
+
+        const switchRes = await fetch("/api/composition/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: createdId })
+        });
+        const switched = await switchRes.json().catch(() => ({}));
+        if (!switchRes.ok || switched?.ok !== true) {
+          throw new Error(typeof switched?.error === "string" ? switched.error : switchRes.statusText);
+        }
+        // Muster owns composition-scoped model state outside AppShell. A shell
+        // refresh alone would update the header while leaving that page model
+        // bound to the source composition, so the next edit could mutate the
+        // source. Remount the whole surface after the clean switch completes.
+        window.location.assign("/muster");
+        return true;
+      } catch (err) {
+        setSwitchError(err instanceof Error ? err.message : String(err));
+        // If cloning succeeded but launch did not, refresh so the complete clone
+        // still appears in the selector and can be retried.
+        if (createdId) void refreshAll();
+        return false;
+      } finally {
+        setSwitching(false);
+      }
+    },
+    [activeExternal, composition, refreshAll, switching]
   );
 
   const value = useMemo<AppShellState>(
@@ -427,6 +484,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         switching={switching}
         error={switchError}
         onSwitch={switchTo}
+        onCreate={createAndSwitch}
         onDismissError={() => setSwitchError(null)}
       />
       {editingFitting ? (
@@ -455,6 +513,7 @@ function CompositionSwitcher({
   switching,
   error,
   onSwitch,
+  onCreate,
   onDismissError
 }: {
   compositions: Composition[];
@@ -464,8 +523,12 @@ function CompositionSwitcher({
   switching: boolean;
   error: string | null;
   onSwitch: (target: string) => void;
+  onCreate: (name: string) => Promise<boolean>;
   onDismissError: () => void;
 }) {
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   if (compositions.length === 0 && !activePointer) return null;
 
   // The select value: the active pointer verbatim when external (so its option
@@ -524,6 +587,25 @@ function CompositionSwitcher({
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          disabled={switching || activeExternal || !activeId}
+          onClick={() => setCreateOpen(true)}
+          data-testid="new-composition"
+          title={activeExternal ? "Clone an in-repo composition to create a new one" : "Create from the active composition"}
+          style={{
+            border: "1px solid var(--rule)",
+            borderRadius: 5,
+            background: "var(--paper)",
+            color: "var(--ink)",
+            padding: "5px 8px",
+            fontSize: 12,
+            whiteSpace: "nowrap",
+            cursor: switching || activeExternal ? "default" : "pointer"
+          }}
+        >
+          + New
+        </button>
         {switching ? (
           <span style={{ fontSize: 11.5, color: "var(--mute)", whiteSpace: "nowrap" }}>
             switching...
@@ -548,6 +630,90 @@ function CompositionSwitcher({
           }}
         >
           {error}
+        </div>
+      ) : null}
+      {createOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-composition-title"
+          data-testid="new-composition-dialog"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+            background: "rgba(18, 24, 21, 0.28)"
+          }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !submitting) setCreateOpen(false);
+          }}
+        >
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const name = newName.trim();
+              if (!name || submitting) return;
+              setSubmitting(true);
+              const ok = await onCreate(name);
+              setSubmitting(false);
+              if (ok) {
+                setNewName("");
+                setCreateOpen(false);
+              }
+            }}
+            style={{
+              width: "min(420px, 100%)",
+              background: "var(--paper)",
+              color: "var(--ink)",
+              border: "1px solid var(--rule)",
+              borderRadius: 8,
+              boxShadow: "0 16px 48px rgba(12, 18, 15, 0.22)",
+              padding: 20
+            }}
+          >
+            <h2 id="new-composition-title" style={{ margin: 0, fontSize: 18 }}>
+              New composition
+            </h2>
+            <p style={{ margin: "8px 0 16px", color: "var(--mute)", fontSize: 13, lineHeight: 1.45 }}>
+              Start from a clean copy of {compositions.find((item) => item.id === activeId)?.name ?? activeId}.
+              Runtime sessions and installed files are left behind.
+            </p>
+            <label htmlFor="new-composition-name" style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
+              Name
+            </label>
+            <input
+              id="new-composition-name"
+              className="text"
+              autoFocus
+              value={newName}
+              disabled={submitting}
+              onChange={(event) => setNewName(event.target.value)}
+              placeholder="Codex build crew"
+              data-testid="new-composition-name"
+              style={{ width: "100%", padding: "8px 10px" }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setCreateOpen(false)}
+                style={{ padding: "7px 11px" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || !newName.trim()}
+                data-testid="new-composition-submit"
+                style={{ padding: "7px 11px" }}
+              >
+                {submitting ? "Creating and starting…" : "Create and start"}
+              </button>
+            </div>
+          </form>
         </div>
       ) : null}
     </div>

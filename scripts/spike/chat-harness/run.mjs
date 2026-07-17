@@ -35,7 +35,7 @@ const server = http.createServer((req, res) => {
   const u = url.parse(req.url || "/").pathname || "/";
   if (u === "/voice/health") {
     res.setHeader("content-type", "application/json");
-    return res.end(JSON.stringify({ available: true, url: "http://127.0.0.1:7085", keyConfigured: true }));
+    return res.end(JSON.stringify({ available: true, url: "http://127.0.0.1:27085", keyConfigured: true }));
   }
   if (u === "/voice/tts" || u === "/voice/stt") {
     res.statusCode = 200;

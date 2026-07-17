@@ -7,7 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-OUTPOST_HOST = "http://127.0.0.1:3702"
+OUTPOST_HOST = "http://127.0.0.1:23702"
 DEFAULT_TIMEOUT_MS = 30000
 
 

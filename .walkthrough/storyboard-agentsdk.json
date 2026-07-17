@@ -16,7 +16,7 @@
     {
       "type": "browser",
       "id": "agentsdk",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/quarters/agentsdk",
       "runTimeoutMs": 180000,
       "beats": [

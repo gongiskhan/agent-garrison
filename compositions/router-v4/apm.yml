@@ -24,7 +24,7 @@ x-garrison:
       gateway:
         - id: http-gateway
           config:
-            port: 4778
+            port: 24778
       memory:
         - id: memory
           config: {}

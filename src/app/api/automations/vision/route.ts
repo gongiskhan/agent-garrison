@@ -58,7 +58,7 @@ export async function POST(req: Request) {
           'Reply ONLY JSON: { "kind":"click|fill|select|check|hover|press", "role":"button|link|textbox|...", "name":"the accessible name", "value":"(for fill/select/press)" }'
         ].join("\n\n");
 
-  const gatewayUrl = process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`;
+  const gatewayUrl = process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`;
   try {
     const res = await fetch(`${gatewayUrl}/chat`, {
       method: "POST",

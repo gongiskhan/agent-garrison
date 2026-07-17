@@ -22,15 +22,15 @@ assert the clone is outside the repo. Risk accepted by the operator.
 
 ## Runtime
 
-- **Faculty:** `memory` (own-port, default port 8765). Provides `memory-store: agent-mail`.
-- **Server:** `uv run python -m mcp_agent_mail.http --host 127.0.0.1 --port 8765`
+- **Faculty:** `memory` (own-port, default port 28765). Provides `memory-store: agent-mail`.
+- **Server:** `uv run python -m mcp_agent_mail.http --host 127.0.0.1 --port 28765`
   (supervised by `scripts/start.mjs`, Garrison's own-port entry).
 - **Status file:** `~/.garrison/ui-fittings/coord-agentmail.json`
   (`{port, url, mcpUrl, webUrl, pid, startedAt}`).
-- **MCP endpoint:** `http://127.0.0.1:8765/mcp` (streamable-http). Registered as an
+- **MCP endpoint:** `http://127.0.0.1:28765/mcp` (streamable-http). Registered as an
   http MCP server `coord-agentmail` in `~/.claude.json` (user scope) on start, so a
   direct `claude` run in any repo and the orchestrator both reach it.
-- **Web UI:** `http://127.0.0.1:8765/mail`.
+- **Web UI:** `http://127.0.0.1:28765/mail`.
 
 ## Repo-scoping
 

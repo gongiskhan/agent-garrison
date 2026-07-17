@@ -96,6 +96,8 @@ describe("orchestrator transport: runtime attribution", () => {
           route: "cc-haiku-low",
           runtime: "agent-sdk",
           model: "claude-haiku-4-5",
+          effort: "high",
+          effortApplied: false,
           taskType: "other",
           tier: "T0-trivial",
           ruleId: "cell:other/T0-trivial",
@@ -117,6 +119,8 @@ describe("orchestrator transport: runtime attribution", () => {
       route: "cc-haiku-low",
       runtime: "agent-sdk",
       model: "claude-haiku-4-5",
+      effort: "high",
+      effortApplied: false,
       tier: "T0-trivial",
       ruleId: "cell:other/T0-trivial",
       profile: "balanced",
@@ -126,6 +130,23 @@ describe("orchestrator transport: runtime attribution", () => {
     // just-finished turn.
     const idleIdx = events.findIndex((e) => e.type === "turn" && (e as any).active === false);
     expect(routeIdx).toBeLessThan(idleIdx);
+  });
+
+  it("emits effort-only attribution without inventing application truth", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      sseResponse([`event: done\ndata: ${JSON.stringify({ reply: "Done.", effort: "medium" })}\n\n`])
+    ) as unknown as typeof fetch;
+
+    const t = createOrchestratorTransport("/api", "thread-effort");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("hello");
+
+    expect(events.find((e) => e.type === "route")).toMatchObject({
+      type: "route",
+      effort: "medium",
+      effortApplied: null,
+    });
   });
 
   it("does not emit a `route` event when the done frame carries no routing fields", async () => {

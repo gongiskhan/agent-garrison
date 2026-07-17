@@ -144,7 +144,7 @@ export function inferPortNeeds(repoPath: string): PortNeed[] {
           }
         }
         if (!collected.has(key) && /next dev|vite|webpack-dev-server/.test(cmd)) {
-          const defaultPort = /vite/.test(cmd) ? 5173 : 7777;
+          const defaultPort = /vite/.test(cmd) ? 5173 : 27777;
           collected.set(key, { name: key, default: defaultPort });
         }
       }

@@ -16,7 +16,7 @@
     {
       "type": "browser",
       "id": "shell",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/compose",
       "runTimeoutMs": 180000,
       "beats": [
@@ -62,8 +62,8 @@
       "tag": "LIVE",
       "expectedScreen": "terminal: the views API lists model-router and improver among registered fittings, and the composition's capabilityIssues is an empty array []",
       "commands": [
-        "curl -s http://127.0.0.1:7777/api/fittings/views | jq -r '.views[].fittingId'",
-        "curl -s http://127.0.0.1:7777/api/compositions/default | jq -c '.composition.capabilityIssues'"
+        "curl -s http://127.0.0.1:27777/api/fittings/views | jq -r '.views[].fittingId'",
+        "curl -s http://127.0.0.1:27777/api/compositions/default | jq -c '.composition.capabilityIssues'"
       ],
       "commandPause": "1500ms",
       "hold": "3600ms"

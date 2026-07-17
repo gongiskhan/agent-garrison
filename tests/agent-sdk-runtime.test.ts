@@ -254,6 +254,31 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(opts.env.ANTHROPIC_BASE_URL).toBeUndefined();
   });
 
+  it("forwards requested effort to the SDK only for a supported Anthropic target", async () => {
+    const adapter = adapterYielding([]);
+    const supported = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work",
+      effort: "high",
+    });
+    expect(adapter.buildQueryOptions(supported).effort).toBe("high");
+    expect(supported).toMatchObject({ effort: "high", effortApplied: true });
+
+    await adapter.setEffort(supported, "max");
+    expect(adapter.buildQueryOptions(supported).effort).toBe("max");
+    expect(supported).toMatchObject({ effort: "max", effortApplied: true });
+
+    const unsupported = await adapter.spawn({
+      provider: "ollama-local",
+      model: "qwen3:8b",
+      compositionDir: "/work",
+      effort: "high",
+    });
+    expect(adapter.buildQueryOptions(unsupported).effort).toBeUndefined();
+    expect(unsupported).toMatchObject({ effort: "high", effortApplied: false });
+  });
+
   it("setModel updates the model within the endpoint family; setEffort records unsupported", async () => {
     const adapter = adapterYielding([]);
     const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
@@ -262,6 +287,7 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     await adapter.setEffort(s, "high");
     expect(s.effort).toBe("high");
     expect(s.effortApplied).toBe(false); // ollama endpoint does not map effort
+    expect(adapter.buildQueryOptions(s).effort).toBeUndefined();
   });
 });
 
@@ -273,6 +299,62 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
     await adapter.sendTurn(s, "loop forever");
     const r = await adapter.awaitResponse(s);
     expect(r.stoppedReason).toBe("max_turns");
+  });
+
+  it("normalizes the SDK's post-result max-turn rejection and preserves accumulated output", async () => {
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => (async function* () {
+        yield { type: "system", session_id: "sdk-max-turn-session" };
+        yield {
+          type: "assistant",
+          message: { content: [
+            { type: "tool_use", id: "write-gate", name: "Write", input: {} },
+            { type: "text", text: "Plan and durable gate were written." }
+          ] }
+        };
+        yield {
+          type: "result",
+          subtype: "error_max_turns",
+          is_error: true,
+          errors: ["Reached maximum number of turns (24)"],
+          usage: { input_tokens: 10, output_tokens: 5 }
+        };
+        // SDK 0.3.179 rejects on the iterator step after delivering the result.
+        throw new Error("Claude Code returned an error result: Reached maximum number of turns (24)");
+      })()
+    });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 24 });
+    await adapter.sendTurn(s, "write the plan gate");
+    await expect(adapter.awaitResponse(s)).resolves.toMatchObject({
+      text: "Plan and durable gate were written.",
+      toolUses: [{ id: "write-gate", name: "Write" }],
+      stoppedReason: "max_turns"
+    });
+    expect(s.sessionId).toBe("sdk-max-turn-session");
+    expect(s.usedTokens).toBe(15);
+  });
+
+  it("does not swallow a max-turn-looking throw without the structured result envelope", async () => {
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => (async function* () {
+        throw new Error("Claude Code returned an error result: Reached maximum number of turns (24)");
+      })()
+    });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 24 });
+    await adapter.sendTurn(s, "fail before a result");
+    await expect(adapter.awaitResponse(s)).rejects.toThrow(/maximum number of turns/);
+  });
+
+  it("does not hide an unrelated iterator failure after an error_max_turns envelope", async () => {
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => (async function* () {
+        yield { type: "result", subtype: "error_max_turns", usage: { output_tokens: 1 } };
+        throw new Error("stream integrity failure");
+      })()
+    });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 24 });
+    await adapter.sendTurn(s, "fail after a result for another reason");
+    await expect(adapter.awaitResponse(s)).rejects.toThrow("stream integrity failure");
   });
 
   it("a token-budget ceiling stops and reports", async () => {

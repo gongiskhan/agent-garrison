@@ -122,4 +122,57 @@ describe("quick cards stay operator-editable on an agent list (D19 lock exemptio
     expect(manual.status).toBe(403);
     expect((await j(manual)).error).toBe("engine-owned");
   });
+
+  it("an engine Done move persists the quick turn's actual route and effort evidence", async () => {
+    const created = await j(
+      await fetch(`${base}/cards`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "quick routed", project: "demo", quick: true })
+      })
+    );
+    const id = created.card.id;
+    const afterImpl = await j(
+      await fetch(`${base}/cards/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        body: JSON.stringify({ list: "implement", rev: created.card.rev })
+      })
+    );
+    const completed = await fetch(`${base}/cards/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+      body: JSON.stringify({
+        list: "done",
+        rev: afterImpl.card.rev,
+        routeEvidence: {
+          targetId: "sdk-haiku",
+          runtime: "agent-sdk",
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          effort: "low",
+          effortApplied: true,
+          tier: "T0-trivial",
+          phase: "implement",
+          reply: "Changed the bounded file."
+        }
+      })
+    });
+    expect(completed.status).toBe(200);
+
+    const detail = await j(await fetch(`${base}/cards/${id}`));
+    const routed = detail.events.find((event: any) => event.kind === "routed");
+    expect(routed).toMatchObject({
+      detail: "Changed the bounded file.",
+      route: {
+        targetId: "sdk-haiku",
+        runtime: "agent-sdk",
+        model: "claude-haiku-4-5",
+        effort: "low",
+        effortApplied: true,
+        phase: "implement"
+      }
+    });
+    expect(routed.message).toContain("agent-sdk/claude-haiku-4-5 (T0-trivial)");
+  });
 });

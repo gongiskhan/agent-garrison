@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// outpost-tailscale-host backend — UI server on port 7082 that proxies to the
-// outpost-host daemon (default 127.0.0.1:3702). Lists registered outposts, forwards
+// outpost-tailscale-host backend — UI server on port 27082 that proxies to the
+// outpost-host daemon (default 127.0.0.1:23702). Lists registered outposts, forwards
 // register / pair / unregister / RPC / invocation-log reads, and owns the SSH
 // provisioning flow (spawns ssh, streams the provision script output over SSE).
 
@@ -28,13 +28,13 @@ function parseArgs(argv) {
   const out = {
     // GARRISON_* names are what the runner projects from composition config
     // (ownPortConfigEnv); the bare names remain for standalone use.
-    port: Number(process.env.GARRISON_OUTPOSTTAILSCALEHOST_PORT || process.env.OUTPOST_UI_PORT || 7082),
+    port: Number(process.env.GARRISON_OUTPOSTTAILSCALEHOST_PORT || process.env.OUTPOST_UI_PORT || 27082),
     host:
       process.env.GARRISON_OUTPOSTTAILSCALEHOST_BIND_HOST || process.env.OUTPOST_UI_HOST || "127.0.0.1",
     outpostHostUrl:
       process.env.GARRISON_OUTPOSTTAILSCALEHOST_OUTPOST_HOST_URL ||
       process.env.OUTPOST_HOST_URL ||
-      "http://127.0.0.1:3702"
+      "http://127.0.0.1:23702"
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];

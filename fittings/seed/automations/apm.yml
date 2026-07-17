@@ -8,7 +8,7 @@ x-garrison:
   faculty: observability
   cardinality_hint: single
   own_port: true
-  default_port: 7090
+  default_port: 27090
   component_shape: plugin
   platforms:
     - all

@@ -31,10 +31,10 @@ of the Quarters pivot:
 | sessions      | artifact-store, dev-env, browser-default, screen-share-default, outpost-tailscale-host |
 
 The own-port Fittings (the `own_port` metadata flag — Monitor pattern)
-serve their own UI/backend on their own port: monitor-default (7077),
-screen-share-default (7079), outpost-tailscale-host (7082),
-web-channel-default (7083), browser-default (7084),
-deepgram-voice (7085, headless backend), dev-env (7086).
+serve their own UI/backend on their own port: monitor-default (27077),
+screen-share-default (27079), outpost-tailscale-host (27082),
+web-channel-default (27083), browser-default (27084),
+deepgram-voice (27085, headless backend), dev-env (27086).
 
 ## Capability wiring
 

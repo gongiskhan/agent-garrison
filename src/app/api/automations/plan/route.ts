@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
   // Execute the prompt via the gateway (the operative + its auth), forwarding the
   // binding classification hint so the gateway honors the same route.
-  const gatewayUrl = process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`;
+  const gatewayUrl = process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`;
   try {
     const res = await fetch(`${gatewayUrl}/chat`, {
       method: "POST",

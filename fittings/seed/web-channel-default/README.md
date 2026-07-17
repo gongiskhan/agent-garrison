@@ -1,6 +1,6 @@
 # web-channel-default
 
-Mobile-first browser chat surface (default port **7083**). Relays browser turns
+Mobile-first browser chat surface (default port **27083**). Relays browser turns
 to the http-gateway and streams replies back. Provides the `channel:web`
 capability.
 
@@ -67,7 +67,7 @@ a LAN IP over plain `http` does **not** — the browser blocks the mic (read-alo
 
 **Check what's available:** `node scripts/secure-context.mjs --check` reports
 whether a secure context is reachable for the phone (a `tailscale serve` mapping
-for port 7083, or configured `tls_cert`/`tls_key`) and prints a machine-readable
+for port 27083, or configured `tls_cert`/`tls_key`) and prints a machine-readable
 `SECURE_CONTEXT={...}` line. It is advisory — it always exits 0 and is NOT part of
 the composition `up` verify (which stays about "server loads + binds").
 
@@ -75,7 +75,7 @@ the composition `up` verify (which stays about "server loads + binds").
 serves https automatically when `tls_cert`/`tls_key` are set. Exposing an https
 origin to the phone over Tailscale is a **manual step** — nothing runs
 `tailscale serve` during `up`. The fastest path:
-`node scripts/secure-context.mjs --serve` maps `127.0.0.1:7083` to an https tailnet
+`node scripts/secure-context.mjs --serve` maps `127.0.0.1:27083` to an https tailnet
 URL (idempotent; equivalent to the platform helper
 `scripts/tailnet-serve-views.mjs`, which does the same for every own-port view).
 
@@ -87,8 +87,8 @@ No cert management; Tailscale provides a real Let's Encrypt cert for your
 tailnet hostname:
 
 ```bash
-# web-channel listening on 127.0.0.1:7083 (default bind)
-tailscale serve https / http://127.0.0.1:7083
+# web-channel listening on 127.0.0.1:27083 (default bind)
+tailscale serve https / http://127.0.0.1:27083
 ```
 
 Then open `https://<machine>.<tailnet>.ts.net/` on the phone (must be on the

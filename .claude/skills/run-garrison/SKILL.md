@@ -1,9 +1,9 @@
 ---
 name: run-garrison
-description: Run, launch, restart, and screenshot Agent Garrison — the local Next.js web app on 127.0.0.1:7777. Use when asked to start Garrison, confirm a change works in the real app, take a screenshot of a route, or smoke-test the UI. Covers the launchd supervisor, the corrupt-.next 500, and the Playwright driver.
+description: Run, launch, restart, and screenshot Agent Garrison — the local Next.js web app on 127.0.0.1:27777. Use when asked to start Garrison, confirm a change works in the real app, take a screenshot of a route, or smoke-test the UI. Covers the launchd supervisor, the corrupt-.next 500, and the Playwright driver.
 ---
 
-Agent Garrison is a **Next.js 14 web app served on `127.0.0.1:7777`** (plus an
+Agent Garrison is a **Next.js 14 web app served on `127.0.0.1:27777`** (plus an
 "outpost" host, `node scripts/outpost-host.mjs`). On this machine it is **kept
 running by a launchd job** — you usually don't start it, you confirm it's up and
 restart it when wedged. Drive it via the committed Playwright script
@@ -38,14 +38,14 @@ Drive specific routes, or change output dir / target:
 
 ```bash
 node .claude/skills/run-garrison/driver.mjs /quarters /vault
-SHOT_DIR=/tmp/shots GARRISON_URL=http://127.0.0.1:7777 node .claude/skills/run-garrison/driver.mjs
+SHOT_DIR=/tmp/shots GARRISON_URL=http://127.0.0.1:27777 node .claude/skills/run-garrison/driver.mjs
 ```
 
 A bare HTTP smoke without a browser (when you only need status codes):
 
 ```bash
 for r in / /compose /armory /quarters /vault /run; do \
-  printf "%-12s " "$r"; curl -s -o /dev/null -w "%{http_code}\n" --max-time 60 "http://127.0.0.1:7777$r"; done
+  printf "%-12s " "$r"; curl -s -o /dev/null -w "%{http_code}\n" --max-time 60 "http://127.0.0.1:27777$r"; done
 ```
 
 ## Is it already up? (it usually is)
@@ -53,9 +53,9 @@ for r in / /compose /armory /quarters /vault /run; do \
 A launchd job runs the dev server, so the port is normally already serving:
 
 ```bash
-lsof -iTCP:7777 -sTCP:LISTEN          # node next-server listening = up
+lsof -iTCP:27777 -sTCP:LISTEN          # node next-server listening = up
 launchctl list | grep -i garrison      # -> io.garrison.dev, io.garrison.outpost
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:7777/   # 200 = healthy
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:27777/   # 200 = healthy
 ```
 
 ## Restart cleanly (and fix the corrupt-.next 500)
@@ -74,7 +74,7 @@ job:
 rm -rf .next
 launchctl kickstart -k "gui/$(id -u)/io.garrison.dev"
 # first request triggers a fresh compile (can take ~10-60s):
-curl -s -o /dev/null -w "home=%{http_code}\n" --max-time 90 http://127.0.0.1:7777/
+curl -s -o /dev/null -w "home=%{http_code}\n" --max-time 90 http://127.0.0.1:27777/
 ```
 
 Then re-run the driver to confirm all routes are 200 again.
@@ -84,11 +84,11 @@ Then re-run the driver to confirm all routes are 200 again.
 On a machine **without** the launchd job, start it directly:
 
 ```bash
-npm start      # concurrently: `next dev -H 127.0.0.1 -p 7777` + the outpost host
+npm start      # concurrently: `next dev -H 127.0.0.1 -p 27777` + the outpost host
 ```
 
 On this machine `npm start` will hit `EADDRINUSE` because launchd already holds
-7777 — use the kickstart recipe above instead. `npm run start:mobile` binds
+27777 — use the kickstart recipe above instead. `npm run start:mobile` binds
 `0.0.0.0` for LAN/phone access.
 
 ## Test

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Kanban Loop own-port server (V1b, port 7089). Serves the responsive,
+// Kanban Loop own-port server (V1b, port 27089). Serves the responsive,
 // phone-first board UI (dist/) and a small REST surface over lib/board.mjs +
 // lib/engine.mjs. It NEVER duplicates artifacts: a card stores POINTERS
 // (runId/runDir/sliceId/sessionIds/briefPath/videoUrl) and this server resolves
@@ -35,6 +35,7 @@ import {
   deleteCard,
   deriveMembership,
   appendCardLog,
+  latestCardLogNumber,
   cardBriefFile,
   cardBriefRel,
   atomicWriteJSON
@@ -56,7 +57,7 @@ import {
 import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn } from "../lib/gateway-client.mjs";
-import { inferProject } from "../lib/infer-project.mjs";
+import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
 import {
   readTouchSet,
@@ -73,7 +74,7 @@ import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
 
 const FITTING_ID = "kanban-loop";
-const DEFAULT_PORT = 7089;
+const DEFAULT_PORT = 27089;
 const HOME = os.homedir();
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
 // own-port fitting follows so spawned test instances never touch live status files.
@@ -209,7 +210,8 @@ export function cardSummary(card) {
     lastReply: card.lastReply ?? null,
     lastEvent: lastEventOf(card),
     // Per-phase runtime/model attribution for the card front: the most recent routed
-    // event's route stamp ({ targetId, runtime, provider, model, tier, phase }), or
+    // event's route stamp ({ targetId, runtime, provider, model, effort,
+    // effortApplied, tier, phase }), or
     // null when no turn has routed yet / souls mode. The board renders a small
     // "<phase> @ <model>" chip from it.
     lastRoute: lastRouteOf(card),
@@ -246,7 +248,7 @@ function lastRouteOf(card) {
 // Watch. Best-effort + bounded: a missing/short log just yields "".
 function liveTailFor(root, card, maxLines = 3, maxChars = 240) {
   try {
-    const n = card.iterations ?? 0;
+    const n = latestCardLogNumber(root, card);
     if (!n || card.status !== "running") return "";
     const f = path.join(root, "cards", card.id, `log-${n}.md`);
     if (!isReadableFile(f)) return "";
@@ -292,6 +294,10 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
     plan: null,
     brief: null,
     gateMarkers: null,
+    // Root-level durable gate records (`gate-status.<phase>.json` and the
+    // aggregate `gate-status.json`). These are the actual phase evidence used
+    // by D9 and exist independently of the legacy slice marker below.
+    gates: [],
     evidenceIndex: null,
     // The always-on evidence bundle (<runDir>/evidence/): screenshots + an evidence.md
     // log the pipeline produces even when the heavy walkthrough VIDEO is size-skipped.
@@ -306,6 +312,30 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
     links.plan = mk("plan");
     links.evidenceIndex = mk("evidenceIndex");
     if (card.sliceId) links.gateMarkers = mk("gateMarkers");
+    const runRoot = confinePath(path.resolve(cwd, card.runDir), roots);
+    if (runRoot && existsSync(runRoot)) {
+      let gateNames = [];
+      try {
+        gateNames = readdirSync(runRoot, { withFileTypes: true })
+          .filter((d) => d.isFile() && /^gate-status(?:\.[A-Za-z0-9_-]+)?\.json$/.test(d.name))
+          .map((d) => d.name)
+          .sort();
+      } catch { gateNames = []; }
+      const phaseOrder = new Map((Array.isArray(card.sequence) ? card.sequence : [])
+        .map((phase, i) => [String(phase), i]));
+      gateNames.sort((a, b) => {
+        // Put concrete phase evidence first in the card's configured workflow
+        // order; keep the aggregate gate-status.json after the sidecars.
+        if (a === "gate-status.json") return b === "gate-status.json" ? 0 : 1;
+        if (b === "gate-status.json") return -1;
+        const ap = a.slice("gate-status.".length, -".json".length);
+        const bp = b.slice("gate-status.".length, -".json".length);
+        const ai = phaseOrder.has(ap) ? phaseOrder.get(ap) : Number.MAX_SAFE_INTEGER;
+        const bi = phaseOrder.has(bp) ? phaseOrder.get(bp) : Number.MAX_SAFE_INTEGER;
+        return ai - bi || ap.localeCompare(bp);
+      });
+      links.gates = gateNames.map((name) => mk(`gate:${name}`));
+    }
     // List the evidence dir (confined first), newest meaningful order: images before the
     // log so the visual proof leads. A missing dir / read error just yields no evidence.
     const evDir = confinePath(path.resolve(cwd, card.runDir, "evidence"), roots);
@@ -337,8 +367,12 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
   }
   // The card's own per-iteration logs (cards/<id>/log-N.md) — what Watch shows
   // when nothing is live.
-  for (let n = 1; n <= (card.iterations ?? 0); n++) {
-    links.logs.push({ n, ...mk(`log:${n}`) });
+  const latestLog = latestCardLogNumber(root, card);
+  for (let n = 1; n <= latestLog; n++) {
+    links.logs.push({
+      n,
+      ...serveRef(card.id, `log:${n}`, path.join(root, "cards", card.id, `log-${n}.md`), roots)
+    });
   }
   return links;
 }
@@ -350,7 +384,15 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
 // ONLY the specific files THIS card points to — not an arbitrary absolute path.
 export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = projectRoot() } = {}) {
   if (!card || typeof ref !== "string") return null;
-  if (ref === "plan") return card.runDir ? path.resolve(cwd, card.runDir, "FLOW_PLAN.md") : null;
+  if (ref === "plan") {
+    if (!card.runDir) return null;
+    const canonical = path.resolve(cwd, card.runDir, "FLOW_PLAN.md");
+    const fallback = path.resolve(cwd, card.runDir, "plan.md");
+    // Newer/general runtimes often produce plan.md while the legacy flow skill
+    // writes FLOW_PLAN.md. Surface whichever real plan exists, retaining the
+    // canonical pending pointer when neither has landed yet.
+    return isReadableFile(canonical) || !isReadableFile(fallback) ? canonical : fallback;
+  }
   // Card-scoped: each card mints its own runId, so the per-run evidence index lives
   // under THIS card's run dir — not the shared project-global docs/autothing one.
   if (ref === "evidenceIndex") return card.runDir ? path.resolve(cwd, card.runDir, "evidence-index.json") : null;
@@ -361,6 +403,8 @@ export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = proje
       ? path.resolve(cwd, card.runDir, "slices", card.sliceId, "gate-status.json")
       : null;
   }
+  const gm = ref.match(/^gate:(gate-status(?:\.[A-Za-z0-9_-]+)?\.json)$/);
+  if (gm) return card.runDir ? path.resolve(cwd, card.runDir, gm[1]) : null;
   if (ref === "brief") {
     // A legacy explicit briefPath (project-relative, e.g. briefs/<slug>.md) resolves
     // against the project root; the card-owned marker (cards/<id>/brief.md — kanban-root
@@ -387,7 +431,7 @@ export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = proje
   const lm = ref.match(/^log:(\d+)$/);
   if (lm) {
     const n = Number(lm[1]);
-    return n >= 1 && n <= (card.iterations ?? 0) ? path.join(root, "cards", card.id, `log-${n}.md`) : null;
+    return n >= 1 && n <= latestCardLogNumber(root, card) ? path.join(root, "cards", card.id, `log-${n}.md`) : null;
   }
   return null;
 }
@@ -859,10 +903,12 @@ async function handleCreateCard(req, res, opts) {
   const rawTitle = typeof body.title === "string" ? body.title.trim() : "";
   const title = rawTitle || deriveTitle(description);
   if (!title) return jsonRes(res, 400, { error: "give the card a title or a description to infer one from" });
+  const suppliedProject = typeof body.project === "string" && body.project.trim() ? body.project.trim() : null;
+  const explicitWorkspace = suppliedProject ? null : explicitWorkspaceFromCard({ title, description });
   const card = await createCard(opts.root, {
     title,
     description,
-    project: typeof body.project === "string" && body.project.trim() ? body.project.trim() : null,
+    project: suppliedProject || explicitWorkspace,
     list: "backlog",
     goalMode: body.goalMode === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
@@ -873,13 +919,34 @@ async function handleCreateCard(req, res, opts) {
     phases: body.phases && typeof body.phases === "object" ? body.phases : null,
     tier: typeof body.tier === "string" ? body.tier : (typeof body.classification?.tier === "string" ? body.classification.tier : null),
     origin: typeof body.origin === "string" ? body.origin : null,
-    outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null
+    outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null,
+    // V4 execution identity. The gateway already includes these fields for a
+    // Dispatcher-created card; persist them through the real HTTP boundary so
+    // the engine can follow the composite sequence and resolve every leaf cell.
+    duty: typeof body.duty === "string" && body.duty.trim() ? body.duty.trim() : null,
+    level: Number.isInteger(body.level) ? body.level : null,
+    sequence:
+      Array.isArray(body.sequence) && body.sequence.every((item) => typeof item === "string")
+        ? body.sequence
+        : null
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
   if (body.quick === true) {
     const q = await updateCard(opts.root, card.id, (c) => ({ ...c, quick: true }));
     if (q) Object.assign(card, q);
+  }
+  if (explicitWorkspace) {
+    const scoped = await updateCard(opts.root, card.id, (c) => ({
+      ...c,
+      inferState: "done",
+      events: withEvent(c, inferEvent(
+        "inference",
+        `Detected explicit workspace: ${explicitWorkspace}`,
+        "Taken directly from the task text before dispatch; model-based project inference was not used."
+      ))
+    }));
+    if (scoped) Object.assign(card, scoped);
   }
   // Coordination (GARRISON-FLOW-V2 S1, Q2 point 1): when coordination is active and
   // this project already has other LIVE cards, record an honest provisional note.
@@ -942,6 +1009,50 @@ async function handleInferProject(req, res, opts, id) {
 // manual/human request subject to the D16 locks.
 export function isEngineRequest(req) {
   return typeof req.headers["x-garrison-engine"] === "string" && req.headers["x-garrison-engine"].length > 0;
+}
+
+// `x-garrison-engine` marks a privileged engine-context mutation; it does NOT
+// by itself say who owns progression. Most engine callers self-drive (the
+// garrison doorway uses advanceCardPhase; quick gateway cards run inline), so
+// their move must suppress the board's background chain. A significant gateway
+// registration explicitly hands progression to the board with this second,
+// orthogonal intent header.
+export function requestsAutoDispatch(req) {
+  return req.headers["x-garrison-dispatch"] === "auto";
+}
+
+// Strictly normalize the gateway's settled quick-turn route evidence before it
+// reaches card.json. This is accepted only on an engine-context PATCH below.
+// Strings are capped so a malformed local caller cannot inflate the timeline.
+export function quickRouteEvent(raw, at = new Date().toISOString()) {
+  if (!raw || typeof raw !== "object") return null;
+  const text = (value, max = 160) =>
+    typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  const targetId = text(raw.targetId);
+  const runtime = text(raw.runtime);
+  const provider = text(raw.provider);
+  const model = text(raw.model);
+  const effort = text(raw.effort, 40);
+  const effortApplied = typeof raw.effortApplied === "boolean" ? raw.effortApplied : null;
+  const tier = text(raw.tier, 40);
+  const phase = text(raw.phase, 80);
+  if (
+    targetId == null && runtime == null && provider == null && model == null &&
+    effort == null && effortApplied == null && tier == null
+  ) {
+    return null;
+  }
+  const route = { targetId, runtime, provider, model, effort, effortApplied, tier, phase };
+  const idPart = [runtime || provider, model].filter(Boolean).join("/");
+  let suffix = idPart ? ` · ${idPart}` : "";
+  if (tier) suffix += suffix ? ` (${tier})` : ` · (${tier})`;
+  return {
+    at,
+    kind: "routed",
+    message: `Quick task completed${suffix}`,
+    detail: replySnippet(typeof raw.reply === "string" ? raw.reply : "") || null,
+    route
+  };
 }
 
 // The field patch applied when a card is un-parked (moved OUT of
@@ -1051,6 +1162,13 @@ async function handlePatchCard(req, res, opts, id) {
     next.sliceId = s || null;
   }
   if (typeof body.acceptance === "string") next.acceptance = body.acceptance;
+  if (isEngineRequest(req) && body.routeEvidence) {
+    const event = quickRouteEvent(body.routeEvidence);
+    if (event) {
+      next.events = withEvent(next, event);
+      if (event.detail) next.lastReply = event.detail;
+    }
+  }
   const expectedRev = Number.isInteger(body.rev) ? body.rev : (card.rev ?? 0);
   const result = await saveCardCAS(root, next, expectedRev);
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
@@ -1060,12 +1178,14 @@ async function handlePatchCard(req, res, opts, id) {
   // the background, the card flips to `running` and is watchable; the PATCH returns at
   // once). A manual / interactive (Discuss) / scheduler-beat (Test) target just moves.
   //
-  // BUT an ENGINE request (x-garrison-engine: the garrison doorway positioning the
-  // card, then driving it in-session via advanceCardPhase) must NOT also fire a
-  // background processChain — that double-drives the card (background flow races the
-  // in-session driver → invalid-verdict/park). The header now genuinely suppresses
-  // auto-dispatch, matching the doorway's intent + engine.mjs's own claim (rev2-s567 S5-2).
-  const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !isEngineRequest(req);
+  // An engine-context request suppresses the background chain UNLESS it explicitly
+  // hands progression to the board. The garrison doorway omits that intent because
+  // it drives in-session via advanceCardPhase; quick gateway cards omit it because
+  // they run inline. Significant gateway registrations include it because they
+  // return after registration and otherwise leave the card stranded until a tick or
+  // manual Run press.
+  const callerOwnsProgression = isEngineRequest(req) && !requestsAutoDispatch(req);
+  const autoDispatch = typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !callerOwnsProgression;
   if (autoDispatch && opts.gatewayUrl) {
     // Coordination (GARRISON-FLOW-V2 S1) gates, applied the same way the tick does
     // before dispatching: a card deferred behind an overlapping run does NOT
@@ -1415,30 +1535,48 @@ async function handleStartCard(req, res, opts, id) {
     });
   }
 
-  // Manual column: Start just advances to the first valid next (the "move a card
-  // out of a manual column" path — Backlog/To Do/Done/needs-attention).
+  // Manual column: Start normally advances to the first valid next. A parked card is
+  // different: `parkedFrom` is the phase that actually failed, so recover to that
+  // list when it still exists instead of silently restarting at needs-attention's
+  // generic first edge (normally To Do). The parked phase need not be present in the
+  // static validNext union — a card's resolved sequence can legitimately start later
+  // than the board-wide union (D15).
   if (list.kind !== "agent") {
     const targets = validNextFor(board, card.list);
-    if (!targets.length) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
-    const recover = card.list === "needs-attention"
-      ? { attentionReason: null, parkedFrom: null, lastDispatchError: null, iterations: 0 }
-      : {};
+    const parkedTarget =
+      card.list === ATTENTION_LIST &&
+      typeof card.parkedFrom === "string" &&
+      card.parkedFrom !== ATTENTION_LIST &&
+      getList(board, card.parkedFrom)
+        ? card.parkedFrom
+        : null;
+    const target = parkedTarget ?? targets[0];
+    if (!target) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
+    const recovering = card.list === ATTENTION_LIST;
+    const recover = recovering ? unparkRecoveryFields(card) : {};
     const fromTitle = list.title || card.list;
-    const toTitle = getList(board, targets[0])?.title || targets[0];
-    const advanceEvent = withEvent(card, {
+    const toTitle = getList(board, target)?.title || target;
+    let events = withEvent(card, {
       at: new Date().toISOString(),
-      kind: card.list === "needs-attention" ? "recovered" : "moved",
-      message: card.list === "needs-attention" ? `Recovered: advanced ${fromTitle} → ${toTitle}` : `Advanced ${fromTitle} → ${toTitle}`
+      kind: recovering ? "recovered" : "moved",
+      message: recovering ? `Recovered: advanced ${fromTitle} → ${toTitle}` : `Advanced ${fromTitle} → ${toTitle}`
     });
-    const next = { ...card, list: targets[0], status: "ok", events: advanceEvent, ...recover };
+    if (recovering && card.retryKeepsContext) {
+      events = withEvent({ events }, {
+        at: new Date().toISOString(),
+        kind: "retry-keeps-context",
+        message: "Retry preserves prior context (phase runDir + iteration logs kept)"
+      });
+    }
+    const next = { ...card, list: target, status: "ok", events, ...recover };
     const result = await saveCardCAS(root, next, card.rev ?? 0);
     if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
     // If we advanced onto an immediate agent list, kick the automated flow.
-    if (shouldAutoDispatch(board, targets[0]) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
+    if (shouldAutoDispatch(board, target) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
       void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd })
         .catch((err) => console.error(`[kanban-loop] advance-chain failed for ${id}:`, err?.message || err));
     }
-    return jsonRes(res, 200, { card: cardSummary(result.card), advanced: targets[0] });
+    return jsonRes(res, 200, { card: cardSummary(result.card), advanced: target });
   }
 
   // Agent list: dispatch through the engine. Requires a LIVE gateway — PING it first
@@ -1490,7 +1628,7 @@ async function handleStartCard(req, res, opts, id) {
 // transient gateway failure must REVERT a card, not park it).
 
 // GET /cards/:id/watch — SSE. For a LIVE run (card.status === "running") it tails
-// the latest log-<iterations>.md as it grows; otherwise it sends the linked
+// the latest monotonic log-N.md as it grows; otherwise it sends the linked
 // static logs once and closes. There is NO tmux attach — the pooled gateway
 // operative is raw node-pty (v4 wireframe §4 + the board-ui non-negotiable):
 // Watch is the card's log via SSE for a live run, the web chat for an
@@ -1512,8 +1650,8 @@ async function handleWatchCard(req, res, opts, id) {
     try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {}
   };
 
-  const live = card.status === "running" && (card.iterations ?? 0) > 0;
-  const n = card.iterations ?? 0;
+  const n = latestCardLogNumber(root, card);
+  const live = card.status === "running" && n > 0;
   const logFile = path.join(root, "cards", id, `log-${n}.md`);
 
   if (!live) {
@@ -1879,10 +2017,10 @@ function parseArgs(argv) {
     cwd: projectRoot(),
     // Default to the gateway's conventional URL (like the web channel) so the board can
     // dispatch agent-list runs even when GARRISON_GATEWAY_URL isn't explicitly injected.
-    // The runner injects the live URL; this default covers the common :4777 gateway.
+    // The runner injects the live URL; this default covers the common :24777 gateway.
     gatewayUrl:
       process.env.GARRISON_GATEWAY_URL ||
-      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`,
+      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`,
     cap: Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10)
   };
   for (let i = 0; i < argv.length; i++) {

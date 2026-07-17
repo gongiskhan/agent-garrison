@@ -81,7 +81,7 @@ the local time of the tick, not UTC.
   {
     "id": "morning-briefing",
     "cron": "0 8 * * 1-5",
-    "command": "curl -X POST http://127.0.0.1:4777/jobs -d ...",
+    "command": "curl -X POST http://127.0.0.1:24777/jobs -d ...",
     "enabled": true,
     "last_run": "2026-05-07T07:00:00.000Z",
     "last_run_minute": "2026-5-7T8:0"

@@ -48,6 +48,10 @@ export interface RouteAttribution {
   runtime?: string | null;
   provider?: string | null;
   model?: string | null;
+  /** Policy-requested effort; presence alone does not mean it was honored. */
+  effort?: string | null;
+  /** True/false when the runtime reported application truth; null when unknown. */
+  effortApplied?: boolean | null;
   taskType?: string | null;
   tier?: string | null;
   ruleId?: string | null;

@@ -155,8 +155,8 @@ Context, Plans — is now a **Quarters platform primitive** surfaced over the re
 
 **Own-port runtime residue** — survives at runtime under
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
-flag: `dev-env` (7086), `screen-share` (7079), `outposts` (7082),
-`monitor` (7077), `web-channel` (7083), `browser` (7084), `voice` (7085).
+flag: `dev-env` (27086), `screen-share` (27079), `outposts` (27082),
+`monitor` (27077), `web-channel` (27083), `browser` (27084), `voice` (27085).
 The Dev Env Fitting is one tabbed surface: every Claude Code session is a tab
 holding a Claude PTY + shell PTY (left) and the live browser pane (right), with
 PR / commit-and-push actions on the current branch in the menu. Sessions run in

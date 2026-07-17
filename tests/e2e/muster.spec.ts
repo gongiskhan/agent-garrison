@@ -1,4 +1,8 @@
 import { test, expect } from "@playwright/test";
+
+// The switch-gating proof intercepts its POST; keep a PWA service worker from
+// bypassing Playwright's page routing for that request.
+test.use({ serviceWorkers: "block" });
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -170,4 +174,36 @@ test("(e) no horizontal overflow at 390px", async ({ page }) => {
     return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
   });
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+});
+
+test("composition selection waits for the full switch before reloading", async ({ page }) => {
+  let received: { method: string; body: unknown } | null = null;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/composition/switch", async (route) => {
+    received = {
+      method: route.request().method(),
+      body: route.request().postDataJSON()
+    };
+    await gate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, id: "default" })
+    });
+  });
+
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await expect(page.getByTestId("muster-page")).toBeVisible();
+  await page.getByLabel("Switch composition").selectOption("default");
+  await expect.poll(() => received).not.toBeNull();
+  expect(received).toEqual({ method: "POST", body: { target: "default" } });
+  // The old pointer-only implementation reloaded immediately. The page must
+  // remain on the viewed composition until clean down/up reports success.
+  await expect(page).toHaveURL(new RegExp(`composition=${FIXTURE_ID}`));
+
+  release();
+  await expect(page).toHaveURL(/\/muster$/, { timeout: 10000 });
 });

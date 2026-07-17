@@ -57,9 +57,9 @@ describe("migrateCompositionV3ToV4", () => {
         {
           id: "http-gateway",
           config: {
-            port: 4777,
+            port: 24777,
             bind_host: "127.0.0.1",
-            gateway_url: "http://127.0.0.1:4777",
+            gateway_url: "http://127.0.0.1:24777",
             public_url: "https://example.com"
           }
         }
@@ -70,7 +70,7 @@ describe("migrateCompositionV3ToV4", () => {
           config: { vault_dir: "~/ObsidianVault", board_dir: "/home/tester/.garrison/kanban" }
         }
       ],
-      observability: [{ id: "monitor", config: { slack_port: 9512, empty_url: "" } }]
+      observability: [{ id: "monitor", config: { slack_port: 29512, empty_url: "" } }]
     });
     const original = await fs.readFile(path.join(dir, "apm.yml"), "utf8");
 
@@ -87,9 +87,9 @@ describe("migrateCompositionV3ToV4", () => {
     expect(migrated.schema).toBe(4);
 
     // (d) ports / host / localhost url kept in apm.yml as portable defaults.
-    expect(migrated.selections.gateway[0].config.port).toBe(4777);
+    expect(migrated.selections.gateway[0].config.port).toBe(24777);
     expect(migrated.selections.gateway[0].config.bind_host).toBe("127.0.0.1");
-    expect(migrated.selections.gateway[0].config.gateway_url).toBe("http://127.0.0.1:4777");
+    expect(migrated.selections.gateway[0].config.gateway_url).toBe("http://127.0.0.1:24777");
     // non-localhost url stays put and is not machine-local.
     expect(migrated.selections.gateway[0].config.public_url).toBe("https://example.com");
     // paths removed from the committed manifest.
@@ -105,16 +105,16 @@ describe("migrateCompositionV3ToV4", () => {
     const overlay = yaml.load(await fs.readFile(path.join(dir, "local.yml"), "utf8")) as any;
     expect(overlay.global_config.projects_root).toBe("~/dev");
     expect(overlay.selections.gateway[0].config).toEqual({
-      port: 4777,
+      port: 24777,
       bind_host: "127.0.0.1",
-      gateway_url: "http://127.0.0.1:4777"
+      gateway_url: "http://127.0.0.1:24777"
     });
     expect(overlay.selections.gateway[0].config).not.toHaveProperty("public_url");
     expect(overlay.selections.memory[0].config).toEqual({
       vault_dir: "~/ObsidianVault",
       board_dir: "/home/tester/.garrison/kanban"
     });
-    expect(overlay.selections.observability[0].config).toEqual({ slack_port: 9512 });
+    expect(overlay.selections.observability[0].config).toEqual({ slack_port: 29512 });
 
     // (e) a unified diff was produced showing the added marker + removed path.
     expect(result.diff).toContain("schema: 4");
@@ -147,7 +147,7 @@ describe("migrateCompositionV3ToV4", () => {
 
   it("refuses to run twice (the .v3.bak marker is the idempotence guard)", async () => {
     await writeFixture(dir, {
-      gateway: [{ id: "http-gateway", config: { port: 4777 } }]
+      gateway: [{ id: "http-gateway", config: { port: 24777 } }]
     });
 
     const first = await migrateCompositionV3ToV4(dir);

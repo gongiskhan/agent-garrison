@@ -16,7 +16,7 @@ npm install
 npm start
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+Then open [http://localhost:27777](http://localhost:27777).
 
 The app has no auth and only talks to localhost. v1 targets Claude Code
 and shells out to Microsoft APM for install, audit, and lockfile
