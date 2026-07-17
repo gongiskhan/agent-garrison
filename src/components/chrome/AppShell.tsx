@@ -24,8 +24,16 @@ import type {
 export interface AppShellState {
   // data
   composition: Composition | null;
+  compositions: Composition[];
   library: LibraryEntry[];
   runnerState: RunnerState | null;
+  // active-composition switching (WS4 / D6) - rendered by the Sidebar footer
+  activePointer: string | null;
+  activeExternal: boolean;
+  switching: boolean;
+  switchError: string | null;
+  switchTo: (target: string) => void;
+  dismissSwitchError: () => void;
   // vault
   vaultUnlocked: boolean;
   vaultNeedsPassword: boolean;
@@ -51,6 +59,8 @@ export interface AppShellState {
   // sidebar
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  // < NARROW_BREAKPOINT - the expanded sidebar renders as an overlay drawer
+  narrowViewport: boolean;
   // editor modal
   editingFitting: LibraryEntry | null;
   openFittingEditor: (entry: LibraryEntry) => void;
@@ -112,10 +122,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   // window resize.
   const NARROW_BREAKPOINT = 720;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [narrowViewport, setNarrowViewport] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Only touch the collapse state when the viewport CROSSES the breakpoint.
+    // Mobile browsers fire resize on URL-bar / keyboard height changes; those
+    // must not snap-close a drawer the user just opened.
+    let prevNarrow: boolean | null = null;
     function applyForViewport() {
       const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      setNarrowViewport(narrow);
+      if (narrow === prevNarrow) return;
+      prevNarrow = narrow;
       if (narrow) {
         setSidebarCollapsed(true);
       } else {
@@ -364,8 +382,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const value = useMemo<AppShellState>(
     () => ({
       composition,
+      compositions,
       library,
       runnerState,
+      activePointer,
+      activeExternal,
+      switching,
+      switchError,
+      switchTo,
+      dismissSwitchError: () => setSwitchError(null),
       vaultUnlocked,
       vaultNeedsPassword,
       vaultDevMode,
@@ -383,14 +408,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       setError,
       sidebarCollapsed,
       toggleSidebar,
+      narrowViewport,
       editingFitting,
       openFittingEditor: setEditingFitting,
       closeFittingEditor: () => setEditingFitting(null)
     }),
     [
       composition,
+      compositions,
       library,
       runnerState,
+      activePointer,
+      activeExternal,
+      switching,
+      switchError,
+      switchTo,
       vaultUnlocked,
       vaultNeedsPassword,
       vaultDevMode,
@@ -406,6 +438,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       saveSecrets,
       sidebarCollapsed,
       toggleSidebar,
+      narrowViewport,
       editingFitting
     ]
   );
@@ -414,21 +447,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     <Ctx.Provider value={value}>
       <div
         className="app-shell"
-        style={{ gridTemplateColumns: sidebarCollapsed ? "48px 1fr" : "244px 1fr" }}
+        style={{
+          // At narrow widths the expanded sidebar is a fixed overlay drawer
+          // (out of flow), so the grid keeps the 48px rail column either way.
+          gridTemplateColumns:
+            sidebarCollapsed || narrowViewport ? "48px 1fr" : "244px 1fr"
+        }}
       >
         <Sidebar />
         {children}
       </div>
-      <CompositionSwitcher
-        compositions={compositions}
-        activeId={composition?.id ?? null}
-        activePointer={activePointer}
-        activeExternal={activeExternal}
-        switching={switching}
-        error={switchError}
-        onSwitch={switchTo}
-        onDismissError={() => setSwitchError(null)}
-      />
       {editingFitting ? (
         <FittingEditor
           entry={editingFitting}
@@ -439,117 +467,5 @@ export function AppShell({ children }: { children: ReactNode }) {
           the demo/guided player on the current surface. */}
       <TourEngine />
     </Ctx.Provider>
-  );
-}
-
-// Floating active-composition switcher (WS4 / D6). A native <select> of the
-// compositions/ entries (plus the active pointer when it's an external path)
-// bound to the persisted pointer. Selecting an entry runs a clean down -> up via
-// /api/composition/switch; a resolver error is shown inline and the selection is
-// left unchanged (the value is controlled by the current active id).
-function CompositionSwitcher({
-  compositions,
-  activeId,
-  activePointer,
-  activeExternal,
-  switching,
-  error,
-  onSwitch,
-  onDismissError
-}: {
-  compositions: Composition[];
-  activeId: string | null;
-  activePointer: string | null;
-  activeExternal: boolean;
-  switching: boolean;
-  error: string | null;
-  onSwitch: (target: string) => void;
-  onDismissError: () => void;
-}) {
-  if (compositions.length === 0 && !activePointer) return null;
-
-  // The select value: the active pointer verbatim when external (so its option
-  // matches), else the resolved active id.
-  const selectValue = activeExternal && activePointer ? activePointer : activeId ?? "";
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: 10,
-        right: 14,
-        zIndex: 40,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-end",
-        gap: 4,
-        maxWidth: "min(360px, calc(100vw - 28px))"
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 10px",
-          background: "var(--paper)",
-          border: "1px solid var(--rule)",
-          borderRadius: 6,
-          boxShadow: "0 1px 3px rgba(24, 33, 28, 0.08)"
-        }}
-      >
-        <label
-          htmlFor="composition-switcher"
-          style={{ fontSize: 11.5, color: "var(--mute)", whiteSpace: "nowrap" }}
-        >
-          Composition
-        </label>
-        <select
-          id="composition-switcher"
-          className="text"
-          value={selectValue}
-          disabled={switching}
-          onChange={(event) => {
-            const target = event.target.value;
-            if (target && target !== selectValue) onSwitch(target);
-          }}
-          style={{ width: "auto", minWidth: 150, padding: "5px 8px", fontSize: 12.5 }}
-        >
-          {activeExternal && activePointer ? (
-            <option value={activePointer}>{`${activeId ?? activePointer} (external)`}</option>
-          ) : null}
-          {compositions.map((composition) => (
-            <option key={composition.id} value={composition.id}>
-              {composition.name}
-            </option>
-          ))}
-        </select>
-        {switching ? (
-          <span style={{ fontSize: 11.5, color: "var(--mute)", whiteSpace: "nowrap" }}>
-            switching...
-          </span>
-        ) : null}
-      </div>
-      {error ? (
-        <div
-          role="alert"
-          onClick={onDismissError}
-          title="Click to dismiss"
-          style={{
-            fontSize: 11.5,
-            color: "var(--alarm)",
-            background: "var(--alarm-soft)",
-            border: "1px solid var(--alarm)",
-            borderRadius: 6,
-            padding: "6px 10px",
-            whiteSpace: "pre-wrap",
-            cursor: "pointer",
-            maxWidth: "100%"
-          }}
-        >
-          {error}
-        </div>
-      ) : null}
-    </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -42,7 +42,16 @@ import type {
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
-  const { composition, library, runnerState, sidebarCollapsed, toggleSidebar } = useAppShell();
+  const {
+    composition,
+    library,
+    runnerState,
+    sidebarCollapsed,
+    toggleSidebar,
+    narrowViewport,
+    switching,
+    switchError
+  } = useAppShell();
   const { entries: viewStatuses } = useFittingViewStatus();
 
   const stationedCount = countStationed(composition);
@@ -72,47 +81,76 @@ export function Sidebar() {
   const uptime =
     isRunning && runnerState?.startedAt && now
       ? formatUptime(now - new Date(runnerState.startedAt).getTime())
-      : "—";
+      : "-";
+
+  // At narrow widths the expanded sidebar is an overlay drawer above the
+  // content column; tapping the scrim, pressing Escape, or following any
+  // link closes it. At desktop widths it is the normal sticky grid column.
+  const overlay = !sidebarCollapsed && narrowViewport;
+
+  // While the drawer is open: lock the page scroll behind it, move focus
+  // into it, and close on Escape.
+  const drawerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!overlay) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    drawerRef.current?.querySelector<HTMLElement>("button, a")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") toggleSidebar();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [overlay, toggleSidebar]);
 
   if (sidebarCollapsed) {
     return (
-      <aside
-        className="side"
-        style={{ padding: "10px 4px", alignItems: "center", overflow: "hidden" }}
-      >
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          title="Expand sidebar"
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--mute)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 6,
-            width: "100%",
-          }}
-        >
-          <ChevronRight size={16} aria-hidden />
-        </button>
-        <Link href="/" title="Agent Garrison" style={{ display: "block", marginTop: 8, lineHeight: 0 }}>
-          <svg viewBox="0 0 80 80" fill="none" width={32} height={32} aria-hidden>
-            <path
-              d="M14 24 L19 18 L24 24 L24 64 L14 64 Z M28 20 L33 14 L38 20 L38 64 L28 64 Z M42 24 L47 18 L52 24 L52 64 L42 64 Z M56 20 L61 14 L66 20 L66 64 L56 64 Z"
-              fill="#18211c"
-            />
-            <rect x="10" y="40" width="60" height="3" fill="#b4862a" />
-          </svg>
-        </Link>
-      </aside>
+      <CollapsedRail onExpand={toggleSidebar} switching={switching} switchError={switchError} />
     );
   }
 
-  return (
-    <aside className="side">
+  const expanded = (
+    <aside
+      ref={drawerRef}
+      className={clsx("side", overlay && "side-overlay")}
+      role={overlay ? "dialog" : undefined}
+      aria-modal={overlay ? true : undefined}
+      aria-label={overlay ? "Garrison menu" : undefined}
+      onClick={
+        overlay
+          ? (event) => {
+              if ((event.target as HTMLElement).closest("a")) toggleSidebar();
+            }
+          : undefined
+      }
+      onKeyDown={
+        overlay
+          ? (event) => {
+              // Keep Tab cycling inside the drawer while it is open - the
+              // content behind the scrim is visually inert.
+              if (event.key !== "Tab") return;
+              const root = drawerRef.current;
+              if (!root) return;
+              const focusables = root.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+              );
+              if (focusables.length === 0) return;
+              const first = focusables[0];
+              const last = focusables[focusables.length - 1];
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+              }
+            }
+          : undefined
+      }
+    >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 2 }}>
         <Link className="brand" href="/" style={{ flex: 1, paddingBottom: 0, borderBottom: "none", marginBottom: 0 }}>
           <span className="brand-mark" aria-hidden>
@@ -191,10 +229,7 @@ export function Sidebar() {
       </nav>
 
       <div className="side-foot">
-        <div className="row">
-          <span>operative</span>
-          <b>{composition?.name ?? "—"}</b>
-        </div>
+        <CompositionSwitcher />
         <div className="row">
           <span>status</span>
           <span className={clsx("pill", statusToneClass(status), isRunning && "live")}>
@@ -208,20 +243,106 @@ export function Sidebar() {
         </div>
         <div className="row">
           <span>verify</span>
-          <b>{verifyTotal ? `${verifyOk}/${verifyTotal}` : "—"}</b>
+          <b>{verifyTotal ? `${verifyOk}/${verifyTotal}` : "-"}</b>
         </div>
         <div className="row">
           <span>views</span>
-          <b>{knownViews ? `${liveViews}/${knownViews} live` : "—"}</b>
+          <b>{knownViews ? `${liveViews}/${knownViews} live` : "-"}</b>
         </div>
         <div className="row">
           <span>dev · pid</span>
           <b>
             {runnerState?.devMode ? "dev · " : ""}
-            {runnerState?.pid ?? "—"}
+            {runnerState?.pid ?? "-"}
           </b>
         </div>
       </div>
+    </aside>
+  );
+
+  if (!overlay) return expanded;
+  // The 48px grid column sits empty behind the drawer - rendering the rail
+  // there would leave invisible controls in the tab order under the scrim.
+  return (
+    <>
+      <button
+        type="button"
+        className="side-scrim"
+        aria-label="Close menu"
+        onClick={toggleSidebar}
+      />
+      {expanded}
+    </>
+  );
+}
+
+function CollapsedRail({
+  onExpand,
+  switching,
+  switchError
+}: {
+  onExpand: () => void;
+  switching: boolean;
+  switchError: string | null;
+}) {
+  return (
+    <aside
+      className="side"
+      style={{ padding: "10px 4px", alignItems: "center", overflow: "hidden" }}
+    >
+      <button
+        type="button"
+        onClick={onExpand}
+        title="Expand sidebar"
+        style={{
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          color: "var(--mute)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 6,
+          width: "100%",
+        }}
+      >
+        <ChevronRight size={16} aria-hidden />
+      </button>
+      <Link href="/" title="Agent Garrison" style={{ display: "block", marginTop: 8, lineHeight: 0 }}>
+        <svg viewBox="0 0 80 80" fill="none" width={32} height={32} aria-hidden>
+          <path
+            d="M14 24 L19 18 L24 24 L24 64 L14 64 Z M28 20 L33 14 L38 20 L38 64 L28 64 Z M42 24 L47 18 L52 24 L52 64 L42 64 Z M56 20 L61 14 L66 20 L66 64 L56 64 Z"
+            fill="#18211c"
+          />
+          <rect x="10" y="40" width="60" height="3" fill="#b4862a" />
+        </svg>
+      </Link>
+      {switching || switchError ? (
+        // The switch state lives in the expanded footer; while collapsed,
+        // surface at least a dot so an in-flight switch or a failure is
+        // never fully invisible. Expanding shows the detail.
+        <span
+          role={switchError ? "alert" : "status"}
+          title={
+            switchError
+              ? `Composition switch failed - expand the menu for details`
+              : "Switching composition..."
+          }
+          aria-label={
+            switchError
+              ? "Composition switch failed - expand the menu for details"
+              : "Switching composition"
+          }
+          style={{
+            display: "block",
+            marginTop: 12,
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            background: switchError ? "var(--alarm)" : "var(--sage-2)"
+          }}
+        />
+      ) : null}
     </aside>
   );
 }
@@ -445,6 +566,92 @@ function FittingViewsLinks({
         );
       })}
     </>
+  );
+}
+
+// Active-composition switcher (WS4 / D6), stationed at the bottom of the
+// sidebar menu. A native <select> of the compositions/ entries (plus the
+// active pointer when it's an external path) bound to the persisted pointer.
+// Selecting an entry runs a clean down -> up via /api/composition/switch; a
+// resolver error is shown inline and the selection is left unchanged (the
+// value is controlled by the current active id).
+function CompositionSwitcher() {
+  const {
+    composition,
+    compositions,
+    activePointer,
+    activeExternal,
+    switching,
+    switchError,
+    switchTo,
+    dismissSwitchError
+  } = useAppShell();
+
+  if (compositions.length === 0 && !activePointer) {
+    return (
+      <div className="row">
+        <span>operative</span>
+        <b>{composition?.name ?? "-"}</b>
+      </div>
+    );
+  }
+
+  const activeId = composition?.id ?? null;
+  // The select value: the active pointer verbatim when external (so its option
+  // matches), else the resolved active id.
+  const selectValue = activeExternal && activePointer ? activePointer : activeId ?? "";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingBottom: 6 }}>
+      <div className="row">
+        <label htmlFor="composition-switcher">operative</label>
+        {switching ? <span>switching...</span> : null}
+      </div>
+      <select
+        id="composition-switcher"
+        className="text"
+        value={selectValue}
+        disabled={switching}
+        onChange={(event) => {
+          const target = event.target.value;
+          if (target && target !== selectValue) switchTo(target);
+        }}
+        style={{ width: "100%", padding: "5px 8px", fontSize: 12 }}
+      >
+        {activeExternal && activePointer ? (
+          <option value={activePointer}>{`${activeId ?? activePointer} (external)`}</option>
+        ) : null}
+        {compositions.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.name}
+          </option>
+        ))}
+      </select>
+      {switchError ? (
+        <div
+          role="alert"
+          onClick={dismissSwitchError}
+          title="Click to dismiss"
+          style={{
+            fontSize: 10.5,
+            color: "var(--alarm)",
+            background: "var(--alarm-soft)",
+            border: "1px solid var(--alarm)",
+            borderRadius: 4,
+            padding: "5px 8px",
+            whiteSpace: "pre-wrap",
+            cursor: "pointer",
+            lineHeight: 1.4,
+            // A multi-line resolver error must never swallow the menu at
+            // landscape-phone heights; clamp and scroll instead.
+            maxHeight: 96,
+            overflowY: "auto"
+          }}
+        >
+          {switchError}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

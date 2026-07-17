@@ -26,6 +26,7 @@ import {
   shouldGuidedAdvance,
   type TourState
 } from "@/lib/tour-machine";
+import { useAppShell } from "@/components/chrome/AppShell";
 
 type Mode = "demo" | "guided";
 
@@ -131,6 +132,17 @@ export function TourEngine() {
 
   const step: TourStep | undefined =
     descriptor && tourState ? descriptor.steps[tourState.index] : undefined;
+
+  // A step whose target lives inside the expanded sidebar (requires:
+  // "sidebar-expanded") can't resolve while the sidebar is collapsed - the
+  // default at phone widths and a persisted preference on desktop. Expand it
+  // before the selector poll gives up.
+  const { sidebarCollapsed, toggleSidebar } = useAppShell();
+  useEffect(() => {
+    if (status !== "playing") return;
+    if (step?.requires !== "sidebar-expanded") return;
+    if (sidebarCollapsed) toggleSidebar();
+  }, [step, status, sidebarCollapsed, toggleSidebar]);
 
   // Resolve + measure the current step's target. Polls until it appears (routes
   // load async), then tracks it on scroll/resize.

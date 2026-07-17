@@ -302,7 +302,12 @@ const tourStepSchema = z
     selector: z.string().min(1),
     action: tourActionSchema.optional(),
     assert: tourAssertSchema.optional(),
-    spotlight: z.boolean().optional()
+    spotlight: z.boolean().optional(),
+    // Shell state the step's target needs to exist. "sidebar-expanded":
+    // the target lives in the expanded sidebar (e.g. the footer's
+    // composition switcher), which unmounts while the sidebar is collapsed;
+    // the tour engine expands it before resolving the selector.
+    requires: z.enum(["sidebar-expanded"]).optional()
   })
   .strict();
 
