@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import clsx from "clsx";
+import { useEffect, useState } from "react";
 import { Play, Square } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { PageSkeleton } from "@/components/chrome/PageSkeleton";
 import { RunConsole } from "@/components/run/RunPanel";
 import { faculties } from "@/lib/faculties";
+import type { BoardSummary } from "@/lib/board-summary";
 import type { RunnerState } from "@/lib/types";
 
 export function GarrisonHome() {
@@ -199,6 +201,8 @@ export function GarrisonHome() {
             />
           </Panel>
 
+          <BoardPanel />
+
           {composition.derivedTasks ? (
             <Panel title={`Tasks · derived from ${prettySource(composition.derivedTasks.source)}`}>
               <div className="font-mono" style={{ color: "var(--mute)", fontSize: 11.5, marginBottom: 8 }}>
@@ -265,6 +269,107 @@ function Stat({
         </div>
       ) : null}
     </div>
+  );
+}
+
+const ATTENTION_TITLES_SHOWN = 5;
+
+function BoardPanel() {
+  const [summary, setSummary] = useState<BoardSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/board/summary");
+        if (!res.ok) return;
+        const data = (await res.json()) as BoardSummary;
+        if (!cancelled) setSummary(data);
+      } catch {
+        // Keep the last known state; the panel stays quiet on a fetch failure.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  // Loading and fetch-failure render the idle state — a dashboard panel
+  // should never show an error banner for a board that simply isn't there.
+  const active = summary && !summary.idle ? summary : null;
+  const shownTitles = active?.needsAttentionCards.slice(0, ATTENTION_TITLES_SHOWN) ?? [];
+  const extraTitles = (active?.needsAttentionCards.length ?? 0) - shownTitles.length;
+
+  return (
+    <Panel title="Board">
+      <div data-testid="board-panel">
+        {active ? (
+          <>
+            <ReadyRow
+              label="Running"
+              value={String(active.running)}
+              tone={active.running > 0 ? "ok" : "default"}
+            />
+            <ReadyRow
+              label="Needs attention"
+              value={String(active.needsAttention)}
+              tone={active.needsAttention > 0 ? "alarm" : "default"}
+            />
+            <ReadyRow label="Done" value={String(active.done)} />
+            {shownTitles.length > 0 ? (
+              <div style={{ marginTop: 10, borderTop: "1px solid var(--rule)", paddingTop: 8 }}>
+                {shownTitles.map((card) =>
+                  active.boardUrl ? (
+                    <a
+                      key={card.id}
+                      href={active.boardUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={card.reason ?? undefined}
+                      style={{
+                        display: "block",
+                        fontSize: 13,
+                        color: "var(--ink)",
+                        textDecoration: "underline",
+                        textDecorationColor: "var(--rule)",
+                        padding: "3px 0"
+                      }}
+                    >
+                      {card.title}
+                    </a>
+                  ) : (
+                    <span
+                      key={card.id}
+                      title={card.reason ?? undefined}
+                      style={{ display: "block", fontSize: 13, padding: "3px 0" }}
+                    >
+                      {card.title}
+                    </span>
+                  )
+                )}
+                {extraTitles > 0 ? (
+                  <div className="font-mono" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
+                    +{extraTitles} more
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div style={{ fontSize: 13, color: "var(--mute)" }}>
+            Board idle. Nothing running, nothing needing attention.
+            {summary && summary.done > 0 ? (
+              <div className="font-mono" style={{ fontSize: 10.5, marginTop: 6 }}>
+                {summary.done} done
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </Panel>
   );
 }
 
