@@ -18,7 +18,7 @@
 // No model/effort pins - the agent session inherits the user's defaults.
 
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -191,7 +191,10 @@ function parseSentinel(logText) {
   return { ok, failed };
 }
 
-async function logTail(file, bytes = 64000) {
+// Exported so the server can serve a job's log tail directly - the error
+// strings elsewhere in this app already point the user at "the plan log";
+// this is what finally lets that be a real link instead of a dead end.
+export async function logTail(file, bytes = 64000) {
   try {
     const text = await fs.readFile(file, "utf8");
     return text.length > bytes ? text.slice(-bytes) : text;
@@ -234,7 +237,9 @@ async function drillsChangedSince(root, before) {
 
 export function publicPlanJob(job) {
   if (!job) return null;
-  const { proc, ...rest } = job;
+  // proc (the live ChildProcess) and snapshot (a Map - JSON.stringify would
+  // silently emit "{}") never belong in the wire payload.
+  const { proc, snapshot, ...rest } = job;
   return rest;
 }
 
@@ -249,12 +254,18 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
   if (existing && existing.status === "planning") return existing;
 
   const startedAt = new Date().toISOString();
+  const deadlineAt = new Date(Date.now() + timeoutMs).toISOString();
+  // A pinned session id (accepted by `-p`, not banned by the headless-purge
+  // policy) is what lets progress be derived from the session's OWN
+  // transcript JSONL - see planProgress - without adding any banned flag
+  // (--output-format stream-json) to the model-call surface.
+  const sessionId = randomUUID();
   // Registered BEFORE any await: two concurrent kicks for the same root must
   // not both pass the in-flight guard and spawn two agent sessions.
   const job = {
     root, mode: brief ? "update" : "full", brief, status: "planning",
-    startedAt, endedAt: null, logFile: null, error: null,
-    pages: null, noop: false, agentPid: null, agentExited: null, proc: null
+    startedAt, endedAt: null, deadlineAt, canceledAt: null, sessionId, logFile: null, error: null,
+    pages: null, noop: false, agentPid: null, agentExited: null, proc: null, snapshot: null
   };
   jobs.set(root, job);
   const finish = (status, patch = {}) => {
@@ -263,7 +274,6 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
   };
 
   let logStream;
-  let snapshot;
   try {
     // If a pid record survived (a previous server process died mid-plan and
     // the boot reap has not run for this root), reap that agent NOW - never
@@ -274,10 +284,10 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
       await clearJobRecord(root);
     } catch { /* no record - the normal case */ }
 
-    snapshot = await snapshotDrills(root);
+    job.snapshot = await snapshotDrills(root);
     await fs.mkdir(logDir(), { recursive: true });
     job.logFile = path.join(logDir(), `${safeName(root)}-${Date.now()}.log`);
-    await fs.writeFile(job.logFile, `[drill plan] ${startedAt} mode=${job.mode} root=${root}\n`, "utf8");
+    await fs.writeFile(job.logFile, `[drill plan] ${startedAt} mode=${job.mode} root=${root} session=${sessionId}\n`, "utf8");
     logStream = await fs.open(job.logFile, "a");
   } catch (err) {
     // Must not leave the placeholder stuck in "planning" - it would block
@@ -287,8 +297,20 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
   }
   const closeLog = () => logStream.close().catch(() => {});
 
+  // A cancel can land in the window between registering the job and actually
+  // spawning (the awaits above) - never spawn an agent for a job that is no
+  // longer "planning" by the time setup finished.
+  if (job.status !== "planning") {
+    closeLog();
+    return job;
+  }
+
   const bin = process.env.DRILL_AGENT_CMD || "claude";
-  const proc = spawn(bin, ["-p", planPrompt(root, { brief, runSkill: findRunSkill(root) }), "--permission-mode", "bypassPermissions"], {
+  const proc = spawn(bin, [
+    "-p", planPrompt(root, { brief, runSkill: findRunSkill(root) }),
+    "--permission-mode", "bypassPermissions",
+    "--session-id", sessionId
+  ], {
     cwd: root,
     stdio: ["ignore", logStream.fd, logStream.fd],
     env: process.env
@@ -332,7 +354,7 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
           const claimedNoop = Number(sentinel.ok) === 0;
           if (pages.length === 0) {
             finish("failed", { error: "agent reported DRILL_PLAN_OK but no readable page files exist under drills/pages/ (see log)" });
-          } else if (!claimedNoop && !(await drillsChangedSince(root, snapshot))) {
+          } else if (!claimedNoop && !(await drillsChangedSince(root, job.snapshot))) {
             finish("failed", { error: `agent reported DRILL_PLAN_OK=${sentinel.ok} but nothing under drills/ changed (see log)` });
           } else {
             finish("done", { pages: pages.length, noop: claimedNoop });
@@ -352,4 +374,102 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
   })().catch((err) => finish("failed", { error: err.message }));
 
   return job;
+}
+
+// ── cancel ───────────────────────────────────────────────────────────────
+// A distinct terminal status, never "failed" - a user-requested stop is not
+// an error, and the UI/API must say so honestly. Unlike the deadline timeout
+// (which also SIGKILLs), this is reachable at any point in a live plan, so a
+// pre-spawn race (see the guard in startPlan) is the only other place a plan
+// job can end without ever running an agent.
+export async function cancelPlan(root) {
+  const job = jobs.get(root);
+  if (!job || job.status !== "planning") return { canceled: false, job: publicPlanJob(job) };
+  try { job.proc?.kill("SIGKILL"); } catch { /* already gone */ }
+  Object.assign(job, { status: "canceled", error: null, canceledAt: new Date().toISOString(), endedAt: new Date().toISOString() });
+  await clearJobRecord(root);
+  return { canceled: true, job: publicPlanJob(job) };
+}
+
+// ── progress ─────────────────────────────────────────────────────────────
+// Durable, on-disk evidence of whether a running plan is alive or hung - a
+// healthy 11-minute plan and a genuine hang were otherwise indistinguishable
+// (the dogfood bug this exists to close). Every field degrades to null/0
+// rather than throwing: progress is a nice-to-have overlay on the job, never
+// a reason the status route itself can fail.
+
+function transcriptProjectsDir() {
+  return process.env.DRILL_PLAN_TRANSCRIPT_DIR
+    || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects");
+}
+
+// The CLI slugs cwd into the transcript directory name; rather than
+// reimplementing that rule, glob one level down for the pinned session id -
+// exactly one project directory holds any given session's transcript.
+async function findTranscriptFile(sessionId) {
+  const base = transcriptProjectsDir();
+  let dirs;
+  try { dirs = await fs.readdir(base, { withFileTypes: true }); } catch { return null; }
+  for (const d of dirs) {
+    if (!d.isDirectory()) continue;
+    const candidate = path.join(base, d.name, `${sessionId}.jsonl`);
+    try { await fs.access(candidate); return candidate; } catch { /* not here */ }
+  }
+  return null;
+}
+
+// A short human-readable description of the most recent transcript event -
+// the latest assistant tool_use (rendered as "<ToolName>: <input hint>") or
+// assistant text. Tolerates a half-written last line (the transcript is
+// being appended to live) by scanning backward and skipping parse failures.
+function summarizeLastActivity(tailText) {
+  const lines = tailText.split("\n").filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let evt;
+    try { evt = JSON.parse(lines[i]); } catch { continue; }
+    const content = evt?.message?.content;
+    if (!Array.isArray(content)) continue;
+    const toolUse = content.find((b) => b?.type === "tool_use");
+    if (toolUse) {
+      const input = toolUse.input ?? {};
+      const hint = input.file_path ?? input.path ?? input.command ?? input.pattern ?? input.query ?? "";
+      return hint ? `${toolUse.name}: ${String(hint).slice(0, 120)}` : String(toolUse.name);
+    }
+    const text = content.find((b) => b?.type === "text")?.text;
+    if (text) return String(text).trim().slice(0, 160) || null;
+  }
+  return null;
+}
+
+export async function planProgress(job) {
+  const out = {
+    transcriptBytes: 0, transcriptEvents: 0, lastActivityAt: null, lastActivity: null,
+    drillsFilesChanged: 0, pagesAuthored: 0
+  };
+  if (!job) return out;
+  try {
+    const pages = await listPages(job.root);
+    out.pagesAuthored = pages.length;
+  } catch { /* no readable pages yet - stays 0 */ }
+  try {
+    if (job.snapshot) {
+      const after = await snapshotDrills(job.root);
+      let changed = 0;
+      for (const [file, sig] of after) if (job.snapshot.get(file) !== sig) changed++; // added or modified
+      for (const file of job.snapshot.keys()) if (!after.has(file)) changed++; // removed
+      out.drillsFilesChanged = changed;
+    }
+  } catch { /* best-effort */ }
+  try {
+    const file = job.sessionId && await findTranscriptFile(job.sessionId);
+    if (file) {
+      const stat = await fs.stat(file);
+      out.transcriptBytes = stat.size;
+      out.lastActivityAt = stat.mtime.toISOString();
+      const tail = await logTail(file, 32000);
+      out.transcriptEvents = tail.split("\n").filter(Boolean).length;
+      out.lastActivity = summarizeLastActivity(tail);
+    }
+  } catch { /* transcript absent/unreadable - progress stays at defaults */ }
+  return out;
 }

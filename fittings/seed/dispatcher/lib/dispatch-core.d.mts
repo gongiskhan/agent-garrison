@@ -93,6 +93,7 @@ export interface DispatchOptions {
   evidenceFile?: string;
   // S3d (D9b): the editable rubric folded into the dispatch prompt's clarity line.
   clarityRubric?: string;
+  fallback?: (model: DispatchModel, message: string) => DispatchPick;
 }
 
 export interface DispatchResult extends OverriddenPick {
@@ -114,6 +115,7 @@ export function buildDispatchPrompt(model: DispatchModel, userPrompt: string, op
 export function dispatchSchema(): DispatchSchema;
 export function parseDispatch(reply: unknown, model: DispatchModel): DispatchPick | null;
 export function fallbackDispatch(model: DispatchModel, reason?: string): DispatchPick;
+export function deterministicFallbackDispatch(model: DispatchModel, message: string): DispatchPick;
 export function parseLevelOverride(message: string): number | null;
 export function applyOverride(
   dispatch: DispatchPick,

@@ -8,6 +8,13 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_SRC="$SCRIPT_DIR/../systemd"
 
+# A secondary Garrison instance must never replace or re-point the machine's
+# singleton backup timers. It still keeps the on-demand Snapshots surface.
+if [ "${GARRISON_DISABLE_HOST_DAEMONS:-0}" = "1" ]; then
+  echo "snapshots setup ok (host timer installation disabled for this instance)"
+  exit 0
+fi
+
 # 1. restic binary.
 if ! command -v restic >/dev/null 2>&1; then
   echo "restic not found; attempting non-interactive install..."

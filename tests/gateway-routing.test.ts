@@ -300,9 +300,9 @@ describe("primary runtime warm seam (S4)", () => {
   });
 
   // OpenCode has no built-in default model + its native config may omit `model`,
-  // so a provider/model MUST thread from the operative spawn config; codex/gemini
-  // stay byte-identical (no model threaded).
-  it("opencode primary threads a provider/model spawnConfig; codex does NOT (S2c)", async () => {
+  // so a valid provider/model threads from the operative config. Codex must also
+  // honor the composition UI's selected primary model + supported effort.
+  it("opencode validates provider/model while codex threads configured model + effort (S2c)", async () => {
     const fake = { spawn: async () => ({}), id: "opencode" };
     const withModel = baseCtx({ secondaryAdapters: new Map([["opencode", fake]]) });
     withModel.operativeSpawnConfig = { compositionDir: "/tmp/x", model: "ollama-local/qwen2.5:3b" } as any;
@@ -316,12 +316,13 @@ describe("primary runtime warm seam (S4)", () => {
     const p2 = await resolvePrimaryAdapter("opencode", bare);
     expect(p2.spawnConfig.model).toBeUndefined();
 
-    // codex ignores operativeSpawnConfig.model entirely (historical spawnConfig).
+    // Codex primary uses the UI/runtime config rather than silently falling back
+    // to ~/.codex/config.toml defaults.
     const codexFake = { spawn: async () => ({}), id: "codex" };
     const codexCtx = baseCtx({ secondaryAdapters: new Map([["codex", codexFake]]) });
-    codexCtx.operativeSpawnConfig = { compositionDir: "/tmp/x", model: "ollama-local/qwen2.5:3b" } as any;
+    codexCtx.operativeSpawnConfig = { compositionDir: "/tmp/x", model: "gpt-5.6-sol", effort: "high" } as any;
     const pc = await resolvePrimaryAdapter("codex", codexCtx);
-    expect(pc.spawnConfig.model).toBeUndefined();
+    expect(pc.spawnConfig).toMatchObject({ model: "gpt-5.6-sol", effort: "high" });
   });
 
   it("an unknown engine FAILS LOUD naming the known set and the fix", async () => {

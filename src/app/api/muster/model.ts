@@ -38,6 +38,7 @@ import { cloneFitting } from "@/lib/clone";
 import { getFaculty, facultyRoleCopy } from "@/lib/faculties";
 import { readYamlFile } from "@/lib/yaml";
 import { writeFileAtomic } from "@/lib/atomic-write";
+import { resolvePrimaryFromPolicy, writePrimaryRuntimeToPolicy } from "@/lib/routing-primary";
 import { validateCellCompatibility } from "@/lib/router-migrate";
 import { dump as dumpYaml } from "js-yaml";
 import { dutyEfforts } from "@/lib/types";
@@ -93,11 +94,27 @@ export interface MusterCompositionRef {
   name: string;
 }
 
+export interface MusterDutyCandidate {
+  id: string;
+  title: string;
+  description: string;
+  fittingId: string;
+}
+
+export interface MusterRuntimeOption {
+  id: string;
+  fittingId: string;
+}
+
 export interface MusterModel {
   compositionId: string;
   compositionName: string;
   // Every composition, for the header switcher.
   compositions: MusterCompositionRef[];
+  // Duties available from library fittings not yet stationed. Selecting one
+  // atomically stations its provider and selects the duty.
+  dutyCandidates: MusterDutyCandidate[];
+  runtimeOptions: MusterRuntimeOption[];
   // Every known duty by id (fitting-provided, overlaid by composition definitions).
   duties: Record<string, ResolvedDuty>;
   // Duty ids selected in this composition, in order.
@@ -123,16 +140,26 @@ export function buildMusterPayload(args: {
   };
   fittings: ResolverFittingInput[];
   compositions: MusterCompositionRef[];
+  dutyCandidates?: MusterDutyCandidate[];
+  runtimeOptions?: MusterRuntimeOption[];
 }): MusterModel {
   const resolved = resolveModel({
     fittings: args.fittings,
     compositionDuties: args.composition.duties,
     selectedDuties: args.composition.selectedDuties
   });
+  const candidates = new Map<string, MusterDutyCandidate>();
+  for (const candidate of args.dutyCandidates ?? []) {
+    if (!resolved.duties[candidate.id] && !resolved.selectedDuties.includes(candidate.id)) {
+      candidates.set(candidate.id, candidate);
+    }
+  }
   return {
     compositionId: args.composition.id,
     compositionName: args.composition.name,
     compositions: args.compositions,
+    dutyCandidates: [...candidates.values()].sort((a, b) => a.title.localeCompare(b.title)),
+    runtimeOptions: args.runtimeOptions ?? [],
     duties: resolved.duties,
     selectedDuties: resolved.selectedDuties,
     targets: sanitizeTargets(args.composition.targets),
@@ -156,7 +183,23 @@ export async function assembleMusterModel(compositionId?: string): Promise<Muste
   const id = await resolveCompositionId(compositionId);
   const composition = await readComposition(id);
   const entries = await selectedLibraryEntries(composition.selections);
-  const all = await listCompositions();
+  const [all, library] = await Promise.all([listCompositions(), readLibrary()]);
+  const stationed = new Set(entries.map((entry) => entry.id));
+  const dutyCandidates: MusterDutyCandidate[] = library.flatMap((entry) =>
+    stationed.has(entry.id)
+      ? []
+      : (entry.metadata.duties ?? []).map((duty) => ({
+          id: duty.id,
+          title: duty.title,
+          description: duty.description,
+          fittingId: entry.id
+        }))
+  );
+  const runtimeOptions = entries.flatMap((entry) =>
+    entry.metadata.provides
+      .filter((provision) => provision.kind === "runtime")
+      .map((provision) => ({ id: provision.name, fittingId: entry.id }))
+  );
   return buildMusterPayload({
     composition: {
       id: composition.id,
@@ -166,7 +209,9 @@ export async function assembleMusterModel(compositionId?: string): Promise<Muste
       targets: composition.targets
     },
     fittings: entries.map((entry) => ({ id: entry.id, metadata: entry.metadata })),
-    compositions: all.map((c) => ({ id: c.id, name: c.name }))
+    compositions: all.map((c) => ({ id: c.id, name: c.name })),
+    dutyCandidates,
+    runtimeOptions
   });
 }
 
@@ -221,7 +266,55 @@ export async function setSelectedDuty(
   const id = await resolveCompositionId(compositionId);
   const model = await assembleMusterModel(id);
   if (action === "add" && !model.duties[dutyId]) {
-    throw new Error(`unknown duty "${dutyId}" — cannot select a duty no fitting or composition defines`);
+    const composition = await readComposition(id);
+    const library = await readLibrary();
+    const provider = library.find((entry) =>
+      (entry.metadata.duties ?? []).some((duty) => duty.id === dutyId)
+    );
+    if (!provider) {
+      throw new Error(`unknown duty "${dutyId}" — cannot select a duty no fitting or composition defines`);
+    }
+
+    const nextSelections = cloneSelections(composition.selections);
+    const current = nextSelections[provider.faculty] ?? [];
+    if (!current.some((selection) => selection.id === provider.id)) {
+      nextSelections[provider.faculty] = [...current, defaultConfigForEntry(provider)];
+    }
+    await validateCompositionSelections(nextSelections);
+
+    const selectedDuties = composition.selectedDuties.includes(dutyId)
+      ? [...composition.selectedDuties]
+      : [...composition.selectedDuties, dutyId];
+    const nextEntries = await selectedLibraryEntries(nextSelections);
+    const resolved = resolveModel({
+      fittings: nextEntries.map((entry) => ({ id: entry.id, metadata: entry.metadata })),
+      compositionDuties: composition.duties,
+      selectedDuties
+    });
+    if (!resolved.duties[dutyId] || resolved.errors.length > 0) {
+      const detail = resolved.errors.map((error) => error.message).join("; ");
+      throw new Error(
+        `cannot station ${provider.id} for duty "${dutyId}": ${detail || "the duty did not resolve"}`
+      );
+    }
+
+    const dependencies = authorApmDependencies(
+      nextEntries.map((entry) =>
+        entry.localPath ? { absPath: path.join(ROOT_DIR, entry.localPath) } : { repo: entry.repo }
+      ),
+      getCompositionDirectory(id)
+    );
+    await mutateManifestAtomic(id, (manifest) => {
+      const block = manifest["x-garrison"]!.composition!;
+      block.selections = nextSelections;
+      block.selected_duties = selectedDuties;
+      const deps =
+        manifest.dependencies && typeof manifest.dependencies === "object"
+          ? (manifest.dependencies as Record<string, unknown>)
+          : {};
+      manifest.dependencies = { ...deps, apm: dependencies };
+    });
+    return assembleMusterModel(id);
   }
   await mutateCompositionBlock(id, (block) => {
     const selected: string[] = Array.isArray(block.selected_duties)
@@ -409,6 +502,108 @@ export async function describeDutyLevel(
   return assembleMusterModel(id);
 }
 
+export interface CompositionTargetUpdate {
+  originalId?: string;
+  id: string;
+  runtime: string;
+  provider?: string;
+  model: string;
+  promptMode: "lean" | "full" | null;
+  maxTurns: number | null;
+}
+
+// Create or edit one engine-identity target. Extra params owned by migrations
+// or other policy surfaces round-trip untouched; this editor owns only
+// promptMode/maxTurns. The resulting target set is compatibility-checked against
+// every resolved duty cell before one atomic manifest write.
+export async function upsertCompositionTarget(
+  compositionId: string | undefined,
+  update: CompositionTargetUpdate
+): Promise<MusterModel> {
+  const id = await resolveCompositionId(compositionId);
+  const targetId = update.id.trim();
+  const runtime = update.runtime.trim();
+  const modelName = update.model.trim();
+  const originalId = update.originalId?.trim() || undefined;
+  if (!/^[a-z][a-z0-9-]*$/.test(targetId)) {
+    throw new Error("target id must be kebab-case");
+  }
+  if (!runtime) throw new Error("runtime is required");
+  if (!modelName) throw new Error("model is required");
+  if (update.maxTurns !== null && (!Number.isInteger(update.maxTurns) || update.maxTurns < 1 || update.maxTurns > 100)) {
+    throw new Error("maxTurns must be an integer from 1 to 100");
+  }
+
+  const composition = await readComposition(id);
+  const currentIndex = originalId
+    ? composition.targets.findIndex((target) => target.id === originalId)
+    : -1;
+  if (originalId && currentIndex === -1) throw new Error(`target "${originalId}" does not exist`);
+  const current = currentIndex >= 0 ? composition.targets[currentIndex] : undefined;
+  const duplicate = composition.targets.findIndex((target) => target.id === targetId);
+  if (duplicate !== -1 && duplicate !== currentIndex) {
+    throw new Error(`target "${targetId}" already exists`);
+  }
+
+  const entries = await selectedLibraryEntries(composition.selections);
+  const runtimeNames = new Set(
+    entries.flatMap((entry) =>
+      entry.metadata.provides
+        .filter((provision) => provision.kind === "runtime")
+        .map((provision) => provision.name)
+    )
+  );
+  // Legacy compositions can contain a target whose runtime predates the
+  // stationable provision catalog. Permit editing that target while its runtime
+  // stays unchanged; selecting any new runtime still requires a stationed
+  // runtime fitting.
+  if (!runtimeNames.has(runtime) && current?.runtime !== runtime) {
+    throw new Error(`runtime "${runtime}" is not provided by a stationed runtime fitting`);
+  }
+  const params: Record<string, string | number | boolean> = { ...(current?.params ?? {}) };
+  if (update.promptMode === null) delete params.promptMode;
+  else params.promptMode = update.promptMode;
+  if (update.maxTurns === null) delete params.maxTurns;
+  else params.maxTurns = update.maxTurns;
+  const nextTarget: CompositionTarget = {
+    id: targetId,
+    runtime,
+    model: modelName,
+    ...(update.provider?.trim() ? { provider: update.provider.trim() } : {}),
+    ...(Object.keys(params).length ? { params } : {})
+  };
+  const nextTargets = composition.targets.map((target, index) =>
+    index === currentIndex ? nextTarget : target
+  );
+  if (currentIndex === -1) nextTargets.push(nextTarget);
+
+  const resolved = resolveModel({
+    fittings: entries.map((entry) => ({ id: entry.id, metadata: entry.metadata })),
+    compositionDuties: composition.duties,
+    selectedDuties: composition.selectedDuties
+  });
+  if (originalId && originalId !== targetId) {
+    const used = Object.values(resolved.duties).some((duty) =>
+      duty.levels.some((level) => level.cell?.target === originalId)
+    );
+    if (used) throw new Error(`target "${originalId}" is assigned to a duty cell and cannot be renamed`);
+  }
+  for (const duty of Object.values(resolved.duties)) {
+    for (const level of duty.levels) {
+      if (!level.cell) continue;
+      const errors = validateCellCompatibility(level.cell, nextTargets);
+      if (errors.length) {
+        throw new Error(`target update would invalidate duty "${duty.id}": ${errors[0].message}`);
+      }
+    }
+  }
+
+  await mutateCompositionBlock(id, (block) => {
+    block.targets = nextTargets;
+  });
+  return assembleMusterModel(id);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Standing Fittings (GARRISON-UNIFY-V1 D12, slice S5b). The non-duty half of the
 // Muster page: the infrastructure faculty slots (channels/gateway/runtimes/…)
@@ -561,7 +756,10 @@ export async function assembleStandingModel(compositionId?: string): Promise<Sta
       id: composition.id,
       name: composition.name,
       selections: composition.selections,
-      primaryRuntime: composition.globalConfig.primary_runtime ?? DEFAULT_PRIMARY_RUNTIME
+      primaryRuntime:
+        (await resolvePrimaryFromPolicy(composition.directory)) ??
+        composition.globalConfig.primary_runtime ??
+        DEFAULT_PRIMARY_RUNTIME
     },
     entries,
     library
@@ -770,7 +968,8 @@ export async function setStandingConfig(
 }
 
 // Make a stationed runtime the composition's primary runtime (the engine that
-// runs the orchestrator loop). Writes global_config.primary_runtime only.
+// runs the orchestrator loop). routing.json is the runner's source of truth;
+// remove the deprecated manifest fallback after the policy write succeeds.
 export async function setPrimaryRuntime(
   compositionId: string | undefined,
   fittingId: string
@@ -778,16 +977,42 @@ export async function setPrimaryRuntime(
   const id = await resolveCompositionId(compositionId);
   const composition = await readComposition(id);
   const runtimes = composition.selections.runtimes ?? [];
-  if (!runtimes.some((s) => s.id === fittingId)) {
+  const selected = runtimes.find((selection) => selection.id === fittingId);
+  if (!selected) {
     throw new Error(`"${fittingId}" is not a stationed runtime — station it before making it primary`);
   }
+
+  // Config fields display their schema defaults even when an older manifest has
+  // an empty selection.config. Once this runtime becomes executable policy,
+  // materialise those displayed values so runner.up() receives the same model /
+  // provider the operator just saw (for example Codex -> gpt-5-codex, not the
+  // gateway's historical opus fallback). Explicit values always win.
+  const entries = await selectedLibraryEntries(composition.selections);
+  const entry = entries.find((candidate) => candidate.id === fittingId);
+  if (!entry || !providesKind(entry, "runtime")) {
+    throw new Error(`"${fittingId}" is not a stationed runtime — station it before making it primary`);
+  }
+  const defaults = defaultConfigForEntry(entry).config ?? {};
+  const missingDefault = Object.keys(defaults).some(
+    (key) => selected.config?.[key] === undefined
+  );
+  if (missingDefault) {
+    const nextSelections = cloneSelections(composition.selections);
+    nextSelections.runtimes = (nextSelections.runtimes ?? []).map((selection) =>
+      selection.id === fittingId
+        ? { id: selection.id, config: { ...defaults, ...(selection.config ?? {}) } }
+        : selection
+    );
+    // Persist before publishing the primary policy: a runner can never observe
+    // the new primary id while its displayed defaults are still absent.
+    await writeStandingSelections(id, nextSelections);
+  }
+  await writePrimaryRuntimeToPolicy(composition.directory, fittingId);
   await mutateManifestAtomic(id, (manifest) => {
     const block = manifest["x-garrison"]!.composition!;
-    const gc =
-      block.global_config && typeof block.global_config === "object"
-        ? (block.global_config as Record<string, unknown>)
-        : (block.global_config = {});
-    (gc as Record<string, unknown>).primary_runtime = fittingId;
+    if (block.global_config && typeof block.global_config === "object") {
+      delete (block.global_config as Record<string, unknown>).primary_runtime;
+    }
   });
   return assembleStandingModel(id);
 }

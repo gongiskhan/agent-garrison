@@ -66,6 +66,37 @@ describe("findPendingHeartbeatRuns", () => {
     const reloaded = await getDrillRun(r.id);
     expect(reloaded?.findings.find((f: any) => f.id === late.id)?.card?.id).toBe("card-2");
   });
+
+  it("does not dispatch legacy infrastructure noise or a failed step overridden to pass", async () => {
+    const r = newDrillRun({ dispatch: "heartbeat" });
+    r.findings.push({
+      id: "legacy-infra",
+      kind: "infra-error",
+      pageId: "chat",
+      stepId: "infra",
+      viewportId: "desktop",
+      text: "vision 503",
+      status: "confirmed",
+      at: new Date().toISOString()
+    });
+    const overridden = addFinding(r, {
+      kind: "step-fail",
+      pageId: "chat",
+      stepId: "overridden",
+      viewportId: "desktop",
+      text: "product check failed"
+    });
+    setFindingStatus(r, overridden.id, "confirmed");
+    r.pages.push({ pageId: "chat", stepId: "overridden", viewportId: "desktop" });
+    r.overrides["chat:overridden:desktop"] = {
+      verdict: "passed",
+      note: "manual verification",
+      at: new Date().toISOString()
+    };
+    await saveDrillRun(r);
+
+    expect(await findPendingHeartbeatRuns()).toHaveLength(0);
+  });
 });
 
 describe("runHeartbeatSweep", () => {

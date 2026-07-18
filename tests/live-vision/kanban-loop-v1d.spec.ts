@@ -1,7 +1,7 @@
 // Live vision verification spec for Kanban Loop V1d (BRIEF/kanban-loop-v1d-make-everything-work.md).
 //
-// This spec drives the user's REAL running Garrison (Next on 127.0.0.1:7777,
-// real http-gateway on 127.0.0.1:4777, real Claude operative, real
+// This spec drives the user's REAL running Garrison (Next on 127.0.0.1:27777,
+// real http-gateway on 127.0.0.1:24777, real Claude operative, real
 // kanban-loop board started by the runner) — no stub gateway, no sandbox
 // homedir. Failing fast on a missing real environment is the point: V1d
 // exists because prior verifications passed against stubs while the live app
@@ -40,7 +40,7 @@ if (!existsSync(FINDINGS_PATH)) {
   );
 }
 
-const GATEWAY_URL = process.env.GARRISON_GATEWAY_URL || "http://127.0.0.1:4777";
+const GATEWAY_URL = process.env.GARRISON_GATEWAY_URL || "http://127.0.0.1:24777";
 const TURN_BUDGET_MS = Number(process.env.KANBAN_V1D_TURN_BUDGET_MS || 25 * 60 * 1000);
 
 let shotCounter = 1;
@@ -77,13 +77,13 @@ async function fetchJson<T>(page: Page, path: string): Promise<T> {
 // ───────────────────────────────────────────────────────────────────────
 // Preflight — bail with a clear error if the user has not brought up the
 // real composition. The CI sandbox playwright.config.ts deliberately is NOT
-// used here, so an unreachable :7777 / :4777 is a real environmental gap.
+// used here, so an unreachable :27777 / :24777 is a real environmental gap.
 // ───────────────────────────────────────────────────────────────────────
 test.beforeAll(async ({ request }) => {
   const garrison = await request.get("/").catch(() => null);
   if (!garrison || !garrison.ok()) {
     throw new Error(
-      `Garrison not reachable at the configured baseURL — V1d requires the real Next app on :7777. Run \`npm start\` and bring \`default\` up first.`
+      `Garrison not reachable at the configured baseURL — V1d requires the real Next app on :27777. Run \`npm start\` and bring \`default\` up first.`
     );
   }
   const gateway = await request.get(`${GATEWAY_URL}/health`).catch(() => null);

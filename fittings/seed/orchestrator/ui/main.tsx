@@ -3,7 +3,7 @@
 // One page, four surfaces, Garrison's slots-and-pieces metaphor - NOT
 // forms-and-dropdowns:
 //   1. TARGETS TRAY   - every config target is a draggable card with an effort dial.
-//   2. MATRIX BOARD   - 18 task-types × 3 tiers; drop a target to assign; resolved
+//   2. MATRIX BOARD   - 20 task-types × 3 tiers; drop a target to assign; resolved
 //                       tokens read solid (explicit) or faded (inherited).
 //   3. WORK-KIND RAILS - one rail per work kind, phases as toggleable/reorderable chips.
 //   4. TRY-IT STRIP   - paste a request, DRY-RUN classify + resolve the whole rail.

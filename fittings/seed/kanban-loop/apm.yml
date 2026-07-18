@@ -13,7 +13,7 @@ x-garrison:
   # ~/.garrison/ui-fittings/kanban-loop.json. operative-bound = the runner starts
   # it during `up` and stops it during `down`.
   own_port: true
-  default_port: 7089
+  default_port: 27089
   lifecycle: operative-bound
   platforms:
     - claude-code
@@ -35,8 +35,9 @@ x-garrison:
     needs-attention. Cards on autonomous lists are engine-owned (D16). The card's
     work kind + per-card phase toggles form its rail (D17): OFF phases are skipped
     with explicit off events, never silent. The Test list runs batched per project
-    on its own scheduler beat (default every 5h). Goal-mode prepends /goal +
-    acceptance; the convergence guard is the per-card iteration cap.
+    on its own scheduler beat (default every 5h). Goal-mode carries a
+    runtime-neutral acceptance block; the convergence guard is the per-card
+    iteration cap.
   config_schema:
     - key: board_dir
       type: path
@@ -81,6 +82,6 @@ x-garrison:
     (docs/autothing/runs/<runId>) so each card's plan and gate files do not collide; the
     card stores pointers, never copies. It does NOT own routing or skills — it sequences
     them (one skill-decider per list, one effort/model decider in the router, no
-    overlap). Goal-mode cards prepend /goal + acceptance; the guard is the iteration cap,
-    not a goal hook. The two adversarial lists are cross-model Codex passes via the codex
-    CLI — the operative stays modest.
+    overlap). Goal-mode cards carry a runtime-neutral acceptance block; the guard is the
+    iteration cap, not a host-specific slash command or goal hook. The two adversarial
+    lists are cross-model Codex passes via the codex CLI — the operative stays modest.

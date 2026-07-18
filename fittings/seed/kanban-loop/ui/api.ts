@@ -17,8 +17,11 @@ export interface RouteStamp {
   runtime: string | null;
   provider: string | null;
   model: string | null;
-  tier: string | null;
+  /** Policy-requested reasoning effort. */
   effort?: string | null;
+  /** True/false only when the serving runtime reported application truth. */
+  effortApplied?: boolean | null;
+  tier: string | null;
   phase?: string | null;
 }
 
@@ -190,6 +193,7 @@ export interface CardLinks {
   plan: ArtifactRef | null;
   brief: ArtifactRef | null;
   gateMarkers: ArtifactRef | null;
+  gates: ArtifactRef[];
   evidenceIndex: ArtifactRef | null;
   // The always-on evidence bundle (screenshots + an evidence.md log) the pipeline
   // produces even when the heavy video is skipped. Images render inline; the rest links.

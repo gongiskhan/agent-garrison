@@ -64,7 +64,9 @@ export function inferenceRunFn(gatewayUrl) {
 
 // The gateway's `done` SSE event carries per-turn ROUTING metadata whenever the turn
 // actually routed (PTY routed mode): { route: <targetId>, runtime, provider, model,
-// taskType, tier, ruleId, profile, honored } — EVERY field possibly null. In souls
+// effort, effortApplied, stoppedReason, taskType, tier, ruleId, profile, honored } — EVERY field
+// possibly null. `effort` is what policy requested; `effortApplied` is true/false
+// only when the runtime can state whether it honored that request. In souls
 // mode `done` carries only { reply } (no routing happened). Fold whatever is present
 // into a compact object the engine can stamp onto the card, or null when NOTHING
 // routing-related flowed — so a caller never invents attribution it wasn't given. The
@@ -76,20 +78,21 @@ export function routeFromDone(done) {
   const runtime = done.runtime ?? null;
   const provider = done.provider ?? null;
   const model = done.model ?? null;
+  const effort = done.effort ?? null;
+  const effortApplied = typeof done.effortApplied === "boolean" ? done.effortApplied : null;
   const taskType = done.taskType ?? null;
   const tier = done.tier ?? null;
   const ruleId = done.ruleId ?? null;
   const profile = done.profile ?? null;
   const honored = done.honored ?? null;
-  const effort = done.effort ?? null;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
-    taskType == null && tier == null && ruleId == null && profile == null && honored == null &&
-    effort == null
+    effort == null && effortApplied == null &&
+    taskType == null && tier == null && ruleId == null && profile == null && honored == null
   ) {
     return null;
   }
-  return { targetId, runtime, provider, model, taskType, tier, ruleId, profile, honored, effort };
+  return { targetId, runtime, provider, model, effort, effortApplied, taskType, tier, ruleId, profile, honored };
 }
 
 // The gateway's `done` SSE event also carries an additive `context` object (S1a /
@@ -142,7 +145,22 @@ export function compactBoundaryFn(gatewayUrl) {
 }
 
 export function gatewayRunFn(gatewayUrl) {
-  return async ({ prompt, classification, list, skill, suppressContinuations, onChunk, onTool, contextHold, dutyKey }) => {
+  return async ({
+    prompt,
+    classification,
+    list,
+    skill,
+    suppressContinuations,
+    onChunk,
+    duty,
+    level,
+    phase,
+    stepIndex,
+    sequence,
+    onTool,
+    contextHold,
+    dutyKey
+  }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
     // abort a blocking /chat request before the reply ever arrives. /chat/stream sends an
@@ -165,6 +183,14 @@ export function gatewayRunFn(gatewayUrl) {
           // D15: the skill is the POLICY-resolved phase binding the engine hands us,
           // never a per-list pin (list.skill is dead).
           skill: skill ?? null,
+          // V4 execution identity is authoritative for a composed card. The
+          // gateway resolves this exact leaf cell from model.json; old callers
+          // omit the fields and retain legacy taskType/tier routing.
+          duty: typeof duty === "string" ? duty : null,
+          level: Number.isInteger(level) ? level : null,
+          phase: typeof phase === "string" ? phase : null,
+          stepIndex: Number.isInteger(stepIndex) ? stepIndex : null,
+          sequence: Array.isArray(sequence) ? sequence : null,
           suppressContinuations: suppressContinuations ?? true,
           timeoutMs: KANBAN_TURN_TIMEOUT_MS,
           // S1b: whether this duty holds off compaction + the card+phase key, so the
@@ -260,7 +286,8 @@ export function gatewayRunFn(gatewayUrl) {
       reply: done.reply ?? done.text ?? "",
       route: routeFromDone(done),
       context: contextFromDone(done),
-      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : null
+      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : null,
+      stoppedReason: typeof done.stoppedReason === "string" ? done.stoppedReason : null
     };
   };
 }

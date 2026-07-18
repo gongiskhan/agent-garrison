@@ -250,7 +250,7 @@ check rather than sharing state.
 
 ## dev-env
 
-The consolidated dev surface (port 7086): every Claude Code session —
+The consolidated dev surface (port 27086): every Claude Code session —
 hook-detected or Dev-Env-created — is a tab pairing a Claude PTY and a shell
 PTY with the app's live browser pane; quick prompts and PTY-driven PR/commit
 flows on the current branch are built in. Singleton. Replaces the three kinds
@@ -259,7 +259,7 @@ repo root on the current branch - Garrison spins up no per-task branches.
 
 ## screen-share
 
-A stand-alone UI server (default port 7079) that captures the host screen in a
+A stand-alone UI server (default port 27079) that captures the host screen in a
 polling loop and exposes the latest frame. Singleton; lives under the
 `surfaces` role.
 

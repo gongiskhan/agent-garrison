@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/xterm/lib/xterm.js
+// node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
+// node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ../../../node_modules/highlight.js/lib/core.js
+// node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
+  "node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_react7 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// ui/terminal-theme.ts
+// fittings/seed/dev-env/ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_react3 = __toESM(require_react());
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// ../../../node_modules/marked/lib/marked.esm.js
+// node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// ../../../node_modules/highlight.js/es/core.js
+// node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// ../../../node_modules/highlight.js/es/languages/typescript.js
+// node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// ../../../node_modules/highlight.js/es/languages/javascript.js
+// node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/python.js
+// node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/bash.js
+// node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/json.js
+// node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/css.js
+// node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/xml.js
+// node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/markdown.js
+// node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/yaml.js
+// node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/sql.js
+// node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/rust.js
+// node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/go.js
+// node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/diff.js
+// node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,7 +39813,7 @@ function diff(hljs) {
   };
 }
 
-// ../../../packages/claude-chat/src/chat-theme.ts
+// packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -39880,7 +39880,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// ../../../packages/claude-chat/src/voice.ts
+// packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -39923,7 +39923,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// ../../../packages/claude-chat/src/sanitize.ts
+// packages/claude-chat/src/sanitize.ts
 var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
 var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
 var ORCH_RE_G = /\[orchestrator-active\]/gi;
@@ -39977,17 +39977,26 @@ function routeChipFromAttribution(route) {
   if (!label) label = routeChipLabel({ route: s(route.route) || void 0 }) ?? "";
   const tier = s(route.tier);
   if (label && tier) label = `${label} \xB7 ${tier}`;
+  const effort = s(route.effort);
+  if (label && effort) {
+    const effortLabel = route.effortApplied === true ? `${effort} effort` : route.effortApplied === false ? `${effort} effort not applied` : `${effort} effort unverified`;
+    label = `${label} \xB7 ${effortLabel}`;
+  }
   if (!label) return null;
   const titleParts = [];
   if (s(route.route)) titleParts.push(`target ${s(route.route)}`);
   if (s(route.ruleId)) titleParts.push(`rule ${s(route.ruleId)}`);
   if (s(route.profile)) titleParts.push(`profile ${s(route.profile)}`);
+  if (effort) {
+    const state = route.effortApplied === true ? "applied" : route.effortApplied === false ? "not applied" : "application unknown";
+    titleParts.push(`effort ${effort}: ${state}`);
+  }
   if (typeof route.honored === "boolean") titleParts.push(`honored: ${route.honored ? "yes" : "no"}`);
   const title = titleParts.join(" \xB7 ");
   return { label, title: title || void 0 };
 }
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -40165,7 +40174,7 @@ var MODE_LABELS = {
   acceptEdits: "Accept Edits",
   plan: "Plan",
   bypassPermissions: "Bypass",
-  unknown: "\u2014"
+  unknown: "-"
 };
 var SWITCHABLE = ["default", "acceptEdits", "plan", "bypassPermissions"];
 var uid = 0;
@@ -40552,7 +40561,7 @@ ${t}` : t;
         teardownAudio();
         const name = err?.name;
         setVoiceError(
-          name === "NotAllowedError" ? "Playback blocked by the browser \u2014 press Read aloud again" : `Read-aloud failed: ${err?.message ?? "unknown error"}`.slice(0, 120)
+          name === "NotAllowedError" ? "Playback blocked by the browser - press Read aloud again" : `Read-aloud failed: ${err?.message ?? "unknown error"}`.slice(0, 120)
         );
       }
     },
@@ -40579,6 +40588,11 @@ ${t}` : t;
   const onTurnCompleteRef = (0, import_react2.useRef)(onTurnComplete);
   onTurnCompleteRef.current = onTurnComplete;
   const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  const settledReply = (0, import_react2.useMemo)(() => {
+    if (!latestAssistant || latestAssistant.streaming) return null;
+    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
+    return text ? { id: latestAssistant.id, text } : null;
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
   (0, import_react2.useEffect)(() => {
     const cb = onTurnCompleteRef.current;
     if (!cb || !latestAssistant || latestAssistant.streaming) return;
@@ -40603,7 +40617,7 @@ ${t}` : t;
       return;
     }
     if (typeof MediaRecorder === "undefined") {
-      setVoiceError("This browser has no MediaRecorder \u2014 recording is unavailable");
+      setVoiceError("This browser has no MediaRecorder - recording is unavailable");
       return;
     }
     recBusyRef.current = true;
@@ -40634,7 +40648,7 @@ ${t}` : t;
         setRecording(false);
         const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
         if (!blob.size) {
-          setVoiceError("Nothing was recorded \u2014 check the microphone input");
+          setVoiceError("Nothing was recorded - check the microphone input");
           return;
         }
         setTranscribing(true);
@@ -40663,7 +40677,7 @@ ${t}` : t;
       setRecording(false);
       const name = err?.name;
       setVoiceError(
-        name === "NotAllowedError" || name === "SecurityError" ? "Microphone blocked \u2014 allow mic access for this page (and reload)" : name === "NotFoundError" ? "No microphone found on this device" : `Microphone error: ${err?.message ?? "unknown"}`.slice(0, 140)
+        name === "NotAllowedError" || name === "SecurityError" ? "Microphone blocked - allow mic access for this page (and reload)" : name === "NotFoundError" ? "No microphone found on this device" : `Microphone error: ${err?.message ?? "unknown"}`.slice(0, 140)
       );
     }
   }, [voiceClient]);
@@ -40971,7 +40985,7 @@ ${t}` : t;
           className: `cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking && !paused ? "cc-chip-pulse" : ""}`,
           disabled: !voiceUsable,
           "aria-pressed": readAloud,
-          title: voiceUsable ? readAloud ? "Auto-read is on \u2014 click to turn it off" : "Read each new response aloud" : "Voice fitting not running",
+          title: voiceUsable ? readAloud ? "Auto-read is on - click to turn it off" : "Read each new response aloud" : "Voice fitting not running",
           onClick: () => {
             const next = !readAloud;
             setReadAloud(next);
@@ -41048,7 +41062,7 @@ ${t}` : t;
         )
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-composerrow", children: [
-        composerAdornment,
+        typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, lastReply: settledReply }) : composerAdornment,
         feat.voice && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "button",
           {
@@ -41056,7 +41070,7 @@ ${t}` : t;
             className: `cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`,
             disabled: !voiceUsable || transcribing,
             "aria-pressed": recording,
-            title: !voiceUsable ? "Voice fitting not running" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk \u2014 record then transcribe into the composer",
+            title: !voiceUsable ? "Voice fitting not running" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk - record then transcribe into the composer",
             onClick: () => recording ? stopRecording() : void startRecording(),
             children: transcribing ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }) : recording ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "5.5", y: "1.5", width: "5", height: "8", rx: "2.5", fill: "currentColor" }),
@@ -41086,7 +41100,7 @@ ${t}` : t;
   ] });
 }
 
-// ../../../packages/claude-chat/src/transport.ts
+// packages/claude-chat/src/transport.ts
 function createHttpTransport(base = "/api") {
   const b = base.replace(/\/$/, "");
   const post = async (path, body) => {
@@ -41167,7 +41181,7 @@ function createHttpTransport(base = "/api") {
   };
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react3.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -41181,7 +41195,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// ui/browser-pane.tsx
+// fittings/seed/dev-env/ui/browser-pane.tsx
 var import_react4 = __toESM(require_react());
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -41515,10 +41529,10 @@ function BrowserPane({
   ] });
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_react5 = __toESM(require_react());
 
-// ui/session-request.ts
+// fittings/seed/dev-env/ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "joe", label: "Joe \u2014 dev (default)" },
   { value: "gary", label: "Gary \u2014 assistant" },
@@ -41544,7 +41558,7 @@ function buildSessionRequest({
   return body;
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
@@ -41752,7 +41766,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "toast", children: message });
 }
 
-// ui/session-panels.tsx
+// fittings/seed/dev-env/ui/session-panels.tsx
 var import_react6 = __toESM(require_react());
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 function basename(p) {
@@ -41871,7 +41885,7 @@ function SessionsPanel({
   ] });
 }
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {

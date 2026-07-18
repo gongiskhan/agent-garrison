@@ -106,6 +106,34 @@ function isUnsafePath(raw) {
   return s.split("/").some((seg) => seg === ".."); // any traversal segment
 }
 
+// Return an actionable schema diagnostic instead of collapsing every invalid
+// artifact into "missing". Absolute paths remain forbidden in the repo-scoped
+// path fields because fences pass those claims to git. Work that deliberately
+// lives outside the project repository is represented as an opaque surface
+// claim (for example `filesystem:/tmp/my-workspace`) so overlap ordering still
+// works without ever handing an external path to git.
+export function touchSetValidationIssue(obj) {
+  if (!obj || typeof obj !== "object") return "the file must contain a JSON object";
+  if (obj.version !== 1) return "the object must use schema version 1";
+  for (const field of ["files", "dirs", "exclusive"]) {
+    const values = obj[field];
+    if (!Array.isArray(values)) continue;
+    const unsafe = values.find((x) => typeof x === "string" && isUnsafePath(x));
+    if (unsafe == null) continue;
+    const raw = String(unsafe).trim().replace(/\\/g, "/");
+    const problem = raw.startsWith("/") || /^[A-Za-z]:/.test(raw)
+      ? "absolute paths are not allowed"
+      : "parent-directory traversal (`..`) is not allowed";
+    return (
+      `${field} contains ${JSON.stringify(String(unsafe).slice(0, 240))}: ${problem}. ` +
+      `files, dirs, and exclusive are repo-relative Git claims. For work outside the project repo, ` +
+      `leave those arrays empty and claim the external workspace in surfaces, for example ` +
+      `\"surfaces\":[\"filesystem:/absolute/workspace\"]`
+    );
+  }
+  return null;
+}
+
 export function touchSetPath(runDir) {
   return path.join(runDir, "touch-set.json");
 }
@@ -115,15 +143,7 @@ export function touchSetPath(runDir) {
 // object). Content may be sparse — an empty prediction is a valid schema; it
 // simply scores `none` against everything.
 export function validateTouchSet(obj) {
-  if (!obj || typeof obj !== "object") return null;
-  if (obj.version !== 1) return null;
-  // Reject any absolute / traversal path in a path-bearing field — an invalid
-  // touch-set fails the same way a wrong version does (null), which the engine
-  // treats as "no valid touch-set" and parks the plan honestly (Q1 enforcement).
-  for (const field of ["files", "dirs", "exclusive"]) {
-    const v = obj[field];
-    if (Array.isArray(v) && v.some((x) => typeof x === "string" && isUnsafePath(x))) return null;
-  }
+  if (touchSetValidationIssue(obj)) return null;
   return {
     version: 1,
     cardId: typeof obj.cardId === "string" ? obj.cardId : null,
@@ -138,16 +158,34 @@ export function validateTouchSet(obj) {
   };
 }
 
+// Read + validate with a reason suitable for a retry prompt / card timeline.
+// The public readTouchSet compatibility helper below intentionally keeps its
+// historical `TouchSet | null` shape for every existing coordination caller.
+export function inspectTouchSet(runDir) {
+  if (!runDir || typeof runDir !== "string") {
+    return { touchSet: null, issue: "the card has no run directory" };
+  }
+  const file = touchSetPath(runDir);
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (err) {
+    const issue = err?.code === "ENOENT"
+      ? "touch-set.json is missing"
+      : `touch-set.json is unreadable or invalid JSON: ${String(err?.message || err).slice(0, 240)}`;
+    return { touchSet: null, issue };
+  }
+  const issue = touchSetValidationIssue(parsed);
+  return issue
+    ? { touchSet: null, issue }
+    : { touchSet: validateTouchSet(parsed), issue: null };
+}
+
 // Read + validate a card's touch-set from <runDir>/touch-set.json. Best-effort:
 // a missing/unreadable/invalid file returns null (the caller treats a null as
 // "this run has not declared a touch-set yet").
 export function readTouchSet(runDir) {
-  if (!runDir || typeof runDir !== "string") return null;
-  try {
-    return validateTouchSet(JSON.parse(readFileSync(touchSetPath(runDir), "utf8")));
-  } catch {
-    return null;
-  }
+  return inspectTouchSet(runDir).touchSet;
 }
 
 // ── overlap scorer (Q2) ────────────────────────────────────────────────────
@@ -734,14 +772,16 @@ export function applyPlanCompletionCoordination({ board, card, allCards, policy,
   const nowStr = typeof now === "function" ? now() : now;
 
   // 1. touch-set is REQUIRED evidence when coordination is enabled (Q1).
-  const ts = readTouchSet(card.runDir);
+  const inspected = inspectTouchSet(card.runDir);
+  const ts = inspected.touchSet;
   if (!ts) {
     return {
       kind: "park",
       planCompletedAt: nowStr,
       reason:
         `coordination is enabled but no valid touch-set.json was written under ${card.runDir} ` +
-        `(schema version 1, listing the files/dirs this run will touch). The plan phase must predict ` +
+        `(schema version 1, listing the files/dirs this run will touch). Validation: ${inspected.issue}. ` +
+        `The plan phase must predict ` +
         `the touch-set so overlapping runs can be ordered — re-run Plan so the skill writes it.`
     };
   }

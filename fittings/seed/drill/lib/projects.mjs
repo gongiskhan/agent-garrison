@@ -111,6 +111,16 @@ export function activeProjectRoot() {
   return null;
 }
 
+// A pinned project identity must still exist on disk before a mutating
+// request is allowed to write against it - a client holding a root it
+// captured minutes ago (the project was since removed/renamed, or the path
+// was never valid) must be rejected outright, not silently redirected to
+// whatever the live global selection happens to be right now.
+export function isValidProjectRoot(root) {
+  if (typeof root !== "string" || !root || !path.isAbsolute(root)) return false;
+  try { return existsSync(root) && statSync(root).isDirectory(); } catch { return false; }
+}
+
 export async function selectProject(root) {
   const resolved = canonicalRoot(root);
   if (!path.isAbsolute(resolved) || !existsSync(resolved) || !statSync(resolved).isDirectory()) {

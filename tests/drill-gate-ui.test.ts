@@ -60,7 +60,7 @@ beforeAll(async () => {
   await fetch(`${DRILL_BASE}/api/drillbook`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ app: { name: "f", url: FIXTURE_URL } }) });
   await fetch(`${DRILL_BASE}/api/pages/answer`, {
     method: "PUT", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: "Answer", path: "", steps: [{ id: "s1", area: 0, mode: "vision", enabled: true, state: "default", viewports: ["desktop"], description: "answer is visible", tags: [] }] })
+    body: JSON.stringify({ title: "Answer", path: "", steps: [{ id: "s1", area: 0, mode: "e2e", enabled: true, state: "default", viewports: ["desktop"], description: "answer is visible", assertion: { kind: "visible", testId: "answer" }, tags: [] }] })
   });
 
   browser = await chromium.launch({ headless: true });
@@ -83,9 +83,9 @@ describe("gated autonomy — real UI", () => {
   it("shows the plan diff and does not run; Approve and run then runs it", async () => {
     const p = page!;
     await p.goto(DRILL_BASE);
-    await p.getByRole("button", { name: "Run & results" }).click();
+    await p.getByRole("tab", { name: "Run & results" }).click();
     await p.getByText("Answer").click();
-    await p.getByRole("button", { name: "Run", exact: true }).click();
+    await p.getByRole("button", { name: "Run selected", exact: true }).click();
 
     await p.getByText("Plan ready - gated, awaiting approval").waitFor({ timeout: 10000 });
     await p.getByText("answer is visible").waitFor({ timeout: 5000 });

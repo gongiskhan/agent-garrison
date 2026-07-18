@@ -8,7 +8,7 @@ description: Plan-driven, page-level QA against a live screencast of the app und
 ## Policy-read preamble (soft - D5/D12)
 
 At the start of every invocation, look for the compiled Orchestrator policy at
-`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`).
+`$GARRISON_POLICY_PATH` (the active instance's compiled Orchestrator policy).
 
 - **Policy present** (a Garrison run): it is the single authority. This skill
   carries NO model/effort pins - its execution parameters come from the policy

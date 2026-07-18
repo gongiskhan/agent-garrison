@@ -55,7 +55,7 @@ function snapshotOnce(srcPath) {
 
 async function main() {
   const mode = process.argv[2];
-  const port = Number(process.argv[3] || process.env.COORD_AGENTMAIL_PORT || 8765);
+  const port = Number(process.argv[3] || process.env.COORD_AGENTMAIL_PORT || 28765);
   const p = claudeJsonPath();
 
   let root = {};

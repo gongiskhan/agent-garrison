@@ -33,7 +33,7 @@ describe("dev-env Fitting", () => {
     const metadata = await loadDevEnv();
     expect(metadata.faculty).toBe("sessions");
     expect(metadata.own_port).toBe(true);
-    expect(metadata.default_port).toBe(7086);
+    expect(metadata.default_port).toBe(27086);
     const devEnvProvisions = metadata.provides.filter((p) => p.kind === "dev-env");
     expect(devEnvProvisions).toEqual([{ kind: "dev-env", name: "dev-env" }]);
     expect(metadata.provides).toHaveLength(1);

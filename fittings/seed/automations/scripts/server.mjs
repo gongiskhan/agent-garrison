@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { mkdir, writeFile, unlink, readFile, readdir } from "node:fs/promises";
-import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, getMatrixRun, automationsDir } from "../lib/store.mjs";
+import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, getMatrixRun, readStepEvidence, automationsDir } from "../lib/store.mjs";
 import { runAutomation, runAutomationMatrix } from "../lib/engine.mjs";
 import { planFromBrief } from "../lib/planner.mjs";
 import { normalizeAutomation, validateAutomation } from "../lib/types.mjs";
@@ -21,7 +21,7 @@ import { readFile as readFileAsync } from "node:fs/promises";
 // catalog still lets the planner use api_call/local_command/browser steps.
 async function discoverCatalog() {
   try {
-    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
     const res = await fetch(`${base}/api/library`);
     if (!res.ok) return [];
     const data = await res.json();
@@ -91,7 +91,7 @@ function publishEvent(runId, event) {
 }
 
 const FITTING_ID = "automations";
-const DEFAULT_PORT = 7090;
+const DEFAULT_PORT = 27090;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
@@ -305,7 +305,7 @@ async function handle(req, res) {
       const slug = name ? undefined : freshAutomationSlug();
       const params = buildDiscussParams({ name, slug });
       const qs = new URLSearchParams(params).toString();
-      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777").replace(/\/+$/, "");
+      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777").replace(/\/+$/, "");
       return send(res, 200, { fittingId: channel.id, params, url: `${base}/embed/${channel.id}?${qs}` });
     }
     // Plan an automation from a Discuss brief, routed through the Model Router.
@@ -344,6 +344,24 @@ async function handle(req, res) {
     }
     if (pathname === "/api/runs" && req.method === "GET") {
       return send(res, 200, { runs: await listRuns(url.searchParams.get("automationId") || undefined) });
+    }
+    const evidenceGet = pathname.match(/^\/api\/runs\/([^/]+)\/steps\/([^/]+)\/evidence$/);
+    if (evidenceGet && req.method === "GET") {
+      try {
+        const bytes = await readStepEvidence(
+          decodeURIComponent(evidenceGet[1]),
+          decodeURIComponent(evidenceGet[2])
+        );
+        if (!bytes) return send(res, 404, { error: "evidence not found" });
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Content-Length", String(bytes.length));
+        res.setHeader("Cache-Control", "no-store");
+        return res.end(bytes);
+      } catch (err) {
+        if (err.code === "EVIDENCE_OUTSIDE_RUN") return send(res, 403, { error: err.message });
+        throw err;
+      }
     }
     const runGet = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (runGet && req.method === "GET") {

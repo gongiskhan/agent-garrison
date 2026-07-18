@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dev-env backend — the consolidated Dev Env Fitting (port 7086). One server
+// dev-env backend — the consolidated Dev Env Fitting (port 27086). One server
 // folds the retired dev-work Fittings into a single surface:
 //   - PTY terminals (ptys.mjs, from terminal-armory-default)
 //   - session state + Claude Code hook receiver + session CRUD (state.mjs,
@@ -77,7 +77,7 @@ import { listHistory } from "./claude-sessions.mjs";
 import { tailnetUrlForPort } from "./tailnet.mjs";
 
 const FITTING_ID = "dev-env";
-const DEFAULT_PORT = 7086;
+const DEFAULT_PORT = 27086;
 
 const HOME = os.homedir();
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
@@ -339,7 +339,7 @@ async function handleBrowserTarget(_req, res) {
       return jsonRes(res, 404, { error: "browser status file invalid" });
     }
     // When this dev-env page is reached over Tailscale, the browser fitting's
-    // raw http://host:7084 is mixed-content-blocked. Hand the UI the browser
+    // raw http://host:27084 is mixed-content-blocked. Hand the UI the browser
     // fitting's HTTPS tailnet URL (from `tailscale serve`) so its canvas + the
     // same-origin wss the canvas opens both proxy over Tailscale.
     const tailnetUrl =
@@ -536,9 +536,9 @@ async function handleDeleteSession(req, res, sessionId) {
 
 // Ask Garrison's orchestrator front door to place a session: returns
 // { mode, promptPath, model, effort, role }. Base URL overridable via
-// GARRISON_BASE_URL (default the local Garrison Next app on 7777).
+// GARRISON_BASE_URL (default the local Garrison Next app on 27777).
 async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
   // forward the active composition when we know it (GARRISON_COMPOSITION_ID), so a
   // non-default composition is placed against ITS live modes/routing; the route
   // defaults to "default" when absent (the single-composition case).
@@ -832,7 +832,7 @@ function handleClaudeInterrupt(req, res, sessionId) {
 }
 
 // ─────────────────────────── voice proxy (/voice/* and /sessions/:id/voice/*)
-// Thin same-origin bridge to the deepgram-voice fitting (port 7085) so the
+// Thin same-origin bridge to the deepgram-voice fitting (port 27085) so the
 // browser never needs to cross-origin to it. The voice URL is rediscovered from
 // the status file on EVERY request (the port can change / the fitting can come
 // and go); if the file is missing or its /health fails we return 503 with a

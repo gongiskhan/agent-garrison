@@ -56,9 +56,9 @@ describe("pairing mint", () => {
   });
 
   it("buildInstaller emits the one-line curl | bash installer", () => {
-    const installer = buildInstaller("m1", "tok123", "100.1.2.3", 3702);
+    const installer = buildInstaller("m1", "tok123", "100.1.2.3", 23702);
     expect(installer).toBe(
-      "curl -fsSL http://100.1.2.3:3702/install.sh | GARRISON_HOST=http://100.1.2.3:3702 GARRISON_TOKEN=tok123 GARRISON_MACHINE=m1 bash"
+      "curl -fsSL http://100.1.2.3:23702/install.sh | GARRISON_HOST=http://100.1.2.3:23702 GARRISON_TOKEN=tok123 GARRISON_MACHINE=m1 bash"
     );
   });
 });
@@ -132,12 +132,12 @@ describe("outpostRunFn (v1 exec.run relay)", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const run = outpostRunFn("http://127.0.0.1:3702", "dev");
+    const run = outpostRunFn("http://127.0.0.1:23702", "dev");
     const out = await run({ prompt: "do the thing" });
     expect(out).toEqual({ reply: "hello from mac" });
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:3702/outposts/dev/rpc");
+    expect(url).toBe("http://127.0.0.1:23702/outposts/dev/rpc");
     const body = JSON.parse((init as { body: string }).body);
     expect(body.type).toBe("exec.run");
     // The prompt is base64-encoded into a `base64 -d | claude -p` pipeline.
@@ -151,7 +151,7 @@ describe("outpostRunFn (v1 exec.run relay)", () => {
       ok: true,
       json: async () => ({ ok: false, error: "outpost 'dev' not connected" }),
     }));
-    const run = outpostRunFn("http://127.0.0.1:3702", "dev");
+    const run = outpostRunFn("http://127.0.0.1:23702", "dev");
     await expect(run({ prompt: "x" })).rejects.toThrow(/not connected/);
   });
 });

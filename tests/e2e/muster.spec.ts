@@ -1,4 +1,8 @@
 import { test, expect } from "@playwright/test";
+
+// The switch-gating proof intercepts its POST; keep a PWA service worker from
+// bypassing Playwright's page routing for that request.
+test.use({ serviceWorkers: "block" });
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -156,7 +160,108 @@ test("(d) live validation flags a garrison-call target on a skill cell", async (
   await expect(cell).toHaveAttribute("data-target", "oneshot");
 });
 
+test("(g) a stale initial load cannot overwrite an optimistic edit", async ({ page }) => {
+  let loadCount = 0;
+  let releaseStaleLoad!: () => void;
+  let markStaleCaptured!: () => void;
+  let markStaleFulfilled!: () => void;
+  const staleLoadGate = new Promise<void>((resolve) => {
+    releaseStaleLoad = resolve;
+  });
+  const staleCaptured = new Promise<void>((resolve) => {
+    markStaleCaptured = resolve;
+  });
+  const staleFulfilled = new Promise<void>((resolve) => {
+    markStaleFulfilled = resolve;
+  });
+
+  // React Strict Mode starts two initial loads in development. Capture the
+  // first response while it still contains one level, let the newer load
+  // render, then release this stale response after the user adds level two.
+  await page.route(
+    (url) =>
+      url.pathname === "/api/muster" && url.searchParams.get("composition") === FIXTURE_ID,
+    async (route) => {
+      loadCount += 1;
+      if (loadCount !== 1) {
+        await route.continue();
+        return;
+      }
+      const staleResponse = await route.fetch();
+      markStaleCaptured();
+      await staleLoadGate;
+      await route.fulfill({ response: staleResponse });
+      markStaleFulfilled();
+    }
+  );
+
+  let releaseAdd!: () => void;
+  let markAddStarted!: () => void;
+  const addGate = new Promise<void>((resolve) => {
+    releaseAdd = resolve;
+  });
+  const addStarted = new Promise<void>((resolve) => {
+    markAddStarted = resolve;
+  });
+  await page.route("**/api/muster/level", async (route) => {
+    const body = route.request().postDataJSON() as { action?: string };
+    if (body.action === "add") {
+      markAddStarted();
+      await addGate;
+    }
+    await route.continue();
+  });
+
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await staleCaptured;
+  await expect(page.getByTestId("muster-page")).toBeVisible();
+  await page.getByTestId("duty-toggle-develop").click();
+  await page.getByTestId("level-add-develop").click();
+  await addStarted;
+
+  const cell2 = page.getByTestId("cell-target-develop-2");
+  await expect(cell2).toBeVisible();
+  releaseStaleLoad();
+  await staleFulfilled;
+  await page.waitForTimeout(100);
+  await expect(cell2).toBeVisible();
+
+  releaseAdd();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async (id) => {
+          const res = await fetch(`/api/muster?composition=${id}`);
+          const data = await res.json();
+          return data.duties?.develop?.levels?.length ?? 0;
+        }, FIXTURE_ID),
+      { timeout: 8000 }
+    )
+    .toBe(2);
+});
+
 test("(f) a duty's level ladder is editable: add, describe, remove", async ({ page }) => {
+  // Hold the ADD at the network boundary until the debounced DESCRIBE is due.
+  // The UI must serialize both writes: otherwise describe reads the old
+  // one-level manifest, is rejected, and the later add leaves its placeholder
+  // criterion behind (the regression this test originally exposed).
+  let releaseAdd!: () => void;
+  let markAddStarted!: () => void;
+  const addGate = new Promise<void>((resolve) => {
+    releaseAdd = resolve;
+  });
+  const addStarted = new Promise<void>((resolve) => {
+    markAddStarted = resolve;
+  });
+  await page.route("**/api/muster/level", async (route) => {
+    const body = route.request().postDataJSON() as { action?: string };
+    if (body.action === "add") {
+      markAddStarted();
+      await addGate;
+    }
+    await route.continue();
+  });
+
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await page.getByTestId("duty-toggle-develop").click();
 
@@ -167,6 +272,7 @@ test("(f) a duty's level ladder is editable: add, describe, remove", async ({ pa
   // ADD: clones the last leaf cell - target kept, effort bumped one notch
   // (medium -> high) - under a placeholder routing criterion.
   await page.getByTestId("level-add-develop").click();
+  await addStarted;
   const cell2 = page.getByTestId("cell-target-develop-2");
   await expect(cell2).toBeVisible();
   await expect(cell2).toHaveAttribute("data-target", "cc-sonnet");
@@ -175,6 +281,8 @@ test("(f) a duty's level ladder is editable: add, describe, remove", async ({ pa
   // DESCRIBE: the criterion autosaves (debounced) - poll the API until the
   // write lands, then prove it survives a reload.
   await page.getByTestId("level-desc-develop-2").fill("deep: architecture-grade work");
+  await page.waitForTimeout(700); // description debounce is 600ms
+  releaseAdd();
   await expect
     .poll(
       () =>
@@ -210,4 +318,36 @@ test("(e) no horizontal overflow at 390px", async ({ page }) => {
     return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
   });
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+});
+
+test("composition selection waits for the full switch before reloading", async ({ page }) => {
+  let received: { method: string; body: unknown } | null = null;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/composition/switch", async (route) => {
+    received = {
+      method: route.request().method(),
+      body: route.request().postDataJSON()
+    };
+    await gate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, id: "default" })
+    });
+  });
+
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await expect(page.getByTestId("muster-page")).toBeVisible();
+  await page.getByLabel("Switch composition").selectOption("default");
+  await expect.poll(() => received).not.toBeNull();
+  expect(received).toEqual({ method: "POST", body: { target: "default" } });
+  // The old pointer-only implementation reloaded immediately. The page must
+  // remain on the viewed composition until clean down/up reports success.
+  await expect(page).toHaveURL(new RegExp(`composition=${FIXTURE_ID}`));
+
+  release();
+  await expect(page).toHaveURL(/\/muster$/, { timeout: 10000 });
 });

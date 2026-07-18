@@ -39,7 +39,7 @@ describe("coord wiring — installs to the EXACT user-scope paths claude reads",
   it("registers both MCP servers in $HOME/.claude.json and the coord-mcp hook owner in $HOME/.claude/settings.json", () => {
     node(path.join(SEED, "coord-mcp", "scripts", "register-mcp.mjs"), ["add"]);
     node(path.join(SEED, "coord-mcp", "scripts", "install-hook.mjs"), []);
-    node(path.join(SEED, "coord-agentmail", "scripts", "register-mcp.mjs"), ["add", "8765"]);
+    node(path.join(SEED, "coord-agentmail", "scripts", "register-mcp.mjs"), ["add", "28765"]);
 
     // Wrote to the production paths claude consumes (NOT an override path).
     expect(existsSync(cjPath)).toBe(true);
@@ -47,7 +47,7 @@ describe("coord wiring — installs to the EXACT user-scope paths claude reads",
 
     const cj = JSON.parse(readFileSync(cjPath, "utf8"));
     expect(cj.mcpServers["coord-mcp"].command).toContain("node");
-    expect(cj.mcpServers["coord-agentmail"]).toEqual({ type: "http", url: "http://127.0.0.1:8765/mcp" });
+    expect(cj.mcpServers["coord-agentmail"]).toEqual({ type: "http", url: "http://127.0.0.1:28765/mcp" });
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
     const owners = (ev: string) => (settings.hooks[ev] || []).map((g: { _garrison?: string }) => g._garrison);

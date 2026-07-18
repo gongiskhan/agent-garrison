@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import http, { type Server } from "node:http";
 import { GARRISON_SANDBOX } from "./sandbox";
 
 // Committed e2e for the Coordination view. The dev server runs with
@@ -14,6 +15,9 @@ function slug(repo: string): string {
 }
 function lockDir(): string {
   return path.join(GARRISON_SANDBOX, "coord", "plan-locks");
+}
+function agentMailStatusFile(): string {
+  return path.join(GARRISON_SANDBOX, "ui-fittings", "coord-agentmail.json");
 }
 function seedStaleLock(): void {
   fs.mkdirSync(lockDir(), { recursive: true });
@@ -28,8 +32,43 @@ function clearLocks(): void {
 }
 
 test.describe("Coordination view", () => {
+  let agentMail: Server | null = null;
+
+  test.beforeAll(async () => {
+    // The post-Beads hero verdict correctly reports DOWN when agent_mail is
+    // unavailable. Keep this UI scenario focused on the stale-lock branch by
+    // giving the sandbox a real, reachable health endpoint.
+    agentMail = http.createServer((req, res) => {
+      const status = req.url === "/api/health" ? 200 : 404;
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(status === 200 ? { ok: true } : { error: "not-found" }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      agentMail!.once("error", reject);
+      agentMail!.listen(0, "127.0.0.1", resolve);
+    });
+    const address = agentMail.address();
+    if (!address || typeof address === "string") throw new Error("agent_mail test server did not bind a TCP port");
+    fs.mkdirSync(path.dirname(agentMailStatusFile()), { recursive: true });
+    fs.writeFileSync(
+      agentMailStatusFile(),
+      JSON.stringify({
+        url: `http://127.0.0.1:${address.port}`,
+        mcpUrl: `http://127.0.0.1:${address.port}/mcp`,
+      })
+    );
+  });
+
   test.beforeEach(() => clearLocks());
-  test.afterAll(() => clearLocks());
+  test.afterAll(async () => {
+    clearLocks();
+    fs.rmSync(agentMailStatusFile(), { force: true });
+    if (agentMail) {
+      await new Promise<void>((resolve, reject) => {
+        agentMail!.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
 
   test("renders the unified state: hero verdict + all sections + Verify now", async ({ page }) => {
     await page.goto("/coordination");

@@ -61,10 +61,14 @@ const PRESENCE_RETENTION_MS = 24 * 3600 * 1000; // prune presence records older 
 
 const KEEP_AWAKE_HOURS = new Set([1, 4, 8]);
 
-// 7092, not 7090: the automations engine holds 7090 as its canonical port, and
+export function hostPowerActionsDisabled(env = process.env) {
+  return env.GARRISON_DISABLE_HOST_DAEMONS === "1";
+}
+
+// 27092, not 27090: the automations engine holds 27090 as its canonical port, and
 // own-port servers bind exactly or exit 1 (no findFreePort shift since 07ba683).
 const DEFAULT_CONFIG = {
-  port: 7092,
+  port: 27092,
   bind_host: "127.0.0.1",
   idle_minutes: 30,
   load_threshold: 1.0,
@@ -364,6 +368,21 @@ async function tick() {
   broadcast({ type: "tick", state: publicState(now) });
 
   if (runtime.countdown.suspend && !runtime.suspending) {
+    if (hostPowerActionsDisabled()) {
+      runtime.lastSuspend = {
+        at: new Date().toISOString(),
+        kind: "suspend-blocked",
+        reason: "idle",
+        message: "host power actions are disabled for this Garrison instance"
+      };
+      runtime.countdown = {
+        clearSince: null,
+        remainingMs: runtime.config.idle_minutes * 60 * 1000,
+        suspend: false
+      };
+      broadcast({ type: "state", state: publicState(now) });
+      return;
+    }
     // Fire-and-forget: the suspend sequence has its own 10s warning delay and
     // must not block the tick loop.
     runSuspend("idle").catch((err) => console.error("[power] suspend error:", err?.message ?? err));
@@ -373,6 +392,21 @@ async function tick() {
 // ── self-suspend sequence (D35) ─────────────────────────────────────────────
 
 async function runSuspend(reason) {
+  if (hostPowerActionsDisabled()) {
+    runtime.lastSuspend = {
+      at: new Date().toISOString(),
+      kind: "suspend-blocked",
+      reason,
+      message: "host power actions are disabled for this Garrison instance"
+    };
+    runtime.countdown = {
+      clearSince: null,
+      remainingMs: runtime.config.idle_minutes * 60 * 1000,
+      suspend: false
+    };
+    broadcast({ type: "state", state: publicState() });
+    return;
+  }
   if (runtime.suspending) return;
   runtime.suspending = true;
   broadcast({ type: "state", state: publicState() });
@@ -488,6 +522,7 @@ function publicState(now = Date.now()) {
     signals: runtime.lastSignals,
     keepAwake: runtime.keepAwake,
     lastSuspend: runtime.lastSuspend,
+    hostPowerActionsDisabled: hostPowerActionsDisabled(),
     awakeHours: summary,
     config: {
       idle_minutes: runtime.config.idle_minutes,
@@ -614,6 +649,12 @@ async function handleRequest(req, res, distDir, liveOpts) {
   }
   if (pathname === "/api/suspend" && method === "POST") {
     if (crossSiteBlocked(req, res)) return;
+    if (hostPowerActionsDisabled()) {
+      return jsonRes(res, 403, {
+        ok: false,
+        error: "host power actions are disabled for this Garrison instance"
+      });
+    }
     const body = await readBody(req);
     if (body?.confirm !== true) {
       return jsonRes(res, 400, { ok: false, error: "confirm:true required" });

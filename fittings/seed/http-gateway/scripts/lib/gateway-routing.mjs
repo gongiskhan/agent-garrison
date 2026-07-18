@@ -23,12 +23,17 @@
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { spawn } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export function shouldUseEphemeralSession(channel) {
+  return channel === "web" || channel === "garrison";
+}
 
 // ── locate the model-router fitting (repo seed OR installed composition) ──────
 export function resolveModelRouterDir(compositionDir) {
@@ -113,8 +118,10 @@ export function resolveKanbanLoopDir(compositionDir) {
 }
 
 // Locate the dispatcher fitting dir so the gateway can run the SAME steering
-// classifier (S3c steer-core) the composition ships. Same resolution shape.
-export function resolveDispatcherDir(compositionDir) {
+// classifier and dispatch/clarity core the composition ships. Callers that load
+// a particular module pass its filename so a partial/older fitting cannot be
+// selected for a core it does not contain.
+export function resolveDispatcherDir(compositionDir, requiredModule = "steer-core.mjs") {
   const candidates = [
     process.env.GARRISON_DISPATCHER_DIR,
     compositionDir && path.join(compositionDir, "apm_modules", "_local", "dispatcher"),
@@ -122,12 +129,118 @@ export function resolveDispatcherDir(compositionDir) {
   ].filter(Boolean);
   for (const c of candidates) {
     try {
-      if (fs.existsSync(path.join(c, "lib", "steer-core.mjs"))) return c;
+      const modules = requiredModule
+        ? [requiredModule]
+        : ["steer-core.mjs", "dispatch-core.mjs"];
+      if (modules.some((name) => fs.existsSync(path.join(c, "lib", name)))) return c;
     } catch {
       /* ignore */
     }
   }
   return null;
+}
+
+// Unlike pure code modules, garrison-call is an executable capability and must
+// actually be composed. Do not fall back to the repo seed when a composition is
+// running: an absent fitting yields an explicit failed call and the Dispatcher
+// uses its deterministic fallback instead of secretly reaching an unstationed
+// runtime.
+export function resolveGarrisonCallScript(compositionDir) {
+  const candidates = [
+    process.env.GARRISON_CALL_SCRIPT,
+    compositionDir && path.join(compositionDir, "apm_modules", "_local", "garrison-call", "scripts", "call.mjs"),
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+// Auth and provider configuration remain inside garrison-call: this wrapper only
+// carries the structured spec over stdin and parses its secret-free result.
+export function makeGarrisonCallInvoker(callScript, opts = {}) {
+  if (!callScript) {
+    return async () => ({ ok: false, error: "garrison-call fitting is not installed in this composition" });
+  }
+  const spawnImpl = opts.spawnImpl ?? spawn;
+  return (spec) => new Promise((resolve) => {
+    let child;
+    try {
+      child = spawnImpl(process.execPath, [callScript], {
+        cwd: opts.compositionDir || process.cwd(),
+        env: opts.env ?? process.env,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+    } catch (err) {
+      resolve({ ok: false, error: `garrison-call spawn failed: ${err?.message || String(err)}` });
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    child.stdout?.on?.("data", (chunk) => (stdout += chunk.toString()));
+    child.stderr?.on?.("data", (chunk) => (stderr += chunk.toString()));
+    child.on?.("error", (err) => finish({ ok: false, error: `garrison-call error: ${err?.message || String(err)}` }));
+    child.on?.("close", () => {
+      try {
+        finish(JSON.parse(stdout.trim()));
+      } catch {
+        finish({ ok: false, error: `garrison-call returned non-JSON: ${(stdout || stderr).slice(0, 200)}` });
+      }
+    });
+    child.stdin?.end?.(JSON.stringify(spec));
+  });
+}
+
+function dispatcherCallOpts(executionModel, resolvedLib) {
+  const route = resolvedLib?.executionRouteFor?.({ duty: "dispatch", level: 1 }, executionModel);
+  const target = route?.target ?? {};
+  const provider = target.provider ?? "ollama-local";
+  const shape = target.shape ?? (
+    provider === "ollama-local" ? "ollama" :
+      ["openai", "deepseek", "zai-glm"].includes(provider) ? "openai" : "anthropic"
+  );
+  return {
+    shape,
+    provider: provider === "anthropic-plan" ? "anthropic" : provider,
+    model: target.model ?? "qwen2.5:3b",
+    maxTokens: Number.isFinite(target.maxTokens) ? target.maxTokens : 256,
+    timeoutMs: Number.isFinite(target.timeoutMs) ? target.timeoutMs : 30000
+  };
+}
+
+export async function buildProductionDispatcher({ compositionDir, compositionId, executionModel, resolvedLib, decisionsFile, spawnImpl } = {}) {
+  const model = resolvedLib?.dispatcherModelFrom?.(executionModel);
+  if (!model || !model.duties?.dispatch) return null;
+  const dispatcherDir = resolveDispatcherDir(compositionDir, "dispatch-core.mjs");
+  if (!dispatcherDir) return null;
+  const core = await import(pathToFileURL(path.join(dispatcherDir, "lib", "dispatch-core.mjs")).href);
+  const callScript = resolveGarrisonCallScript(compositionDir);
+  return {
+    core,
+    // Re-read at call time when possible so a runner projection refresh is seen
+    // without restarting the gateway; the static model is the safe fallback.
+    model: () =>
+      resolvedLib?.dispatcherModelFrom?.(
+        resolvedLib.loadResolvedModel?.(undefined, compositionId ?? null)
+      ) ?? model,
+    call: makeGarrisonCallInvoker(callScript, { compositionDir, spawnImpl }),
+    evidenceFile: decisionsFile,
+    callOpts: {
+      ...dispatcherCallOpts(executionModel, resolvedLib),
+      fallback: core.deterministicFallbackDispatch
+    },
+    configuredCall: callScript ? "garrison-call" : "deterministic-fallback"
+  };
 }
 
 // BUILD MODE helper: commit a locally-generated file verbatim. The local model
@@ -232,7 +345,8 @@ export function loadRoutingConfig(compositionDir, modelRouterDir) {
 // unreadable file → null (the config routes un-repointed, as before).
 export function loadKanbanDutyModel() {
   try {
-    const dir = process.env.GARRISON_KANBAN_DIR?.trim() || path.join(os.homedir(), ".garrison", "kanban-loop");
+    const garrisonHome = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
+    const dir = process.env.GARRISON_KANBAN_DIR?.trim() || path.join(garrisonHome, "kanban-loop");
     const file = path.join(dir, "model.json");
     if (!fs.existsSync(file)) return null;
     const model = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -269,6 +383,7 @@ export class RoutedGateway {
     this.config = opts.config;
     this.decisionsFile = opts.decisionsFile;
     this.compositionDir = opts.compositionDir;
+    this.compositionId = opts.compositionId ?? null;
     this.appendSystemPromptFile = opts.appendSystemPromptFile;
     this.nowFn = opts.nowFn ?? (() => new Date().toISOString());
     this.logFn = opts.logFn ?? (() => {});
@@ -276,6 +391,7 @@ export class RoutedGateway {
     this.pool = opts.pool; // MultiRuntimePool
     this.operativeRuntimeId = opts.operativeRuntimeId ?? "operative";
     this.classifierRuntimeId = opts.classifierRuntimeId ?? "classifier";
+    this.primaryEngine = opts.primaryEngine ?? "claude-code";
     // The model/effort/provider the operative session currently sits on.
     this.currentTarget = opts.initialTarget ?? null;
     this.spawnFn = opts.spawnFn ?? null; // for off-primary respawn-resume
@@ -303,6 +419,11 @@ export class RoutedGateway {
     this._agentSdkSessions = new Map();
     // secondary runtimes (codex/gpt, gemini) executed directly by the gateway.
     this._secondaryAdapters = opts.secondaryAdapters ?? new Map();
+    // A Claude target under a non-Claude primary is a delegate, not a mutation of
+    // the primary adapter. Keep dedicated real Claude sessions keyed by the exact
+    // target identity so Codex-primary → Claude-duty is executable and truthful.
+    this._claudeDelegateAdapter = opts.claudeDelegateAdapter ?? null;
+    this._claudeDelegateSessions = new Map();
     // Optional shared BUILD WORKSPACE. When set, the routed agent-sdk + secondary
     // turns run with this dir as cwd, so every model (ollama via the SDK, codex,
     // gemini) reads and edits the SAME real project files — a genuine cross-model
@@ -331,6 +452,8 @@ export class RoutedGateway {
     // verdict. The lazy short-circuit loader caches into this._clarityScFn.
     this._clarityFn = opts.clarity ?? null;
     this._clarityScFn = undefined;
+    this._executionModel = opts.executionModel ?? null;
+    this._resolvedModelLib = opts.resolvedModelLib ?? undefined;
   }
 
   async start() {
@@ -381,11 +504,16 @@ export class RoutedGateway {
   async runAgentSdkTurn(route, message, onChunk) {
     const adapter = await this.getAgentSdkAdapter();
     const t = route.target;
-    const promptMode = t.promptMode ?? "lean";
-    const key = `${t.provider}:${t.model}:${promptMode}`;
+    // Match the runtime fitting + adapter defaults when the target editor leaves
+    // these controls at "runtime default". Falling back to lean/4 here silently
+    // stripped CLAUDE.md, skills and tools from otherwise agentic targets even
+    // though AgentSdkAdapter itself defaults to the full harness and 12 turns.
+    const promptMode = t.promptMode ?? "full";
+    const requestedEffort = t.effort ?? null;
     const spawnArgs = {
       provider: t.provider,
       model: t.model,
+      effort: requestedEffort,
       promptMode,
       leanPrompt: t.leanPrompt,
       baseUrl: t.baseUrl,
@@ -393,11 +521,15 @@ export class RoutedGateway {
       compositionDir: this.buildWorkspace ?? this.compositionDir,
       disallowedTools: t.disallowedTools,
       allowedTools: t.allowedTools,
-      maxTurns: t.maxTurns ?? 4,
+      maxTurns: t.maxTurns ?? 12,
       budgetTokens: t.budgetTokens ?? null,
       secrets: this.secrets ?? null,
       permissionMode: "bypassPermissions",
     };
+    // Every target-owned execution knob participates in session identity. A live
+    // manifest edit from lean → full (or maxTurns/tool-policy changes) must spawn
+    // a session with the new harness instead of reusing an incompatible warm one.
+    const key = JSON.stringify({ targetId: route.targetId, ...spawnArgs, secrets: undefined });
     let session = this._agentSdkSessions.get(key);
     if (!session || session.alive === false) {
       session = await adapter.spawn(spawnArgs);
@@ -413,6 +545,9 @@ export class RoutedGateway {
       target: route.targetId,
     });
     await adapter.awaitReady(session);
+    if (requestedEffort != null && typeof adapter.setEffort === "function") {
+      await adapter.setEffort(session, requestedEffort);
+    }
     await adapter.sendTurn(session, message);
     let resp = await adapter.awaitResponse(session);
     // BUILD MODE (buildWorkspace set): local models can't drive file-edit tools
@@ -450,6 +585,8 @@ export class RoutedGateway {
       runtime: "agent-sdk",
       provider: t.provider,
       model: t.model,
+      effort: requestedEffort,
+      effortApplied: requestedEffort == null ? null : session.effortApplied === true,
       toolUses: resp.toolUses ?? [],
       stoppedReason: resp.stoppedReason ?? null,
     };
@@ -459,7 +596,75 @@ export class RoutedGateway {
   // gemini) the gateway executes directly via its adapter (one-shot CLI exec).
   isSecondaryTarget(route) {
     const t = route?.target;
-    return !!t && (t.type === "secondary" || t.runtime === "codex" || t.runtime === "gemini");
+    // `type: secondary` is legacy metadata, not sufficient runtime identity: a
+    // Claude-bound target under a Codex primary must take the real Claude lane.
+    return !!t && (t.runtime === "codex" || t.runtime === "gemini");
+  }
+
+  isClaudeDelegateTarget(route) {
+    return route?.target?.runtime === "claude-code" && this.primaryEngine !== "claude-code";
+  }
+
+  async getClaudeDelegateAdapter() {
+    if (this._claudeDelegateAdapter) return this._claudeDelegateAdapter;
+    this._claudeDelegateAdapter = new ClaudeCodeAdapter(this.spawnFn ? { spawnFn: this.spawnFn } : {});
+    return this._claudeDelegateAdapter;
+  }
+
+  // A real Claude Code execution lane for a Claude-bound duty when another
+  // runtime (Codex/Gemini/SDK/OpenCode) hosts the primary operative. This is a
+  // delegate session with its own provider/model/effort, never the classifier and
+  // never a reinterpretation of the non-Claude primary's session state.
+  async runClaudeDelegateTurn(route, message, opts = {}) {
+    const adapter = await this.getClaudeDelegateAdapter();
+    const t = route.target;
+    const provider = t.provider ?? "anthropic-plan";
+    const model = t.model;
+    const effort = t.effort ?? null;
+    const key = `${provider}:${model}:${effort ?? "none"}`;
+    let session = this._claudeDelegateSessions.get(key);
+    if (!session || !this.#alive({ session })) {
+      const spawnConfig = this.core.buildRespawnOpts(t, {
+        compositionDir: this.buildWorkspace ?? this.compositionDir,
+        appendSystemPromptFile: this.appendSystemPromptFile,
+        baseEnv: process.env,
+        secrets: this.secrets ?? null,
+        providers: this.core.ensureProviders(this.config)?.providers,
+        permissionMode: "bypassPermissions"
+      });
+      // A delegate is a fresh target session, not a resume of the primary.
+      session = await adapter.spawn({ ...spawnConfig, continueSession: false });
+      await adapter.awaitReady(session);
+      let effortApplied = null;
+      if (effort != null && typeof adapter.setEffort === "function") {
+        await adapter.setEffort(session, effort);
+        effortApplied = true;
+        await sleep(this.injectSettleMs ?? 250);
+      }
+      session.__garrisonEffortApplied = effortApplied;
+      this._claudeDelegateSessions.set(key, session);
+    }
+    this.logFn({ kind: "runtime-turn", runtime: "claude-code", provider, model, effort, target: route.targetId, delegated: true });
+    let response;
+    if (typeof session.runTurn === "function") {
+      const out = await session.runTurn({ message, timeoutMs: opts.timeoutMs });
+      response = { text: out?.reply ?? "", sessionId: out?.sessionId ?? session.getClaudeSessionId?.() ?? null };
+    } else {
+      await adapter.sendTurn(session, message);
+      const out = await adapter.awaitResponse(session);
+      response = { text: out?.text ?? "", sessionId: session.getClaudeSessionId?.() ?? null };
+    }
+    if (opts.onChunk && response.text) opts.onChunk(response.text, true);
+    return {
+      reply: response.text,
+      session_id: response.sessionId,
+      route: route.targetId,
+      runtime: "claude-code",
+      provider,
+      model,
+      effort,
+      effortApplied: effort == null ? null : session.__garrisonEffortApplied === true
+    };
   }
 
   // A `workflow` routing target names a saved Claude Code workflow. We do NOT run a
@@ -503,17 +708,18 @@ export class RoutedGateway {
     const rt = route.target.runtime;
     const provider = route.target.provider ?? (rt === "codex" ? "openai" : "google");
     const model = route.target.model ?? (rt === "codex" ? "gpt-5-codex" : "gemini-2.5-flash");
+    const effort = route.target.effort ?? null;
     const adapter = await this.getSecondaryAdapter(rt);
     // cwd: the shared BUILD WORKSPACE when set (so codex reads + gemini edits the
     // REAL project files), else a clean scratch cwd (default — keep the agentic CLI
     // out of the repo). codex on a ChatGPT account rejects an explicit model
     // override, so use its default; gemini accepts -m.
     const cwd = this.buildWorkspace ?? (this._secondaryScratch ??= fs.mkdtempSync(path.join(os.tmpdir(), "garrison-secondary-")));
-    const spawnModel = rt === "gemini" ? model : undefined;
+    const spawnModel = model;
     // Trust the cwd for gemini 0.46 (else it downgrades yolo + blocks); harmless for codex.
     const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" };
-    const session = await adapter.spawn({ compositionDir: cwd, model: spawnModel, env });
-    this.logFn({ kind: "runtime-turn", runtime: rt, provider, model, target: route.targetId });
+    const session = await adapter.spawn({ compositionDir: cwd, model: spawnModel, effort, env });
+    this.logFn({ kind: "runtime-turn", runtime: rt, provider, model, effort, target: route.targetId });
     await adapter.awaitReady(session);
     await adapter.sendTurn(session, message);
     let resp;
@@ -526,7 +732,18 @@ export class RoutedGateway {
         /* ignore */
       }
     }
-    return { reply: resp?.text ?? "", session_id: null, route: route.targetId, runtime: rt, provider, model };
+    return {
+      reply: resp?.text ?? "",
+      session_id: null,
+      route: route.targetId,
+      runtime: rt,
+      provider,
+      model,
+      effort,
+      // Codex applies the reasoning-effort config at exec. Gemini currently has
+      // no CLI effort control, so report the requested-but-unapplied state.
+      effortApplied: effort == null ? null : rt === "codex" ? session.effortApplied === true : false
+    };
   }
 
   #alive(rec) {
@@ -579,8 +796,8 @@ export class RoutedGateway {
   }
 
   // D19: advance a quick card Implement → Done at turn completion (shared impl).
-  async completeQuickCard(id) {
-    return cards.completeQuickCard({ id, logFn: (e) => this.logFn(e) });
+  async completeQuickCard(id, result = null) {
+    return cards.completeQuickCard({ id, result, logFn: (e) => this.logFn(e) });
   }
 
   // D19: route a failed/empty quick card to needs-attention instead of Done.
@@ -683,7 +900,7 @@ export class RoutedGateway {
   async runSteerClassification({ message, card } = {}) {
     if (this._steerFn) return this._steerFn({ message, card });
     try {
-      const dir = resolveDispatcherDir(this.compositionDir);
+      const dir = resolveDispatcherDir(this.compositionDir, "steer-core.mjs");
       if (!dir) return { action: "acknowledge", reason: "no steering classifier", confidence: "low" };
       const mod = await import(pathToFileURL(path.join(dir, "lib", "steer-core.mjs")).href);
       return await mod.classifySteering({
@@ -788,7 +1005,7 @@ export class RoutedGateway {
   async _clarityShortCircuit(message) {
     try {
       if (this._clarityScFn === undefined) {
-        const dir = resolveDispatcherDir(this.compositionDir);
+        const dir = resolveDispatcherDir(this.compositionDir, "dispatch-core.mjs");
         const mod = dir ? await import(pathToFileURL(path.join(dir, "lib", "dispatch-core.mjs")).href) : null;
         this._clarityScFn = mod && typeof mod.clarityShortCircuit === "function" ? mod.clarityShortCircuit : null;
       }
@@ -840,13 +1057,23 @@ export class RoutedGateway {
       throw new Error("dispatchRoute: no Dispatcher wired (construct RoutedGateway with opts.dispatcher = { core, model, call })");
     }
     const { core, model, call, evidenceFile, callOpts } = this._dispatcher;
-    const result = await core.dispatch(model, message, {
+    const currentModel = typeof model === "function" ? await model() : model;
+    const result = await core.dispatch(currentModel, message, {
       call,
       now: this.nowFn,
       evidenceFile: evidenceFile ?? this.decisionsFile,
       cardLevel: opts.cardLevel,
       ...(callOpts ?? {}),
     });
+    if (result?.dispatchOk === false) {
+      this.logFn({
+        kind: "dispatcher-fallback",
+        duty: result.duty ?? null,
+        level: result.level ?? null,
+        reason: result.reason ?? null,
+        error: result.callError ?? null
+      });
+    }
     // S4b (D15 acceptance 9): the dispatch now CONSULTS THE RESOLVED MODEL. Attach
     // the ordered phase sequence the resolved (duty, level) walks — read from the
     // SAME runner-projected model.json the board reads — so a task entering via the
@@ -872,6 +1099,7 @@ export class RoutedGateway {
   // one implementation and cannot drift. Cached; null when the fitting isn't
   // resolvable on disk (the gateway then attaches no sequence and behaves as before).
   async _kanbanResolvedModelLib() {
+    if (this._resolvedModelLib !== undefined) return this._resolvedModelLib;
     if (this._kanbanLib !== undefined) return this._kanbanLib;
     try {
       const dir = resolveKanbanLoopDir(this.compositionDir);
@@ -882,6 +1110,19 @@ export class RoutedGateway {
       this._kanbanLib = null;
     }
     return this._kanbanLib;
+  }
+
+  async executionModel() {
+    const lib = await this._kanbanResolvedModelLib();
+    const latest = lib?.loadResolvedModel?.(undefined, this.compositionId);
+    if (latest) this._executionModel = latest;
+    return this._executionModel;
+  }
+
+  async executionRouteFor({ duty, level, phase = null, stepIndex = null } = {}) {
+    const lib = await this._kanbanResolvedModelLib();
+    const model = await this.executionModel();
+    return lib?.executionRouteFor?.({ duty, level, phase, stepIndex }, model) ?? null;
   }
 
   // S4b (D15 acceptance 9): resolve a (duty, level) to the ordered phase-list
@@ -895,15 +1136,124 @@ export class RoutedGateway {
     if (!lib || typeof lib.loadResolvedModel !== "function" || typeof lib.resolveCardSequence !== "function") {
       return [];
     }
-    const model = lib.loadResolvedModel();
+    const model = lib.loadResolvedModel(undefined, this.compositionId);
     if (!model) return [];
     const seq = lib.resolveCardSequence({ duty, level: level ?? 1 }, model);
     return Array.isArray(seq) ? seq : [];
   }
 
+  async preRouteV4(message, { duty, level, phase = null, stepIndex = null, sequence = null } = {}) {
+    const resolved = await this.executionRouteFor({ duty, level, phase, stepIndex });
+    if (!resolved) {
+      throw new Error(
+        `v4 duty route unresolved for ${duty || "?"} level ${level || "?"}` +
+        `${phase ? ` phase ${phase}` : ""} — the assigned cell must name a projected target with runtime and model`
+      );
+    }
+    const effectivePhase = phase || resolved.phase || resolved.step?.duty || duty;
+    const compatibilityTask = phase
+      ? effectivePhase
+      : duty === "develop" ? "code" : duty;
+    const compatibilityTier = level <= 1 ? "T0-trivial" : level >= 3 ? "T2-deep" : "T1-standard";
+    const classification = { taskType: compatibilityTask || "other", tier: compatibilityTier };
+    const route = {
+      profile: "composition-v4",
+      role: effectivePhase,
+      ruleId: `duty:${duty}/L${level}/${effectivePhase}`,
+      via: "duty-cell",
+      targetId: resolved.targetId,
+      target: resolved.target,
+      duty,
+      level,
+      phase: effectivePhase,
+      skill: resolved.skill
+    };
+    const decision = {
+      ...this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() }),
+      kind: "duty-route",
+      duty,
+      level,
+      phase: effectivePhase,
+      skill: resolved.skill ?? null,
+      runtime: route.target.runtime,
+      provider: route.target.provider ?? null,
+      model: route.target.model,
+      effort: route.target.effort ?? null
+    };
+    await this.core.appendDecision(this.decisionsFile, decision);
+    this.logFn({
+      kind: "duty-route-resolved",
+      duty,
+      level,
+      phase: effectivePhase,
+      skill: resolved.skill ?? null,
+      target: route.targetId,
+      runtime: route.target.runtime,
+      model: route.target.model,
+      effort: route.target.effort ?? null
+    });
+
+    let plan;
+    if (this.isAgentSdkTarget(route)) {
+      plan = { path: "agent-sdk", reasons: [`v4 duty cell → agent-sdk ${route.target.provider}/${route.target.model}`] };
+    } else if (this.isClaudeDelegateTarget(route)) {
+      plan = { path: "claude-delegate", reasons: [`v4 duty cell → Claude delegate under ${this.primaryEngine} primary`] };
+    } else if (this.isSecondaryTarget(route)) {
+      plan = { path: "secondary", reasons: [`v4 duty cell → ${route.target.runtime}/${route.target.model}`] };
+    } else {
+      plan = await this.applySwitch(route);
+    }
+    const seq = Array.isArray(sequence) && sequence.length
+      ? sequence
+      : await this.resolvedSequenceForDispatch(duty, level);
+    const skillInstruction = resolved.skill
+      ? `[v4 duty cell: ${duty} L${level} / ${effectivePhase}; invoke skill ${resolved.skill}; target ${route.targetId}]\n`
+      : `[v4 duty cell: ${duty} L${level} / ${effectivePhase}; target ${route.targetId}]\n`;
+    return {
+      classification,
+      route,
+      decision,
+      plan,
+      annotation: `${routeAnnotation(route)}\n${skillInstruction}`,
+      carried: false,
+      duty,
+      level,
+      phase: effectivePhase,
+      skill: resolved.skill ?? null,
+      sequence: seq
+    };
+  }
+
   // classify → resolve role → resolve target → LOG at resolution time → switch.
   async preRoute(message, opts = {}) {
     this._lastUserMessage = message;
+    // A Kanban phase carries the card's semantic v4 identity. It is authoritative:
+    // resolve the assigned leaf cell from the shared execution manifest and never
+    // send it through the legacy taskType×tier matrix.
+    if (typeof opts.duty === "string" && Number.isInteger(opts.level) && typeof opts.phase === "string") {
+      return this.preRouteV4(message, {
+        duty: opts.duty,
+        level: opts.level,
+        phase: opts.phase,
+        stepIndex: opts.stepIndex,
+        sequence: opts.sequence
+      });
+    }
+    // Direct channel work enters through the production Dispatcher. Tests/raw
+    // internal callers with no channel, explicit legacy classifications, and old
+    // cards remain on the historical classifier path below.
+    const origin = String(opts.channel || "").toLowerCase();
+    const cardOriginated = cards.isCardOriginatedChannel(origin);
+    if (this._dispatcher && origin && !cardOriginated && !opts.classification) {
+      const dispatched = await this.dispatchRoute(message, { cardLevel: opts.cardLevel });
+      if (dispatched?.duty && Number.isInteger(dispatched.level)) {
+        return this.preRouteV4(message, {
+          duty: dispatched.duty,
+          level: dispatched.level,
+          sequence: dispatched.sequence
+        });
+      }
+    }
     // Honor an EXPLICIT {taskType,tier} classification from the caller (the Kanban Loop
     // §10 contract: each agent-list carries its own classification) instead of
     // re-classifying from scratch — but ONLY when both values are in the router's
@@ -958,6 +1308,8 @@ export class RoutedGateway {
       ? { path: "noop", reasons: ["no target"] }
       : route.target.runtime === "agent-sdk"
         ? { path: "agent-sdk", reasons: [`agent-sdk runtime ${route.target.provider}/${route.target.model}`] }
+        : this.isClaudeDelegateTarget(route)
+          ? { path: "claude-delegate", reasons: [`Claude delegate under ${this.primaryEngine} primary`] }
         : this.isSecondaryTarget(route)
           ? { path: "secondary", reasons: [`secondary runtime ${route.target.runtime}`] }
           : await this.applySwitch(route);
@@ -1146,6 +1498,22 @@ export class RoutedGateway {
   }
 
   shutdown() {
+    for (const session of this._agentSdkSessions.values()) {
+      try {
+        Promise.resolve(this._agentSdkAdapter?.teardown?.(session)).catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    }
+    this._agentSdkSessions.clear();
+    for (const session of this._claudeDelegateSessions.values()) {
+      try {
+        Promise.resolve(this._claudeDelegateAdapter?.teardown?.(session)).catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    }
+    this._claudeDelegateSessions.clear();
     try {
       this.operative?.release?.();
     } catch {
@@ -1304,14 +1672,26 @@ export async function resolvePrimaryAdapter(engine, ctx) {
       // Warm-time CLI probe — fail the startup loudly, not the first turn.
       if (opts.probeExecPrimaries !== false) await probeRuntimeBridge(dir, engine);
     }
-    // codex/gemini take their model from their own CLI config, so the historical
-    // spawnConfig is left byte-identical (operativeSpawnConfig intentionally NOT
-    // threaded). OpenCode has no built-in default model and its native config may
-    // omit a top-level `model`, so a provider/model MUST be threaded from the
-    // operative spawn config for it to run a turn at all.
+    // The composition's primary configuration is authoritative for Codex/Gemini.
+    // OpenCode keeps its provider/model validation: only its required
+    // `provider/model` shape may override native config. Reasoning effort is a
+    // Codex control; do not claim or forward it to unsupported exec engines.
     const spawnConfig = { compositionDir, env: process.env };
-    if (engine === "opencode" && typeof operativeSpawnConfig?.model === "string" && operativeSpawnConfig.model.includes("/")) {
+    if (
+      (engine === "codex" || engine === "gemini") &&
+      typeof operativeSpawnConfig?.model === "string" &&
+      operativeSpawnConfig.model
+    ) {
       spawnConfig.model = operativeSpawnConfig.model;
+    } else if (
+      engine === "opencode" &&
+      typeof operativeSpawnConfig?.model === "string" &&
+      operativeSpawnConfig.model.includes("/")
+    ) {
+      spawnConfig.model = operativeSpawnConfig.model;
+    }
+    if (engine === "codex" && operativeSpawnConfig?.effort != null) {
+      spawnConfig.effort = operativeSpawnConfig.effort;
     }
     return { adapter, spawnConfig, claude: false };
   }
@@ -1398,6 +1778,7 @@ export function resolveClassifierAdapter(ctx) {
 // the ClaudeCodeAdapter spawns the real TUI.
 export async function createRoutedGateway(opts = {}) {
   const compositionDir = opts.compositionDir;
+  const compositionId = opts.compositionId ?? null;
   const core = opts.core ?? (await loadRoutingCore(compositionDir));
   let config = opts.config ?? loadRoutingConfig(compositionDir, core.dir);
   // Duties repoint: merge the composition's duty-ladder cells over the matrix
@@ -1453,21 +1834,68 @@ export async function createRoutedGateway(opts = {}) {
         { id: "operative", adapter: primary.adapter, role: "primary", size: 1, spawnConfig: primary.spawnConfig },
         { id: "classifier", adapter: classifier.adapter, role: "secondary", size: 1, spawnConfig: classifier.spawnConfig },
       ],
+      });
+
+  const decisionsFile = opts.decisionsFile ?? path.join(compositionDir, ".garrison", "decisions.jsonl");
+  let resolvedModelLib = opts.resolvedModelLib;
+  let executionModel = opts.executionModel;
+  // Production gateway-pty opts into the v4 Dispatcher. Keeping the flag explicit
+  // prevents pure Stage-A tests (and old deployments with only model v1) from
+  // consulting machine-global board state by accident.
+  if (opts.enableV4Dispatcher === true && !resolvedModelLib) {
+    const kanbanDir = resolveKanbanLoopDir(compositionDir);
+    if (kanbanDir) {
+      resolvedModelLib = await import(pathToFileURL(path.join(kanbanDir, "lib", "resolved-model.mjs")).href);
+    }
+  }
+  if (opts.enableV4Dispatcher === true && executionModel === undefined) {
+    executionModel = resolvedModelLib?.loadResolvedModel?.(undefined, compositionId) ?? null;
+  }
+  let dispatcher = opts.dispatcher;
+  if (dispatcher === undefined && opts.enableV4Dispatcher === true && executionModel) {
+    dispatcher = await buildProductionDispatcher({
+      compositionDir,
+      compositionId,
+      executionModel,
+      resolvedLib: resolvedModelLib,
+      decisionsFile,
+      spawnImpl: opts.garrisonCallSpawnImpl
     });
+    if (dispatcher) {
+      opts.logFn?.({ kind: "dispatcher-wired", source: "composition-v4", call: dispatcher.configuredCall });
+    } else {
+      opts.logFn?.({ kind: "dispatcher-unavailable", source: "composition-v4", fallback: "legacy-classifier" });
+    }
+  }
+  if (!dispatcher && opts.fallbackDispatcher) {
+    dispatcher = opts.fallbackDispatcher;
+    opts.logFn?.({ kind: "dispatcher-wired", source: "control-fallback" });
+  }
 
   const gw = new RoutedGateway({
     core,
     config,
-    decisionsFile: opts.decisionsFile ?? path.join(compositionDir, ".garrison", "decisions.jsonl"),
+    decisionsFile,
     compositionDir,
+    compositionId,
     appendSystemPromptFile: opts.appendSystemPromptFile,
     nowFn: opts.nowFn,
     logFn: opts.logFn,
     slashInjectWorks: opts.slashInjectWorks,
     pool,
-    initialTarget: opts.initialTarget ?? { provider: "anthropic-plan", model: operativeSpawnConfig.model, effort: null },
+    initialTarget: opts.initialTarget ?? {
+      provider: "anthropic-plan",
+      model: operativeSpawnConfig.model,
+      effort: operativeSpawnConfig.effort ?? null
+    },
     spawnFn,
     agentSdkAdapter: opts.agentSdkAdapter, // injectable (tests); production lazy-loads from disk
+    secondaryAdapters: opts.secondaryAdapters,
+    claudeDelegateAdapter: opts.claudeDelegateAdapter,
+    dispatcher,
+    executionModel,
+    resolvedModelLib,
+    primaryEngine,
     // The resolved primary adapter drives the operative session; Stage-B moves +
     // resume route through it (a non-claude primary is driven by its own adapter).
     operativeAdapter: primary.adapter,

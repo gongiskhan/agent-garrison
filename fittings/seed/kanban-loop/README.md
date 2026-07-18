@@ -87,10 +87,11 @@ applies the inferred project **only at ≥70% confidence**; below that the card 
 - **Adversarial = cross-model Codex**, not a higher tier and not a separate effort.
 
 ## Goal-mode
-A `goalMode` card on an agent list has the engine prepend `/goal` + the card's
-acceptance; execute-prompts stay clean. The convergence **guard is the per-card
-iteration cap**, not the goal-stop hook (Decision 7 — the sentinel never fires on the
-shared board operative).
+A `goalMode` card on an agent list has the engine lead with an explicit acceptance
+block; execute-prompts stay clean. It deliberately does not invoke the host-specific
+`/goal` slash command because a combined phase prompt would be parsed wholesale as
+that command's argument. The convergence **guard is the per-card iteration cap**, not
+the goal-stop hook (Decision 7 — the sentinel never fires on the shared board operative).
 
 ## CLI
 `node scripts/kanban.mjs --setup | --probe | --tick | --tick-list <id>`.

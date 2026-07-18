@@ -29,17 +29,21 @@ import {
   type RoutingConfig
 } from "../src/lib/router-migrate";
 
-const LIVE_ROUTING = path.join(
+const SEED_ROUTING = path.join(
   __dirname,
   "..",
-  "compositions",
-  "default",
-  ".garrison",
-  "routing.json"
+  "fittings",
+  "seed",
+  "orchestrator",
+  "config",
+  "routing.seed.json"
 );
 
 function readLive(): RoutingConfig {
-  return JSON.parse(fs.readFileSync(LIVE_ROUTING, "utf8")) as RoutingConfig;
+  // The composition-local routing.json is an ignored runtime artifact and may
+  // be rewritten by a concurrently running Garrison. Use the tracked source of
+  // the default routing policy so this suite is hermetic.
+  return JSON.parse(fs.readFileSync(SEED_ROUTING, "utf8")) as RoutingConfig;
 }
 
 // ── Effort shedding + dedupe ──────────────────────────────────────────────────
@@ -99,6 +103,19 @@ describe("shedTargetEffort", () => {
     });
     expect(engineTarget.id).toBe("sdk-ollama-probe");
     expect(effort).toBe("low");
+  });
+
+  it("materializes legacy secondary runtime defaults when model is omitted", () => {
+    expect(shedTargetEffort({
+      id: "sec-gemini",
+      runtime: "gemini",
+      type: "secondary"
+    }).engineTarget.model).toBe("gemini-2.5-flash");
+    expect(shedTargetEffort({
+      id: "sec-codex",
+      runtime: "codex",
+      type: "secondary"
+    }).engineTarget.model).toBe("gpt-5-codex");
   });
 
   it("preserves non-identity scalar fields under params", () => {

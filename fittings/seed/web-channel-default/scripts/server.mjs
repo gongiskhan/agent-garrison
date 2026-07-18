@@ -38,7 +38,7 @@ const CHANNEL_ID = "web";
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.WEB_CHANNEL_PORT || 7083),
+    port: Number(process.env.WEB_CHANNEL_PORT || 27083),
     host: process.env.WEB_CHANNEL_HOST || "127.0.0.1",
     gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
     tlsCert: process.env.WEB_CHANNEL_TLS_CERT || "",
@@ -54,7 +54,7 @@ function parseArgs(argv) {
   }
   if (!out.gatewayUrl) {
     const h = process.env.GARRISON_GATEWAY_HOST || "127.0.0.1";
-    const p = process.env.GARRISON_GATEWAY_PORT || "4777";
+    const p = process.env.GARRISON_GATEWAY_PORT || "24777";
     out.gatewayUrl = `http://${h}:${p}`;
   }
   return out;
@@ -490,7 +490,7 @@ export function resolveBriefPath(raw) {
   // Accept either a file inside a "briefs/" dir (project / automation briefs) OR any
   // file under the Garrison store ~/.garrison/ (the card-owned kanban brief at
   // ~/.garrison/kanban-loop/cards/<id>/brief.md).
-  const garrisonStore = path.join(os.homedir(), ".garrison") + path.sep;
+  const garrisonStore = (process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison")) + path.sep;
   const inBriefsDir = path.dirname(norm).split(path.sep).includes("briefs");
   const inGarrisonStore = norm.startsWith(garrisonStore);
   if (!inBriefsDir && !inGarrisonStore) return null;

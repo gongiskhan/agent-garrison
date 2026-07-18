@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,15 +24489,15 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/orchestrator/ui/main.tsx
 var import_react5 = __toESM(require_react(), 1);
 var import_client = __toESM(require_client(), 1);
 
-// ../../../node_modules/@dnd-kit/core/dist/core.esm.js
+// node_modules/@dnd-kit/core/dist/core.esm.js
 var import_react3 = __toESM(require_react());
 var import_react_dom = __toESM(require_react_dom());
 
-// ../../../node_modules/@dnd-kit/utilities/dist/utilities.esm.js
+// node_modules/@dnd-kit/utilities/dist/utilities.esm.js
 var import_react = __toESM(require_react());
 function useCombinedRefs() {
   for (var _len = arguments.length, refs = new Array(_len), _key = 0; _key < _len; _key++) {
@@ -24773,7 +24773,7 @@ function findFirstFocusableNode(element) {
   return element.querySelector(SELECTOR);
 }
 
-// ../../../node_modules/@dnd-kit/accessibility/dist/accessibility.esm.js
+// node_modules/@dnd-kit/accessibility/dist/accessibility.esm.js
 var import_react2 = __toESM(require_react());
 var hiddenStyles = {
   display: "none"
@@ -24829,7 +24829,7 @@ function useAnnouncement() {
   };
 }
 
-// ../../../node_modules/@dnd-kit/core/dist/core.esm.js
+// node_modules/@dnd-kit/core/dist/core.esm.js
 var DndMonitorContext = /* @__PURE__ */ (0, import_react3.createContext)(null);
 function useDndMonitor(listener) {
   const registerListener = (0, import_react3.useContext)(DndMonitorContext);
@@ -28201,7 +28201,7 @@ var DragOverlay = /* @__PURE__ */ import_react3.default.memo((_ref) => {
   }, children) : null));
 });
 
-// ../../../node_modules/@dnd-kit/sortable/dist/sortable.esm.js
+// node_modules/@dnd-kit/sortable/dist/sortable.esm.js
 var import_react4 = __toESM(require_react());
 function arrayMove(array, from, to) {
   const newArray = array.slice();
@@ -28672,7 +28672,7 @@ function normalizeLocalDisabled(localDisabled, globalDisabled) {
 }
 var directions = [KeyboardCode.Down, KeyboardCode.Right, KeyboardCode.Up, KeyboardCode.Left];
 
-// lib/policy-core.mjs
+// fittings/seed/orchestrator/lib/policy-core.mjs
 var PHASES = [
   "plan",
   "implement",
@@ -28701,6 +28701,13 @@ function getProfileV2(config, profile) {
   if (!p) throw new Error(`policy: unknown profile "${name}"`);
   return { name, profile: p };
 }
+function cellRef(value) {
+  if (typeof value === "string" && value.length) return { target: value, effort: null };
+  if (value && typeof value === "object" && typeof value.target === "string" && value.target.length) {
+    return { target: value.target, effort: typeof value.effort === "string" && value.effort.length ? value.effort : null };
+  }
+  return null;
+}
 function resolveTargetId(config, profileName, classification) {
   const { profile: p } = getProfileV2(config, profileName);
   const { taskType, tier, matchedException } = classification || {};
@@ -28708,21 +28715,23 @@ function resolveTargetId(config, profileName, classification) {
     const ex = (config.exceptions || []).find((e) => e.id === matchedException);
     if (ex) {
       const overridden = (p.exceptionOverrides || {})[ex.id];
-      return { targetId: overridden || ex.target, ruleId: `exception:${ex.id}`, via: "exception" };
+      return { targetId: overridden || ex.target, ruleId: `exception:${ex.id}`, via: "exception", effort: null };
     }
   }
   const matrix = p.matrix || {};
   const row = (matrix.rows || {})[taskType];
   if (row && row.cells && Object.prototype.hasOwnProperty.call(row.cells, tier)) {
-    return { targetId: row.cells[tier], ruleId: `cell:${taskType}/${tier}`, via: "cell" };
+    const ref = cellRef(row.cells[tier]);
+    if (ref) return { targetId: ref.target, ruleId: row.cells[tier]?.rule ?? `cell:${taskType}/${tier}`, via: "cell", effort: ref.effort };
   }
   if (row && row.default) {
-    return { targetId: row.default, ruleId: `row:${taskType}`, via: "row-default" };
+    const ref = cellRef(row.default);
+    if (ref) return { targetId: ref.target, ruleId: `row:${taskType}`, via: "row-default", effort: ref.effort };
   }
-  const col = (matrix.columns || {})[tier];
-  if (col) return { targetId: col, ruleId: `col:${tier}`, via: "column-default" };
-  const def = (matrix.defaults || {}).target;
-  return { targetId: def || null, ruleId: "default", via: "global-default" };
+  const col = cellRef((matrix.columns || {})[tier]);
+  if (col) return { targetId: col.target, ruleId: `col:${tier}`, via: "column-default", effort: col.effort };
+  const def = cellRef((matrix.defaults || {}).target);
+  return { targetId: def?.target || null, ruleId: "default", via: "global-default", effort: def?.effort ?? null };
 }
 function ladderLabelFor(config, profileName, targetId) {
   const { profile: p } = getProfileV2(config, profileName);
@@ -28731,10 +28740,11 @@ function ladderLabelFor(config, profileName, targetId) {
 }
 function resolveRouteV2(config, profile, classification) {
   const { name } = getProfileV2(config, profile);
-  const { targetId, ruleId, via } = resolveTargetId(config, name, classification);
-  const target = (config.targets || []).find((t) => t.id === targetId) || null;
+  const { targetId, ruleId, via, effort: cellEffort } = resolveTargetId(config, name, classification);
+  const base = (config.targets || []).find((t) => t.id === targetId) || null;
+  const target = base && cellEffort ? { ...base, effort: cellEffort } : base;
   const role = ladderLabelFor(config, name, targetId) || (classification || {}).taskType || null;
-  return { profile: name, role, ruleId, via, targetId: targetId || null, target };
+  return { profile: name, role, ruleId, via, targetId: targetId || null, target, effort: target?.effort ?? cellEffort ?? null };
 }
 function railFor(config, workKindName, cardToggles) {
   const kindName = workKindName || config.defaultWorkKind;
@@ -28771,7 +28781,7 @@ function railFor(config, workKindName, cardToggles) {
   };
 }
 
-// lib/routing-core.mjs
+// fittings/seed/orchestrator/lib/routing-core.mjs
 function activeProfileName2(config, profile) {
   return profile || config.activeProfile || Object.keys(config.profiles || {})[0];
 }
@@ -28810,7 +28820,7 @@ function resolveRoute(config, profile, classification) {
   return { profile: name, role, ruleId, via, targetId: targetId || null, target };
 }
 
-// ui/main.tsx
+// fittings/seed/orchestrator/ui/main.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var resolveRoute2 = resolveRoute;
 var railFor2 = railFor;

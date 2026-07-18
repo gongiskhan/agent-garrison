@@ -19,18 +19,19 @@ import url from "node:url";
 import { collectVitals } from "./vitals.mjs";
 
 const HOME = os.homedir();
-const LOGS_ROOT = path.join(HOME, ".garrison", "logs");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const LOGS_ROOT = path.join(GARRISON_HOME, "logs");
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
 // own-port fitting follows so spawned test instances never touch live status files.
-const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
+const STATUS_ROOT = path.join(GARRISON_HOME, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
-const SESSIONS_STATE_FILE = path.join(HOME, ".garrison", "sessions", "state.json");
+const SESSIONS_STATE_FILE = path.join(GARRISON_HOME, "sessions", "state.json");
 
 const REDACT_PATTERN = /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PASSWORD$|^KEY$)/i;
 const REDACTED = "***REDACTED***";
 
 function parseArgs(argv) {
-  const out = { port: Number(process.env.MONITOR_PORT || 7077), host: process.env.MONITOR_HOST || "127.0.0.1", parentPid: Number(process.env.GARRISON_PARENT_PID || 0), pollMs: Number(process.env.MONITOR_POLL_MS || 1000), retentionHours: Number(process.env.MONITOR_LOG_RETENTION_HOURS || 24) };
+  const out = { port: Number(process.env.MONITOR_PORT || 27077), host: process.env.MONITOR_HOST || "127.0.0.1", parentPid: Number(process.env.GARRISON_PARENT_PID || 0), pollMs: Number(process.env.MONITOR_POLL_MS || 1000), retentionHours: Number(process.env.MONITOR_LOG_RETENTION_HOURS || 24) };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--port") out.port = Number(argv[++i]);

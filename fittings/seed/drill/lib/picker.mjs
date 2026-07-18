@@ -91,15 +91,10 @@ ${ANCHOR_FN}
 
 // Resolve a STORED anchor set against the LIVE DOM, ladder order: testId ->
 // css -> xpath -> text (fuzzy: first element whose trimmed text CONTAINS the
-// stored text). Returns the resolved element's CURRENT rect (for badge
-// redraw across reloads/viewport changes) plus which anchor matched, or null
-// if none resolve — a caller sees null and can escalate, never silently
-// drifts to the wrong element (same "never guess" spirit as R11).
-export function buildResolveScript(anchors) {
-  const a = JSON.stringify(anchors ?? {});
-  return `${XPATH_FN}
-(function() {
-  var a = ${a};
+// stored text). Kept as a named in-page helper so a whole page's areas can be
+// resolved in one Browser eval rather than one eval per badge.
+const RESOLVE_FN = `
+function __drillResolve(a) {
   var el = null, matched = null;
   if (a.testId) { el = document.querySelector('[data-testid="' + CSS.escape(a.testId) + '"]'); if (el) matched = 'testId'; }
   if (!el && a.css) { try { el = document.querySelector(a.css); if (el) matched = 'css'; } catch (e) {} }
@@ -120,6 +115,35 @@ export function buildResolveScript(anchors) {
   if (!el) return null;
   var rect = el.getBoundingClientRect();
   return { matched: matched, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, viewport: { w: window.innerWidth, h: window.innerHeight } };
+}`;
+
+// Returns the resolved element's CURRENT rect (for badge redraw across
+// reloads/viewport changes) plus which anchor matched, or null if none
+// resolve — a caller sees null and can escalate, never silently drifts to the
+// wrong element (same "never guess" spirit as R11).
+export function buildResolveScript(anchors) {
+  const a = JSON.stringify(anchors ?? {});
+  return `${XPATH_FN}
+${RESOLVE_FN}
+(function() {
+  var a = ${a};
+  return __drillResolve(a);
+})()`;
+}
+
+// Batch form used by Authoring's live overlay. One poll becomes one Drill
+// request and one Browser eval regardless of how many areas the page has.
+export function buildResolveManyScript(items) {
+  const safeItems = Array.isArray(items)
+    ? items.map((item) => ({ id: String(item?.id ?? ""), anchors: item?.anchors ?? {} }))
+    : [];
+  return `${XPATH_FN}
+${RESOLVE_FN}
+(function() {
+  var items = ${JSON.stringify(safeItems)};
+  return items.map(function(item) {
+    return { id: item.id, resolved: __drillResolve(item.anchors) };
+  });
 })()`;
 }
 

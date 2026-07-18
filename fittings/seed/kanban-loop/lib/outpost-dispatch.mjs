@@ -51,7 +51,7 @@ export function resolveOutpostDispatch(card, outposts = []) {
 //     a single blocking exec.run. Do not grow this function toward that — it is the seam,
 //     not the destination.
 export function outpostRunFn(daemonUrl, outpostName) {
-  const base = String(daemonUrl || "http://127.0.0.1:3702").replace(/\/+$/, "");
+  const base = String(daemonUrl || "http://127.0.0.1:23702").replace(/\/+$/, "");
   return async ({ prompt }) => {
     const b64 = Buffer.from(String(prompt ?? ""), "utf8").toString("base64");
     // Decode the prompt on the remote and pipe it into claude print-mode. printf keeps the

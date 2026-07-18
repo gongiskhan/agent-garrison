@@ -4,7 +4,7 @@
 //   cards/<ulid>/log-N.md  — per-session logs (written by the engine)
 // List membership is DERIVED by scanning cards (brief §3) — never stored on disk.
 // Every mutation is read-immediately-before-write + atomic (temp file then rename).
-import { promises as fs } from "node:fs";
+import { promises as fs, readdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
@@ -14,7 +14,8 @@ import { deriveOriginId } from "./origins.mjs";
 import { markSteeringApplied } from "./steering.mjs";
 
 export function kanbanRoot() {
-  return process.env.GARRISON_KANBAN_DIR || path.join(os.homedir(), ".garrison", "kanban-loop");
+  const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+  return process.env.GARRISON_KANBAN_DIR || path.join(home, "kanban-loop");
 }
 
 // Atomic JSON write: write a unique temp file, then rename over the target so a
@@ -145,6 +146,10 @@ export async function createCard(root, { title, description = "", project = null
     events: [{ at, kind: "created", message: project ? `Created in ${list} (project ${project})` : `Created in ${list} — no project yet` }],
     lastReply: null,
     runningSince: null,
+    // Monotonic high-water mark for cards/<id>/log-N.md. Unlike `iterations`
+    // (the convergence-cap counter), this never resets when a human retries a
+    // needs-attention card, so a fresh attempt cannot overwrite an older log.
+    logIndex: 0,
     // V1b pointer fields (FINDING 10 — the card stores POINTERS, never inlined
     // document bodies). runId/runDir are minted lazily on the card's first
     // agent-list entry (FINDING 4); the rest are filled by the skills/surfaces as
@@ -416,6 +421,25 @@ export async function appendCardLog(root, id, n, text) {
   return file;
 }
 
+// Latest durable per-card log ordinal. The on-card high-water mark closes the
+// small acquire→first-write window for live Watch, while the disk scan keeps
+// pre-logIndex cards (including already-reset cards with iterations:0) readable
+// and ensures their next run appends after every existing log.
+export function latestCardLogNumber(root, card) {
+  const number = (value) => Number.isSafeInteger(value) && value > 0 ? value : 0;
+  let latest = Math.max(number(card?.logIndex), number(card?.iterations));
+  try {
+    for (const entry of readdirSync(path.join(root, "cards", card.id), { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const match = entry.name.match(/^log-(\d+)\.md$/);
+      if (match) latest = Math.max(latest, number(Number(match[1])));
+    }
+  } catch {
+    // A brand-new/legacy card directory may not exist yet; card fields suffice.
+  }
+  return latest;
+}
+
 // Overwrite a card's iteration log atomically (temp + rename). Used for the LIVE
 // stream: the engine rewrites log-<n>.md with the operative's growing reply as
 // chunks arrive (so Watch shows progress), then once more with the clean final
@@ -423,8 +447,19 @@ export async function appendCardLog(root, id, n, text) {
 export async function writeCardLog(root, id, n, text) {
   const file = path.join(root, "cards", id, `log-${n}.md`);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  await fs.writeFile(tmp, text.endsWith("\n") ? text : text + "\n", "utf8");
-  await fs.rename(tmp, file);
+  // A PID-only temp name aliases every live-stream rewrite from this process.
+  // When an onChunk write overlaps the authoritative final write, the first
+  // rename consumes that shared temp path and the other writer fails ENOENT.
+  // Give every attempt its own path; ordering is handled by the engine's
+  // per-turn write queue, while this also makes direct concurrent callers safe.
+  const tmp = `${file}.${process.pid}.${ulid()}.tmp`;
+  try {
+    await fs.writeFile(tmp, text.endsWith("\n") ? text : text + "\n", "utf8");
+    await fs.rename(tmp, file);
+  } finally {
+    // rename removes the temp on success; force cleanup covers a failed write
+    // or rename without obscuring the original error.
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
   return file;
 }

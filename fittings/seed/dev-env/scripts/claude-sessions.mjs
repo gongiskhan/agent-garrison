@@ -85,9 +85,11 @@ export function isInternalCwd(cwd) {
   if (!cwd || typeof cwd !== "string") return true;
   const home = os.homedir();
   if (cwd === home || cwd === path.join(home, "dev") || cwd === path.join(home, "Projects")) return true;
-  const garrison = path.join(home, ".garrison");
+  const garrison = process.env.GARRISON_HOME?.trim() || path.join(home, ".garrison");
   if (cwd === garrison || cwd.startsWith(garrison + path.sep)) return true; // exact root + descendants
   if (cwd.includes(path.sep + ".garrison" + path.sep)) return true; // a .garrison not under home (paranoia)
+  const claude = claudeHome();
+  if (cwd === claude || cwd.startsWith(claude + path.sep)) return true;
   if (cwd.includes("/compositions/default")) return true; // gateway / operative scratch
   return false;
 }

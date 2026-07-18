@@ -1,0 +1,24 @@
+id: connectors
+title: Connectors
+path: /connectors
+mode: steps
+areas: []
+steps:
+  - id: ux-functional-smoke
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The Connectors page presents available connection state and actions
+      clearly, including empty/loading states, with no broken layout or
+      ambiguous security messaging.
+    tags:
+      - dogfood
+      - ux
+      - smoke
+    judgment: true
+states: []

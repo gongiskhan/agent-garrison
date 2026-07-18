@@ -82,6 +82,59 @@ describe("S2a.1 — Stage-B moves route through the operative adapter", () => {
   });
 });
 
+describe("non-Claude primary delegate routing", () => {
+  it("does not mutate the primary adapter before a legacy Claude route takes the delegate lane", async () => {
+    const moves: any[] = [];
+    const target = {
+      id: "cc-sonnet-med",
+      runtime: "claude-code",
+      provider: "anthropic-plan",
+      model: "sonnet",
+      effort: "medium"
+    };
+    const core: any = {
+      resolveRoute: () => ({
+        profile: "balanced",
+        role: "standard",
+        ruleId: "row:code",
+        via: "matrix",
+        targetId: target.id,
+        target
+      }),
+      decisionRecord: ({ classification, route }: any) => ({
+        ...classification,
+        targetId: route.targetId
+      }),
+      appendDecision: async () => {},
+      planSwitch: () => {
+        throw new Error("delegate route must not plan a primary-runtime switch");
+      }
+    };
+    const gw: any = new RoutedGateway({
+      core,
+      config: {
+        activeProfile: "balanced",
+        taskTypes: ["code"],
+        tiers: ["T1-standard"]
+      },
+      primaryEngine: "codex",
+      operativeAdapter: {
+        id: "codex",
+        setModel: async (...args: any[]) => moves.push(["model", ...args]),
+        setEffort: async (...args: any[]) => moves.push(["effort", ...args])
+      }
+    });
+    gw.operative = { session: fakeNonPtySession() };
+
+    const pre = await gw.preRoute("implement the change", {
+      classification: { taskType: "code", tier: "T1-standard" }
+    });
+
+    expect(pre.plan.path).toBe("claude-delegate");
+    expect(moves).toEqual([]);
+  });
+});
+
 describe("S2a.2 — respawn-resume routes through the operative adapter", () => {
   it("a non-claude adapter with resume: adapter.resume is called and the claude spawnFn is NOT", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-respawn-"));

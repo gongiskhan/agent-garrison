@@ -14,8 +14,8 @@
 // phase's durable gate evidence in the runDir (D9) — a transition without its
 // gate-status entry parks. The card's work kind + per-card phase toggles form
 // its RAIL (D17): an OFF phase is skipped with an explicit "off" event
-// (recorded and rendered off, never a silent pass). Goal-mode prepends /goal +
-// the card's acceptance; the convergence GUARD is the per-card iteration cap.
+// (recorded and rendered off, never a silent pass). Goal-mode injects an explicit
+// acceptance block; the convergence GUARD is the per-card iteration cap.
 //
 // Per-card runId minted on the FIRST agent-list entry; runDir threaded into
 // every execute-prompt as literal text; triggers (immediate | manual |
@@ -23,7 +23,7 @@
 // batching preserved as list mechanics (batched + its own beat).
 import path from "node:path";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog, loadAllCards, loadCard, updateCardCAS } from "./board.mjs";
+import { saveCard, saveCardCAS, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -50,14 +50,16 @@ import { sendCoordMail } from "./coord-mail.mjs";
 const GATE_PHASES = new Set(["review", "adversarial-review", "test", "adversarial-test", "validate"]);
 import {
   loadPolicy,
+  policyPath,
   policyLoadState,
   phaseForList,
   skillForPhase,
   classificationForPhase,
   railForCard,
   phaseOnForCard,
-  hasPhaseGateEvidence,
-  gateEvidenceNextList
+  gateEvidenceNextList,
+  inspectPhaseGateEvidence,
+  snapshotPhaseGateEvidence
 } from "./policy.mjs";
 
 // Re-export phaseForList through the engine facade. scripts/kanban.mjs (the
@@ -72,9 +74,38 @@ export { phaseForList };
 // next-list ids (forward step + implement fail-edge for a gate); it returns null
 // for a legacy card with no duty/level/sequence, and the caller falls back to the
 // board's static validNext — so nothing changes for cards that don't carry a duty.
-import { loadResolvedModel, validNextForCard, nextListForCard, contextHoldFor, dutyGateExplicit } from "./resolved-model.mjs";
+import {
+  loadResolvedModel,
+  validNextForCard,
+  nextListForCard,
+  contextHoldFor,
+  dutyGateExplicit,
+  resolveExecutionStep
+} from "./resolved-model.mjs";
 import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief } from "./notify-origin.mjs";
 import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPhase } from "./steering.mjs";
+
+// Exact v4 identity carried over the gateway wire. A legacy card (or v1 model)
+// returns an empty object and keeps the historical policy classification path.
+function executionContextForCard(card, phase, model) {
+  if (!card || typeof card.duty !== "string" || !Number.isInteger(card.level) || typeof phase !== "string") return {};
+  const sequence = Array.isArray(card.sequence) ? card.sequence : [];
+  const stepIndex = sequence.indexOf(phase);
+  const step = resolveExecutionStep({
+    duty: card.duty,
+    level: card.level,
+    phase,
+    stepIndex: stepIndex >= 0 ? stepIndex : null
+  }, model);
+  return {
+    duty: card.duty,
+    level: card.level,
+    phase,
+    stepIndex: stepIndex >= 0 ? stepIndex : null,
+    sequence,
+    step
+  };
+}
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
 // PREMATURE `done` event: the gateway's reply stream closed while the operative
@@ -103,10 +134,10 @@ export function resolveEmptyGrace(opts = {}) {
 // Poll the phase's durable gate evidence over the grace window. Returns
 // { next, waited, checks, intervalMs } — `next` is the gate-named next list id
 // (one of validNext) or null after the window is exhausted.
-export async function pollForGateEvidence({ cwd, runDir, phase, validNext, checks, intervalMs, sleep }) {
+export async function pollForGateEvidence({ cwd, runDir, phase, validNext, checks, intervalMs, sleep, freshness = null }) {
   for (let i = 0; i < checks; i++) {
     await sleep(intervalMs);
-    const next = gateEvidenceNextList(cwd, runDir, phase, validNext);
+    const next = gateEvidenceNextList(cwd, runDir, phase, validNext, freshness);
     if (next) return { next, waited: i + 1, checks, intervalMs };
   }
   return { next: null, waited: checks, checks, intervalMs };
@@ -150,19 +181,77 @@ export function buildEmptyFailureReason({ listTitle, phase = null, grace = null,
 }
 
 // Does this card's run dir actually contain tangible evidence? A list flagged
-// `requiresEvidence` (Walkthrough) must not advance on the operative's word alone — the
-// "ALWAYS write evidence" instruction is self-attested, so we VERIFY it on disk:
-// <cwd>/<runDir>/evidence/ must hold at least one regular file (a screenshot or
-// evidence.md). Read-only + best-effort: any error → treated as no evidence.
-export function hasEvidence(cwd, runDir) {
+// `requiresEvidence` (all exits) or `requiresEvidenceOn` (specific transitions)
+// must not advance on the operative's word alone — the "ALWAYS write evidence"
+// instruction is self-attested, so we VERIFY it on disk. When a list names a
+// `requiredEvidenceFile`, that exact regular file must exist (Test -> Done uses
+// evidence.md); otherwise any regular file in evidence/ satisfies the historical
+// Walkthrough contract. Read-only + best-effort: any error → no evidence.
+export function hasEvidence(cwd, runDir, requiredEvidenceFile = null) {
   if (!runDir || typeof runDir !== "string") return false;
   try {
     const dir = path.resolve(cwd || process.cwd(), runDir, "evidence");
     if (!existsSync(dir)) return false;
-    return readdirSync(dir, { withFileTypes: true }).some((d) => d.isFile());
+    const entries = readdirSync(dir, { withFileTypes: true });
+    if (requiredEvidenceFile != null) {
+      const name = String(requiredEvidenceFile);
+      // List config is local, but keep this filename-only so a malformed board
+      // cannot turn the evidence check into a traversal probe.
+      if (!name || name === "." || name === ".." || /[\\/]/.test(name)) return false;
+      const required = entries.find((d) => d.isFile() && d.name === name);
+      if (!required) return false;
+      // A zero-byte/whitespace placeholder is not a report. The engine cannot
+      // semantically grade prose here, but it can require tangible content.
+      return readFileSync(path.join(dir, name), "utf8").trim().length > 0;
+    }
+    return entries.some((d) => d.isFile());
   } catch {
     return false;
   }
+}
+
+// Evidence can be required for every exit (Walkthrough) or only for a particular
+// edge (Test -> Done when Test is the card's final executable phase).
+export function evidenceRequiredForTransition(list, next) {
+  if (!list || !next) return false;
+  if (list.requiresEvidence) return true;
+  return Array.isArray(list.requiresEvidenceOn) && list.requiresEvidenceOn.includes(next);
+}
+
+// Engine invariant for the canonical terminal Test -> Done edge. Board/list
+// fields are mutable and old installed boards can predate requiresEvidenceOn,
+// so terminal proof cannot depend on those fields being fresh. Every seam asks
+// this helper about the ACTUAL destination after rail fast-forwarding; when Test
+// lands in Done, a non-empty evidence/evidence.md is mandatory. Other edges keep
+// the configurable Walkthrough/transition evidence contract.
+export function evidenceContractForTransition(list, phase, next) {
+  if (phase === "test" && next === "done") {
+    return { required: true, requiredEvidenceFile: "evidence.md", invariant: "terminal-test-done" };
+  }
+  return {
+    required: evidenceRequiredForTransition(list, next),
+    requiredEvidenceFile: list?.requiredEvidenceFile ?? null,
+    invariant: null
+  };
+}
+
+// D9 concordance. A status-only gate is accepted for backwards compatibility;
+// once the phase writes an explicit next_phase/nextPhase/next, the authoritative
+// (newest, phase-sidecar-preferred) record must name the ACTUAL edge. This is
+// intentionally checked after rail resolution so a gate saying
+// `adversarial-test` cannot silently authorize a real Test -> Done transition.
+export function gateContractForTransition(cwd, runDir, phase, next, freshness = null) {
+  const evidence = inspectPhaseGateEvidence(cwd, runDir, phase, freshness);
+  // Keep stale history visible for diagnostics, but never let it satisfy a
+  // current-attempt contract. With no freshness constraint this is the same
+  // inspection and `stale` is necessarily false.
+  const historical = freshness ? inspectPhaseGateEvidence(cwd, runDir, phase) : evidence;
+  const normalized = typeof next === "string" ? next.trim().toLowerCase() : "";
+  return {
+    ...evidence,
+    stale: !evidence.exists && historical.exists,
+    agrees: evidence.exists && (!evidence.declaresNext || evidence.nextLists.includes(normalized))
+  };
 }
 
 // Read the Discuss brief a card links (card.briefPath), so the discussion's RESULT
@@ -386,7 +475,7 @@ export function replySnippet(reply, max = 280) {
 
 // Fold the gateway's per-turn route metadata (from the `done` SSE event, surfaced by
 // gateway-client.routeFromDone) into the compact stamp we persist on a `routed` event —
-// { targetId, runtime, provider, model, tier, phase } — plus a human SUFFIX
+// { targetId, runtime, provider, model, effort, effortApplied, tier, phase } — plus a human SUFFIX
 // ("· claude-code/opus (T2-deep)") appended to the event message. `phase` is the
 // engine's own phase name (always known) so the card-front chip can read "plan @ opus"
 // even when the gateway's own taskType echo is null. Returns { route: null, suffix: "" }
@@ -398,12 +487,16 @@ export function routeStamp(route, phase = null) {
   const runtime = route.runtime ?? null;
   const provider = route.provider ?? null;
   const model = route.model ?? null;
-  const tier = route.tier ?? null;
   const effort = route.effort ?? null;
-  if (targetId == null && runtime == null && provider == null && model == null && tier == null && effort == null) {
+  const effortApplied = typeof route.effortApplied === "boolean" ? route.effortApplied : null;
+  const tier = route.tier ?? null;
+  if (
+    targetId == null && runtime == null && provider == null && model == null &&
+    effort == null && effortApplied == null && tier == null
+  ) {
     return { route: null, suffix: "" };
   }
-  const stamp = { targetId, runtime, provider, model, tier, effort, phase: phase ?? null };
+  const stamp = { targetId, runtime, provider, model, effort, effortApplied, tier, phase: phase ?? null };
   // "runtime/model" (runtime preferred, provider as fallback), then "(tier · effort)".
   const idPart = [runtime || provider, model].filter(Boolean).join("/");
   let suffix = "";
@@ -460,7 +553,7 @@ export function parseNextList(routerOutput, validNext) {
   return validNext.includes(last) ? last : null;
 }
 
-// Combined execute + router prompt. goal-mode prepends /goal + acceptance; the card's
+// Combined execute + router prompt. goal-mode leads with an acceptance block; the card's
 // runDir is threaded in as literal text (the gateway `skill` field is inert, so the
 // run dir must be IN the prompt for the garrison skill to write per-run); the valid
 // next-list ids are injected so the router output can exact-match. D15: the per-list
@@ -470,7 +563,13 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   const parts = [];
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
-    parts.push(`/goal ${acceptance}`, "");
+    // Do not lead the combined multi-section prompt with the `/goal` slash command.
+    // Claude Code treats every byte after that prefix as the command argument, so
+    // the execution body accidentally becomes part of the condition and can exceed
+    // the command's 4,000-character limit. Kanban convergence is already bounded by
+    // the card iteration cap; this runtime-neutral block carries the same acceptance
+    // criteria without invoking a host-specific command parser.
+    parts.push("# Goal acceptance (bounded by the card iteration cap)", acceptance, "");
   }
   // THE work item itself. Without this the operative is told to "plan/implement this
   // card" but is never told WHAT the card is — it has no title, no description, no
@@ -554,7 +653,7 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
     parts.push(
       `Execute the ${phase} phase of this run using the \`${skill}\` skill (the compiled ` +
         `Orchestrator policy binds it for this phase). The skill reads ` +
-        `~/.garrison/orchestrator/policy.json for its execution parameters and MUST write ` +
+        `${policyPath()} for its execution parameters and MUST write ` +
         `this phase's gate-status entry under the run directory before you choose the next list.`,
       // D13 guard: this dispatch IS an engine-owned Kanban card already. Without
       // this line, "implement/add X" wording auto-triggers the full `garrison`
@@ -580,7 +679,12 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
         `"predictedAt":"<ISO>","files":["repo/relative/path.ts"],"dirs":["src/area/"],"surfaces":["config-key or table"],` +
         `"exclusive":["files that must not be touched concurrently"],"notes":"free text"} listing the repo-relative ` +
         `files and directory prefixes this run will modify. Be honest and complete; the engine uses it to detect ` +
-        `overlap and order runs, and Plan cannot advance without a valid touch-set.json.`,
+        `overlap and order runs, and Plan cannot advance without a valid touch-set.json. ` +
+        `Never put absolute paths or .. traversal in files, dirs, or exclusive because those fields are scoped Git claims. ` +
+        `If the work is deliberately outside the project repository, leave those three arrays empty and claim each ` +
+        `external workspace in surfaces as \"filesystem:/absolute/workspace\" (for example, ` +
+        `\"surfaces\":[\"filesystem:/tmp/my-package\"]). If an earlier attempt wrote invalid absolute path claims, ` +
+        `rewrite the existing touch-set.json into this safe form before returning the verdict.`,
       ""
     );
   }
@@ -861,7 +965,8 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // (absent in a sandbox → null → legacy behaviour, so existing tests are inert).
   const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
   const validNext = validNextForCard(card, phase, resolvedModel) ?? validNextFor(board, card.list);
-  const skill = skillForPhase(policy, phase, card.workKind || policy?.defaultWorkKind);
+  const executionContext = executionContextForCard(card, phase, resolvedModel);
+  const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, card.workKind || policy?.defaultWorkKind);
   // Coordination is ACTIVE when the compiled policy explicitly carries a
   // `coordination` section (turned on by the composer — S6 — for production; a
   // policy that predates it, and the deliberate policy-less pure-transition mode,
@@ -886,6 +991,33 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     }));
     let events = card.events ? card.events.slice() : [];
     for (const ev of offEvents) events = withEvent({ events }, ev);
+    // Even an OFF Test phase cannot silently terminate a card without proof.
+    // The phase itself is honestly recorded off, but the engine-owned terminal
+    // Test -> Done invariant still requires the prior work's evidence.md.
+    // An OFF phase does not owe its list-configured artifacts (for example an
+    // OFF Walkthrough does not need screenshots). The sole cross-phase invariant
+    // here is the canonical terminal Test -> Done report.
+    const evidenceContract = phase === "test" && fwd === "done"
+      ? evidenceContractForTransition(list, phase, fwd)
+      : { required: false, requiredEvidenceFile: null };
+    if (evidenceContract.required && !hasEvidence(cwd, card.runDir, evidenceContract.requiredEvidenceFile)) {
+      const expectedEvidence = evidenceContract.requiredEvidenceFile || "a screenshot or evidence.md";
+      const evReason = `${listTitle} is rail-off and would fast-forward to Done, but no evidence satisfies the required proof under ${card.runDir}/evidence/ (required: ${expectedEvidence}). Parked rather than terminating the card without user-openable proof.`;
+      const parkedEvents = withEvent({ events }, {
+        at: now(),
+        kind: "parked",
+        message: `Parked from ${listTitle}: terminal evidence missing on rail fast-forward`,
+        detail: evReason
+      });
+      const res = await saveCardCAS(
+        root,
+        { ...card, ...parkFields(card, card.list, evReason), events: parkedEvents },
+        baseRev,
+        now()
+      );
+      if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+      return { card: res.card, outcome: { status: "needs-attention", reason: "no-evidence", phasesOff: skipped } };
+    }
     const res = await saveCardCAS(
       root,
       { ...card, list: fwd, events },
@@ -947,7 +1079,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   if (card.outpost) {
     try {
       const { resolveOutpostDispatch } = await import("./outpost-dispatch.mjs");
-      const daemon = process.env.GARRISON_OUTPOST_URL || "http://127.0.0.1:3702";
+      const daemon = process.env.GARRISON_OUTPOST_URL || "http://127.0.0.1:23702";
       let outposts = [];
       try {
         const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });
@@ -979,6 +1111,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   // the SAME acquire write so it is persisted CAS-safely (no extra write, no race).
   const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
+  // `iterations` is the resettable convergence-cap counter. Log ordinals are a
+  // separate monotonic sequence so recovery can reset the cap without reusing
+  // (and overwriting) cards/<id>/log-1.md.
+  const logIndex = latestCardLogNumber(root, card) + 1;
   // Acquire the card: CAS the running-status write (+ run fields if just minted). A
   // second concurrent tick fails the CAS here and skips, so a card is never processed
   // twice and the runId is never minted twice.
@@ -996,6 +1132,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       ...(minted || {}),
       status: "running",
       iterations: iteration,
+      logIndex,
       // When this run STARTED, so the UI can show a live "running 1:23" elapsed timer
       // (cleared/replaced on the terminal write below).
       runningSince: dispatchAt,
@@ -1005,8 +1142,16 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     now()
   );
   if (!acq.ok) return { card: acq.card, outcome: { status: "skipped", reason: "conflict" } };
-  const runningCard = acq.card;
+  let runningCard = acq.card;
   const runRev = runningCard.rev;
+  // Current-attempt durable-gate contract: snapshot this phase's records after
+  // the CAS acquire but before the runtime turn. A retry keeps its runDir and
+  // historical gates for audit/context, but only a file created or rewritten
+  // after this baseline may authorize this dispatch's transition.
+  const gateBaseline = runningCard.runDir && phase
+    ? snapshotPhaseGateEvidence(cwd, runningCard.runDir, phase)
+    : null;
+  const gateFreshness = gateBaseline ? { baseline: gateBaseline } : null;
 
   // Fold the Discuss brief (if any) into the prompt so every downstream phase builds
   // from the agreed direction the discussion settled on.
@@ -1024,9 +1169,22 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // Live log: write the iteration header immediately (Watch shows the run STARTED,
   // not a blank pane), then overwrite the log with the operative's growing reply as
   // chunks stream in — so Watch shows progress instead of nothing-until-the-result.
-  await writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n\n_dispatching to the operative…_\n`);
+  // Serialize rewrites for this turn: fire-and-forget writes can race each other and
+  // the final reply, either throwing during rename or letting a late partial overwrite
+  // the authoritative result.
+  await writeCardLog(root, card.id, logIndex, `# iteration ${iteration}\n\n_dispatching to the operative…_\n`);
+  let liveLogWrites = Promise.resolve();
+  let acceptingLiveChunks = true;
   const onChunk = (full) => {
-    void writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${full}\n`).catch(() => {});
+    if (!acceptingLiveChunks) return;
+    const text = `# iteration ${iteration}\n${full}\n`;
+    liveLogWrites = liveLogWrites
+      .then(() => writeCardLog(root, card.id, logIndex, text))
+      .catch(() => {});
+  };
+  const closeLiveLog = async () => {
+    acceptingLiveChunks = false;
+    await liveLogWrites;
   };
   // S3d (D9b): AskUserQuestion tool events raised MID-TURN (the discuss duty asking
   // for scope). Route the questions to the card's ORIGIN immediately (web = numbered
@@ -1059,7 +1217,19 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const dutyKey = `${card.id}:${phase}`;
   let out;
   try {
-    out = await runFn({ prompt, card: runningCard, list, classification, skill, suppressContinuations: true, onChunk, onTool, contextHold, dutyKey });
+    out = await runFn({
+      prompt,
+      card: runningCard,
+      list,
+      classification,
+      skill,
+      suppressContinuations: true,
+      onChunk,
+      onTool,
+      contextHold,
+      dutyKey,
+      ...executionContext
+    });
     // Stale-echo guard: a reply whose [route: X] token names a DIFFERENT target
     // than the one the gateway resolved for THIS turn is the previous turn's
     // screen content (the PTY model-switch extraction wedge), not a verdict on
@@ -1074,13 +1244,16 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       throw e;
     }
   } catch (err) {
+    // No streamed rewrite may land after the error record below. Draining here
+    // also prevents a chunk failure from escaping the run-finalization path.
+    await closeLiveLog();
     // A TRANSPORT failure (gateway unreachable / restarting — err.transport from the
     // gateway client) is NOT the card's fault: REVERT the acquire (back to the prior
     // status, iteration un-consumed) so the run retries on the next tick/Start once the
     // gateway is back — never strand the card in needs-attention. Any other failure (a
     // real error from a booted gateway) is a genuine run failure and parks.
     if (err?.transport) {
-      await appendCardLog(root, card.id, iteration, `# iteration ${iteration}\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
+      await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
       // Persist a one-line reason on the card so the UI can render "gateway
       // unavailable — retry" instead of looking ok. lastDispatchError is a
       // plain JSON field (file-per-card storage tolerates extra keys); cleared
@@ -1106,7 +1279,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       const res = await saveCardCAS(root, reverted, runRev, now());
       return { card: res.card ?? runningCard, outcome: { status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err) } };
     }
-    await appendCardLog(root, card.id, iteration, `# iteration ${iteration}\nrun failed: ${err?.message || err}\n`);
+    await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}\nrun failed: ${err?.message || err}\n`);
     const failReason = `The ${listTitle} run errored: ${String(err?.message || err)}. Parked so you can see the failure — open the log for details, then move it back to retry.`;
     const res = await saveCardCAS(root, {
       ...runningCard,
@@ -1129,6 +1302,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     return { card: res.card ?? runningCard, outcome: { status: "needs-attention", reason: "run-failed", error: String(err?.message || err) } };
   }
 
+  // Close the callback before inspecting/finalizing the result. A misbehaving or
+  // delayed transport callback after runFn resolves is ignored, and every already
+  // accepted chunk is durable before the clean final reply is written.
+  await closeLiveLog();
   const reply = out?.reply ?? out?.text ?? String(out ?? "");
   // Per-turn routing attribution (the gateway's `done` event surfaces which
   // runtime/model/tier actually served THIS phase turn; null in souls mode / a
@@ -1152,9 +1329,46 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // target below rebuilds events via withEvent(runningCard, …)), never a racing
   // mid-turn card write that would conflict the final save.
   for (const ev of needsInputEvents) runningCard.events = withEvent(runningCard, ev);
+  const stoppedAtMaxTurns = out?.stoppedReason === "max_turns";
+  // A routed runtime turn is evidence in its own right, even when a later gate,
+  // coordination check, or verdict check parks the card. Previously attribution
+  // was written only on a successful list transition, so a real served turn could
+  // disappear from the card while remaining visible only in gateway logs.
+  const { route: turnRoute, suffix: turnRouteSuffix } = routeStamp(routeMeta, phase);
+  if (turnRoute && !stoppedAtMaxTurns) {
+    runningCard = {
+      ...runningCard,
+      events: withEvent(runningCard, {
+        at: now(),
+        kind: "runtime",
+        message: `${listTitle} runtime turn completed${turnRouteSuffix}`,
+        route: turnRoute
+      })
+    };
+  }
+  // Agent SDK max-turn is a structured runtime stop, not a transport failure.
+  // The runtime may already have written the phase's durable gate before the SDK
+  // emitted that stop. Keep the stop as explicit audit evidence; the normal gate
+  // verifier below remains the ONLY authority that can rescue/advance the card.
+  if (stoppedAtMaxTurns) {
+    const { route: stopRoute } = routeStamp(routeMeta, phase);
+    runningCard = {
+      ...runningCard,
+      events: withEvent(runningCard, {
+        at: now(),
+        kind: "runtime-stop",
+        message: `Runtime reached its max-turn limit on ${listTitle}`,
+        detail: "stoppedReason=max_turns; advancing is allowed only if this phase already wrote a valid durable gate verdict",
+        ...(stopRoute ? { route: stopRoute } : {})
+      })
+    };
+  }
   // Final clean log (overwrites any partial live-streamed content with the
   // authoritative reply the operative returned).
-  await writeCardLog(root, card.id, iteration, `# iteration ${iteration}\n${reply}\n`);
+  await writeCardLog(root, card.id, logIndex, `# iteration ${iteration}\n${reply}\n`);
+  if (stoppedAtMaxTurns) {
+    await appendCardLog(root, card.id, logIndex, "\n_(runtime stopped: max_turns; a valid durable gate verdict is required to advance)_\n");
+  }
 
   const replyText = String(reply ?? "").trim();
   let snippet = replySnippet(replyText);
@@ -1179,71 +1393,100 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // skill writes next_phase there, and it survives reply-capture loss (the
   // observed case: a Workflow completion banner as the operative's final line).
   if (!next) {
-    let durable = gateEvidenceNextList(cwd, runningCard.runDir, phase, validNext);
+    let durable = gateEvidenceNextList(cwd, runningCard.runDir, phase, validNext, gateFreshness);
     // RACE FIX (D19, assumption 2): an EMPTY reply is frequently a PREMATURE
     // `done` event — the reply stream closed while the operative was still
     // writing its gate-status.json. Rather than park at once, poll the gate file
     // over the bounded grace window; if it lands and names a next step, advance
     // per the gate exactly as a non-empty durable verdict would.
-    if (!durable && !replyText && runningCard.runDir && pipelinePhase) {
-      emptyGraceResult = await pollForGateEvidence({ cwd, runDir: runningCard.runDir, phase, validNext, ...grace });
+    if (!durable && !replyText && runningCard.runDir && pipelinePhase && !stoppedAtMaxTurns) {
+      emptyGraceResult = await pollForGateEvidence({ cwd, runDir: runningCard.runDir, phase, validNext, freshness: gateFreshness, ...grace });
       if (emptyGraceResult.next) {
         durable = emptyGraceResult.next;
-        await appendCardLog(root, card.id, iteration, `\n_(empty reply — gate evidence landed after ${emptyGraceResult.waited} grace check(s): ${durable})_\n`);
+        await appendCardLog(root, card.id, logIndex, `\n_(empty reply — gate evidence landed after ${emptyGraceResult.waited} grace check(s): ${durable})_\n`);
       }
     }
     if (durable) {
       next = durable;
       nudged = true; // same accounting as the nudge: a rescued verdict, not a first-line one
       if (!snippet) snippet = `verdict from durable gate evidence: ${durable}`;
-      await appendCardLog(root, card.id, iteration, `\n_(verdict from durable gate evidence: ${durable})_\n`);
+      await appendCardLog(root, card.id, logIndex, `\n_(verdict from durable gate evidence: ${durable})_\n`);
     }
   }
-  if (!next) {
+  if (!next && !stoppedAtMaxTurns) {
     try {
       const nudgePrompt =
         `Your previous reply did not end with the required next-step token, so the workflow can't advance. ` +
         `Based ONLY on the work you just completed, reply with NOTHING but EXACTLY one of these list ids — a single bare word, no punctuation, no explanation: ${validNext.join(", ")}.`;
-      const nout = await runFn({ prompt: nudgePrompt, card: runningCard, list, classification, skill, suppressContinuations: true });
+      const nout = await runFn({
+        prompt: nudgePrompt,
+        card: runningCard,
+        list,
+        classification,
+        skill,
+        suppressContinuations: true,
+        ...executionContext
+      });
       const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
       const nnext = parseNextList(nudgeReply, validNext);
       if (nnext) {
         next = nnext;
         nudged = true;
         if (!snippet) snippet = replySnippet(nudgeReply);
-        await appendCardLog(root, card.id, iteration, `\n_(follow-up verdict: ${nnext})_\n`);
+        await appendCardLog(root, card.id, logIndex, `\n_(follow-up verdict: ${nnext})_\n`);
       }
     } catch {
       // Nudge failed (gateway hiccup) — fall through and park with the ORIGINAL reply.
     }
   }
-  // EVIDENCE GATE (walkthrough artifacts). A list flagged `requiresEvidence` must leave
-  // tangible proof on disk before it can advance — the operative's "I wrote the
-  // evidence" verdict is self-attested, so we VERIFY <runDir>/evidence/ actually has a
-  // file. If the run routed forward but produced nothing, we REFUSE the advance.
-  let evidenceMissing = false;
-  if (next && list.requiresEvidence && !hasEvidence(cwd, runningCard.runDir)) {
-    next = null;
-    evidenceMissing = true;
+  // Resolve the ACTUAL destination before either integrity gate. A rail can skip
+  // the router-named list, and the contracts bind to where the card will really
+  // land (most importantly Test -> Done), not merely the intermediate token.
+  let checkedNext = next;
+  if (checkedNext && rail) {
+    checkedNext = effectiveListForCard(board, rail, checkedNext, runningCard, resolvedModel).listId;
   }
+  // EVIDENCE GATE (Walkthrough artifacts + terminal Test report). The terminal
+  // Test -> Done rule is engine-owned, so it remains active even when an installed
+  // board predates or has lost requiresEvidenceOn/requiredEvidenceFile.
+  const evidenceContract = evidenceContractForTransition(list, phase, checkedNext);
+  const evidenceMissing = Boolean(
+    next &&
+    evidenceContract.required &&
+    !hasEvidence(cwd, runningCard.runDir, evidenceContract.requiredEvidenceFile)
+  );
   // DURABLE GATE EVIDENCE (D9). Phase progression requires the phase's
-  // gate-status entry in the runDir IN ADDITION to the router verdict — a
-  // transition without it parks in needs-attention. A FAILED entry is evidence
-  // too (the implement loop-back still transitions with proof the gate ran).
+  // gate-status entry in the runDir IN ADDITION to the router verdict. When the
+  // record declares a next edge, that durable verdict must agree with the ACTUAL
+  // destination after rail resolution; mere file existence is not enough.
   // Only enforced when the phase is a policy pipeline phase and a runDir exists.
   let gateEvidenceMissing = false;
+  let gateEvidenceStale = false;
+  let gateVerdictMismatch = false;
+  let durableGate = null;
   // Fail SAFE on a CORRUPT policy (rev2-s567 S5#1): a real run (has a runDir) whose
   // policy file exists but can't be parsed must NOT silently lose D9 and fast-forward
   // ungated — a null `policy` would make pipelinePhase falsy and skip the check
   // entirely. An ABSENT policy is the deliberate policy-less mode and is unaffected.
   if (next && !policy && runningCard.runDir && policyLoadState() === "corrupt") {
-    next = null;
     gateEvidenceMissing = true;
   }
-  if (next && pipelinePhase && runningCard.runDir && !hasPhaseGateEvidence(cwd, runningCard.runDir, phase)) {
-    next = null;
-    gateEvidenceMissing = true;
+  if (next && pipelinePhase && runningCard.runDir) {
+    durableGate = gateContractForTransition(cwd, runningCard.runDir, phase, checkedNext, gateFreshness);
+    if (!durableGate.exists && durableGate.stale) gateEvidenceStale = true;
+    else if (!durableGate.exists) gateEvidenceMissing = true;
+    else if (!durableGate.agrees) gateVerdictMismatch = true;
   }
+  // A max-turn/empty result can have no reply verdict at all. Still distinguish
+  // "no gate" from "only an inherited gate": the latter was deliberately
+  // excluded from durable rescue and should say why instead of masquerading as
+  // a generic empty reply.
+  if (!next && pipelinePhase && runningCard.runDir && gateFreshness) {
+    const freshGate = inspectPhaseGateEvidence(cwd, runningCard.runDir, phase, gateFreshness);
+    const historicalGate = inspectPhaseGateEvidence(cwd, runningCard.runDir, phase);
+    gateEvidenceStale = !freshGate.exists && historicalGate.exists;
+  }
+  if (gateEvidenceMissing || gateEvidenceStale || gateVerdictMismatch || evidenceMissing) next = null;
   // Distinguish the outcomes a finished run can have, so the card carries a diagnostic
   // the user can act on instead of one opaque "no valid next list" line:
   //   • moved            — the router named a valid next list (possibly via nudge); advance.
@@ -1458,6 +1701,22 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         terminalIntentRemoval = { repoPath: coordRepoPath, cardId: runningCard.id };
       }
     }
+  } else if (gateEvidenceStale) {
+    const gsReason = `${listTitle} chose a next step, but the only durable gate evidence for the ${phase} phase under ${runningCard.runDir} predates this dispatch. A retry must rewrite its phase gate during the current attempt; an inherited gate cannot authorize new work even when its verdict matches. Re-run so the phase skill refreshes its gate-status entry.`;
+    target = {
+      ...runningCard,
+      ...parkFields(runningCard, card.list, gsReason),
+      runningSince: null,
+      lastReply: snippet,
+      lastDispatchError: null,
+      events: withEvent(runningCard, {
+        at: now(),
+        kind: "parked",
+        message: `Parked from ${listTitle}: durable gate evidence is stale for this attempt`,
+        detail: gsReason
+      })
+    };
+    outcome = { status: "needs-attention", reason: "stale-gate-evidence", validNext };
   } else if (gateEvidenceMissing) {
     const geReason = `${listTitle} chose a next step but left NO durable gate evidence for the ${phase} phase under ${runningCard.runDir} (no gates entry in a gate-status.json). Phase progression requires the durable gate record in addition to the verdict (D9) — parked rather than advancing on the operative's word alone. Re-run so the phase skill writes its gate-status entry.`;
     target = {
@@ -1474,8 +1733,26 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       })
     };
     outcome = { status: "needs-attention", reason: "no-gate-evidence", validNext };
+  } else if (gateVerdictMismatch) {
+    const declared = durableGate?.nextLists?.length ? durableGate.nextLists.join(", ") : "an invalid/empty next_phase";
+    const gvReason = `${listTitle} chose ${checkedNext}, but the ${phase} phase's durable gate record declared ${declared}. The gate verdict must agree with the actual transition (after any rail skips); parked rather than using a gate file's mere existence to authorize a different edge. Re-run the phase and write the gate record with next_phase ${checkedNext}.`;
+    target = {
+      ...runningCard,
+      ...parkFields(runningCard, card.list, gvReason),
+      runningSince: null,
+      lastReply: snippet,
+      lastDispatchError: null,
+      events: withEvent(runningCard, {
+        at: now(),
+        kind: "parked",
+        message: `Parked from ${listTitle}: durable gate verdict disagreed (${declared} ≠ ${checkedNext})`,
+        detail: gvReason
+      })
+    };
+    outcome = { status: "needs-attention", reason: "gate-verdict-mismatch", validNext };
   } else if (evidenceMissing) {
-    const evReason = `${listTitle} reported success but left NO evidence under ${runningCard.runDir}/evidence/ — no screenshot or evidence.md was actually produced, so there is no proof the change works. Parked rather than advancing on the operative's word alone. Move it back to re-run and produce the evidence.`;
+    const expectedEvidence = evidenceContract.requiredEvidenceFile || "a screenshot or evidence.md";
+    const evReason = `${listTitle} reported success but left NO evidence satisfying the required proof under ${runningCard.runDir}/evidence/ (required: ${expectedEvidence}). There is no user-openable proof the change works, so the card was parked rather than advancing${checkedNext === "done" ? " to Done" : ""} on the operative's word alone. Re-run and produce the evidence.`;
     target = {
       ...runningCard,
       ...parkFields(runningCard, card.list, evReason),
@@ -1495,7 +1772,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     // -succeeding run time to land its gate evidence; reaching here means none did.
     // Park with the failure contract: never claims success, carries a log-tail
     // evidence excerpt, and marks the card for a context-keeping retry.
-    const logTail = readLogTail(root, card.id, iteration);
+    const logTail = readLogTail(root, card.id, logIndex);
     const emptyReason = buildEmptyFailureReason({ listTitle, phase, grace: emptyGraceResult, logTail });
     target = {
       ...runningCard,
@@ -1686,42 +1963,9 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   }
   const coordCfg = coordinationConfig(policy);
   const coordActive = Boolean(policy && policy.coordination) && coordCfg.enabled && coordinationAvailability().ok;
-  // Fail SAFE on a CORRUPT policy (rev2-s567 S5#1): a real run whose policy can't
-  // be parsed must park, not advance ungated (a null policy skips the D9 check).
-  // ABSENT policy stays the deliberate policy-less mode.
-  if (card.runDir && !policy && policyLoadState() === "corrupt") {
-    const cpReason = `In-session advance from ${listTitle} refused: the compiled policy at ~/.garrison/orchestrator/policy.json exists but is unreadable — cannot verify the phase-gate contract. Recompile it (edit + save in the composer) before advancing.`;
-    const res = await saveCardCAS(root, {
-      ...card,
-      ...parkFields(card, card.list, cpReason),
-      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: policy unreadable`, detail: cpReason })
-    }, card.rev ?? 0, now());
-    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
-    return { card: res.card, outcome: { status: "needs-attention", reason: "policy-corrupt" } };
-  }
-  const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
-  if (pipelinePhase && card.runDir && !hasPhaseGateEvidence(cwd, card.runDir, phase)) {
-    const geReason = `In-session advance from ${listTitle} refused: no durable gate evidence for the ${phase} phase under ${card.runDir}. Write the phase's gate-status entry first (the bindable-skill contract).`;
-    const res = await saveCardCAS(root, {
-      ...card,
-      ...parkFields(card, card.list, geReason),
-      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no durable gate evidence for ${phase}`, detail: geReason })
-    }, card.rev ?? 0, now());
-    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
-    return { card: res.card, outcome: { status: "needs-attention", reason: "no-gate-evidence" } };
-  }
-  // requiresEvidence (walkthrough bundle) — the SAME check the dispatched path
-  // enforces (rev-s4 finding #2: this path used to skip it).
-  if (list.requiresEvidence && !hasEvidence(cwd, card.runDir)) {
-    const evReason = `In-session advance from ${listTitle} refused: no tangible evidence under ${card.runDir}/evidence/ (a screenshot or evidence.md). Produce the evidence bundle first.`;
-    const res = await saveCardCAS(root, {
-      ...card,
-      ...parkFields(card, card.list, evReason),
-      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no evidence produced (in-session)`, detail: evReason })
-    }, card.rev ?? 0, now());
-    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
-    return { card: res.card, outcome: { status: "needs-attention", reason: "no-evidence" } };
-  }
+  // Resolve rail skips BEFORE enforcing either integrity contract. Both the
+  // durable gate and terminal evidence must describe the list the card really
+  // lands in, not an intermediate token that the rail immediately skips.
   const rail = railForCard(policy, card);
   let effectiveNext = verdict;
   let offEvents = [];
@@ -1735,6 +1979,79 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
         message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
       }));
     }
+  }
+  // Fail SAFE on a CORRUPT policy (rev2-s567 S5#1): a real run whose policy can't
+  // be parsed must park, not advance ungated (a null policy skips the D9 check).
+  // ABSENT policy stays the deliberate policy-less mode.
+  if (card.runDir && !policy && policyLoadState() === "corrupt") {
+    const cpReason = `In-session advance from ${listTitle} refused: the compiled policy at ${policyPath()} exists but is unreadable — cannot verify the phase-gate contract. Recompile it (edit + save in the composer) before advancing.`;
+    const res = await saveCardCAS(root, {
+      ...card,
+      ...parkFields(card, card.list, cpReason),
+      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: policy unreadable`, detail: cpReason })
+    }, card.rev ?? 0, now());
+    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: "policy-corrupt" } };
+  }
+  const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
+  // The in-process doorway has no pre-run callback seam from which to capture a
+  // fingerprint baseline. Its persisted card.updated is the phase-entry/recovery
+  // boundary: require the authoritative gate's filesystem change time to be at
+  // least that recent. Legacy callers without a parseable updated timestamp keep
+  // the historical existence-only behavior rather than becoming un-runnable.
+  const phaseEntryMs = Date.parse(card.updated || "");
+  // card.updated is millisecond ISO while filesystem timestamps and their clock
+  // sampling can straddle that boundary by a fraction of a millisecond. A one-
+  // second tolerance avoids rejecting a gate written immediately after entry;
+  // it remains far tighter than the minutes-old retry residue this guards.
+  const gateFreshness = Number.isFinite(phaseEntryMs) ? { notBeforeMs: phaseEntryMs - 1000 } : null;
+  const durableGate = pipelinePhase && card.runDir
+    ? gateContractForTransition(cwd, card.runDir, phase, effectiveNext, gateFreshness)
+    : null;
+  if (durableGate && !durableGate.exists) {
+    const stale = durableGate.stale;
+    const geReason = stale
+      ? `In-session advance from ${listTitle} refused: the only durable gate evidence for the ${phase} phase under ${card.runDir} predates this phase entry/recovery. Rewrite the phase's gate-status entry during the current attempt before advancing.`
+      : `In-session advance from ${listTitle} refused: no durable gate evidence for the ${phase} phase under ${card.runDir}. Write the phase's gate-status entry first (the bindable-skill contract).`;
+    const res = await saveCardCAS(root, {
+      ...card,
+      ...parkFields(card, card.list, geReason),
+      events: withEvent(card, {
+        at: now(),
+        kind: "parked",
+        message: stale
+          ? `Parked from ${listTitle}: durable gate evidence predates this phase entry`
+          : `Parked from ${listTitle}: no durable gate evidence for ${phase}`,
+        detail: geReason
+      })
+    }, card.rev ?? 0, now());
+    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: stale ? "stale-gate-evidence" : "no-gate-evidence" } };
+  }
+  if (durableGate && !durableGate.agrees) {
+    const declared = durableGate.nextLists.length ? durableGate.nextLists.join(", ") : "an invalid/empty next_phase";
+    const gvReason = `In-session advance from ${listTitle} refused: the ${phase} phase's durable gate record declared ${declared}, but the actual transition is ${effectiveNext}. Re-run the phase and write next_phase ${effectiveNext}; a gate file's mere existence cannot authorize a different edge.`;
+    const res = await saveCardCAS(root, {
+      ...card,
+      ...parkFields(card, card.list, gvReason),
+      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: durable gate verdict disagreed (${declared} ≠ ${effectiveNext})`, detail: gvReason })
+    }, card.rev ?? 0, now());
+    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: "gate-verdict-mismatch" } };
+  }
+  // Evidence gate — including the engine-owned Test -> Done invariant that does
+  // not depend on the installed list carrying fresh enforcement fields.
+  const evidenceContract = evidenceContractForTransition(list, phase, effectiveNext);
+  if (evidenceContract.required && !hasEvidence(cwd, card.runDir, evidenceContract.requiredEvidenceFile)) {
+    const expectedEvidence = evidenceContract.requiredEvidenceFile || "a screenshot or evidence.md";
+    const evReason = `In-session advance from ${listTitle} refused: no tangible evidence under ${card.runDir}/evidence/ (required: ${expectedEvidence}). Produce the evidence bundle first.`;
+    const res = await saveCardCAS(root, {
+      ...card,
+      ...parkFields(card, card.list, evReason),
+      events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no evidence produced (in-session)`, detail: evReason })
+    }, card.rev ?? 0, now());
+    if (!res.ok) return { card: res.card ?? card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: res.card, outcome: { status: "needs-attention", reason: "no-evidence" } };
   }
   // Stability + coordination — the SAME contract as the dispatched path
   // (processCard): plan-completion ordering, breakage attribution on the gate fail
@@ -2015,7 +2332,34 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
   // union base for the generic nudge/park hints.
   const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
   const validNext = validNextFor(board, listId);
-  const groups = groupCardsByProject(cards, listId);
+  const batchPhase = phaseForList(list);
+  const projectGroups = groupCardsByProject(cards, listId);
+  // A batch is one runtime session, so v4 cards may share it only when their
+  // current leaf resolves to the same exact target/cell settings. Preserve the
+  // historical one-batch-per-project behavior for all legacy cards.
+  const groups = [];
+  for (const [project, projectCards] of Object.entries(projectGroups)) {
+    const routed = new Map();
+    for (const card of projectCards) {
+      const ctx = executionContextForCard(card, batchPhase, resolvedModel);
+      const key = ctx.step
+        ? JSON.stringify({
+            targetId: ctx.step.targetId,
+            runtime: ctx.step.runtime,
+            provider: ctx.step.provider,
+            model: ctx.step.model,
+            effort: ctx.step.effort,
+            params: ctx.step.params
+          })
+        : "legacy";
+      const bucket = routed.get(key) ?? [];
+      bucket.push(card);
+      routed.set(key, bucket);
+    }
+    for (const projectCardsForRoute of routed.values()) {
+      groups.push({ project, cards: projectCardsForRoute });
+    }
+  }
   const outcomes = [];
   // Coordination context for the batch (D7 red-path): attribution + fences run
   // per-card. Loaded once; liveCards/repoPath resolved per card below.
@@ -2023,7 +2367,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
   const batchCoordCfg = coordinationConfig(batchPolicy);
   const batchCoordActive = Boolean(batchPolicy && batchPolicy.coordination) && batchCoordCfg.enabled && coordinationAvailability().ok;
   const batchAllCards = batchCoordActive ? await loadAllCards(root) : null;
-  for (const [project, projectCards] of Object.entries(groups)) {
+  for (const { project, cards: projectCards } of groups) {
     if (projectCards.length === 0) continue;
     // Acquire every card in the group (CAS the running write + mint run fields). A card
     // that fails the CAS (concurrent tick / manual edit) drops out of the batch. A card
@@ -2046,16 +2390,27 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       }
       const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
       const iteration = (card.iterations || 0) + 1;
+      const logIndex = latestCardLogNumber(root, card) + 1;
       const acq = await saveCardCAS(root, {
         ...card,
         ...(minted || {}),
         status: "running",
         iterations: iteration,
+        logIndex,
         runningSince: now(),
         events: withEvent(card, { at: now(), kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}`, detail: null })
       }, baseRev, now());
       if (!acq.ok) { outcomes.push({ id: card.id, status: "skipped", reason: "conflict", project }); continue; }
-      acquired.push({ original: card, running: acq.card, iteration });
+      const gateBaseline = acq.card.runDir && batchPhase
+        ? snapshotPhaseGateEvidence(cwd, acq.card.runDir, batchPhase)
+        : null;
+      acquired.push({
+        original: card,
+        running: acq.card,
+        iteration,
+        logIndex,
+        gateFreshness: gateBaseline ? { baseline: gateBaseline } : null
+      });
     }
     if (acquired.length === 0) continue;
 
@@ -2065,7 +2420,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     // every other phase. Tier: the group's first card's tier (a batch shares
     // one session; per-card tier divergence is not worth a session each).
     const policy = loadPolicy();
-    const phase = phaseForList(list);
+    const phase = batchPhase;
     // The generic hint tokens for the nudge prompt: the UNION of every card's own
     // valid-next (its resolved sequence, D15) plus the board's static validNext, so
     // a sequence-ended card's real option (e.g. `done`) is never omitted from the
@@ -2075,10 +2430,19 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       ...runningCards.flatMap((c) => validNextForCard(c, phase, resolvedModel) ?? [])
     ])];
     const classification = classificationForPhase(policy, phase, runningCards[0]);
-    const skill = skillForPhase(policy, phase, runningCards[0]?.workKind || policy?.defaultWorkKind);
+    const executionContext = executionContextForCard(runningCards[0], phase, resolvedModel);
+    const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, runningCards[0]?.workKind || policy?.defaultWorkKind);
     let out;
     try {
-      out = await batchRunFn({ project, cards: runningCards, list, classification, skill, suppressContinuations: true });
+      out = await batchRunFn({
+        project,
+        cards: runningCards,
+        list,
+        classification,
+        skill,
+        suppressContinuations: true,
+        ...executionContext
+      });
     } catch (err) {
       if (err?.transport) {
         // A TRANSPORT failure (gateway down/restarting, stream dropped) is not
@@ -2105,7 +2469,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
               detail: String(err?.message || err)
             })
           }, a.running.rev, now());
-          await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
+          await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
           outcomes.push({ id: a.original.id, status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err), project });
         }
         continue;
@@ -2120,26 +2484,82 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           lastReply: replySnippet(String(err?.message || err)),
           events: withEvent(a.running, { at: now(), kind: "failed", message: `Batch run errored on ${listTitle}`, detail: String(err?.message || err) })
         }, a.running.rev, now());
-        await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\nbatch run failed: ${err?.message || err}\n`);
+        await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\nbatch run failed: ${err?.message || err}\n`);
         outcomes.push({ id: a.original.id, status: "needs-attention", reason: "run-failed", error: String(err?.message || err), project });
       }
       continue;
     }
 
+    const stoppedAtMaxTurns = out?.stoppedReason === "max_turns";
+    // Preserve the shared batch route on every acquired card before interpreting
+    // its individual verdict. That attribution must survive a per-card park just
+    // as it does in the single-card path above.
+    if (out?.route && !stoppedAtMaxTurns) {
+      for (const a of acquired) {
+        const { route: turnRoute, suffix: turnRouteSuffix } = routeStamp(
+          { ...out.route, tier: out.route.tier ?? a.running.tier ?? null },
+          phase
+        );
+        if (turnRoute) {
+          a.running.events = withEvent(a.running, {
+            at: now(),
+            kind: "runtime",
+            message: `${listTitle} runtime turn completed (batched: ${project})${turnRouteSuffix}`,
+            route: turnRoute
+          });
+        }
+      }
+    }
+    if (stoppedAtMaxTurns) {
+      for (const a of acquired) {
+        const { route: stopRoute } = routeStamp(
+          out?.route ? { ...out.route, tier: out.route.tier ?? a.running.tier ?? null } : null,
+          phase
+        );
+        // Mutate the acquired in-memory object only; the eventual outcome CAS
+        // persists this audit event together with either the move or the park.
+        a.running.events = withEvent(a.running, {
+          at: now(),
+          kind: "runtime-stop",
+          message: `Runtime reached its max-turn limit on ${listTitle} (batched: ${project})`,
+          detail: "stoppedReason=max_turns; advancing is allowed only if this card already wrote a valid durable gate verdict",
+          ...(stopRoute ? { route: stopRoute } : {})
+        });
+      }
+    }
     let reply = out?.reply ?? out?.text ?? String(out ?? "");
     let verdicts = parseBatchVerdicts(reply, runningCards, board, resolvedModel);
+    // A max-turn result is terminal for the runtime turn, so do not spend a
+    // second nudge turn. Recover each card only from its OWN already-written,
+    // current-phase gate verdict; an absent/invalid gate remains null and parks.
+    if (stoppedAtMaxTurns) {
+      for (const a of acquired) {
+        if (verdicts[a.original.id]) continue;
+        const cardValidNext = validNextForCard(a.running, phase, resolvedModel) ?? validNext;
+        verdicts[a.original.id] = gateEvidenceNextList(cwd, a.running.runDir, phase, cardValidNext, a.gateFreshness);
+      }
+    }
     // VERDICT NUDGE (same backstop as processCard). A batch turn that did the
     // work but ended narrating — or returned an empty screen-scrape — leaves
     // ZERO verdict lines and would park the whole group. One bounded follow-up
     // asks for nothing but the verdict lines, in the same session.
-    if (!Object.values(verdicts).some(Boolean)) {
+    if (!Object.values(verdicts).some(Boolean) && !stoppedAtMaxTurns) {
       try {
         const nudgePrompt =
           `Your previous reply did not include the required per-card verdict lines, so the workflow can't advance. ` +
           `Based ONLY on the batched test work you just completed, reply with NOTHING but one verdict line per card, ` +
           `each EXACTLY in the form \`<cardId> <next-list>\` where <next-list> is one of: ${batchValidNextUnion.join(", ")}. The cards: ` +
           runningCards.map((c) => c.id).join(", ") + ".";
-        const nout = await batchRunFn({ project, cards: runningCards, list, classification, skill, suppressContinuations: true, nudge: nudgePrompt });
+        const nout = await batchRunFn({
+          project,
+          cards: runningCards,
+          list,
+          classification,
+          skill,
+          suppressContinuations: true,
+          nudge: nudgePrompt,
+          ...executionContext
+        });
         const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
         const nudged = parseBatchVerdicts(nudgeReply, runningCards, board, resolvedModel);
         if (Object.values(nudged).some(Boolean)) {
@@ -2158,49 +2578,72 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       // not the board's column order; a legacy card falls back to the board's set.
       const cardValidNext = validNextForCard(a.running, phase, resolvedModel) ?? validNext;
       const cardExpected = cardValidNext.join(", ");
-      await appendCardLog(root, a.original.id, a.iteration, `# iteration ${a.iteration} (batch:${project})\nverdict: ${next ?? "(none)"}\n${reply}\n`);
+      await appendCardLog(
+        root,
+        a.original.id,
+        a.logIndex,
+        `# iteration ${a.iteration} (batch:${project})\nverdict: ${next ?? "(none)"}\n${reply}\n` +
+          (stoppedAtMaxTurns ? "\n_(runtime stopped: max_turns; a valid durable gate verdict is required to advance)_\n" : "")
+      );
       const pipelinePhase = policy && Array.isArray(policy.phases) && policy.phases.includes(phase);
       // RACE FIX (D19, assumption 2) — mirror of processCard. An EMPTY batch reply
       // may be a premature `done`; before parking THIS card for "no output", poll
       // its gate file over the grace window. A landed gate that names a next step
       // advances it exactly as a verdict line would.
       let batchGrace = null;
-      if (!next && !reply.trim() && a.running.runDir && pipelinePhase) {
-        batchGrace = await pollForGateEvidence({ cwd, runDir: a.running.runDir, phase, validNext: cardValidNext, ...grace });
+      if (!next && !reply.trim() && a.running.runDir && pipelinePhase && !stoppedAtMaxTurns) {
+        batchGrace = await pollForGateEvidence({ cwd, runDir: a.running.runDir, phase, validNext: cardValidNext, freshness: a.gateFreshness, ...grace });
         if (batchGrace.next) {
           next = batchGrace.next;
-          await appendCardLog(root, a.original.id, a.iteration, `\n_(empty batch reply — gate evidence landed after ${batchGrace.waited} grace check(s): ${next})_\n`);
+          await appendCardLog(root, a.original.id, a.logIndex, `\n_(empty batch reply — gate evidence landed after ${batchGrace.waited} grace check(s): ${next})_\n`);
         }
       }
-      // DURABLE GATE EVIDENCE (D9) — the batch path enforces the SAME check as
-      // processCard: a verdict without the phase's gate-status entry in the
-      // card's runDir parks (rev-s4 finding #1: this path used to bypass it).
-      let gateEvidenceMissing = false;
-      if (next && pipelinePhase && a.running.runDir && !hasPhaseGateEvidence(cwd, a.running.runDir, phase)) {
-        next = null;
-        gateEvidenceMissing = true;
+      // Resolve this card's ACTUAL destination before either integrity check.
+      // A batch verdict can name an intermediate phase the rail skips; terminal
+      // evidence and durable-gate concordance bind to where the card really lands.
+      const rail = railForCard(policy, a.running);
+      let effectiveNext = next;
+      let offEvents = [];
+      if (effectiveNext && rail) {
+        const fwd = effectiveListForCard(board, rail, effectiveNext, a.running, resolvedModel);
+        if (fwd.listId !== effectiveNext) {
+          effectiveNext = fwd.listId;
+          offEvents = fwd.skipped.map((ph) => ({
+            at: now(),
+            kind: "phase-off",
+            message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+          }));
+        }
       }
+      const evidenceContract = evidenceContractForTransition(list, phase, effectiveNext);
+      const evidenceMissing = Boolean(
+        next &&
+        evidenceContract.required &&
+        !hasEvidence(cwd, a.running.runDir, evidenceContract.requiredEvidenceFile)
+      );
+      // DURABLE GATE EVIDENCE (D9) — mirror processCard: the phase record must
+      // exist, and an explicit durable next edge must agree with effectiveNext.
+      let gateEvidenceMissing = false;
+      let gateEvidenceStale = false;
+      let gateVerdictMismatch = false;
+      let durableGate = null;
+      if (next && pipelinePhase && a.running.runDir) {
+        durableGate = gateContractForTransition(cwd, a.running.runDir, phase, effectiveNext, a.gateFreshness);
+        if (!durableGate.exists && durableGate.stale) gateEvidenceStale = true;
+        else if (!durableGate.exists) gateEvidenceMissing = true;
+        else if (!durableGate.agrees) gateVerdictMismatch = true;
+      }
+      if (!next && pipelinePhase && a.running.runDir && a.gateFreshness) {
+        const freshGate = inspectPhaseGateEvidence(cwd, a.running.runDir, phase, a.gateFreshness);
+        const historicalGate = inspectPhaseGateEvidence(cwd, a.running.runDir, phase);
+        gateEvidenceStale = !freshGate.exists && historicalGate.exists;
+      }
+      if (gateEvidenceMissing || gateEvidenceStale || gateVerdictMismatch || evidenceMissing) next = null;
       let target;
       let batchBlockerWrites = [];
       let batchMails = [];
       let batchInterferenceWait = false;
       if (next) {
-        // D17 rail fast-forward — same as processCard's post-verdict handling
-        // (rev-s4 finding #3: the batch path used to skip it).
-        const rail = railForCard(policy, a.running);
-        let effectiveNext = next;
-        let offEvents = [];
-        if (rail) {
-          const fwd = effectiveListForCard(board, rail, next, a.running, resolvedModel);
-          if (fwd.listId !== next) {
-            effectiveNext = fwd.listId;
-            offEvents = fwd.skipped.map((ph) => ({
-              at: now(),
-              kind: "phase-off",
-              message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
-            }));
-          }
-        }
         // Coordination context for THIS card.
         const liveCards = batchCoordActive ? liveSameProjectCards(batchAllCards, a.running, board) : [];
         const repoPath = batchCoordActive ? repoPathForProject(a.running.project, board) : null;
@@ -2274,6 +2717,15 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
             events
           };
         }
+      } else if (gateEvidenceStale) {
+        const gsReason = `${listTitle} (batched for ${project}) chose a next step, but the only durable gate evidence for the ${phase} phase under ${a.running.runDir} predates this batch dispatch. Each retried card must rewrite its own phase gate during the current attempt; inherited evidence cannot authorize a new transition.`;
+        target = {
+          ...a.running,
+          ...parkFields(a.running, listId, gsReason),
+          runningSince: null,
+          lastReply: snippet,
+          events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: durable gate evidence is stale for this batch attempt`, detail: gsReason })
+        };
       } else if (gateEvidenceMissing) {
         const geReason = `${listTitle} (batched for ${project}) chose a next step but left NO durable gate evidence for the ${phase} phase under ${a.running.runDir}. Phase progression requires the durable gate record in addition to the verdict (D9) — parked rather than advancing on the operative's word alone.`;
         target = {
@@ -2283,12 +2735,32 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           lastReply: snippet,
           events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no durable gate evidence for ${phase}`, detail: geReason })
         };
+      } else if (gateVerdictMismatch) {
+        const declared = durableGate?.nextLists?.length ? durableGate.nextLists.join(", ") : "an invalid/empty next_phase";
+        const gvReason = `${listTitle} (batched for ${project}) chose ${effectiveNext}, but the ${phase} phase's durable gate record declared ${declared}. The durable verdict must agree with the actual transition after rail skips; parked rather than allowing a gate file's mere existence to authorize a different edge.`;
+        target = {
+          ...a.running,
+          ...parkFields(a.running, listId, gvReason),
+          runningSince: null,
+          lastReply: snippet,
+          events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: durable gate verdict disagreed (${declared} ≠ ${effectiveNext})`, detail: gvReason })
+        };
+      } else if (evidenceMissing) {
+        const expectedEvidence = evidenceContract.requiredEvidenceFile || "a screenshot or evidence.md";
+        const evReason = `${listTitle} (batched for ${project}) reported success but left NO required evidence under ${a.running.runDir}/evidence/ (required: ${expectedEvidence}). Parked rather than moving the card to Done without user-openable proof.`;
+        target = {
+          ...a.running,
+          ...parkFields(a.running, listId, evReason),
+          runningSince: null,
+          lastReply: snippet,
+          events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no evidence produced`, detail: evReason })
+        };
       } else if (!reply.trim()) {
         // EMPTY OUTPUT = FAILURE (D19) — the whole batched turn produced nothing and
         // the grace window found no gate. Park with the SAME failure contract as the
         // per-card path: never claims success, carries a log-tail excerpt, marks the
         // card for a context-keeping retry.
-        const logTail = readLogTail(root, a.original.id, a.iteration);
+        const logTail = readLogTail(root, a.original.id, a.logIndex);
         const emptyReason = buildEmptyFailureReason({ listTitle: `${listTitle} (batched for ${project})`, phase, grace: batchGrace, logTail });
         target = {
           ...a.running,
@@ -2321,7 +2793,10 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           if (toCard) await sendCoordMail({ root, fromCard: res.card, toCard, subject: m.subject, body: m.body, repoPath: repoPathForProject(a.running.project, board), now });
         }
       }
+      if (gateEvidenceStale) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "stale-gate-evidence", project }); continue; }
       if (gateEvidenceMissing) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-gate-evidence", project }); continue; }
+      if (gateVerdictMismatch) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "gate-verdict-mismatch", project }); continue; }
+      if (evidenceMissing) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-evidence", project }); continue; }
       if (batchInterferenceWait) { outcomes.push({ id: a.original.id, status: "waiting", reason: "interference", project }); continue; }
       if (!next) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: reply.trim() ? "no-exact-match" : "empty-reply", project }); continue; }
       outcomes.push({ id: a.original.id, status: "moved", from: listId, to: target.list, project });

@@ -9,7 +9,8 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
-const DEV_ROOT_FILE = path.join(HOME, ".garrison", "dev-root");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const DEV_ROOT_FILE = path.join(GARRISON_HOME, "dev-root");
 
 // Expand a leading ~ to the home dir (the dev-root file may store "~/dev").
 export function expandHome(p) {

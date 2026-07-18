@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const COMPOSITION_ID = process.argv[2] ?? "default";
-const GATEWAY_URL = (process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:4777").replace(/\/$/, "");
+const GATEWAY_URL = (process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:24777").replace(/\/$/, "");
 const COMPOSITION_DIR = path.join(REPO_ROOT, "compositions", COMPOSITION_ID);
 
 const results = [];
@@ -38,13 +38,18 @@ async function checkAuth() {
     );
     return;
   }
-  const claudeDir = path.join(os.homedir(), ".claude");
+  const claudeDir =
+    process.env.GARRISON_CLAUDE_HOME?.trim() ||
+    process.env.CLAUDE_CONFIG_DIR?.trim() ||
+    path.join(os.homedir(), ".claude");
+  const claudeDirLabel =
+    claudeDir === path.join(os.homedir(), ".claude") ? "~/.claude" : claudeDir;
   if (await pathExists(claudeDir)) {
     record(
       "Auth source",
       "pass",
       "Agent SDK will use Claude Code OAuth credentials.",
-      `~/.claude exists and ANTHROPIC_API_KEY is unset.`
+      `${claudeDirLabel} exists and ANTHROPIC_API_KEY is unset.`
     );
     return;
   }
@@ -52,7 +57,7 @@ async function checkAuth() {
     "Auth source",
     "warn",
     "Not authenticated at all.",
-    "ANTHROPIC_API_KEY is unset and ~/.claude is missing — run `claude` once to log in."
+    `ANTHROPIC_API_KEY is unset and ${claudeDirLabel} is missing — run \`claude\` once with this instance's config home to log in.`
   );
 }
 

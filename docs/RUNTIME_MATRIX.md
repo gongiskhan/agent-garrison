@@ -67,42 +67,42 @@ Every non-`pass` cell, with its cause. `verify-only` = the health hook passed bu
 
 | Cell | Status | Cause |
 | --- | --- | --- |
-| automations @ opencode | verify-only | own-port server not running on :7090 (harness does not 'up' the composition); verify hook is the health signal |
-| browser-default @ opencode | verify-only | own-port server not running on :7084 (harness does not 'up' the composition); verify hook is the health signal |
+| automations @ opencode | verify-only | own-port server not running on :27090 (harness does not 'up' the composition); verify hook is the health signal |
+| browser-default @ opencode | verify-only | own-port server not running on :27084 (harness does not 'up' the composition); verify hook is the health signal |
 | claude-code-runtime @ opencode | verify-only | no delegate bridge (primary-only runtime); health via probe |
 | codex-runtime @ opencode | verify-only | codex delegate round-trip is budget-gated to ONE call (spent in the codex column); read-only --probe here (CLI authed) |
-| file-browser @ opencode | verify-only | own-port server not running on :7091 (harness does not 'up' the composition); verify hook is the health signal |
+| file-browser @ opencode | verify-only | own-port server not running on :27091 (harness does not 'up' the composition); verify hook is the health signal |
 | gemini-runtime @ opencode | DEGRADED | bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation |
-| improver @ opencode | verify-only | own-port server not running on :7093 (harness does not 'up' the composition); verify hook is the health signal |
+| improver @ opencode | verify-only | own-port server not running on :27093 (harness does not 'up' the composition); verify hook is the health signal |
 | kanban-loop @ opencode | verify-only | own-port fitting; no port in composition config (not started by harness) |
-| monitor-default @ opencode | verify-only | own-port server not running on :7077 (harness does not 'up' the composition); verify hook is the health signal |
+| monitor-default @ opencode | verify-only | own-port server not running on :27077 (harness does not 'up' the composition); verify hook is the health signal |
 | opencode-runtime @ opencode | DEGRADED | delegate over ollama/qwen2.5:3b did not return a summary (small-local-model quality / transport): delegation failed after retry: opencode run produced no assistant text (exit 0); raw output: {"type":"step_start","timestamp":1783885246812,"sessionID":"ses_0a82… |
-| outpost-tailscale-host @ opencode | verify-only | own-port server not running on :7082 (harness does not 'up' the composition); verify hook is the health signal |
-| ports-default @ opencode | verify-only | own-port server not running on :7088 (harness does not 'up' the composition); verify hook is the health signal |
+| outpost-tailscale-host @ opencode | verify-only | own-port server not running on :27082 (harness does not 'up' the composition); verify hook is the health signal |
+| ports-default @ opencode | verify-only | own-port server not running on :27088 (harness does not 'up' the composition); verify hook is the health signal |
 | screen-share-default @ opencode | verify-only | own-port fitting; no port in composition config (not started by harness) |
-| automations @ codex | verify-only | own-port server not running on :7090 (harness does not 'up' the composition); verify hook is the health signal |
-| browser-default @ codex | verify-only | own-port server not running on :7084 (harness does not 'up' the composition); verify hook is the health signal |
+| automations @ codex | verify-only | own-port server not running on :27090 (harness does not 'up' the composition); verify hook is the health signal |
+| browser-default @ codex | verify-only | own-port server not running on :27084 (harness does not 'up' the composition); verify hook is the health signal |
 | claude-code-runtime @ codex | verify-only | no delegate bridge (primary-only runtime); health via probe |
-| file-browser @ codex | verify-only | own-port server not running on :7091 (harness does not 'up' the composition); verify hook is the health signal |
+| file-browser @ codex | verify-only | own-port server not running on :27091 (harness does not 'up' the composition); verify hook is the health signal |
 | gemini-runtime @ codex | DEGRADED | bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation |
-| improver @ codex | verify-only | own-port server not running on :7093 (harness does not 'up' the composition); verify hook is the health signal |
+| improver @ codex | verify-only | own-port server not running on :27093 (harness does not 'up' the composition); verify hook is the health signal |
 | kanban-loop @ codex | verify-only | own-port fitting; no port in composition config (not started by harness) |
-| monitor-default @ codex | verify-only | own-port server not running on :7077 (harness does not 'up' the composition); verify hook is the health signal |
-| outpost-tailscale-host @ codex | verify-only | own-port server not running on :7082 (harness does not 'up' the composition); verify hook is the health signal |
-| ports-default @ codex | verify-only | own-port server not running on :7088 (harness does not 'up' the composition); verify hook is the health signal |
+| monitor-default @ codex | verify-only | own-port server not running on :27077 (harness does not 'up' the composition); verify hook is the health signal |
+| outpost-tailscale-host @ codex | verify-only | own-port server not running on :27082 (harness does not 'up' the composition); verify hook is the health signal |
+| ports-default @ codex | verify-only | own-port server not running on :27088 (harness does not 'up' the composition); verify hook is the health signal |
 | screen-share-default @ codex | verify-only | own-port fitting; no port in composition config (not started by harness) |
-| automations @ claude-code | verify-only | own-port server not running on :7090 (harness does not 'up' the composition); verify hook is the health signal |
-| browser-default @ claude-code | verify-only | own-port server not running on :7084 (harness does not 'up' the composition); verify hook is the health signal |
+| automations @ claude-code | verify-only | own-port server not running on :27090 (harness does not 'up' the composition); verify hook is the health signal |
+| browser-default @ claude-code | verify-only | own-port server not running on :27084 (harness does not 'up' the composition); verify hook is the health signal |
 | claude-code-runtime @ claude-code | verify-only | no delegate bridge (primary-only runtime); health via probe |
 | codex-runtime @ claude-code | verify-only | codex delegate round-trip is budget-gated to ONE call (spent in the codex column); read-only --probe here (CLI authed) |
-| file-browser @ claude-code | verify-only | own-port server not running on :7091 (harness does not 'up' the composition); verify hook is the health signal |
+| file-browser @ claude-code | verify-only | own-port server not running on :27091 (harness does not 'up' the composition); verify hook is the health signal |
 | gemini-runtime @ claude-code | DEGRADED | bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation |
-| improver @ claude-code | verify-only | own-port server not running on :7093 (harness does not 'up' the composition); verify hook is the health signal |
+| improver @ claude-code | verify-only | own-port server not running on :27093 (harness does not 'up' the composition); verify hook is the health signal |
 | kanban-loop @ claude-code | verify-only | own-port fitting; no port in composition config (not started by harness) |
-| monitor-default @ claude-code | verify-only | own-port server not running on :7077 (harness does not 'up' the composition); verify hook is the health signal |
+| monitor-default @ claude-code | verify-only | own-port server not running on :27077 (harness does not 'up' the composition); verify hook is the health signal |
 | opencode-runtime @ claude-code | DEGRADED | delegate over ollama/qwen2.5:3b did not return a summary (small-local-model quality / transport): delegation failed after retry: opencode run produced no assistant text (exit 0); raw output: {"type":"step_start","timestamp":1783885697523,"sessionID":"ses_0a82… |
-| outpost-tailscale-host @ claude-code | verify-only | own-port server not running on :7082 (harness does not 'up' the composition); verify hook is the health signal |
-| ports-default @ claude-code | verify-only | own-port server not running on :7088 (harness does not 'up' the composition); verify hook is the health signal |
+| outpost-tailscale-host @ claude-code | verify-only | own-port server not running on :27082 (harness does not 'up' the composition); verify hook is the health signal |
+| ports-default @ claude-code | verify-only | own-port server not running on :27088 (harness does not 'up' the composition); verify hook is the health signal |
 | screen-share-default @ claude-code | verify-only | own-port fitting; no port in composition config (not started by harness) |
 
 ### Interpreting these degradations (feeds S2d)

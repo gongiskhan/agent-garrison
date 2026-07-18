@@ -19,7 +19,7 @@
     {
       "type": "browser",
       "id": "dash-intro",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/",
       "beats": [
         {
@@ -48,7 +48,7 @@
     {
       "type": "browser",
       "id": "compose-station",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/compose",
       "beats": [
         {
@@ -126,7 +126,7 @@
     {
       "type": "browser",
       "id": "restart-1",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/",
       "beats": [
         {
@@ -198,7 +198,7 @@
     {
       "type": "browser",
       "id": "composer",
-      "baseURL": "http://127.0.0.1:7087",
+      "baseURL": "http://127.0.0.1:27087",
       "startPath": "/",
       "beats": [
         {
@@ -534,7 +534,7 @@
     {
       "type": "browser",
       "id": "restart-2",
-      "baseURL": "http://127.0.0.1:7777",
+      "baseURL": "http://127.0.0.1:27777",
       "startPath": "/",
       "beats": [
         {
@@ -594,7 +594,7 @@
     {
       "type": "browser",
       "id": "web-low",
-      "baseURL": "http://127.0.0.1:7083",
+      "baseURL": "http://127.0.0.1:27083",
       "startPath": "/",
       "runTimeoutMs": 540000,
       "beats": [
@@ -718,7 +718,7 @@
     {
       "type": "browser",
       "id": "devenv-medium",
-      "baseURL": "http://127.0.0.1:7086",
+      "baseURL": "http://127.0.0.1:27086",
       "startPath": "/",
       "runTimeoutMs": 540000,
       "beats": [
@@ -914,7 +914,7 @@
     {
       "type": "browser",
       "id": "kanban-create",
-      "baseURL": "http://127.0.0.1:7089",
+      "baseURL": "http://127.0.0.1:27089",
       "startPath": "/",
       "runTimeoutMs": 600000,
       "beats": [

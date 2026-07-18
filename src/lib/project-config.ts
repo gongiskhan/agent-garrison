@@ -144,7 +144,7 @@ export function inferPortNeeds(repoPath: string): PortNeed[] {
           }
         }
         if (!collected.has(key) && /next dev|vite|webpack-dev-server/.test(cmd)) {
-          const defaultPort = /vite/.test(cmd) ? 5173 : 7777;
+          const defaultPort = /vite/.test(cmd) ? 5173 : 27777;
           collected.set(key, { name: key, default: defaultPort });
         }
       }
@@ -222,9 +222,9 @@ const PROJECT_ROOT_CANDIDATES = [
  * Throws if no path resolves.
  */
 export async function resolveProjectRepoPath(projectId: string): Promise<string> {
+  const garrisonHome = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
   const homeFile = path.join(
-    os.homedir(),
-    ".garrison",
+    garrisonHome,
     "projects",
     `${projectId}.yml`
   );
@@ -233,7 +233,7 @@ export async function resolveProjectRepoPath(projectId: string): Promise<string>
     if (raw?.rootPath) return realpathOrSelf(expandHome(raw.rootPath));
   }
 
-  const stateFile = path.join(os.homedir(), ".garrison", "sessions", "state.json");
+  const stateFile = path.join(garrisonHome, "sessions", "state.json");
   if (fs.existsSync(stateFile)) {
     try {
       const raw = JSON.parse(fs.readFileSync(stateFile, "utf8")) as {

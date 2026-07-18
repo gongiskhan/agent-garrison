@@ -12,6 +12,7 @@ import {
   setOverride,
   addObservation,
   addFinding,
+  addInfraError,
   setFindingStatus,
   confirmedFindings
 } from "../fittings/seed/drill/lib/runs-store.mjs";
@@ -71,6 +72,21 @@ describe("per-step feedback + verdict overrides (D4/D5)", () => {
     expect(r.overrides["chat:s1"]).toMatchObject({ verdict: "failed", note: "a pass I know is wrong" });
     setOverride(r, "chat", "s1", "passed", "actually fine on recheck");
     expect(r.overrides["chat:s1"].verdict).toBe("passed"); // overwrites, doesn't stack
+  });
+
+  it("does not dispatch a confirmed failure after that viewport is overridden to passed", () => {
+    const r = newDrillRun();
+    r.pages = [
+      { pageId: "chat", stepId: "s1", viewportId: "desktop", status: "failed" },
+      { pageId: "chat", stepId: "s1", viewportId: "mobile", status: "failed" }
+    ];
+    const desktop = addFinding(r, { kind: "step-fail", pageId: "chat", stepId: "s1", viewportId: "desktop", text: "desktop failure" });
+    const mobile = addFinding(r, { kind: "step-fail", pageId: "chat", stepId: "s1", viewportId: "mobile", text: "mobile failure" });
+    setFindingStatus(r, desktop.id, "confirmed");
+    setFindingStatus(r, mobile.id, "confirmed");
+    setOverride(r, "chat", "s1", "passed", "mobile rechecked", "mobile");
+
+    expect(confirmedFindings(r).map((finding: any) => finding.id)).toEqual([desktop.id]);
   });
 });
 
@@ -170,5 +186,33 @@ describe("runListingRow + deleteDrillRun (runs table contract)", () => {
     expect(await deleteDrillRun(r.id)).toBe(true);
     expect(await getDrillRun(r.id)).toBeNull();
     expect(await deleteDrillRun(r.id)).toBe(false);
+  });
+});
+
+describe("infrastructure incidents stay out of product triage", () => {
+  it("groups repeated dependency failures and preserves every affected check", () => {
+    const r = newDrillRun();
+    addInfraError(r, {
+      component: "vision",
+      code: "vision-failure",
+      pageId: "chat",
+      stepId: "hero",
+      viewportId: "desktop",
+      text: "vision 503"
+    });
+    addInfraError(r, {
+      component: "vision",
+      code: "vision-failure",
+      pageId: "chat",
+      stepId: "hero",
+      viewportId: "mobile",
+      text: "vision 503"
+    });
+
+    expect(r.infraErrors).toHaveLength(1);
+    expect(r.infraErrors[0]).toMatchObject({ component: "vision", code: "vision-failure", count: 2 });
+    expect(r.infraErrors[0].occurrences).toHaveLength(2);
+    expect(r.findings).toHaveLength(0);
+    expect(confirmedFindings(r)).toHaveLength(0);
   });
 });

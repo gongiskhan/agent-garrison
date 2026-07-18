@@ -11,7 +11,8 @@ import { validateAutomation, normalizeAutomation } from "./types.mjs";
 import { ulid } from "./ulid.mjs";
 
 export function automationsDir() {
-  return process.env.GARRISON_AUTOMATIONS_DIR ?? path.join(os.homedir(), ".garrison", "automations");
+  const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+  return process.env.GARRISON_AUTOMATIONS_DIR ?? path.join(home, "automations");
 }
 
 function automationPath(id) {
@@ -119,7 +120,7 @@ export async function listRuns(automationId) {
   return out.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
 }
 
-function runEvidenceDir(runId) {
+export function runEvidenceDir(runId) {
   const safe = String(runId).replace(/[^A-Za-z0-9_-]/g, "");
   if (!safe || safe !== String(runId)) throw new Error(`invalid run id: ${runId}`);
   return path.join(runsDir(), safe, "evidence");
@@ -136,6 +137,28 @@ export async function writeStepEvidence(runId, stepIndex, base64Jpeg) {
   await fs.writeFile(tmp, Buffer.from(base64Jpeg, "base64"));
   await fs.rename(tmp, file);
   return file;
+}
+
+export async function readStepEvidence(runId, stepId) {
+  const run = await getRun(runId);
+  if (!run) return null;
+  const step = [...(run.steps ?? [])].reverse().find((candidate) => candidate.stepId === stepId);
+  if (!step?.evidencePath) return null;
+  let evidenceRoot;
+  let evidenceFile;
+  try {
+    evidenceRoot = await fs.realpath(runEvidenceDir(runId));
+    evidenceFile = await fs.realpath(step.evidencePath);
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  if (evidenceFile !== evidenceRoot && !evidenceFile.startsWith(evidenceRoot + path.sep)) {
+    const err = new Error("evidence path escapes the run evidence directory");
+    err.code = "EVIDENCE_OUTSIDE_RUN";
+    throw err;
+  }
+  return fs.readFile(evidenceFile);
 }
 
 function matrixPath(matrixId) {

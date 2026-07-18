@@ -9,7 +9,7 @@
 // browser the HTTPS tailnet URL when reached over Tailscale.
 //
 // Idempotent: skips any local port already served. Deterministic serve port =
-// 8400 + (localPort % 1000) (e.g. 7086 -> 8486), bumped on collision.
+// 8400 + (localPort % 1000) (e.g. 27086 -> 8486), bumped on collision.
 //
 // Usage:  node scripts/tailnet-serve-views.mjs [--dry-run]
 
@@ -67,7 +67,8 @@ function existingMappings(status) {
 }
 
 function ownPortViews() {
-  const dir = path.join(os.homedir(), ".garrison", "ui-fittings");
+  const garrisonHome = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
+  const dir = path.join(garrisonHome, "ui-fittings");
   let files = [];
   try {
     files = readdirSync(dir).filter((n) => n.endsWith(".json") && !n.includes(path.sep));

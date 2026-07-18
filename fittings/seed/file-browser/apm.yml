@@ -9,7 +9,7 @@ x-garrison:
   cardinality_hint: single
   component_shape: plugin
   own_port: true
-  default_port: 7091
+  default_port: 27091
   lifecycle: operative-bound
   platforms:
     - claude-code
@@ -21,7 +21,7 @@ x-garrison:
       description: The workspace root the browser is confined to. Never escapes this dir (path-traversal-safe).
     - key: port
       type: integer
-      default: 7091
+      default: 27091
       description: HTTP port; the server exits non-zero when it is taken (no auto-shift).
   provides: []
   consumes: []

@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-const base = "http://127.0.0.1:7777";
+const base = "http://127.0.0.1:27777";
 const jobs = process.argv.slice(2).map((a) => {
   const i = a.lastIndexOf("::");
   return { route: a.slice(0, i), out: a.slice(i + 2) };

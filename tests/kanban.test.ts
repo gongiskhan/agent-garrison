@@ -184,14 +184,46 @@ describe("kanban engine — parse + prompt + classification", () => {
     expect(parseNextList("", ["review"])).toBeNull();
   });
 
-  it("buildCardPrompt: goal-mode prepends /goal + acceptance and injects validNext ids", () => {
+  it("buildCardPrompt: goal-mode leads with runtime-neutral acceptance and injects validNext ids", () => {
     const list = getList(board, "implement");
     const vn = validNextFor(board, "implement");
     const g = buildCardPrompt({ list, card: { goalMode: true, acceptance: "ACC" }, validNext: vn });
-    expect(g.startsWith("/goal ACC")).toBe(true);
+    expect(g.startsWith("# Goal acceptance (bounded by the card iteration cap)\nACC")).toBe(true);
+    expect(g).not.toContain("/goal");
     expect(g).toContain("review");
     expect(g).toContain("Implement it.");
-    expect(buildCardPrompt({ list, card: { goalMode: false }, validNext: vn })).not.toContain("/goal");
+    expect(buildCardPrompt({ list, card: { goalMode: false }, validNext: vn })).not.toContain("Goal acceptance");
+  });
+
+  it("buildCardPrompt: a >4,000-character goal-mode phase remains a normal routed prompt", () => {
+    const list = getList(seedBoard(), "plan");
+    const acceptance = "machine-checkable acceptance ".repeat(180);
+    const runDir = "/tmp/garrison-runs/01LONGGOALPROMPT";
+    const prompt = buildCardPrompt({
+      list,
+      card: {
+        id: "01LONGGOALCARD000000000000",
+        runId: "01LONGGOALRUN0000000000000",
+        runDir,
+        title: "Plan a bounded feature",
+        project: "example-project",
+        description: "Keep the normal phase, gate, and coordination contract.",
+        goalMode: true,
+        acceptance
+      },
+      validNext: ["implement"],
+      skill: "garrison-plan",
+      phase: "plan",
+      coordinationEnabled: true
+    });
+
+    expect(prompt.length).toBeGreaterThan(4_000);
+    expect(prompt.startsWith("# Goal acceptance (bounded by the card iteration cap)\n")).toBe(true);
+    expect(prompt).not.toContain("/goal");
+    expect(prompt).toContain(`Run directory (write all per-run artifacts here): ${runDir}`);
+    expect(prompt).toContain(`${runDir}/gate-status.plan.json`);
+    expect(prompt).toContain(`${runDir}/touch-set.json`);
+    expect(prompt).toContain("EXACTLY one of: implement");
   });
 
   it("buildCardPrompt threads the card's runDir + sliceId into the prompt as literal text (FINDING 4/10)", () => {
@@ -324,17 +356,19 @@ describe("kanban engine — transitions (FINDING 5)", () => {
     // (route folded from the gateway's `done` event by routeFromDone).
     const runFn = async () => ({
       reply: "wrote code\nreview",
-      route: { targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", taskType: "code", tier: "T2-deep", ruleId: "r1", profile: "p", honored: true }
+      route: { targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", effort: "high", effortApplied: true, taskType: "code", tier: "T2-deep", ruleId: "r1", profile: "p", honored: true }
     });
     const { card: updated, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
     expect(outcome.status).toBe("moved");
     const routed = (updated.events ?? []).filter((e: any) => e.kind === "routed").pop();
     expect(routed).toBeTruthy();
-    // The route object carries the {targetId, runtime, provider, model, tier} stamp
+    // The route object carries the requested/applied effort evidence alongside
+    // the {targetId, runtime, provider, model, tier} stamp
     // (+ the engine's own phase name for the card-front chip).
-    expect(routed.route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", tier: "T2-deep", phase: "implement" });
-    // The human message carries the compact "· runtime/model (tier)" suffix.
-    expect(routed.message).toContain("· claude-code/opus (T2-deep)");
+    expect(routed.route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", phase: "implement" });
+    // The human message carries the compact "· runtime/model (tier · effort)"
+    // suffix from the updated route attribution.
+    expect(routed.message).toContain("· claude-code/opus (T2-deep · high)");
   });
 
   it("adds NO route to the routed event in souls mode (runFn returns no route)", async () => {
@@ -354,14 +388,26 @@ describe("kanban route attribution — routeStamp / routeFromDone (per-phase D-a
   it("routeFromDone folds a routed `done` payload; null in souls mode", () => {
     expect(routeFromDone({ reply: "x" })).toBeNull();
     expect(routeFromDone(null)).toBeNull();
-    const r = routeFromDone({ reply: "x", route: "claude-code", runtime: "claude-code", model: "opus", tier: "T2-deep", honored: true });
-    expect(r).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", tier: "T2-deep", honored: true });
+    const r = routeFromDone({ reply: "x", route: "claude-code", runtime: "claude-code", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", honored: true });
+    expect(r).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", honored: true });
+    // Requested-vs-applied truth must retain false (unsupported), never coerce it
+    // to null/true while crossing the SSE boundary.
+    expect(routeFromDone({ route: "gemini", effort: "high", effortApplied: false })).toMatchObject({
+      targetId: "gemini",
+      effort: "high",
+      effortApplied: false,
+    });
   });
 
   it("routeStamp builds the compact stamp + human suffix, and no-ops on empty metadata", () => {
-    const { route, suffix } = routeStamp({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", tier: "T2-deep" }, "plan");
-    expect(route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", tier: "T2-deep", phase: "plan" });
-    expect(suffix).toBe(" · claude-code/opus (T2-deep)");
+    const { route, suffix } = routeStamp({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep" }, "plan");
+    expect(route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", phase: "plan" });
+    expect(suffix).toBe(" · claude-code/opus (T2-deep · high)");
+    expect(routeStamp({ targetId: "gemini", runtime: "gemini", effort: "high", effortApplied: false }, "image").route).toMatchObject({
+      effort: "high",
+      effortApplied: false,
+      phase: "image",
+    });
     // No metadata → no stamp, no suffix (never fail a run for want of attribution).
     expect(routeStamp(null, "plan")).toEqual({ route: null, suffix: "" });
     expect(routeStamp({ targetId: null, runtime: null, provider: null, model: null, tier: null }, "plan")).toEqual({ route: null, suffix: "" });

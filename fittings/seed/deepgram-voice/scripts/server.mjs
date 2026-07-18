@@ -15,7 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -42,7 +42,7 @@ const DG_WS_BASE = process.env.DEEPGRAM_WS_BASE || "wss://api.deepgram.com";
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.DEEPGRAM_VOICE_PORT || 7085),
+    port: Number(process.env.DEEPGRAM_VOICE_PORT || 27085),
     host: process.env.DEEPGRAM_VOICE_HOST || "127.0.0.1",
     sttModel: process.env.DEEPGRAM_STT_MODEL || "nova-2",
     ttsModel: process.env.DEEPGRAM_TTS_MODEL || "aura-asteria-en",
@@ -692,20 +692,24 @@ function assertStatusSlotFree() {
 
 async function writeStatusFile(opts) {
   await mkdir(STATUS_ROOT, { recursive: true });
-  await writeFile(
-    STATUS_FILE,
-    JSON.stringify(
-      {
-        fittingId: "deepgram-voice",
-        port: opts.port,
-        url: `http://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
-        pid: process.pid,
-        startedAt: new Date().toISOString()
-      },
-      null,
-      2
-    )
+  const body = JSON.stringify(
+    {
+      fittingId: "deepgram-voice",
+      port: opts.port,
+      url: `http://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
+      pid: process.pid,
+      startedAt: new Date().toISOString()
+    },
+    null,
+    2
   );
+  const tempFile = `${STATUS_FILE}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  try {
+    await writeFile(tempFile, body);
+    await rename(tempFile, STATUS_FILE);
+  } finally {
+    try { await unlink(tempFile); } catch {}
+  }
 }
 
 async function clearStatusFile() {

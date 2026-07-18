@@ -6,7 +6,7 @@
 //     --summary <text-or-file> --gallery-url <url> --report-url <url> [--title <t>]
 //
 // Webhook resolution (in order): $AUTOTHING_SLACK_WEBHOOK_URL, then
-// ~/.config/garrison/.env (line AUTOTHING_SLACK_WEBHOOK_URL=...). If none is set,
+// $XDG_CONFIG_HOME/garrison/.env (line AUTOTHING_SLACK_WEBHOOK_URL=...). If none is set,
 // it prints the composed Block Kit payload (so the caller can send it via the Slack
 // MCP instead) and exits 0 — a missing webhook never fails the run.
 import fs from 'node:fs';
@@ -17,7 +17,8 @@ const arg = (f) => { const i = process.argv.indexOf(f); return i >= 0 ? process.
 function webhook() {
   if (process.env.AUTOTHING_SLACK_WEBHOOK_URL) return process.env.AUTOTHING_SLACK_WEBHOOK_URL.trim();
   try {
-    const m = fs.readFileSync(path.join(os.homedir(), '.config', 'garrison', '.env'), 'utf8')
+    const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+    const m = fs.readFileSync(path.join(configHome, 'garrison', '.env'), 'utf8')
       .match(/^\s*AUTOTHING_SLACK_WEBHOOK_URL\s*=\s*(.+?)\s*$/m);
     if (m) return m[1].trim().replace(/^["']|["']$/g, '');
   } catch {}
@@ -48,7 +49,7 @@ blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: 'Tailscale lin
 const payload = { text: `garrison ${status} — ${project}`, blocks };
 const hook = webhook();
 if (!hook) {
-  console.error('garrison-report: no AUTOTHING_SLACK_WEBHOOK_URL (env or ~/.config/garrison/.env). ' +
+  console.error('garrison-report: no AUTOTHING_SLACK_WEBHOOK_URL (env or $XDG_CONFIG_HOME/garrison/.env). ' +
     'Composed Slack payload below — set the webhook, or send it via the Slack MCP:');
   console.log(JSON.stringify(payload, null, 2));
   process.exit(0);

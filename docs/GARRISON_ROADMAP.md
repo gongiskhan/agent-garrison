@@ -339,7 +339,7 @@ Per the old Phase 5 and Phase 5.5 work, fully decomposed after the
 2026-05-17 Workbench dissolution into flat sibling Faculties, then
 re-consolidated where noted (2026-06-11 Dev Env consolidation):
 
-- **`dev-env` Fitting (consolidated 2026-06-11, port 7086)** — the
+- **`dev-env` Fitting (consolidated 2026-06-11, port 27086)** — the
   former `terminal-armory-default` (xterm.js + PTY backend,
   multi-session, busy/idle indicators, launch presets),
   `worktree-management-sequoias` (git worktree CRUD, deterministic

@@ -5,7 +5,8 @@
 # conflict (never hard-reset), push. OBSIDIAN_VAULT is baked into the scheduler
 # job command by setup.sh. Override the script path via OBSIDIAN_VAULT_SYNC_SCRIPT.
 set -euo pipefail
-SCRIPT="${OBSIDIAN_VAULT_SYNC_SCRIPT:-$HOME/.claude/tools/obsidian-vault-sync.sh}"
+CLAUDE_HOME="${GARRISON_CLAUDE_HOME:-$HOME/.claude}"
+SCRIPT="${OBSIDIAN_VAULT_SYNC_SCRIPT:-$CLAUDE_HOME/tools/obsidian-vault-sync.sh}"
 if [ ! -f "$SCRIPT" ]; then
   echo "vault-git-sync: hardened sync script not found at $SCRIPT" >&2
   exit 1

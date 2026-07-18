@@ -37,6 +37,7 @@ async function waitHealthy(base: string, ms: number) {
 const FIXTURE_URL =
   "data:text/html," +
   encodeURIComponent(
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<button data-testid="fixture-btn" style="position:absolute;top:100px;left:40px;width:160px;height:44px">Click me</button>'
   );
 
@@ -74,42 +75,57 @@ describe("Drill's own UI at phone width", () => {
   it("the FAB toggles the plan sheet open and closed", async () => {
     const p = page!;
     await p.goto(DRILL_BASE);
-    await p.getByRole("button", { name: "Authoring" }).click();
+    await p.getByRole("tab", { name: "Authoring" }).click();
     await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 15000 });
 
-    // Sheet starts open — the FAB is hidden while it's open.
-    await p.locator(".dr-au-plan.dr-sheet-open").waitFor({ state: "visible", timeout: 15000 });
-    expect(await p.locator(".dr-fab").isVisible().catch(() => false)).toBe(false);
-
-    // Close it via the sheet's own close button.
-    await p.locator(".dr-sheet-close").click();
+    // Browser-first: the plan starts closed so the app is visible.
     await p.locator(".dr-au-plan.dr-sheet-closed").waitFor({ timeout: 15000 });
-
-    // The FAB is now visible and reopens the sheet.
     await p.locator(".dr-fab").waitFor({ state: "visible", timeout: 15000 });
+    await p.locator(".dr-cv-live").waitFor({ state: "visible", timeout: 15000 });
+
+    // The FAB opens the plan and its close control returns to the browser.
     await p.locator(".dr-fab").click();
     await p.locator(".dr-au-plan.dr-sheet-open").waitFor({ timeout: 15000 });
+    await p.locator(".dr-sheet-close").click();
+    await p.locator(".dr-au-plan.dr-sheet-closed").waitFor({ timeout: 15000 });
+    await p.locator(".dr-fab").waitFor({ state: "visible", timeout: 15000 });
   }, 90000);
 
   it("Highlight closes the sheet, picks with a touch tap on the full-screen canvas, and reopens the sheet with the new area", async () => {
     const p = page!;
+    await p.goto(`${DRILL_BASE}/?view=authoring&page=testpage`);
+    await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 15000 });
     // Select the "mobile" device/viewport chip for the APP UNDER TEST too —
     // independent of Drill's own responsive UI, but it makes the canvas a
     // phone-shaped box, matching this test's coordinate math.
     await p.locator(".dr-au-canvas").getByText("mobile", { exact: true }).click();
     await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 10000 });
-    // The phone-aspect canvas pushes the canvas column's Highlight button
-    // under the open sheet, so phone users (and this test) use the sheet's
-    // own Highlight button - which closes the sheet and enters pick mode.
-    await p.locator(".dr-au-plan").getByRole("button", { name: /Highlight new area/i }).click();
+    await p.waitForFunction(() => {
+      const image = document.querySelector<HTMLImageElement>(".dr-cv-frame");
+      return !!image?.complete && image.naturalWidth > 0;
+    });
+    expect(await p.locator(".dr-cv-frame").evaluate((image: HTMLImageElement) => [
+      image.naturalWidth,
+      image.naturalHeight
+    ])).toEqual([390, 844]);
+    // Open the plan explicitly, then use its Highlight action. It closes the
+    // sheet and enters pick mode on the unobstructed browser.
+    await p.locator(".dr-fab").click();
+    await p.locator(".dr-au-plan.dr-sheet-open").waitFor({ timeout: 15000 });
+    await p.locator(".dr-au-plan").getByRole("button", { name: /Highlight an area/i }).click();
 
     // The sheet closed automatically (E2) so the canvas is reachable.
     await p.locator(".dr-au-plan.dr-sheet-closed").waitFor({ timeout: 15000 });
-    await p.getByText("Now click an element in the preview…").waitFor({ timeout: 15000 });
+    await p.getByText(/Click the element you want Drill to track/i).waitFor({ timeout: 15000 });
 
     const overlay = p.locator(".dr-cv-overlay");
     const box = await overlay.boundingBox();
     expect(box).toBeTruthy();
+    expect(Math.abs((box!.width / box!.height) - (390 / 844))).toBeLessThan(0.01);
+    expect(box!.x).toBeGreaterThanOrEqual(-1);
+    expect(box!.y).toBeGreaterThanOrEqual(-1);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(391);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(845);
     // Fixture button center: top:100 left:40 width:160 height:44 -> (120, 122)
     // in an (assumed) 390x844-ish authoring viewport — click proportionally.
     const targetX = box!.x + (120 / 390) * box!.width;
@@ -119,6 +135,14 @@ describe("Drill's own UI at phone width", () => {
     // Badge renders AND the sheet reopened with the new area ready.
     await p.locator(".dr-abox").waitFor({ state: "visible", timeout: 10000 });
     await p.locator(".dr-au-plan.dr-sheet-open").waitFor({ timeout: 15000 });
-    await p.getByText("fixture-btn").waitFor({ timeout: 15000 });
+    const areaName = p.getByRole("textbox", { name: "Area 1 name" });
+    await areaName.waitFor({ timeout: 15000 });
+    expect(await areaName.inputValue()).toBe("fixture-btn");
+    const settledCanvas = await p.locator(".dr-cv").boundingBox();
+    const area = await p.locator(".dr-abox").boundingBox();
+    expect(settledCanvas).toBeTruthy();
+    expect(area).toBeTruthy();
+    expect(Math.abs(area!.x - (settledCanvas!.x + (40 / 390) * settledCanvas!.width))).toBeLessThan(3);
+    expect(Math.abs(area!.y - (settledCanvas!.y + (100 / 844) * settledCanvas!.height))).toBeLessThan(3);
   }, 90000);
 });

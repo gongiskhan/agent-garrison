@@ -89,7 +89,7 @@ npm install
 npm start
 ```
 
-Open [http://localhost:7777](http://localhost:7777). The Compose tab is where you build an Operative; the Run tab is where you start one and watch it work. The Quarters section surfaces your real `~/.claude` configuration managed via APM.
+Open [http://localhost:27777](http://localhost:27777). The Compose tab is where you build an Operative; the Run tab is where you start one and watch it work. The Quarters section surfaces your real `~/.claude` configuration managed via APM.
 
 ### Common commands
 
@@ -109,13 +109,13 @@ tsx scripts/validate-fitting.ts fittings/seed/<id>   # four-check validation pip
 
 Garrison talks only to `localhost`, but a single-user local app is most useful when you can also reach your Operative from the couch or the road. The path is [Tailscale](https://tailscale.com) plus the **web-channel Fitting** - no ports opened to the public internet, everything stays on your own tailnet.
 
-1. **Bind the app to the tailnet.** `npm run start:mobile` serves Garrison on `0.0.0.0:7777` so your tailnet can reach it (plain `npm start` stays `localhost`-only). Or front it with `tailscale serve --bg 7777` to get an HTTPS tailnet URL.
+1. **Bind the app to the tailnet.** `npm run start:mobile` serves Garrison on `0.0.0.0:27777` so your tailnet can reach it (plain `npm start` stays `localhost`-only). Or front it with `tailscale serve --bg 27777` to get an HTTPS tailnet URL.
 2. **Expose the own-port views** (dev-env, monitor, and the web chat), which bind `127.0.0.1`, over HTTPS on the tailnet:
    ```bash
    node scripts/tailnet-serve-views.mjs        # tailscale serve each view; --dry-run to preview
    ```
-   Each view lands at a deterministic HTTPS tailnet port (`8400 + localPort % 1000`, e.g. dev-env `7086` → `8486`). TLS is terminated by Tailscale, so WebSocket/SSE (the dev-env terminal, live logs, chat stream) keep working with no mixed-content errors. Garrison detects the tailnet and hands the browser the HTTPS URL automatically.
-3. **Talk to the Operative from the phone.** The **`web-channel-default`** Fitting serves a mobile-first chat UI (default port `7083`) that round-trips through the gateway: you type on your phone, the Operative answers, replies can be read aloud, context usage and permission mode are visible. **`slack-channel`** gives you the same reach from Slack. Both are Channel Fittings - the Operative never spawns a CLI for them, it answers through the gateway it is already running behind.
+   Each view lands at a deterministic HTTPS tailnet port (`8400 + localPort % 1000`, e.g. dev-env `27086` → `8486`). TLS is terminated by Tailscale, so WebSocket/SSE (the dev-env terminal, live logs, chat stream) keep working with no mixed-content errors. Garrison detects the tailnet and hands the browser the HTTPS URL automatically.
+3. **Talk to the Operative from the phone.** The **`web-channel-default`** Fitting serves a mobile-first chat UI (default port `27083`) that round-trips through the gateway: you type on your phone, the Operative answers, replies can be read aloud, context usage and permission mode are visible. **`slack-channel`** gives you the same reach from Slack. Both are Channel Fittings - the Operative never spawns a CLI for them, it answers through the gateway it is already running behind.
 
 The whole surface is yours and on your own devices: no account, no third-party server, no inbound firewall holes.
 
@@ -139,9 +139,9 @@ Everything else - Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plan
 **Own-port Fittings** (serving their own React UI on their own port) run under `sessions`, `surfaces`, `channels`, and `observability` via the `own_port` metadata flag. Garrison links to them from the sidebar Views section:
 
 ```
-   dev-env (7086)        screen-share (7079)   browser (7084)
-   monitor (7077)        web-channel (7083)    outposts (7082)
-   voice (7085)          kanban-loop           improver          automations
+   dev-env (27086)        screen-share (27079)   browser (27084)
+   monitor (27077)        web-channel (27083)    outposts (27082)
+   voice (27085)          kanban-loop           improver          automations
 ```
 
 Long-form intent per role: [`docs/FACULTIES.md`](./docs/FACULTIES.md).
@@ -177,13 +177,13 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 - `vault-git-sync` - commits and pushes that vault to git on a schedule, so memory follows you across machines
 
 **Channels** - how you reach the Operative
-- `web-channel-default` - mobile-first browser chat UI (port 7083), text or voice, replies read aloud
+- `web-channel-default` - mobile-first browser chat UI (port 27083), text or voice, replies read aloud
 - `slack-channel` - receives Slack mentions and DMs, round-trips replies through the gateway
 
 **Connectors** - authenticated, Vault-sealed calls to live external services
 - `google` - Gmail / Drive / Calendar as an OAuth2 action catalog
 - `trello` - board lists and cards as a callable action catalog
-- `deepgram-voice` - speech-to-text and text-to-speech on port 7085
+- `deepgram-voice` - speech-to-text and text-to-speech on port 27085
 
 **Coordination** - keep parallel sessions out of each other's way
 - `coord-agentmail` - shared local agent-mail server: identities, messaging, advisory file leases
@@ -199,12 +199,12 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 - `http-gateway` - a small local HTTP gateway for inbound jobs, channels, and session checks
 
 **Surfaces & tools** - own-port Fittings a human uses in a browser tab (Garrison links them under sidebar Views)
-- `dev-env` (7086) - one tab per session: a Claude PTY + shell PTY + the live browser pane, with PR / commit flows on the current branch
-- `monitor-default` (7077) - read-only visibility into every process Garrison spawns (PIDs, ports, logs)
-- `screen-share-default` (7079) - ~2fps JPEG screen viewer for phone / remote access
-- `browser-default` (7084) - a headless Chromium substrate the Operative can drive and see
+- `dev-env` (27086) - one tab per session: a Claude PTY + shell PTY + the live browser pane, with PR / commit flows on the current branch
+- `monitor-default` (27077) - read-only visibility into every process Garrison spawns (PIDs, ports, logs)
+- `screen-share-default` (27079) - ~2fps JPEG screen viewer for phone / remote access
+- `browser-default` (27084) - a headless Chromium substrate the Operative can drive and see
 - `file-browser` - a mobile-first file browser / viewer / editor (Monaco + Markdown) scoped to a workspace root
-- `outpost-tailscale-host` (7082) - a bridge to a Tailscale-connected remote Mac
+- `outpost-tailscale-host` (27082) - a bridge to a Tailscale-connected remote Mac
 
 Pick what you want; the rest stays uninstalled. The long tail installs from the Armory (Fitting discovery on `/compose`).
 

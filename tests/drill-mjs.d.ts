@@ -21,6 +21,7 @@ declare module "*/drill/lib/picker.mjs" {
   export function vendorScript(distPath?: string): string;
   export function buildPickScript(x: number, y: number, distPath?: string): string;
   export function buildResolveScript(anchors: any): string;
+  export function buildResolveManyScript(items: any[]): string;
   export function rectToPercent(rect: any, viewport: any): any;
   export function anchorsToLocatorHint(anchors: any): any;
 }
@@ -42,16 +43,23 @@ declare module "*/drill/lib/automations-client.mjs" {
   export function runMatrix(opts: any): Promise<any>;
   export function getRun(runId: string, opts?: any): Promise<any | null>;
 }
+declare module "*/drill/lib/run-outcome.mjs" {
+  export function legacyInfrastructureFailure(message: unknown): { component: string; code: string } | null;
+  export function terminalFromAutomationRun(run: any, expectedStepId: string): any;
+  export function terminalFromTransportError(error: unknown): any;
+  export function terminalOpensCircuit(outcome: any): boolean;
+}
 declare module "*/drill/lib/runs-store.mjs" {
   export function drillHomeDir(): string;
   export function newDrillRun(opts?: any): any;
   export function saveDrillRun(record: any): Promise<any>;
   export function getDrillRun(id: string): Promise<any | null>;
   export function listDrillRuns(): Promise<any[]>;
-  export function addFeedback(record: any, pageId: string, stepId: string, note: string): any;
-  export function setOverride(record: any, pageId: string, stepId: string, verdict: string, note?: string): any;
+  export function addFeedback(record: any, pageId: string, stepId: string, note: string, viewportId?: string | null): any;
+  export function setOverride(record: any, pageId: string, stepId: string, verdict: string, note?: string, viewportId?: string | null): any;
   export function addObservation(record: any, text: string): any;
   export function addFinding(record: any, input: any): any;
+  export function addInfraError(record: any, input: any): any;
   export function setFindingStatus(record: any, findingId: string, status: string): any;
   export function confirmedFindings(record: any): any[];
   export function undispatchedConfirmedFindings(record: any): any[];
@@ -59,6 +67,10 @@ declare module "*/drill/lib/runs-store.mjs" {
   export function deleteDrillRun(id: string): Promise<boolean>;
   export function isInfraError(text: unknown): boolean;
   export function runListingRow(record: any): any;
+  export function confirmedProductFindings(record: any): any[];
+  export function productFindings(record: any): any[];
+  export function normalizedInfraErrors(record: any): any[];
+  export function publicRunRecord(record: any): any;
 }
 declare module "*/drill/lib/spec-emit.mjs" {
   export function emitAssertionCode(assertion: any): string;
@@ -78,6 +90,11 @@ declare module "*/drill/lib/snapshots.mjs" {
 }
 declare module "*/drill/lib/states.mjs" {
   export function slugifyStateId(label: string): string;
+  export function assessAutomaticStateReference(outcome: any): {
+    eligible: boolean;
+    reason: string | null;
+    warnings: Array<{ code: string; text: string }>;
+  };
   export function promoteSnapshotToState(pageId: string, snapshotId: string, opts?: any): Promise<any>;
 }
 declare module "*/drill/lib/state-fingerprint.mjs" {
@@ -107,7 +124,7 @@ declare module "*/drill/lib/browser-fitting-client.mjs" {
   export function evalJs(tabId: string, js: string, opts?: any): Promise<any>;
   export function observeTab(tabId: string, opts?: any): Promise<any>;
   export function setViewport(tabId: string, vp: any, opts?: any): Promise<any>;
-  export function canvasUrl(tabId: string): string | null;
+  export function canvasUrl(tabId: string, viewport?: { width: number; height: number } | null): string | null;
   export function navigateTab(tabId: string, url: string, opts?: any): Promise<any>;
   export function tabAction(tabId: string, action: string, opts?: any): Promise<any>;
   export function closeTab(tabId: string, opts?: any): Promise<any>;

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildPickScript, buildResolveScript, rectToPercent, anchorsToLocatorHint } from "../fittings/seed/drill/lib/picker.mjs";
+import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent, anchorsToLocatorHint } from "../fittings/seed/drill/lib/picker.mjs";
 
 // D4/B2/B3 — pure script-builders + pure geometry/compile helpers. Actual
 // in-page execution is exercised in tests/drill-authoring.test.ts against a
@@ -59,6 +59,19 @@ describe("buildResolveScript", () => {
   it("handles a null/undefined anchors object without throwing at build time", () => {
     expect(() => buildResolveScript(undefined)).not.toThrow();
     expect(() => buildResolveScript(null as any)).not.toThrow();
+  });
+});
+
+describe("buildResolveManyScript", () => {
+  it("resolves several identified anchors in one syntactically valid eval", () => {
+    const js = buildResolveManyScript([
+      { id: "hero", anchors: { testId: "hero" } },
+      { id: "send", anchors: { text: 'Send "); safely' } }
+    ]);
+    expect(js).toContain("__drillResolve");
+    expect(js).toContain('"id":"hero"');
+    expect(js).toContain('"id":"send"');
+    expect(() => new Function(js)).not.toThrow();
   });
 });
 

@@ -24,7 +24,7 @@ const TOURS_DIR = path.join(FITTING_DIR, "tours");
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 
 const FITTING_ID = "garrison-assistant";
-const DEFAULT_PORT = 7095;
+const DEFAULT_PORT = 27095;
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_DIR = path.join(GARRISON_HOME, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_DIR, `${FITTING_ID}.json`);

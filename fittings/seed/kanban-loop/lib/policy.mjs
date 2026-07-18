@@ -11,6 +11,7 @@
 import path from "node:path";
 import os from "node:os";
 import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 export function policyPath() {
   if (process.env.GARRISON_POLICY_PATH) return process.env.GARRISON_POLICY_PATH;
@@ -198,6 +199,151 @@ function gateStatusFiles(cwd, runDir, phase = null) {
 // the phase id as-is (adversarial-review) — both name the same gate, so both
 // count. Single-word phases (plan/implement/review) are identical either way.
 
+// Inspect the phase's durable gate records once and expose both halves of the
+// contract: whether the phase wrote a parseable record at all, and every
+// explicit transition it declared. Historical gate writers emitted status-only
+// entries, so `declaresNext:false` remains a deliberate compatibility case.
+// Once ANY phase record declares next_phase/nextPhase/next, however, the engine
+// must bind the actual transition to one of those declarations; a differently
+// named edge is not satisfied by the file's mere existence.
+//
+// Capture enough filesystem identity to distinguish a gate file that this
+// attempt rewrote from one it merely inherited. Content alone is insufficient:
+// a legitimate retry can produce the exact same status/verdict. mtime alone is
+// insufficient too: filesystems may have coarse timestamp resolution and a
+// writer can preserve/restore mtime. ctime + inode cover those cases (ctime is
+// not user-settable), while the digest catches an in-place semantic change.
+function gateFileFingerprint(file, raw, st) {
+  return [
+    String(st.dev),
+    String(st.ino),
+    String(st.size),
+    String(st.mtimeNs),
+    String(st.ctimeNs),
+    createHash("sha256").update(raw).digest("hex")
+  ].join(":");
+}
+
+// Parse every file that actually carries this phase. Keeping collection and
+// authority selection separate lets a dispatched attempt filter out its
+// pre-run baseline BEFORE choosing the newest record: an untouched historical
+// sidecar must not shadow (or authorize) a freshly-written aggregate.
+function phaseGateCandidates(cwd, runDir, phase) {
+  if (!runDir || !phase) return [];
+  const keys = new Set([gateKeyForPhase(phase), phase]);
+  const base = path.resolve(cwd || process.cwd(), runDir);
+  const phaseSidecar = `gate-status.${phase}.json`;
+  const candidates = [];
+  for (const file of gateStatusFiles(cwd, runDir, phase)) {
+    try {
+      const raw = readFileSync(file);
+      const doc = JSON.parse(raw.toString("utf8"));
+      const isPhaseSidecar = path.basename(file) === phaseSidecar;
+      const entries = [];
+      if (isPhaseSidecar) {
+        // A parseable per-phase sidecar is relevant by filename, including a
+        // primitive/status-only historical payload.
+        entries.push(doc);
+      } else {
+        const gates = doc?.gates && typeof doc.gates === "object" ? doc.gates : null;
+        if (gates) {
+          for (const k of keys) {
+            if (Object.prototype.hasOwnProperty.call(gates, k)) entries.push(gates[k]);
+          }
+        }
+        const phases = doc?.phases && typeof doc.phases === "object" ? doc.phases : null;
+        if (phases && Object.prototype.hasOwnProperty.call(phases, phase)) entries.push(phases[phase]);
+      }
+      // Authority is selected only among parseable records that actually carry
+      // this phase. A newer aggregate for some other phase must not shadow it.
+      if (entries.length === 0) continue;
+      const st = statSync(file, { bigint: true });
+      const mtimeMs = Number(st.mtimeNs) / 1e6;
+      const ctimeMs = Number(st.ctimeNs) / 1e6;
+      // Root sidecar > slice sidecar > generic only when timestamps tie.
+      const rank = isPhaseSidecar ? (path.dirname(file) === base ? 2 : 1) : 0;
+      candidates.push({
+        file,
+        mtimeMs,
+        ctimeMs,
+        rank,
+        entries,
+        fingerprint: gateFileFingerprint(file, raw, st)
+      });
+    } catch {
+      // Unreadable files are not gate evidence and cannot become authoritative.
+    }
+  }
+  return candidates;
+}
+
+// A pre-dispatch snapshot is deliberately opaque to callers: it is only a map
+// from relevant absolute file path to its robust fingerprint. The engine keeps
+// it in memory for the duration of one attempt; no deletion or runDir mutation
+// is needed, so historical gate artifacts remain inspectable.
+export function snapshotPhaseGateEvidence(cwd, runDir, phase) {
+  return {
+    phase,
+    files: Object.fromEntries(
+      phaseGateCandidates(cwd, runDir, phase).map((candidate) => [candidate.file, candidate.fingerprint])
+    )
+  };
+}
+
+function candidateIsFresh(candidate, freshness) {
+  if (!freshness || typeof freshness !== "object") return true;
+  const baseline = freshness.baseline;
+  if (baseline && typeof baseline === "object") {
+    const files = baseline.files && typeof baseline.files === "object" ? baseline.files : {};
+    if (Object.prototype.hasOwnProperty.call(files, candidate.file) && files[candidate.file] === candidate.fingerprint) {
+      return false;
+    }
+  }
+  const notBeforeMs = Number(freshness.notBeforeMs);
+  if (Number.isFinite(notBeforeMs) && Math.max(candidate.mtimeMs, candidate.ctimeMs) < notBeforeMs) {
+    return false;
+  }
+  return true;
+}
+
+// More than one declaration can survive in a run directory after a retry (for
+// example retained slice records). Only the newest eligible gate file is
+// authoritative; on an mtime tie, a phase-specific sidecar wins over a generic
+// aggregate file. `freshness.baseline` limits eligibility to files created or
+// changed by the current dispatched attempt. `freshness.notBeforeMs` supports
+// the in-process doorway, which has a phase-entry time but no pre-run snapshot.
+export function inspectPhaseGateEvidence(cwd, runDir, phase, freshness = null) {
+  const empty = { exists: false, declaresNext: false, nextLists: [] };
+  if (!runDir || !phase) return empty;
+  let exists = false;
+  let declaresNext = false;
+  const nextLists = new Set();
+  const inspectEntry = (entry) => {
+    exists = true;
+    if (!entry || typeof entry !== "object") return;
+    const nextKey = ["next_phase", "nextPhase", "next"].find((key) =>
+      Object.prototype.hasOwnProperty.call(entry, key)
+    );
+    if (!nextKey) return;
+    declaresNext = true;
+    const raw = entry[nextKey];
+    const next = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (next) nextLists.add(next);
+  };
+  const candidates = phaseGateCandidates(cwd, runDir, phase).filter((candidate) =>
+    candidateIsFresh(candidate, freshness)
+  );
+  if (candidates.length === 0) return empty;
+  const newestMtime = Math.max(...candidates.map((candidate) => candidate.mtimeMs));
+  const newest = candidates.filter((candidate) => candidate.mtimeMs === newestMtime);
+  const highestRank = Math.max(...newest.map((candidate) => candidate.rank));
+  const authoritative = newest.filter((candidate) => candidate.rank === highestRank);
+  for (const { entries } of authoritative) {
+    for (const entry of entries) inspectEntry(entry);
+  }
+  return { exists, declaresNext, nextLists: [...nextLists] };
+}
+
 // The phase's own DURABLE verdict (D9 backstop, 2026-07-11): when the chat
 // reply loses the next-step token (observed: a Workflow completion banner
 // swallowing the operative's final line), the gate record the phase skill
@@ -205,57 +351,12 @@ function gateStatusFiles(cwd, runDir, phase = null) {
 // recorded next list id iff it is one of validNext, else null. A FAILED gate
 // naming a loop-back target (review → implement) is honored too: the record
 // is proof the gate ran, and validNext constrains the transition.
-export function gateEvidenceNextList(cwd, runDir, phase, validNext) {
-  if (!runDir || !phase || !Array.isArray(validNext) || validNext.length === 0) return null;
-  const keys = new Set([gateKeyForPhase(phase), phase]);
-  const pickNext = (entry) => {
-    if (!entry || typeof entry !== "object") return null;
-    const raw = entry.next_phase ?? entry.nextPhase ?? entry.next ?? null;
-    const next = typeof raw === "string" ? raw.trim().toLowerCase() : null;
-    return next && validNext.includes(next) ? next : null;
-  };
-  for (const file of gateStatusFiles(cwd, runDir, phase)) {
-    try {
-      const doc = JSON.parse(readFileSync(file, "utf8"));
-      if (file.endsWith(`gate-status.${phase}.json`)) {
-        const next = pickNext(doc);
-        if (next) return next;
-        continue;
-      }
-      const gates = doc?.gates && typeof doc.gates === "object" ? doc.gates : null;
-      if (gates) {
-        for (const k of keys) {
-          const next = pickNext(gates[k]);
-          if (next) return next;
-        }
-      }
-      const phases = doc?.phases && typeof doc.phases === "object" ? doc.phases : null;
-      if (phases) {
-        const next = pickNext(phases[phase]);
-        if (next) return next;
-      }
-    } catch {
-      /* skip unreadable */
-    }
-  }
-  return null;
+export function gateEvidenceNextList(cwd, runDir, phase, validNext, freshness = null) {
+  if (!Array.isArray(validNext) || validNext.length === 0) return null;
+  const evidence = inspectPhaseGateEvidence(cwd, runDir, phase, freshness);
+  return evidence.nextLists.find((next) => validNext.includes(next)) ?? null;
 }
 
-export function hasPhaseGateEvidence(cwd, runDir, phase) {
-  if (!runDir || !phase) return false;
-  const keys = new Set([gateKeyForPhase(phase), phase]);
-  for (const file of gateStatusFiles(cwd, runDir, phase)) {
-    try {
-      const doc = JSON.parse(readFileSync(file, "utf8"));
-      // A parseable per-phase sidecar IS the phase's entry.
-      if (file.endsWith(`gate-status.${phase}.json`)) return true;
-      const gates = doc?.gates && typeof doc.gates === "object" ? doc.gates : null;
-      if (gates && [...keys].some((k) => Object.prototype.hasOwnProperty.call(gates, k))) return true;
-      const phases = doc?.phases && typeof doc.phases === "object" ? doc.phases : null;
-      if (phases && Object.prototype.hasOwnProperty.call(phases, phase)) return true;
-    } catch {
-      /* skip unreadable */
-    }
-  }
-  return false;
+export function hasPhaseGateEvidence(cwd, runDir, phase, freshness = null) {
+  return inspectPhaseGateEvidence(cwd, runDir, phase, freshness).exists;
 }

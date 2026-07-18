@@ -2,7 +2,7 @@
 // Garrison Outpost host — accepts WebSocket connections from garrison-outpost-bridge
 // daemons running on remote Macs. Manages auth, event buffering, and blocking RPC relay.
 //
-// HTTP (0.0.0.0:3702):
+// HTTP (0.0.0.0:23702):
 //   GET  /health                   → { ok, outposts: [{name, connected, lastHeartbeat}] }
 //   GET  /outposts                 → { outposts: [{name, connected, lastHeartbeat, agentVersion,
 //                                       pending, verbs, events, …}] }
@@ -13,7 +13,7 @@
 //   DELETE /registry/:name         → unregister and disconnect outpost
 //   POST /outposts/:name/rpc       → { type, payload } → blocking RPC call to bridge (logged)
 //
-// WebSocket: ws://0.0.0.0:3702/bridge (bridge connects out to this)
+// WebSocket: ws://0.0.0.0:23702/bridge (bridge connects out to this)
 //
 // The module exports startHost({ port, bind }) so it can be booted on an ephemeral port
 // in tests; run directly it starts the singleton daemon (PID file + graceful port guard).
@@ -27,7 +27,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
-const PORT = parseInt(process.env.GARRISON_OUTPOST_PORT || "3702", 10);
+const PORT = parseInt(process.env.GARRISON_OUTPOST_PORT || "23702", 10);
 // Secure by default: bind LOOPBACK, not 0.0.0.0. The daemon's HTTP API relays
 // exec.run to connected Mac bridges (RCE-to-Mac) and mutates the registry, all
 // unauthenticated; 0.0.0.0 exposed that on every interface (the public GCP one
@@ -427,7 +427,7 @@ function handleBridgeConnection(ws) {
 }
 
 // ---------------------------------------------------------------------------
-// Subscriber connection handler — ws://host:3702/outposts/:name/io
+// Subscriber connection handler — ws://host:23702/outposts/:name/io
 // Spawns a PTY on the named outpost and brokers I/O between the subscriber
 // and the bridge. Each subscriber WS maps to exactly one process handle.
 // ---------------------------------------------------------------------------

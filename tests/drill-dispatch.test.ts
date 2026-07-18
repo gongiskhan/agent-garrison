@@ -44,22 +44,26 @@ beforeAll(async () => {
         receivedBody = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
         receivedBodies.push(receivedBody);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ card: { id: `01FAKECARD${receivedBodies.length}`, list: "backlog", rev: 0, ...receivedBody } }));
+        res.end(JSON.stringify({ card: { id: `01FAKECARD${receivedBodies.length}`, rev: 0, list: "backlog", ...receivedBody } }));
       });
       return;
     }
-    // The dispatch's follow-up engine move (enter the card at sequence[0]).
-    if (req.url?.startsWith("/cards/") && req.method === "PATCH") {
+    const move = req.url?.match(/^\/cards\/([^/]+)$/);
+    if (move && req.method === "PATCH") {
       const chunks: Buffer[] = [];
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
         receivedMoves.push({
+          id: decodeURIComponent(move[1]),
           url: req.url,
+          body,
+          engine: req.headers["x-garrison-engine"],
           engineHeader: req.headers["x-garrison-engine"] ?? null,
-          body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
+          dispatch: req.headers["x-garrison-dispatch"]
         });
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ card: { id: req.url!.split("/")[2], list: "code" } }));
+        res.end(JSON.stringify({ card: { id: decodeURIComponent(move[1]), rev: body.rev + 1, list: body.list } }));
       });
       return;
     }
@@ -143,9 +147,28 @@ describe("dispatch: one batch fix card carrying the report", () => {
     const move = receivedMoves[receivedMoves.length - 1];
     expect(move.engineHeader).toBe("drill-dispatch");
     expect(move.body.list).toBe("code");
+    expect(receivedBody.sequence).toEqual(["code"]);
+    expect(move).toMatchObject({
+      id: dispatchJson.card.id,
+      body: { list: "code", rev: 0 },
+      engine: "drill-dispatch",
+      dispatch: "auto"
+    });
+
+    expect(dispatchJson.card.entered).toBe(true);
+    expect(dispatchJson.run.dispatchedAt).toBeTruthy();
+    expect(dispatchJson.run.dispatchedCard).toEqual({ id: dispatchJson.card.id, list: "code" });
+
+    const cardsAfterDispatch = receivedBodies.length;
+    const duplicate = await fetch(`${DRILL_BASE}/api/runs/${runId}/dispatch`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "manual" })
+    });
+    expect(duplicate.status).toBe(409);
+    expect((await duplicate.json()).error).toContain(dispatchJson.card.id);
+    expect(receivedBodies.length).toBe(cardsAfterDispatch);
   }, 20000);
 
-  it("dispatch is idempotent: re-dispatch 400s, and a later-confirmed finding goes out alone", async () => {
+  it("dispatch is idempotent: re-dispatch 409s, and a later-confirmed finding goes out alone", async () => {
     await fetch(`${DRILL_BASE}/api/pages/idem`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Idem", path: "/idem" }) });
     const runRes = await fetch(`${DRILL_BASE}/api/runs`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageIds: ["idem"], viewports: ["desktop"] })
@@ -175,14 +198,16 @@ describe("dispatch: one batch fix card carrying the report", () => {
     const stamped = d1.run.findings.find((f: any) => f.id === first.id);
     expect(stamped.card.id).toBe(d1.card.id);
 
-    // Double-click / re-dispatch: nothing new -> 400, and NO extra card hit
-    // the board.
+    // Double-click / re-dispatch: nothing new -> an explicit conflict naming
+    // the existing card, and NO extra card hits the board.
     const cardsBefore = receivedBodies.length;
     const again = await fetch(`${DRILL_BASE}/api/runs/${runId}/dispatch`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "manual" })
     });
-    expect(again.status).toBe(400);
-    expect((await again.json()).error).toContain("already on a fix card");
+    expect(again.status).toBe(409);
+    const againError = (await again.json()).error;
+    expect(againError).toContain("already on a fix card");
+    expect(againError).toContain(d1.card.id);
     expect(receivedBodies.length).toBe(cardsBefore);
 
     // A finding confirmed AFTER the dispatch goes out alone on the next one.
@@ -249,5 +274,44 @@ describe("heartbeat dispatch pickup — no button (D10/S29, self-test item 7)", 
 
     const sweep = await (await fetch(`${DRILL_BASE}/api/heartbeat/run-once`, { method: "POST" })).json();
     expect(sweep.results.some((r: any) => r.runId === run.id)).toBe(false);
+  }, 20000);
+
+  it("persists a Results-view heartbeat choice so the next sweep can pick it up", async () => {
+    await fetch(`${DRILL_BASE}/api/drillbook`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ dispatch: "manual" }) });
+    const runRes = await fetch(`${DRILL_BASE}/api/runs`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageIds: ["kb"], viewports: ["desktop"] })
+    });
+    const { run } = await runRes.json();
+    expect(run.dispatch).toBe("manual");
+
+    const obsRes = await fetch(`${DRILL_BASE}/api/runs/${run.id}/observation`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "queue this finding later" })
+    });
+    const { observation } = await obsRes.json();
+    const { finding } = await (
+      await fetch(`${DRILL_BASE}/api/runs/${run.id}/observation/${observation.id}/convert-finding`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageId: "kb" })
+      })
+    ).json();
+    await fetch(`${DRILL_BASE}/api/runs/${run.id}/findings/${finding.id}`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "confirmed" })
+    });
+
+    const queuedRes = await fetch(`${DRILL_BASE}/api/runs/${run.id}/dispatch`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "heartbeat" })
+    });
+    expect(queuedRes.status).toBe(200);
+    const queued = await queuedRes.json();
+    expect(queued.dispatched).toBe(false);
+    expect(queued.run.dispatch).toBe("heartbeat");
+
+    const cardsBefore = receivedBodies.length;
+    const sweep = await (await fetch(`${DRILL_BASE}/api/heartbeat/run-once`, { method: "POST" })).json();
+    expect(sweep.results.some((result: any) => result.runId === run.id && result.dispatched)).toBe(true);
+    expect(receivedBodies.length).toBe(cardsBefore + 1);
+
+    const stored = await (await fetch(`${DRILL_BASE}/api/runs/${run.id}`)).json();
+    expect(stored.run.dispatchedAt).toBeTruthy();
+    expect(stored.run.dispatchedCard?.id).toMatch(/^01FAKECARD/);
   }, 20000);
 });

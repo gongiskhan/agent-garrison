@@ -24,9 +24,10 @@ describe("applyPatch (G1s)", () => {
     const out = applyPatch(steps(), 0, { kind: "insert_before", newStep: { id: "fix1", type: "browser", description: "dismiss banner" } });
     expect(out.map((s) => s.id)).toEqual(["fix1", "s1", "s2"]);
   });
-  it("replace_current swaps the failing step", () => {
+  it("replace_current swaps the implementation but preserves the logical step id", () => {
     const out = applyPatch(steps(), 0, { kind: "replace_current", newStep: { id: "s1b", type: "browser" } });
-    expect(out.map((s) => s.id)).toEqual(["s1b", "s2"]);
+    expect(out.map((s) => s.id)).toEqual(["s1", "s2"]);
+    expect(out[0].type).toBe("browser");
   });
   it("skip_current drops the step", () => {
     expect(applyPatch(steps(), 0, { kind: "skip_current" }).map((s) => s.id)).toEqual(["s2"]);

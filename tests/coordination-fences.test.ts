@@ -119,6 +119,17 @@ describe("commitFence — unresolved repo degrades visibly", () => {
     expect(out.record).toBeNull();
     expect(out.events.some((e: any) => e.kind === "fence" && /skipped/i.test(e.message))).toBe(true);
   });
+  it("skips a real non-git workspace explicitly without mutating it", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "fence-nongit-"));
+    writeFileSync(join(workspace, "index.js"), "export {};\n");
+    const card = { id: "01CARDW", runId: "01RUNW", project: workspace, title: "workspace" };
+    const out = commitFence({ repoPath: workspace, card, phase: "implement", touchSet: ts({ files: ["index.js"] }) });
+    expect(out.record).toBeNull();
+    expect(out.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "fence", message: expect.stringContaining("not a Git repository") })
+    ]));
+    expect(readFileSync(join(workspace, "index.js"), "utf8")).toBe("export {};\n");
+  });
 });
 
 describe("touch-set growth re-registration (Q5)", () => {

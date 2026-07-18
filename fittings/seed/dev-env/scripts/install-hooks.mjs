@@ -17,13 +17,18 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
+const CLAUDE_HOME = process.env.GARRISON_CLAUDE_HOME?.trim() || path.join(HOME, ".claude");
+const GARRISON_HOME = process.env.GARRISON_HOME?.trim() || path.join(HOME, ".garrison");
 const SETTINGS_PATH = process.env.GARRISON_CLAUDE_SETTINGS_PATH && process.env.GARRISON_CLAUDE_SETTINGS_PATH.trim().length > 0
   ? process.env.GARRISON_CLAUDE_SETTINGS_PATH
-  : path.join(HOME, ".claude", "settings.json");
-const SNAPSHOT_DIR = path.join(HOME, ".garrison", "snapshots");
+  : path.join(CLAUDE_HOME, "settings.json");
+const SNAPSHOT_DIR = path.join(GARRISON_HOME, "snapshots");
 const SNAPSHOT_PATH = path.join(SNAPSHOT_DIR, "claude-settings.before-garrison.json");
 
-const PORT = Number(process.env.GARRISON_DEV_ENV_PORT || 7086);
+// Setup hooks receive composition config through setupConfigEnv(), which
+// projects dev-env's `port` key as DEV_ENV_PORT. Keep the older explicit
+// override as a compatibility fallback for direct/manual installs.
+const PORT = Number(process.env.DEV_ENV_PORT || process.env.GARRISON_DEV_ENV_PORT || 27086);
 const HOOK_EVENTS = ["UserPromptSubmit", "Stop", "Notification", "PostToolUse"];
 const OWNER = "fitting:dev-env";
 // Owners whose groups this writer removes: itself (idempotence) and the

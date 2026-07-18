@@ -21,7 +21,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
-import { shouldAutoDispatch, isEngineRequest } from "../fittings/seed/kanban-loop/scripts/server.mjs";
+import { shouldAutoDispatch, isEngineRequest, requestsAutoDispatch } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
@@ -103,7 +103,7 @@ describe("v1d gatewayRunFn — failure classification", () => {
   it("tags a network failure (fetch rejects) as transport", async () => {
     globalThis.fetch = (async () => { throw new Error("fetch failed"); }) as any;
     let err: any;
-    try { await gatewayRunFn("http://127.0.0.1:4777")({ prompt: "x", list: { skill: "s" } }); }
+    try { await gatewayRunFn("http://127.0.0.1:24777")({ prompt: "x", list: { skill: "s" } }); }
     catch (e) { err = e; }
     expect(err?.transport).toBe(true);
   });
@@ -128,6 +128,38 @@ describe("v1d gatewayRunFn — failure classification", () => {
     globalThis.fetch = (async () => ({ ok: true, body })) as any;
     const out = await gatewayRunFn("u")({ prompt: "x", list: {} });
     expect(out.reply).toBe("implement");
+  });
+
+  it("preserves max-turn + exact route evidence from the SSE `done` event", async () => {
+    const enc = new TextEncoder();
+    const body = (async function* () {
+      yield enc.encode(`event: done\ndata: ${JSON.stringify({
+        reply: "Plan and gate written.",
+        route: "sdk-sonnet-full",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        effort: "medium",
+        effortApplied: true,
+        stoppedReason: "max_turns",
+        tier: "T1-standard"
+      })}\n\n`);
+    })();
+    globalThis.fetch = (async () => ({ ok: true, body })) as any;
+    const out = await gatewayRunFn("u")({ prompt: "plan", list: {} });
+    expect(out).toMatchObject({
+      reply: "Plan and gate written.",
+      stoppedReason: "max_turns",
+      route: {
+        targetId: "sdk-sonnet-full",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        effort: "medium",
+        effortApplied: true,
+        tier: "T1-standard"
+      }
+    });
   });
 
   it("a stream that ends without `done` is a transport failure (retriable)", async () => {
@@ -249,10 +281,11 @@ describe("v1d processChain — auto-runs the flow through immediate agent lists"
 // rev2-s567 S5-2 regression: the garrison doorway positions a card on the
 // immediate agent list "plan" with the x-garrison-engine header, then drives it
 // in-session via advanceCardPhase. The PATCH handler must NOT ALSO fire a
-// background processChain for an engine request (double-drive → the background
-// flow races the in-session driver into invalid-verdict/park). The suppression
-// is `shouldAutoDispatch(...) && !isEngineRequest(req)`.
-describe("doorway double-drive suppression (S5-2)", () => {
+// background processChain for its self-driven engine request (double-drive → the
+// background flow races the in-session driver into invalid-verdict/park). A
+// significant gateway registration is also engine-context, but explicitly hands
+// progression to the board and therefore must dispatch.
+describe("engine move dispatch ownership (S5-2 + Web registration)", () => {
   const board = {
     lists: [
       { id: "plan", kind: "agent", trigger: "immediate" },
@@ -264,14 +297,16 @@ describe("doorway double-drive suppression (S5-2)", () => {
     expect(isEngineRequest({ headers: {} })).toBe(false);
     expect(isEngineRequest({ headers: { "x-garrison-engine": "" } })).toBe(false);
   });
-  it("a move to an immediate agent list auto-dispatches for a HUMAN request but NOT an engine one", () => {
+  it("dispatches human/explicit-handoff moves but suppresses the self-driven doorway", () => {
     const human = { headers: {} };
-    const engine = { headers: { "x-garrison-engine": "garrison-doorway" } };
+    const doorway = { headers: { "x-garrison-engine": "garrison-doorway" } };
+    const gateway = { headers: { "x-garrison-engine": "gateway", "x-garrison-dispatch": "auto" } };
     // the exact composed guard from handlePatchCard:
     const dispatches = (req: { headers: Record<string, string> }) =>
-      shouldAutoDispatch(board, "plan") && !isEngineRequest(req);
+      shouldAutoDispatch(board, "plan") && !(isEngineRequest(req) && !requestsAutoDispatch(req));
     expect(shouldAutoDispatch(board, "plan")).toBe(true);   // plan is immediate+agent
-    expect(dispatches(human)).toBe(true);                    // human move -> background dispatch
-    expect(dispatches(engine)).toBe(false);                  // doorway drives in-session -> no double-drive
+    expect(dispatches(human)).toBe(true);                    // human move -> board dispatch
+    expect(dispatches(doorway)).toBe(false);                 // doorway self-drives -> no double-drive
+    expect(dispatches(gateway)).toBe(true);                  // Web registration hands off -> board dispatch
   });
 });

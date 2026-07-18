@@ -36,14 +36,26 @@ async function waitHealthy(base: string, ms: number) {
   return false;
 }
 
+async function evalInBrowserTab(tabId: string, js: string) {
+  const response = await fetch(`${BROWSER_BASE}/tabs/${encodeURIComponent(tabId)}/eval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ js })
+  });
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.ok).toBe(true);
+  return body.value;
+}
+
 // Fixture: a single clearly-testid'd button at a known position within the
 // desktop viewport (1280x800) so the overlay-click math is checkable.
 const FIXTURE_URL =
   "data:text/html," +
   encodeURIComponent(
-    '<div style="width:100%;height:100%;position:relative;background:#fff">' +
+    '<body style="margin:0"><div style="width:100%;height:100%;position:relative;background:#fff">' +
       '<button data-testid="fixture-btn" style="position:absolute;top:100px;left:100px;width:160px;height:44px">Click me</button>' +
-      "</div>"
+      "</div></body>"
   );
 
 beforeAll(async () => {
@@ -86,11 +98,21 @@ describe("Authoring surface — real UI", () => {
   it("picks an element on the live canvas and renders a badge; the area persists", async () => {
     const p = page!;
     await p.goto(DRILL_BASE);
-    await p.getByRole("button", { name: "Authoring" }).click();
+    await p.getByRole("tab", { name: "Authoring" }).click();
     await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 15000 });
 
-    await p.getByRole("button", { name: /Highlight new area/i }).click();
-    await p.getByText("Now click an element in the preview…").waitFor({ timeout: 5000 });
+    // The rendered preview is now the exact 1280x800 page screenshot, with
+    // no Browser toolbar or iframe-resize coordinate drift.
+    const preview = p.locator(".dr-cv-frame");
+    await preview.waitFor({ state: "visible", timeout: 10000 });
+    await p.waitForFunction(() => {
+      const image = document.querySelector<HTMLImageElement>(".dr-cv-frame");
+      return !!image?.complete && image.naturalWidth > 0;
+    });
+    expect(await preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight])).toEqual([1280, 800]);
+
+    await p.getByRole("button", { name: "Highlight an area", exact: true }).first().click();
+    await p.getByText(/Click the element you want Drill to track/i).waitFor({ timeout: 5000 });
 
     // Click the overlay at the point corresponding to the fixture button's
     // center (top:100 left:100 width:160 height:44 in a 1280x800 viewport).
@@ -103,6 +125,12 @@ describe("Authoring surface — real UI", () => {
 
     await p.locator(".dr-abox").waitFor({ state: "visible", timeout: 10000 });
     expect(await p.locator(".dr-abadge").textContent()).toBe("1");
+    const badgeBox = await p.locator(".dr-abox").boundingBox();
+    const settledPreviewBox = await p.locator(".dr-cv-overlay").boundingBox();
+    expect(badgeBox).toBeTruthy();
+    expect(settledPreviewBox).toBeTruthy();
+    expect(Math.abs(badgeBox!.x - (settledPreviewBox!.x + (100 / 1280) * settledPreviewBox!.width))).toBeLessThan(3);
+    expect(Math.abs(badgeBox!.y - (settledPreviewBox!.y + (100 / 800) * settledPreviewBox!.height))).toBeLessThan(3);
 
     const pageDoc = await (await fetch(`${DRILL_BASE}/api/pages/testpage`)).json();
     expect(pageDoc.page.areas).toHaveLength(1);
@@ -132,7 +160,7 @@ describe("Authoring surface — real UI", () => {
 
     // reload the whole app and confirm the step + its disabled state survived
     await p.reload();
-    await p.getByRole("button", { name: "Authoring" }).click();
+    await p.getByRole("tab", { name: "Authoring" }).click();
     await p.locator(".dr-step-desc").first().waitFor({ state: "visible", timeout: 10000 });
     expect(await p.locator(".dr-step-desc").first().inputValue()).toBe("Page loads under 3s with no console errors.");
 
@@ -146,5 +174,118 @@ describe("Authoring surface — real UI", () => {
     await p.waitForTimeout(300);
     doc = await (await fetch(`${DRILL_BASE}/api/pages/testpage`)).json();
     expect(doc.page.steps).toHaveLength(0);
+  }, 30000);
+
+  it("serializes rapid authoring writes and continues the queue after one save fails", async () => {
+    const p = page!;
+    let activePuts = 0;
+    let maxActivePuts = 0;
+    let putCount = 0;
+    let failPut = -1;
+
+    await p.route(`${DRILL_BASE}/api/pages/testpage`, async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      putCount += 1;
+      const thisPut = putCount;
+      activePuts += 1;
+      maxActivePuts = Math.max(maxActivePuts, activePuts);
+      try {
+        // Long enough that an implementation which fires writes in parallel
+        // reliably overlaps here.
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        if (thisPut === failPut) {
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "injected authoring save failure" })
+          });
+          return;
+        }
+        const response = await route.fetch();
+        await route.fulfill({ response });
+      } finally {
+        activePuts -= 1;
+      }
+    });
+
+    const addPageStep = p.getByRole("button", { name: "Page step", exact: true });
+    // Synchronous DOM clicks expose stale-state/racing implementations that
+    // three awaited Playwright clicks would accidentally hide.
+    await addPageStep.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+      button.click();
+    });
+    await expect.poll(() => putCount, { timeout: 10_000 }).toBe(3);
+    await expect.poll(async () => {
+      const doc = await (await fetch(`${DRILL_BASE}/api/pages/testpage`)).json();
+      return doc.page.steps.length;
+    }, { timeout: 10_000 }).toBe(3);
+    expect(maxActivePuts).toBe(1);
+    await p.getByTestId("author-save-status").getByText("Saved", { exact: true }).waitFor();
+
+    // The first operation in this second burst fails. Its queued successor
+    // must still run against the latest persisted page instead of leaving
+    // authoring permanently wedged behind a rejected promise.
+    failPut = putCount + 1;
+    await addPageStep.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+    await expect.poll(() => putCount, { timeout: 10_000 }).toBe(5);
+    await expect.poll(async () => {
+      const doc = await (await fetch(`${DRILL_BASE}/api/pages/testpage`)).json();
+      return doc.page.steps.length;
+    }, { timeout: 10_000 }).toBe(4);
+    expect(maxActivePuts).toBe(1);
+    await p.getByTestId("author-save-status").getByText("Saved", { exact: true }).waitFor();
+    expect(await p.getByRole("alert").count()).toBe(0);
+
+    await p.unroute(`${DRILL_BASE}/api/pages/testpage`);
+  }, 30000);
+
+  it("starts one frozen targeting session on a double click and always thaws it on cancel or unmount", async () => {
+    const p = page!;
+    const opened = await (
+      await fetch(`${DRILL_BASE}/api/authoring/tab`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pageId: "testpage", viewport: "desktop" })
+      })
+    ).json();
+    const freezeRequests: Array<{ frozen?: boolean }> = [];
+    const recordFreeze = (request: import("playwright").Request) => {
+      if (request.url() === `${DRILL_BASE}/api/authoring/freeze` && request.method() === "POST") {
+        freezeRequests.push(request.postDataJSON());
+      }
+    };
+    p.on("request", recordFreeze);
+
+    const highlight = p.getByRole("button", { name: "Highlight an area", exact: true }).first();
+    await highlight.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+    await p.locator(".dr-pick-cancel").waitFor({ state: "visible", timeout: 10_000 });
+    expect(freezeRequests.filter((body) => body.frozen !== false)).toHaveLength(1);
+    expect(await evalInBrowserTab(opened.tabId, "document.getElementById('__garrison_drill_freeze__') ? 1 : 0")).toBe(1);
+
+    await p.locator(".dr-pick-cancel").click();
+    await expect.poll(
+      () => evalInBrowserTab(opened.tabId, "document.getElementById('__garrison_drill_freeze__') ? 1 : 0"),
+      { timeout: 10_000 }
+    ).toBe(0);
+
+    // A navigation unmount is a different cleanup path from explicit Cancel.
+    await highlight.click();
+    await p.locator(".dr-pick-cancel").waitFor({ state: "visible", timeout: 10_000 });
+    expect(await evalInBrowserTab(opened.tabId, "document.getElementById('__garrison_drill_freeze__') ? 1 : 0")).toBe(1);
+    await p.getByRole("tab", { name: "Drill Book", exact: true }).click({ force: true });
+    await expect.poll(
+      () => evalInBrowserTab(opened.tabId, "document.getElementById('__garrison_drill_freeze__') ? 1 : 0"),
+      { timeout: 10_000 }
+    ).toBe(0);
+
+    p.off("request", recordFreeze);
   }, 30000);
 });

@@ -24,6 +24,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { isDeepStrictEqual } from "node:util";
 
 // The four fixed human columns (D15). Discuss is NOT a fixed human column — it
 // only exists as a phase list when the composition declares a discuss duty.
@@ -44,8 +45,9 @@ export const GATE_PHASES = new Set([
 ]);
 
 export function kanbanModelFile(root) {
+  const garrisonHome = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
   return path.join(
-    root || process.env.GARRISON_KANBAN_DIR || path.join(os.homedir(), ".garrison", "kanban-loop"),
+    root || process.env.GARRISON_KANBAN_DIR || path.join(garrisonHome, "kanban-loop"),
     "model.json"
   );
 }
@@ -53,16 +55,97 @@ export function kanbanModelFile(root) {
 // Read the runner-projected resolved model, or null when absent/unreadable/empty.
 // A model with no kanbanLists is treated as absent (nothing to derive from), so
 // the caller falls back to the default pipeline.
-export function loadResolvedModel(root) {
+export function loadResolvedModel(root, expectedCompositionId = null) {
   try {
     const file = kanbanModelFile(root);
     if (!existsSync(file)) return null;
     const model = JSON.parse(readFileSync(file, "utf8"));
+    // v1 is the original flow-only projection; v2 adds the Dispatcher vocabulary
+    // and exact execution steps. Unknown future/invalid versions fail closed so a
+    // stale board never guesses at a target shape it does not understand.
+    if (model?.version !== 1 && model?.version !== 2) return null;
     if (!model || !Array.isArray(model.kanbanLists) || model.kanbanLists.length === 0) return null;
+    // model.json is machine-global. A gateway must name its active composition
+    // and reject a projection left by a previous one; board-only callers omit
+    // the guard and rely on runner cleanup when falling back to the default flow.
+    if (
+      typeof expectedCompositionId === "string" &&
+      expectedCompositionId.length > 0 &&
+      model.compositionId !== expectedCompositionId
+    ) {
+      return null;
+    }
     return model;
   } catch {
     return null;
   }
+}
+
+// True only for the v2 execution manifest. A v1 model still drives board flow,
+// but it deliberately cannot claim exact runtime/model/effort routing.
+export function hasExecutionModel(model) {
+  return !!(
+    model &&
+    model.version === 2 &&
+    model.duties && typeof model.duties === "object" &&
+    Array.isArray(model.selectedDuties) &&
+    model.steps && typeof model.steps === "object"
+  );
+}
+
+// The narrow shape dispatch-core consumes. Keep the projection object immutable:
+// callers may cache the loaded manifest across turns.
+export function dispatcherModelFrom(model) {
+  if (!hasExecutionModel(model)) return null;
+  return { duties: model.duties, selectedDuties: model.selectedDuties.slice() };
+}
+
+// Resolve the exact leaf execution step for a top-level (duty, level) and current
+// phase. `stepIndex` is preferred when supplied (future-proofs repeated phase ids);
+// otherwise the first matching phase is used, matching the board's current
+// indexOf-based sequence semantics. Null means the manifest cannot honor the
+// request and the gateway must fail loud rather than silently use a legacy cell.
+export function resolveExecutionStep({ duty, level = 1, phase = null, stepIndex = null } = {}, model = null) {
+  if (!hasExecutionModel(model) || typeof duty !== "string" || !duty) return null;
+  const perDuty = model.steps[duty];
+  const steps = perDuty && perDuty[String(level)];
+  if (!Array.isArray(steps) || steps.length === 0) return null;
+  if (Number.isInteger(stepIndex) && stepIndex >= 0 && stepIndex < steps.length) {
+    const indexed = steps[stepIndex];
+    if (!phase || indexed?.duty === phase) return indexed ?? null;
+  }
+  if (!phase) return steps[0] ?? null;
+  return steps.find((step) => step?.duty === phase) ?? null;
+}
+
+// Convert a projected step into the route.target shape the gateway's existing
+// runtime executors consume. Params are target-owned execution knobs; identity
+// and per-cell effort are overwritten from the authoritative flattened fields.
+export function executionRouteFor(input, model = null) {
+  const step = resolveExecutionStep(input, model);
+  if (!step || !step.targetId || !step.runtime || !step.model) return null;
+  const params = step.params && typeof step.params === "object" ? step.params : {};
+  const inferredType = ["codex", "gemini", "opencode"].includes(step.runtime)
+    ? "secondary"
+    : "runtime-target";
+  const target = {
+    ...params,
+    id: step.targetId,
+    type: typeof params.type === "string" ? params.type : inferredType,
+    runtime: step.runtime,
+    provider: step.provider ?? undefined,
+    model: step.model,
+    effort: step.effort ?? null
+  };
+  return {
+    targetId: step.targetId,
+    target,
+    duty: input.duty,
+    level: input.level ?? 1,
+    phase: input.phase ?? step.duty,
+    step,
+    skill: step.skill ?? null
+  };
 }
 
 // A generic phase-list config for a leaf-duty id that has no canonical template
@@ -89,6 +172,64 @@ function phaseConfigFromTemplate(template, id) {
   base.kind = base.kind || "agent";
   base.phase = base.phase || id;
   return base;
+}
+
+// Fields that define how the engine interprets a list. These are projected from
+// the resolved model / canonical phase template on every reconcile; retaining a
+// stale value here can silently weaken a gate (for example an old Test list that
+// predates requiresEvidenceOn). Everything else is treated as operator config
+// and kept when the list already exists. In particular, title, trigger,
+// beatCron, executePrompt and routerPrompt are editable in the board UI.
+const ENGINE_OWNED_LIST_FIELDS = new Set([
+  "id",
+  "order",
+  "kind",
+  "phase",
+  "validNext",
+  "interactive",
+  "surface",
+  "terminal",
+  "onEnter",
+  "notifyOnEntry",
+  "batched",
+  "requiresEvidence",
+  "requiresEvidenceOn",
+  "requiredEvidenceFile"
+]);
+
+function isLegacyDefaultPrompt(migrations, listId, field, value) {
+  const candidates = migrations?.[listId]?.[field];
+  return Array.isArray(candidates) && candidates.includes(value);
+}
+
+// Merge a rebuilt engine list with an existing on-disk list. Structural and
+// enforcement fields always come from the rebuilt definition (and are removed
+// when the new definition omits them); operator-owned fields survive. Prompt
+// defaults are intentionally NOT refreshed wholesale: an exact, explicitly
+// enumerated historical default may migrate, while any genuine edit is kept.
+function reconcileList(existing, rebuilt, legacyDefaultPrompts) {
+  if (!existing) return rebuilt;
+
+  const merged = { ...existing };
+  for (const field of ENGINE_OWNED_LIST_FIELDS) delete merged[field];
+
+  for (const [field, value] of Object.entries(rebuilt)) {
+    if (ENGINE_OWNED_LIST_FIELDS.has(field) || !Object.hasOwn(existing, field)) {
+      merged[field] = value;
+    }
+  }
+
+  for (const field of ["executePrompt", "routerPrompt"]) {
+    if (
+      Object.hasOwn(existing, field) &&
+      Object.hasOwn(rebuilt, field) &&
+      isLegacyDefaultPrompt(legacyDefaultPrompts, rebuilt.id, field, existing[field])
+    ) {
+      merged[field] = rebuilt[field];
+    }
+  }
+
+  return merged;
 }
 
 // The card's resolved sequence — the ordered leaf-duty ids it visits. Prefer the
@@ -228,7 +369,7 @@ export function buildBoard(model, opts = {}) {
     notifyOnEntry: true,
     // The human touchpoint routes back to To-do, the first phase, and implement
     // (a re-run entry point) when the pipeline has one.
-    validNext: hasImplement ? ["todo", first, "implement"] : ["todo", first]
+    validNext: [...new Set(hasImplement ? ["todo", first, "implement"] : ["todo", first])]
   });
 
   return { version: 3, lists, projects: {} };
@@ -241,24 +382,35 @@ export function buildBoard(model, opts = {}) {
 // derived by scanning card files (never stored on the board), so rebuilding
 // board.json touches no card state; the caller separately relocates any card
 // stranded on a removed list so nothing is lost. Returns
-// { board, removed, added } where removed/added are the list ids that left/joined
-// the board (used by the caller to move stranded cards + to log the reconcile).
+// { board, removed, added, updated } where removed/added are the list ids that
+// left/joined the board and updated names same-id definitions whose engine-owned
+// projection or recognized default prompt changed (used by setup to persist even
+// when the list set itself stayed constant).
 // Pure: no fs, no I/O.
 export function reconcileBoardLists(existingBoard, model, opts = {}) {
   const rebuilt = buildBoard(model, opts);
-  const oldIds = new Set((existingBoard?.lists || []).map((l) => l.id));
+  const existingLists = Array.isArray(existingBoard?.lists) ? existingBoard.lists : [];
+  const existingById = new Map(existingLists.map((list) => [list.id, list]));
+  const oldIds = new Set(existingLists.map((l) => l.id));
   const newIds = new Set(rebuilt.lists.map((l) => l.id));
   const removed = [...oldIds].filter((id) => !newIds.has(id));
   const added = [...newIds].filter((id) => !oldIds.has(id));
+  const lists = rebuilt.lists.map((list) =>
+    reconcileList(existingById.get(list.id), list, opts.legacyDefaultPrompts)
+  );
+  const updated = lists
+    .filter((list) => oldIds.has(list.id) && !isDeepStrictEqual(existingById.get(list.id), list))
+    .map((list) => list.id);
   const board = {
     ...rebuilt,
-    // Preserve the live board's project map + optimistic-concurrency rev; the human
-    // columns + phase-list defs come fresh from the model (phase lists are engine-
-    // owned, D16, so there is no user list config to preserve).
+    lists,
+    // Preserve the live board's project map + optimistic-concurrency rev. The
+    // engine-owned portion of each list is refreshed above, while operator list
+    // config survives unless it is an exact recognized legacy default.
     projects: existingBoard?.projects && typeof existingBoard.projects === "object" ? existingBoard.projects : {},
     rev: Number.isInteger(existingBoard?.rev) ? existingBoard.rev : 0
   };
-  return { board, removed, added };
+  return { board, removed, added, updated };
 }
 
 // A human title for a derived phase list id ("adversarial-review" → "Adversarial

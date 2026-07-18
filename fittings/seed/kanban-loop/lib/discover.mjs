@@ -10,7 +10,9 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
-const DEV_ROOT_FILE = path.join(HOME, ".garrison", "dev-root");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const CLAUDE_HOME = process.env.GARRISON_CLAUDE_HOME || path.join(HOME, ".claude");
+const DEV_ROOT_FILE = path.join(GARRISON_HOME, "dev-root");
 
 // Expand a leading ~ to the home dir (the dev-root file may store "~/dev").
 export function expandHome(p) {
@@ -67,7 +69,7 @@ function readSkillDescription(file, max = 160) {
 
 // The skills installed under ~/.claude/skills (each subdir with a SKILL.md). Returns
 // [{ name, description }] sorted by name; description is the frontmatter one-liner.
-export function listSkills(home = path.join(HOME, ".claude")) {
+export function listSkills(home = CLAUDE_HOME) {
   const root = path.join(home, "skills");
   if (!existsSync(root)) return [];
   let entries = [];

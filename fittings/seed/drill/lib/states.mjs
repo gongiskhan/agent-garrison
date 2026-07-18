@@ -10,6 +10,24 @@ export function slugifyStateId(label) {
   return String(label ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "state";
 }
 
+export function assessAutomaticStateReference(outcome) {
+  if (!outcome?.evidencePath) {
+    return { eligible: false, reason: "no-evidence", warnings: [] };
+  }
+  const warnings = Array.isArray(outcome?.result?.referenceWarnings)
+    ? outcome.result.referenceWarnings
+        .filter((warning) => warning && typeof warning === "object")
+        .map((warning) => ({
+          code: String(warning.code || "visible-page-error"),
+          text: String(warning.text || "Unexpected error visible in the captured page")
+        }))
+    : [];
+  if (warnings.length) {
+    return { eligible: false, reason: "unexpected-page-error", warnings };
+  }
+  return { eligible: true, reason: null, warnings: [] };
+}
+
 export async function promoteSnapshotToState(pageId, snapshotId, { label, reachPath = [] } = {}) {
   const page = await getPage(pageId);
   if (!page) throw new Error(`page not found: ${pageId}`);

@@ -60,3 +60,20 @@ export async function getRun(runId, { fetchImpl = globalThis.fetch } = {}) {
   if (res.status === 404) return null;
   return (await json(res)).run;
 }
+
+export async function getStepEvidence(runId, stepId, { fetchImpl = globalThis.fetch } = {}) {
+  const base = requireBase();
+  const res = await fetchImpl(
+    `${base}/api/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/evidence`
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`automations ${res.status}: ${await res.text()}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+export async function checkAutomationsHealth({ fetchImpl = globalThis.fetch } = {}) {
+  const base = requireBase();
+  const res = await fetchImpl(`${base}/health`);
+  if (!res.ok) throw new Error(`automations ${res.status}`);
+  return true;
+}

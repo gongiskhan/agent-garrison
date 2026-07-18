@@ -58,7 +58,7 @@ fi
 
 # Build the backup set from the paths that actually exist.
 SET=()
-for d in "${GARRISON_HOME:-$HOME/.garrison}" "$HOME/.claude" "$SNAPSHOTS_PROJECTS_ROOT"; do
+for d in "${GARRISON_HOME:-$HOME/.garrison}" "${GARRISON_CLAUDE_HOME:-$HOME/.claude}" "$SNAPSHOTS_PROJECTS_ROOT"; do
   [ -e "$d" ] && SET+=("$d")
 done
 if [ "${#SET[@]}" -eq 0 ]; then

@@ -5,7 +5,10 @@ import { z } from "zod";
 import { readYamlFile } from "./yaml";
 
 export const CONFIG_FILE_NAME = "config.yml";
-export const CONFIG_PATH = path.join(os.homedir(), ".garrison", CONFIG_FILE_NAME);
+export const CONFIG_PATH = path.join(
+  process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison"),
+  CONFIG_FILE_NAME
+);
 
 export const URL_SCHEMES = ["http", "https"] as const;
 export type UrlScheme = (typeof URL_SCHEMES)[number];

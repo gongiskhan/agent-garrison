@@ -5,9 +5,10 @@ import { test, expect } from "@playwright/test";
 
 // The public landing page (site/index.html) is a self-contained static file,
 // so this spec brings its own tiny static server instead of using the sandbox
-// dev server. Acceptance mirrors the landing brief: EN default, PT-PT toggle,
-// ten Standing Orders each with a large inline SVG, real screenshots, no em
-// dashes anywhere in the copy, licence text matching the repo LICENSE.
+// dev server. Acceptance mirrors the fittings-first landing brief: EN default,
+// PT-PT toggle (with coined product terms retained in English), ten Standing
+// Orders each with a large inline SVG, the two selected real screenshots, no
+// em dashes anywhere in the copy, licence text matching the repo LICENSE.
 
 const SITE = path.resolve(__dirname, "..", "..", "site");
 const MIME: Record<string, string> = {
@@ -45,7 +46,7 @@ test("EN is the default and the dictionary hero renders with bolded concept term
   await page.goto(origin);
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.locator(".headword")).toHaveText("gar·ri·son");
-  for (const term of ["operatives", "faculties", "fittings", "Fittings Registry", "orchestrator", "Quarters"]) {
+  for (const term of ["operatives", "faculties", "fittings", "Orchestrator", "Quarters"]) {
     await expect(page.locator(".gloss b", { hasText: term }).first()).toBeVisible();
   }
 });
@@ -60,12 +61,13 @@ test("ten Standing Orders, each with a large inline SVG illustration", async ({ 
   }
 });
 
-test("the PT toggle switches all copy to PT-PT and back", async ({ page }) => {
+test("the PT toggle localises the page while retaining coined product terms", async ({ page }) => {
   await page.goto(origin);
   await page.locator(".top .lang button[data-lang='pt']").click();
   await expect(page.locator("html")).toHaveAttribute("lang", "pt-PT");
   await expect(page.locator(".headword")).toHaveText("guar·ni·ção");
-  await expect(page.locator(".orders h2.big")).toHaveText("Ordens Permanentes");
+  await expect(page.locator(".orders h2.big")).toHaveText("Standing Orders");
+  await expect(page.locator(".fittings h2.big")).toHaveText("Três fittings de referência.");
   await expect(page.locator(".features h2.big")).toHaveText("A funcionar hoje.");
   await expect(page).toHaveTitle(/base estruturada/);
   await expect(page.locator(".hero .logo img")).toHaveAttribute("alt", /paliçada/);
@@ -93,8 +95,10 @@ test("licence claim matches the repo LICENSE and the footer links GitHub", async
 test("the feature screenshots are real files that load", async ({ page }) => {
   await page.goto(origin);
   const imgs = page.locator(".shot img");
-  await expect(imgs).toHaveCount(7);
-  for (let i = 0; i < 7; i++) {
+  const expectedScreenshots = ["brand/composition.png", "brand/quarters.png"];
+  await expect(imgs).toHaveCount(expectedScreenshots.length);
+  for (let i = 0; i < expectedScreenshots.length; i++) {
+    await expect(imgs.nth(i)).toHaveAttribute("src", expectedScreenshots[i]);
     // The images are loading="lazy": bring each into view, then wait for it.
     await imgs.nth(i).scrollIntoViewIfNeeded();
     await expect

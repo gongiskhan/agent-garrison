@@ -7,7 +7,9 @@
 //
 //   { version, compositionId,
 //     kanbanLists: string[],                              // the ordered phase-list set (deriveKanbanLists)
-//     sequences: { [dutyId]: { [level]: string[] } } }    // each duty/level → its ordered leaf ids
+//     sequences: { [dutyId]: { [level]: string[] } },     // v1-compatible leaf ids
+//     duties, selectedDuties, targets,                    // Dispatcher vocabulary
+//     steps: { [dutyId]: { [level]: ResolvedStep[] } } }  // exact v4 execution cells
 //
 // This is additive: the board falls back to its built-in default pipeline when
 // the file is absent, and only a FRESH board seed reads it — an existing
@@ -15,10 +17,11 @@
 // kanbanLists so the board keeps its default pipeline rather than a broken one.
 
 import path from "node:path";
+import fs from "node:fs/promises";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
 import { resolveModel, resolveSequence } from "./resolver";
-import type { CompositionV4 } from "./compositions";
+import type { CompositionTarget, CompositionV4 } from "./compositions";
 import type { LibraryEntry } from "./types";
 
 // One duty level's resolved execution cell: the muster cell (target id +
@@ -34,24 +37,37 @@ export interface KanbanDutyCell {
   type: string | null;
 }
 
+export interface KanbanResolvedStep {
+  duty: string;
+  level: number;
+  description: string;
+  skill: string | null;
+  targetId: string | null;
+  runtime: string | null;
+  provider: string | null;
+  model: string | null;
+  effort: string | null;
+  params: Record<string, string | number | boolean>;
+}
+
 export interface KanbanResolvedModel {
   version: 2;
   compositionId: string;
   kanbanLists: string[];
   sequences: Record<string, Record<string, string[]>>;
-  // duty -> level -> resolved cell (the duties->router repoint input).
+  // duty -> level -> resolved cell (the legacy duties->router repoint input).
   cells: Record<string, Record<string, KanbanDutyCell>>;
-  // duty id -> context_hold (S1b): the duties that hold off the compact controller
-  // until a duty boundary. Only truthy entries are projected. The engine reads
-  // holds[card.list] (the current phase = leaf duty id) to hint contextHold.
-  // Optional so a hand-built model (tests, older callers) stays valid; the board's
-  // contextHoldFor treats an absent map as "no holds".
+  // Duty flags used by the board's context controller and explicit Discuss gate.
   holds?: Record<string, boolean>;
-  // duty id -> gate (S3d D9b): the duties whose gate is `explicit` (the engine holds
-  // the card on the duty for an explicit human go instead of auto-advancing). Only
-  // explicit entries are projected; the board's dutyGateExplicit treats an absent map
-  // as "no gates" (pass-through). Optional for the same hand-built-model reason as holds.
   gates?: Record<string, string>;
+  // v2: enough of the Resolver output for the production Dispatcher to choose a
+  // top-level (duty, level), plus the composition targets and fully-resolved leaf
+  // execution steps. Runtime/model come from the assigned target; effort comes
+  // from the leaf cell (target identity deliberately does not own effort).
+  duties?: ReturnType<typeof resolveModel>["duties"];
+  selectedDuties?: string[];
+  targets?: CompositionTarget[];
+  steps?: Record<string, Record<string, KanbanResolvedStep[]>>;
 }
 
 // Where the board reads its model from — mirror the board's own convention
@@ -59,6 +75,14 @@ export interface KanbanResolvedModel {
 export function kanbanModelPath(): string {
   const dir = process.env.GARRISON_KANBAN_DIR?.trim();
   return path.join(dir && dir.length > 0 ? dir : path.join(garrisonDir(), "kanban-loop"), "model.json");
+}
+
+// The projection is machine-global because the Kanban fitting is machine-global.
+// When the active composition cannot supply a resolved duty model, remove the
+// previous composition's projection instead of letting the board/gateway reuse
+// stale execution cells. `force` keeps the absent-file fallback idempotent.
+export async function clearKanbanResolvedModel(file = kanbanModelPath()): Promise<void> {
+  await fs.rm(file, { force: true });
 }
 
 // Compute the board's resolved model from the composition's duties + the selected
@@ -78,19 +102,41 @@ export function computeKanbanResolvedModel(
   // Resolver. resolveSequence assumes a validated graph, so only expand when the
   // model has no errors (else the board keeps its default pipeline).
   const sequences: Record<string, Record<string, string[]>> = {};
+  const steps: Record<string, Record<string, KanbanResolvedStep[]>> = {};
+  const targets = composition.targets ?? [];
+  const targetsById = new Map(targets.map((target) => [target.id, target]));
   if (model.errors.length === 0) {
     for (const [id, duty] of Object.entries(model.duties)) {
       const perLevel: Record<string, string[]> = {};
+      const perLevelSteps: Record<string, KanbanResolvedStep[]> = {};
       duty.levels.forEach((_level, index) => {
         const level = index + 1;
         try {
-          perLevel[String(level)] = resolveSequence(id, level, model.duties).map((step) => step.duty);
+          const resolved = resolveSequence(id, level, model.duties);
+          perLevel[String(level)] = resolved.map((step) => step.duty);
+          perLevelSteps[String(level)] = resolved.map((step) => {
+            const targetId = step.cell.target ?? null;
+            const target = targetId ? targetsById.get(targetId) : undefined;
+            return {
+              duty: step.duty,
+              level: step.level,
+              description: step.description,
+              skill: step.cell.skill ?? null,
+              targetId,
+              runtime: target?.runtime ?? null,
+              provider: target?.provider ?? null,
+              model: target?.model ?? null,
+              effort: step.cell.effort ?? null,
+              params: { ...(target?.params ?? {}) }
+            };
+          });
         } catch {
           // A misuse (unknown ref surfacing at runtime) — skip this level rather
           // than fail the whole projection.
         }
       });
       sequences[id] = perLevel;
+      steps[id] = perLevelSteps;
     }
   }
 
@@ -98,7 +144,6 @@ export function computeKanbanResolvedModel(
   // joined with its target's spec. This is what repoints the router matrix at
   // the composition's duty ladders (applyDutyCells) — without it a muster duty
   // edit would be dead weight on the live routing path.
-  const targetsById = new Map((composition.targets ?? []).map((t) => [t.id, t]));
   const cells: Record<string, Record<string, KanbanDutyCell>> = {};
   if (model.errors.length === 0) {
     for (const [id, duty] of Object.entries(model.duties)) {
@@ -145,7 +190,11 @@ export function computeKanbanResolvedModel(
     sequences,
     cells,
     holds,
-    gates
+    gates,
+    duties: model.duties,
+    selectedDuties: model.selectedDuties,
+    targets,
+    steps
   };
 }
 

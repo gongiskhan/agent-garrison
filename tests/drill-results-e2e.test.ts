@@ -92,11 +92,11 @@ describe("Run & results — real UI", () => {
   it("runs a page from the UI, shows a tier badge, marks it failed, confirms the finding", async () => {
     const p = page!;
     await p.goto(DRILL_BASE);
-    await p.getByRole("button", { name: "Run & results" }).click();
+    await p.getByRole("tab", { name: "Run & results" }).click();
     await p.getByText("Answer").click();
     // "desktop" is pre-selected by default (ResultsView's initial state) —
     // clicking it would DEselect it, so leave it alone.
-    await p.getByRole("button", { name: "Run", exact: true }).click();
+    await p.getByRole("button", { name: "Run selected", exact: true }).click();
 
     await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 15000 });
     await p.getByText(/cached|vision|recovered/).first().waitFor({ timeout: 10000 });
@@ -108,7 +108,7 @@ describe("Run & results — real UI", () => {
     await p.getByRole("button", { name: "Confirm" }).first().click();
     await p.getByText("confirmed", { exact: true }).first().waitFor({ timeout: 5000 });
 
-    const fixBtn = p.getByRole("button", { name: /Fix all confirmed/ });
+    const fixBtn = p.getByRole("button", { name: /Send confirmed to Code/ });
     expect(await fixBtn.isDisabled()).toBe(false);
   }, 40000);
 });

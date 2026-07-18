@@ -14,17 +14,17 @@ function tokenPath(): string {
   return process.env.GARRISON_INTERNAL_TOKEN_PATH ?? path.join(home, "internal-token");
 }
 
-let cached: string | undefined;
+const cached = new Map<string, string>();
+const pending = new Map<string, Promise<string>>();
 
 // Test seam — drop the in-process cache so a test can point at a fresh path.
 export function resetInternalTokenCache(): void {
-  cached = undefined;
+  cached.clear();
+  pending.clear();
 }
 
-// Read the token, creating it (0600) on first use.
-export async function getInternalToken(): Promise<string> {
-  if (cached) return cached;
-  const file = tokenPath();
+async function readOrCreateToken(file: string): Promise<string> {
+  const cachedForFile = cached.get(file);
   try {
     // Enforce the trust boundary: reject a symlink (don't follow it), and only
     // accept a regular file whose mode is no broader than 0600 — repairing a
@@ -39,20 +39,41 @@ export async function getInternalToken(): Promise<string> {
       }
       const existing = (await fs.readFile(file, "utf8")).trim();
       if (existing) {
-        cached = existing;
+        cached.set(file, existing);
         return existing;
       }
     }
   } catch {
     // recreate below
   }
-  const token = crypto.randomBytes(32).toString("hex");
+  // If the file disappeared after this process cached it, restore the same
+  // capability instead of rotating the token underneath already-running
+  // children. A genuinely new token path receives a fresh capability.
+  const token = cachedForFile ?? crypto.randomBytes(32).toString("hex");
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.rm(file, { force: true }).catch(() => {});
   await fs.writeFile(file, token, { mode: 0o600 });
   await fs.chmod(file, 0o600);
-  cached = token;
+  cached.set(file, token);
   return token;
+}
+
+// Read the token, creating it (0600) on first use. Calls for one token path are
+// serialized so concurrent fitting starts cannot mint competing capabilities.
+export async function getInternalToken(): Promise<string> {
+  const file = tokenPath();
+  const inFlight = pending.get(file);
+  if (inFlight) return inFlight;
+
+  const operation = readOrCreateToken(file);
+  pending.set(file, operation);
+  try {
+    return await operation;
+  } finally {
+    if (pending.get(file) === operation) {
+      pending.delete(file);
+    }
+  }
 }
 
 // Validate a presented token in constant time; false when absent/mismatched.

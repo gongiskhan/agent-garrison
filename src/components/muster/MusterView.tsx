@@ -10,6 +10,7 @@ import type {
   DutyEffort,
   MusterActions,
   MusterModel,
+  MusterTargetUpdate,
   ResolvedDuty,
   RuleResult
 } from "./types";
@@ -136,26 +137,222 @@ export function ReadinessDetail({ model }: { model: MusterModel }) {
 
 // ── targets tray ─────────────────────────────────────────────────────────────
 export function TargetsTray({ model, actions }: { model: MusterModel; actions: MusterActions }) {
-  if (model.targets.length === 0) {
-    return (
-      <p className={styles.trayHint} data-testid="targets-empty">
-        No targets in this composition yet. Add engine targets in Compose, then assign them to duty
-        levels here.
-      </p>
-    );
-  }
+  const [editing, setEditing] = useState<CompositionTarget | "new" | null>(null);
   return (
     <>
       <p className={styles.trayHint}>
         Drag a target onto a level&apos;s cell, or tap a target to arm it then tap a cell to place it.
         Skill cells need an agentic runtime.
       </p>
-      <div className={styles.tray} data-testid="targets-tray">
-        {model.targets.map((t) => (
-          <TargetChip key={t.id} target={t} armed={actions.armed === t.id} onArm={actions.onArm} />
-        ))}
-      </div>
+      <button
+        type="button"
+        className={styles.addBtn}
+        onClick={() => setEditing("new")}
+        data-testid="add-target"
+        style={{ width: "100%", marginBottom: 9 }}
+      >
+        + Add target
+      </button>
+      {model.targets.length === 0 ? (
+        <p className={styles.trayHint} data-testid="targets-empty">
+          No targets yet. Add a stationed runtime target, then assign it to duty levels.
+        </p>
+      ) : (
+        <div className={styles.tray} data-testid="targets-tray">
+          {model.targets.map((t) => (
+            <div key={t.id} style={{ display: "flex", gap: 5, width: "100%" }}>
+              <TargetChip target={t} armed={actions.armed === t.id} onArm={actions.onArm} />
+              <button
+                type="button"
+                className={styles.removeBtn}
+                onClick={() => setEditing(t)}
+                aria-label={`Edit ${t.id}`}
+                title={`Edit ${t.id}`}
+                data-testid={`edit-target-${t.id}`}
+                style={{ margin: 0, minWidth: 36 }}
+              >
+                edit
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {editing ? (
+        <TargetEditor
+          target={editing === "new" ? null : editing}
+          runtimeOptions={model.runtimeOptions}
+          saving={actions.saving}
+          onSave={actions.saveTarget}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
     </>
+  );
+}
+
+function TargetEditor({
+  target,
+  runtimeOptions,
+  saving,
+  onSave,
+  onClose
+}: {
+  target: CompositionTarget | null;
+  runtimeOptions: MusterModel["runtimeOptions"];
+  saving: boolean;
+  onSave: (target: MusterTargetUpdate) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const options = useMemo(() => {
+    const byId = new Map(runtimeOptions.map((option) => [option.id, option]));
+    if (target && !byId.has(target.runtime)) {
+      byId.set(target.runtime, { id: target.runtime, fittingId: "current target" });
+    }
+    return [...byId.values()];
+  }, [runtimeOptions, target]);
+  const [id, setId] = useState(target?.id ?? "");
+  const [runtime, setRuntime] = useState(target?.runtime ?? options[0]?.id ?? "");
+  const [provider, setProvider] = useState(target?.provider ?? "");
+  const [model, setModel] = useState(target?.model ?? "");
+  const initialPromptMode = target?.params?.promptMode;
+  const [promptMode, setPromptMode] = useState(
+    initialPromptMode === "lean" || initialPromptMode === "full" ? initialPromptMode : ""
+  );
+  const [maxTurns, setMaxTurns] = useState(
+    typeof target?.params?.maxTurns === "number" ? String(target.params.maxTurns) : ""
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div className={styles.modalBackdrop} data-testid="target-editor" onMouseDown={(e) => {
+      if (e.target === e.currentTarget && !saving) onClose();
+    }}>
+      <form
+        className={styles.modal}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const turns = maxTurns.trim() ? Number(maxTurns) : null;
+          if (turns !== null && (!Number.isInteger(turns) || turns < 1 || turns > 100)) {
+            setError("Max turns must be a whole number from 1 to 100.");
+            return;
+          }
+          const ok = await onSave({
+            ...(target ? { originalId: target.id } : {}),
+            id: id.trim(),
+            runtime,
+            provider: provider.trim() || undefined,
+            model: model.trim(),
+            promptMode: promptMode === "lean" || promptMode === "full" ? promptMode : null,
+            maxTurns: turns
+          });
+          if (ok) onClose();
+        }}
+      >
+        <div className={styles.modalHead}>
+          <div>
+            <div className={styles.modalTitle}>{target ? `Edit ${target.id}` : "Add target"}</div>
+            <div className={styles.modalSub}>Engine identity and Agent SDK harness settings.</div>
+          </div>
+          <button type="button" className={styles.modalClose} onClick={onClose} aria-label="Close target editor">
+            <XMark />
+          </button>
+        </div>
+        <div style={{ padding: "14px 16px", display: "grid", gap: 12, overflowY: "auto" }}>
+          <label className={styles.newIdRow} style={{ margin: 0 }}>
+            <span>Target id</span>
+            <input
+              className={styles.pickerSearch}
+              style={{ margin: 0 }}
+              value={id}
+              disabled={Boolean(target) || saving}
+              onChange={(event) => setId(event.target.value)}
+              placeholder="sdk-haiku-full"
+              data-testid="target-id"
+            />
+          </label>
+          <label className={styles.newIdRow} style={{ margin: 0 }}>
+            <span>Runtime</span>
+            <select
+              className={styles.pickerSearch}
+              style={{ margin: 0 }}
+              value={runtime}
+              disabled={saving}
+              onChange={(event) => setRuntime(event.target.value)}
+              data-testid="target-runtime"
+            >
+              {options.map((option) => (
+                <option key={option.id} value={option.id}>{option.id} · {option.fittingId}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.newIdRow} style={{ margin: 0 }}>
+            <span>Provider (optional)</span>
+            <input
+              className={styles.pickerSearch}
+              style={{ margin: 0 }}
+              value={provider}
+              disabled={saving}
+              onChange={(event) => setProvider(event.target.value)}
+              placeholder="anthropic"
+              data-testid="target-provider"
+            />
+          </label>
+          <label className={styles.newIdRow} style={{ margin: 0 }}>
+            <span>Model</span>
+            <input
+              className={styles.pickerSearch}
+              style={{ margin: 0 }}
+              value={model}
+              disabled={saving}
+              onChange={(event) => setModel(event.target.value)}
+              placeholder="claude-haiku-4-5"
+              data-testid="target-model"
+            />
+          </label>
+          <label className={styles.newIdRow} style={{ margin: 0 }}>
+            <span>Prompt mode</span>
+            <select
+              className={styles.pickerSearch}
+              style={{ margin: 0 }}
+              value={promptMode}
+              disabled={saving}
+              onChange={(event) => setPromptMode(event.target.value)}
+              data-testid="target-prompt-mode"
+            >
+              <option value="">runtime default</option>
+              <option value="lean">lean · tools off</option>
+              <option value="full">full · tools and gate evidence</option>
+            </select>
+          </label>
+          <label className={styles.newIdRow} style={{ margin: 0 }}>
+            <span>Max turns (optional)</span>
+            <input
+              className={styles.pickerSearch}
+              style={{ margin: 0 }}
+              type="number"
+              min={1}
+              max={100}
+              value={maxTurns}
+              disabled={saving}
+              onChange={(event) => setMaxTurns(event.target.value)}
+              placeholder="8"
+              data-testid="target-max-turns"
+            />
+          </label>
+          {error ? <div className={styles.modalError} style={{ margin: 0 }}>{error}</div> : null}
+        </div>
+        <div className={styles.modalFoot}>
+          <button type="button" onClick={onClose} disabled={saving}>Cancel</button>
+          <button
+            type="submit"
+            disabled={saving || !id.trim() || !runtime || !model.trim()}
+            data-testid="target-submit"
+          >
+            {saving ? "Saving…" : target ? "Save target" : "Add target"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -451,8 +648,15 @@ function CompositeLevel({ sequence }: { sequence: { duty: string; level?: number
 export function AddDuty({ model, actions }: { model: MusterModel; actions: MusterActions }) {
   const [open, setOpen] = useState(false);
   const available = useMemo(
-    () => Object.values(model.duties).filter((d) => !model.selectedDuties.includes(d.id)),
-    [model.duties, model.selectedDuties]
+    () => [
+      ...Object.values(model.duties)
+        .filter((d) => !model.selectedDuties.includes(d.id))
+        .map((d) => ({ id: d.id, title: d.title, fittingId: null as string | null })),
+      ...(model.dutyCandidates ?? [])
+        .filter((d) => !model.selectedDuties.includes(d.id) && !model.duties[d.id])
+        .map((d) => ({ id: d.id, title: d.title, fittingId: d.fittingId }))
+    ],
+    [model.duties, model.dutyCandidates, model.selectedDuties]
   );
   if (!open) {
     return (
@@ -480,7 +684,9 @@ export function AddDuty({ model, actions }: { model: MusterModel; actions: Muste
               data-testid={`add-duty-option-${d.id}`}
             >
               {d.title}
-              <span className={styles.addOptionSub}>{d.id}</span>
+              <span className={styles.addOptionSub}>
+                {d.id}{d.fittingId ? ` · stations ${d.fittingId}` : ""}
+              </span>
             </button>
           ))}
         </div>

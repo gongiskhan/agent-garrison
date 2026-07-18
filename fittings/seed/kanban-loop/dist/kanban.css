@@ -951,6 +951,8 @@ body {
 .ev-created { background: var(--mute); }
 .ev-dispatch { background: var(--sage); }
 .ev-routed { background: var(--sage-2); }
+.ev-runtime { background: var(--brass); }
+.ev-runtime-stop { background: var(--warn); }
 .ev-moved, .ev-recovered { background: var(--mute-2); }
 .ev-parked { background: var(--alarm); }
 .ev-failed { background: var(--alarm); }

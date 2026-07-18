@@ -920,6 +920,31 @@
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: 10px;
 }
+.standingSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.standingSearch input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+.standingSearch button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  color: var(--mute);
+  cursor: pointer;
+  flex-shrink: 0;
+}
 .slotCard {
   border: 1px solid var(--rule);
   background: white;
@@ -980,6 +1005,12 @@
   font-weight: 600;
   font-size: 13.5px;
   color: var(--ink);
+}
+.fittingSummary {
+  margin: 6px 0 0;
+  color: var(--mute);
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 .shapeTag,
 .cloneTag {

@@ -35,15 +35,16 @@ import { spawn } from "node:child_process";
 // io.garrison.scheduler launchd daemon (cwd = anywhere), so an absolute,
 // per-machine location is the only thing all callers agree on. Override with
 // GARRISON_SCHEDULER_JOBS / GARRISON_SCHEDULER_LOG.
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const JOBS_FILE = process.env.GARRISON_SCHEDULER_JOBS
-  ?? path.join(os.homedir(), ".garrison", "scheduler-jobs.json");
+  ?? path.join(GARRISON_HOME, "scheduler-jobs.json");
 const LOG_FILE = process.env.GARRISON_SCHEDULER_LOG
-  ?? path.join(os.homedir(), ".garrison", "scheduler.log");
+  ?? path.join(GARRISON_HOME, "scheduler.log");
 const TICK_INTERVAL_MS = 60_000;
 // Default port for the daemon's /health endpoint. Override with
 // GARRISON_SCHEDULER_HEALTH_PORT or `daemon --health-port <n>`; a busy port is
 // tolerated (logged, daemon continues without /health).
-const DEFAULT_HEALTH_PORT = 7099;
+const DEFAULT_HEALTH_PORT = 27099;
 
 async function loadJobs() {
   try {

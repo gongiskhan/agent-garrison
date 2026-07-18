@@ -16,7 +16,7 @@
     {
       "type": "browser",
       "id": "improver",
-      "baseURL": "http://127.0.0.1:7088",
+      "baseURL": "http://127.0.0.1:27093",
       "startPath": "/",
       "runTimeoutMs": 180000,
       "beats": [
@@ -82,7 +82,7 @@
       "tag": "LIVE",
       "expectedScreen": "terminal: queue status 'applied', the applied-conventions.md file now containing the improver-marked promoted notes, and a reconcile record with trigger=post-authoring",
       "commands": [
-        "curl -s http://127.0.0.1:7088/api/queue | jq -r '.queue[].status'",
+        "curl -s http://127.0.0.1:27093/api/queue | jq -r '.queue[].status'",
         "cat /tmp/improver-demo/applied-conventions.md",
         "cat /tmp/improver-demo/reconcile-invoked.json | jq -c '.[0]'"
       ],

@@ -24576,18 +24576,6 @@ var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/camera.js
-var Camera = createLucideIcon("Camera", [
-  [
-    "path",
-    {
-      d: "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z",
-      key: "1tc9qg"
-    }
-  ],
-  ["circle", { cx: "12", cy: "13", r: "3", key: "1vg3eu" }]
-]);
-
 // ../../../node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
@@ -24670,21 +24658,6 @@ var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/ruler.js
-var Ruler = createLucideIcon("Ruler", [
-  [
-    "path",
-    {
-      d: "M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z",
-      key: "icamh8"
-    }
-  ],
-  ["path", { d: "m14.5 12.5 2-2", key: "inckbg" }],
-  ["path", { d: "m11.5 9.5 2-2", key: "fmmyf7" }],
-  ["path", { d: "m8.5 6.5 2-2", key: "vc6u1g" }],
-  ["path", { d: "m17.5 15.5 2-2", key: "wo5hmg" }]
-]);
-
 // ../../../node_modules/lucide-react/dist/esm/icons/smartphone.js
 var Smartphone = createLucideIcon("Smartphone", [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
@@ -24727,6 +24700,15 @@ async function apiPost(path, body) {
   if (!r.ok) throw new Error(j.error || `POST ${path}: ${r.status}`);
   return j;
 }
+function fullBrowserViewUrl(canvasUrl) {
+  try {
+    const url = new URL(canvasUrl, window.location.href);
+    url.searchParams.delete("embed");
+    return url.toString();
+  } catch {
+    return canvasUrl;
+  }
+}
 var VIEWPORTS = [
   { id: "desktop", label: "desktop", icon: Monitor },
   { id: "tablet", label: "tablet", icon: Tablet },
@@ -24740,24 +24722,76 @@ function newStepId() {
 function Help({ children }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dr-help", children });
 }
-function fmtDate(iso) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "-";
-  return d.toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-function chipAction(onClick) {
-  return {
-    role: "button",
-    tabIndex: 0,
-    onClick,
-    onKeyDown: (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        onClick();
-      }
+var FOCUSABLE = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
+function DialogFrame({ labelledBy, onClose, children }) {
+  const dialogRef = (0, import_react3.useRef)(null);
+  const closeRef = (0, import_react3.useRef)(onClose);
+  closeRef.current = onClose;
+  (0, import_react3.useEffect)(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const root2 = dialogRef.current;
+    const initial = root2?.querySelector("[data-dialog-initial]") ?? root2?.querySelector(FOCUSABLE);
+    initial?.focus();
+    return () => {
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeRef.current();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...dialogRef.current?.querySelectorAll(FOCUSABLE) ?? []].filter((element) => element.getClientRects().length > 0);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   };
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-modal-overlay", onClick: () => closeRef.current(), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    "div",
+    {
+      ref: dialogRef,
+      className: "dr-modal",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": labelledBy,
+      onKeyDown,
+      onClick: (event) => event.stopPropagation(),
+      children
+    }
+  ) });
+}
+function useMediaQuery(query) {
+  const [matches, setMatches] = (0, import_react3.useState)(
+    () => typeof window !== "undefined" ? window.matchMedia(query).matches : false
+  );
+  (0, import_react3.useEffect)(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+  return matches;
 }
 async function ensureAppUp(onPhase) {
   let st = await apiGet("/api/app/status");
@@ -24784,8 +24818,8 @@ async function ensureAppUp(onPhase) {
     onPhase(st.job.skill ? `Starting app via ${st.job.skill}\u2026` : "Waiting for the app to come up\u2026");
   }
 }
-async function ensurePlanned({ brief = null, join = false }, onPhase) {
-  let st = await apiGet("/api/plan/status");
+async function ensurePlanned({ brief = null, join = false, rootHint = null }, onPhase, onJob) {
+  let st = await apiGet(rootHint ? `/api/plan/status?root=${encodeURIComponent(rootHint)}` : "/api/plan/status");
   const inFlight = !!st.job && st.job.status === "planning";
   if (join && !inFlight) return st;
   const root2 = st.root;
@@ -24798,7 +24832,12 @@ async function ensurePlanned({ brief = null, join = false }, onPhase) {
   const deadline = Date.now() + 186e4;
   for (; ; ) {
     st = await apiGet(`/api/plan/status?root=${encodeURIComponent(root2)}`);
+    onJob?.(st.job);
     if (st.job && st.job.status === "done") {
+      onPhase(null);
+      return st;
+    }
+    if (st.job && st.job.status === "canceled") {
       onPhase(null);
       return st;
     }
@@ -24828,7 +24867,7 @@ function ProjectBar({ info, onOpenPicker }) {
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-project", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-lbl", style: { margin: 0 }, children: "Project" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { value: info.selected && info.active ? info.active.root : "", disabled: switching, onChange: (e) => onChange(e.target.value), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { "aria-label": "Project", value: info.selected && info.active ? info.active.root : "", disabled: switching, onChange: (e) => onChange(e.target.value), children: [
       (!info.selected || !info.active) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "select project\u2026" }),
       info.projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: p.path, children: [
         p.name,
@@ -24854,8 +24893,8 @@ function ProjectPickerDialog({ info, onClose }) {
       setBusy(false);
     }
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Select project" }),
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogFrame, { labelledBy: "dr-project-dialog-title", onClose, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { id: "dr-project-dialog-title", children: "Select project" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "hint", children: [
       "The app under test. Projects are the git repos under ",
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: info.devRoot }),
@@ -24866,6 +24905,7 @@ function ProjectPickerDialog({ info, onClose }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "select",
         {
+          "data-dialog-initial": true,
           value: info.projects.find((p) => p.path === path) ? path : "",
           onChange: (e) => {
             if (e.target.value) setPath(e.target.value);
@@ -24896,17 +24936,17 @@ function ProjectPickerDialog({ info, onClose }) {
         }
       )
     ] }),
-    err && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11.5, marginBottom: 8 }, children: err }),
+    err && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { role: "alert", style: { color: "var(--alarm)", fontSize: 11.5, marginBottom: 8 }, children: err }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "row", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: onClose, children: "Cancel" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: busy || !path.trim(), onClick: submit, children: busy ? "Selecting\u2026" : "Select" })
     ] })
-  ] }) });
+  ] });
 }
 function PlanDialog({ hasPages, onClose, onKick }) {
   const [brief, setBrief] = (0, import_react3.useState)("");
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Plan the Drill Book" }),
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogFrame, { labelledBy: "dr-plan-dialog-title", onClose, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { id: "dr-plan-dialog-title", children: "Plan the Drill Book" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "hint", children: [
       "A headless agent session explores the project and authors the Book on its own judgment - pages, steps, and states, the works. Leave the brief empty to plan the whole app",
       hasPages ? " (the agent extends and corrects the existing Book - it may revise steps, but is told never to discard manual work)" : "",
@@ -24917,6 +24957,7 @@ function PlanDialog({ hasPages, onClose, onKick }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
+          "data-dialog-initial": true,
           value: brief,
           rows: 3,
           placeholder: "e.g. the new invoices page: list, filters, CSV export",
@@ -24932,7 +24973,7 @@ function PlanDialog({ hasPages, onClose, onKick }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: onClose, children: "Cancel" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", onClick: () => onKick(brief.trim() ? brief.trim() : null), children: brief.trim() ? "Plan the update" : "Plan the whole app" })
     ] })
-  ] }) });
+  ] });
 }
 function AppStatusChip() {
   const [st, setSt] = (0, import_react3.useState)(null);
@@ -24968,28 +25009,96 @@ function AppStatusChip() {
     err && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 11, color: "var(--alarm)" }, children: err })
   ] });
 }
-function Checkbox({ on, onClick }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-checkbox" + (on ? " on" : ""), onClick, "aria-pressed": on, children: on && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 10, strokeWidth: 3 }) });
+function Checkbox({ on, onClick, label }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-checkbox" + (on ? " on" : ""), onClick, "aria-pressed": on, "aria-label": label, children: on && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 10, strokeWidth: 3 }) });
 }
-function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpenPage }) {
+function SectionIntro({ title, children, aside }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-intro", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: title }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children })
+    ] }),
+    aside && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-intro-aside", children: aside })
+  ] });
+}
+function formatDate(value) {
+  if (!value) return "In progress";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(void 0, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+function formatDuration(startedAt, endedAt) {
+  if (!endedAt) return "Running";
+  const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "\u2014";
+  if (ms < 6e4) return `${Math.max(1, Math.round(ms / 1e3))}s`;
+  return `${Math.floor(ms / 6e4)}m ${Math.round(ms % 6e4 / 1e3)}s`;
+}
+function useFetchedImage(src, availabilityUrl = null) {
+  const [imageUrl, setImageUrl] = (0, import_react3.useState)(() => src ? void 0 : null);
+  (0, import_react3.useEffect)(() => {
+    if (!src) {
+      setImageUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl = null;
+    setImageUrl(void 0);
+    Promise.resolve().then(async () => {
+      if (!availabilityUrl) return;
+      const status = await fetch(availabilityUrl, { cache: "no-store" });
+      if (!status.ok || !(await status.json()).available) throw new Error("image unavailable");
+    }).then(async () => {
+      const response = await fetch(src, { cache: "no-store" });
+      if (!response.ok) throw new Error(`image unavailable (${response.status})`);
+      objectUrl = URL.createObjectURL(await response.blob());
+      if (!cancelled) setImageUrl(objectUrl);
+    }).catch(() => {
+      if (!cancelled) setImageUrl(null);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src, availabilityUrl]);
+  return imageUrl;
+}
+function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   const [book, setBook] = (0, import_react3.useState)(null);
   const [pages, setPages] = (0, import_react3.useState)([]);
   const [error, setError] = (0, import_react3.useState)(null);
   const [planPhase, setPlanPhase] = (0, import_react3.useState)(null);
   const [planOpen, setPlanOpen] = (0, import_react3.useState)(false);
   const [planBusy, setPlanBusy] = (0, import_react3.useState)(false);
+  const [planJob, setPlanJob] = (0, import_react3.useState)(null);
+  const [canceling, setCanceling] = (0, import_react3.useState)(false);
+  const [canceledNotice, setCanceledNotice] = (0, import_react3.useState)(null);
+  const [planLog, setPlanLog] = (0, import_react3.useState)(null);
+  const [planLogOpen, setPlanLogOpen] = (0, import_react3.useState)(false);
+  const pinnedRootRef = (0, import_react3.useRef)(null);
   const load = () => {
     Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")]).then(([b, p]) => {
+      pinnedRootRef.current = b.root ?? pinnedRootRef.current;
       setBook(b.book);
       setPages(p.pages);
     }).catch((e) => setError(e.message));
   };
+  const patchBook = (patch) => apiPatch("/api/drillbook", { ...patch, root: pinnedRootRef.current ?? void 0 });
   const runPlan = async (brief, thenRun, join = false) => {
     if (planBusy) return;
     setError(null);
+    setCanceledNotice(null);
+    setPlanJob(null);
     setPlanBusy(true);
     try {
-      const st = await ensurePlanned({ brief, join }, setPlanPhase);
+      const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      if (st.job && st.job.status === "canceled") {
+        setCanceledNotice(`Planning canceled - ${st.pages} page${st.pages === 1 ? "" : "s"} on disk. Plan book to retry.`);
+        return;
+      }
       if (join && (!st.job || st.job.status !== "done")) {
         if (st.job && st.job.status === "failed" && st.pages === 0) {
           setError(st.job.error || "planning failed");
@@ -24997,6 +25106,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
         return;
       }
       const [b, p] = await Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")]);
+      pinnedRootRef.current = b.root ?? pinnedRootRef.current;
       setBook(b.book);
       setPages(p.pages);
       const freshBook = b.book;
@@ -25011,7 +25121,27 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
       setError(e.message);
     } finally {
       setPlanPhase(null);
+      setPlanJob(null);
       setPlanBusy(false);
+    }
+  };
+  const cancelRunningPlan = async () => {
+    if (canceling) return;
+    setCanceling(true);
+    try {
+      await apiPost("/api/plan/cancel", { root: pinnedRootRef.current ?? void 0 });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCanceling(false);
+    }
+  };
+  const loadPlanLog = async () => {
+    try {
+      const r = await fetch(`/api/plan/log${pinnedRootRef.current ? `?root=${encodeURIComponent(pinnedRootRef.current)}` : ""}`);
+      setPlanLog(r.ok ? await r.text() : "(no plan log available)");
+    } catch (e) {
+      setPlanLog(`(could not load the plan log: ${e.message})`);
     }
   };
   (0, import_react3.useEffect)(() => {
@@ -25023,15 +25153,15 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
   const selectedIds = new Set(book.pages.filter((p) => p.selected).map((p) => p.id));
   const togglePageSelected = async (pageId) => {
     const nextPages = book.pages.some((p) => p.id === pageId) ? book.pages.map((p) => p.id === pageId ? { ...p, selected: !p.selected } : p) : [...book.pages, { id: pageId, title: pageId, path: "/", mode: "steps", selected: true }];
-    const saved = await apiPatch("/api/drillbook", { pages: nextPages });
+    const saved = await patchBook({ pages: nextPages });
     setBook(saved.book);
   };
   const toggleFullDrill = async () => {
-    const saved = await apiPatch("/api/drillbook", { fullDrill: !book.fullDrill });
+    const saved = await patchBook({ fullDrill: !book.fullDrill });
     setBook(saved.book);
   };
   const setAutonomy = async (autonomy) => {
-    const saved = await apiPatch("/api/drillbook", { autonomy });
+    const saved = await patchBook({ autonomy });
     setBook(saved.book);
   };
   const runSelected = () => {
@@ -25048,7 +25178,40 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
     setError(null);
     onRunSelected(ids, book.viewports.length ? book.viewports : ["desktop"]);
   };
+  const planActivity = (() => {
+    if (!planJob || planJob.status !== "planning") return null;
+    const fmt = (sec) => {
+      const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    };
+    const now = Date.now();
+    const parts = [];
+    if (planJob.startedAt) parts.push(`running ${fmt((now - Date.parse(planJob.startedAt)) / 1e3)}`);
+    if (planJob.deadlineAt) {
+      const remaining = (Date.parse(planJob.deadlineAt) - now) / 1e3;
+      if (remaining > 0) parts.push(`${fmt(remaining)} left before timeout`);
+    }
+    const p = planJob.progress;
+    let staleSec = null;
+    if (p?.lastActivityAt) {
+      staleSec = (now - Date.parse(p.lastActivityAt)) / 1e3;
+      parts.push(p.lastActivity ? `last: ${p.lastActivity} (${fmt(Math.max(0, staleSec))} ago)` : `active ${fmt(Math.max(0, staleSec))} ago`);
+    }
+    if (p && (p.pagesAuthored > 0 || p.drillsFilesChanged > 0)) {
+      parts.push(`${p.pagesAuthored} page${p.pagesAuthored === 1 ? "" : "s"} on disk, ${p.drillsFilesChanged} file change${p.drillsFilesChanged === 1 ? "" : "s"}`);
+    }
+    const stale = staleSec !== null && staleSec > 120;
+    return { text: parts.join(" \xB7 "), stale };
+  })();
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      SectionIntro,
+      {
+        title: "Drill Book",
+        aside: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {}),
+        children: "This is the test plan the agent maintains for the selected app. Choose what to cover, review the rules, or open a page to inspect and edit its steps beside the live preview."
+      }
+    ),
     projInfo && !projInfo.selected && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-sec card", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { justifyContent: "space-between" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "t12", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "No project selected." }),
@@ -25066,7 +25229,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "App under test" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: book.app.name || "(not configured)" }),
-          book.app.url && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { color: "var(--mute)", fontSize: 11 }, children: book.app.url }),
+          book.app.url && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-app-url", children: book.app.url }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
         ] })
       ] }),
@@ -25084,13 +25247,37 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", onClick: runSelected, disabled: planBusy, children: "Run selected" })
       ] })
     ] }),
-    planPhase && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-sec", style: { color: "var(--brass)", fontSize: 12 }, children: planPhase }),
+    planPhase && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { justifyContent: "space-between" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--brass)", fontSize: 12 }, children: planPhase }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: cancelRunningPlan, disabled: canceling, children: canceling ? "Canceling\u2026" : "Cancel" })
+      ] }),
+      planActivity && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, marginTop: 4, color: planActivity.stale ? "var(--alarm)" : "var(--ink-2)" }, children: [
+        planActivity.text,
+        planActivity.stale && " \xB7 no output recently - the plan may be stuck, Cancel to stop it"
+      ] })
+    ] }),
+    canceledNotice && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-notice", role: "status", children: canceledNotice }),
     error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
       error,
-      pages.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { marginLeft: 8 }, onClick: onGoAuthoring, children: "Open Authoring" })
+      pages.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { marginLeft: 8 }, onClick: () => onGoAuthoring(), children: "Open Authoring" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          className: "btn small",
+          style: { marginLeft: 8 },
+          onClick: () => {
+            const next = !planLogOpen;
+            setPlanLogOpen(next);
+            if (next && planLog === null) loadPlanLog();
+          },
+          children: planLogOpen ? "Hide plan log" : "Show plan log"
+        }
+      ),
+      planLogOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "mono", style: { marginTop: 8, maxHeight: 240, overflow: "auto", fontSize: 11, whiteSpace: "pre-wrap" }, children: planLog ?? "Loading\u2026" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec dr-rowwrap", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip click ink" + (book.fullDrill ? " active" : ""), "aria-pressed": book.fullDrill, ...chipAction(toggleFullDrill), children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "chip click ink" + (book.fullDrill ? " active" : ""), onClick: toggleFullDrill, "aria-pressed": book.fullDrill, children: [
         "Full Drill ",
         book.fullDrill ? "on" : "off"
       ] }),
@@ -25098,6 +25285,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "select",
         {
+          "aria-label": "Run autonomy",
           value: book.autonomy,
           onChange: (e) => setAutonomy(e.target.value),
           style: { fontSize: 11, padding: "6px 8px", border: "1px solid var(--rule)", background: "var(--paper-2)", color: "var(--ink)", fontFamily: "var(--sans)" },
@@ -25113,10 +25301,11 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
+          "aria-label": "Global rules and notes",
           className: "mono",
           defaultValue: book.globalRules,
           placeholder: "App-specific truths that feed every plan and review (citations required, no console errors, \u2026)",
-          onBlur: (e) => apiPatch("/api/drillbook", { globalRules: e.target.value }).then((r) => setBook(r.book)),
+          onBlur: (e) => patchBook({ globalRules: e.target.value }).then((r) => setBook(r.book)),
           style: { width: "100%", minHeight: 64, padding: 10, border: "1px solid var(--rule)", background: "var(--paper-2)", color: "var(--ink-2)", fontSize: 12, fontFamily: "var(--sans)" }
         }
       )
@@ -25133,16 +25322,19 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tbody", { children: [
         pages.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { colSpan: 6, style: { color: "var(--mute)" }, children: "No pages yet. Run selected (or Plan book) has an agent author the whole plan; Authoring is the manual override." }) }),
         pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Checkbox, { on: book.fullDrill || selectedIds.has(p.id), onClick: () => togglePageSelected(p.id) }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-link", onClick: () => onOpenPage(p.id), title: "Open this page in Authoring", children: p.title }),
-            " ",
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { color: "var(--mute-2)", fontSize: 10.5 }, children: p.path })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: p.mode === "steps" ? "Step by step" : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--brass)", fontWeight: 600 }, children: "Whole page vision" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: p.areas.length }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: p.steps.length }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: p.states.length })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Run", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Checkbox, { label: `Include ${p.title} in runs`, on: book.fullDrill || selectedIds.has(p.id), onClick: () => togglePageSelected(p.id) }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Page", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "dr-page-link", onClick: () => onGoAuthoring(p.id), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.title }),
+              " ",
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: p.path })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": "true", children: "\u2192" })
+          ] }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Mode", children: p.mode === "steps" ? "Step by step" : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--brass)", fontWeight: 600 }, children: "Whole page vision" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Areas", children: p.areas.length }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Steps", children: p.steps.length }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "States", children: p.states.length })
         ] }, p.id))
       ] })
     ] }) }),
@@ -25161,12 +25353,13 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
 }
 function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemove, onEditDescription, onJumpRef }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-step", style: { opacity: step.enabled ? 1 : 0.5 }, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Checkbox, { on: step.enabled, onClick: onToggleEnabled }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Checkbox, { label: `${step.enabled ? "Disable" : "Enable"} check ${step.description || step.id}`, on: step.enabled, onClick: onToggleEnabled }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
           className: "dr-step-desc",
+          "aria-label": `Check description for ${step.id}`,
           defaultValue: step.description,
           onBlur: (e) => {
             if (e.target.value !== step.description) onEditDescription(e.target.value);
@@ -25175,115 +25368,200 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 4 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "dr-mode" + (step.mode === "vision" ? " vision" : " e2e"), onClick: onToggleMode, children: [
-          step.mode === "vision" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 10 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileCode2, { size: 10 }),
-          step.mode
-        ] }),
-        step.mode === "vision" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click" + (step.judgment ? " brass active" : ""), "aria-pressed": !!step.judgment, ...chipAction(onToggleJudgment), title: "Needs ongoing model judgment (drillJudge), not a one-time deterministic find", children: "judgment" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "dr-mode" + (step.mode === "vision" ? " vision" : " e2e"),
+            onClick: onToggleMode,
+            "aria-label": `Change ${step.description || step.id} from ${step.mode} mode`,
+            children: [
+              step.mode === "vision" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 10 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileCode2, { size: 10 }),
+              step.mode
+            ]
+          }
+        ),
+        step.mode === "vision" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "chip click" + (step.judgment ? " brass active" : ""), onClick: onToggleJudgment, "aria-pressed": !!step.judgment, "aria-label": `Ongoing model judgment for ${step.description || step.id}`, title: "Needs ongoing model judgment (drillJudge), not a one-time deterministic find", children: "judgment" }),
         step.spec && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: step.spec }),
         step.viewports.map((v) => {
           const vp = VIEWPORTS.find((x) => x.id === v);
           const Icon2 = vp?.icon ?? Monitor;
           return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 11, style: { color: "var(--mute)" } }, v);
         }),
-        step.ref && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click sage", ...chipAction(() => onJumpRef(step.ref)), children: step.ref }),
+        step.ref && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "chip click sage", "aria-label": `Open referenced area ${step.ref}`, onClick: () => onJumpRef(step.ref), children: step.ref }),
         step.state !== "default" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: step.state })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-xbtn", onClick: onRemove, title: "Remove step", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14 }) })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-xbtn", onClick: onRemove, title: "Remove step", "aria-label": `Remove check ${step.description || step.id}`, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14 }) })
   ] });
 }
-function AuthoringView() {
+function AuthoringView({ initialPageId, onPageChange }) {
   const [pages, setPages] = (0, import_react3.useState)([]);
-  const [pageId, setPageId] = (0, import_react3.useState)(() => localStorage.getItem("drill.authoring.page"));
+  const initialAuthoringPage = initialPageId ?? localStorage.getItem("drill.authoring.page");
+  const [pageId, setPageId] = (0, import_react3.useState)(initialAuthoringPage);
+  const pageIdRef = (0, import_react3.useRef)(initialAuthoringPage);
   const [viewportId, setViewportId] = (0, import_react3.useState)("desktop");
   const [tab, setTab] = (0, import_react3.useState)(null);
+  const [tabError, setTabError] = (0, import_react3.useState)(null);
+  const [tabLoadRevision, setTabLoadRevision] = (0, import_react3.useState)(0);
   const [pickMode, setPickMode] = (0, import_react3.useState)(false);
+  const [pickError, setPickError] = (0, import_react3.useState)(null);
+  const [previewRevision, setPreviewRevision] = (0, import_react3.useState)(0);
+  const [areaResolutionRevision, setAreaResolutionRevision] = (0, import_react3.useState)(0);
+  const [previewReady, setPreviewReady] = (0, import_react3.useState)(false);
+  const [previewSize, setPreviewSize] = (0, import_react3.useState)(null);
+  const [targetViewport, setTargetViewport] = (0, import_react3.useState)(null);
+  const [preparingPick, setPreparingPick] = (0, import_react3.useState)(false);
+  const [saveStatus, setSaveStatus] = (0, import_react3.useState)("idle");
   const [stateSel, setStateSel] = (0, import_react3.useState)("default");
   const [error, setError] = (0, import_react3.useState)(null);
   const [authError, setAuthError] = (0, import_react3.useState)(null);
   const [newPageId, setNewPageId] = (0, import_react3.useState)("");
-  const [mobileSheetOpen, setMobileSheetOpen] = (0, import_react3.useState)(true);
+  const [mobileSheetOpen, setMobileSheetOpen] = (0, import_react3.useState)(false);
+  const isNarrowAuthoring = useMediaQuery("(max-width: 760px)");
   const overlayRef = (0, import_react3.useRef)(null);
-  const [cvEl, setCvEl] = (0, import_react3.useState)(null);
-  const [cvWidth, setCvWidth] = (0, import_react3.useState)(0);
   const [urlDraft, setUrlDraft] = (0, import_react3.useState)("");
   const urlFocused = (0, import_react3.useRef)(false);
   const [liveUrl, setLiveUrl] = (0, import_react3.useState)(null);
   const [consoleOpen, setConsoleOpen] = (0, import_react3.useState)(false);
   const [consoleEntries, setConsoleEntries] = (0, import_react3.useState)([]);
   const consoleEndRef = (0, import_react3.useRef)(null);
-  const [customVp, setCustomVp] = (0, import_react3.useState)(null);
-  const [vpDraft, setVpDraft] = (0, import_react3.useState)({ w: "", h: "" });
-  const [resolveTick, setResolveTick] = (0, import_react3.useState)(0);
+  const planFabRef = (0, import_react3.useRef)(null);
+  const planCloseRef = (0, import_react3.useRef)(null);
+  const sheetWasOpenRef = (0, import_react3.useRef)(false);
+  const pagesRef = (0, import_react3.useRef)([]);
+  const saveQueuesRef = (0, import_react3.useRef)(/* @__PURE__ */ new Map());
+  const frozenTabRef = (0, import_react3.useRef)(null);
+  const pickEpochRef = (0, import_react3.useRef)(0);
+  const pinnedRootRef = (0, import_react3.useRef)(null);
   (0, import_react3.useEffect)(() => {
-    if (!cvEl) return;
-    const ro = new ResizeObserver(() => setCvWidth(cvEl.clientWidth));
-    ro.observe(cvEl);
-    setCvWidth(cvEl.clientWidth);
-    return () => ro.disconnect();
-  }, [cvEl]);
+    const wasOpen = sheetWasOpenRef.current;
+    sheetWasOpenRef.current = mobileSheetOpen;
+    if (!isNarrowAuthoring || wasOpen === mobileSheetOpen) return;
+    const target = mobileSheetOpen ? planCloseRef.current : planFabRef.current;
+    requestAnimationFrame(() => target?.focus());
+  }, [isNarrowAuthoring, mobileSheetOpen]);
   (0, import_react3.useEffect)(() => {
+    pagesRef.current = pages;
+  }, [pages]);
+  (0, import_react3.useEffect)(() => {
+    pageIdRef.current = pageId;
     if (pageId) localStorage.setItem("drill.authoring.page", pageId);
   }, [pageId]);
   const loadPages = () => {
-    apiGet("/api/pages").then((r) => {
+    return apiGet("/api/pages").then((r) => {
+      pinnedRootRef.current = r.root ?? pinnedRootRef.current;
       setPages(r.pages);
-      setPageId((prev) => prev && r.pages.some((p) => p.id === prev) ? prev : r.pages.length > 0 ? r.pages[0].id : null);
+      const previous = pageIdRef.current;
+      const next = previous && r.pages.some((candidate) => candidate.id === previous) ? previous : r.pages.length > 0 ? r.pages[0].id : null;
+      pageIdRef.current = next;
+      setPageId(next);
+      if (next && next !== previous) onPageChange(next);
     }).catch((e) => setError(e.message));
   };
-  (0, import_react3.useEffect)(loadPages, []);
+  (0, import_react3.useEffect)(() => {
+    void loadPages();
+  }, []);
   const page = pages.find((p) => p.id === pageId) ?? null;
+  const pageStateIds = page?.states.map((state) => state.id) ?? [];
+  const pageStateKey = pageStateIds.join("\0");
+  const activeStateSel = stateSel === "default" || pageStateIds.includes(stateSel) ? stateSel : "default";
+  const activeState = page?.states.find((state) => state.id === activeStateSel) ?? null;
+  const activeStateImageSource = activeState?.screenshotPath ? `/api/states/${page?.id}/${activeStateSel}/screenshot` : null;
+  const activeStateImage = useFetchedImage(
+    activeStateImageSource,
+    activeStateImageSource ? `/api/states/${page?.id}/${activeStateSel}/screenshot-status` : null
+  );
+  (0, import_react3.useEffect)(() => {
+    if (stateSel !== activeStateSel) setStateSel(activeStateSel);
+  }, [activeStateSel, page?.id, pageStateKey, stateSel]);
   (0, import_react3.useEffect)(() => {
     if (!pageId) return;
+    const previousFrozen = frozenTabRef.current;
+    pickEpochRef.current += 1;
+    frozenTabRef.current = null;
+    setPickMode(false);
+    setPreparingPick(false);
+    if (previousFrozen) {
+      apiPost("/api/authoring/freeze", { tabId: previousFrozen, frozen: false }).catch(() => {
+      });
+    }
     setTab(null);
-    setAuthError(null);
-    apiPost("/api/authoring/tab", { pageId, viewport: viewportId }).then((r) => setTab({ tabId: r.tabId, canvasUrl: r.canvasUrl, viewport: r.viewport })).catch((e) => setAuthError(`Could not open the app preview: ${e.message}`));
-  }, [pageId, viewportId]);
+    setTabError(null);
+    setPreviewReady(false);
+    setPreviewSize(null);
+    setTargetViewport(null);
+    let cancelled = false;
+    apiPost("/api/authoring/tab", { pageId, viewport: viewportId, root: pinnedRootRef.current ?? void 0 }).then((r) => {
+      if (cancelled) return;
+      setTab({
+        tabId: r.tabId,
+        canvasUrl: r.canvasUrl,
+        screenshotUrl: r.screenshotUrl,
+        url: r.url,
+        viewport: r.viewport
+      });
+    }).catch((e) => {
+      if (!cancelled) setTabError(e.message);
+    });
+    return () => {
+      cancelled = true;
+      const frozen = frozenTabRef.current;
+      pickEpochRef.current += 1;
+      frozenTabRef.current = null;
+      if (frozen) apiPost("/api/authoring/freeze", { tabId: frozen, frozen: false }).catch(() => {
+      });
+    };
+  }, [pageId, viewportId, tabLoadRevision]);
   (0, import_react3.useEffect)(() => {
     if (!tab) {
       setLiveUrl(null);
       setConsoleEntries([]);
       return;
     }
-    let stop = false;
+    let stopped = false;
     const poll = async () => {
       try {
-        const [info, con] = await Promise.all([
+        const [info, consoleResult] = await Promise.all([
           apiGet(`/api/authoring/tab-info?tabId=${encodeURIComponent(tab.tabId)}`),
           apiGet(`/api/authoring/console?tabId=${encodeURIComponent(tab.tabId)}&limit=150`)
         ]);
-        if (stop) return;
-        const u = info.tab?.url ?? null;
-        setLiveUrl(u);
-        if (!urlFocused.current && u) setUrlDraft(u);
-        setConsoleEntries(con.entries ?? []);
+        if (stopped) return;
+        const nextUrl = info.tab?.url ?? tab.url;
+        setLiveUrl(nextUrl);
+        setTab((current) => current?.tabId === tab.tabId ? { ...current, url: nextUrl } : current);
+        if (!urlFocused.current) setUrlDraft(nextUrl);
+        setConsoleEntries(consoleResult.entries ?? []);
       } catch {
       }
     };
-    poll();
-    const t = setInterval(poll, 2500);
+    void poll();
+    const timer = setInterval(poll, 2500);
     return () => {
-      stop = true;
-      clearInterval(t);
+      stopped = true;
+      clearInterval(timer);
     };
-  }, [tab]);
+  }, [tab?.tabId]);
   (0, import_react3.useEffect)(() => {
     if (consoleOpen) consoleEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [consoleOpen, consoleEntries.length]);
-  const doNav = async (dest) => {
+  const refreshPreviewAfterBrowserAction = () => {
+    setPreviewReady(false);
+    setPreviewRevision(Date.now());
+    setAreaResolutionRevision((revision) => revision + 1);
+  };
+  const doNav = async (destination) => {
     if (!tab) return;
-    const target = dest.trim();
-    if (!target) return;
+    const draft = destination.trim();
+    if (!draft) return;
     try {
-      const r = await apiPost("/api/authoring/nav", { tabId: tab.tabId, url: /^[a-z][a-z0-9+.-]*:/i.test(target) ? target : `http://${target}` });
-      if (r.ok === false && r.error) setAuthError(`Navigation failed: ${r.error}`);
-      else setAuthError(null);
-      if (r.url) {
-        setLiveUrl(r.url);
-        if (!urlFocused.current) setUrlDraft(r.url);
-      }
-      setResolveTick((n) => n + 1);
+      const target = new URL(draft, liveUrl ?? tab.url).toString();
+      const response = await apiPost("/api/authoring/nav", { tabId: tab.tabId, url: target });
+      const nextUrl = response.url ?? target;
+      setLiveUrl(nextUrl);
+      setTab((current) => current?.tabId === tab.tabId ? { ...current, url: nextUrl } : current);
+      if (!urlFocused.current) setUrlDraft(nextUrl);
+      setAuthError(null);
+      refreshPreviewAfterBrowserAction();
     } catch (err) {
       setAuthError(`Navigation failed: ${err.message}`);
     }
@@ -25291,48 +25569,80 @@ function AuthoringView() {
   const doTabAction = async (action) => {
     if (!tab) return;
     try {
-      const r = await apiPost("/api/authoring/tab-action", { tabId: tab.tabId, action });
-      if (r.url) {
-        setLiveUrl(r.url);
-        if (!urlFocused.current) setUrlDraft(r.url);
-      }
+      const response = await apiPost("/api/authoring/tab-action", { tabId: tab.tabId, action });
+      const nextUrl = response.url ?? liveUrl ?? tab.url;
+      setLiveUrl(nextUrl);
+      setTab((current) => current?.tabId === tab.tabId ? { ...current, url: nextUrl } : current);
+      if (!urlFocused.current) setUrlDraft(nextUrl);
       setAuthError(null);
-      setResolveTick((n) => n + 1);
+      refreshPreviewAfterBrowserAction();
     } catch (err) {
       setAuthError(`Could not ${action}: ${err.message}`);
     }
   };
   const restartTab = async () => {
     if (!pageId) return;
+    cancelHighlight();
     setTab(null);
+    setTabError(null);
     setAuthError(null);
     setConsoleEntries([]);
     try {
-      const r = await apiPost("/api/authoring/restart", { pageId, viewport: viewportId });
-      setTab({ tabId: r.tabId, canvasUrl: r.canvasUrl, viewport: r.viewport });
+      const response = await apiPost("/api/authoring/restart", {
+        pageId,
+        viewport: viewportId,
+        root: pinnedRootRef.current ?? void 0
+      });
+      setTab({
+        tabId: response.tabId,
+        canvasUrl: response.canvasUrl,
+        screenshotUrl: response.screenshotUrl ?? `/api/authoring/screenshot/${encodeURIComponent(response.tabId)}`,
+        url: response.url,
+        viewport: response.viewport
+      });
+      refreshPreviewAfterBrowserAction();
     } catch (err) {
+      setTabError(err.message);
       setAuthError(`Could not restart the app preview: ${err.message}`);
     }
   };
-  const saveChain = (0, import_react3.useRef)(Promise.resolve());
-  const freshPage = (0, import_react3.useRef)(null);
-  freshPage.current = page ?? freshPage.current;
-  const savePage = (make) => {
-    const id = pageId;
-    if (!id) return Promise.resolve();
-    saveChain.current = saveChain.current.then(async () => {
-      const current = freshPage.current;
-      if (!current || current.id !== id) return;
-      const r = await fetch(`/api/pages/${encodeURIComponent(id)}`, {
+  (0, import_react3.useEffect)(() => {
+    if (!tab || pickMode) return;
+    const timer = setInterval(() => setPreviewRevision((n) => n + 1), 2e3);
+    return () => clearInterval(timer);
+  }, [tab, pickMode]);
+  const mutatePage = (mutation, targetPageId = pageId) => {
+    if (!targetPageId) return Promise.resolve(null);
+    const previous = saveQueuesRef.current.get(targetPageId) ?? Promise.resolve();
+    const operation = previous.catch(() => {
+    }).then(async () => {
+      const current = pagesRef.current.find((candidate) => candidate.id === targetPageId);
+      if (!current) throw new Error(`page ${targetPageId} is no longer available`);
+      const patch = mutation(current);
+      setSaveStatus("saving");
+      const response = await fetch(`/api/pages/${encodeURIComponent(targetPageId)}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(make(current))
+        body: JSON.stringify({ ...patch, root: pinnedRootRef.current ?? void 0 })
       });
-      const j = await r.json();
-      freshPage.current = j.page;
-      setPages((ps) => ps.map((p) => p.id === id ? j.page : p));
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.page) throw new Error(body.error || `save failed (${response.status})`);
+      pagesRef.current = pagesRef.current.map(
+        (candidate) => candidate.id === targetPageId ? body.page : candidate
+      );
+      setPages(pagesRef.current);
+      setSaveStatus("saved");
+      setPickError(
+        (currentError) => currentError?.startsWith("Could not save the Drill Book:") ? null : currentError
+      );
+      return body.page;
+    }).catch((err) => {
+      setSaveStatus("error");
+      setPickError(`Could not save the Drill Book: ${err.message}`);
+      throw err;
     });
-    return saveChain.current;
+    saveQueuesRef.current.set(targetPageId, operation.catch(() => null));
+    return operation;
   };
   const createPage = async () => {
     const id = newPageId.trim();
@@ -25340,28 +25650,33 @@ function AuthoringView() {
     await fetch(`/api/pages/${encodeURIComponent(id)}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: id, path: "/" + id })
+      body: JSON.stringify({ title: id, path: "/" + id, root: pinnedRootRef.current ?? void 0 })
     });
     setNewPageId("");
     await loadPages();
     setPageId(id);
+    onPageChange(id);
   };
   const onOverlayClick = async (e) => {
     if (!pickMode || !tab || !page) return;
+    const targetTab = tab.tabId;
+    const epoch = pickEpochRef.current;
     const box = overlayRef.current.getBoundingClientRect();
-    const effVp = customVp ?? tab.viewport;
-    const x = (e.clientX - box.left) / box.width * effVp.width;
-    const y = (e.clientY - box.top) / box.height * effVp.height;
+    const targetSize = targetViewport ?? previewSize ?? tab.viewport;
+    const x = Math.max(0, Math.min(targetSize.width - 1, (e.clientX - box.left) / box.width * targetSize.width));
+    const y = Math.max(0, Math.min(targetSize.height - 1, (e.clientY - box.top) / box.height * targetSize.height));
     setPickMode(false);
+    setPickError(null);
     try {
-      const r = await apiPost("/api/authoring/pick", { tabId: tab.tabId, x, y });
+      const r = await apiPost("/api/authoring/pick", { tabId: targetTab, x, y });
+      if (epoch !== pickEpochRef.current) return;
       if (!r.anchors) {
-        setAuthError("No element under that point - try clicking directly on the element you want.");
+        setPickError("Nothing was found there. Refresh the preview and try the center of the element.");
         return;
       }
-      await savePage((current) => {
-        const n = current.areas.reduce((m, a2) => Math.max(m, a2.n), 0) + 1;
-        const a = {
+      await mutatePage((current) => {
+        const n = Math.max(0, ...current.areas.map((candidate) => candidate.n)) + 1;
+        const area = {
           n,
           id: `${current.id}#${n}`,
           label: r.anchors.testId || r.anchors.ariaLabel || (r.anchors.text ? r.anchors.text.replace(/\s+/g, " ").trim().slice(0, 32) : `Area ${n}`),
@@ -25377,56 +25692,162 @@ function AuthoringView() {
           },
           pct: r.anchors.pct
         };
-        return { areas: [...current.areas, a] };
-      });
-      setAuthError(null);
+        return { areas: [...current.areas, area] };
+      }, page.id);
       setMobileSheetOpen(true);
     } catch (err) {
-      setAuthError(`Pick failed: ${err.message}`);
+      setPickError(err.message);
+    } finally {
+      if (frozenTabRef.current === targetTab) frozenTabRef.current = null;
+      apiPost("/api/authoring/freeze", { tabId: targetTab, frozen: false }).catch(() => {
+      });
     }
   };
-  const removeArea = (n) => {
-    savePage((current) => ({
-      areas: current.areas.filter((a) => a.n !== n),
-      steps: current.steps.filter((s) => s.area !== n)
-    }));
-  };
-  const startHighlight = () => {
+  const startHighlight = async () => {
+    if (!tab || preparingPick || pickMode || frozenTabRef.current) return;
+    const targetTab = tab;
+    const epoch = pickEpochRef.current + 1;
+    pickEpochRef.current = epoch;
+    frozenTabRef.current = targetTab.tabId;
+    setPreparingPick(true);
+    setPickError(null);
+    try {
+      const frozen = await apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: true });
+      if (epoch !== pickEpochRef.current) {
+        await apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: false }).catch(() => {
+        });
+        return;
+      }
+      if (frozen.viewport?.width && frozen.viewport?.height) setTargetViewport(frozen.viewport);
+      const revision = Date.now();
+      const frozenPreview = new Image();
+      await new Promise((resolve, reject) => {
+        frozenPreview.onload = () => resolve();
+        frozenPreview.onerror = () => reject(new Error("the frozen viewport preview did not load"));
+        frozenPreview.src = `${targetTab.screenshotUrl}?t=${revision}`;
+      });
+      if (epoch !== pickEpochRef.current) {
+        await apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: false }).catch(() => {
+        });
+        return;
+      }
+      if (frozenPreview.naturalWidth && frozenPreview.naturalHeight) {
+        setPreviewSize({ width: frozenPreview.naturalWidth, height: frozenPreview.naturalHeight });
+      }
+      setPreviewReady(false);
+      setPreviewRevision(revision);
+    } catch (err) {
+      if (frozenTabRef.current === targetTab.tabId) frozenTabRef.current = null;
+      apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: false }).catch(() => {
+      });
+      if (epoch === pickEpochRef.current) {
+        setPickError(`Could not freeze the page for targeting: ${err.message}`);
+      }
+      return;
+    } finally {
+      if (epoch === pickEpochRef.current) setPreparingPick(false);
+    }
+    if (epoch !== pickEpochRef.current) return;
     setMobileSheetOpen(false);
     setPickMode(true);
   };
+  const cancelHighlight = () => {
+    pickEpochRef.current += 1;
+    setPickMode(false);
+    setPreparingPick(false);
+    const frozen = frozenTabRef.current;
+    frozenTabRef.current = null;
+    if (frozen) apiPost("/api/authoring/freeze", { tabId: frozen, frozen: false }).catch(() => {
+    });
+  };
+  (0, import_react3.useEffect)(() => {
+    if (!pickMode) return;
+    const onKey = (event) => {
+      if (event.key === "Escape") cancelHighlight();
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [pickMode, tab]);
+  (0, import_react3.useEffect)(() => {
+    if (!isNarrowAuthoring || !mobileSheetOpen) return;
+    const closeOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMobileSheetOpen(false);
+    };
+    addEventListener("keydown", closeOnEscape);
+    return () => removeEventListener("keydown", closeOnEscape);
+  }, [isNarrowAuthoring, mobileSheetOpen]);
   const [livePct, setLivePct] = (0, import_react3.useState)({});
+  const areaAnchorKey = JSON.stringify(page?.areas.map((area) => [area.id, area.anchors]) ?? []);
   (0, import_react3.useEffect)(() => {
     if (!tab || !page) {
       setLivePct({});
       return;
     }
     let cancelled = false;
-    (async () => {
-      const next = {};
-      for (const a of page.areas) {
-        try {
-          const r = await apiPost("/api/authoring/resolve", { tabId: tab.tabId, anchors: a.anchors });
-          next[a.id] = r.resolved?.pct ?? a.pct ?? null;
-        } catch {
-          next[a.id] = a.pct ?? null;
-        }
+    let resolving = false;
+    const resolveAreas = async () => {
+      if (resolving || document.visibilityState === "hidden" || pickMode) return;
+      resolving = true;
+      try {
+        const r = await apiPost("/api/authoring/resolve-many", {
+          tabId: tab.tabId,
+          items: page.areas.map((area) => ({ id: area.id, anchors: area.anchors }))
+        });
+        if (!cancelled) setLivePct(r.resolved ?? {});
+      } catch {
+      } finally {
+        resolving = false;
       }
-      if (!cancelled) setLivePct(next);
-    })();
+    };
+    void resolveAreas();
+    const interval = setInterval(resolveAreas, 5e3);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void resolveAreas();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [tab, page?.areas.length, page?.id, customVp, resolveTick]);
+  }, [tab?.tabId, page?.id, areaAnchorKey, areaResolutionRevision, pickMode]);
   const addStep = (area) => {
-    const step = { id: newStepId(), area, mode: "vision", enabled: true, viewports: [viewportId], state: stateSel, description: "", tags: [] };
-    savePage((current) => ({ steps: [...current.steps, step] }));
+    const step = { id: newStepId(), area, mode: "vision", enabled: true, viewports: [viewportId], state: activeStateSel, description: "", tags: [] };
+    void mutatePage((current) => ({ steps: [...current.steps, step] }));
   };
   const patchStep = (stepId, patch) => {
-    savePage((current) => ({ steps: current.steps.map((s) => s.id === stepId ? { ...s, ...patch } : s) }));
+    void mutatePage((current) => ({
+      steps: current.steps.map(
+        (step) => step.id === stepId ? { ...step, ...typeof patch === "function" ? patch(step) : patch } : step
+      )
+    }));
   };
   const removeStep = (stepId) => {
-    savePage((current) => ({ steps: current.steps.filter((s) => s.id !== stepId) }));
+    void mutatePage((current) => ({ steps: current.steps.filter((step) => step.id !== stepId) }));
+  };
+  const renameArea = (areaId, label) => {
+    const nextLabel = label.trim();
+    if (!nextLabel) return;
+    void mutatePage((current) => ({
+      areas: current.areas.map((area) => area.id === areaId ? { ...area, label: nextLabel } : area)
+    }));
+  };
+  const removeArea = (area) => {
+    const crossPageRefs = pagesRef.current.flatMap(
+      (candidate) => candidate.id === pageId ? [] : candidate.steps.filter((step) => step.ref === area.id).map(() => candidate.title)
+    );
+    if (crossPageRefs.length > 0) {
+      setPickError(`Area ${area.n} is referenced from ${Array.from(new Set(crossPageRefs)).join(", ")}. Remove those links before deleting it.`);
+      return;
+    }
+    const scopedChecks = pagesRef.current.find((candidate) => candidate.id === pageId)?.steps.filter((step) => step.area === area.n).length ?? 0;
+    if (!confirm(`Delete \u201C${area.label}\u201D${scopedChecks ? ` and its ${scopedChecks} check${scopedChecks === 1 ? "" : "s"}` : ""}?`)) return;
+    void mutatePage((current) => ({
+      areas: current.areas.filter((candidate) => candidate.id !== area.id),
+      steps: current.steps.filter((step) => step.area !== area.n)
+    }));
   };
   if (error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
     error,
@@ -25440,6 +25861,7 @@ function AuthoringView() {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           "input",
           {
+            "aria-label": "New page id",
             value: newPageId,
             onChange: (e) => setNewPageId(e.target.value),
             placeholder: "page id, e.g. chat",
@@ -25455,279 +25877,367 @@ function AuthoringView() {
   }
   if (!page) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "Loading\u2026" });
   const states = ["default", ...page.states.map((s) => s.id).filter((s) => s !== "default")];
-  const pageSteps = page.steps.filter((s) => s.area === 0 && s.state === stateSel);
-  const areaSteps = (n) => page.steps.filter((s) => s.area === n && s.state === stateSel);
-  const vp = customVp ?? tab?.viewport ?? null;
-  const scale = vp && cvWidth > 0 ? Math.min(1, cvWidth / vp.width) : 1;
-  const dispW = vp ? Math.round(vp.width * scale) : 0;
-  const dispH = vp ? Math.round(vp.height * scale) : 0;
+  const pageSteps = page.steps.filter((s) => s.area === 0 && s.state === activeStateSel);
+  const areaSteps = (n) => page.steps.filter((s) => s.area === n && s.state === activeStateSel);
   const consoleErrors = consoleEntries.filter((e) => e.level === "error").length;
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "The manual authoring surface: your step plan alongside the live app (on a phone it slides up as a sheet). Highlight an area, then write steps against it (or page-level steps) - plain-language checks. Steps start as vision checks (a model judges the page); when a vision check passes and grounds a deterministic assertion it graduates to e2e automatically. The preview is interactive - click and type in it to steer the app, use the toolbar to navigate, reload, restart the tab fresh, or watch the page's console while you test by hand." }),
-    authError && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-banner", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SectionIntro, { title: "Authoring", children: "Review one page at a time. Its checks and highlighted areas are on the left; the live, viewport-accurate page preview is on the right. Highlighting adds a stable target for focused checks." }),
+    authError && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-banner", role: "alert", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 240px" }, children: authError }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setAuthError(null), children: "Dismiss" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au-canvas", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "App under test" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: pageId ?? "", onChange: (e) => setPageId(e.target.value), style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-            VIEWPORTS.map((v) => {
-              const Icon2 = v.icon;
-              const active = !customVp && viewportId === v.id;
-              return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-                "span",
-                {
-                  className: "chip click" + (active ? " ink active" : " sage"),
-                  "aria-pressed": active,
-                  title: `Author at the ${v.label} viewport - the app really reflows to this size`,
-                  ...chipAction(() => {
-                    setCustomVp(null);
-                    setViewportId(v.id);
-                  }),
-                  children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 11 }),
-                    " ",
-                    v.label
-                  ]
-                },
-                v.id
-              );
-            }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-              "span",
-              {
-                className: "chip click" + (customVp ? " ink active" : " sage"),
-                "aria-pressed": !!customVp,
-                title: "Author at any viewport size - type width x height",
-                ...chipAction(() => {
-                  const base = customVp ?? tab?.viewport ?? { width: 1280, height: 800 };
-                  setVpDraft({ w: String(base.width), h: String(base.height) });
-                  setCustomVp(base);
-                }),
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Ruler, { size: 11 }),
-                  " custom"
-                ]
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au-canvas", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-canvas-head", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Interactive browser" }),
+          tab?.url && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-preview-url", children: tab.url })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", "aria-label": "Refresh browser preview", onClick: () => {
+          setPreviewRevision((n) => n + 1);
+          setAreaResolutionRevision((n) => n + 1);
+        }, children: "Refresh preview" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-author-controls", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { "aria-label": "Authoring page", value: pageId ?? "", onChange: (e) => {
+          cancelHighlight();
+          setPageId(e.target.value);
+          onPageChange(e.target.value);
+        }, style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", role: "group", "aria-label": "Authoring viewport", children: VIEWPORTS.map((v) => {
+          const Icon2 = v.icon;
+          return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "chip click" + (viewportId === v.id ? " ink active" : " sage"), onClick: () => {
+            cancelHighlight();
+            setViewportId(v.id);
+          }, "aria-pressed": viewportId === v.id, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 11 }),
+            " ",
+            v.label
+          ] }, v.id);
+        }) })
+      ] }),
+      tab && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cv-bar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Back", onClick: () => doTabAction("back"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 13 }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Forward", onClick: () => doTabAction("forward"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { size: 13 }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Reload the page", onClick: () => doTabAction("reload"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RotateCw, { size: 13 }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "input",
+          {
+            className: "dr-urlin",
+            value: urlDraft,
+            spellCheck: false,
+            onFocus: () => {
+              urlFocused.current = true;
+            },
+            onBlur: () => {
+              urlFocused.current = false;
+              if (liveUrl) setUrlDraft(liveUrl);
+            },
+            onChange: (e) => setUrlDraft(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === "Enter") doNav(urlDraft);
+            },
+            placeholder: "URL - press Enter to navigate",
+            "aria-label": "preview URL"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", title: "Close this preview tab and reopen the page fresh (resets app state)", onClick: restartTab, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 11 }),
+          " Restart"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "a",
+          {
+            className: "btn small",
+            href: fullBrowserViewUrl(tab.canvasUrl),
+            target: "_blank",
+            rel: "noreferrer",
+            title: "Open this same live tab full-size in the Browser fitting",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ExternalLink, { size: 11 }),
+              " Full view"
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "btn small" + (consoleOpen ? " primary" : ""),
+            onClick: () => setConsoleOpen((v) => !v),
+            title: "The page's browser console - errors here are findings material",
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Terminal, { size: 11 }),
+              " Console",
+              consoleErrors > 0 ? ` (${consoleErrors})` : ""
+            ]
+          }
+        )
+      ] }),
+      tab ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cv" + (pickMode ? " is-picking" : ""), style: { aspectRatio: `${previewSize?.width ?? tab.viewport.width} / ${previewSize?.height ?? tab.viewport.height}` }, children: [
+        !previewReady && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-preview-loading", children: "Loading viewport preview\u2026" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "img",
+          {
+            alt: `${page.title} at ${viewportId} viewport`,
+            src: `${tab.screenshotUrl}?t=${previewRevision}`,
+            className: "dr-cv-frame",
+            onLoad: (event) => {
+              setPreviewReady(true);
+              const image = event.currentTarget;
+              if (image.naturalWidth && image.naturalHeight) {
+                setPreviewSize({ width: image.naturalWidth, height: image.naturalHeight });
               }
-            ),
-            customVp && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-vpsize", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "input",
-                {
-                  className: "dr-vpnum",
-                  type: "number",
-                  min: 280,
-                  max: 3840,
-                  value: vpDraft.w,
-                  onChange: (e) => setVpDraft((d) => ({ ...d, w: e.target.value })),
-                  onKeyDown: (e) => {
-                    if (e.key === "Enter") e.target.blur();
-                  },
-                  onBlur: () => {
-                    const width = Math.max(280, Math.min(3840, Number(vpDraft.w) || 0)) || customVp.width;
-                    setVpDraft((d) => ({ ...d, w: String(width) }));
-                    setCustomVp((c) => c ? { ...c, width } : c);
-                  },
-                  "aria-label": "viewport width"
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "t11", children: "x" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "input",
-                {
-                  className: "dr-vpnum",
-                  type: "number",
-                  min: 280,
-                  max: 3840,
-                  value: vpDraft.h,
-                  onChange: (e) => setVpDraft((d) => ({ ...d, h: e.target.value })),
-                  onKeyDown: (e) => {
-                    if (e.key === "Enter") e.target.blur();
-                  },
-                  onBlur: () => {
-                    const height = Math.max(280, Math.min(3840, Number(vpDraft.h) || 0)) || customVp.height;
-                    setVpDraft((d) => ({ ...d, h: String(height) }));
-                    setCustomVp((c) => c ? { ...c, height } : c);
-                  },
-                  "aria-label": "viewport height"
-                }
-              )
-            ] })
-          ] })
+            },
+            onError: () => setPreviewReady(false)
+          },
+          `${tab.tabId}:${previewRevision}`
+        ),
+        !pickMode && !preparingPick && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "iframe",
+          {
+            className: "dr-cv-live",
+            src: tab.canvasUrl,
+            title: `${page.title} interactive browser`,
+            onLoad: () => setAreaResolutionRevision((n) => n + 1)
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "div",
+          {
+            ref: overlayRef,
+            className: "dr-cv-overlay",
+            style: {
+              cursor: pickMode && previewReady ? "crosshair" : "default",
+              pointerEvents: pickMode && previewReady ? "auto" : "none"
+            },
+            onClick: onOverlayClick
+          }
+        ),
+        pickMode && previewReady && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-pick-instruction", "aria-live": "polite", children: "Click the element you want Drill to track \xB7 Esc or Cancel to stop" }),
+        pickMode && !previewReady && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-pick-instruction", "aria-live": "polite", children: "Preparing the frozen viewport\u2026" }),
+        pickMode && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-pick-cancel", onClick: (event) => {
+          event.stopPropagation();
+          cancelHighlight();
+        }, children: "Cancel" }),
+        page.areas.map((a) => {
+          const pct = Object.prototype.hasOwnProperty.call(livePct, a.id) ? livePct[a.id] : a.pct;
+          if (!pct) return null;
+          return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-abox", style: { left: `${pct.leftPct}%`, top: `${pct.topPct}%`, width: `${pct.widthPct}%`, height: `${pct.heightPct}%` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-abadge", children: a.n }) }, a.id);
+        })
+      ] }) : tabError ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder dr-tab-error", role: "alert", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+          "Could not open the browser tab: ",
+          tabError
         ] }),
-        tab && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cv-bar", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Back", onClick: () => doTabAction("back"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 13 }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Forward", onClick: () => doTabAction("forward"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { size: 13 }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-iconbtn", title: "Reload the page", onClick: () => doTabAction("reload"), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RotateCw, { size: 13 }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "input",
-            {
-              className: "dr-urlin",
-              value: urlDraft,
-              spellCheck: false,
-              onFocus: () => {
-                urlFocused.current = true;
-              },
-              onBlur: () => {
-                urlFocused.current = false;
-                if (liveUrl) setUrlDraft(liveUrl);
-              },
-              onChange: (e) => setUrlDraft(e.target.value),
-              onKeyDown: (e) => {
-                if (e.key === "Enter") doNav(urlDraft);
-              },
-              placeholder: "URL - press Enter to navigate",
-              "aria-label": "preview URL"
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", title: "Close this preview tab and reopen the page fresh (resets app state)", onClick: restartTab, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 11 }),
-            " Restart"
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setTabLoadRevision((n) => n + 1), children: "Retry opening tab" })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "Opening tab\u2026" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-canvas-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (pickMode ? " primary" : ""), disabled: preparingPick, onClick: () => pickMode ? cancelHighlight() : void startHighlight(), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Crosshair, { size: 11 }),
+          " ",
+          preparingPick ? "Preparing target\u2026" : pickMode ? "Cancel highlighting" : "Highlight an area"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "Interact with the browser normally. Highlight swaps to an exact frozen viewport so the picked element cannot move." })
+      ] }),
+      consoleOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-console", "aria-label": "Browser console", children: [
+        consoleEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-con-empty", children: "No console output from the page yet." }),
+        consoleEntries.slice(-80).map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-con-row" + (entry.level === "error" ? " err" : entry.level === "warning" ? " warn" : ""), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-con-lvl", children: entry.level }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-con-text", children: entry.text })
+        ] }, `${entry.ts}-${index}`)),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { ref: consoleEndRef })
+      ] }),
+      pickError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-inline-error", role: "alert", children: pickError }),
+      !pickMode && !mobileSheetOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { ref: planFabRef, className: "dr-fab", onClick: () => setMobileSheetOpen(true), "aria-label": "Open authoring plan", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotebookPen, { size: 18 }) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "aside",
+      {
+        className: "dr-au-plan" + (mobileSheetOpen ? " dr-sheet-open" : " dr-sheet-closed"),
+        role: isNarrowAuthoring && mobileSheetOpen ? "dialog" : void 0,
+        "aria-modal": isNarrowAuthoring && mobileSheetOpen ? "true" : void 0,
+        "aria-label": "Authoring checks",
+        "aria-hidden": isNarrowAuthoring && !mobileSheetOpen ? true : void 0,
+        ...isNarrowAuthoring && !mobileSheetOpen ? { inert: "" } : {},
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("b", { children: [
+              "Drill: ",
+              page.title
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `dr-save-status ${saveStatus}`, "data-testid": "author-save-status", "aria-live": "polite", children: saveStatus === "saving" ? "Saving\u2026" : saveStatus === "saved" ? "Saved" : saveStatus === "error" ? "Save failed" : "" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { ref: planCloseRef, className: "dr-sheet-close", onClick: () => setMobileSheetOpen(false), title: "Close plan sheet", "aria-label": "Close plan sheet", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16 }) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-            "a",
-            {
-              className: "btn small",
-              href: tab.canvasUrl.replace(/\?embed=1$/, ""),
-              target: "_blank",
-              rel: "noreferrer",
-              title: "Open this same live tab full-size in the Browser fitting",
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ExternalLink, { size: 11 }),
-                " Full view"
-              ]
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-            "button",
-            {
-              className: "btn small" + (consoleOpen ? " primary" : ""),
-              onClick: () => setConsoleOpen((v) => !v),
-              title: "The page's browser console - errors here are findings material",
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Terminal, { size: 11 }),
-                " Console",
-                consoleErrors > 0 ? ` (${consoleErrors})` : ""
-              ]
-            }
-          )
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cv-outer", ref: setCvEl, children: tab ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cv", style: { width: dispW, height: dispH }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "iframe",
-            {
-              title: "app under test",
-              src: tab.canvasUrl,
-              className: "dr-cv-frame",
-              style: { width: vp.width, height: vp.height, transform: `scale(${scale})` }
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "div",
-            {
-              ref: overlayRef,
-              className: "dr-cv-overlay",
-              style: { cursor: pickMode ? "crosshair" : "default", pointerEvents: pickMode ? "auto" : "none" },
-              onClick: onOverlayClick
-            }
-          ),
-          page.areas.map((a) => {
-            const pct = livePct[a.id] ?? a.pct;
-            if (!pct) return null;
-            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-abox", style: { left: `${pct.leftPct}%`, top: `${pct.topPct}%`, width: `${pct.widthPct}%`, height: `${pct.heightPct}%` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-abadge", children: a.n }) }, a.id);
-          })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: authError ? "App preview unavailable." : "Opening the app preview\u2026" }) }),
-        consoleOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-console", children: [
-          consoleEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-con-empty", children: "No console output from the page yet." }),
-          consoleEntries.slice(-80).map((e, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-con-row" + (e.level === "error" ? " err" : e.level === "warning" ? " warn" : ""), children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-con-lvl", children: e.level }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-con-text", children: e.text })
-          ] }, `${e.ts}-${i}`)),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { ref: consoleEndRef })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (pickMode ? " primary" : ""), onClick: () => pickMode ? setPickMode(false) : startHighlight(), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small dr-sheet-highlight", disabled: preparingPick, onClick: () => void startHighlight(), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Crosshair, { size: 11 }),
             " ",
-            pickMode ? "Now click an element in the preview\u2026" : "Highlight new area"
+            preparingPick ? "Preparing target\u2026" : "Highlight an area"
           ] }),
-          pickMode && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 11, color: "var(--brass)" }, children: "Click the element you want to check - it becomes a numbered area you can attach steps to." })
-        ] }),
-        !pickMode && !mobileSheetOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-fab", onClick: () => setMobileSheetOpen((v) => !v), "aria-label": "Toggle plan", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotebookPen, { size: 18 }) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-au-plan" + (mobileSheetOpen ? " dr-sheet-open" : " dr-sheet-closed"), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("b", { children: [
-            "Drill: ",
-            page.title
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-sheet-close", onClick: () => setMobileSheetOpen(false), title: "Close plan sheet", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16 }) })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small dr-sheet-highlight", onClick: startHighlight, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Crosshair, { size: 11 }),
-          " Highlight new area"
-        ] }),
-        states.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "State" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 12 }, children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip click brass" + (stateSel === s ? " active" : ""), "aria-pressed": stateSel === s, ...chipAction(() => setStateSel(s)), children: s }, s)) })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Page steps" }),
-        pageSteps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          StepRow,
-          {
-            step: s,
-            onToggleEnabled: () => patchStep(s.id, { enabled: !s.enabled }),
-            onToggleMode: () => patchStep(s.id, { mode: s.mode === "vision" ? "e2e" : "vision" }),
-            onToggleJudgment: () => patchStep(s.id, { judgment: !s.judgment }),
-            onRemove: () => removeStep(s.id),
-            onEditDescription: (text) => patchStep(s.id, { description: text }),
-            onJumpRef: (ref) => setPageId(ref.split("#")[0])
-          },
-          s.id
-        )),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(0), children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
-          " Page step"
-        ] }),
-        page.areas.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: 14 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 4 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-area-n", children: a.n }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: a.label }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute-2)" }, children: a.id }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              "button",
+          activeStateSel !== "default" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-state-reference", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "State reference" }),
+            activeStateImage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "img",
               {
-                className: "dr-xbtn",
-                onClick: () => removeArea(a.n),
-                title: areaSteps(a.n).length > 0 ? `Remove area ${a.n} and its ${areaSteps(a.n).length} step(s)` : `Remove area ${a.n}`,
-                children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 13 })
+                alt: `${activeStateSel} reference`,
+                src: activeStateImage
               }
-            )
+            ) : activeStateImage === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-state-reference-missing", role: "status", children: "Loading state reference\u2026" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-state-reference-missing", role: "status", children: activeState?.screenshotPath ? "Recorded state reference unavailable." : "No state reference captured yet." })
           ] }),
-          areaSteps(a.n).map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          states.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "State" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 12 }, children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "chip click brass dr-label-chip" + (activeStateSel === s ? " active" : ""), onClick: () => setStateSel(s), "aria-pressed": activeStateSel === s, children: s }, s)) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Page steps" }),
+          pageSteps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             StepRow,
             {
               step: s,
-              onToggleEnabled: () => patchStep(s.id, { enabled: !s.enabled }),
-              onToggleMode: () => patchStep(s.id, { mode: s.mode === "vision" ? "e2e" : "vision" }),
-              onToggleJudgment: () => patchStep(s.id, { judgment: !s.judgment }),
+              onToggleEnabled: () => patchStep(s.id, (current) => ({ enabled: !current.enabled })),
+              onToggleMode: () => patchStep(s.id, (current) => ({ mode: current.mode === "vision" ? "e2e" : "vision" })),
+              onToggleJudgment: () => patchStep(s.id, (current) => ({ judgment: !current.judgment })),
               onRemove: () => removeStep(s.id),
               onEditDescription: (text) => patchStep(s.id, { description: text }),
-              onJumpRef: (ref) => setPageId(ref.split("#")[0])
+              onJumpRef: (ref) => {
+                const nextPage = ref.split("#")[0];
+                setPageId(nextPage);
+                onPageChange(nextPage);
+              }
             },
             s.id
           )),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(a.n), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(0), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
-            " Step"
-          ] })
-        ] }, a.id))
-      ] })
-    ] })
+            " Page step"
+          ] }),
+          page.areas.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: 14 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 4 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-area-n", children: a.n }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                "input",
+                {
+                  className: "dr-area-label",
+                  "aria-label": `Area ${a.n} name`,
+                  defaultValue: a.label,
+                  onBlur: (event) => {
+                    if (event.currentTarget.value.trim() !== a.label) renameArea(a.id, event.currentTarget.value);
+                  },
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute-2)" }, children: a.id }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-xbtn dr-area-delete", "aria-label": `Delete area ${a.n}`, onClick: () => removeArea(a), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14 }) })
+            ] }),
+            areaSteps(a.n).map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              StepRow,
+              {
+                step: s,
+                onToggleEnabled: () => patchStep(s.id, (current) => ({ enabled: !current.enabled })),
+                onToggleMode: () => patchStep(s.id, (current) => ({ mode: current.mode === "vision" ? "e2e" : "vision" })),
+                onToggleJudgment: () => patchStep(s.id, (current) => ({ judgment: !current.judgment })),
+                onRemove: () => removeStep(s.id),
+                onEditDescription: (text) => patchStep(s.id, { description: text }),
+                onJumpRef: (ref) => {
+                  const nextPage = ref.split("#")[0];
+                  setPageId(nextPage);
+                  onPageChange(nextPage);
+                }
+              },
+              s.id
+            )),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: () => addStep(a.n), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
+              " Step"
+            ] })
+          ] }, a.id))
+        ]
+      }
+    )
   ] });
+}
+function legacyInfrastructureMeta(finding) {
+  const text = String(finding.text ?? "").trim();
+  if (finding.kind === "infra-error") return { component: "drill", code: "legacy-infra" };
+  if (finding.kind !== "step-fail") return null;
+  if (/^automations unavailable(?:\b|:)/i.test(text) || /^automations fitting not running\b/i.test(text)) {
+    return { component: "automations", code: "automations-unavailable" };
+  }
+  let match = text.match(/^vision (?:HTTP )?([45]\d\d)(?::.*)?$/i);
+  if (match) return { component: "vision", code: `vision-http-${match[1]}` };
+  match = text.match(/^fixer (?:HTTP )?([45]\d\d)(?::.*)?$/i) ?? text.match(/^fixer failed: fixer (?:HTTP )?([45]\d\d)(?::.*)?$/i);
+  if (match) return { component: "fixer", code: `fixer-http-${match[1]}` };
+  if (/^(?:TypeError:\s*)?fetch failed(?:$|:)/i.test(text)) {
+    return { component: "automations", code: "transport-fetch-failed" };
+  }
+  const unavailable = text.match(/^(browser|vision|fixer|gateway|orchestrator) fitting not running(?:\b|:)/i);
+  if (unavailable) return { component: unavailable[1].toLowerCase(), code: `${unavailable[1].toLowerCase()}-unavailable` };
+  return null;
+}
+function groupInfraErrors(items) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const component = item.component ?? "drill";
+    const code = item.code ?? "dependency-error";
+    const text = String(item.text ?? "Infrastructure failure").trim();
+    const key = `${component}\0${code}\0${text}`;
+    const occurrences = item.occurrences?.length ? item.occurrences : [{ pageId: item.pageId, stepId: item.stepId }];
+    const count = Math.max(item.count ?? 0, occurrences.length, 1);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.occurrences = [...existing.occurrences ?? [], ...occurrences];
+      existing.count = (existing.count ?? 1) + count;
+    } else {
+      grouped.set(key, { ...item, component, code, text, count, occurrences: [...occurrences] });
+    }
+  }
+  return [...grouped.values()];
+}
+function splitRunIssues(run) {
+  const legacyInfra = (run.findings ?? []).filter((finding) => legacyInfrastructureMeta(finding));
+  const productFindings = (run.findings ?? []).filter((f) => !legacyInfra.includes(f));
+  const infraErrors = groupInfraErrors([
+    ...run.infraErrors ?? [],
+    ...legacyInfra.map((finding) => {
+      const meta = legacyInfrastructureMeta(finding);
+      return {
+        id: finding.id,
+        pageId: finding.pageId,
+        stepId: finding.stepId,
+        text: finding.text,
+        at: finding.at,
+        count: 1,
+        ...meta
+      };
+    })
+  ]);
+  return { productFindings, infraErrors };
+}
+function overrideForEntry(overrides, entry) {
+  const recordKey = `${entry.pageId}:${entry.stepId}`;
+  return overrides?.[`${recordKey}:${entry.viewportId}`] ?? overrides?.[recordKey];
+}
+function effectiveStepPassed(run, entry) {
+  const review = overrideForEntry(run.overrides, entry);
+  return review ? review.verdict === "passed" : stepPassed(entry);
+}
+function activeProductFindings(run, findings) {
+  return findings.filter((finding) => {
+    if (finding.status === "dismissed") return false;
+    if (!finding.stepId) return true;
+    const matchingEntries = run.pages.filter(
+      (entry) => entry.pageId === finding.pageId && entry.stepId === finding.stepId && (!finding.viewportId || entry.viewportId === finding.viewportId)
+    );
+    return matchingEntries.length === 0 || matchingEntries.some((entry) => !effectiveStepPassed(run, entry));
+  });
+}
+function runVerdict(run) {
+  if (!run.endedAt) return "Running";
+  const { productFindings, infraErrors } = splitRunIssues(run);
+  if (run.circuit || infraErrors.length > 0 || run.pages.some(
+    (entry) => ["infra-failure", "blocked", "incomplete"].includes(entry.terminal?.kind ?? "") || !entry.terminal && (entry.status === "error" || entry.status === "failed" && !entry.result)
+  )) return "Incomplete";
+  if (activeProductFindings(run, productFindings).length > 0) return "Findings";
+  return "Passed";
 }
 function tierTone(tier) {
   if (tier === "cached") return "sage";
@@ -25735,42 +26245,79 @@ function tierTone(tier) {
   if (tier === "recovered") return "brass";
   return "paper";
 }
+function EvidenceImage({ src, alt, compact = false }) {
+  const [failed, setFailed] = (0, import_react3.useState)(false);
+  if (failed) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-evidence-missing", children: "Evidence image unavailable" });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "dr-evidence-link" + (compact ? " compact" : ""), href: src, target: "_blank", rel: "noreferrer", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-evidence-image", src, alt, loading: "lazy", onError: () => setFailed(true) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Open full evidence" })
+  ] });
+}
 function stepPassed(entry) {
-  if (!entry.result) return false;
+  if (entry.terminal) return entry.terminal.kind === "passed";
+  if (!entry.result) return entry.status === "completed" || entry.status === "passed";
   if (entry.result.status === "failed") return false;
   if (entry.result.result && entry.result.result.passed === false) return false;
   return true;
 }
-function ResultsView({ initialRun, onConsumeInitialRun }) {
+function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onConsumeInitialSelection, initialRunId, onRunViewed }) {
   const [pages, setPages] = (0, import_react3.useState)([]);
+  const [pagesLoaded, setPagesLoaded] = (0, import_react3.useState)(false);
   const [book, setBook] = (0, import_react3.useState)(null);
   const [runs, setRuns] = (0, import_react3.useState)([]);
+  const [runsLoaded, setRunsLoaded] = (0, import_react3.useState)(false);
   const [run, setRun] = (0, import_react3.useState)(null);
-  const [selectedPages, setSelectedPages] = (0, import_react3.useState)(/* @__PURE__ */ new Set());
-  const [selectedViewports, setSelectedViewports] = (0, import_react3.useState)(/* @__PURE__ */ new Set(["desktop"]));
+  const [historyPage, setHistoryPage] = (0, import_react3.useState)(0);
+  const [selectedPages, setSelectedPages] = (0, import_react3.useState)(() => new Set(
+    initialSelection ? [initialSelection.pageId] : initialRun?.pageIds ?? []
+  ));
+  const [selectedViewports, setSelectedViewports] = (0, import_react3.useState)(() => new Set(
+    initialSelection ? [initialSelection.viewportId] : initialRun?.viewports ?? ["desktop"]
+  ));
+  const [selectedState, setSelectedState] = (0, import_react3.useState)(initialSelection?.state ?? "default");
   const [running, setRunning] = (0, import_react3.useState)(false);
   const [phase, setPhase] = (0, import_react3.useState)(null);
   const [error, setError] = (0, import_react3.useState)(null);
+  const [notice, setNotice] = (0, import_react3.useState)(null);
   const [obsText, setObsText] = (0, import_react3.useState)("");
   const [dispatchMode, setDispatchMode] = (0, import_react3.useState)("manual");
   const [dispatchedCard, setDispatchedCard] = (0, import_react3.useState)(null);
-  const [runsPage, setRunsPage] = (0, import_react3.useState)(0);
   const [deleteArm, setDeleteArm] = (0, import_react3.useState)(null);
+  const [dispatching, setDispatching] = (0, import_react3.useState)(false);
   const [pendingGate, setPendingGate] = (0, import_react3.useState)(null);
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")]).then(([p, b, r]) => {
       setPages(p.pages);
+      setPagesLoaded(true);
       setBook(b.book);
       setRuns(r.runs);
-      if (!run && r.runs.length > 0) apiGet(`/api/runs/${r.runs[0].id}`).then((rr) => setRun(rr.run));
-    }).catch((e) => setError(e.message));
+      setRunsLoaded(true);
+      const desired = initialRunId && r.runs.some((item) => item.id === initialRunId) ? initialRunId : r.runs[0]?.id;
+      if (!run && desired) apiGet(`/api/runs/${desired}`).then((rr) => setRun(rr.run));
+    }).catch((e) => {
+      setRunsLoaded(true);
+      setError(e.message);
+    });
   };
   (0, import_react3.useEffect)(load, []);
-  const startRun = async (pageIdsArg, viewportsArg) => {
+  const startRun = async (pageIdsArg, viewportsArg, stateArg) => {
     const pageIds = pageIdsArg ?? [...selectedPages];
     const viewports = viewportsArg ?? [...selectedViewports];
     if (pageIds.length === 0 || viewports.length === 0) {
       setError("select at least one page and one viewport");
+      return;
+    }
+    const requestedState = stateArg ?? (availableStates.includes(selectedState) ? selectedState : "default");
+    const uncovered = pageIds.flatMap((pageId) => {
+      const page = pages.find((candidate) => candidate.id === pageId);
+      return viewports.filter((viewportId) => !page?.steps.some(
+        (step) => step.enabled !== false && (step.state || "default") === requestedState && (!step.viewports?.length || step.viewports.includes(viewportId))
+      )).map((viewportId) => `${page?.title || pageId} \xB7 ${viewportId}`);
+    });
+    if (uncovered.length > 0) {
+      setError(
+        `No enabled ${requestedState === "default" ? "default-state " : `${requestedState} `}checks cover ${uncovered.join(", ")}. Adjust the page, state, or viewport selection before running.`
+      );
       return;
     }
     setRunning(true);
@@ -25779,7 +26326,7 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
     try {
       await ensureAppUp(setPhase);
       setPhase(null);
-      const r = await apiPost("/api/runs", { pageIds, viewports, contextTag: "drill" });
+      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill" });
       if (r.held) {
         setPendingGate({ plan: r.plan, resume: r.resume });
       } else {
@@ -25794,12 +26341,21 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
     }
   };
   (0, import_react3.useEffect)(() => {
-    if (!initialRun) return;
+    if (!initialRun || pages.length === 0) return;
     setSelectedPages(new Set(initialRun.pageIds));
     setSelectedViewports(new Set(initialRun.viewports));
     onConsumeInitialRun();
-    startRun(initialRun.pageIds, initialRun.viewports);
-  }, [initialRun]);
+    startRun(initialRun.pageIds, initialRun.viewports, "default");
+  }, [initialRun, pages.length]);
+  (0, import_react3.useEffect)(() => {
+    if (!initialSelection || pages.length === 0) return;
+    if (pages.some((candidate) => candidate.id === initialSelection.pageId)) {
+      setSelectedPages(/* @__PURE__ */ new Set([initialSelection.pageId]));
+      setSelectedViewports(/* @__PURE__ */ new Set([initialSelection.viewportId]));
+      setSelectedState(initialSelection.state);
+    }
+    onConsumeInitialSelection?.();
+  }, [initialSelection, pages.length, onConsumeInitialSelection]);
   const approveGate = async () => {
     if (!pendingGate) return;
     setRunning(true);
@@ -25814,162 +26370,304 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
       setRunning(false);
     }
   };
-  const refreshRun = (r) => setRun(r);
+  const refreshRun = (r) => {
+    setRun(r);
+    setRuns((current) => current.map((summary) => summary.id === r.id ? r : summary));
+  };
   const openRun = (id) => {
     setDispatchedCard(null);
-    return apiGet(`/api/runs/${encodeURIComponent(id)}`).then((r) => setRun(r.run)).catch((e) => setError(e.message));
+    return apiGet(`/api/runs/${encodeURIComponent(id)}`).then((response) => {
+      setRun(response.run);
+      onRunViewed(id);
+    }).catch((e) => setError(e.message));
   };
   const deleteRun = async (id) => {
-    await fetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {
-    });
-    setDeleteArm(null);
-    const r = await apiGet("/api/runs").catch(() => null);
-    const rows = r?.runs ?? [];
-    setRuns(rows);
-    if (run?.id === id) {
-      if (rows.length > 0) void openRun(rows[0].id);
-      else setRun(null);
-    }
-  };
-  const giveFeedback = async (pageId, stepId, note) => {
-    const r = await apiPost(`/api/runs/${run.id}/feedback`, { pageId, stepId, note });
-    refreshRun(r.run);
-  };
-  const override = async (pageId, stepId, verdict, note = "") => {
-    const r = await apiPost(`/api/runs/${run.id}/override`, { pageId, stepId, verdict, note });
-    refreshRun(r.run);
-  };
-  const addObs = async () => {
-    if (!obsText.trim()) return;
-    const r = await apiPost(`/api/runs/${run.id}/observation`, { text: obsText.trim() });
-    setObsText("");
-    refreshRun(r.run);
-  };
-  const convertObsToStep = async (obsId, pageId) => {
-    const r = await apiPost(`/api/runs/${run.id}/observation/${obsId}/convert-step`, { pageId });
-    refreshRun(r.run);
-  };
-  const convertObsToFinding = async (obsId, pageId) => {
-    const r = await apiPost(`/api/runs/${run.id}/observation/${obsId}/convert-finding`, { pageId });
-    refreshRun(r.run);
-  };
-  const triage = async (findingId, status) => {
-    const r = await fetch(`/api/runs/${run.id}/findings/${findingId}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status })
-    });
-    const j = await r.json();
-    refreshRun(j.run);
-  };
-  const dispatch = async () => {
     try {
-      const j = await apiPost(`/api/runs/${run.id}/dispatch`, { mode: dispatchMode });
-      if (j.dispatched) {
-        setError(null);
-        setDispatchedCard(j.card ? { id: j.card.id, url: j.card.url ?? null } : null);
-        if (j.run) refreshRun(j.run);
-      } else {
-        setError(`Heartbeat: ${j.pending} confirmed finding(s) queued for the next beat.`);
+      const response = await fetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`Delete failed (${response.status})`);
+      setDeleteArm(null);
+      const result = await apiGet("/api/runs");
+      const nextRuns = result.runs ?? [];
+      setRuns(nextRuns);
+      if (run?.id === id) {
+        if (nextRuns.length > 0) void openRun(nextRuns[0].id);
+        else setRun(null);
       }
     } catch (e) {
       setError(e.message);
     }
   };
-  const confirmedCount = run ? run.findings.filter((f) => f.status === "confirmed").length : 0;
-  const dispatchableCount = run ? run.findings.filter((f) => f.status === "confirmed" && !f.card).length : 0;
-  const RUNS_PER_PAGE = 8;
-  const totalRunPages = Math.max(1, Math.ceil(runs.length / RUNS_PER_PAGE));
-  const runRows = runs.slice(runsPage * RUNS_PER_PAGE, (runsPage + 1) * RUNS_PER_PAGE);
+  (0, import_react3.useEffect)(() => {
+    if (run?.dispatch) setDispatchMode(run.dispatch);
+    setNotice(null);
+  }, [run?.id]);
+  const giveFeedback = async (pageId, stepId, viewportId, note) => {
+    if (!note.trim()) return false;
+    try {
+      const r = await apiPost(`/api/runs/${run.id}/feedback`, { pageId, stepId, viewportId, note: note.trim() });
+      refreshRun(r.run);
+      return true;
+    } catch (e) {
+      setError(e.message);
+      return false;
+    }
+  };
+  const override = async (pageId, stepId, viewportId, verdict, note = "") => {
+    try {
+      const r = await apiPost(`/api/runs/${run.id}/override`, { pageId, stepId, viewportId, verdict, note });
+      refreshRun(r.run);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  const addObs = async () => {
+    if (!obsText.trim()) return;
+    try {
+      const r = await apiPost(`/api/runs/${run.id}/observation`, { text: obsText.trim() });
+      setObsText("");
+      refreshRun(r.run);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  const convertObsToStep = async (obsId, pageId) => {
+    try {
+      const r = await apiPost(`/api/runs/${run.id}/observation/${obsId}/convert-step`, { pageId });
+      refreshRun(r.run);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  const convertObsToFinding = async (obsId, pageId) => {
+    try {
+      const r = await apiPost(`/api/runs/${run.id}/observation/${obsId}/convert-finding`, { pageId });
+      refreshRun(r.run);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  const triage = async (findingId, status) => {
+    try {
+      const j = await apiPatch(`/api/runs/${run.id}/findings/${findingId}`, { status });
+      refreshRun(j.run);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  const dispatch = async () => {
+    if (!run || dispatching) return;
+    setDispatching(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const j = await apiPost(`/api/runs/${run.id}/dispatch`, { mode: dispatchMode });
+      if (j.run) refreshRun(j.run);
+      if (j.dispatched) {
+        setDispatchedCard(j.card ? { id: j.card.id, url: j.card.url ?? null } : null);
+        const cardId = j.card?.id ? ` ${j.card.id}` : "";
+        setNotice(`Fix card${cardId} was sent to the Code queue.`);
+      } else {
+        setNotice(`${j.pending} confirmed finding${j.pending === 1 ? "" : "s"} queued for the next heartbeat.`);
+      }
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDispatching(false);
+    }
+  };
+  const issues = run ? splitRunIssues(run) : { productFindings: [], infraErrors: [] };
+  const activeFindings = run ? activeProductFindings(run, issues.productFindings) : [];
+  const confirmedCount = activeFindings.filter((f) => f.status === "confirmed").length;
+  const dispatchableCount = activeFindings.filter((finding) => finding.status === "confirmed" && !finding.card).length;
+  const historyPageSize = 6;
+  const historyPages = Math.max(1, Math.ceil(runs.length / historyPageSize));
+  const visibleRuns = runs.slice(historyPage * historyPageSize, (historyPage + 1) * historyPageSize);
+  const infraOccurrenceKeys = new Set(
+    issues.infraErrors.flatMap((item) => (item.occurrences ?? []).map(
+      (occurrence) => `${occurrence.pageId ?? ""}:${occurrence.stepId ?? ""}:${occurrence.viewportId ?? ""}`
+    ))
+  );
+  const infraPageEntries = run ? run.pages.filter(
+    (entry) => ["infra-failure", "blocked", "incomplete"].includes(entry.terminal?.kind ?? "") || entry.status === "error" || !entry.terminal && entry.status === "failed" && !entry.result || legacyInfrastructureMeta({ kind: "step-fail", text: entry.error ?? entry.result?.error ?? "" }) !== null || infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:${entry.viewportId}`) || infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:`)
+  ) : [];
+  const productPageEntries = run ? run.pages.filter((entry) => !infraPageEntries.includes(entry)) : [];
+  const displayedInfra = groupInfraErrors([
+    ...issues.infraErrors,
+    ...infraPageEntries.filter(
+      (entry) => !infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:${entry.viewportId}`) && !infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:`)
+    ).map((entry, index) => ({
+      id: `${entry.pageId}:${entry.stepId}:${index}`,
+      pageId: entry.pageId,
+      stepId: entry.stepId,
+      text: entry.terminal?.message ?? entry.error ?? entry.result?.error ?? "Infrastructure step failed",
+      at: run?.startedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+      count: 1,
+      code: entry.terminal?.code ?? "run-detail-unavailable",
+      component: entry.terminal?.component ?? "automations",
+      occurrences: [{ pageId: entry.pageId, stepId: entry.stepId, viewportId: entry.viewportId }]
+    }))
+  ]);
+  const infraOccurrenceCount = displayedInfra.reduce((total, item) => total + (item.count ?? 1), 0);
+  const circuitSkippedChecks = run?.circuit?.skippedChecks ?? 0;
+  const incompleteCoverageCount = run?.circuit?.afterCheck === 0 ? Math.max(infraOccurrenceCount, circuitSkippedChecks) : infraOccurrenceCount + circuitSkippedChecks;
+  const selectedPageDefinitions = pages.filter((page) => selectedPages.has(page.id));
+  const commonNamedStates = selectedPageDefinitions.length === 0 ? [] : selectedPageDefinitions[0].states.map((state) => state.id).filter(
+    (stateId) => stateId !== "default" && selectedPageDefinitions.every((page) => page.states.some((state) => state.id === stateId))
+  );
+  const availableStates = ["default", ...commonNamedStates];
+  const availableStateKey = availableStates.join("\0");
+  (0, import_react3.useEffect)(() => {
+    if (pagesLoaded && !availableStates.includes(selectedState)) setSelectedState("default");
+  }, [availableStateKey, pagesLoaded, selectedState]);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SectionIntro, { title: "Runs & results", children: "Start a QA run, compare past runs by date, then review product findings. Harness failures are grouped separately so a broken dependency never looks like dozens of app defects." }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Start a run" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "Pick the pages and viewports to check, then Run. If the app is down it is started through the project's run skill first. With gated autonomy the run pauses and shows you the exact step plan before executing." }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "span",
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Start a run" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Select pages and viewports. Gated mode shows the exact plan before anything executes." })
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", role: "group", "aria-label": "Pages to run", style: { marginBottom: 8 }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
         {
-          className: "chip click" + (selectedPages.has(p.id) ? " ink active" : ""),
+          className: "chip click dr-label-chip" + (selectedPages.has(p.id) ? " ink active" : ""),
           "aria-pressed": selectedPages.has(p.id),
-          ...chipAction(() => setSelectedPages((s) => {
+          onClick: () => setSelectedPages((s) => {
             const n = new Set(s);
             n.has(p.id) ? n.delete(p.id) : n.add(p.id);
             return n;
-          })),
+          }),
           children: p.title
         },
         p.id
       )) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: VIEWPORTS.map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "span",
+      selectedPageDefinitions.length > 0 && availableStates.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-state", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { htmlFor: "dr-run-state", children: "UI state" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { id: "dr-run-state", value: selectedState, onChange: (event) => setSelectedState(event.target.value), children: availableStates.map((state) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: state, children: state === "default" ? "Default page state" : state }, state)) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "Named states run only checks authored for that condition. With several pages selected, only states shared by every page are offered." })
+      ] }),
+      selectedPageDefinitions.length > 1 && availableStates.length === 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-run-state", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "These pages do not share a named state, so this run uses each page\u2019s default checks." }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", role: "group", "aria-label": "Viewports to run", style: { marginBottom: 8 }, children: VIEWPORTS.map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
         {
           className: "chip click" + (selectedViewports.has(v.id) ? " sage active" : ""),
           "aria-pressed": selectedViewports.has(v.id),
-          ...chipAction(() => setSelectedViewports((s) => {
+          onClick: () => setSelectedViewports((s) => {
             const n = new Set(s);
             n.has(v.id) ? n.delete(v.id) : n.add(v.id);
             return n;
-          })),
+          }),
           children: v.label
         },
         v.id
       )) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: () => startRun(), children: running ? phase ?? "Running\u2026" : "Run" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions dr-run-launch-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: () => startRun(), children: running ? phase ?? "Running\u2026" : "Run selected" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
       ] })
     ] }),
-    error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-banner", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 240px" }, children: error }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setError(null), children: "Dismiss" })
-    ] }),
-    runs.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Past runs" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: 'Newest first - click a row to open its results below. "drill-adversarial" tags a blind re-check pass. Failed counts real app failures; infra counts harness outages (vision route, gateway, or browser fitting down) that say nothing about the app.' }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-tablewrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "dr-table dr-runs", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Started" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Tag" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Steps" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Failed" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Infra" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Findings" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { "aria-label": "actions" })
-        ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: runRows.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: run?.id === r.id ? "sel" : "", onClick: () => void openRun(r.id), children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { whiteSpace: "nowrap" }, children: fmtDate(r.startedAt) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: r.contextTag }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: r.steps }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { color: r.summary && r.summary.failed > 0 ? "var(--alarm)" : "var(--mute)" }, children: r.summary ? r.summary.failed : "-" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { color: "var(--mute)" }, children: r.summary ? r.summary.infra : "-" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { style: { whiteSpace: "nowrap" }, children: r.findings.proposed + r.findings.confirmed === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--mute)" }, children: "none" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            r.findings.proposed > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-              r.findings.proposed,
-              " open"
-            ] }),
-            r.findings.confirmed > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { color: "var(--sage)" }, children: [
-              r.findings.proposed > 0 ? " \xB7 " : "",
-              r.findings.confirmed,
-              " confirmed"
-            ] })
-          ] }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { onClick: (e) => e.stopPropagation(), style: { whiteSpace: "nowrap" }, children: deleteArm === r.id ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-rowwrap", style: { gap: 4 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { color: "var(--alarm)", borderColor: "var(--alarm)" }, onClick: () => void deleteRun(r.id), children: "Delete run" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setDeleteArm(null), children: "Keep" })
-          ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-xbtn", title: "Delete this run and its results", onClick: () => setDeleteArm(r.id), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 13 }) }) })
-        ] }, r.id)) })
-      ] }) }),
-      totalRunPages > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: runsPage === 0, onClick: () => setRunsPage((p) => p - 1), children: "Newer" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: 11, color: "var(--mute)" }, children: [
-          "page ",
-          runsPage + 1,
-          " of ",
-          totalRunPages
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run history" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Newest first. \u201CIncomplete\u201D means the harness failed; it does not mean the app failed." })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: runsPage >= totalRunPages - 1, onClick: () => setRunsPage((p) => p + 1), children: "Older" })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip", children: [
+          runs.length,
+          " run",
+          runs.length === 1 ? "" : "s"
+        ] })
+      ] }),
+      !runsLoaded ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "Loading run history\u2026" }) : runs.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No runs yet. Choose coverage above to create the first one." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-tablewrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "dr-table dr-history-table", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Date" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Type" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Coverage" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Duration" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Outcome" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {})
+          ] }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: visibleRuns.map((summary) => {
+            const split = splitRunIssues(summary);
+            const summaryActiveFindings = activeProductFindings(summary, split.productFindings);
+            const summaryInfraCount = split.infraErrors.reduce((total, item) => total + (item.count ?? 1), 0);
+            const verdict = runVerdict(summary);
+            const coverage = summary.selection?.pageIds.length ?? new Set(summary.pages.map((p) => p.pageId)).size;
+            const plannedChecks = summary.plannedChecks ?? summary.pages.length;
+            const executedChecks = summary.executedChecks ?? summary.pages.length;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: run?.id === summary.id ? "is-selected" : "", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", { "data-label": "Date", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: formatDate(summary.startedAt) }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-run-id", children: summary.id })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", { "data-label": "Type", children: [
+                summary.contextTag === "drill-adversarial" ? "Adversarial" : "Standard",
+                summary.state !== "default" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-count", children: [
+                  "State: ",
+                  summary.state
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", { "data-label": "Coverage", children: [
+                coverage,
+                " page",
+                coverage === 1 ? "" : "s",
+                " \xB7 ",
+                executedChecks,
+                "/",
+                plannedChecks,
+                " check",
+                plannedChecks === 1 ? "" : "s",
+                " executed"
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Duration", children: formatDuration(summary.startedAt, summary.endedAt) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", { "data-label": "Outcome", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `chip ${verdict === "Passed" ? "sage" : verdict === "Findings" ? "alarm" : verdict === "Incomplete" ? "brass" : ""}`, children: verdict }),
+                summaryActiveFindings.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-count", children: [
+                  summaryActiveFindings.length,
+                  " finding",
+                  summaryActiveFindings.length === 1 ? "" : "s"
+                ] }),
+                summaryInfraCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-count", children: [
+                  summaryInfraCount,
+                  " infra-affected"
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => {
+                  setError(null);
+                  setNotice(null);
+                  void openRun(summary.id);
+                }, children: run?.id === summary.id ? "Selected" : "View" }),
+                deleteArm === summary.id ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { color: "var(--alarm)", borderColor: "var(--alarm)" }, onClick: () => void deleteRun(summary.id), children: "Delete" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setDeleteArm(null), children: "Keep" })
+                ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-xbtn", "aria-label": `Delete run ${summary.id}`, title: "Delete this run and its results", onClick: () => setDeleteArm(summary.id), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 13 }) })
+              ] }) })
+            ] }, summary.id);
+          }) })
+        ] }) }),
+        historyPages > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-pagination", role: "navigation", "aria-label": "Run history pages", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: historyPage === 0, onClick: () => setHistoryPage((p) => Math.max(0, p - 1)), children: "Previous" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+            "Page ",
+            historyPage + 1,
+            " of ",
+            historyPages
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: historyPage + 1 >= historyPages, onClick: () => setHistoryPage((p) => Math.min(historyPages - 1, p + 1)), children: "Next" })
+        ] })
       ] })
     ] }),
-    pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: [
+    error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-inline-error dr-results-error", role: "alert", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: error }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setError(null), children: "Dismiss" })
+    ] }),
+    notice && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-notice dr-results-notice", role: "status", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: notice }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setNotice(null), children: "Dismiss" })
+    ] }),
+    pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", role: "region", "aria-label": "Gated run plan", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { className: "t12", children: "Plan ready - gated, awaiting approval" }) }),
       pendingGate.plan.map((p) => (
         // A whole-book run previews hundreds of steps; per-group <details>
@@ -26008,137 +26706,176 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
     ] }),
     !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
     run && (() => {
-      const stepOf = (pageId, stepId) => pages.find((p) => p.id === pageId)?.steps.find((s) => s.id === stepId) ?? null;
-      const pageTitle = (pageId) => pages.find((p) => p.id === pageId)?.title ?? pageId;
-      const liveEntries = run.pages.filter((e) => !e.infra);
-      const infraEntries = run.pages.filter((e) => e.infra);
-      const byPage = [];
-      for (const e of liveEntries) {
-        const g = byPage.find((x) => x.pageId === e.pageId);
-        if (g) g.entries.push(e);
-        else byPage.push({ pageId: e.pageId, entries: [e] });
-      }
-      const renderEntry = (entry) => {
-        const passed = stepPassed(entry);
-        const key = `${entry.pageId}:${entry.stepId}`;
-        const override_ = run.overrides[key];
-        const notes = run.feedback[key] ?? [];
-        const desc = stepOf(entry.pageId, entry.stepId)?.description || null;
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed && !override_ ? "--sage" : "--alarm"})` }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 260px", fontSize: 12.5, minWidth: 0, overflowWrap: "anywhere" }, children: desc ?? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 11 }, children: entry.stepId }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
-            entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              "span",
-              {
-                className: "chip " + tierTone(entry.result.tier),
-                title: entry.result.tier === "cached" ? "Checked with a deterministic assertion graduated from an earlier vision pass - fast and stable" : entry.result.tier === "vision" ? "A model judged the live page (screenshot + accessibility tree)" : entry.result.tier === "recovered" ? "The step failed and the self-healing fixer patched it mid-run" : entry.result.tier ?? "",
-                children: entry.result.tier
-              }
-            )
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mono", style: { fontSize: 9.5, color: "var(--mute-2)", marginTop: 2 }, children: [
-            entry.pageId,
-            "#",
-            entry.stepId
-          ] }),
-          entry.result?.evidencePath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-evidence", children: entry.result.evidencePath }),
-          (entry.error || entry.result?.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4, overflowWrap: "anywhere" }, children: entry.error || entry.result?.error }),
-          entry.result?.result?.reasoning && !passed && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--ink-2)", fontSize: 11, marginTop: 4 }, children: entry.result.result.reasoning }),
-          override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
-            "Overridden -> ",
-            override_.verdict,
-            " (",
-            override_.note,
-            ")"
-          ] }),
-          notes.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10.5, color: "var(--sage)", marginTop: 3 }, children: n.note }, n.id)),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 6 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              "input",
-              {
-                className: "dr-feedback",
-                placeholder: "Add feedback\u2026",
-                onKeyDown: (e) => {
-                  if (e.key === "Enter") {
-                    giveFeedback(entry.pageId, entry.stepId, e.target.value);
-                    e.target.value = "";
-                  }
-                }
-              }
-            ),
-            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, "failed", "marked failed by reviewer"), children: "Mark failed" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, "passed", "marked passed by reviewer"), children: "Mark passed" })
-          ] })
-        ] }, `${key}:${entry.viewportId}`);
-      };
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-lbl", children: [
-            "Results - ",
-            fmtDate(run.startedAt)
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag }),
-            run.state !== "default" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: run.state }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute-2)" }, children: run.id })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "One row per step and viewport. A red row failed: read the reasoning, then either confirm the matching finding below or Mark passed if the check is wrong (that feedback tunes future runs)." }),
-          byPage.map((g) => {
-            const passCount = g.entries.filter(stepPassed).length;
-            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: 16 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginBottom: 6 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { style: { fontSize: 13 }, children: pageTitle(g.pageId) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: 11, color: passCount === g.entries.length ? "var(--sage)" : "var(--alarm)" }, children: [
-                  passCount,
-                  "/",
-                  g.entries.length,
-                  " passed"
-                ] })
-              ] }),
-              g.entries.map(renderEntry)
-            ] }, g.pageId);
-          }),
-          liveEntries.length === 0 && infraEntries.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "Every step in this run hit a harness error - the app was never actually judged. See below, fix the harness (or just re-run once it is back), and consider deleting this run." }),
-          infraEntries.length > 0 && // Collapsed when real results exist (noise control); open when
-          // the run is NOTHING BUT harness errors - hiding the only
-          // information on screen behind a closed disclosure helps nobody.
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-infra", open: liveEntries.length === 0, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
-              "Harness errors (",
-              infraEntries.length,
-              ") - infrastructure failures, not app bugs"
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-detail-heading", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Selected run" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: formatDate(run.startedAt) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-run-id", children: run.id }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-selected-run-meta", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.state === "default" ? "Default state" : `State: ${run.state}` })
+              ] })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "The vision route, model gateway, or browser fitting was unavailable while these steps ran, so the app was not judged at all. They never pool into findings. Re-run once the harness is healthy." }),
-            infraEntries.map((e) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: "3px solid var(--rule-2)" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
-                  e.pageId,
-                  "#",
-                  e.stepId
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: e.viewportId })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-summary", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length }),
+                " passed"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--mute)", fontSize: 11, marginTop: 4, overflowWrap: "anywhere" }, children: e.error || e.result?.error })
-            ] }, `${e.pageId}:${e.stepId}:${e.viewportId}`))
-          ] })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length }),
+                " failed"
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: activeFindings.length }),
+                " findings"
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: incompleteCoverageCount }),
+                " infra-affected or skipped"
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Check results" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused." })
+          ] }) }),
+          productPageEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product checks completed. Review the infrastructure section below before rerunning." }),
+          productPageEntries.map((entry) => {
+            const originalPassed = stepPassed(entry);
+            const recordKey = `${entry.pageId}:${entry.stepId}`;
+            const renderKey = `${recordKey}:${entry.viewportId}`;
+            const override_ = overrideForEntry(run.overrides, entry);
+            const passed = override_ ? override_.verdict === "passed" : originalPassed;
+            const notes = [
+              ...run.feedback[recordKey] ?? [],
+              ...run.feedback[renderKey] ?? []
+            ];
+            const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
+            const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
+            const deterministicWithoutScreenshot = originalPassed && entry.status === "completed" && !!entry.result && !entry.result.evidencePath && !resultReasoning;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+                passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
+                  entry.pageId,
+                  "#",
+                  entry.stepId
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
+                entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier })
+              ] }),
+              stepDefinition?.description && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-description", children: stepDefinition.description }),
+              resultReasoning && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: resultReasoning }),
+              entry.result?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4 }, children: entry.result.error }),
+              deterministicWithoutScreenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: "Deterministic check \u2014 no screenshot was captured." }),
+              entry.stateReferenceRejected && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-result-reference-warning", role: "status", children: [
+                "State reference not saved: the screenshot also contains an unexpected page error",
+                entry.stateReferenceRejected.warnings[0]?.text ? ` (\u201C${entry.stateReferenceRejected.warnings[0].text}\u201D).` : "."
+              ] }),
+              !entry.result && entry.status === "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-detail-unavailable", children: "Passed when run \xB7 detailed evidence is temporarily unavailable" }),
+              entry.result?.evidencePath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                EvidenceImage,
+                {
+                  src: `/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`,
+                  alt: `${entry.pageId} ${stepDefinition?.description || entry.stepId} at ${entry.viewportId}`
+                }
+              ),
+              override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
+                "Overridden -> ",
+                override_.verdict,
+                " (",
+                override_.note,
+                ")"
+              ] }),
+              notes.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10.5, color: "var(--sage)", marginTop: 3 }, children: n.note }, n.id)),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 6 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                  "input",
+                  {
+                    className: "dr-feedback",
+                    "aria-label": `Feedback for ${entry.pageId} ${entry.stepId} at ${entry.viewportId}`,
+                    placeholder: "Add feedback\u2026",
+                    onKeyDown: async (e) => {
+                      if (e.key !== "Enter") return;
+                      const input = e.currentTarget;
+                      if (await giveFeedback(entry.pageId, entry.stepId, entry.viewportId, input.value)) input.value = "";
+                    }
+                  }
+                ),
+                passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, entry.viewportId, "failed", "marked failed by reviewer"), children: "Mark failed" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, entry.viewportId, "passed", "marked passed by reviewer"), children: "Mark passed" })
+              ] })
+            ] }, renderKey);
+          })
+        ] }),
+        displayedInfra.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-sec dr-infra", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Test infrastructure problems" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("small", { children: [
+                incompleteCoverageCount,
+                " affected or skipped check",
+                incompleteCoverageCount === 1 ? "" : "s",
+                " \xB7 grouped into ",
+                displayedInfra.length,
+                " incident",
+                displayedInfra.length === 1 ? "" : "s",
+                " \xB7 hidden from findings"
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "Run incomplete" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "These errors came from Drill, Browser, Automations, Vision, or their connection. They are retained for diagnosis but cannot be confirmed or dispatched as product fixes." }),
+          run.circuit && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-circuit-summary", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run stopped early to prevent repeated noise." }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              "Executed ",
+              run.executedChecks ?? run.circuit.afterCheck,
+              " of ",
+              run.plannedChecks ?? (run.executedChecks ?? 0) + run.circuit.skippedChecks,
+              " planned checks;",
+              " ",
+              run.circuit.skippedChecks,
+              " were skipped after ",
+              run.circuit.component,
+              " reported ",
+              run.circuit.code,
+              "."
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-infra-list", children: displayedInfra.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", children: [
+              item.component ?? item.pageId ?? "run",
+              item.stepId ? ` \xB7 ${item.stepId}` : "",
+              (item.count ?? 1) > 1 ? ` \xB7 ${item.count} checks` : ""
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: item.text })
+          ] }, item.id)) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Observations" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Observations" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Record something you noticed that no existing check covered. Turn it into a future Book step or a product finding without rerunning." })
+          ] }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "Things you noticed that no step covers - no re-run needed to record them. Convert one into a draft step (future runs will check it) or into a finding (it goes into the fix report below)." }),
           run.observations.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { padding: "5px 0", borderTop: "1px dashed var(--rule)" }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 220px" }, children: o.text }),
-            o.convertedToStep ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "-> step added" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { onChange: (e) => e.target.value && convertObsToStep(o.id, e.target.value), defaultValue: "", children: [
+            o.convertedToStep ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "-> step added" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { "aria-label": `Add observation \u201C${o.text}\u201D as a draft step on page`, onChange: (e) => e.target.value && convertObsToStep(o.id, e.target.value), defaultValue: "", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> draft step on\u2026" }),
               pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
             ] }),
-            o.convertedToFinding ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "-> finding" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => convertObsToFinding(o.id, pages[0]?.id ?? run.pages[0]?.pageId), children: "-> finding" })
+            o.convertedToFinding ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "-> finding" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { "aria-label": `Attribute observation \u201C${o.text}\u201D to a product page`, onChange: (e) => e.target.value && convertObsToFinding(o.id, e.target.value), defaultValue: "", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> finding on\u2026" }),
+              pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
+            ] })
           ] }, o.id)),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
               "input",
               {
                 className: "dr-feedback",
+                "aria-label": "New run observation",
                 placeholder: "Add an observation\u2026",
                 value: obsText,
                 onChange: (e) => setObsText(e.target.value),
@@ -26154,62 +26891,63 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", style: { borderColor: "var(--sage-2)", borderWidth: 1.5 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Findings - the fix report" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: 'Everything this run caught: failed steps pool here automatically as proposed, and converted observations join them. Confirm what is real, Dismiss what is not - then Fix all confirmed sends ONE batch fix card to the Kanban board for an agent to work through. A finding already on a card shows an "on card" link and is never re-sent.' }),
-          (() => {
-            const active = run.findings.filter((f) => f.status !== "dismissed");
-            const dismissed = run.findings.filter((f) => f.status === "dismissed");
-            const renderFinding = (f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-finding", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-finding-text", style: { textDecoration: f.status === "dismissed" ? "line-through" : "none" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", style: { marginRight: 6 }, children: f.kind }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10.5, color: "var(--mute)" }, children: [
-                  f.pageId,
-                  f.stepId ? `#${f.stepId}` : ""
-                ] }),
-                " ",
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Product findings" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Only evidence about the app belongs here. Confirm real defects, dismiss false positives, then send confirmed items as one reviewable fix card." })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: issues.productFindings.length })
+          ] }),
+          issues.productFindings.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product findings in this run." }),
+          issues.productFindings.map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-finding", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: "1 1 220px", minWidth: 0 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { textDecoration: f.status === "dismissed" ? "line-through" : "none" }, children: [
+                "[",
+                f.kind,
+                "] ",
+                f.pageId,
+                f.stepId ? `#${f.stepId}` : "",
+                f.viewportId ? ` [${f.viewportId}]` : "",
+                ": ",
                 f.text
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-finding-actions", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (f.status === "confirmed" ? " sage active" : ""), children: f.status }),
-                f.card && (f.card.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip brass", href: f.card.url, target: "_blank", rel: "noreferrer", title: "This finding is already on a Kanban fix card - click to open it", children: "on card" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "This finding is already on a Kanban fix card", children: "on card" })),
-                f.status !== "confirmed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "confirmed"), children: "Confirm" }),
-                f.status !== "dismissed" && !f.card && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "dismissed"), children: "Dismiss" })
-              ] })
-            ] }, f.id);
-            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-              active.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--mute)", fontSize: 12 }, children: dismissed.length > 0 ? "No open findings - everything was dismissed." : "No findings - every step passed." }),
-              active.map(renderFinding),
-              dismissed.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { style: { marginTop: 8 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { style: { cursor: "pointer", fontSize: 11.5, color: "var(--mute)" }, children: [
-                  "Dismissed (",
-                  dismissed.length,
-                  ")"
-                ] }),
-                dismissed.map(renderFinding)
-              ] })
-            ] });
-          })(),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 10 }, children: [
+              f.stepId && run.pages.filter(
+                (entry) => entry.pageId === f.pageId && entry.stepId === f.stepId && (!f.viewportId || entry.viewportId === f.viewportId) && !!entry.result?.evidencePath
+              ).map((entry) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                EvidenceImage,
+                {
+                  compact: true,
+                  src: `/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`,
+                  alt: `Evidence for ${f.text} at ${entry.viewportId}`
+                },
+                `${entry.pageId}:${entry.stepId}:${entry.viewportId}`
+              ))
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (f.status === "confirmed" ? " sage active" : ""), children: f.status }),
+              f.card && (f.card.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip brass", href: f.card.url, target: "_blank", rel: "noreferrer", title: "Open the Kanban fix card carrying this finding", children: "on card" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "This finding is already on a Kanban fix card", children: "on card" })),
+              f.status !== "confirmed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "confirmed"), children: "Confirm" }),
+              f.status !== "dismissed" && !f.card && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "dismissed"), children: "Dismiss" })
+            ] })
+          ] }, f.id)),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-dispatch", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
               "select",
               {
+                "aria-label": "When to send confirmed findings",
                 value: dispatchMode,
+                disabled: dispatching,
                 onChange: (e) => setDispatchMode(e.target.value),
                 style: { fontSize: 11, padding: "5px 8px" },
-                title: "Manual: dispatch now, with this button. Heartbeat: the periodic sweep dispatches once findings are confirmed. Immediate: dispatch as soon as a run ends.",
                 children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "manual", children: "Dispatch: Manual" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "heartbeat", children: "Dispatch: Heartbeat (autonomous)" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "immediate", children: "Dispatch: Immediate" })
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "manual", children: "Send now" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "heartbeat", children: "On the next heartbeat" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "immediate", children: "Send now (immediate)" })
                 ]
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn primary", disabled: dispatchableCount === 0, onClick: dispatch, children: [
-              "Fix all confirmed (",
-              dispatchableCount,
-              ")"
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 10, color: "var(--mute)" }, children: confirmedCount > 0 && dispatchableCount === 0 ? "every confirmed finding is already on a fix card" : "one batch card carrying the new confirmed findings" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: dispatchableCount === 0 || dispatching, onClick: dispatch, children: dispatching ? "Sending\u2026" : dispatchMode === "heartbeat" ? `Queue confirmed (${dispatchableCount})` : `Send confirmed to Code (${dispatchableCount})` }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: confirmedCount > 0 && dispatchableCount === 0 ? "Every confirmed finding is already on a fix card." : run.dispatch === "heartbeat" ? "Queued. The next heartbeat creates one Code card carrying this reviewed report." : "Creates one Kanban card carrying the reviewed report and moves it directly into Code." }),
             dispatchedCard && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip sage active", children: [
               "Sent to card",
               " ",
@@ -26221,34 +26959,69 @@ function ResultsView({ initialRun, onConsumeInitialRun }) {
     })()
   ] });
 }
-function SnapshotCard({ pageId, snap, onPromote }) {
-  const [label, setLabel] = (0, import_react3.useState)("");
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card dr-statecard", children: [
-    snap.screenshotPath ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { alt: `snapshot: ${snap.headingText || snap.id}`, src: `/api/states/${encodeURIComponent(pageId)}/snapshots/${encodeURIComponent(snap.id)}/screenshot`, className: "dr-stateimg" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-stateimg dr-noimg", children: "no image captured" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: fmtDate(snap.at) }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, margin: "4px 0" }, children: snap.headingText || "(no heading)" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      "input",
+function describeStateMatcher(state) {
+  const assertion = state.matcher?.assertion;
+  if (assertion && typeof assertion === "object") {
+    const value = assertion;
+    if (value.kind === "text-contains" && value.text) {
+      return `text \u201C${String(value.text)}\u201D is present`;
+    }
+    if (value.kind === "url-matches" && value.pattern) {
+      return `the URL matches \u201C${String(value.pattern)}\u201D`;
+    }
+    const target = value.testId ? `the \u201C${String(value.testId)}\u201D element` : value.role ? `the ${String(value.role)}${value.name ? ` named \u201C${String(value.name)}\u201D` : ""}` : "the selected element";
+    if (value.kind === "visible") return `${target} is visible`;
+    if (value.kind === "count" && value.value !== void 0) {
+      return `${target} count is ${String(value.op ?? "eq")} ${String(value.value)}`;
+    }
+    if (value.kind === "attribute-equals" && value.attribute) {
+      return `${target} has ${String(value.attribute)} = \u201C${String(value.value ?? "")}\u201D`;
+    }
+    return "a deterministic page check";
+  }
+  if (state.fingerprint) {
+    const signalCount = state.fingerprint.shapeSketch.split(",").filter(Boolean).length;
+    return `visual structure around heading \u201C${state.fingerprint.headingText || "(none)"}\u201D (${signalCount} signals)`;
+  }
+  return "Not configured yet";
+}
+function StateReferenceImage({
+  state,
+  pageId,
+  scopedSteps,
+  onPrepareRun,
+  onOpenAuthoring
+}) {
+  const source = state.screenshotPath ? `/api/states/${pageId}/${state.id}/screenshot` : null;
+  const imageUrl = useFetchedImage(source, source ? `/api/states/${pageId}/${state.id}/screenshot-status` : null);
+  if (imageUrl) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "img",
       {
-        placeholder: "state name, e.g. logged-out",
-        value: label,
-        onChange: (e) => setLabel(e.target.value),
-        onKeyDown: (e) => {
-          if (e.key === "Enter" && label.trim()) onPromote(snap.id, label.trim());
-        },
-        style: { width: "100%", fontSize: 11, padding: "4px 6px", border: "1px solid var(--rule)", marginBottom: 4 }
+        alt: `${state.label} state reference`,
+        src: imageUrl,
+        className: "dr-state-image"
       }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { width: "100%", justifyContent: "center" }, disabled: !label.trim(), onClick: () => onPromote(snap.id, label.trim()), children: "Promote to state" })
+    );
+  }
+  if (imageUrl === void 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-state-image-missing", role: "status", children: "Loading recorded reference\u2026" });
+  }
+  const stale = !!state.screenshotPath;
+  const viewportId = scopedSteps.flatMap((step) => step.viewports ?? [])[0] ?? "desktop";
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-state-image-missing", role: "status", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: stale ? "The recorded reference image is no longer available. Its source metadata is kept below." : "No reference image yet. The first successful named-state run will capture it automatically." }),
+    scopedSteps.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => onPrepareRun(pageId, state.id, viewportId), children: "Prepare reference run" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => onOpenAuthoring(pageId), children: "Add state checks in Authoring" })
   ] });
 }
-function StatesView() {
+function StatesView({
+  onViewResults,
+  onPrepareRun,
+  onOpenAuthoring
+}) {
   const [pages, setPages] = (0, import_react3.useState)([]);
   const [pageId, setPageId] = (0, import_react3.useState)(null);
-  const [snapshots, setSnapshots] = (0, import_react3.useState)([]);
   const [error, setError] = (0, import_react3.useState)(null);
-  const [stateError, setStateError] = (0, import_react3.useState)(null);
-  const [capturing, setCapturing] = (0, import_react3.useState)(false);
   const load = () => {
     apiGet("/api/pages").then((r) => {
       setPages(r.pages);
@@ -26256,34 +27029,7 @@ function StatesView() {
     }).catch((e) => setError(e.message));
   };
   (0, import_react3.useEffect)(load, []);
-  const loadSnapshots = (pid) => apiGet(`/api/states/${pid}/snapshots`).then((r) => setSnapshots(r.snapshots)).catch((e) => setStateError(e.message));
-  (0, import_react3.useEffect)(() => {
-    if (pageId) loadSnapshots(pageId);
-  }, [pageId]);
   const page = pages.find((p) => p.id === pageId) ?? null;
-  const takeSnapshot = async () => {
-    if (!pageId || capturing) return;
-    setCapturing(true);
-    setStateError(null);
-    try {
-      await apiPost(`/api/states/${pageId}/snapshot`, { viewport: "desktop" });
-      loadSnapshots(pageId);
-    } catch (e) {
-      setStateError(`Capture failed: ${e.message}`);
-    } finally {
-      setCapturing(false);
-    }
-  };
-  const promote = async (snapshotId, label) => {
-    if (!pageId) return;
-    setStateError(null);
-    try {
-      await apiPost(`/api/states/${pageId}/promote`, { snapshotId, label, reachPath: [] });
-      load();
-    } catch (e) {
-      setStateError(`Promote failed: ${e.message}`);
-    }
-  };
   if (error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
     error,
     " ",
@@ -26292,54 +27038,65 @@ function StatesView() {
   if (!page) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No pages yet - plan the Book (Drill Book tab) or add a page in Authoring first." });
   const states = page.states ?? [];
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "A state is a distinct condition a page can be in - logged out, empty, error - that changes what should be checked. Steps in Authoring can be scoped to a state, and each state records how to REACH it so runs can reproduce it. States are normally authored by the planning agent (Plan book on the Drill Book tab); this page is where you inspect them and hand-author extras." }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec dr-rowwrap", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-lbl", style: { margin: 0 }, children: "Page" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: pageId ?? "", onChange: (e) => {
-        setStateError(null);
-        setPageId(e.target.value);
-      }, style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SectionIntro, { title: "Page states", children: "States are recognizable UI conditions such as \u201Cempty\u201D, \u201Cloading\u201D, or \u201Ccompleted\u201D. The planning agent defines and captures them; you review the reference, recognition rule, and checks that depend on each state." }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec dr-state-toolbar", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { "aria-label": "Page whose states are shown", value: pageId ?? "", onChange: (e) => setPageId(e.target.value), style: { fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "Showing state references for this Book page." })
     ] }),
-    stateError && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-banner", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 240px" }, children: stateError }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setStateError(null), children: "Dismiss" })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec dr-state-explainer", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Reference images are automatic." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The first successful run of a named state stores its evidence here. There is no separate snapshot step for you to operate while an agent is running." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => onViewResults(null), children: "Open runs" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-lbl", children: [
-        "Named states - ",
-        page.title
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Named states" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Each state combines a visual reference, a matcher, and the path the agent follows to reach it." })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: states.length })
       ] }),
-      states.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--mute)", fontSize: 12, marginBottom: 8 }, children: "No named states yet for this page - Plan book authors them, or promote a manual snapshot below." }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cardrow", children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card dr-statecard", children: [
-        s.screenshotPath ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { alt: `state: ${s.label}`, src: `/api/states/${encodeURIComponent(pageId)}/${encodeURIComponent(s.id)}/screenshot`, className: "dr-stateimg" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-stateimg dr-noimg", children: "no reference image - promoting a snapshot of this condition attaches one" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 6 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass active wrap", children: s.label }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)", overflowWrap: "anywhere" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Recognized by:" }),
-          " ",
-          s.fingerprint ? `heading "${s.fingerprint.headingText}" + page shape` : "nothing yet"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)", overflowWrap: "anywhere" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "How to reach it:" }),
-          " ",
-          s.reachPath && s.reachPath.length > 0 ? s.reachPath.map((r) => r.description).join(" -> ") : "(page entry)"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 10, color: "var(--mute)", marginTop: 4 }, children: (() => {
-          const n = page.steps.filter((st) => st.state === s.id).length;
-          return `${n} step${n === 1 ? "" : "s"} scoped to this state`;
-        })() })
-      ] }, s.id)) })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Manual snapshots" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "A snapshot captures the page exactly as it renders right now. To hand-author a state: steer the app into the condition you want (use the interactive preview in Authoring), capture a snapshot here, then name it and promote it." }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 10 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: takeSnapshot, disabled: capturing, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Camera, { size: 11 }),
-        " ",
-        capturing ? "Capturing\u2026" : "Capture snapshot"
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-cardrow", children: [
-        snapshots.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--mute)", fontSize: 12 }, children: "No snapshots yet." }),
-        snapshots.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SnapshotCard, { pageId, snap: s, onPromote: promote }, s.id))
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-state-grid", children: [
+        states.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No states have been authored for this page. This is valid for a static page; the planning agent adds states when checks depend on changing UI conditions." }),
+        states.map((s) => {
+          const scopedSteps = page.steps.filter((step) => step.state === s.id);
+          return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("article", { className: "card dr-state-card", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 6 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass active dr-label-chip", children: s.label }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              StateReferenceImage,
+              {
+                state: s,
+                pageId,
+                scopedSteps,
+                onPrepareRun,
+                onOpenAuthoring
+              },
+              `${pageId}:${s.id}:${s.screenshotPath ?? ""}`
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Recognized by:" }),
+              " ",
+              describeStateMatcher(s)
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--ink-2)" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Agent reaches it:" }),
+              " ",
+              s.reachPath && s.reachPath.length > 0 ? s.reachPath.map((r) => r.description).join(" \u2192 ") : "At page entry"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 10, color: "var(--mute)", marginTop: 4 }, children: [
+              scopedSteps.length,
+              " scoped steps"
+            ] }),
+            s.referenceSource && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "dr-state-source", onClick: () => onViewResults(s.referenceSource.runId), children: [
+              "View source run \xB7 ",
+              formatDate(s.referenceSource.at),
+              " \xB7 ",
+              s.referenceSource.viewportId,
+              " \xB7 ",
+              s.referenceSource.stepId
+            ] })
+          ] }, s.id);
+        })
       ] })
     ] })
   ] });
@@ -26351,10 +27108,24 @@ var VIEWS = [
   { id: "results", label: "Run & results" }
 ];
 function App() {
-  const [view, setView] = (0, import_react3.useState)("book");
+  const initialLocation = () => {
+    const params = new URLSearchParams(location.search);
+    const candidate = params.get("view");
+    return {
+      view: VIEWS.some((v) => v.id === candidate) ? candidate : "book",
+      pageId: params.get("page"),
+      runId: params.get("run")
+    };
+  };
+  const initial = initialLocation();
+  const [view, setView] = (0, import_react3.useState)(initial.view);
+  const [authorPageId, setAuthorPageId] = (0, import_react3.useState)(initial.pageId);
+  const [selectedRunId, setSelectedRunId] = (0, import_react3.useState)(initial.runId);
   const [pendingRun, setPendingRun] = (0, import_react3.useState)(null);
+  const [pendingRunSelection, setPendingRunSelection] = (0, import_react3.useState)(null);
   const [projInfo, setProjInfo] = (0, import_react3.useState)(null);
   const [pickerOpen, setPickerOpen] = (0, import_react3.useState)(false);
+  const tabRefs = (0, import_react3.useRef)([]);
   (0, import_react3.useEffect)(() => {
     apiGet("/api/projects").then((r) => {
       setProjInfo(r);
@@ -26362,16 +27133,43 @@ function App() {
     }).catch(() => {
     });
   }, []);
+  (0, import_react3.useEffect)(() => {
+    const onPop = () => {
+      const next = initialLocation();
+      setView(next.view);
+      setAuthorPageId(next.pageId);
+      setSelectedRunId(next.runId);
+    };
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
+  const navigate = (nextView, options = {}) => {
+    const params = new URLSearchParams();
+    params.set("view", nextView);
+    const nextPage = options.pageId !== void 0 ? options.pageId : nextView === "authoring" ? authorPageId : null;
+    const nextRun = options.runId !== void 0 ? options.runId : nextView === "results" ? selectedRunId : null;
+    if (nextPage) params.set("page", nextPage);
+    if (nextRun) params.set("run", nextRun);
+    history.pushState({}, "", `${location.pathname}?${params.toString()}`);
+    setView(nextView);
+    if (options.pageId !== void 0) setAuthorPageId(options.pageId);
+    if (options.runId !== void 0) setSelectedRunId(options.runId);
+  };
   const runSelected = (pageIds, viewports) => {
     setPendingRun({ pageIds, viewports });
-    setView("results");
+    navigate("results");
   };
-  const openPage = (pid) => {
-    try {
-      localStorage.setItem("drill.authoring.page", pid);
-    } catch {
-    }
-    setView("authoring");
+  const onTabKeyDown = (event, index) => {
+    let nextIndex = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % VIEWS.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + VIEWS.length) % VIEWS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = VIEWS.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextView = VIEWS[nextIndex];
+    if (nextView.id !== view) navigate(nextView.id);
+    requestAnimationFrame(() => tabRefs.current[nextIndex]?.focus());
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-header", children: [
@@ -26383,13 +27181,66 @@ function App() {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectBar, { info: projInfo, onOpenPicker: () => setPickerOpen(true) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-tabs", children: VIEWS.map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-tab" + (view === v.id ? " on" : ""), onClick: () => setView(v.id), children: v.label }, v.id)) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-tabs", role: "tablist", "aria-label": "Drill sections", children: VIEWS.map((v, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          ref: (node) => {
+            tabRefs.current[index] = node;
+          },
+          role: "tab",
+          "aria-selected": view === v.id,
+          tabIndex: view === v.id ? 0 : -1,
+          className: "dr-tab" + (view === v.id ? " on" : ""),
+          onClick: () => navigate(v.id),
+          onKeyDown: (event) => onTabKeyDown(event, index),
+          children: v.label
+        },
+        v.id
+      )) })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-body", children: [
-      view === "book" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BookView, { onRunSelected: runSelected, projInfo, onOpenPicker: () => setPickerOpen(true), onGoAuthoring: () => setView("authoring"), onOpenPage: openPage }),
-      view === "authoring" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthoringView, {}),
-      view === "states" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatesView, {}),
-      view === "results" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultsView, { initialRun: pendingRun, onConsumeInitialRun: () => setPendingRun(null) })
+      view === "book" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BookView, { onRunSelected: runSelected, projInfo, onOpenPicker: () => setPickerOpen(true), onGoAuthoring: (pageId) => navigate("authoring", { pageId: pageId ?? null }) }),
+      view === "authoring" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        AuthoringView,
+        {
+          initialPageId: authorPageId,
+          onPageChange: (pageId) => {
+            setAuthorPageId(pageId);
+            const params = new URLSearchParams(location.search);
+            params.set("view", "authoring");
+            params.set("page", pageId);
+            history.replaceState({}, "", `${location.pathname}?${params.toString()}`);
+          }
+        }
+      ),
+      view === "states" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        StatesView,
+        {
+          onViewResults: (runId) => navigate("results", { runId: runId ?? null }),
+          onPrepareRun: (pageId, state, viewportId) => {
+            setPendingRunSelection({ pageId, state, viewportId });
+            navigate("results", { runId: null });
+          },
+          onOpenAuthoring: (pageId) => navigate("authoring", { pageId })
+        }
+      ),
+      view === "results" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        ResultsView,
+        {
+          initialRun: pendingRun,
+          onConsumeInitialRun: () => setPendingRun(null),
+          initialSelection: pendingRunSelection,
+          onConsumeInitialSelection: () => setPendingRunSelection(null),
+          initialRunId: selectedRunId,
+          onRunViewed: (runId) => {
+            setSelectedRunId(runId);
+            const params = new URLSearchParams(location.search);
+            params.set("view", "results");
+            params.set("run", runId);
+            history.replaceState({}, "", `${location.pathname}?${params.toString()}`);
+          }
+        }
+      )
     ] }),
     pickerOpen && projInfo && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectPickerDialog, { info: projInfo, onClose: () => setPickerOpen(false) })
   ] });
@@ -26461,7 +27312,6 @@ lucide-react/dist/esm/Icon.js:
 lucide-react/dist/esm/createLucideIcon.js:
 lucide-react/dist/esm/icons/arrow-left.js:
 lucide-react/dist/esm/icons/arrow-right.js:
-lucide-react/dist/esm/icons/camera.js:
 lucide-react/dist/esm/icons/check.js:
 lucide-react/dist/esm/icons/crosshair.js:
 lucide-react/dist/esm/icons/external-link.js:
@@ -26472,7 +27322,6 @@ lucide-react/dist/esm/icons/notebook-pen.js:
 lucide-react/dist/esm/icons/plus.js:
 lucide-react/dist/esm/icons/refresh-ccw.js:
 lucide-react/dist/esm/icons/rotate-cw.js:
-lucide-react/dist/esm/icons/ruler.js:
 lucide-react/dist/esm/icons/smartphone.js:
 lucide-react/dist/esm/icons/tablet.js:
 lucide-react/dist/esm/icons/terminal.js:

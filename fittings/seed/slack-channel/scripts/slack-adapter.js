@@ -20,8 +20,8 @@ const { URL } = require('url');
 
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET || '';
-const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:4777';
-const SLACK_PORT = Number(process.env.SLACK_PORT || 9512);
+const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:24777';
+const SLACK_PORT = Number(process.env.SLACK_PORT || 29512);
 const CHAT_TIMEOUT_MS = Number(process.env.CHAT_TIMEOUT_MS || 600_000);
 
 if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {

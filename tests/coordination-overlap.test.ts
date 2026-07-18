@@ -11,7 +11,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
-import { scoreOverlap, validateTouchSet, readTouchSet, coordinationConfig, DEFAULT_COORDINATION, repoPathForProject, serializeGate } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
+import { scoreOverlap, validateTouchSet, readTouchSet, inspectTouchSet, touchSetValidationIssue, coordinationConfig, DEFAULT_COORDINATION, repoPathForProject, serializeGate } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
@@ -113,6 +113,17 @@ describe("validateTouchSet — schema v1", () => {
     expect(v).not.toBeNull();
     expect(v.files).toEqual([]);
   });
+  it("accepts an external workspace as an opaque filesystem surface", () => {
+    const v = validateTouchSet({
+      version: 1,
+      files: [],
+      dirs: [],
+      exclusive: [],
+      surfaces: ["filesystem:/tmp/external-package"]
+    });
+    expect(v).not.toBeNull();
+    expect(v.surfaces).toEqual(["filesystem:/tmp/external-package"]);
+  });
   it("rejects absolute paths and .. traversal segments in any path field", () => {
     expect(validateTouchSet({ version: 1, files: ["../etc/passwd"] })).toBeNull();
     expect(validateTouchSet({ version: 1, files: ["/abs/path.ts"] })).toBeNull();
@@ -122,6 +133,12 @@ describe("validateTouchSet — schema v1", () => {
     // benign relative paths (incl. ./ and dot-containing names) still validate
     expect(validateTouchSet({ version: 1, files: ["./src/a.ts", "src/a..b.ts"] })).not.toBeNull();
   });
+  it("diagnoses unsafe paths with the safe external-workspace repair", () => {
+    const issue = touchSetValidationIssue({ version: 1, files: ["/tmp/external/index.js"] });
+    expect(issue).toContain("absolute paths are not allowed");
+    expect(issue).toContain("surfaces");
+    expect(issue).toContain("filesystem:/absolute/workspace");
+  });
 });
 
 describe("readTouchSet — from a run directory", () => {
@@ -130,6 +147,8 @@ describe("readTouchSet — from a run directory", () => {
     expect(readTouchSet(runDir)).toBeNull();
     writeFileSync(join(runDir, "touch-set.json"), JSON.stringify({ version: 1, files: ["src/a.ts"] }));
     expect(readTouchSet(runDir)!.files).toEqual(["src/a.ts"]);
+    writeFileSync(join(runDir, "touch-set.json"), JSON.stringify({ version: 1, files: ["/tmp/a.ts"] }));
+    expect(inspectTouchSet(runDir).issue).toContain("absolute paths are not allowed");
     expect(readTouchSet(null)).toBeNull();
   });
 });

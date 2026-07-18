@@ -127,7 +127,7 @@ describe("manifestToComposition v3 compatibility", () => {
         observability_config: { log_sink: "runner" }
       },
       selections: {
-        gateway: [{ id: "http-gateway", config: { port: 4777, bind_host: "127.0.0.1" } }]
+        gateway: [{ id: "http-gateway", config: { port: 24777, bind_host: "127.0.0.1" } }]
       }
     };
 
@@ -137,7 +137,7 @@ describe("manifestToComposition v3 compatibility", () => {
     expect(composition.name).toBe("Legacy Op");
     expect(composition.globalConfig.projects_root).toBe("~/dev");
     expect(composition.selections.gateway).toEqual([
-      { id: "http-gateway", config: { port: 4777, bind_host: "127.0.0.1" } }
+      { id: "http-gateway", config: { port: 24777, bind_host: "127.0.0.1" } }
     ]);
     // v4 fields present but empty — v3 behavior is unchanged.
     expect(composition.schema).toBe(3);
@@ -161,7 +161,7 @@ describe("applyLocalOverlay", () => {
         observability_config: { log_sink: "runner" }
       },
       selections: {
-        gateway: [{ id: "http-gateway", config: { port: 4777, bind_host: "127.0.0.1" } }],
+        gateway: [{ id: "http-gateway", config: { port: 24777, bind_host: "127.0.0.1" } }],
         memory: [{ id: "basic-memory", config: { vault_dir: "~/ObsidianVault" } }]
       }
     });

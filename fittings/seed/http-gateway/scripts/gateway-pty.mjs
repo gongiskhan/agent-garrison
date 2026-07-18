@@ -42,7 +42,11 @@ import {
   compactionsFrom,
   contextTokensFrom,
 } from "@garrison/claude-pty";
-import { createRoutedGateway, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
+import {
+  createRoutedGateway,
+  resolveModelRouterDir,
+  shouldUseEphemeralSession
+} from "./lib/gateway-routing.mjs";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import { isEmptyQuickReply, quickEmptyFailureReason, moveCardEngine } from "./lib/autonomous-cards.mjs";
 import { resolveDiscussInterception } from "./lib/discuss-intercept.mjs";
@@ -50,9 +54,10 @@ import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedb
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
-const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
+const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "24777");
 const SYSTEM_PROMPT_PATH = process.env.GARRISON_SYSTEM_PROMPT_PATH ?? "";
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
+const COMPOSITION_ID = process.env.AGENT_GARRISON_COMPOSITION ?? path.basename(COMPOSITION_DIR);
 const PERMISSION_MODE = process.env.GARRISON_PERMISSION_MODE ?? "bypassPermissions";
 const MODEL = process.env.GARRISON_MODEL ?? "opus";
 const CLAUDE_BINARY = process.env.GARRISON_CLAUDE_BINARY ?? "claude";
@@ -85,6 +90,56 @@ let readyResolve;
 const readyPromise = new Promise((resolve) => {
   readyResolve = resolve;
 });
+
+// RuntimeAdapter sessions deliberately have different shapes. Claude Code owns
+// a PTY handle + getClaudeSessionId(); Agent SDK exposes sessionId; exec-style
+// primaries such as Codex only carry {alive, config}. Generic HTTP/lifecycle
+// paths must not turn Claude-only methods into adapter requirements.
+function activeRuntimeSession() {
+  return router?.getOperativeSession?.() ?? session;
+}
+
+function runtimeSessionId(sess = activeRuntimeSession()) {
+  try {
+    const id =
+      typeof sess?.getClaudeSessionId === "function"
+        ? sess.getClaudeSessionId()
+        : typeof sess?.sessionId === "string"
+          ? sess.sessionId
+          : null;
+    return typeof id === "string" && id.trim() ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function runtimeSessionAlive(sess = activeRuntimeSession()) {
+  if (!sess) return false;
+  try {
+    if (typeof sess.isDisposed === "function" && sess.isDisposed()) return false;
+    if (typeof sess.isAlive === "function") return sess.isAlive() !== false;
+    if (typeof sess.alive === "boolean") return sess.alive;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function richPtyAvailable(sess = activeRuntimeSession()) {
+  return runtimeSessionAlive(sess) && !!sess?.handle && typeof sess?.writeKeys === "function";
+}
+
+function primaryRuntime() {
+  return router?.primaryEngine ?? process.env.GARRISON_PRIMARY_ENGINE ?? "claude-code";
+}
+
+function richUnavailable() {
+  return {
+    error: "rich Claude PTY controls are unavailable for this primary runtime",
+    code: "RICH_PTY_UNAVAILABLE",
+    primary_runtime: primaryRuntime(),
+  };
+}
 
 // Active rich /claude/stream emitters. An agent-sdk turn runs OFF the PTY operative
 // screen, so its reply is INJECTED into these connections (the rich UI renders an
@@ -366,7 +421,9 @@ function broadcastTool(payload) {
 
 // Start the JSONL AskUserQuestion watcher once the operative is ready. Idempotent.
 function startAskWatcher() {
-  if (askWatcher) return;
+  // AskUserQuestion is a Claude TUI picker. Exec/API primaries have no screen or
+  // key channel; their ordinary /chat endpoints remain available.
+  if (askWatcher || !richPtyAvailable()) return;
   let projectDir;
   try {
     projectDir = claudeProjectDirForCwd(realpathSync(COMPOSITION_DIR));
@@ -404,7 +461,8 @@ async function handleAnswer(body) {
   const label = typeof body?.label === "string" ? body.label : "";
   const text = typeof body?.text === "string" ? body.text : "";
   const dismiss = body?.dismiss === true;
-  if (!session || !session.isAlive()) return { status: 503, body: { error: "operative not ready" } };
+  if (!runtimeSessionAlive()) return { status: 503, body: { error: "operative not ready" } };
+  if (!richPtyAvailable()) return { status: 503, body: richUnavailable() };
 
   if (dismiss) {
     await drivePicker(["escape"]);
@@ -491,7 +549,10 @@ async function loadDispatcher() {
       });
     // The DispatchModel (duties w/ descriptions + selection) from the runner's
     // garrison-control read model - the same source Muster and the board trust.
-    const controlBase = process.env.GARRISON_CONTROL_URL ?? "http://127.0.0.1:7777";
+    const controlBase =
+      process.env.GARRISON_CONTROL_URL ??
+      process.env.GARRISON_BASE_URL ??
+      `http://127.0.0.1:${process.env.GARRISON_APP_PORT ?? "27777"}`;
     const r = await fetch(`${controlBase}/api/garrison-control`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) throw new Error(`garrison-control ${r.status}`);
     const j = await r.json();
@@ -563,11 +624,18 @@ async function initRouting() {
   const continueSession = await hasPriorSession();
   router = await createRoutedGateway({
     compositionDir: COMPOSITION_DIR,
+    compositionId: COMPOSITION_ID,
     appendSystemPromptFile: SYSTEM_PROMPT_PATH || undefined,
     permissionMode: PERMISSION_MODE,
     decisionsFile: path.join(COMPOSITION_DIR, ".garrison", "decisions.jsonl"),
-    ...(dispatcher ? { dispatcher } : {}),
+    // Prefer the projected v4 Dispatcher built by createRoutedGateway below.
+    // The control-plane loader remains a compatibility fallback when no
+    // projected execution model is available.
+    ...(dispatcher ? { fallbackDispatcher: dispatcher } : {}),
     spawnFn,
+    // Production front door: load the runner-projected v4 execution manifest and
+    // wire the Dispatcher. Pure routing tests leave this opt-in unset.
+    enableV4Dispatcher: true,
     operativeSpawnConfig: {
       compositionDir: COMPOSITION_DIR,
       appendSystemPromptFile: SYSTEM_PROMPT_PATH || undefined,
@@ -643,7 +711,7 @@ async function hasPriorSession() {
 async function markPriorSession() {
   try {
     await fs.mkdir(path.dirname(SESSION_ID_FILE), { recursive: true });
-    await fs.writeFile(SESSION_ID_FILE, session?.getClaudeSessionId() ?? "continue", "utf8");
+    await fs.writeFile(SESSION_ID_FILE, runtimeSessionId() ?? "continue", "utf8");
   } catch (err) {
     logEvent("stderr", { kind: "persist-session-marker-failed", error: err.message });
   }
@@ -742,7 +810,8 @@ async function runRoutedTurn(message, onChunk, hints) {
     const cls = pre.classification || {};
     const origin = String(hints?.channel || "").toLowerCase();
     const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board" || origin === "garrison";
-    if (!cardOriginated && router.isTaskShaped(cls)) {
+    const v4TaskShaped = !!pre?.duty && pre.duty !== "other" && pre.duty !== "dispatch";
+    if (!cardOriginated && (v4TaskShaped || router.isTaskShaped(cls))) {
       let attached = sessionKey ? await router.attachedCard(sessionKey, cls) : null;
       // S3b: a post-done follow-up on a web thread becomes a CONTINUATION card.
       let continueFrom = null;
@@ -834,6 +903,9 @@ async function runRoutedTurn(message, onChunk, hints) {
           duty: pre?.duty ?? pre?.route?.duty,
           level: pre?.level ?? pre?.route?.level,
           sequence: pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence,
+          // A composite card starts on its first resolved leaf, not the legacy
+          // hardcoded Plan list (a valid workflow may begin at implement/research).
+          targetList: (pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence)?.[0] ?? undefined,
           // Where the task came from, so the run engine can post the outcome
           // back to the originating channel thread when the card completes.
           originChannel: origin && sessionKey ? { channel: origin, threadId: sessionKey } : null,
@@ -841,8 +913,9 @@ async function runRoutedTurn(message, onChunk, hints) {
           // seeded from the predecessor's handoff packet — WS2).
           ...(continueFrom ? { continues: continueFrom } : {})
         };
-        const naturalSignificant =
-          typeof router.core?.isSignificantAutonomous === "function" && router.core.isSignificantAutonomous(cls);
+        const naturalSignificant = Array.isArray(pre?.sequence) && pre.sequence.length > 1
+          ? true
+          : typeof router.core?.isSignificantAutonomous === "function" && router.core.isSignificantAutonomous(cls);
         // D20: a conversational override in the operator's words reclassifies the
         // plan (full pipeline / just do it quickly / run in the background). When it
         // FLIPS the natural resolution, the gateway records ONE override event to the
@@ -898,7 +971,11 @@ async function runRoutedTurn(message, onChunk, hints) {
           }
           // board unavailable → fall through inline (never hard-block on the window)
         } else {
-          const card = await router.createAutonomousCard(message, cls, { ...cardOpts, quick: true, targetList: "implement" });
+          const card = await router.createAutonomousCard(message, cls, {
+            ...cardOpts,
+            quick: true,
+            targetList: pre?.sequence?.[0] ?? "implement"
+          });
           if (card) {
             quickCard = card;
             router.rememberCard(sessionKey, { cardId: card.id, quick: true, taskType: cls.taskType });
@@ -920,7 +997,10 @@ async function runRoutedTurn(message, onChunk, hints) {
       await router.parkQuickCard(quickCard.id, quickEmptyFailureReason());
       logEvent("stdout", { kind: "quick-card-empty-parked", id: quickCard.id, reason: "empty reply — routed to needs-attention" });
     } else {
-      await router.completeQuickCard(quickCard.id);
+      await router.completeQuickCard(quickCard.id, {
+        ...result,
+        phase: pre.phase ?? pre.route?.phase ?? pre.route?.role ?? null
+      });
     }
     router.forgetCard(sessionKey);
   }
@@ -953,6 +1033,8 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       runtime: "agent-sdk",
       provider: r.provider,
       model: r.model,
+      effort: r.effort ?? null,
+      effortApplied: r.effortApplied ?? null,
     });
     return {
       reply: r.reply,
@@ -962,13 +1044,18 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       runtime: "agent-sdk",
       provider: r.provider ?? null,
       model: r.model,
+      effort: r.effort ?? null,
+      effortApplied: typeof r.effortApplied === "boolean" ? r.effortApplied : null,
+      // A runtime ceiling is an explicit stopped result, not a transport error.
+      // Preserve it on the normal SSE `done` payload so the card engine can
+      // require durable phase evidence before treating the phase as complete.
+      stoppedReason: r.stoppedReason ?? null,
       // Routing attribution for channels/kanban (null-safe — a missing decision
       // must never throw): what the classifier decided and which rule matched.
       taskType: pre.decision?.taskType ?? null,
       tier: pre.decision?.tier ?? null,
       ruleId: pre.decision?.ruleId ?? null,
       profile: pre.decision?.profile ?? null,
-      effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
     };
   }
   // Secondary runtime (gpt/codex or gemini): the orchestrator delegates this step
@@ -992,6 +1079,8 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       runtime: r.runtime,
       provider: r.provider,
       model: r.model,
+      effort: r.effort ?? null,
+      effortApplied: r.effortApplied ?? null,
     });
     return {
       reply: r.reply,
@@ -1001,12 +1090,59 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       runtime: r.runtime,
       provider: r.provider ?? null,
       model: r.model,
+      effort: r.effort ?? null,
+      effortApplied: typeof r.effortApplied === "boolean" ? r.effortApplied : null,
       // Routing attribution for channels/kanban (null-safe).
       taskType: pre.decision?.taskType ?? null,
       tier: pre.decision?.tier ?? null,
       ruleId: pre.decision?.ruleId ?? null,
       profile: pre.decision?.profile ?? null,
-      effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
+    };
+  }
+  // A Claude-bound v4 cell under a non-Claude primary is an actual Claude Code
+  // delegate lane. Do not call runTurn on the Codex/Gemini operative and then
+  // mislabel it as Claude: the routing layer owns a real target-specific Claude
+  // session and reports the provider/model/effort it launched.
+  if (router.isClaudeDelegateTarget(pre.route)) {
+    broadcastRich("turn", { active: true });
+    const annotated = `${pre.annotation}\n${message}`;
+    const r = await router.runClaudeDelegateTurn(pre.route, annotated, {
+      onChunk,
+      timeoutMs: hints?.timeoutMs
+    });
+    broadcastRich("status", {
+      rows: [`Garrison orchestrator → runtime: claude-code · provider: ${r.provider} · model: ${r.model}`],
+      mode: "claude-code",
+      contextPct: null,
+      model: `${r.model} · claude-code/${r.provider}`,
+    });
+    broadcastRich("assistant", { text: r.reply });
+    broadcastRich("turn", { active: false });
+    logEvent("stdout", {
+      kind: "routed-turn",
+      target: pre.route.targetId,
+      role: pre.route.role,
+      runtime: "claude-code",
+      provider: r.provider,
+      model: r.model,
+      effort: r.effort ?? null,
+      effortApplied: r.effortApplied ?? null,
+      delegated: true,
+    });
+    return {
+      reply: r.reply,
+      session_id: r.session_id ?? null,
+      cost_usd: null,
+      route: pre.route.targetId,
+      runtime: "claude-code",
+      provider: r.provider ?? null,
+      model: r.model ?? null,
+      effort: r.effort ?? null,
+      effortApplied: typeof r.effortApplied === "boolean" ? r.effortApplied : null,
+      taskType: pre.decision?.taskType ?? null,
+      tier: pre.decision?.tier ?? null,
+      ruleId: pre.decision?.ruleId ?? null,
+      profile: pre.decision?.profile ?? null,
     };
   }
   session = router.getOperativeSession();
@@ -1014,12 +1150,16 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
   // operative (via its Workflow tool) — prepend the instruction; else a plain turn.
   const wfPrefix = router.isWorkflowTarget(pre.route) ? router.workflowTurnPrefix(pre.route) : "";
   const annotated = `${pre.annotation}\n${wfPrefix}${message}`;
-  // S3b: a WEB conversational / quick-inline turn MATERIALIZES — run it as a ONE-SHOT
-  // (fresh disposable claude) prefixed with the assembled context, so the standing
-  // operative session holds NO web context between messages. Non-web channels
-  // (kanban / dev-env / …) keep using the standing operative session unchanged.
-  if (hints?.channel === "web") {
-    const ctxBlock = typeof hints?.context === "string" && hints.context.trim() ? hints.context.trim() : "";
+  // S3b: a WEB conversational turn materializes as a one-shot. Internal
+  // screenshot-grounded turns do too: they must not consume or overwrite a
+  // human's draft in the standing operative input box. Other channels
+  // (kanban/dev-env/…) keep the standing operative context.
+  const oneShotChannel = shouldUseEphemeralSession(hints?.channel);
+  if (oneShotChannel) {
+    const isInternal = hints?.channel === "garrison";
+    const ctxBlock = !isInternal && typeof hints?.context === "string" && hints.context.trim()
+      ? hints.context.trim()
+      : "";
     const oneShotMsg = ctxBlock ? `${ctxBlock}\n\n---\n\n${annotated}` : annotated;
     const model = pre.route?.target?.model ?? MODEL;
     let reply = "";
@@ -1055,17 +1195,26 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     } catch (err) {
       logEvent("stderr", { kind: "web-oneshot-failed", error: err?.message || String(err) });
     }
-    lastMaterialized = { at: new Date().toISOString(), threadId: hints?.sessionId ?? null, assembledChars: ctxBlock.length, oneShot: true };
-    broadcastRich("status", {
-      rows: [`Garrison orchestrator → runtime: claude-code · web materialized (one-shot) · model: ${model}`],
-      mode: "claude-code",
-      contextPct: null,
-      model: `${model} · claude-code`,
-    });
-    broadcastRich("assistant", { text: reply });
-    broadcastRich("turn", { active: false });
+    if (!isInternal) {
+      lastMaterialized = { at: new Date().toISOString(), threadId: hints?.sessionId ?? null, assembledChars: ctxBlock.length, oneShot: true };
+      broadcastRich("status", {
+        rows: [`Garrison orchestrator → runtime: claude-code · web materialized (one-shot) · model: ${model}`],
+        mode: "claude-code",
+        contextPct: null,
+        model: `${model} · claude-code`,
+      });
+      broadcastRich("assistant", { text: reply });
+      broadcastRich("turn", { active: false });
+    }
     if (onChunk && reply) onChunk(reply, true);
-    logEvent("stdout", { kind: "routed-turn", target: pre.route.targetId, runtime: "claude-code", web: true, oneShot: true });
+    logEvent("stdout", {
+      kind: "routed-turn",
+      target: pre.route.targetId,
+      runtime: "claude-code",
+      web: !isInternal,
+      internal: isInternal,
+      oneShot: true
+    });
     return {
       reply,
       session_id: null, // nothing held — a one-shot spawns fresh and disposes
@@ -1080,8 +1229,8 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       ruleId: pre.decision?.ruleId ?? null,
       profile: pre.decision?.profile ?? null,
       effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
-      // S3b acceptance evidence: prove this web turn ran one-shot (no standing session).
-      materialized: { oneShot: true, assembledChars: ctxBlock.length },
+      // Acceptance evidence: prove this turn ran one-shot (no standing session).
+      materialized: { oneShot: true, assembledChars: ctxBlock.length, internal: isInternal },
     };
   }
   let lastEmitted = "";
@@ -1119,7 +1268,29 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     broadcastRich("assistant", { text: outcome.reply });
     broadcastRich("turn", { active: false });
   }
-  logEvent("stdout", { kind: "routed-turn", target: pre.route.targetId, role: pre.route.role, runtime: "claude-code", model: pre.route?.target?.model ?? MODEL, honored: honored.honored });
+  const effort = pre.route?.target?.effort ?? null;
+  // Stage-B may report exact application truth (adapter move / unsupported
+  // runtime). The historical Claude PTY path applies a same-provider effort via
+  // `/effort`; a provider/soul respawn cannot be proven from the settled turn and
+  // remains unknown instead of claiming success.
+  const effortApplied =
+    effort == null
+      ? null
+      : typeof pre.plan?.effortApplied === "boolean"
+        ? pre.plan.effortApplied
+        : pre.plan?.path === "respawn-resume"
+          ? null
+          : true;
+  logEvent("stdout", {
+    kind: "routed-turn",
+    target: pre.route.targetId,
+    role: pre.route.role,
+    runtime: "claude-code",
+    model: pre.route?.target?.model ?? MODEL,
+    effort,
+    effortApplied,
+    honored: honored.honored,
+  });
   return {
     // Fall back to the operative's claude session id so a routed turn always
     // reports a session (outcome.sessionId is null for the pooled PTY operative).
@@ -1134,11 +1305,12 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     runtime: "claude-code",
     provider: pre.route?.target?.provider ?? null,
     model: pre.route?.target?.model ?? null,
+    effort,
+    effortApplied,
     taskType: pre.decision?.taskType ?? null,
     tier: pre.decision?.tier ?? null,
     ruleId: pre.decision?.ruleId ?? null,
     profile: pre.decision?.profile ?? null,
-    effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
   };
 }
 
@@ -1217,6 +1389,17 @@ function routeHintsFromBody(body) {
     workKind: typeof body?.workKind === "string" ? body.workKind : null,
     phases: body?.phases && typeof body.phases === "object" ? body.phases : null,
     project: typeof body?.project === "string" ? body.project : null,
+    // V4 card execution identity. The Kanban engine supplies these fields for an
+    // existing Dispatcher-created card; preRoute resolves the exact assigned leaf
+    // cell and bypasses the legacy taskType×tier matrix.
+    duty: typeof body?.duty === "string" && body.duty ? body.duty : null,
+    level: Number.isInteger(body?.level) ? body.level : null,
+    phase: typeof body?.phase === "string" && body.phase ? body.phase : null,
+    stepIndex: Number.isInteger(body?.stepIndex) ? body.stepIndex : null,
+    sequence:
+      Array.isArray(body?.sequence) && body.sequence.every((item) => typeof item === "string")
+        ? body.sequence
+        : null,
     // An EXPLICIT per-turn timeout (ms). The Kanban Loop sends a generous one because a
     // real garrison-* turn (plan/implement/review/…) runs far longer than the default
     // 5-min turn timeout, which otherwise kills the turn → HTTP 500 → the card parks.
@@ -1353,13 +1536,16 @@ const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
   try {
     if (request.method === "GET" && url.pathname === "/health") {
+      const operativeExited = ptyStatus === "ready" && !runtimeSessionAlive();
+      const effectiveStatus = operativeExited ? "failed" : ptyStatus;
       sendJson(response, 200, {
-        ok: ptyStatus !== "failed",
-        session_id: session?.getClaudeSessionId() ?? null,
+        ok: effectiveStatus !== "failed",
+        session_id: runtimeSessionId(),
         uptime_ms: Date.now() - STARTED_AT,
         engine: "pty",
-        pty_status: ptyStatus,
-        error: ptyError,
+        primary_runtime: primaryRuntime(),
+        pty_status: effectiveStatus,
+        error: operativeExited ? "operative session exited" : ptyError,
       });
       return;
     }
@@ -1592,7 +1778,7 @@ const server = http.createServer(async (request, response) => {
 
     // ───────────────────────── rich chat surface (/claude/*)
     if (url.pathname.startsWith("/claude/")) {
-      if (!session || !session.isAlive()) {
+      if (!runtimeSessionAlive()) {
         if (url.pathname === "/claude/stream") {
           // Still open the SSE so the client can wait; emit an error once.
           response.statusCode = 200;
@@ -1602,6 +1788,9 @@ const server = http.createServer(async (request, response) => {
           return;
         }
         return sendJson(response, 503, { error: "operative not ready", pty_status: ptyStatus });
+      }
+      if (!richPtyAvailable()) {
+        return sendJson(response, 503, richUnavailable());
       }
       if (request.method === "GET" && url.pathname === "/claude/stream") {
         openRichStream(session.handle, response, {
@@ -1735,7 +1924,7 @@ async function shutdown(signal) {
   // Give claude a chance to persist the conversation (so a restart can
   // --continue with context): double Ctrl-C exits the TUI cleanly. Then kill.
   try {
-    if (session && session.isAlive() && !session.isTurnActive()) {
+    if (richPtyAvailable() && (typeof session.isTurnActive !== "function" || !session.isTurnActive())) {
       session.writeKeys("\x03");
       await new Promise((r) => setTimeout(r, 200));
       session.writeKeys("\x03");
@@ -1755,7 +1944,7 @@ async function shutdown(signal) {
     /* ignore */
   }
   try {
-    session?.dispose();
+    session?.dispose?.();
   } catch {
     /* ignore */
   }

@@ -11,6 +11,29 @@ function appErrors(errors: string[]): string[] {
 
 const ROUTES = ["/", "/muster", "/quarters", "/vault", "/connectors", "/coordination", "/settings"];
 
+async function openSidebarIfCollapsed(page: import("@playwright/test").Page) {
+  const nav = page.locator("nav.tabs");
+  const expand = page.getByRole("button", { name: "Expand sidebar" });
+  if ((page.viewportSize()?.width ?? Infinity) < 720) {
+    // The server render is expanded; the narrow-viewport effect collapses it
+    // after hydration. Wait for that stable rail before exercising the tap.
+    await expect(expand).toBeVisible();
+    await expand.click();
+    await expect(page.getByRole("dialog", { name: "Garrison menu" })).toBeVisible();
+  } else if (!(await nav.isVisible().catch(() => false))) {
+    await expect(expand).toBeVisible();
+    await expand.click();
+  }
+  await expect(nav).toBeVisible();
+}
+
+async function openFittingsTab(page: import("@playwright/test").Page) {
+  await page.goto("/muster", { timeout: 60_000 });
+  const fittings = page.getByRole("tab", { name: /^Fittings/ });
+  await expect(fittings).toBeVisible({ timeout: 30_000 });
+  await fittings.click();
+}
+
 test("every main shell route renders without console errors", async ({ page }) => {
   // Seven first-visit routes in one pass: under `next dev` each pays a compile
   // on first load, so the budget is per-route latency, not product slowness.
@@ -21,8 +44,10 @@ test("every main shell route renders without console errors", async ({ page }) =
   });
   for (const route of ROUTES) {
     await page.goto(route, { timeout: 60_000 });
-    await expect(page.locator("nav.tabs"), `sidebar visible on ${route}`).toBeVisible();
-    await expect(page.locator(".head h1, .skeleton-line").first()).toBeVisible();
+    await openSidebarIfCollapsed(page);
+    await expect(
+      page.locator("main h1, .skeleton-line, [data-testid='muster-loading']").first()
+    ).toBeVisible({ timeout: 30_000 });
   }
   expect(appErrors(errors)).toEqual([]);
 });
@@ -30,28 +55,19 @@ test("every main shell route renders without console errors", async ({ page }) =
 test("Compose: a stationed tile's sub-line describes the Fitting, not its name again", async ({
   page
 }) => {
-  await page.goto("/muster", { timeout: 60_000 });
-  await expect(page.getByRole("heading", { name: "Agent faculties" })).toBeVisible({
-    timeout: 30_000
-  });
-  const tiles = page.locator(".station-tile");
-  await expect(tiles.first()).toBeVisible();
-  const count = await tiles.count();
-  let checked = 0;
-  for (let i = 0; i < count; i++) {
-    const tile = tiles.nth(i);
-    const name = (await tile.locator(".t-nm").textContent())?.trim() ?? "";
-    const sub = (await tile.locator(".t-fit").textContent())?.trim() ?? "";
-    if (!sub) continue;
-    expect(sub, `tile "${name}" repeats its own name as the sub-line`).not.toBe(name);
-    checked++;
-  }
-  expect(checked).toBeGreaterThan(0);
+  await openFittingsTab(page);
+  await expect(page.getByTestId("standing-section")).toBeVisible();
+  const fitting = page.locator("[data-testid^='standing-fitting-']").first();
+  await expect(fitting).toBeVisible();
+  const name = (await fitting.locator("[data-testid^='standing-fitting-name-']").textContent())?.trim() ?? "";
+  const summary = (await fitting.locator("[data-testid^='standing-fitting-summary-']").textContent())?.trim() ?? "";
+  expect(summary).not.toBe("");
+  expect(summary, `fitting "${name}" repeats its own name as the description`).not.toBe(name);
 });
 
 test("Compose: search filters the Fitting grid", async ({ page }) => {
-  await page.goto("/muster", { timeout: 60_000 });
-  const search = page.getByPlaceholder(/Search every Faculty/i);
+  await openFittingsTab(page);
+  const search = page.getByRole("searchbox", { name: "Search standing Fittings" });
   await expect(search).toBeVisible({ timeout: 30_000 });
   await search.fill("zz-no-such-fitting-zz");
   await expect(page.getByText(/No Fittings match that search/i).first()).toBeVisible({
@@ -65,6 +81,7 @@ test("Sidebar: own-port view statuses carry a tone class for the at-a-glance dot
   page
 }) => {
   await page.goto("/", { timeout: 60_000 });
+  await openSidebarIfCollapsed(page);
   const toned = page.locator("nav.tabs .ct.tone-live, nav.tabs .ct.tone-down, nav.tabs .ct.tone-off");
   await expect(toned.first()).toBeVisible({ timeout: 30_000 });
 });

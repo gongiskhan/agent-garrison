@@ -119,14 +119,33 @@ describe("claude-chat: routeChipFromAttribution", () => {
       runtime: "agent-sdk",
       model: "claude-haiku-4-5",
       tier: "T0-trivial",
+      effort: "low",
+      effortApplied: true,
       ruleId: "cell:other/T0-trivial",
       profile: "balanced",
       honored: true,
     });
-    expect(chip?.label).toBe("agent-sdk/claude-haiku-4-5 · T0-trivial");
+    expect(chip?.label).toBe("agent-sdk/claude-haiku-4-5 · T0-trivial · low effort");
     expect(chip?.title).toBe(
-      "target cc-haiku-low · rule cell:other/T0-trivial · profile balanced · honored: yes"
+      "target cc-haiku-low · rule cell:other/T0-trivial · profile balanced · effort low: applied · honored: yes"
     );
+  });
+
+  it("shows requested effort as not applied for an unsupported runtime", () => {
+    const chip = routeChipFromAttribution({
+      runtime: "gemini",
+      model: "gemini-2.5-flash",
+      effort: "high",
+      effortApplied: false,
+    });
+    expect(chip?.label).toBe("gemini/gemini-2.5-flash · high effort not applied");
+    expect(chip?.title).toBe("effort high: not applied");
+  });
+
+  it("marks requested effort unverified when application truth is absent", () => {
+    const chip = routeChipFromAttribution({ runtime: "custom", model: "m", effort: "medium" });
+    expect(chip?.label).toBe("custom/m · medium effort unverified");
+    expect(chip?.title).toBe("effort medium: application unknown");
   });
 
   it("omits missing parts gracefully (runtime/model, no tier)", () => {

@@ -18,6 +18,13 @@ import path from "node:path";
 const REPO_ROOT = process.cwd();
 const SERVER = path.join(REPO_ROOT, "fittings", "seed", "orchestrator", "scripts", "server.mjs");
 const SEED = path.join(REPO_ROOT, "fittings", "seed", "orchestrator", "config", "routing.seed.json");
+const SEED_CONFIG = JSON.parse(readFileSync(SEED, "utf8")) as {
+  taskTypes: string[];
+  workKinds: Record<string, unknown>;
+  defaultWorkKind: string;
+};
+const SEED_TASK_TYPES = SEED_CONFIG.taskTypes;
+const SEED_WORK_KINDS = Object.keys(SEED_CONFIG.workKinds);
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -72,13 +79,20 @@ test.afterAll(() => {
 });
 
 // dnd-kit PointerSensor (activation distance 6px) driven with raw mouse moves.
+// The tray and matrix do not necessarily fit in one viewport. Activate while
+// the card is visible, scroll the real destination into view during the active
+// drag, then remeasure it; MeasuringStrategy.Always in the app keeps dnd-kit's
+// droppable geometry in sync with that scroll.
 async function dragTo(page: import("@playwright/test").Page, src: import("@playwright/test").Locator, dst: import("@playwright/test").Locator) {
+  await src.scrollIntoViewIfNeeded();
   const sb = await src.boundingBox();
-  const db = await dst.boundingBox();
-  if (!sb || !db) throw new Error("drag endpoints not visible");
+  if (!sb) throw new Error("drag source not visible");
   await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
   await page.mouse.down();
   await page.mouse.move(sb.x + sb.width / 2 + 12, sb.y + sb.height / 2 + 12, { steps: 4 });
+  await dst.scrollIntoViewIfNeeded();
+  const db = await dst.boundingBox();
+  if (!db) throw new Error("drag destination not visible");
   await page.mouse.move(db.x + db.width / 2, db.y + db.height / 2, { steps: 12 });
   await page.mouse.up();
 }
@@ -102,14 +116,21 @@ test("composer renders the whole policy: tray, matrix, work-kind rails, try-it",
   await expect(fastCard.locator(".tcard-runtime")).toContainText("agent-sdk");
   await expect(fastCard.locator(".tcard-auth")).toHaveText("subscription");
 
-  // Matrix - 18 task types × 3 tier columns, resolved tokens in every cell.
+  // Matrix - the complete 20-task policy × 3 tier columns, in seed order,
+  // with resolved tokens in every cell.
+  expect(SEED_TASK_TYPES).toHaveLength(20);
   await expect(page.locator("table.matrix thead .ch-name", { hasText: "T2-deep" })).toBeVisible();
-  expect(await page.locator("table.matrix tbody tr").count()).toBe(18);
+  await expect(page.locator("table.matrix tbody .rh-name")).toHaveText(SEED_TASK_TYPES);
   expect(await implementRow(page).locator("td.cell").count()).toBe(3);
 
-  // Work-kind rails - one rail per seed work kind, default badge on full-feature.
-  expect(await page.locator(".rail").count()).toBe(4);
-  await expect(page.locator(".rail").filter({ hasText: "full-feature" }).locator(".rail-badge")).toHaveText("default");
+  // Work-kind rails - one rail per seed work kind, in seed order, with the
+  // configured default identified. The current policy has five (video-edit was
+  // added after this test's original four-kind fixture).
+  expect(SEED_WORK_KINDS).toHaveLength(5);
+  await expect(page.locator(".rail .rail-kind")).toHaveText(SEED_WORK_KINDS);
+  await expect(
+    page.locator(".rail").filter({ hasText: SEED_CONFIG.defaultWorkKind }).locator(".rail-badge")
+  ).toHaveText("default");
 
   // Try-it strip present.
   await expect(page.locator(".tryit-input")).toBeVisible();

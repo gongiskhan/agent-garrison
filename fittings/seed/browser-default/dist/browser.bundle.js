@@ -24591,6 +24591,18 @@ var SPECIAL_KEY_CODES = {
 var SPECIAL_KEY_TEXT = { Enter: "\r" };
 var SPECIAL_KEYS = new Set(Object.keys(SPECIAL_KEY_CODES));
 function CanvasPage({ initialTabId, inShell = false, embed = false }) {
+  const cleanEmbed = (0, import_react.useMemo)(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("embed");
+    return embed || requested === "1" || requested === "clean";
+  }, [embed]);
+  const preservedViewport = (0, import_react.useMemo)(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("preserveViewport") !== "1") return null;
+    const width = Math.round(Number(params.get("viewportWidth")) || 0);
+    const height = Math.round(Number(params.get("viewportHeight")) || 0);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }, []);
   const canvasRef = (0, import_react.useRef)(null);
   const wrapperRef = (0, import_react.useRef)(null);
   const hiddenInputRef = (0, import_react.useRef)(null);
@@ -24633,6 +24645,7 @@ function CanvasPage({ initialTabId, inShell = false, embed = false }) {
     return false;
   }, []);
   const pushViewport = (0, import_react.useCallback)((force = false) => {
+    if (preservedViewport) return;
     if (viewportWsRef.current?.readyState !== WebSocket.OPEN) return;
     const wrap = wrapperRef.current;
     if (!wrap) return;
@@ -24645,7 +24658,7 @@ function CanvasPage({ initialTabId, inShell = false, embed = false }) {
     if (!force && last && last.width === width && last.height === height && last.dpr === dpr) return;
     lastSentViewportRef.current = { width, height, dpr };
     sendInput({ type: "viewport", width, height, devicePixelRatio: dpr });
-  }, [sendInput]);
+  }, [preservedViewport, sendInput]);
   const queueResize = (0, import_react.useCallback)(() => {
     if (resizeTimerRef.current) window.clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = window.setTimeout(() => {
@@ -24704,7 +24717,7 @@ function CanvasPage({ initialTabId, inShell = false, embed = false }) {
     fatalRef.current = null;
     setFatalError(null);
     setConnState("connecting");
-    lastSentViewportRef.current = null;
+    lastSentViewportRef.current = preservedViewport ? { ...preservedViewport, dpr: 1 } : null;
     qualitySentRef.current = null;
     firstFrameSeenRef.current = false;
     const connectStart = performance.now();
@@ -24928,6 +24941,7 @@ function CanvasPage({ initialTabId, inShell = false, embed = false }) {
     }
   }, [quality]);
   (0, import_react.useEffect)(() => {
+    if (preservedViewport) return;
     const wrap = wrapperRef.current;
     if (!wrap) return;
     const ro = new ResizeObserver(() => queueResize());
@@ -24936,7 +24950,7 @@ function CanvasPage({ initialTabId, inShell = false, embed = false }) {
       ro.disconnect();
       if (resizeTimerRef.current) window.clearTimeout(resizeTimerRef.current);
     };
-  }, [queueResize]);
+  }, [preservedViewport, queueResize]);
   (0, import_react.useEffect)(() => {
     const refresh = async () => {
       try {
@@ -25186,8 +25200,8 @@ function CanvasPage({ initialTabId, inShell = false, embed = false }) {
     if (!/^https?:\/\//i.test(u)) return null;
     return u;
   }, [currentUrl]);
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `canvas-page${embed ? " embed" : ""}`, children: [
-    !embed && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "urlbar", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `canvas-page${cleanEmbed ? " embed clean-embed" : ""}`, children: [
+    !cleanEmbed && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "urlbar", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "opt", onClick: () => navAction("back"), title: "Back", children: "\u2039" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "opt", onClick: () => navAction("forward"), title: "Forward", children: "\u203A" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => navAction("reload"), title: "Reload", children: "\u21BB" }),
@@ -25387,7 +25401,8 @@ function DevtoolsShell({ initialTabId }) {
 function App() {
   const route = useRoute();
   if (route.kind === "canvas") {
-    const embed = new URLSearchParams(window.location.search).get("embed") === "1";
+    const requestedEmbed = new URLSearchParams(window.location.search).get("embed");
+    const embed = requestedEmbed === "1" || requestedEmbed === "clean";
     return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CanvasPage, { initialTabId: route.initialTabId, embed });
   }
   if (route.kind === "devtools-shell") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DevtoolsShell, { initialTabId: route.initialTabId });

@@ -85,6 +85,16 @@ function writeGateEvidence(cwd: string, runDir: string, phase: string, status = 
   );
 }
 
+function writeGateVerdict(cwd: string, runDir: string, phase: string, nextPhase: string, status = "passed") {
+  const base = path.resolve(cwd, runDir);
+  mkdirSync(base, { recursive: true });
+  writeFileSync(
+    path.join(base, `gate-status.${phase}.json`),
+    JSON.stringify({ phase, status, next_phase: nextPhase }),
+    "utf8"
+  );
+}
+
 beforeEach(() => {
   tmp = mkdtempSync(path.join(tmpdir(), "run-engine-"));
   policyFile = path.join(tmp, "policy.json");
@@ -195,11 +205,72 @@ describe("durable gate evidence (D9)", () => {
   it("a verdict WITH gate evidence advances (a FAILED entry counts too)", async () => {
     const board = seedBoard();
     const card = await makeCard(tmp, { list: "review" });
-    writeGateEvidence(tmp, card.runDir, "review", "failed");
-    const runFn = async () => ({ reply: "found real issues.\nimplement" });
+    const runFn = async ({ card: running }: { card: any }) => {
+      writeGateEvidence(tmp, running.runDir, "review", "failed");
+      return { reply: "found real issues.\nimplement" };
+    };
     const { card: out, outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
     expect(outcome.status).toBe("moved");
     expect(out.list).toBe("implement");
+  });
+
+  it("a max-turn runtime stop advances only from the current phase's durable verdict and keeps error + route audit", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { list: "review", tier: "T1-standard" });
+    const route = {
+      targetId: "sdk-sonnet-full",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      effort: "medium",
+      effortApplied: true,
+      tier: "T1-standard"
+    };
+    const { card: out, outcome } = await processCard({
+      root: tmp,
+      board,
+      card,
+      runFn: async ({ card: running }: { card: any }) => {
+        writeGateVerdict(tmp, running.runDir, "review", "adversarial-review");
+        return { reply: "", stoppedReason: "max_turns", route };
+      },
+      cwd: tmp
+    });
+
+    expect(outcome.status).toBe("moved");
+    expect(out.list).toBe("adversarial-review");
+    expect(out.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "runtime-stop",
+        message: expect.stringContaining("max-turn"),
+        route: expect.objectContaining({ targetId: "sdk-sonnet-full", model: "claude-sonnet-4-6", phase: "review" })
+      }),
+      expect.objectContaining({
+        kind: "routed",
+        route: expect.objectContaining({ targetId: "sdk-sonnet-full", effortApplied: true, phase: "review" })
+      })
+    ]));
+    expect(out.events.some((e: any) => e.kind === "runtime")).toBe(false);
+  });
+
+  it("a max-turn runtime stop without a valid durable verdict still parks and is not nudged", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { id: "01TESTCARD0000000000000012", list: "review" });
+    let calls = 0;
+    const { card: out, outcome } = await processCard({
+      root: tmp,
+      board,
+      card,
+      runFn: async () => { calls += 1; return { reply: "", stoppedReason: "max_turns" }; },
+      cwd: tmp
+    });
+
+    expect(calls).toBe(1);
+    expect(outcome.status).toBe("needs-attention");
+    expect(out.list).toBe("needs-attention");
+    expect(out.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "runtime-stop", message: expect.stringContaining("max-turn") })
+    ]));
   });
 });
 
@@ -275,9 +346,52 @@ describe("review fixes (rev-s4 findings)", () => {
     expect(outcomes[0].reason).toBe("no-gate-evidence");
     // with evidence → moves
     const card2 = await makeCard(tmp, { id: "01TESTCARD0000000000000003", list: "test", project: "p1", runDir: path.join(tmp, "run-b2") });
-    writeGateEvidence(tmp, card2.runDir as string, "test");
-    const r2 = await processBatch({ root: tmp, board, listId: "test", cards: [card2], batchRunFn: async () => ({ reply: `${card2.id} adversarial-test` }) , cwd: tmp });
+    const r2 = await processBatch({
+      root: tmp,
+      board,
+      listId: "test",
+      cards: [card2],
+      batchRunFn: async ({ cards: running }: { cards: any[] }) => {
+        writeGateEvidence(tmp, running[0].runDir, "test");
+        return { reply: `${card2.id} adversarial-test` };
+      },
+      cwd: tmp
+    });
     expect(r2.outcomes[0].status).toBe("moved");
+  });
+
+  it("the BATCH path rescues a max-turn stop from each card's durable verdict and preserves route audit", async () => {
+    // @ts-ignore pure mjs
+    const { processBatch } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
+    const board = seedBoard();
+    const card = await makeCard(tmp, {
+      id: "01TESTCARD0000000000000013",
+      list: "test",
+      project: "p1",
+      runDir: path.join(tmp, "run-max-turn-batch")
+    });
+    let calls = 0;
+    const route = { targetId: "sdk-test", runtime: "agent-sdk", provider: "anthropic", model: "claude-sonnet-4-6" };
+    const { outcomes } = await processBatch({
+      root: tmp,
+      board,
+      listId: "test",
+      cards: [card],
+      batchRunFn: async ({ cards: running }: { cards: any[] }) => {
+        calls += 1;
+        writeGateVerdict(tmp, running[0].runDir, "test", "adversarial-test");
+        return { reply: "", stoppedReason: "max_turns", route };
+      },
+      cwd: tmp
+    });
+
+    expect(calls).toBe(1);
+    expect(outcomes[0]).toMatchObject({ status: "moved", to: "adversarial-test" });
+    const out = await loadCard(tmp, card.id);
+    expect(out.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "runtime-stop", route: expect.objectContaining({ targetId: "sdk-test", phase: "test" }) }),
+      expect.objectContaining({ kind: "routed", route: expect.objectContaining({ targetId: "sdk-test", phase: "test" }) })
+    ]));
   });
 
   it("advanceCardPhase enforces requiresEvidence like the dispatched path (finding #2)", async () => {

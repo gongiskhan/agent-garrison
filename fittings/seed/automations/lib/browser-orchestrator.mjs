@@ -25,7 +25,12 @@ export async function runBrowserStep({ automationId, step, deps, bypassCache = f
     try {
       await deps.navigate(step.url);
     } catch (err) {
-      err.recoverable = true; // navigate_failed -> fixer can retry/replace
+      // A page-level navigation failure can be repaired, but a Browser fitting
+      // transport/outage cannot. Preserve the client's structured
+      // infrastructure classification so the engine fails fast instead of
+      // feeding infra noise into the fixer.
+      if (err.failure?.class === "infrastructure") err.recoverable = false;
+      else if (err.recoverable === undefined) err.recoverable = true;
       throw err;
     }
     return { tier: "execute", url: step.url };
@@ -41,7 +46,11 @@ export async function runBrowserStep({ automationId, step, deps, bypassCache = f
   try {
     return await resolvePageStep({ automationId, step, deps, obs, fp, bypassCache });
   } catch (err) {
-    if (err.recoverable === undefined) err.recoverable = true;
+    if (err.failure?.class === "infrastructure") err.recoverable = false;
+    else if (err.recoverable === undefined) err.recoverable = true;
+    if (obs?.screenshotB64 && !err.evidenceScreenshotB64) {
+      err.evidenceScreenshotB64 = obs.screenshotB64;
+    }
     throw err;
   }
 }
@@ -50,8 +59,57 @@ export async function runBrowserStep({ automationId, step, deps, bypassCache = f
 // already fetched by observe({screenshot:true}) — no extra round trip. The
 // engine writes it to a plain file and drops the base64 before persisting/
 // emitting the step result (R13 — no artifact store, just a file + a link).
-function withEvidence(result, obs) {
-  return obs?.screenshotB64 ? { ...result, evidence: { screenshotB64: obs.screenshotB64 } } : result;
+const VISIBLE_ERROR_FAMILIES = [
+  {
+    code: "visible-timeout",
+    visible: /\b(?:request\s+)?timed?\s*out\b|\btimeout\b/i,
+    expected: /\btimed?\s*out\b|\btimeout\b/i
+  },
+  {
+    code: "visible-network-error",
+    visible: /failed to fetch|network error|connection refused|econnrefused|não foi possível ligar/i,
+    expected: /failed to fetch|network error|connection refused|econnrefused|não foi possível ligar/i
+  },
+  {
+    code: "visible-invalid-credentials",
+    visible: /invalid credentials|invalid username or password|credenciais inválidas/i,
+    expected: /invalid credentials|invalid username or password|credenciais inválidas/i
+  },
+  {
+    code: "visible-service-error",
+    visible: /internal server error|service unavailable|serviço indisponível|\bhttp\s*50[0-9]\b/i,
+    expected: /internal server error|service unavailable|serviço indisponível|\bhttp\s*50[0-9]\b/i
+  },
+  {
+    code: "visible-unexpected-error",
+    visible: /something went wrong|unexpected error|erro inesperado|ocorreu um erro/i,
+    expected: /something went wrong|unexpected error|erro inesperado|ocorreu um erro/i
+  }
+];
+
+function unexpectedReferenceWarnings(obs, step) {
+  const expectation = String(step?.description ?? step?.expectedOutcome ?? "");
+  const names = [...new Set(
+    (obs?.a11y ?? [])
+      .map((node) => String(node?.name ?? "").trim())
+      .filter(Boolean)
+  )];
+  const warnings = [];
+  for (const family of VISIBLE_ERROR_FAMILIES) {
+    if (family.expected.test(expectation)) continue;
+    const visible = names.find((name) => family.visible.test(name));
+    if (visible) warnings.push({ code: family.code, text: visible.slice(0, 300) });
+  }
+  return warnings;
+}
+
+function withEvidence(result, obs, step) {
+  const referenceWarnings = unexpectedReferenceWarnings(obs, step);
+  return {
+    ...result,
+    ...(referenceWarnings.length ? { referenceWarnings } : {}),
+    ...(obs?.screenshotB64 ? { evidence: { screenshotB64: obs.screenshotB64 } } : {})
+  };
 }
 
 async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache }) {
@@ -62,7 +120,7 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
     const cached = !bypassCache && (step.cachedAssertion || (await lookupAssertionCache(automationId, step.id, fp))?.assertion);
     if (cached) {
       const passed = await deps.executeAssertion(cached);
-      if (passed) return withEvidence({ tier: "cached", passed: true, assertion: cached }, obs);
+      if (passed) return withEvidence({ tier: "cached", passed: true, assertion: cached }, obs, step);
       // fall through to vision on a failed deterministic assertion
     }
     const verdict = await deps.verifyViaVision({ observation: obs, step });
@@ -77,7 +135,7 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
     // Surface the model-discovered assertion on the result too (not just the
     // cache write above) — a consumer that graduates vision to a committed
     // spec (Drill's B8) needs to know WHAT was verified, not just that it was.
-    return withEvidence({ tier: cached ? "recovered" : "vision", passed: true, reasoning: verdict.reasoning, assertion: verdict.assertion }, obs);
+    return withEvidence({ tier: cached ? "recovered" : "vision", passed: true, reasoning: verdict.reasoning, assertion: verdict.assertion }, obs, step);
   }
 
   // browser action step
@@ -85,7 +143,7 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
   if (cached) {
     try {
       await deps.executeAction(cached.action);
-      return withEvidence({ tier: "cached", action: cached.action }, obs);
+      return withEvidence({ tier: "cached", action: cached.action }, obs, step);
     } catch {
       // cached selector stale — evict and recover via vision
       await evictAction(automationId, step.id, fp);
@@ -96,5 +154,5 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
   if (!bypassCache) {
     await writeActionCache({ automationId, stepId: step.id, fingerprint: fp, action, confidence: cached ? "medium" : "high" });
   }
-  return withEvidence({ tier: cached ? "recovered" : "vision", action }, obs);
+  return withEvidence({ tier: cached ? "recovered" : "vision", action }, obs, step);
 }

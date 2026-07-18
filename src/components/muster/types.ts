@@ -14,10 +14,34 @@ export interface MusterCompositionRef {
   name: string;
 }
 
+export interface MusterDutyCandidate {
+  id: string;
+  title: string;
+  description: string;
+  fittingId: string;
+}
+
+export interface MusterRuntimeOption {
+  id: string;
+  fittingId: string;
+}
+
+export interface MusterTargetUpdate {
+  originalId?: string;
+  id: string;
+  runtime: string;
+  provider?: string;
+  model: string;
+  promptMode: "lean" | "full" | null;
+  maxTurns: number | null;
+}
+
 export interface MusterModel {
   compositionId: string;
   compositionName: string;
   compositions: MusterCompositionRef[];
+  dutyCandidates: MusterDutyCandidate[];
+  runtimeOptions: MusterRuntimeOption[];
   duties: Record<string, ResolvedDuty>;
   selectedDuties: string[];
   targets: CompositionTarget[];
@@ -38,5 +62,6 @@ export interface MusterActions {
   addLevel: (dutyId: string) => void;
   removeLevel: (dutyId: string, level: number) => void;
   describeLevel: (dutyId: string, level: number, description: string) => void;
+  saveTarget: (target: MusterTargetUpdate) => Promise<boolean>;
   switchComposition: (id: string) => void;
 }

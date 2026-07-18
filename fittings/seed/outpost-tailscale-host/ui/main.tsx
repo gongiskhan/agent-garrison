@@ -440,7 +440,7 @@ function App() {
     <div className="app">
       <header>
         <h1>Garrison Outposts</h1>
-        <p className="subtitle">Tailscale-connected remote Macs. Proxies to the outpost-host daemon on 127.0.0.1:3702.</p>
+        <p className="subtitle">Tailscale-connected remote Macs. Proxies to the outpost-host daemon on 127.0.0.1:23702.</p>
       </header>
 
       <div className="strip">

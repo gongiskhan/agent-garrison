@@ -24,7 +24,7 @@ import { AddDuty, DutyList, MusterHeader, ReadinessDetail, TargetsTray } from ".
 import { StandingFittings } from "./StandingFittings";
 import { OrchestratorPanel } from "./OrchestratorPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
-import type { DutyEffort, MusterActions, MusterModel } from "./types";
+import type { DutyEffort, MusterActions, MusterModel, MusterTargetUpdate } from "./types";
 import styles from "./Muster.module.css";
 
 type Status = "loading" | "ready" | "error";
@@ -108,6 +108,19 @@ export function MusterPage() {
   // The composition currently viewed (from ?composition=, else the active
   // pointer). Held in a ref so mutation POSTs always target the same one.
   const compositionRef = useRef<string | undefined>(undefined);
+  // Every editor on this page writes the same composition manifest. Keep those
+  // read-modify-write requests in user-action order: atomic rename protects a
+  // reader from a partial file, but two overlapping autosaves could still both
+  // read the old document and let the later rename discard the earlier edit.
+  const mutationChainRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingMutationCountRef = useRef(0);
+  // React Strict Mode can issue overlapping initial loads. A late load must
+  // never repaint over an optimistic edit that began after that request.
+  const modelEpochRef = useRef(0);
+  const loadRequestRef = useRef(0);
+  const beginModelMutation = useCallback(() => {
+    modelEpochRef.current += 1;
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -115,6 +128,10 @@ export function MusterPage() {
   );
 
   const load = useCallback(async (composition?: string) => {
+    const requestId = ++loadRequestRef.current;
+    const startEpoch = modelEpochRef.current;
+    const isCurrent = () =>
+      requestId === loadRequestRef.current && startEpoch === modelEpochRef.current;
     setStatus((s) => (s === "ready" ? s : "loading"));
     try {
       const url = composition
@@ -123,10 +140,12 @@ export function MusterPage() {
       const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      if (!isCurrent()) return;
       setModel(data as MusterModel);
       setStatus("ready");
       setErrorMsg(null);
     } catch (err) {
+      if (!isCurrent()) return;
       setErrorMsg(err instanceof Error ? err.message : String(err));
       setStatus("error");
     }
@@ -139,75 +158,92 @@ export function MusterPage() {
   }, [load]);
 
   // POST a mutation, reconcile with the server model, revert (reload) on failure.
+  // The promise chain is shared by discrete edits and debounced text edits so an
+  // add -> describe -> remove sequence cannot overtake itself.
   const persist = useCallback(
-    async (path: string, body: Record<string, unknown>) => {
+    (path: string, body: Record<string, unknown>) => {
+      pendingMutationCountRef.current += 1;
       setSaving(true);
-      try {
-        const res = await fetch(path, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ composition: compositionRef.current, ...body })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        setModel(data as MusterModel);
-        setErrorMsg(null);
-      } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : String(err));
-        await load(compositionRef.current); // discard the optimistic edit
-      } finally {
-        setSaving(false);
-      }
+      const queued = mutationChainRef.current.then(async (): Promise<boolean> => {
+        try {
+          const res = await fetch(path, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ composition: compositionRef.current, ...body })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          setModel(data as MusterModel);
+          setErrorMsg(null);
+          return true;
+        } catch (err) {
+          setErrorMsg(err instanceof Error ? err.message : String(err));
+          await load(compositionRef.current); // discard the optimistic edit
+          return false;
+        }
+      });
+      mutationChainRef.current = queued.then(() => undefined);
+      void queued.finally(() => {
+        pendingMutationCountRef.current -= 1;
+        if (pendingMutationCountRef.current === 0) setSaving(false);
+      });
+      return queued;
     },
     [load]
   );
 
   const assignCell = useCallback(
     (dutyId: string, level: number, targetId: string) => {
+      beginModelMutation();
       setModel((m) => (m ? patchCell(m, dutyId, level, { target: targetId }) : m));
       void persist("/api/muster/cell", { dutyId, level, target: targetId });
     },
-    [persist]
+    [beginModelMutation, persist]
   );
 
   const setEffort = useCallback(
     (dutyId: string, level: number, effort: DutyEffort) => {
+      beginModelMutation();
       setModel((m) => (m ? patchCell(m, dutyId, level, { effort }) : m));
       void persist("/api/muster/cell", { dutyId, level, effort });
     },
-    [persist]
+    [beginModelMutation, persist]
   );
 
   const addDuty = useCallback(
     (dutyId: string) => {
+      beginModelMutation();
       setModel((m) => (m ? patchSelected(m, dutyId, "add") : m));
       void persist("/api/muster/duty", { dutyId, action: "add" });
     },
-    [persist]
+    [beginModelMutation, persist]
   );
 
   const removeDuty = useCallback(
     (dutyId: string) => {
+      beginModelMutation();
       setModel((m) => (m ? patchSelected(m, dutyId, "remove") : m));
       void persist("/api/muster/duty", { dutyId, action: "remove" });
     },
-    [persist]
+    [beginModelMutation, persist]
   );
 
   const addLevel = useCallback(
     (dutyId: string) => {
+      beginModelMutation();
       setModel((m) => (m ? patchAddLevel(m, dutyId) : m));
       void persist("/api/muster/level", { dutyId, action: "add" });
     },
-    [persist]
+    [beginModelMutation, persist]
   );
 
   const removeLevel = useCallback(
     (dutyId: string, level: number) => {
+      beginModelMutation();
       setModel((m) => (m ? patchRemoveLevel(m, dutyId, level) : m));
       void persist("/api/muster/level", { dutyId, action: "remove", level });
     },
-    [persist]
+    [beginModelMutation, persist]
   );
 
   // Level descriptions are free text: patch optimistically per keystroke, persist
@@ -215,6 +251,7 @@ export function MusterPage() {
   const describeTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const describeLevel = useCallback(
     (dutyId: string, level: number, description: string) => {
+      beginModelMutation();
       setModel((m) => (m ? patchDescribeLevel(m, dutyId, level, description) : m));
       const key = `${dutyId}:${level}`;
       const existing = describeTimers.current.get(key);
@@ -227,7 +264,7 @@ export function MusterPage() {
         }, 600)
       );
     },
-    [persist]
+    [beginModelMutation, persist]
   );
 
   useEffect(() => {
@@ -237,18 +274,37 @@ export function MusterPage() {
     };
   }, []);
 
+  const saveTarget = useCallback(
+    (target: MusterTargetUpdate): Promise<boolean> => {
+      beginModelMutation();
+      return persist("/api/muster/target", { ...target });
+    },
+    [beginModelMutation, persist]
+  );
+
   const switchComposition = useCallback(async (id: string) => {
+    beginModelMutation();
+    setSaving(true);
+    setErrorMsg(null);
     try {
-      await fetch("/api/composition/active", {
-        method: "PUT",
+      const res = await fetch("/api/composition/switch", {
+        method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ target: id })
       });
-    } finally {
-      // Reload onto the now-active composition so the whole shell reflects it.
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
+      }
+      // Reload only after clean down → pointer update → up succeeded, so the
+      // shell can never point at one composition while another stays running.
       window.location.assign("/muster");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
-  }, []);
+  }, [beginModelMutation]);
 
   const onArm = useCallback((id: string) => setArmed((cur) => (cur === id ? null : id)), []);
 
@@ -325,6 +381,7 @@ export function MusterPage() {
     addLevel,
     removeLevel,
     describeLevel,
+    saveTarget,
     switchComposition
   };
 

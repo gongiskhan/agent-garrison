@@ -6,7 +6,7 @@
 // `workflow` targets in the Model Router dropdown.
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
+import { claudeHome } from "./claude-home";
 
 export type WorkflowScope = "user" | "project";
 
@@ -51,7 +51,7 @@ export interface ScanWorkflowsOptions {
 // Scan user + project workflow dirs. Project entries shadow user entries of the
 // same name (project wins), mirroring Claude Code precedence.
 export function scanWorkflows(opts: ScanWorkflowsOptions = {}): WorkflowEntry[] {
-  const userDir = path.join(opts.userHome ?? path.join(os.homedir(), ".claude"), "workflows");
+  const userDir = path.join(opts.userHome ?? claudeHome(), "workflows");
   const projectDir = path.join(opts.projectRoot ?? path.join(process.cwd(), ".claude"), "workflows");
   const user = scanDir(userDir, "user");
   const project = scanDir(projectDir, "project");

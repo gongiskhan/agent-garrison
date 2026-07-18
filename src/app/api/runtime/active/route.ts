@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveActiveComposition } from "@/lib/active-composition";
 import { readComposition, selectedLibraryEntries } from "@/lib/compositions";
-import { resolvePrimaryFromPolicy } from "@/lib/runner";
+import { resolvePrimaryFromPolicy } from "@/lib/routing-primary";
 import { resolvePrimaryRuntime, type RuntimeEntry } from "@/lib/runtime-selection";
 import { degradationsForEngine, isEnforcementDegraded } from "@/lib/runtime-degradations";
 

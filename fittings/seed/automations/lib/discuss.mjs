@@ -5,8 +5,34 @@
 // the design and writes a brief to ~/.garrison/automations/briefs/<slug>.md; the
 // planner (Router-routed) then turns the brief into reviewable steps.
 
+import os from "node:os";
+import path from "node:path";
+
 function b64(s) {
   return Buffer.from(s, "utf8").toString("base64");
+}
+
+function expandHome(value) {
+  if (value === "~") return os.homedir();
+  if (value?.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
+  return value;
+}
+
+// Keep the historical, readable "~/.garrison" spelling for the standard
+// instance, but emit the exact isolated path whenever either state-root override
+// is active. The kickoff is executable agent guidance: leaving the literal
+// standard path here caused a secondary instance to write its brief into the
+// primary instance even though the Automations store itself was isolated.
+export function automationBriefsDir() {
+  const explicit = process.env.GARRISON_AUTOMATIONS_DIR?.trim();
+  if (explicit) return path.join(expandHome(explicit), "briefs");
+  const home = process.env.GARRISON_HOME?.trim();
+  if (home) return path.join(expandHome(home), "automations", "briefs");
+  return "~/.garrison/automations/briefs";
+}
+
+export function automationBriefPath(slug) {
+  return path.join(automationBriefsDir(), `${slug}.md`);
 }
 
 export function slugify(name) {
@@ -33,7 +59,7 @@ export function freshAutomationSlug() {
 
 export function buildAutomationKickoff({ name, slug } = {}) {
   const s = slug || slugify(name);
-  const briefPath = `~/.garrison/automations/briefs/${s}.md`;
+  const briefPath = automationBriefPath(s);
   // Kept high-level: the planner maps a brief into concrete steps, so the Discuss only
   // needs to settle WHAT + trigger + failure handling (no need to enumerate the engine's
   // step vocabulary or name third-party services here).
@@ -65,14 +91,15 @@ export function buildAutomationKickoff({ name, slug } = {}) {
 // own-port URL would resolve against the automations server, not Garrison.
 export function buildDiscussParams({ name, slug } = {}) {
   const s = slug || slugify(name);
+  const briefsPath = `${automationBriefsDir()}${path.sep}`;
   const context = {
     source: "automations",
     name: name ?? null,
-    briefsPath: "~/.garrison/automations/briefs/",
+    briefsPath,
     suggestedSlug: s,
     // Absolute path (with ~) to this automation's brief, so the web channel's Brief
     // editor can read/write it directly (confined to ~/**/briefs/*.md server-side).
-    briefAbsPath: `~/.garrison/automations/briefs/${s}.md`
+    briefAbsPath: automationBriefPath(s)
   };
   return {
     mode: "james",
@@ -92,14 +119,15 @@ export function buildDiscussParams({ name, slug } = {}) {
 // Build the web-channel Discuss URL (same shape as kanban-loop/discuss.mjs).
 export function buildAutomationDiscussUrl({ name, slug, webChannelBase = "/embed/web-channel-default" } = {}) {
   const s = slug || slugify(name);
+  const briefsPath = `${automationBriefsDir()}${path.sep}`;
   const context = {
     source: "automations",
     name: name ?? null,
-    briefsPath: "~/.garrison/automations/briefs/",
+    briefsPath,
     suggestedSlug: s,
     // Absolute path (with ~) to this automation's brief, so the web channel's Brief
     // editor can read/write it directly (confined to ~/**/briefs/*.md server-side).
-    briefAbsPath: `~/.garrison/automations/briefs/${s}.md`
+    briefAbsPath: automationBriefPath(s)
   };
   const base = webChannelBase.replace(/\/+$/, "");
   const parts = [

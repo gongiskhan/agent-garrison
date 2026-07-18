@@ -239,6 +239,9 @@ export function deriveKanbanLists(
 ): string[] {
   const lists: string[] = [];
   const push = (id: string) => {
+    // Dispatch chooses a duty; it is not an executable Kanban phase. Keep it in
+    // selectedDuties/readiness while excluding it from the board vocabulary.
+    if (id === "dispatch") return;
     if (!lists.includes(id)) lists.push(id);
   };
   const walk = (id: string, seen: Set<string>): void => {

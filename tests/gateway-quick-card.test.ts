@@ -20,7 +20,7 @@ const ROOT = path.resolve(__dirname, "..");
 function stubBoard() {
   const state: { rev: number; list: string; absent?: boolean; preparedRevert?: unknown } = { rev: 0, list: "backlog" };
   const posts: any[] = [];
-  const patches: { list: string; engine: boolean }[] = [];
+  const patches: { list: string; engine: boolean; routeEvidence?: any }[] = [];
   const server = http.createServer((req, res) => {
     const send = (code: number, body: unknown) => {
       res.writeHead(code, { "content-type": "application/json" });
@@ -46,7 +46,11 @@ function stubBoard() {
       req.on("data", (c) => (raw += c));
       req.on("end", () => {
         const body = JSON.parse(raw || "{}");
-        patches.push({ list: body.list, engine: typeof req.headers["x-garrison-engine"] === "string" });
+        patches.push({
+          list: body.list,
+          engine: typeof req.headers["x-garrison-engine"] === "string",
+          ...(body.routeEvidence ? { routeEvidence: body.routeEvidence } : {})
+        });
         state.list = body.list;
         state.rev += 1;
         send(200, { card: { id: "01STUBCARD00000000000000AA", rev: state.rev, list: state.list } });
@@ -144,6 +148,36 @@ describe("completeQuickCard — auto-advance Implement→Done at completion", ()
     expect(ok).toBe(true);
     expect(board.state.list).toBe("done");
     expect(board.patches[board.patches.length - 1]).toEqual({ list: "done", engine: true });
+    board.server.close();
+  });
+
+  it("carries the settled model + requested/applied effort evidence on the Done move", async () => {
+    const board = stubBoard();
+    board.state.list = "implement";
+    await new Promise<void>((r) => board.server.listen(0, "127.0.0.1", () => r()));
+    const addr = board.server.address() as { port: number };
+    const gw = await makeGateway(`http://127.0.0.1:${addr.port}`, home);
+    const ok = await gw.completeQuickCard("01STUBCARD00000000000000AA", {
+      reply: "Changed the bounded file.",
+      route: "sdk-haiku",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      effort: "low",
+      effortApplied: true,
+      tier: "T0-trivial",
+      phase: "implement"
+    });
+
+    expect(ok).toBe(true);
+    expect(board.patches.at(-1)?.routeEvidence).toMatchObject({
+      targetId: "sdk-haiku",
+      runtime: "agent-sdk",
+      model: "claude-haiku-4-5",
+      effort: "low",
+      effortApplied: true,
+      phase: "implement"
+    });
     board.server.close();
   });
 });

@@ -128,10 +128,10 @@ export function routeChipLabel(meta: AssistantRouteMeta): string | null {
  * emitting the "[route: …]" text badge. Returns null when there is nothing worth
  * showing, so the caller can fall back to the text-badge-derived meta chip.
  *
- * Label: "<runtime>/<model> · <tier> · <effort>", dropping any missing part —
- *   "agent-sdk/claude-haiku-4-5 · T0-trivial · low", "claude-code/opus" (no
- *   tier/effort), or the friendly model-family label (routeChipLabel) when
- *   neither runtime nor model is known but a target id is.
+ * Label: "<runtime>/<model> · <tier> · <effort status>", dropping missing parts —
+ *   "agent-sdk/claude-haiku-4-5 · T0-trivial · low effort",
+ *   "claude-code/opus" (no tier/effort), or the friendly model-family label
+ *   (routeChipLabel) when neither runtime nor model is known but a target id is.
  * Title: "target <route> · rule <ruleId> · profile <profile>", plus
  *   "honored: yes/no" when the router reported it.
  */
@@ -145,13 +145,25 @@ export function routeChipFromAttribution(
   const tier = s(route.tier);
   if (label && tier) label = `${label} · ${tier}`;
   const effort = s(route.effort);
-  if (label && effort) label = `${label} · ${effort}`;
+  if (label && effort) {
+    const effortLabel =
+      route.effortApplied === true
+        ? `${effort} effort`
+        : route.effortApplied === false
+          ? `${effort} effort not applied`
+          : `${effort} effort unverified`;
+    label = `${label} · ${effortLabel}`;
+  }
   if (!label) return null;
 
   const titleParts: string[] = [];
   if (s(route.route)) titleParts.push(`target ${s(route.route)}`);
   if (s(route.ruleId)) titleParts.push(`rule ${s(route.ruleId)}`);
   if (s(route.profile)) titleParts.push(`profile ${s(route.profile)}`);
+  if (effort) {
+    const state = route.effortApplied === true ? "applied" : route.effortApplied === false ? "not applied" : "application unknown";
+    titleParts.push(`effort ${effort}: ${state}`);
+  }
   if (typeof route.honored === "boolean") titleParts.push(`honored: ${route.honored ? "yes" : "no"}`);
   const title = titleParts.join(" · ");
   return { label, title: title || undefined };

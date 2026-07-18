@@ -8,15 +8,15 @@ x-garrison:
   faculty: surfaces
   cardinality_hint: single
   own_port: true
-  default_port: 7084
+  default_port: 27084
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Headless Chromium substrate (default port 7084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Opt-in persistent profile + stealth.
+  summary: Headless Chromium substrate (default port 27084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Opt-in persistent profile + stealth.
   config_schema:
     - key: port
       type: integer
-      default: 7084
+      default: 27084
       description: HTTP port the Browser Fitting binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: persistent_profile
       type: boolean
@@ -115,12 +115,12 @@ x-garrison:
       <iframe src="<fitting-url>/canvas/<tabId>">
 
     Claude-Code CLI (installed by setup hook):
-      ~/.garrison/bin/garrison-browser tabs
-      ~/.garrison/bin/garrison-browser screenshot      # prints /tmp/...png
-      ~/.garrison/bin/garrison-browser console
-      ~/.garrison/bin/garrison-browser network [--errors]
-      ~/.garrison/bin/garrison-browser dom [--selector <css>]
-      ~/.garrison/bin/garrison-browser eval '<js>'
-      ~/.garrison/bin/garrison-browser selection       # what the user pointed at
-    Skill at ~/.claude/skills/garrison-browser/SKILL.md tells Claude
+      garrison-browser tabs
+      garrison-browser screenshot      # prints /tmp/...png
+      garrison-browser console
+      garrison-browser network [--errors]
+      garrison-browser dom [--selector <css>]
+      garrison-browser eval '<js>'
+      garrison-browser selection       # what the user pointed at
+    The installed garrison-browser skill tells Claude
     Code when to reach for these vs. asking the user for a screenshot.

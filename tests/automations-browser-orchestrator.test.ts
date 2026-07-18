@@ -58,6 +58,21 @@ describe("tier orchestration (F2)", () => {
     expect(navigated).toBe("https://x");
   });
 
+  it("does not send a Browser infrastructure failure into the fixer", async () => {
+    const outage = Object.assign(new Error("Browser request failed: connection refused"), {
+      failure: { class: "infrastructure", code: "browser-unavailable" },
+      recoverable: false
+    });
+    await expect(runBrowserStep({
+      automationId: "a",
+      step: { id: "s1", type: "navigate", url: "https://x" },
+      deps: { navigate: async () => { throw outage; } }
+    })).rejects.toMatchObject({
+      recoverable: false,
+      failure: { class: "infrastructure", code: "browser-unavailable" }
+    });
+  });
+
   it("browser cache-miss -> vision, executes, writes cache; next run is a cache hit", async () => {
     let visionCalls = 0;
     const deps = {
@@ -135,6 +150,48 @@ describe("tier orchestration (F2)", () => {
     };
     const r = await runBrowserStep({ automationId: "auto-ev", step: { id: "s1", type: "browser", description: "click" }, deps });
     expect(r.evidence).toEqual({ screenshotB64: "AAAA" });
+  });
+
+  it("marks evidence with an unexpected visible timeout as unsafe for a state reference", async () => {
+    const deps = {
+      observe: async () => obsFor({
+        screenshotB64: "AAAA",
+        a11y: [
+          { role: "heading", name: "Registo" },
+          { role: "StaticText", name: "Request timed out after 120000ms" },
+          { role: "StaticText", name: "Sem entradas no registo." }
+        ]
+      }),
+      verifyViaVision: async () => ({ passed: true, reasoning: "empty state is visible" })
+    };
+    const r = await runBrowserStep({
+      automationId: "auto-contaminated-state",
+      step: { id: "empty", type: "verify", description: "The empty-state message is visible" },
+      deps,
+      bypassCache: true
+    });
+
+    expect(r.referenceWarnings).toEqual([
+      { code: "visible-timeout", text: "Request timed out after 120000ms" }
+    ]);
+  });
+
+  it("does not reject an error that is itself the expected state", async () => {
+    const deps = {
+      observe: async () => obsFor({
+        screenshotB64: "AAAA",
+        a11y: [{ role: "alert", name: "Invalid credentials" }]
+      }),
+      verifyViaVision: async () => ({ passed: true, reasoning: "expected error is visible" })
+    };
+    const r = await runBrowserStep({
+      automationId: "auto-expected-error-state",
+      step: { id: "invalid", type: "verify", description: "Submitting the wrong password shows Invalid credentials" },
+      deps,
+      bypassCache: true
+    });
+
+    expect(r.referenceWarnings).toBeUndefined();
   });
 });
 

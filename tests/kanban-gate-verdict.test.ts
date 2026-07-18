@@ -5,7 +5,7 @@
 // reader across the three shapes gates land in on disk.
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import path from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
@@ -63,9 +63,60 @@ describe("gateEvidenceNextList — durable verdict reader", () => {
   });
 
   it("returns null when there is no gate record or no next_phase", async () => {
-    const { gateEvidenceNextList } = await policyMod();
+    const { gateEvidenceNextList, inspectPhaseGateEvidence } = await policyMod();
     expect(gateEvidenceNextList(cwd, runDir, "review", ["implement"])).toBeNull();
     writeFileSync(path.join(runDir, "gate-status.review.json"), JSON.stringify({ phase: "review", status: "complete" }));
     expect(gateEvidenceNextList(cwd, runDir, "review", ["implement"])).toBeNull();
+    expect(inspectPhaseGateEvidence(cwd, runDir, "review")).toEqual({
+      exists: true,
+      declaresNext: false,
+      nextLists: []
+    }); // status-only historical gates remain compatible evidence
+  });
+
+  it("distinguishes an explicit mismatched verdict from a status-only legacy gate", async () => {
+    const { inspectPhaseGateEvidence } = await policyMod();
+    writeFileSync(
+      path.join(runDir, "gate-status.test.json"),
+      JSON.stringify({ phase: "test", status: "passed", next_phase: "adversarial-test" })
+    );
+    expect(inspectPhaseGateEvidence(cwd, runDir, "test")).toEqual({
+      exists: true,
+      declaresNext: true,
+      nextLists: ["adversarial-test"]
+    });
+  });
+
+  it("uses the newest phase record so a stale matching aggregate cannot mask a current mismatching sidecar", async () => {
+    const { gateEvidenceNextList, inspectPhaseGateEvidence } = await policyMod();
+    const stale = path.join(runDir, "gate-status.json");
+    const current = path.join(runDir, "gate-status.test.json");
+    writeFileSync(stale, JSON.stringify({ gates: { test: { status: "passed", next_phase: "done" } } }));
+    writeFileSync(current, JSON.stringify({ phase: "test", status: "passed", next_phase: "adversarial-test" }));
+    utimesSync(stale, new Date("2026-01-01T00:00:00Z"), new Date("2026-01-01T00:00:00Z"));
+    utimesSync(current, new Date("2026-01-01T00:01:00Z"), new Date("2026-01-01T00:01:00Z"));
+
+    expect(inspectPhaseGateEvidence(cwd, runDir, "test")).toEqual({
+      exists: true,
+      declaresNext: true,
+      nextLists: ["adversarial-test"]
+    });
+    expect(gateEvidenceNextList(cwd, runDir, "test", ["done", "adversarial-test"])).toBe("adversarial-test");
+  });
+
+  it("ignores a newer aggregate that has no entry for the requested phase", async () => {
+    const { inspectPhaseGateEvidence } = await policyMod();
+    const current = path.join(runDir, "gate-status.test.json");
+    const unrelated = path.join(runDir, "gate-status.json");
+    writeFileSync(current, JSON.stringify({ phase: "test", status: "passed", next_phase: "done" }));
+    writeFileSync(unrelated, JSON.stringify({ gates: { review: { status: "passed", next_phase: "test" } } }));
+    utimesSync(current, new Date("2026-01-01T00:00:00Z"), new Date("2026-01-01T00:00:00Z"));
+    utimesSync(unrelated, new Date("2026-01-01T00:01:00Z"), new Date("2026-01-01T00:01:00Z"));
+
+    expect(inspectPhaseGateEvidence(cwd, runDir, "test")).toEqual({
+      exists: true,
+      declaresNext: true,
+      nextLists: ["done"]
+    });
   });
 });

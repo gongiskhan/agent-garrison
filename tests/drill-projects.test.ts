@@ -281,3 +281,103 @@ describe("run records are project-scoped", () => {
     expect(all.body.runs.some((r: any) => r.id === run.body.run.id)).toBe(true);
   });
 });
+
+describe("mutating writes are pinned to an explicit project identity (race protection)", () => {
+  // Dogfood bug: a UI session loaded proj-a, but before its next write landed
+  // a SECOND session (another tab, or a concurrent agent) switched the one
+  // shared active-project.json to proj-b. The first session's write had no
+  // root of its own, silently re-resolved through the now-mutated global, and
+  // landed in proj-b. These tests drive the exact race and prove the fix:
+  // a client that pins the root it observed keeps writing there regardless of
+  // what any other session selects afterward, and a write with nothing
+  // pinned - and nothing selected - is rejected instead of guessing.
+
+  it("keeps writing to the pinned project even after another session switches the live selection", async () => {
+    await postJson("/api/projects/select", { path: projA });
+    const loaded = await getJson("/api/drillbook");
+    expect(loaded.status).toBe(200);
+    const pinnedRoot = loaded.body.root;
+    expect(pinnedRoot).toBe(projA);
+
+    // A concurrent session (another tab) now retargets the shared selection.
+    const otherSession = await postJson("/api/projects/select", { path: projB });
+    expect(otherSession.status).toBe(200);
+    expect((await getJson("/api/projects")).body.active.root).toBe(projB);
+
+    // The first session's write pins to the root it loaded, ignoring the
+    // selection switch that happened underneath it.
+    const patched = await fetch(`${DRILL_BASE}/api/drillbook`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ globalRules: "race-pinned-write", root: pinnedRoot })
+    });
+    expect(patched.status).toBe(200);
+    const patchedBody = await patched.json();
+    expect(patchedBody.root).toBe(projA);
+    expect(patchedBody.book.globalRules).toBe("race-pinned-write");
+
+    // A pinned page write during the same window lands in proj-a too.
+    const pagePut = await fetch(`${DRILL_BASE}/api/pages/race-iso`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "race", path: "/race", root: pinnedRoot })
+    });
+    expect(pagePut.status).toBe(200);
+
+    // Two projects remain isolated: the write landed on disk under proj-a,
+    // never under proj-b (which is the live selection throughout this test).
+    expect(existsSync(path.join(projA, "drills", "pages", "race-iso.yml"))).toBe(true);
+    expect(existsSync(path.join(projB, "drills", "pages", "race-iso.yml"))).toBe(false);
+    const bookA = readFileSync(path.join(projA, "drills", "drillbook.yml"), "utf8");
+    expect(bookA).toContain("race-pinned-write");
+    if (existsSync(path.join(projB, "drills", "drillbook.yml"))) {
+      expect(readFileSync(path.join(projB, "drills", "drillbook.yml"), "utf8")).not.toContain("race-pinned-write");
+    }
+
+    // Reading each project explicitly by root confirms the pages stay
+    // disjoint - proj-b never sees proj-a's page and vice versa.
+    const pagesA = await getJson(`/api/pages?root=${encodeURIComponent(projA)}`);
+    const pagesB = await getJson(`/api/pages?root=${encodeURIComponent(projB)}`);
+    expect(pagesA.body.pages.some((p: any) => p.id === "race-iso")).toBe(true);
+    expect(pagesB.body.pages.some((p: any) => p.id === "race-iso")).toBe(false);
+  });
+
+  it("rejects a stale pin instead of silently widening to whatever else is live", async () => {
+    const removed = mkdtempSync(path.join(tmpdir(), "garrison-projects-removed-"));
+    rmSync(removed, { recursive: true, force: true }); // exists on disk a moment ago, not anymore
+    const res = await fetch(`${DRILL_BASE}/api/drillbook`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ globalRules: "should not land anywhere", root: removed })
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/stale project selection/);
+  });
+
+  it("rejects a mutating write with no explicit root when nothing is selected", async () => {
+    const home3 = mkdtempSync(path.join(tmpdir(), "garrison-projects-nosel2-"));
+    const port3 = 7287;
+    const env: NodeJS.ProcessEnv = {
+      ...process.env, GARRISON_HOME: home3, DRILL_UI_PORT: String(port3), DRILL_UI_HOST: "127.0.0.1"
+    };
+    delete env.GARRISON_DRILL_TARGET_REPO;
+    const srv3 = spawn("node", [DRILL_START], { stdio: "ignore", env });
+    try {
+      expect(await waitHealthy(`http://127.0.0.1:${port3}`, 8000)).toBe(true);
+      const patch = await fetch(`http://127.0.0.1:${port3}/api/drillbook`, {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalRules: "x" })
+      });
+      expect(patch.status).toBe(400);
+      expect((await patch.json()).error).toMatch(/no project selected/);
+
+      const put = await fetch(`http://127.0.0.1:${port3}/api/pages/nope`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "x" })
+      });
+      expect(put.status).toBe(400);
+      expect((await put.json()).error).toMatch(/no project selected/);
+    } finally {
+      srv3.kill("SIGKILL");
+      rmSync(home3, { recursive: true, force: true });
+    }
+  }, 15000);
+});

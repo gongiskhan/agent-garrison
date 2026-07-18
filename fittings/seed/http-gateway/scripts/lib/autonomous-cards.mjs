@@ -134,7 +134,15 @@ export async function createAutonomousCard({ message, classification, opts = {},
     for (let attempt = 0; attempt < 3 && !movedOk; attempt++) {
       const moved = await fetch(`${base}/cards/${id}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        headers: {
+          "content-type": "application/json",
+          "x-garrison-engine": "gateway",
+          // An engine-context move normally means the caller owns progression
+          // (the garrison doorway drives in-session; quick cards run inline).
+          // Significant gateway registrations are the exception: the gateway
+          // returns the card link and the BOARD must start the run.
+          ...(opts.quick ? {} : { "x-garrison-dispatch": "auto" })
+        },
         body: JSON.stringify({ list: targetList, rev })
       });
       if (moved.ok) { movedOk = true; break; }
@@ -170,10 +178,42 @@ export async function createAutonomousCard({ message, classification, opts = {},
 // move — the board bumps the rev under us the same way it does on create.
 // Returns true when the card reaches Done. Never throws (a stranded quick card
 // is a visible board state, not a turn failure).
-export async function completeQuickCard({ id, logFn = () => {} }) {
+// Convert a settled routed gateway result into the small, secret-free evidence
+// object the board accepts on an engine-context quick-card completion. Null for
+// souls/non-routed turns, which keeps their historical move-only behavior.
+export function quickRouteEvidence(result) {
+  if (!result || typeof result !== "object") return null;
+  const targetId = result.route ?? result.targetId ?? null;
+  const runtime = result.runtime ?? null;
+  const provider = result.provider ?? null;
+  const model = result.model ?? null;
+  const effort = result.effort ?? null;
+  const effortApplied = typeof result.effortApplied === "boolean" ? result.effortApplied : null;
+  const tier = result.tier ?? null;
+  if (
+    targetId == null && runtime == null && provider == null && model == null &&
+    effort == null && effortApplied == null && tier == null
+  ) {
+    return null;
+  }
+  return {
+    targetId,
+    runtime,
+    provider,
+    model,
+    effort,
+    effortApplied,
+    tier,
+    phase: result.phase ?? null,
+    reply: typeof result.reply === "string" ? result.reply : ""
+  };
+}
+
+export async function completeQuickCard({ id, result = null, logFn = () => {} }) {
   try {
     const base = boardBase();
     if (!base || !id) return false;
+    const routeEvidence = quickRouteEvidence(result);
     for (let attempt = 0; attempt < 3; attempt++) {
       let rev = 0;
       try {
@@ -187,7 +227,11 @@ export async function completeQuickCard({ id, logFn = () => {} }) {
       const moved = await fetch(`${base}/cards/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
-        body: JSON.stringify({ list: "done", rev })
+        body: JSON.stringify({
+          list: "done",
+          rev,
+          ...(routeEvidence ? { routeEvidence } : {})
+        })
       });
       if (moved.ok) {
         logFn({ kind: "quick-card-done", id });
@@ -350,8 +394,8 @@ export class CardRegistrar {
     return createAutonomousCard({ message, classification, opts, buildPayload: this.buildPayload, logFn: this.logFn });
   }
 
-  async completeQuickCard(id) {
-    return completeQuickCard({ id, logFn: this.logFn });
+  async completeQuickCard(id, result = null) {
+    return completeQuickCard({ id, result, logFn: this.logFn });
   }
 
   // D19: route a failed/empty quick card to needs-attention instead of Done.

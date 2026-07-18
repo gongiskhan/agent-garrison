@@ -8,7 +8,8 @@ description: Send a Slack notification when a garrison run finishes — a summar
 ## Policy-read preamble (soft - D5/D12)
 
 At the start of every invocation, look for the compiled Orchestrator policy at
-`~/.garrison/orchestrator/policy.json` (or `$GARRISON_POLICY_PATH`).
+`$GARRISON_POLICY_PATH` (falling back to
+`${GARRISON_HOME:-$HOME/.garrison}/orchestrator/policy.json`).
 
 - **Policy present** (a Garrison run): it is the single authority. This skill
   carries NO model/effort pins - its execution parameters come from the policy
@@ -30,7 +31,7 @@ Notifies the operator on Slack that a garrison run is done, with a work summary,
 - **Standalone:** invoke any time against a finished run dir to (re)send the report.
 
 ## Inputs
-- `<runDir>` = `~/.garrison/runs/<project>/<runId>/` (the evidence home, GARRISON-UNIFY-V1 D19 — nothing run-scoped lives inside the project repo; the repo keeps only work products + committed re-runnable tests), `<runId>`, `<project>`.
+- `<runDir>` = `${GARRISON_RUNS_DIR:-${GARRISON_HOME:-$HOME/.garrison}/runs}/<project>/<runId>/` (the evidence home, GARRISON-UNIFY-V1 D19 — nothing run-scoped lives inside the project repo; the repo keeps only work products + committed re-runnable tests), `<runId>`, `<project>`.
 - `globalGate.status` + per-slice video links from `<runDir>/evidence-index.json`.
 - This session id: `$CLAUDE_CODE_SESSION_ID`.
 
@@ -44,28 +45,30 @@ Notifies the operator on Slack that a garrison run is done, with a work summary,
 ### 2. Publish the logs over Tailscale — WITHOUT duplicating them
 Build a per-run directory of **symlinks** to the real files (symlinks reference the originals — no content is copied), then start the standing server:
 ```bash
-mkdir -p ~/.garrison/report/<runId>
+GARRISON_HOME="${GARRISON_HOME:-$HOME/.garrison}"
+GARRISON_CLAUDE_HOME="${GARRISON_CLAUDE_HOME:-$HOME/.claude}"
+mkdir -p "$GARRISON_HOME/report/<runId>"
 # The evidence home is served DIRECTLY at /runs/ (D20) — no per-run symlink
 # needed for run artifacts; the canonical link is
-#   http://<tailnet>:8091/runs/<project>/<runId>/
-# (symlinks under ~/.garrison/report remain supported for extra artifacts)
-TRANSCRIPT="$(find ~/.claude/projects -name "$CLAUDE_CODE_SESSION_ID.jsonl" 2>/dev/null | head -1)"
-[ -n "$TRANSCRIPT" ] && ln -sfn "$TRANSCRIPT" ~/.garrison/report/<runId>/session-transcript.jsonl
-node ~/.claude/skills/garrison-report/scripts/serve.mjs   # prints the Tailscale base URL, e.g. http://100.x.y.z:8091/
+#   http://<tailnet>:28091/runs/<project>/<runId>/
+# (symlinks under $GARRISON_HOME/report remain supported for extra artifacts)
+TRANSCRIPT="$(find "$GARRISON_CLAUDE_HOME/projects" -name "$CLAUDE_CODE_SESSION_ID.jsonl" 2>/dev/null | head -1)"
+[ -n "$TRANSCRIPT" ] && ln -sfn "$TRANSCRIPT" "$GARRISON_HOME/report/<runId>/session-transcript.jsonl"
+node "$GARRISON_CLAUDE_HOME/skills/garrison-report/scripts/serve.mjs"   # prints the Tailscale base URL, e.g. http://100.x.y.z:28091/
 ```
 `serve.mjs` is **idempotent + standing** (self-daemonizes, reuses an already-running instance, survives the session so the links stay live). The per-run logs URL is `<base>/<runId>/`.
 - **Default to the curated `run/` artifacts** (plan + gate-status + evidence-index + friction-log — no raw secrets). Symlinking the **raw session transcript** is optional: it is the full session log but **may contain secrets** — only include it if that is acceptable on your tailnet, or redact (`sk-*` / `ghp_*` / `xoxb-*`) first.
 
 ### 3. Send the Slack notification
 ```bash
-node ~/.claude/skills/garrison-report/scripts/notify.mjs \
+node "${GARRISON_CLAUDE_HOME:-$HOME/.claude}/skills/garrison-report/scripts/notify.mjs" \
   --project "<project>" --status "<globalGate.status>" \
   --summary "<runDir>/report-summary.md" \
   --gallery-url "<gallery base URL>" \
   --report-url "<base>/<runId>/" \
   --landing-url "<base>/<runId>/run/LANDING.md"
 ```
-- Requires a **Slack incoming webhook** in `AUTOTHING_SLACK_WEBHOOK_URL` (env) or `~/.config/garrison/.env` (`AUTOTHING_SLACK_WEBHOOK_URL=...`). This is the headless-safe path (plain HTTPS POST, no MCP, PTY-safe).
+- Requires a **Slack incoming webhook** in `AUTOTHING_SLACK_WEBHOOK_URL` (env) or `${XDG_CONFIG_HOME:-$HOME/.config}/garrison/.env` (`AUTOTHING_SLACK_WEBHOOK_URL=...`). This is the headless-safe path (plain HTTPS POST, no MCP, PTY-safe).
 - **Fallback when no webhook is set AND you are interactive:** `notify.mjs` prints the composed Block Kit payload and exits 0; send that same content via the Slack MCP (`mcp__claude_ai_Slack__slack_send_message`). A missing webhook never fails the run.
 - **The completion message LINKS the run's `LANDING.md` — the audit packet.** Alongside the walkthrough gallery URL and the logs/artifacts link, the message carries a Tailscale link to `<runDir>/LANDING.md`, served in place at `<base>/<runId>/run/LANDING.md` (the `run/` symlink already exposes it — no extra copy). The operator opens one message and has the summary, the video gallery, the raw logs/artifacts, AND the full audit packet.
 
@@ -83,11 +86,15 @@ Each is a `notify.mjs` call carrying the event's one-liner (same webhook, same i
 ## Setup (one-time)
 Create a Slack incoming webhook (Slack app → Incoming Webhooks → Add to a channel) and store it (secret — never commit):
 ```bash
-mkdir -p ~/.config/garrison && printf 'AUTOTHING_SLACK_WEBHOOK_URL=%s\n' '<your webhook url>' >> ~/.config/garrison/.env
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+mkdir -p "$CONFIG_HOME/garrison" && printf 'AUTOTHING_SLACK_WEBHOOK_URL=%s\n' '<your webhook url>' >> "$CONFIG_HOME/garrison/.env"
 ```
 
 ## Notes
-- **Tailscale-only exposure.** `serve.mjs` binds `0.0.0.0` and advertises the `tailscale ip -4` address; the links are reachable only on your tailnet (your own devices). If `tailscale` is absent it falls back to a LAN IP (note this in the message).
+- **Tailscale-first exposure.** `serve.mjs` binds the address returned by
+  `tailscale ip -4`, never the all-interfaces wildcard. If Tailscale is absent it
+  falls back to the first non-internal IPv4 address and then loopback; note that
+  fallback honestly in the message.
 - **No duplication.** Logs/artifacts are served via symlinks to the originals; nothing is copied. The video gallery is served by `walkthrough`, not here.
 - Honest: if the gallery URL is missing (no verified videos) or the webhook is unset, say so in the report rather than omitting silently.
 

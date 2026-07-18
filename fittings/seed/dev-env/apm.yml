@@ -1,6 +1,6 @@
 name: dev-env
 version: 0.1.0
-description: Consolidated Dev Env — every Claude Code session is a tab with a Claude PTY + shell PTY on the left and a live browser pane on the right; same-branch sessions at the project repo root, with session status built in. Own React UI on port 7086.
+description: Consolidated Dev Env — every Claude Code session is a tab with a Claude PTY + shell PTY on the left and a live browser pane on the right; same-branch sessions at the project repo root, with session status built in. Own React UI on port 27086.
 target: claude
 type: hybrid
 includes: auto
@@ -8,15 +8,15 @@ x-garrison:
   faculty: sessions
   cardinality_hint: single
   own_port: true
-  default_port: 7086
+  default_port: 27086
   component_shape: plugin
   platforms:
     - claude-code
-  summary: One dev surface (default port 7086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; the Claude pane toggles between a raw Terminal view and a rich Chat view (markdown, status line, mode switcher, slash/skill autocomplete) backed by a headless mirror of the same PTY. Sessions are same-branch (they run at the project's repo root); quick prompts and PTY-driven PR/commit flows included.
+  summary: One dev surface (default port 27086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; the Claude pane toggles between a raw Terminal view and a rich Chat view (markdown, status line, mode switcher, slash/skill autocomplete) backed by a headless mirror of the same PTY. Sessions are same-branch (they run at the project's repo root); quick prompts and PTY-driven PR/commit flows included.
   config_schema:
     - key: port
       type: integer
-      default: 7086
+      default: 27086
       description: HTTP port the Dev Env UI binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports (installed hooks keep POSTing to the baked default).
     - key: bind_host
       type: string

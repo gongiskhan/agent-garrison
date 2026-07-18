@@ -6,13 +6,19 @@ import { buildVisionPrompt } from "../src/app/api/automations/vision/prompt";
 
 describe("buildVisionPrompt — verify mode", () => {
   it("lists all 5 assertion kinds and includes a known area anchor when present", () => {
-    const prompt = buildVisionPrompt("verify", { url: "https://x/chat", title: "Chat", headingText: "Chat", a11y: [{ role: "button", name: "Send" }] },
-      { description: "composer is visible", areaHint: { testId: "chat-composer" } });
+    const prompt = buildVisionPrompt(
+      "verify",
+      { url: "https://x/chat", title: "Chat", headingText: "Chat", a11y: [{ role: "button", name: "Send" }] },
+      { description: "composer is visible", areaHint: { testId: "chat-composer" } },
+      "/tmp/vision-check.jpg"
+    );
     for (const kind of ["text-contains", "visible", "count", "url-matches", "attribute-equals"]) {
       expect(prompt).toContain(kind);
     }
     expect(prompt).toContain('{"testId":"chat-composer"}');
-    expect(prompt).toContain("Reply ONLY JSON");
+    expect(prompt).toContain("MUST use the Read tool");
+    expect(prompt).toContain("/tmp/vision-check.jpg");
+    expect(prompt).toContain("Reply ONLY valid single-line JSON");
   });
 
   it("omits the anchor line when no areaHint is present", () => {
@@ -70,5 +76,33 @@ describe("buildVisionPrompt - size bounds (oversized-page hardening)", () => {
       { description: "d".repeat(50_000), __fix: { failureKind: "timeout", error: "e".repeat(50_000) } });
     expect(prompt.length).toBeLessThan(30_000);
     expect(prompt).toContain("[...clipped");
+  });
+});
+
+describe("buildVisionPrompt — fix mode", () => {
+  it("asks for a bounded plan patch instead of a browser action", () => {
+    const prompt = buildVisionPrompt(
+      "fix",
+      {
+        url: "https://x/not-found",
+        title: "Not found",
+        a11y: [{ role: "link", name: "Go home" }]
+      },
+      {
+        id: "s1",
+        type: "verify",
+        description: "Clicking Go home reaches the dashboard",
+        __fix: { failureKind: "verify_failed", error: "outcome not met" }
+      },
+      "/tmp/failure.jpg"
+    );
+    expect(prompt).toContain("PLAN PATCH");
+    expect(prompt).toContain("insert_before");
+    expect(prompt).toContain("replace_current");
+    expect(prompt).toContain("pause_for_user");
+    expect(prompt).toContain("browser, verify, navigate, or wait");
+    expect(prompt).toContain("outcome not met");
+    expect(prompt).toContain("MUST use the Read tool");
+    expect(prompt).not.toContain('"kind":"click|fill');
   });
 });

@@ -157,6 +157,68 @@ describe("run engine (E2)", () => {
     expect(events.some((e) => e.type === "run_patch" && e.phase === "applied")).toBe(true);
   });
 
+  it("keeps the planned step id when a successful fixer replaces its implementation", async () => {
+    let attempts = 0;
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "expected-check", type: "verify", description: "arrives at chat" }] },
+      deps: {
+        runBrowser: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            const error: any = new Error("expected outcome not met");
+            error.recoverable = true;
+            throw error;
+          }
+          return { tier: "execute", url: "/" };
+        },
+        proposePatch: async () => ({
+          kind: "replace_current",
+          reasoning: "navigate directly",
+          newStep: { id: "invented-fixer-id", type: "navigate", url: "/" }
+        })
+      }
+    });
+
+    expect(record.status).toBe("completed");
+    expect(record.steps.at(-1)).toMatchObject({
+      stepId: "expected-check",
+      type: "navigate",
+      status: "completed"
+    });
+  });
+
+  it("closes a live browser session after a terminal run", async () => {
+    let closed = 0;
+    const runBrowser: any = async () => ({ tier: "execute" });
+    runBrowser.close = async () => { closed += 1; };
+
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "navigate", url: "https://example.test" }] },
+      deps: { runBrowser }
+    });
+
+    expect(record.status).toBe("completed");
+    expect(closed).toBe(1);
+  });
+
+  it("keeps a paused browser session open for user intervention", async () => {
+    let closed = 0;
+    const runBrowser: any = async () => {
+      const error: any = new Error("The page shows a Google reCAPTCHA verification page");
+      error.recoverable = true;
+      throw error;
+    };
+    runBrowser.close = async () => { closed += 1; };
+
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "continue" }] },
+      deps: { runBrowser }
+    });
+
+    expect(record.status).toBe("paused_for_user");
+    expect(closed).toBe(0);
+  });
+
   it("pauses for the user on a CAPTCHA (fast-path, no fixer call)", async () => {
     let fixerCalled = false;
     const record = await runAutomation({
@@ -182,6 +244,75 @@ describe("run engine (E2)", () => {
     });
     expect(record.status).toBe("failed");
     expect(patches).toBeLessThanOrEqual(5); // maxPatchesPerIndex
+    expect(record.failure).toMatchObject({ class: "product", component: "app" });
+    expect(record.steps.at(-1).failure).toMatchObject({ class: "product", component: "app" });
+  });
+
+  it("persists structured infrastructure metadata and never sends a dependency outage to the fixer", async () => {
+    let fixerCalled = false;
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "verify", description: "hero is visible" }] },
+      deps: {
+        runBrowser: async () => {
+          const error: any = new Error("vision 503");
+          error.recoverable = false;
+          error.failure = { class: "infrastructure", component: "vision", code: "vision-http-503", retryable: true };
+          throw error;
+        },
+        proposePatch: async () => {
+          fixerCalled = true;
+          return { kind: "abort" };
+        }
+      }
+    });
+
+    expect(fixerCalled).toBe(false);
+    expect(record.failure).toEqual({
+      class: "infrastructure",
+      component: "vision",
+      code: "vision-http-503",
+      retryable: true
+    });
+    expect(record.steps[0].failure).toEqual(record.failure);
+  });
+
+  it("preserves the app defect and records a fixer outage as a separate recovery failure", async () => {
+    const events: any[] = [];
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "dismiss overlay" }] },
+      deps: {
+        runBrowser: async () => {
+          const error: any = new Error("overlay still covers the button");
+          error.recoverable = true;
+          throw error;
+        },
+        proposePatch: async () => {
+          const error: any = new Error("fixer 503");
+          error.failure = { class: "infrastructure", component: "fixer", code: "fixer-http-503", retryable: true };
+          throw error;
+        }
+      },
+      emit: (event: any) => events.push(event)
+    });
+
+    expect(record.failure).toMatchObject({
+      class: "product",
+      component: "app",
+      code: "browser-interaction-failed"
+    });
+    expect(record.recoveryFailure).toMatchObject({
+      class: "infrastructure",
+      component: "fixer",
+      code: "fixer-http-503"
+    });
+    expect(record.steps[0].failure).toEqual(record.failure);
+    expect(record.steps[0].recoveryFailure).toEqual(record.recoveryFailure);
+    expect(record.steps[0].error).toBe("overlay still covers the button");
+    expect(events.find((event) => event.type === "run_error")).toMatchObject({
+      error: "overlay still covers the button",
+      failure: record.failure,
+      recoveryFailure: record.recoveryFailure
+    });
   });
 
   it("HITL: a CAPTCHA pauses, then resumes and retries the step to completion", async () => {
@@ -305,6 +436,11 @@ describe("run engine (E2)", () => {
       });
       expect(record.status).toBe("failed");
       expect(record.error).toContain("browser fitting not running");
+      expect(record.failure).toMatchObject({
+        class: "infrastructure",
+        component: "browser",
+        code: "browser-unavailable"
+      });
     } finally {
       if (prev !== undefined) process.env.GARRISON_BROWSER_URL = prev;
     }

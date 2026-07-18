@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 
-export const OUTPOST_HOST = "http://127.0.0.1:3702";
+export const OUTPOST_HOST = "http://127.0.0.1:23702";
 
 export function expandHome(p: string): string {
   if (p.startsWith("~/") || p === "~") return path.join(homedir(), p.slice(2));

@@ -7,30 +7,39 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile, unlink, readFile } from "node:fs/promises";
+import { access, mkdir, writeFile, unlink, readFile } from "node:fs/promises";
 import { getDrillBook, saveDrillBook, listPages, getPage, savePage, deletePage, drillTargetRoot } from "../lib/store.mjs";
-import { listProjects, selectProject, findRunSkill, projectInfo, activeProjectRoot, readDevRoot, canonicalRoot } from "../lib/projects.mjs";
+import { listProjects, selectProject, findRunSkill, projectInfo, activeProjectRoot, readDevRoot, canonicalRoot, isValidProjectRoot } from "../lib/projects.mjs";
 import { urlReachable, startApp, getJob, publicJob } from "../lib/app-runner.mjs";
-import { startPlan, getPlanJob, publicPlanJob, reapOrphanPlanAgents } from "../lib/planner.mjs";
-import { openTab, evalJs, observeTab, canvasUrl, browserBaseUrl, navigateTab, tabAction, closeTab, tabInfo, readConsole } from "../lib/browser-fitting-client.mjs";
-import { buildPickScript, buildResolveScript, rectToPercent } from "../lib/picker.mjs";
+import { startPlan, getPlanJob, publicPlanJob, reapOrphanPlanAgents, cancelPlan, planProgress, logTail } from "../lib/planner.mjs";
+import {
+  openTab, evalJs, observeTab, canvasUrl, fetchScreenshot, browserBaseUrl,
+  navigateTab, tabAction, closeTab, tabInfo, readConsole
+} from "../lib/browser-fitting-client.mjs";
+import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent } from "../lib/picker.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
 import { selectSteps, compileStepAutomation } from "../lib/compile.mjs";
 import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot } from "../lib/snapshots.mjs";
-import { promoteSnapshotToState } from "../lib/states.mjs";
+import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
-import { runInline, getRun as getAutomationRun } from "../lib/automations-client.mjs";
+import { runInline, getRun as getAutomationRun, getStepEvidence, checkAutomationsHealth } from "../lib/automations-client.mjs";
+import {
+  legacyInfrastructureFailure,
+  terminalFromAutomationRun,
+  terminalFromTransportError,
+  terminalOpensCircuit
+} from "../lib/run-outcome.mjs";
 import {
   newDrillRun, saveDrillRun, getDrillRun, listDrillRuns, deleteDrillRun,
-  addFeedback, setOverride, addObservation, addFinding, setFindingStatus, confirmedFindings,
-  undispatchedConfirmedFindings, markFindingsDispatched, isInfraError, runListingRow
+  addFeedback, setOverride, addObservation, addFinding, addInfraError, setFindingStatus, confirmedFindings,
+  undispatchedConfirmedFindings, markFindingsDispatched, isInfraError, publicRunRecord
 } from "../lib/runs-store.mjs";
 
-// Authoring tabs (B1): one live tab per (pageId, viewportId) for the duration
-// of the server process - reused across pick/resolve calls in an authoring
-// session rather than reopened per request.
-const authoringTabs = new Map(); // "<pageId>|<viewportId>" -> tabId
+// Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
+// the duration of the server process - reused across pick/resolve/snapshot
+// calls in an authoring session rather than reopened per request.
+const authoringTabs = new Map(); // "<root>|<pageId>|<viewportId>" -> tabId
 
 function send(res, code, body, headers = {}) {
   const data = typeof body === "string" ? body : JSON.stringify(body);
@@ -60,24 +69,67 @@ function resolveStepOutcome(automationRun, stepId) {
   return null;
 }
 
+// Compatibility export for callers that used the old helper. Keep the
+// classifier deliberately narrow: arbitrary prose containing "connection"
+// or "vision" can describe a real product defect and must not be hidden from
+// triage as infrastructure.
+export function isInfrastructureFailure(text) {
+  return legacyInfrastructureFailure(text) !== null;
+}
+
+function resultFromTerminal(terminal, stepId = null) {
+  if (!terminal) return null;
+  return {
+    stepId,
+    status: terminal.kind === "passed" ? "completed" : "failed",
+    tier: terminal.tier ?? null,
+    ...(terminal.evidencePath ? { evidencePath: terminal.evidencePath } : {}),
+    ...(terminal.durationMs !== undefined ? { durationMs: terminal.durationMs } : {}),
+    ...(terminal.kind === "passed"
+      ? { result: { passed: true, ...(terminal.reasoning ? { reasoning: terminal.reasoning } : {}) } }
+      : { error: terminal.message ?? terminal.code, result: { passed: false, reasoning: terminal.message ?? terminal.code } })
+  };
+}
+
+function enrichTerminalResult(terminal, stepId, hydrated) {
+  const snapshot = resultFromTerminal(terminal, stepId);
+  if (!snapshot) return hydrated;
+  if (!hydrated) return snapshot;
+  const enriched = {
+    ...hydrated,
+    ...snapshot,
+    tier: terminal.tier ?? hydrated.tier ?? null,
+    evidencePath: terminal.evidencePath ?? hydrated.evidencePath,
+    durationMs: terminal.durationMs ?? hydrated.durationMs,
+    result: {
+      ...(hydrated.result ?? {}),
+      ...(snapshot.result ?? {})
+    }
+  };
+  if (terminal.kind === "passed") delete enriched.error;
+  return enriched;
+}
+
 // Merge each (page, step, viewport) entry's own automation-run result (tier,
-// evidence, pass/fail) onto the Drill run record for display - the record
-// itself only stores the reference (A8: runs stay engine-owned; the Book
-// links to them, never duplicates them).
-async function assembleRunView(record) {
+// evidence, pass/fail) onto the Drill run record for display. Hydration is
+// optional enrichment only: the terminal snapshot captured from runInline's
+// response is authoritative and remains usable if Automations is down or its
+// persistence has not become readable yet.
+async function assembleRunView(record, { hydrate = true } = {}) {
   const pages = [];
   for (const pr of record.pages) {
-    let result = null;
-    if (pr.automationRunId) {
+    let result = resultFromTerminal(pr.terminal, pr.stepId);
+    if (hydrate && pr.automationRunId) {
       const automationRun = await getAutomationRun(pr.automationRunId).catch(() => null);
-      result = resolveStepOutcome(automationRun, pr.stepId);
+      const hydrated = resolveStepOutcome(automationRun, pr.stepId);
+      if (hydrated) result = enrichTerminalResult(pr.terminal, pr.stepId, hydrated);
     }
     // Harness failures render apart from real step verdicts - computed here
     // (not stored) so runs recorded before the classifier existed group
     // correctly too.
     pages.push({ ...pr, result, infra: isInfraError(pr.error || result?.error) });
   }
-  return { ...record, pages };
+  return publicRunRecord({ ...record, pages });
 }
 
 async function kanbanBaseUrl() {
@@ -97,7 +149,9 @@ async function kanbanBaseUrl() {
 async function dispatchBatchFixCard(record, confirmed) {
   const base = await kanbanBaseUrl();
   if (!base) throw new Error("kanban-loop fitting not running (no status file)");
-  const lines = confirmed.map((f) => `- [${f.kind}] ${f.pageId}${f.stepId ? "#" + f.stepId : ""}: ${f.text}`);
+  const lines = confirmed.map((f) =>
+    `- [${f.kind}] ${f.pageId}${f.stepId ? "#" + f.stepId : ""}${f.viewportId ? ` [${f.viewportId}]` : ""}: ${f.text}`
+  );
   const description = `Drill batch fix (report ${record.id}):\n${lines.join("\n")}`;
   // A human-scannable title: which pages, how many findings, dispatched when.
   // Identical "Drill batch fix (report 01KX...)" titles made the board
@@ -105,36 +159,67 @@ async function dispatchBatchFixCard(record, confirmed) {
   const pages = [...new Set(confirmed.map((f) => f.pageId))];
   const when = new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   const title = `Drill fix: ${pages.join(", ")} - ${confirmed.length} finding${confirmed.length === 1 ? "" : "s"} (${when})`;
+  const sequence = ["code"];
   const res = await fetch(`${base}/cards`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     // The run RECORD's project, not the live selection - a heartbeat sweep or
     // a stale Results view can dispatch after the user retargeted Drill, and
     // the fix card must point at the repo the findings came from.
-    body: JSON.stringify({ title, description, duty: "code", level: 2, sequence: ["code"], origin: "drill", project: record.project || drillTargetRoot() })
+    body: JSON.stringify({ title, description, duty: "code", level: 2, sequence, origin: "drill", project: record.project || drillTargetRoot() })
   });
   if (!res.ok) throw new Error(`kanban-loop ${res.status}: ${await res.text()}`);
-  const card = (await res.json()).card;
-  // Enter the card at its first phase so the loop actually RUNS it - a card
-  // parked invisibly in backlog reads as "my fixes went nowhere" (observed
-  // live 2026-07-18). The engine header marks this as an engine move; a
-  // failure leaves the card in backlog rather than failing the dispatch.
-  let entered = false;
-  try {
-    const first = Array.isArray(card.sequence) && card.sequence.length > 0 ? card.sequence[0] : "code";
-    const moveRes = await fetch(`${base}/cards/${card.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "x-garrison-engine": "drill-dispatch" },
-      body: JSON.stringify({ list: first, rev: card.rev })
-    });
-    entered = moveRes.ok;
-  } catch {
-    /* card stays in backlog; the board's Start button remains the fallback */
+  const created = await res.json();
+  const card = created.card ?? created;
+  if (!card?.id) throw new Error("kanban-loop created a card without an id");
+  const cardUrl = `${base}/#/cards/${card.id}`;
+
+  // POST /cards intentionally creates in Backlog. Drill is a reviewed,
+  // autonomous dispatch door, so position the card on the first resolved duty
+  // list and explicitly hand progression to Kanban. Retry CAS conflicts after
+  // re-reading the card. If the move still cannot complete, dispatch remains
+  // successful with the card visibly in Backlog and the board's Start action
+  // as the fallback.
+  const targetList =
+    Array.isArray(card.sequence) && card.sequence.length > 0
+      ? card.sequence[0]
+      : sequence[0];
+  let latest = card;
+  let entered = card.list === targetList;
+  let rev = Number.isInteger(card.rev) ? card.rev : 0;
+  for (let attempt = 0; attempt < 3 && !entered; attempt += 1) {
+    try {
+      const moved = await fetch(`${base}/cards/${encodeURIComponent(card.id)}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "x-garrison-engine": "drill-dispatch",
+          "x-garrison-dispatch": "auto"
+        },
+        body: JSON.stringify({ list: targetList, rev })
+      });
+      if (moved.ok) {
+        const body = await moved.json();
+        latest = body.card ?? body;
+        entered = true;
+        break;
+      }
+      const fresh = await fetch(`${base}/cards/${encodeURIComponent(card.id)}`);
+      if (fresh.ok) {
+        const body = await fresh.json();
+        latest = body.card ?? body;
+        if (latest.list === targetList) {
+          entered = true;
+          break;
+        }
+        if (Number.isInteger(latest.rev)) rev = latest.rev;
+      }
+    } catch { /* retry with the last known revision */ }
   }
   // Attach the board's card URL so the UI (and the finding's `card` stamp)
   // can link straight to it - "did my fixes reach the kanban?" should never
   // require opening the board and hunting.
-  return { ...card, url: `${base}/#/cards/${card.id}`, entered };
+  return { ...latest, url: cardUrl, entered };
 }
 
 // A long-lived client flow (an app start, a plan, a gated-run approval) pins
@@ -145,8 +230,37 @@ function pinnedRoot(explicit) {
   return explicit ? canonicalRoot(String(explicit)) : drillTargetRoot();
 }
 
+// Every MUTATING route (writes drills/ files, or opens a live authoring
+// session against a project) resolves its target through this - never a bare
+// drillTargetRoot() call. Dogfood bug this exists to close: a second UI tab
+// switched the live selection (active-project.json) while a first tab's
+// authoring session was still open; the first tab's next PUT /api/pages had
+// no root of its own to fall back on, silently re-resolved through the NOW-
+// mutated global, and landed in the wrong repo. Two guards:
+//   - an EXPLICIT root pins the write to that identity outright, bypassing
+//     the live global entirely - but only if it still names a real project
+//     directory (a stale/removed pin is rejected, never silently widened to
+//     cwd or the fitting's own install dir).
+//   - with NO explicit root, the route still requires SOME selection to
+//     exist (matches every existing single-project/env-pin deployment and
+//     test) - it just never falls through to cwd when nothing is selected.
+// Returns { root } on success or { error } (caller sends 400).
+function resolveMutationRoot(explicit) {
+  if (explicit) {
+    const root = canonicalRoot(String(explicit));
+    if (!isValidProjectRoot(root)) {
+      return { error: `stale project selection - ${root} is no longer a project directory; reselect a project` };
+    }
+    return { root };
+  }
+  if (!activeProjectRoot() && !process.env.GARRISON_DRILL_TARGET_REPO) {
+    return { error: "no project selected - choose one in the Project picker first" };
+  }
+  return { root: drillTargetRoot() };
+}
+
 const FITTING_ID = "drill";
-const DEFAULT_PORT = 7096;
+const DEFAULT_PORT = 27096;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
@@ -171,11 +285,14 @@ async function handle(req, res) {
       return send(res, 200, { status: "ok", fittingId: FITTING_ID, pid: process.pid, targetRepo: drillTargetRoot() });
     }
     if (pathname === "/api/drillbook" && req.method === "GET") {
-      return send(res, 200, { book: await getDrillBook() });
+      const root = pinnedRoot(url.searchParams.get("root"));
+      return send(res, 200, { book: await getDrillBook(root), root });
     }
     if (pathname === "/api/drillbook" && req.method === "PATCH") {
-      const body = await readJsonBody(req);
-      return send(res, 200, { book: await saveDrillBook(body) });
+      const { root: explicitRoot, ...patch } = await readJsonBody(req);
+      const resolved = resolveMutationRoot(explicitRoot);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      return send(res, 200, { book: await saveDrillBook(patch, resolved.root), root: resolved.root });
     }
     // Project selection: pick any repo under the dev-root (same discovery
     // contract as the dev-env/Kanban pickers) and Drill retargets live - the
@@ -274,11 +391,18 @@ async function handle(req, res) {
     // Authoring UI is the manual override surface, never the required entry.
     if (pathname === "/api/plan/status" && req.method === "GET") {
       const root = pinnedRoot(url.searchParams.get("root"));
+      const job = getPlanJob(root);
+      // Durable, on-disk evidence of whether a running plan is alive or
+      // hung (the transcript, drills/ tree, page count) - a healthy 11min
+      // plan and a genuine hang were otherwise indistinguishable behind the
+      // same generic "Planning..." message. Computed on demand, cheaply,
+      // and only when a job actually exists.
+      const publicJobWithProgress = job ? { ...publicPlanJob(job), progress: await planProgress(job) } : null;
       return send(res, 200, {
         root,
         pages: (await listPages(root)).length,
         selected: !!(activeProjectRoot() || process.env.GARRISON_DRILL_TARGET_REPO),
-        job: publicPlanJob(getPlanJob(root))
+        job: publicJobWithProgress
       });
     }
     if (pathname === "/api/plan/start" && req.method === "POST") {
@@ -302,23 +426,53 @@ async function handle(req, res) {
       }
       return send(res, 200, { started: true, job: publicPlanJob(job) });
     }
+    // Cancel a running plan (the safe stop the dogfood bug found missing): a
+    // distinct "canceled" terminal status, never "failed" - a user-requested
+    // stop is not an error. Unblocks both a retry (/api/plan/start) and a run
+    // (/api/runs) immediately, since both guards key off status==="planning".
+    if (pathname === "/api/plan/cancel" && req.method === "POST") {
+      if (!activeProjectRoot() && !process.env.GARRISON_DRILL_TARGET_REPO) {
+        return send(res, 400, { error: "no project selected - choose one in the Project picker first" });
+      }
+      const body = await readJsonBody(req);
+      const root = pinnedRoot(body.root);
+      const { canceled, job } = await cancelPlan(root);
+      if (!canceled) {
+        return send(res, 409, { canceled: false, error: "no plan is running for this project", job });
+      }
+      return send(res, 200, { canceled: true, job });
+    }
+    // Serves the log the UI's own error strings already point at ("see the
+    // plan log") - previously a dead end since nothing exposed the file.
+    if (pathname === "/api/plan/log" && req.method === "GET") {
+      const root = pinnedRoot(url.searchParams.get("root"));
+      const job = getPlanJob(root);
+      if (!job) return send(res, 404, { error: "no plan job for this project" });
+      return send(res, 200, await logTail(job.logFile, 16000), { "content-type": "text/plain; charset=utf-8" });
+    }
 
     if (pathname === "/api/pages" && req.method === "GET") {
-      return send(res, 200, { pages: await listPages() });
+      const root = pinnedRoot(url.searchParams.get("root"));
+      return send(res, 200, { pages: await listPages(root), root });
     }
     const pageMatch = pathname.match(/^\/api\/pages\/([^/]+)$/);
     if (pageMatch) {
       const id = decodeURIComponent(pageMatch[1]);
       if (req.method === "GET") {
-        const page = await getPage(id);
-        return page ? send(res, 200, { page }) : send(res, 404, { error: "not found" });
+        const root = pinnedRoot(url.searchParams.get("root"));
+        const page = await getPage(id, root);
+        return page ? send(res, 200, { page, root }) : send(res, 404, { error: "not found" });
       }
       if (req.method === "PUT" || req.method === "PATCH") {
-        const body = await readJsonBody(req);
-        return send(res, 200, { page: await savePage(id, body) });
+        const { root: explicitRoot, ...patch } = await readJsonBody(req);
+        const resolved = resolveMutationRoot(explicitRoot);
+        if (resolved.error) return send(res, 400, { error: resolved.error });
+        return send(res, 200, { page: await savePage(id, patch, resolved.root), root: resolved.root });
       }
       if (req.method === "DELETE") {
-        return send(res, 200, { deleted: await deletePage(id) });
+        const resolved = resolveMutationRoot(url.searchParams.get("root"));
+        if (resolved.error) return send(res, 400, { error: resolved.error });
+        return send(res, 200, { deleted: await deletePage(id, resolved.root) });
       }
     }
 
@@ -328,10 +482,13 @@ async function handle(req, res) {
       const pageId = String(body.pageId ?? "");
       const viewportId = String(body.viewport ?? "desktop");
       if (!pageId) return send(res, 400, { error: "pageId required" });
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      const { root } = resolved;
       let viewport;
       try { viewport = resolveViewport(viewportId); } catch (err) { return send(res, 400, { error: err.message }); }
-      const book = await getDrillBook();
-      const page = await getPage(pageId);
+      const book = await getDrillBook(root);
+      const page = await getPage(pageId, root);
       const appUrl = book.app.url || "http://localhost:3000";
       let target;
       try {
@@ -342,7 +499,9 @@ async function handle(req, res) {
       } catch {
         target = appUrl;
       }
-      const key = `${pageId}|${viewportId}`;
+      // Keyed by root too - two projects with same-named pages (e.g. both
+      // have a "home" page) must never reuse each other's live authoring tab.
+      const key = `${root}|${pageId}|${viewportId}`;
       let tabId = authoringTabs.get(key);
       if (!tabId) {
         try {
@@ -352,7 +511,32 @@ async function handle(req, res) {
         }
         authoringTabs.set(key, tabId);
       }
-      return send(res, 200, { tabId, canvasUrl: canvasUrl(tabId), viewport, url: target });
+      return send(res, 200, {
+        tabId,
+        canvasUrl: canvasUrl(tabId, viewport),
+        screenshotUrl: `/api/authoring/screenshot/${encodeURIComponent(tabId)}`,
+        viewport,
+        url: target,
+        root
+      });
+    }
+    // Proxy the exact Browser viewport image through Drill. Besides keeping
+    // authoring self-contained, this makes image loading same-origin so the
+    // picker can reliably wait for the frozen frame before accepting clicks.
+    const authoringShotMatch = pathname.match(/^\/api\/authoring\/screenshot\/([^/]+)$/);
+    if (authoringShotMatch && req.method === "GET") {
+      const tabId = decodeURIComponent(authoringShotMatch[1]);
+      if (![...authoringTabs.values()].includes(tabId)) return send(res, 404, { error: "authoring tab not found" });
+      try {
+        const png = await fetchScreenshot(tabId);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("Content-Length", String(png.length));
+        res.setHeader("Cache-Control", "no-store");
+        return res.end(png);
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
     }
     // Authoring: pick the element at (x, y) in viewport CSS px (D4/B2/B3).
     if (pathname === "/api/authoring/pick" && req.method === "POST") {
@@ -362,6 +546,30 @@ async function handle(req, res) {
         const anchors = await evalJs(body.tabId, buildPickScript(body.x, body.y));
         const pct = anchors ? rectToPercent(anchors.rect, anchors.viewport) : null;
         return send(res, 200, { anchors: anchors ? { ...anchors, pct } : null });
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    // Freeze motion while the user targets the viewport-exact screenshot.
+    // Without this, an animation can move the live DOM between screenshot
+    // capture and hit-test even though the preview itself looks frozen.
+    if (pathname === "/api/authoring/freeze" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.tabId) return send(res, 400, { error: "tabId required" });
+      try {
+        const frozen = body.frozen !== false;
+        const result = await evalJs(body.tabId, `(() => {
+          const id = "__garrison_drill_freeze__";
+          document.getElementById(id)?.remove();
+          if (${JSON.stringify(frozen)}) {
+            const style = document.createElement("style");
+            style.id = id;
+            style.textContent = "*,*::before,*::after{animation-play-state:paused!important;transition:none!important;scroll-behavior:auto!important}";
+            document.documentElement.appendChild(style);
+          }
+          return { width: window.innerWidth, height: window.innerHeight };
+        })()`);
+        return send(res, 200, { frozen, viewport: result });
       } catch (err) {
         return send(res, 502, { error: err.message });
       }
@@ -409,14 +617,17 @@ async function handle(req, res) {
       const pageId = String(body.pageId ?? "");
       const viewportId = String(body.viewport ?? "desktop");
       if (!pageId) return send(res, 400, { error: "pageId required" });
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      const { root } = resolved;
       let viewport;
       try { viewport = resolveViewport(viewportId); } catch (err) { return send(res, 400, { error: err.message }); }
-      const book = await getDrillBook();
-      const page = await getPage(pageId);
+      const book = await getDrillBook(root);
+      const page = await getPage(pageId, root);
       const appUrl = book.app.url || "http://localhost:3000";
       let target;
       try { target = page?.path ? new URL(page.path, appUrl).toString() : appUrl; } catch { target = appUrl; }
-      const key = `${pageId}|${viewportId}`;
+      const key = `${root}|${pageId}|${viewportId}`;
       const old = authoringTabs.get(key);
       if (old) {
         await closeTab(old).catch(() => {});
@@ -429,13 +640,40 @@ async function handle(req, res) {
         return send(res, 502, { error: err.message });
       }
       authoringTabs.set(key, tabId);
-      return send(res, 200, { tabId, canvasUrl: canvasUrl(tabId), viewport, url: target });
+      return send(res, 200, {
+        tabId,
+        canvasUrl: canvasUrl(tabId, viewport),
+        screenshotUrl: `/api/authoring/screenshot/${encodeURIComponent(tabId)}`,
+        viewport,
+        url: target,
+        root
+      });
     }
     if (pathname === "/api/authoring/tab-info" && req.method === "GET") {
       const tabId = url.searchParams.get("tabId");
       if (!tabId) return send(res, 400, { error: "tabId required" });
       try {
         return send(res, 200, { tab: await tabInfo(tabId) });
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+
+    // Resolve all visible area anchors in one Browser eval. The UI polls this
+    // lightly to keep badges current as responsive layouts move, without
+    // multiplying Browser traffic by the number of authored areas.
+    if (pathname === "/api/authoring/resolve-many" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.tabId) return send(res, 400, { error: "tabId required" });
+      if (!Array.isArray(body.items)) return send(res, 400, { error: "items required" });
+      if (body.items.length > 200) return send(res, 400, { error: "too many areas" });
+      try {
+        const evaluated = await evalJs(body.tabId, buildResolveManyScript(body.items));
+        const resolved = Object.fromEntries((Array.isArray(evaluated) ? evaluated : []).map((item) => [
+          String(item.id),
+          item.resolved ? rectToPercent(item.resolved.rect, item.resolved.viewport) : null
+        ]));
+        return send(res, 200, { resolved });
       } catch (err) {
         return send(res, 502, { error: err.message });
       }
@@ -459,11 +697,14 @@ async function handle(req, res) {
       const pageId = decodeURIComponent(snapMatch[1]);
       const body = await readJsonBody(req);
       const viewportId = body.viewport || "desktop";
-      const key = `${pageId}|${viewportId}`;
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      const { root } = resolved;
+      const key = `${root}|${pageId}|${viewportId}`;
       let tabId = authoringTabs.get(key);
       if (!tabId) {
-        const book = await getDrillBook();
-        const page = await getPage(pageId);
+        const book = await getDrillBook(root);
+        const page = await getPage(pageId, root);
         const appUrl = book.app.url || "http://localhost:3000";
         let tabUrl;
         try { tabUrl = page?.path ? new URL(page.path, appUrl).toString() : appUrl; } catch { tabUrl = appUrl; }
@@ -491,6 +732,20 @@ async function handle(req, res) {
     if (snapListMatch && req.method === "GET") {
       return send(res, 200, { snapshots: await listSnapshots(decodeURIComponent(snapListMatch[1])) });
     }
+    const snapshotShotMatch = pathname.match(/^\/api\/snapshots\/([^/]+)\/([^/]+)\/image$/);
+    if (snapshotShotMatch && req.method === "GET") {
+      const pageId = decodeURIComponent(snapshotShotMatch[1]);
+      const snapshotId = decodeURIComponent(snapshotShotMatch[2]);
+      const snapshot = await getSnapshot(pageId, snapshotId);
+      if (!snapshot?.screenshotPath) return send(res, 404, { error: "no screenshot for this snapshot" });
+      try {
+        const bytes = await readFile(snapshot.screenshotPath);
+        res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" });
+        return res.end(bytes);
+      } catch {
+        return send(res, 404, { error: "snapshot screenshot file missing" });
+      }
+    }
     const promoteMatch = pathname.match(/^\/api\/states\/([^/]+)\/promote$/);
     if (promoteMatch && req.method === "POST") {
       const pageId = decodeURIComponent(promoteMatch[1]);
@@ -515,6 +770,22 @@ async function handle(req, res) {
         return res.end(bytes);
       } catch {
         return send(res, 404, { error: "screenshot file missing" });
+      }
+    }
+    // Let the UI distinguish a state that has never acquired a reference
+    // from one whose machine-local evidence file has gone missing.
+    const stateShotStatusMatch = pathname.match(/^\/api\/states\/([^/]+)\/([^/]+)\/screenshot-status$/);
+    if (stateShotStatusMatch && req.method === "GET") {
+      const pageId = decodeURIComponent(stateShotStatusMatch[1]);
+      const stateId = decodeURIComponent(stateShotStatusMatch[2]);
+      const page = await getPage(pageId);
+      const state = page?.states?.find((candidate) => candidate.id === stateId);
+      if (!state?.screenshotPath) return send(res, 200, { available: false, reason: "not-recorded" });
+      try {
+        await access(state.screenshotPath);
+        return send(res, 200, { available: true });
+      } catch {
+        return send(res, 200, { available: false, reason: "file-missing" });
       }
     }
     const stateShotMatch = pathname.match(/^\/api\/states\/([^/]+)\/([^/]+)\/screenshot$/);
@@ -570,7 +841,9 @@ async function handle(req, res) {
       // newly selected repo. A gated-run approval passes the root it was
       // HELD against (body.project) - the approval must execute the plan the
       // user saw, not whatever repo is selected at approval time.
-      const root = pinnedRoot(body.project);
+      const rootResolved = resolveMutationRoot(body.project);
+      if (rootResolved.error) return send(res, 400, { error: rootResolved.error });
+      const root = rootResolved.root;
       // A plan agent may be rewriting this repo's drills/ tree right now -
       // compiling half-written YAML produces a run over a phantom book.
       const planJob = getPlanJob(root);
@@ -604,73 +877,227 @@ async function handle(req, res) {
         });
       }
 
-      const record = newDrillRun({ contextTag, state, dispatch: blind ? "manual" : (body.dispatch || book.dispatch || "manual"), project: root });
+      // Materialize the whole check plan before touching Automations. This
+      // lets a circuit report exactly how much work it skipped and turns one
+      // systemic outage into one grouped incident instead of N near-identical
+      // product findings.
+      const jobs = [];
       for (const pageId of pageIds) {
         const page = await getPage(pageId, root);
         if (!page) continue;
         for (const viewportId of viewportIds) {
           const steps = selectSteps(page, { state, viewport: viewportId });
           for (const step of steps) {
-            const automation = compileStepAutomation(book, page, step, { blind });
-            try {
-              const vp = resolveViewport(viewportId);
-              const { run } = await runInline({ automation, contextTag, bypassCache, viewport: vp, sync: true });
-              record.pages.push({ pageId, stepId: step.id, viewportId, automationRunId: run.id, status: run.status });
-            } catch (err) {
-              record.pages.push({ pageId, stepId: step.id, viewportId, automationRunId: null, status: "error", error: err.message });
-            }
+            jobs.push({
+              pageId,
+              viewportId,
+              page,
+              step,
+              viewport: resolveViewport(viewportId),
+              automation: compileStepAutomation(book, page, step, { blind })
+            });
           }
         }
       }
-      record.endedAt = new Date().toISOString();
+      const record = newDrillRun({ contextTag, state, dispatch: blind ? "manual" : (body.dispatch || book.dispatch || "manual"), project: root });
+      // Keep the user's requested scope even when a preflight circuit opens
+      // before any page entry can exist. History can then say what was
+      // selected instead of misleadingly rendering this as a zero-page run.
+      record.selection = {
+        pageIds: [...pageIds],
+        viewportIds: [...viewportIds]
+      };
+      record.plannedChecks = jobs.length;
+      record.executedChecks = 0;
 
-      // Failed steps pool as findings ONLY when the failure is about the app.
-      // Infra errors (vision route / gateway / browser fitting down) are
-      // counted in the run summary instead - a harness outage must never
-      // read as thirty app bugs.
-      const summary = { steps: record.pages.length, failed: 0, infra: 0 };
-      for (const pr of record.pages) {
-        if (pr.status === "error") {
-          if (isInfraError(pr.error)) { summary.infra += 1; continue; }
-          summary.failed += 1;
-          addFinding(record, { kind: "step-fail", pageId: pr.pageId, stepId: pr.stepId, text: pr.error });
+      const addSystemicIncident = (job, terminal) => addInfraError(record, {
+        pageId: job?.pageId ?? null,
+        stepId: job?.step?.id ?? null,
+        viewportId: job?.viewportId ?? null,
+        text: terminal.message ?? terminal.code,
+        code: terminal.code,
+        component: terminal.component ?? "automations"
+      });
+      const openCircuit = (terminal, job = null) => {
+        const skippedChecks = Math.max(0, jobs.length - record.executedChecks);
+        record.circuit = {
+          component: terminal.component ?? "automations",
+          code: terminal.code,
+          message: terminal.message ?? terminal.code,
+          kind: terminal.kind,
+          openedAt: new Date().toISOString(),
+          afterCheck: record.executedChecks,
+          skippedChecks,
+          ...(job ? { trigger: { pageId: job.pageId, stepId: job.step.id, viewportId: job.viewportId } } : {})
+        };
+      };
+
+      if (jobs.length === 0) {
+        const terminal = {
+          kind: "incomplete",
+          source: "drill-plan",
+          code: "no-matching-checks",
+          component: "drill",
+          message: `No enabled ${state === "default" ? "default-state " : `${state} `}checks match the selected pages and viewports.`
+        };
+        addSystemicIncident(null, terminal);
+        openCircuit(terminal);
+        record.endedAt = new Date().toISOString();
+        await saveDrillRun(record);
+        return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
+      }
+
+      // One run-level preflight prevents a missing Automations fitting from
+      // being retried once per Book step. Every planned coordinate is still
+      // attached to the single grouped incident so the report is honest
+      // about the affected coverage.
+      try {
+        await checkAutomationsHealth();
+      } catch (err) {
+        const terminal = terminalFromTransportError(err);
+        if (jobs.length === 0) addSystemicIncident(null, terminal);
+        else for (const job of jobs) addSystemicIncident(job, terminal);
+        openCircuit(terminal);
+        record.endedAt = new Date().toISOString();
+        await saveDrillRun(record);
+        return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
+      }
+
+      for (const job of jobs) {
+        record.executedChecks += 1;
+        let automationRun;
+        let terminal;
+        try {
+          const response = await runInline({
+            automation: job.automation,
+            contextTag,
+            bypassCache,
+            viewport: job.viewport,
+            sync: true
+          });
+          automationRun = response?.run;
+          terminal = terminalFromAutomationRun(automationRun, job.step.id);
+        } catch (err) {
+          terminal = terminalFromTransportError(err);
+        }
+
+        const pr = {
+          pageId: job.pageId,
+          stepId: job.step.id,
+          viewportId: job.viewportId,
+          automationRunId: automationRun?.id ?? null,
+          status: automationRun?.status ?? "error",
+          terminal
+        };
+        record.pages.push(pr);
+
+        // Recovery infrastructure is a secondary incident. Keep the page
+        // defect as the authoritative terminal result and finding, but record
+        // the failed fixer/observer independently so infra cleanup can group it
+        // without swallowing the product failure or opening the run circuit.
+        if (terminal.recoveryFailure?.kind === "infra-failure") {
+          addSystemicIncident(job, terminal.recoveryFailure);
+        }
+
+        if (terminal.kind === "product-failure") {
+          addFinding(record, {
+            kind: "step-fail",
+            pageId: pr.pageId,
+            stepId: pr.stepId,
+            viewportId: pr.viewportId,
+            text: terminal.message ?? `${pr.stepId} failed`
+          });
           continue;
         }
-        if (!pr.automationRunId) continue;
-        const automationRun = await getAutomationRun(pr.automationRunId).catch(() => null);
+
+        if (terminalOpensCircuit(terminal)) {
+          addSystemicIncident(job, terminal);
+          openCircuit(terminal, job);
+          break;
+        }
+
+        // The returned run is the execution result. Use it immediately for
+        // state references and graduation as well; neither correctness nor
+        // side effects depend on a racy follow-up GET.
         const outcome = resolveStepOutcome(automationRun, pr.stepId);
-        if (outcome && (outcome.status === "failed" || outcome.result?.passed === false)) {
-          const text = outcome.error || outcome.result?.reasoning || `${pr.stepId} failed`;
-          if (isInfraError(text)) { summary.infra += 1; continue; }
-          summary.failed += 1;
-          addFinding(record, { kind: "step-fail", pageId: pr.pageId, stepId: pr.stepId, text });
-          continue;
+        if (!outcome) {
+          const incomplete = terminalFromAutomationRun(automationRun, pr.stepId);
+          pr.terminal = incomplete;
+          addSystemicIncident(job, incomplete);
+          openCircuit(incomplete, job);
+          break;
         }
+
+        // A successful named-state run is the agent-produced visual reference
+        // for that state. Seed the first reference only; later runs retain
+        // evidence in their own records but never silently rewrite the Book's
+        // accepted state image.
+        if (state !== "default" && outcome.evidencePath) {
+          const statePage = await getPage(pr.pageId, root);
+          const stateIndex = statePage?.states?.findIndex((candidate) => candidate.id === state) ?? -1;
+          if (statePage && stateIndex >= 0 && !statePage.states[stateIndex].screenshotPath) {
+            const assessment = assessAutomaticStateReference(outcome);
+            if (assessment.eligible) {
+              const nextStates = statePage.states.map((candidate, index) =>
+                index === stateIndex
+                  ? {
+                      ...candidate,
+                      ...(!candidate.matcher?.assertion && outcome.result?.assertion
+                        ? { matcher: { assertion: outcome.result.assertion } }
+                        : {}),
+                      screenshotPath: outcome.evidencePath,
+                      referenceSource: {
+                        runId: record.id,
+                        stepId: pr.stepId,
+                        viewportId: pr.viewportId,
+                        at: new Date().toISOString()
+                      }
+                    }
+                  : candidate
+              );
+              await savePage(pr.pageId, { states: nextStates }, root);
+              pr.stateReferenceSeeded = state;
+            } else if (assessment.reason === "unexpected-page-error") {
+              pr.stateReferenceRejected = {
+                state,
+                reason: assessment.reason,
+                warnings: assessment.warnings
+              };
+            }
+          }
+        }
+
         // Graduation (B8/B12, and the B7 healer path re-emitting on a stale
         // graduated assertion): a vision/recovered pass that resolved a
         // deterministic assertion (or is author-marked judgment) flips the
         // step to e2e and (re-)writes the page's committed spec. Never during
         // a blind adversarial pass (R12) - it must not silently rewrite the
         // plan it was supposed to be independently checking.
-        if (blind) continue;
-        const page = await getPage(pr.pageId, root);
-        const step = page?.steps.find((s) => s.id === pr.stepId);
-        if (step) {
-          const plan = graduationPlanFor(step, outcome);
-          if (plan) {
-            try {
-              const { specFile } = await graduateStep(book, pr.pageId, pr.stepId, plan, root);
-              pr.graduated = { specFile, judgment: !!plan.judgment };
-            } catch (err) {
-              pr.graduationError = err.message;
+        if (!blind) {
+          const page = await getPage(pr.pageId, root);
+          const step = page?.steps.find((candidate) => candidate.id === pr.stepId);
+          if (step) {
+            const plan = graduationPlanFor(step, outcome);
+            if (plan) {
+              try {
+                const { specFile } = await graduateStep(book, pr.pageId, pr.stepId, plan, root);
+                pr.graduated = { specFile, judgment: !!plan.judgment };
+              } catch (err) {
+                pr.graduationError = err.message;
+              }
             }
           }
         }
       }
 
-      record.summary = summary;
+      record.endedAt = new Date().toISOString();
+      record.summary = {
+        steps: record.pages.length,
+        failed: record.pages.filter((entry) => entry.terminal?.kind === "product-failure").length,
+        infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+      };
       await saveDrillRun(record);
-      return send(res, 200, { run: await assembleRunView(record) });
+      return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
     }
     if (pathname === "/api/runs" && req.method === "GET") {
       // Scoped to the selected project by default; pre-project records (no
@@ -679,7 +1106,7 @@ async function handle(req, res) {
       const active = drillTargetRoot();
       const runs = await listDrillRuns();
       const scoped = all ? runs : runs.filter((r) => !r.project || r.project === active);
-      return send(res, 200, { runs: scoped.map(runListingRow) });
+      return send(res, 200, { runs: scoped.map(publicRunRecord) });
     }
     const runGet = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (runGet && req.method === "GET") {
@@ -689,13 +1116,41 @@ async function handle(req, res) {
     if (runGet && req.method === "DELETE") {
       return send(res, 200, { deleted: await deleteDrillRun(decodeURIComponent(runGet[1])) });
     }
+    const runEvidenceGet = pathname.match(/^\/api\/runs\/([^/]+)\/evidence\/([^/]+)\/([^/]+)\/([^/]+)$/);
+    if (runEvidenceGet && req.method === "GET") {
+      const [runId, pageId, stepId, viewportId] = runEvidenceGet.slice(1).map(decodeURIComponent);
+      const record = await getDrillRun(runId);
+      if (!record) return send(res, 404, { error: "run not found" });
+      const entry = record.pages.find((candidate) =>
+        candidate.pageId === pageId &&
+        candidate.stepId === stepId &&
+        candidate.viewportId === viewportId
+      );
+      if (!entry?.automationRunId) return send(res, 404, { error: "evidence not found" });
+      try {
+        const bytes = await getStepEvidence(entry.automationRunId, stepId);
+        if (!bytes) return send(res, 404, { error: "evidence not found" });
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Content-Length", String(bytes.length));
+        res.setHeader("Cache-Control", "no-store");
+        return res.end(bytes);
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
 
     const feedbackMatch = pathname.match(/^\/api\/runs\/([^/]+)\/feedback$/);
     if (feedbackMatch && req.method === "POST") {
       const record = await getDrillRun(decodeURIComponent(feedbackMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
-      addFeedback(record, body.pageId, body.stepId, body.note);
+      if (body.viewportId && !record.pages.some((entry) =>
+        entry.pageId === body.pageId &&
+        entry.stepId === body.stepId &&
+        entry.viewportId === body.viewportId
+      )) return send(res, 400, { error: "run check not found for viewport" });
+      addFeedback(record, body.pageId, body.stepId, body.note, body.viewportId ?? null);
       await saveDrillRun(record);
       return send(res, 200, { run: await assembleRunView(record) });
     }
@@ -707,9 +1162,20 @@ async function handle(req, res) {
       const record = await getDrillRun(decodeURIComponent(overrideMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
-      setOverride(record, body.pageId, body.stepId, body.verdict, body.note);
+      if (body.viewportId && !record.pages.some((entry) =>
+        entry.pageId === body.pageId &&
+        entry.stepId === body.stepId &&
+        entry.viewportId === body.viewportId
+      )) return send(res, 400, { error: "run check not found for viewport" });
+      setOverride(record, body.pageId, body.stepId, body.verdict, body.note, body.viewportId ?? null);
       if (body.verdict === "failed") {
-        addFinding(record, { kind: "verdict-flip", pageId: body.pageId, stepId: body.stepId, text: body.note || `${body.stepId} flagged failed by override` });
+        addFinding(record, {
+          kind: "verdict-flip",
+          pageId: body.pageId,
+          stepId: body.stepId,
+          viewportId: body.viewportId ?? null,
+          text: body.note || `${body.stepId} flagged failed by override${body.viewportId ? ` at ${body.viewportId}` : ""}`
+        });
       }
       await saveDrillRun(record);
       return send(res, 200, { run: await assembleRunView(record) });
@@ -752,6 +1218,11 @@ async function handle(req, res) {
       const observation = record.observations.find((o) => o.id === decodeURIComponent(obsFindingMatch[2]));
       if (!observation) return send(res, 404, { error: "observation not found" });
       const body = await readJsonBody(req);
+      if (!body.pageId || typeof body.pageId !== "string") {
+        return send(res, 400, { error: "pageId required: choose the page this observation belongs to" });
+      }
+      const page = await getPage(body.pageId);
+      if (!page) return send(res, 404, { error: "page not found" });
       const finding = addFinding(record, { kind: "observation", pageId: body.pageId, text: observation.text });
       observation.convertedToFinding = finding.id;
       await saveDrillRun(record);
@@ -832,16 +1303,38 @@ async function handle(req, res) {
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
       const mode = body.mode || "manual";
+      if (!["manual", "heartbeat", "immediate"].includes(mode)) {
+        return send(res, 400, { error: `invalid dispatch mode: ${mode}` });
+      }
+      const eligibleFindings = confirmedFindings(record);
       const confirmed = undispatchedConfirmedFindings(record);
       if (confirmed.length === 0) {
-        return send(res, 400, {
-          error: confirmedFindings(record).length > 0
-            ? "every confirmed finding is already on a fix card - nothing new to dispatch"
-            : "no confirmed findings to dispatch"
+        if (eligibleFindings.length === 0) {
+          return send(res, 400, { error: "no confirmed findings to dispatch" });
+        }
+        const existingCardIds = [...new Set([
+          ...eligibleFindings.map((finding) => finding.card?.id).filter(Boolean),
+          record.dispatchedCard?.id
+        ].filter(Boolean))];
+        const cardSuffix = existingCardIds.length > 0
+          ? ` (${existingCardIds.map((id) => `card ${id}`).join(", ")})`
+          : "";
+        // A pure retry conflicts with the existing dispatch. This preserves
+        // the whole-report API's explicit duplicate signal while per-finding
+        // stamps still allow a later newly-confirmed finding through.
+        return send(res, 409, {
+          error: `every confirmed finding is already on a fix card${cardSuffix} - nothing new to dispatch`
         });
       }
       if (mode === "heartbeat") {
-        return send(res, 200, { dispatched: false, mode: "heartbeat", pending: confirmed.length });
+        record.dispatch = "heartbeat";
+        await saveDrillRun(record);
+        return send(res, 200, {
+          dispatched: false,
+          mode: "heartbeat",
+          pending: confirmed.length,
+          run: await assembleRunView(record, { hydrate: false })
+        });
       }
       try {
         const card = await dispatchBatchFixCard(record, confirmed);
@@ -850,9 +1343,16 @@ async function handle(req, res) {
         // this run must not be clobbered by saving the pre-fetch snapshot.
         const fresh = (await getDrillRun(record.id)) ?? record;
         markFindingsDispatched(fresh, confirmed.map((f) => f.id), card);
+        fresh.dispatch = mode;
         fresh.dispatchedAt = new Date().toISOString();
+        fresh.dispatchedCard = { id: card.id, list: card.list ?? "code" };
         await saveDrillRun(fresh);
-        return send(res, 200, { dispatched: true, mode, card, run: await assembleRunView(fresh) });
+        return send(res, 200, {
+          dispatched: true,
+          mode,
+          card,
+          run: await assembleRunView(fresh, { hydrate: false })
+        });
       } catch (err) {
         return send(res, 502, { error: err.message });
       }

@@ -13,22 +13,22 @@ import { tmpdir as __tmpdir } from "node:os";
 import { join as __join } from "node:path";
 process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
 
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { deriveKanbanLists, resolveSequence } from "../src/lib/resolver";
-import { computeKanbanResolvedModel } from "../src/lib/kanban-model";
+import { clearKanbanResolvedModel, computeKanbanResolvedModel } from "../src/lib/kanban-model";
 import { kanbanProjectionPlan } from "../src/lib/runner";
 // @ts-ignore — pure .mjs
-import { buildBoard, validNextForCard, nextListForCard, resolveCardSequence, reconcileBoardLists, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
+import { buildBoard, loadResolvedModel, validNextForCard, nextListForCard, resolveCardSequence, reconcileBoardLists, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
 import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { seedBoard, phaseTemplatesFrom, relocateStrandedCards } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+import { LEGACY_DEFAULT_PHASE_PROMPTS, seedBoard, phaseTemplatesFrom, reconcileExistingBoard, relocateStrandedCards } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-resolved-"));
 
@@ -115,6 +115,16 @@ describe("S4a (a) — the board's list set is DERIVED from the resolved kanbanLi
     expect(implement.kind).toBe("agent");
     expect(typeof implement.executePrompt).toBe("string");
     expect(implement.executePrompt.length).toBeGreaterThan(0);
+    const test = board.lists.find((l: any) => l.id === "test");
+    expect(test.requiresEvidenceOn).toEqual(["done"]);
+    expect(test.requiredEvidenceFile).toBe("evidence.md");
+  });
+
+  it("de-duplicates recovery edges when the board-wide first phase is implement", () => {
+    const model = { version: 1, compositionId: "test", kanbanLists: ["implement", "plan"], sequences: {} } as const;
+    const board = buildBoard(model, { templates: templates() });
+    const attention = board.lists.find((l: any) => l.id === "needs-attention");
+    expect(attention.validNext).toEqual(["todo", "implement"]);
   });
 });
 
@@ -170,6 +180,10 @@ async function driveCard(root: string, board: any, startCard: any, model: any) {
   const runFn = async ({ card, list }: any) => {
     const phase = list.phase || list.id;
     const vn = validNextForCard(card, phase, model);
+    if (phase === "test" && vn?.[0] === "done") {
+      mkdirSync(join(card.runDir, "evidence"), { recursive: true });
+      writeFileSync(join(card.runDir, "evidence", "evidence.md"), "# Test evidence\n- synthetic gate: passed\n");
+    }
     return { reply: vn ? vn[0] : "done" };
   };
   const visited: string[] = [];
@@ -285,7 +299,13 @@ describe("S4a codex finding #1 — the batched Test path advances by the card's 
     const root = tmp();
     await createCard(root, { title: "seq-end", project: "demo", list: "test", duty: "develop", level: 2, sequence: ["plan", "implement", "review", "test"] });
     const all = await loadAllCards(root);
-    const batchRunFn = async ({ cards }: { cards: any[] }) => ({ reply: cards.map((c) => `${c.id} done`).join("\n") });
+    const batchRunFn = async ({ cards }: { cards: any[] }) => {
+      for (const card of cards) {
+        mkdirSync(join(card.runDir, "evidence"), { recursive: true });
+        writeFileSync(join(card.runDir, "evidence", "evidence.md"), "# Test evidence\n- `npm test`: passed\n");
+      }
+      return { reply: cards.map((c) => `${c.id} done`).join("\n") };
+    };
     const { outcomes } = await processBatch({ root, board, listId: "test", cards: all, batchRunFn, cap: 10, model: BATCH_MODEL });
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0].status).toBe("moved");
@@ -379,9 +399,96 @@ describe("S4a codex finding #3 — an EXISTING board is reconciled to the curren
 
   it("a no-op reconcile (identical list set) reports nothing added or removed", () => {
     const existing = buildBoard(makeModel(["plan", "implement"]), { templates: templates() });
-    const { added, removed } = reconcileBoardLists(existing, makeModel(["plan", "implement"]), { templates: templates() });
+    const { added, removed, updated } = reconcileBoardLists(existing, makeModel(["plan", "implement"]), { templates: templates() });
     expect(added).toEqual([]);
     expect(removed).toEqual([]);
+    expect(updated).toEqual([]);
+  });
+
+  it("migrates the immediately previous exact canonical Test prompts and preserves operator config", () => {
+    const model = {
+      version: 1 as const,
+      compositionId: "live-like",
+      kanbanLists: ["implement", "plan", "review", "test"],
+      sequences: { develop: { "2": ["implement", "plan", "review", "test"] } }
+    };
+    const existing: any = buildBoard(model, { templates: templates() });
+    existing.projects = { demo: { repoPath: "/tmp/demo" } };
+    existing.rev = 9;
+    const test = existing.lists.find((list: any) => list.id === "test");
+    test.title = "Operator Verification";
+    test.trigger = "manual";
+    test.beatCron = "17 4 * * *";
+    test.executePrompt = LEGACY_DEFAULT_PHASE_PROMPTS.test.executePrompt[0];
+    test.routerPrompt = LEGACY_DEFAULT_PHASE_PROMPTS.test.routerPrompt[0];
+    expect(test.executePrompt).toContain("<runDir>/evidence/evidence.md");
+    expect(test.executePrompt).not.toMatch(/during THIS attempt/);
+    expect(test.routerPrompt).toMatch(/THAT card's listed next-options/);
+    expect(test.routerPrompt).not.toContain("gate-status.test.json");
+    test.batched = false;
+    test.requiresEvidence = true;
+    test.requiresEvidenceOn = ["walkthrough"];
+    test.requiredEvidenceFile = "old-proof.txt";
+    test.operatorNote = "keep me";
+    const plan = existing.lists.find((list: any) => list.id === "plan");
+    plan.executePrompt = "Operator-authored plan prompt";
+    plan.routerPrompt = "Operator-authored plan router";
+
+    const first = reconcileExistingBoard(existing, model);
+    expect(first.added).toEqual([]);
+    expect(first.removed).toEqual([]);
+    expect(first.updated).toEqual(["test"]);
+    const migrated: any = first.board.lists.find((list: any) => list.id === "test");
+    expect(migrated).toMatchObject({
+      title: "Operator Verification",
+      trigger: "manual",
+      beatCron: "17 4 * * *",
+      batched: true,
+      requiresEvidenceOn: ["done"],
+      requiredEvidenceFile: "evidence.md",
+      operatorNote: "keep me"
+    });
+    expect(migrated.requiresEvidence).toBeUndefined();
+    expect(migrated.executePrompt).toContain("<runDir>/evidence/evidence.md");
+    expect(migrated.executePrompt).toMatch(/during THIS attempt/);
+    expect(migrated.executePrompt).toMatch(/create or overwrite `<runDir>\/gate-status\.test\.json`/);
+    expect(migrated.executePrompt).toMatch(/inspect the gate record you just wrote/i);
+    expect(migrated.executePrompt).toMatch(/replace any stale or invalid `next_phase`/i);
+    expect(migrated.executePrompt).toMatch(/Use `done` when `done` is that card's green terminal option/);
+    expect(migrated.routerPrompt).toMatch(/THAT card's listed next-options/);
+    expect(migrated.routerPrompt).toContain("<runDir>/gate-status.test.json");
+    expect(migrated.routerPrompt).toMatch(/`next_phase` exactly equals the next-list you emit/);
+    expect(migrated.routerPrompt).toMatch(/especially `<cardId> done`/);
+    expect(first.board.lists.find((list: any) => list.id === "plan")).toMatchObject({
+      executePrompt: "Operator-authored plan prompt",
+      routerPrompt: "Operator-authored plan router"
+    });
+    expect(first.board.projects).toEqual(existing.projects);
+    expect(first.board.rev).toBe(9);
+
+    const second = reconcileExistingBoard(first.board, model);
+    expect(second.updated).toEqual([]);
+    expect(second.board).toEqual(first.board);
+  });
+
+  it("refreshes enforcement without replacing even a one-character customized Test prompt", () => {
+    const model = makeModel(["develop"]);
+    const existing: any = buildBoard(model, { templates: templates() });
+    const test = existing.lists.find((list: any) => list.id === "test");
+    const customExecute = `${LEGACY_DEFAULT_PHASE_PROMPTS.test.executePrompt[0]}!`;
+    const customRouter = `${LEGACY_DEFAULT_PHASE_PROMPTS.test.routerPrompt[0]}!`;
+    test.executePrompt = customExecute;
+    test.routerPrompt = customRouter;
+    delete test.requiresEvidenceOn;
+    delete test.requiredEvidenceFile;
+
+    const { board, updated } = reconcileExistingBoard(existing, model);
+    const migrated: any = board.lists.find((list: any) => list.id === "test");
+    expect(updated).toEqual(["test"]);
+    expect(migrated.executePrompt).toBe(customExecute);
+    expect(migrated.routerPrompt).toBe(customRouter);
+    expect(migrated.requiresEvidenceOn).toEqual(["done"]);
+    expect(migrated.requiredEvidenceFile).toBe("evidence.md");
   });
 });
 
@@ -401,6 +508,29 @@ describe("S4a codex finding #4 — the runner does NOT project an empty resolved
     expect(plan.write).toBe(true);
     expect(plan.log).toContain("projected 3 phase list(s)");
     expect(plan.log).toContain("plan, implement, review");
+  });
+
+  it("clears the machine-global projection when the active composition has no model", async () => {
+    const root = tmp();
+    const file = join(root, "model.json");
+    writeFileSync(file, JSON.stringify(makeModel(["develop"])), "utf8");
+    expect(existsSync(file)).toBe(true);
+
+    await clearKanbanResolvedModel(file);
+
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("rejects another composition's global projection when a gateway names the expected id", () => {
+    const root = tmp();
+    writeFileSync(
+      join(root, "model.json"),
+      JSON.stringify({ ...makeModel(["develop"]), compositionId: "old-composition" }),
+      "utf8"
+    );
+
+    expect(loadResolvedModel(root, "new-composition")).toBeNull();
+    expect(loadResolvedModel(root, "old-composition")?.compositionId).toBe("old-composition");
   });
 });
 

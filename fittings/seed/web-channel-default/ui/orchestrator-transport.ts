@@ -83,16 +83,17 @@ export function createOrchestratorTransport(base = "/api", threadId?: string): C
         // attach it to the just-finished turn's reply. Fired only when the payload
         // actually carries routing info; every field is forwarded defensively as the
         // contract makes them all optional/nullable.
-        if (data.route != null || data.runtime != null || data.model != null) {
+        if (data.route != null || data.runtime != null || data.model != null || data.effort != null) {
           listener?.({
             type: "route",
             route: data.route ?? null,
             runtime: data.runtime ?? null,
             provider: data.provider ?? null,
             model: data.model ?? null,
+            effort: data.effort ?? null,
+            effortApplied: typeof data.effortApplied === "boolean" ? data.effortApplied : null,
             taskType: data.taskType ?? null,
             tier: data.tier ?? null,
-            effort: data.effort ?? null,
             ruleId: data.ruleId ?? null,
             profile: data.profile ?? null,
             honored: typeof data.honored === "boolean" ? data.honored : null,

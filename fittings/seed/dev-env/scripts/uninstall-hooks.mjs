@@ -12,9 +12,10 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
+const CLAUDE_HOME = process.env.GARRISON_CLAUDE_HOME?.trim() || path.join(HOME, ".claude");
 const SETTINGS_PATH = process.env.GARRISON_CLAUDE_SETTINGS_PATH && process.env.GARRISON_CLAUDE_SETTINGS_PATH.trim().length > 0
   ? process.env.GARRISON_CLAUDE_SETTINGS_PATH
-  : path.join(HOME, ".claude", "settings.json");
+  : path.join(CLAUDE_HOME, "settings.json");
 const STRIP_OWNERS = new Set(["fitting:dev-env", "fitting:session-view-sequoias"]);
 
 async function main() {

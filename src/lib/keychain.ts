@@ -13,11 +13,20 @@ const execFileAsync = promisify(execFile);
 // failure is an acceptable, recoverable loss (the vault is simply reconnected).
 // So Garrison would rather be unrecoverable-if-the-keychain-is-gone than hold a
 // secret someone could take.
-const KEYCHAIN_SERVICE = "agent-garrison-vault";
-const KEYCHAIN_ACCOUNT = "vault-master-key";
 const MASTER_KEY_BYTES = 32;
 
 let cachedKey: Buffer | undefined;
+
+export function keychainIdentity(): { service: string; account: string; label: string } {
+  const service = process.env.GARRISON_KEYCHAIN_SERVICE?.trim() || "agent-garrison-vault";
+  const account = process.env.GARRISON_KEYCHAIN_ACCOUNT?.trim() || "vault-master-key";
+  const instance = process.env.GARRISON_INSTANCE_ID?.trim();
+  return {
+    service,
+    account,
+    label: instance ? `Agent Garrison (${instance}) vault master key` : "Agent Garrison vault master key"
+  };
+}
 
 // Resolve the 32-byte vault master key (creating + persisting a fresh random one
 // on first use). Resolution order:
@@ -92,13 +101,14 @@ function normalizeKey(s: string): Buffer {
 
 // ── macOS Keychain (security(1)) ────────────────────────────────────────────
 async function macReadKey(): Promise<Buffer | null> {
+  const { account, service } = keychainIdentity();
   try {
     const { stdout } = await execFileAsync("security", [
       "find-generic-password",
       "-a",
-      KEYCHAIN_ACCOUNT,
+      account,
       "-s",
-      KEYCHAIN_SERVICE,
+      service,
       "-w"
     ]);
     const hex = stdout.trim();
@@ -110,14 +120,15 @@ async function macReadKey(): Promise<Buffer | null> {
 }
 
 async function macWriteKey(key: Buffer): Promise<void> {
+  const { account, service } = keychainIdentity();
   // -U updates the item if it already exists. The key is stored as hex in the
   // password field; the value never leaves the keychain except into this process.
   await execFileAsync("security", [
     "add-generic-password",
     "-a",
-    KEYCHAIN_ACCOUNT,
+    account,
     "-s",
-    KEYCHAIN_SERVICE,
+    service,
     "-w",
     key.toString("hex"),
     "-U"
@@ -135,13 +146,14 @@ async function hasSecretTool(): Promise<boolean> {
 }
 
 async function secretToolRead(): Promise<Buffer | null> {
+  const { account, service } = keychainIdentity();
   try {
     const { stdout } = await execFileAsync("secret-tool", [
       "lookup",
       "service",
-      KEYCHAIN_SERVICE,
+      service,
       "account",
-      KEYCHAIN_ACCOUNT
+      account
     ]);
     const hex = stdout.trim();
     return hex ? normalizeKey(hex) : null;
@@ -151,11 +163,12 @@ async function secretToolRead(): Promise<Buffer | null> {
 }
 
 async function secretToolWrite(key: Buffer): Promise<boolean> {
+  const { account, service, label } = keychainIdentity();
   return new Promise((resolve) => {
     try {
       const child = spawn(
         "secret-tool",
-        ["store", "--label", "Agent Garrison vault master key", "service", KEYCHAIN_SERVICE, "account", KEYCHAIN_ACCOUNT],
+        ["store", "--label", label, "service", service, "account", account],
         { stdio: ["pipe", "ignore", "ignore"] }
       );
       child.on("error", () => resolve(false));

@@ -31,7 +31,10 @@ export async function POST(request: NextRequest) {
       mode,
       modesDir,
       routingConfigPath,
-      outDir: path.join(os.homedir(), ".garrison", "dev-env-souls"),
+      outDir: path.join(
+        process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison"),
+        "dev-env-souls"
+      ),
       // record the placement decision to the ACTIVE composition's decisions.jsonl
       // (best-effort telemetry; sits alongside the gateway's routing decisions).
       decisionsPath: path.join(COMPOSITIONS_DIR, composition, ".garrison", "decisions.jsonl")

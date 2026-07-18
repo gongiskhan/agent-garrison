@@ -132,6 +132,7 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
   const [swap, setSwap] = useState<SwapTarget | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [tests, setTests] = useState<Record<string, RuntimeTestResult>>({});
+  const [search, setSearch] = useState("");
 
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -307,6 +308,22 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
   );
 
   const runtimeSlot = useMemo(() => model?.slots.find((s) => s.faculty === "runtimes") ?? null, [model]);
+  const visibleSlots = useMemo(() => {
+    if (!model) return [];
+    const query = search.trim().toLowerCase();
+    if (!query) return model.slots;
+    return model.slots.flatMap((slot) => {
+      const slotMatches = `${slot.faculty} ${slot.facultyName} ${slot.role}`.toLowerCase().includes(query);
+      const fittings = slotMatches
+        ? slot.fittings
+        : slot.fittings.filter((fitting) =>
+            `${fitting.id} ${fitting.name} ${fitting.summary} ${fitting.faculty} ${fitting.componentShape}`
+              .toLowerCase()
+              .includes(query)
+          );
+      return fittings.length > 0 ? [{ ...slot, fittings }] : [];
+    });
+  }, [model, search]);
 
   if (status === "loading" && !model) {
     return (
@@ -353,6 +370,21 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
         {saving ? <span className={styles.saving}>saving…</span> : null}
       </div>
 
+      <div className={styles.standingSearch}>
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search standing Fittings…"
+          aria-label="Search standing Fittings"
+        />
+        {search ? (
+          <button type="button" onClick={() => setSearch("")}>
+            Clear
+          </button>
+        ) : null}
+      </div>
+
       {errorMsg ? (
         <div className={styles.blocking} role="alert" style={{ marginBottom: 12 }}>
           <span className={styles.blockGlyph}>!</span>
@@ -367,25 +399,32 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
         <OrphanBanner orphaned={orphaned} onRemove={removeOrphan} onDismiss={() => setOrphaned([])} />
       ) : null}
 
-      <div className={styles.standingGrid}>
-        {model.slots.map((slot) => (
-          <SlotCard
-            key={slot.faculty}
-            slot={slot}
-            health={health}
-            tests={tests}
-            primaryRuntime={model.primaryRuntime}
-            onSwap={(fromId) => setSwap({ faculty: slot.faculty, fromId })}
-            onRemoveFitting={removeFitting}
-            onConfig={commitConfig}
-            onSetPrimary={setPrimary}
-            onTest={testRuntime}
-            onEdit={editFitting}
-            isEditable={isEditable}
-            onNewRuntime={slot.faculty === "runtimes" ? () => setCreateOpen(true) : undefined}
-          />
-        ))}
-      </div>
+      {visibleSlots.length > 0 ? (
+        <div className={styles.standingGrid}>
+          {visibleSlots.map((slot) => (
+            <SlotCard
+              key={slot.faculty}
+              slot={slot}
+              health={health}
+              tests={tests}
+              primaryRuntime={model.primaryRuntime}
+              onSwap={(fromId) => setSwap({ faculty: slot.faculty, fromId })}
+              onRemoveFitting={removeFitting}
+              onConfig={commitConfig}
+              onSetPrimary={setPrimary}
+              onTest={testRuntime}
+              onEdit={editFitting}
+              isEditable={isEditable}
+              onNewRuntime={slot.faculty === "runtimes" ? () => setCreateOpen(true) : undefined}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className={styles.stateBox} data-testid="standing-search-empty">
+          <div className={styles.stateTitle}>No Fittings match that search.</div>
+          <p className={styles.stateBody}>Try a Fitting name, ID, shape, or Faculty.</p>
+        </div>
+      )}
 
       {swap && swapSlot ? (
         <SwapModal slot={swapSlot} fromId={swap.fromId} onPick={doSwap} onClose={() => setSwap(null)} />
@@ -561,7 +600,9 @@ function FittingBlock({
   return (
     <div className={styles.fittingBlock} data-testid={`standing-fitting-${fitting.id}`}>
       <div className={styles.fittingHead}>
-        <span className={styles.fittingName}>{fitting.name}</span>
+        <span className={styles.fittingName} data-testid={`standing-fitting-name-${fitting.id}`}>
+          {fitting.name}
+        </span>
         <span className={styles.shapeTag}>{fitting.componentShape}</span>
         {fitting.clonedFrom ? (
           <span className={styles.cloneTag} title={`Cloned from ${fitting.clonedFrom}`}>
@@ -580,6 +621,11 @@ function FittingBlock({
           </span>
         ) : null}
       </div>
+      {fitting.summary ? (
+        <p className={styles.fittingSummary} data-testid={`standing-fitting-summary-${fitting.id}`}>
+          {fitting.summary}
+        </p>
+      ) : null}
 
       {fitting.configSchema.length > 0 ? (
         <>

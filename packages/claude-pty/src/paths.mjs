@@ -16,12 +16,14 @@
 //   GARRISON_CLAUDE_CONFIG_PATH   → overrides ~/.claude.json
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /** Root directory where Claude Code stores per-session JSONL transcripts. */
 export function claudeProjectsDir() {
   const override = process.env.GARRISON_CLAUDE_PROJECTS_DIR?.trim();
   if (override) return override;
+  const claudeHome = process.env.GARRISON_CLAUDE_HOME?.trim();
+  if (claudeHome) return join(claudeHome, "projects");
   return join(homedir(), ".claude", "projects");
 }
 
@@ -34,5 +36,11 @@ export function claudeProjectDirForCwd(cwd) {
 export function claudeGlobalConfigPath() {
   const override = process.env.GARRISON_CLAUDE_CONFIG_PATH?.trim();
   if (override) return override;
+  const claudeHome = process.env.GARRISON_CLAUDE_HOME?.trim();
+  if (claudeHome) {
+    return basename(claudeHome) === ".claude"
+      ? join(dirname(claudeHome), ".claude.json")
+      : join(claudeHome, ".claude.json");
+  }
   return join(homedir(), ".claude.json");
 }

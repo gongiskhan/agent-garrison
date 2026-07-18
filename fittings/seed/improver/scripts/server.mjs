@@ -110,7 +110,11 @@ async function doRunNow() {
 
   const memoryPath =
     process.env.IMPROVER_MEMORY ||
-    path.join(process.env.GARRISON_HOME || path.join(HOME, ".claude", "projects"), "MEMORY.md");
+    path.join(
+      process.env.GARRISON_CLAUDE_HOME || path.join(HOME, ".claude"),
+      "projects",
+      "MEMORY.md"
+    );
   const memoryEntries = existsSync(memoryPath) ? parseMemory(readFileSync(memoryPath, "utf8")) : [];
   const at = new Date().toISOString();
   // dream rule (memory_primary only): deterministic housekeeping auto-applies
@@ -292,7 +296,7 @@ function assertStatusSlotFree() {
 
 export async function startServer(opts = {}) {
   const host = opts.host || process.env.IMPROVER_HOST || "127.0.0.1";
-  const port = Number(opts.port || process.env.GARRISON_IMPROVER_PORT || process.env.IMPROVER_PORT || 7093);
+  const port = Number(opts.port || process.env.GARRISON_IMPROVER_PORT || process.env.IMPROVER_PORT || 27093);
   assertStatusSlotFree();
   await mkdir(DATA_DIR, { recursive: true });
 

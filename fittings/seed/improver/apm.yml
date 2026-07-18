@@ -13,7 +13,7 @@ x-garrison:
     - all
   summary: >-
     A nightly automation-runner with an own-port review-queue view (default
-    7088). Three live rules: memory consolidation (MEMORY.md learned hints → a
+    27093). Three live rules: memory consolidation (MEMORY.md learned hints → a
     reviewable proposal to promote canonical vault conventions); the DREAM rule
     — a nightly consolidation pass over the Basic Memory vault (mimics Claude
     Code's autoDream): deterministic housekeeping auto-applies (archive stale
@@ -41,7 +41,7 @@ x-garrison:
       description: Nightly run schedule (registered via the scheduler CLI in setup.sh).
     - key: port
       type: integer
-      default: 7093
+      default: 27093
       description: HTTP port the review-queue view + apply API binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

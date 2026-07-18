@@ -40,4 +40,31 @@ describe("internal token", () => {
     expect(token).toBe("a".repeat(64));
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
+
+  it("restores a deleted cached token without rotating the capability", async () => {
+    const first = await getInternalToken();
+    rmSync(file);
+
+    const restored = await getInternalToken();
+
+    expect(restored).toBe(first);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps the cache scoped to the resolved token path", async () => {
+    const first = await getInternalToken();
+    const secondFile = path.join(dir, "second-home", "internal-token");
+    process.env.GARRISON_INTERNAL_TOKEN_PATH = secondFile;
+
+    const second = await getInternalToken();
+
+    expect(second).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).not.toBe(first);
+    expect(statSync(secondFile).mode & 0o777).toBe(0o600);
+  });
+
+  it("serializes concurrent first use to one capability", async () => {
+    const tokens = await Promise.all(Array.from({ length: 12 }, () => getInternalToken()));
+    expect(new Set(tokens).size).toBe(1);
+  });
 });

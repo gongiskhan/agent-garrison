@@ -14,7 +14,7 @@ doc is the starting point for continuing the feature on a worktree.
 > the 24 Faculties into 6 roles. The standalone `voice` Faculty/capability kind
 > introduced here was **folded into the `channels` role** with an `own_port`
 > flag (`fittings/seed/deepgram-voice/apm.yml` now declares
-> `faculty: channels`, `own_port: true`, `default_port: 7085`). The runtime
+> `faculty: channels`, `own_port: true`, `default_port: 27085`). The runtime
 > behaviour is unchanged; only the metadata classification moved. Where this doc
 > says "voice Faculty", read "channels-role own-port voice Fitting" on merged
 > `main`. The pivot also dropped the `data-source` capability kind and parked
@@ -28,7 +28,7 @@ doc is the starting point for continuing the feature on a worktree.
 ## 1. What it is
 
 Two capabilities reachable through the **web channel** (the mobile-first browser
-chat surface, port 7083):
+chat surface, port 27083):
 
 1. **Voice in/out** via Deepgram — push-to-talk speech-to-text, read-aloud
    text-to-speech, and a hands-free conversation loop.
@@ -44,22 +44,22 @@ it lives in the vault and is injected server-side into the voice Fitting.
 ## 2. Architecture
 
 ```
-Browser (web-channel UI, 7083)
+Browser (web-channel UI, 27083)
   │  mic → PCM (16 kHz, resampled in-browser)         speaker ← audio
   │                                                          ▲
   ├── WS  /api/voice/stream  ──┐                    POST /api/voice/tts
   ├── POST /api/voice/stt      │  (same-origin proxy; key stays server-side)
   │                            ▼
 web-channel server (scripts/server.mjs)
-  ├── pure passthrough WS  ─────────────►  deepgram-voice Fitting (7085)
+  ├── pure passthrough WS  ─────────────►  deepgram-voice Fitting (27085)
   ├── binary HTTP proxy /stt,/tts ───────►   ├── POST /stt  → Deepgram /v1/listen (batch)
   │                                          ├── POST /tts  → Deepgram /v1/speak
   │                                          └── WS  /stream → Deepgram live /v1/listen
-  └── POST /api/chat / GET /api/stream ──►  http-gateway (4777) ──► Operative (real Claude)
+  └── POST /api/chat / GET /api/stream ──►  http-gateway (24777) ──► Operative (real Claude)
                                                                       └── runs trello.py (Bash)
 ```
 
-- **`deepgram-voice`** (own-port Fitting, default **7085**) owns all Deepgram
+- **`deepgram-voice`** (own-port Fitting, default **27085**) owns all Deepgram
   calls. Reads `DEEPGRAM_API_KEY` from env (injected from the vault — see §4).
 - **`web-channel-default`** consumes voice and exposes same-origin proxies so the
   browser never sees the key. It also proxies chat to the `http-gateway`, which
@@ -238,9 +238,9 @@ DEEPGRAM_API_KEY=<key> node scripts/spike/voice-phone-demo.mjs     # phone demo 
 **Real agent (prod) — voice + Trello end to end**
 1. Ensure the vault holds `DEEPGRAM_API_KEY` (+ `TRELLO_KEY/TOKEN/BOARD_ID`).
 2. `VAULT_UNLOCKED=true npm start` (loads the code; dev-unlocks the vault).
-3. `POST http://127.0.0.1:7777/api/runner/default/up` (or Run → up). On `up`,
+3. `POST http://127.0.0.1:27777/api/runner/default/up` (or Run → up). On `up`,
    `deepgram-voice` should report `keyConfigured:true`.
-4. Phone over HTTPS: `tailscale serve --bg --https=8444 http://127.0.0.1:7083`,
+4. Phone over HTTPS: `tailscale serve --bg --https=8444 http://127.0.0.1:27083`,
    then open `https://<host>.<tailnet>.ts.net:8444` (must be on the tailnet;
    HTTPS is required for mic capture).
 

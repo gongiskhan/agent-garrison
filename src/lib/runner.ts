@@ -35,13 +35,21 @@ import {
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
 import { projectPrimaryContext } from "./orchestrator-projection";
-import { computeKanbanResolvedModel, writeKanbanResolvedModel, type KanbanResolvedModel } from "./kanban-model";
+import {
+  clearKanbanResolvedModel,
+  computeKanbanResolvedModel,
+  writeKanbanResolvedModel,
+  type KanbanResolvedModel
+} from "./kanban-model";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
 import { reconcileCoordTeardown } from "./coord-wiring";
+import { resolvePrimaryFromPolicy } from "./routing-primary";
 import type { FittingSelectionMap, GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
+
+export { resolvePrimaryFromPolicy } from "./routing-primary";
 
 const SETUP_DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -185,6 +193,35 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
     const envPath = await materializeEnv(composition.directory);
     appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
+    const soulEntries = await selectedLibraryEntries(composition.selections);
+    // Project before fitting setup: kanban-loop's setup hook seeds/reconciles the
+    // board from this manifest. Writing it afterwards left a live launch one
+    // composition behind until the next restart.
+    try {
+      const kmodel = computeKanbanResolvedModel(composition, soulEntries);
+      const plan = kanbanProjectionPlan(kmodel);
+      if (plan.write) {
+        await writeKanbanResolvedModel(composition, soulEntries);
+      } else {
+        // The model file is global. Leaving it in place here would route this
+        // composition through the previous active composition's exact v4 cells.
+        await clearKanbanResolvedModel();
+      }
+      appendLog(compositionId, "runner", plan.log);
+    } catch (err) {
+      // Fail closed: a malformed/new composition may use the board's default
+      // pipeline, but it must never inherit an earlier composition's routes.
+      try {
+        await clearKanbanResolvedModel();
+      } catch (clearErr) {
+        appendLog(
+          compositionId,
+          "stderr",
+          `stale kanban model cleanup failed: ${clearErr instanceof Error ? clearErr.message : String(clearErr)}`
+        );
+      }
+      appendLog(compositionId, "stderr", `kanban model projection skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
     // Coordination fittings install STANDING user-scope config (a SessionStart
     // hook, an MCP registration). When one is DESELECTED, strip its owner-tagged
     // config cleanly + completely — reconciled here on `up`, never on `down`
@@ -227,25 +264,6 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // activates its orchestrator/soul mode. No modes provider → undefined → the
     // gateway runs its normal single-operative routed mode (the default comp).
     let gatewayExtraEnv: Record<string, string> | undefined;
-    const soulEntries = await selectedLibraryEntries(composition.selections);
-    // D15 (S4a): project the composition's resolved model to the Kanban board so
-    // its phase lists derive from the selected duties' resolved sequences, not a
-    // hardcoded column set. Additive + best-effort: the board reads this only when
-    // it seeds a FRESH board, and falls back to its default pipeline if the file
-    // is absent — so a projection failure never affects the launch.
-    try {
-      // Guard (S4a codex finding): a composition with no resolved duty model (no
-      // selected duties → empty kanbanLists) has nothing to project. Skip the write
-      // rather than stamping an empty model.json + logging a misleading "projected 0
-      // phase list(s)"; the board keeps its default pipeline. Additive — a real duty
-      // model still projects exactly as before.
-      const kmodel = computeKanbanResolvedModel(composition, soulEntries);
-      const plan = kanbanProjectionPlan(kmodel);
-      if (plan.write) await writeKanbanResolvedModel(composition, soulEntries);
-      appendLog(compositionId, "runner", plan.log);
-    } catch (err) {
-      appendLog(compositionId, "stderr", `kanban model projection skipped: ${err instanceof Error ? err.message : String(err)}`);
-    }
     const modesEntry = findModesEntry(soulEntries);
     if (modesEntry) {
       // Orchestrator/soul mode drives souls through the mcp-gateway sidecar
@@ -1076,24 +1094,6 @@ const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/config
 export const MISSING_ROUTING_CONFIG_WARNING =
   "WARNING: orchestrator prompt has a {{routing}} placeholder but the routing section could not be built (see the routing diagnostics above) - the routing section will be empty";
 
-// The policy file's primary runtime (GARRISON-RUNTIMES-V1 P3/D4). Reads the
-// scoped-or-seed routing.json and returns the EXPLICIT primaryRuntime value
-// (trimmed) or null when absent — the caller decides default semantics, so an
-// unreadable policy file never silently changes which engine hosts the loop.
-export async function resolvePrimaryFromPolicy(compositionDir: string): Promise<string | null> {
-  const scoped = path.join(compositionDir, ".garrison", "routing.json");
-  for (const candidate of [scoped, SEED_ROUTING_PATH]) {
-    try {
-      const parsed = JSON.parse(await fs.readFile(candidate, "utf8")) as { primaryRuntime?: unknown };
-      const raw = typeof parsed.primaryRuntime === "string" ? parsed.primaryRuntime.trim() : "";
-      return raw.length ? raw : null;
-    } catch {
-      /* try the next candidate */
-    }
-  }
-  return null;
-}
-
 // Providers are policy data (GARRISON-RUNTIMES-V1 P2): resolve the policy's
 // providers section for the primary-runtime launch env. Reads the same
 // scoped-or-seed routing.json as resolveRoutingSection and runs it through
@@ -1407,7 +1407,7 @@ async function resolveGatewayFitting(
 
     const config = (selection.config ?? {}) as Record<string, unknown>;
     const host = String(config.bind_host ?? "127.0.0.1");
-    const port = Number(config.port ?? 4777);
+    const port = Number(config.port ?? 24777);
 
     return {
       fittingId: entry.id,

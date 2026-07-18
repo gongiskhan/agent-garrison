@@ -348,6 +348,7 @@ export async function waitForTurnComplete(handle, opts) {
         }
         return false;
       })();
+      const promptVisible = lines.some((line) => /^\s*❯\s?/.test(line));
       const snapshot = lines.join("\n");
       const stable = snapshot === lastSnapshot;
       lastSnapshot = snapshot;
@@ -356,7 +357,13 @@ export async function waitForTurnComplete(handle, opts) {
       // fallback window has elapsed (then accept the idle screen to avoid a hang).
       const workSatisfied = !requireWork || sawWork || elapsed >= noWorkFallbackMs;
 
-      if (!busy && promptReady && stable && workSatisfied) {
+      // A user can begin typing the next message immediately after the model
+      // finishes. Once this turn was observed working, a stable non-empty input
+      // prompt still proves the TUI is idle; requiring an empty prompt here
+      // would hold the completed HTTP request until its five-minute timeout.
+      const promptSettled = promptReady || (requireWork && sawWork && promptVisible);
+
+      if (!busy && promptSettled && stable && workSatisfied) {
         if (readySince === null) readySince = Date.now();
         if (Date.now() - readySince >= settleNeeded) {
           clearInterval(timer);

@@ -129,13 +129,26 @@ function routeWho(r: RouteStamp): string {
   return r.model || r.runtime || r.provider || "";
 }
 
+// Requested effort plus honest application status. A missing boolean means the
+// gateway could not prove application; false means the runtime explicitly did
+// not support/apply it and must never render like a successful setting.
+function routeEffort(r: RouteStamp, compact = false): string {
+  const effort = (r.effort || "").trim();
+  if (!effort) return "";
+  if (r.effortApplied === true) return compact ? effort : `effort ${effort} (applied)`;
+  if (r.effortApplied === false) return compact ? `${effort} not applied` : `effort ${effort} (not applied)`;
+  return compact ? `${effort} unverified` : `effort ${effort} (application unknown)`;
+}
+
 // The card-front attribution chip text: "<phase> @ <model>" (e.g. "plan @ opus"),
 // dropping the phase when unknown. "" when there is nothing worth showing.
 function routeChipText(r: RouteStamp): string {
   const who = routeWho(r);
   if (!who) return "";
   const ph = (r.phase || "").trim();
-  return ph ? `${ph} @ ${who}` : who;
+  const base = ph ? `${ph} @ ${who}` : who;
+  const effort = routeEffort(r, true);
+  return effort ? `${base} · ${effort}` : base;
 }
 
 // The full-attribution tooltip for the card-front chip.
@@ -145,18 +158,19 @@ function routeTitle(r: RouteStamp): string {
     r.runtime ? `runtime: ${r.runtime}` : null,
     r.provider ? `provider: ${r.provider}` : null,
     r.model ? `model: ${r.model}` : null,
+    routeEffort(r) || null,
     r.tier ? `tier: ${r.tier}` : null,
-    r.effort ? `effort: ${r.effort}` : null,
     r.targetId ? `route: ${r.targetId}` : null
   ].filter(Boolean);
   return parts.length ? `routed to ${parts.join(", ")}` : "routed";
 }
 
 // A compact one-liner for a routed event in the Activity timeline:
-// "claude-code/opus · T2-deep · high". "" when no attribution fields are present.
+// "claude-code/opus · T2-deep · effort high (applied)". "" when no attribution
+// fields are present.
 function routeLine(r: RouteStamp): string {
   const idPart = [r.runtime || r.provider, r.model].filter(Boolean).join("/");
-  return [idPart, r.tier, r.effort].filter(Boolean).join(" · ");
+  return [idPart, r.tier, routeEffort(r)].filter(Boolean).join(" · ");
 }
 
 // A short, legible label for the card a wait is blocked on: its title plus the
@@ -523,7 +537,7 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         <label className="row" htmlFor="nc-goal">
           <input id="nc-goal" type="checkbox" checked={goalMode}
             onChange={(e) => setGoalMode(e.target.checked)} />
-          goalMode (prepend /goal + acceptance)
+          goalMode (attach acceptance + bounded iterations)
         </label>
       </div>
       {policy && (
@@ -891,6 +905,8 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
   const [abandoning, setAbandoning] = useState(false);
   const [reverting, setReverting] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
+  const [projectDraft, setProjectDraft] = useState<string | null>(null);
+  const [savingProject, setSavingProject] = useState(false);
 
   // Poll the detail while open so the Activity feed updates live as a run progresses
   // (the engine appends events through the run). 3s is responsive without being chatty.
@@ -904,6 +920,27 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
     return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId]);
+
+  useEffect(() => { setProjectDraft(null); }, [cardId]);
+
+  async function saveProjectScope() {
+    if (!detail) return;
+    setSavingProject(true);
+    setActionErr(null);
+    try {
+      const next = await api.patch(detail.card.id, {
+        project: projectDraft ?? detail.card.project ?? "",
+        rev: detail.card.rev
+      });
+      setDetail((d) => d ? { ...d, card: next.card } : d);
+      setProjectDraft(next.card.project ?? "");
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingProject(false);
+    }
+  }
 
   async function doDelete() {
     setDeleting(true);
@@ -987,6 +1024,27 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       )}
       {parked && card.attentionReason && (
         <div className="state-callout parked">{card.attentionReason}</div>
+      )}
+      {parked && (
+        <div className="detail-desc">
+          <div className="dd-title">Project / workspace scope</div>
+          <div className="row" style={{ gap: 8 }}>
+            <input
+              aria-label="Project or workspace scope"
+              value={projectDraft ?? card.project ?? ""}
+              placeholder="project name or absolute workspace path"
+              onChange={(e) => setProjectDraft(e.target.value)}
+              style={{ flex: 1, minWidth: 0 }}
+            />
+            <button className="btn small" disabled={savingProject} onClick={() => void saveProjectScope()}>
+              {savingProject ? "Saving…" : "Save scope"}
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
+            A parked card is operator-editable. Use an absolute path when the task owns an isolated workspace outside a known repository.
+          </p>
+          {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
+        </div>
       )}
       {card.waitingOn && (
         <div className="state-callout waiting">
@@ -1094,6 +1152,7 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
         <LinkRow label="plan" refs={links.plan} onOpen={setOpenArt} />
         <LinkRow label="brief" refs={links.brief} onOpen={setOpenArt} />
         <LinkRow label="sessions" refs={links.sessions} onOpen={setOpenArt} />
+        <LinkRow label="phase gates" refs={links.gates} onOpen={setOpenArt} />
         <LinkRow label="gate markers" refs={links.gateMarkers} onOpen={setOpenArt} />
         <LinkRow label="evidence index" refs={links.evidenceIndex} onOpen={setOpenArt} />
         <LinkRow label="video" refs={links.video} onOpen={setOpenArt} />
@@ -1104,7 +1163,7 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       <div className="declog">
         <div className="dl-title"><LinkIcon /> decision log</div>
         {decisionLog.length === 0 ? (
-          <p className="muted" style={{ fontSize: 12, margin: 0 }}>No runs recorded yet.</p>
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>No separate decision-log rows; routed runtime history appears in Activity above.</p>
         ) : (
           decisionLog.map((run, i) => (
             <div key={i} className="dl-run">

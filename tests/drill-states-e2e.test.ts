@@ -66,7 +66,8 @@ function startStub(): Promise<http.Server> {
 const FIXTURE_URL =
   "data:text/html," +
   encodeURIComponent(
-    '<button data-testid="start-build-btn" onclick="document.getElementById(\'p\').style.display=\'block\'">Start</button>' +
+    '<h1>Idle</h1>' +
+      '<button data-testid="start-build-btn" onclick="document.getElementById(\'p\').style.display=\'block\'">Start</button>' +
       '<div id="p" data-testid="progress-bar" style="display:none">Building…</div>'
   );
 
@@ -114,12 +115,25 @@ describe("snapshot capture + promote, real tab", () => {
   it("captures a snapshot from the live authoring tab, lists it, promotes it, and serves its screenshot", async () => {
     await fetch(`${DRILL_BASE}/api/pages/build`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Builder", path: "" }) });
 
+    const authoring = await (await fetch(`${DRILL_BASE}/api/authoring/tab`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pageId: "build", viewport: "desktop" })
+    })).json();
+    const changed = await (await fetch(`${BROWSER_BASE}/tabs/${authoring.tabId}/eval`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ js: "document.querySelector('h1').textContent = 'Live authoring state'" })
+    })).json();
+    expect(changed.ok).toBe(true);
+
     const snapRes = await fetch(`${DRILL_BASE}/api/states/build/snapshot`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ viewport: "desktop" })
     });
     expect(snapRes.status, await snapRes.clone().text()).toBe(200);
     const { snapshot } = await snapRes.json();
     expect(snapshot.pageId).toBe("build");
+    expect(snapshot.headingText).toBe("Live authoring state");
     expect(snapshot.screenshotPath).toBeTruthy();
 
     const listRes = await (await fetch(`${DRILL_BASE}/api/states/build/snapshots`)).json();
@@ -139,11 +153,15 @@ describe("snapshot capture + promote, real tab", () => {
     expect(shotRes.headers.get("content-type")).toBe("image/jpeg");
     const bytes = new Uint8Array(await shotRes.arrayBuffer());
     expect(bytes.length).toBeGreaterThan(0);
+    expect(await (await fetch(`${DRILL_BASE}/api/states/build/idle/screenshot-status`)).json()).toEqual({ available: true });
   }, 20000);
 
   it("404s a screenshot request for an unknown state", async () => {
     const res = await fetch(`${DRILL_BASE}/api/states/build/nonexistent/screenshot`);
     expect(res.status).toBe(404);
+    const status = await fetch(`${DRILL_BASE}/api/states/build/nonexistent/screenshot-status`);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ available: false });
   });
 });
 
@@ -166,6 +184,17 @@ describe("reach path (C5): executes before the scoped step, caches on the second
     const entry1 = run1Body.pages.find((p: any) => p.stepId === "s-progress");
     expect(entry1.status, JSON.stringify(entry1)).toBe("completed"); // reach path ran, progress bar became visible, assertion passed
     expect(actionCalls).toBe(callsBefore + 1); // the reach action DID need vision the first time
+    const pageAfterRun1 = await (await fetch(`${DRILL_BASE}/api/pages/build2`)).json();
+    const seededState = pageAfterRun1.page.states.find((state: any) => state.id === "building");
+    expect(seededState.screenshotPath).toBeTruthy();
+    expect(seededState.referenceSource).toMatchObject({
+      runId: run1Body.id,
+      stepId: "s-progress",
+      viewportId: "desktop"
+    });
+    expect(seededState.matcher).toEqual({
+      assertion: { kind: "visible", testId: "progress-bar" }
+    });
 
     const run2 = await fetch(`${DRILL_BASE}/api/runs`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageIds: ["build2"], viewports: ["desktop"], state: "building" })
@@ -174,5 +203,7 @@ describe("reach path (C5): executes before the scoped step, caches on the second
     const entry2 = run2Body.pages.find((p: any) => p.stepId === "s-progress");
     expect(entry2.status).toBe("completed");
     expect(actionCalls).toBe(callsBefore + 1); // NOT +2 — the reach action was cached, no new vision call
+    const pageAfterRun2 = await (await fetch(`${DRILL_BASE}/api/pages/build2`)).json();
+    expect(pageAfterRun2.page.states.find((state: any) => state.id === "building").referenceSource.runId).toBe(run1Body.id);
   }, 30000);
 });

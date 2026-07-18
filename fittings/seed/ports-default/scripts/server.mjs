@@ -27,7 +27,8 @@ import {
 } from "../lib/ports-core.mjs";
 
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const STATUS_ROOT = path.join(GARRISON_HOME, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "ports-default.json");
 const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
 const FITTING_ID = "ports-default";
@@ -37,7 +38,7 @@ const FITTING_ID = "ports-default";
 // decorative. The runner-projected name wins; the bare name stays for standalone use.
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.GARRISON_PORTSDEFAULT_PORT || process.env.PORTS_PORT || 7088),
+    port: Number(process.env.GARRISON_PORTSDEFAULT_PORT || process.env.PORTS_PORT || 27088),
     host: process.env.GARRISON_PORTSDEFAULT_BIND_HOST || process.env.PORTS_BIND_HOST || "127.0.0.1",
     parentPid: Number(process.env.GARRISON_PARENT_PID || 0),
     scanMs: Number(
@@ -133,7 +134,7 @@ function lanIpFallback() {
 
 async function resolveTailnetHost() {
   if (cachedTailnetHost) return cachedTailnetHost;
-  const selfFile = path.join(HOME, ".garrison", "tailscale-self.json");
+  const selfFile = path.join(GARRISON_HOME, "tailscale-self.json");
   if (existsSync(selfFile)) {
     try {
       const data = JSON.parse(readFileSync(selfFile, "utf8"));

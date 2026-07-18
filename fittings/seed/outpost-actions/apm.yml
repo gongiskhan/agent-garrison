@@ -44,7 +44,7 @@ x-garrison:
     | 2 | unknown outpost — machine not in registry |
     | 3 | outpost offline — machine known but not connected |
     | 4 | bridge RPC error — command ran but the bridge returned an error |
-    | 5 | outpost-host unreachable — 127.0.0.1:3702 not responding |
+    | 5 | outpost-host unreachable — 127.0.0.1:23702 not responding |
 
     ## Examples
 

@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const COMPOSITION_ID = process.env.GARRISON_COMPOSITION_ID ?? "default";
-const GATEWAY_URL = (process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:4777").replace(/\/$/, "");
+const GATEWAY_URL = (process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:24777").replace(/\/$/, "");
 const COMPOSITION_DIR = path.join(REPO_ROOT, "compositions", COMPOSITION_ID);
 const FORCE_RUN = process.env.GARRISON_INTEGRATION === "1";
 

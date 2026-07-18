@@ -57,9 +57,18 @@ export function applyPatch(steps, currentIndex, patch) {
     case "insert_before":
       out.splice(currentIndex, 0, normaliseInserted(patch.newStep));
       return out;
-    case "replace_current":
-      out.splice(currentIndex, 1, normaliseInserted(patch.newStep));
+    case "replace_current": {
+      // A replacement still fulfills the same logical plan item. Preserve the
+      // original id so run consumers (including Drill) can correlate the
+      // repaired result instead of reporting an invented "step missing"
+      // infrastructure incident after a successful recovery.
+      const replacement = normaliseInserted(patch.newStep);
+      out.splice(currentIndex, 1, {
+        ...replacement,
+        id: out[currentIndex]?.id || replacement.id
+      });
       return out;
+    }
     case "skip_current":
       out.splice(currentIndex, 1);
       return out;
@@ -107,15 +116,33 @@ export function validatePatch(value) {
 // step, error, observation) -> rawPatch` is injectable.
 export async function proposePatch({ step, error, observation = {}, failureKind = "other", invoke, fetchImpl = globalThis.fetch }) {
   const run = invoke || (async () => {
-    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
-    const res = await fetchImpl(`${base}/api/automations/vision`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-garrison-internal": internalToken() },
-      body: JSON.stringify({ observation, step: { ...step, __fix: { error, failureKind } }, mode: "fix" })
-    });
-    if (!res.ok) throw new Error(`fixer ${res.status}`);
+    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
+    let res;
+    try {
+      res = await fetchImpl(`${base}/api/automations/vision`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-garrison-internal": internalToken() },
+        body: JSON.stringify({ observation, step: { ...step, __fix: { error, failureKind } }, mode: "fix" })
+      });
+    } catch (cause) {
+      const failure = new Error(`fixer connection failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      failure.failure = { class: "infrastructure", component: "fixer", code: "fixer-transport", retryable: true };
+      throw failure;
+    }
+    if (!res.ok) {
+      const failure = new Error(`fixer ${res.status}`);
+      failure.failure = { class: "infrastructure", component: "fixer", code: `fixer-http-${res.status}`, retryable: res.status >= 500 };
+      throw failure;
+    }
     return (await res.json()).result;
   });
-  const raw = await run(failureKind, step, error, observation);
-  return validatePatch(raw);
+  try {
+    const raw = await run(failureKind, step, error, observation);
+    return validatePatch(raw);
+  } catch (cause) {
+    if (cause?.failure) throw cause;
+    const failure = cause instanceof Error ? cause : new Error(String(cause));
+    failure.failure = { class: "infrastructure", component: "fixer", code: "fixer-invalid-response", retryable: true };
+    throw failure;
+  }
 }

@@ -8,15 +8,15 @@ x-garrison:
   faculty: channels
   cardinality_hint: single
   own_port: true
-  default_port: 7083
+  default_port: 27083
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Serves a React chat UI on its own port (default 7083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the Operative through the gateway; never spawns Claude itself.
+  summary: Serves a React chat UI on its own port (default 27083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the Operative through the gateway; never spawns Claude itself.
   config_schema:
     - key: port
       type: integer
-      default: 7083
+      default: 27083
       description: HTTP port the web-channel server binds to. The server refuses to start (exit 1) when the port is taken - no auto-shift.
     - key: bind_host
       type: string
@@ -25,7 +25,7 @@ x-garrison:
     - key: gateway_url
       type: string
       default: ""
-      description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:4777.
+      description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:24777.
     - key: tls_cert
       type: path
       default: ""

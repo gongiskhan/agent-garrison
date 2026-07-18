@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../fittings/seed/drill/lib/snapshots.mjs";
-import { promoteSnapshotToState, slugifyStateId } from "../fittings/seed/drill/lib/states.mjs";
+import { assessAutomaticStateReference, promoteSnapshotToState, slugifyStateId } from "../fittings/seed/drill/lib/states.mjs";
 import { savePage, getPage } from "../fittings/seed/drill/lib/store.mjs";
 
 let ghome: string;
@@ -67,6 +67,27 @@ describe("slugifyStateId", () => {
     expect(slugifyStateId("Building…")).toBe("building");
     expect(slugifyStateId("  New Build!! ")).toBe("new-build");
     expect(slugifyStateId("")).toBe("state");
+  });
+});
+
+describe("automatic state reference assessment", () => {
+  it("accepts clean visual evidence and rejects evidence with unexpected page errors", () => {
+    expect(assessAutomaticStateReference({
+      evidencePath: "/tmp/clean.jpg",
+      result: { passed: true }
+    })).toEqual({ eligible: true, reason: null, warnings: [] });
+
+    expect(assessAutomaticStateReference({
+      evidencePath: "/tmp/contaminated.jpg",
+      result: {
+        passed: true,
+        referenceWarnings: [{ code: "visible-timeout", text: "Request timed out after 120000ms" }]
+      }
+    })).toEqual({
+      eligible: false,
+      reason: "unexpected-page-error",
+      warnings: [{ code: "visible-timeout", text: "Request timed out after 120000ms" }]
+    });
   });
 });
 

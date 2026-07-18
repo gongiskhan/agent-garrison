@@ -21,10 +21,11 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)); // .../improver/scripts
 const HOME = os.homedir();
+const CLAUDE_HOME = process.env.GARRISON_CLAUDE_HOME?.trim() || path.join(HOME, ".claude");
 const SETTINGS_PATH =
   process.env.GARRISON_CLAUDE_SETTINGS_PATH && process.env.GARRISON_CLAUDE_SETTINGS_PATH.trim().length > 0
     ? process.env.GARRISON_CLAUDE_SETTINGS_PATH
-    : path.join(HOME, ".claude", "settings.json");
+    : path.join(CLAUDE_HOME, "settings.json");
 const SNAPSHOT_DIR = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "snapshots");
 const SNAPSHOT_PATH = path.join(SNAPSHOT_DIR, "claude-settings.before-improver-probe.json");
 

@@ -399,13 +399,13 @@ Examples:
 All tool-facing Fittings live under **own-port Faculties** (see [§5](#5-faculties--the-named-slots)) and follow the canonical pattern in [UI-FITTINGS.md](./UI-FITTINGS.md):
 
 ```
-        Garrison shell (Next.js, port 7777)
+        Garrison shell (Next.js, port 27777)
         ┌───────────────────────────────────┐
         │  sidebar:                         │
         │   ┌──────────────────────────┐    │
         │   │ Views                    │    │
-        │   │  • Dev Env   (7086) →────┼────┼──→ http://127.0.0.1:7086
-        │   │  • Monitor   (7077) →────┼────┼──→ http://127.0.0.1:7077
+        │   │  • Dev Env   (27086) →────┼────┼──→ http://127.0.0.1:27086
+        │   │  • Monitor   (27077) →────┼────┼──→ http://127.0.0.1:27077
         │   └──────────────────────────┘    │
         └───────────────────────────────────┘
 
@@ -572,9 +572,9 @@ The sidebar **Views** group in Garrison's chrome auto-populates per composition.
    │  Views ▼            │
    │   • Documents       │  ← embedded sidebar-surface (contract v2)
    │   • Artifact Store  │  ← embedded sidebar-surface (contract v2)
-   │   • Dev Env       ⤴ │  ← own-port link (port 7086)
-   │   • Monitor       ⤴ │  ← own-port link (port 7077)
-   │   • Browser       ⤴ │  ← own-port link (port 7084)
+   │   • Dev Env       ⤴ │  ← own-port link (port 27086)
+   │   • Monitor       ⤴ │  ← own-port link (port 27077)
+   │   • Browser       ⤴ │  ← own-port link (port 27084)
    └─────────────────────┘
 ```
 
@@ -727,7 +727,7 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 | Fitting | Faculty | What it does |
 |---|---|---|
 | `slack-channel` | channels | Inbound webhook channel. Receives Slack app_mention + DM events. |
-| `web-channel-default` | web-channel | Mobile-first browser chat surface. Own-port (7083). Proxies the gateway. |
+| `web-channel-default` | web-channel | Mobile-first browser chat surface. Own-port (27083). Proxies the gateway. |
 
 ### Doing stuff in the world
 
@@ -763,10 +763,10 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 
 | Fitting | Faculty | Port | What it does |
 |---|---|---|---|
-| `dev-env` | sessions | 7086 | Per-session Claude Code dev environment — Claude + shell PTYs, quick-prompt bar, live browser pane, current-branch sessions, session dashboard. |
-| `screen-share-default` | screen-share | 7079 | macOS screen-capture — ~2fps JPEG polling for phone/remote access. |
-| `browser-default` | browser | 7084 | Headless Chromium with screencast, input, raw CDP, and DevTools reverse-proxy. |
-| `monitor-default` | monitor | 7077 | Read-only PID/port/log dashboard. |
+| `dev-env` | sessions | 27086 | Per-session Claude Code dev environment — Claude + shell PTYs, quick-prompt bar, live browser pane, current-branch sessions, session dashboard. |
+| `screen-share-default` | screen-share | 27079 | macOS screen-capture — ~2fps JPEG polling for phone/remote access. |
+| `browser-default` | browser | 27084 | Headless Chromium with screencast, input, raw CDP, and DevTools reverse-proxy. |
+| `monitor-default` | monitor | 27077 | Read-only PID/port/log dashboard. |
 
 The complete list of UI Fittings and the canonical own-port pattern they all follow: [UI-FITTINGS.md](./UI-FITTINGS.md). Long-form Fitting authoring guide: [FITTINGS.md](./FITTINGS.md).
 
@@ -846,7 +846,7 @@ The runner:
 2. Materialises `.env` (Slack signing secret, Trello API token).
 3. Runs each Fitting's `setup` hook — `basic-memory` ensures the `~/ObsidianVault` vault and its local SQLite index exist.
 4. Runs each Fitting's `verify` hook — all green.
-5. Starts the HTTP gateway on `127.0.0.1:4777`.
+5. Starts the HTTP gateway on `127.0.0.1:24777`.
 6. Assembles `assembled-system-prompt.md`:
 
 ```

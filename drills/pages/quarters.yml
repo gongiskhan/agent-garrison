@@ -1,0 +1,24 @@
+id: quarters
+title: Quarters
+path: /quarters
+mode: steps
+areas: []
+steps:
+  - id: ux-functional-smoke
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The Quarters landing page clearly explains runtime configuration tiers and
+      presents every runtime card with balanced spacing and obvious next
+      actions.
+    tags:
+      - dogfood
+      - ux
+      - smoke
+    judgment: true
+states: []

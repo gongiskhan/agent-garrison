@@ -26,7 +26,7 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
 import { saveBoard, createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { RoutedGateway, shouldUseEphemeralSession } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs
 import { cardsByOrigin, createAutonomousCard } from "../fittings/seed/http-gateway/scripts/lib/autonomous-cards.mjs";
 
@@ -125,6 +125,13 @@ describe("web-channel assembleMaterializedContext (bounded, deterministic, telem
 });
 
 describe("RoutedGateway.runWebOneShot (injectable one-shot; nothing held)", () => {
+  it("isolates both web conversation turns and internal Garrison turns", () => {
+    expect(shouldUseEphemeralSession("web")).toBe(true);
+    expect(shouldUseEphemeralSession("garrison")).toBe(true);
+    expect(shouldUseEphemeralSession("kanban")).toBe(false);
+    expect(shouldUseEphemeralSession(undefined)).toBe(false);
+  });
+
   it("uses the injected oneShotFn with the operative spawn config + prefixed message", async () => {
     let captured: any = null;
     const gw = new RoutedGateway({

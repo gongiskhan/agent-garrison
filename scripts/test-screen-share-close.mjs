@@ -1,12 +1,12 @@
 // Playwright CLI test: screen-share session closes and stays closed.
 // Run: playwright test scripts/test-screen-share-close.mjs --browser chromium
 //
-// Requires the Garrison dev server to be running at http://127.0.0.1:3000
+// Requires the Garrison dev server to be running at http://127.0.0.1:27777
 
 // Headless-gap fix (S16/E11): resolve playwright from the repo, not a hardcoded Mac nvm path.
 import { chromium } from "playwright";
 
-const BASE = "http://127.0.0.1:3000";
+const BASE = "http://127.0.0.1:27777";
 const POLL_WAIT_MS = 2500; // longer than the 1s session poll, confirm it doesn't come back
 
 let browser;

@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -265,6 +265,50 @@ describe("claude-pty: screen parsing", () => {
     expect(turnStarted(fakeHandle(fresh))).toBe(false);
   });
 
+  it("settles a completed model turn when the next message is already being typed", async () => {
+    const { waitForTurnComplete } = await import(PKG);
+    vi.useFakeTimers();
+    try {
+      let rows = ["⏺ Inspecting…", "✻ Cooking… (esc to interrupt · 1s)", "❯ "];
+      const handle = {
+        term: {
+          buffer: {
+            active: {
+              get length() {
+                return rows.length;
+              },
+              getLine(index: number) {
+                const text = rows[index] ?? "";
+                return { translateToString: () => text };
+              },
+            },
+          },
+        },
+      };
+      const resultPromise = waitForTurnComplete(handle, {
+        startTs: Date.now(),
+        timeoutMs: 10_000,
+        settleMs: 700,
+        requireWork: true,
+      });
+      await vi.advanceTimersByTimeAsync(400);
+      rows = [
+        "❯ verify the page",
+        "⏺ The page is correct.",
+        "✻ Baked for 3s",
+        "────────────────────────────────────────",
+        "❯ check the other viewports too",
+      ];
+      await vi.advanceTimersByTimeAsync(1_500);
+      await expect(resultPromise).resolves.toMatchObject({
+        signal: "done",
+        sawWork: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // dev-env runs claude inside a shell PTY, so the mirror screen carries the
   // shell command echo + banner above the reply. extractLatestAssistant must
   // return only the assistant prose, with no progress/spinner lines leaking.
@@ -418,6 +462,66 @@ describe("claude-pty: liveness after child exit", () => {
     setTimeout(() => pty.emitExit(0), 30);
     await expect(ready).rejects.toBeInstanceOf(StartupExitError);
     await expect(ready).rejects.toThrow(/no conversation found/i);
+  });
+
+  it("accepts the one-time bypass-permissions confirmation before declaring readiness", async () => {
+    vi.useFakeTimers();
+    let rows = [
+      "By proceeding, you accept all responsibility for actions taken while running in Bypass Permissions mode.",
+      "❯ 1. No, exit",
+      "  2. Yes, I accept",
+      "Enter to confirm · Esc to cancel",
+    ];
+    const writes: string[] = [];
+    const handle = {
+      term: {
+        buffer: {
+          active: {
+            get length() {
+              return rows.length;
+            },
+            get cursorY() {
+              return rows.length - 1;
+            },
+            cursorX: 0,
+            getLine(i: number) {
+              const text = rows[i] ?? "";
+              return { translateToString: () => text };
+            },
+          },
+        },
+      },
+      isAlive: () => true,
+      writeRaw(bytes: string) {
+        writes.push(bytes);
+        if (bytes === "\r") {
+          rows = [
+            "────────────────────────────────────────",
+            "❯ Try \"how do I log an error?\"",
+            "────────────────────────────────────────",
+            "⏵⏵ bypass permissions on",
+          ];
+        }
+      },
+    };
+
+    try {
+      const { waitForSessionReady } = await import(PKG);
+      const ready = waitForSessionReady(handle, {
+        projectDir: os.tmpdir(),
+        knownFiles: new Set<string>(),
+        timeoutMs: 10_000,
+        pollMs: 20,
+        acceptBypassPermissions: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(250);
+      expect(writes).toEqual(["\x1b[B", "\r"]);
+      await vi.advanceTimersByTimeAsync(4_000);
+      await expect(ready).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("runTurn fails fast on a dead handle instead of retrying for 30s", async () => {

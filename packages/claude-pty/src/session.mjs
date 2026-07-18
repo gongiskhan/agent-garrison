@@ -125,13 +125,17 @@ export class OperativePtySession {
 
     await preTrustCwd(compositionDir);
 
+    const launchEnv = { ...(opts.env ?? process.env) };
+    if (launchEnv.GARRISON_CLAUDE_HOME && !launchEnv.CLAUDE_CONFIG_DIR) {
+      launchEnv.CLAUDE_CONFIG_DIR = launchEnv.GARRISON_CLAUDE_HOME;
+    }
     const handle = spawnClaudePty(claudeBinary, argv, {
       cwd: compositionDir,
       // providerLaunch keeps the explicitly-set ANTHROPIC_BASE_URL/AUTH_TOKEN
       // (e.g. ollama-local / a cloud OSS provider from buildLaunchEnv); the
       // default path strips an INHERITED base URL so the operative rides the Max
       // plan (billing ban).
-      env: stripNestingMarkers(opts.env ?? process.env, { keepProvider: opts.providerLaunch === true }),
+      env: stripNestingMarkers(launchEnv, { keepProvider: opts.providerLaunch === true }),
       cols: opts.cols,
       rows: opts.rows,
       spawnImpl: opts.spawnImpl,
@@ -144,6 +148,8 @@ export class OperativePtySession {
       projectDir: claudeProjectDirForCwd(canonicalisedCwd(compositionDir)),
       knownFiles: new Set(),
       timeoutMs: opts.readinessTimeoutMs ?? 25_000,
+      acceptBypassPermissions:
+        !opts.permissionMode || opts.permissionMode === "bypassPermissions",
     }).catch((err) => {
       // AuthTrapError or other readiness failure — dispose and rethrow.
       handle.dispose();

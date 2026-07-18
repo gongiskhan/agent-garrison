@@ -93,7 +93,8 @@ export interface MetaJson {
 }
 
 export function garrisonLogsRoot(): string {
-  return path.join(os.homedir(), ".garrison", "logs");
+  const home = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
+  return path.join(home, "logs");
 }
 
 export function logsDirForPid(pid: number): string {

@@ -111,6 +111,15 @@ export interface ShedTarget {
   effort?: DutyEffort;
 }
 
+function defaultModelForRuntime(runtime: string): string | undefined {
+  // Legacy secondary targets could omit the model because the runtime adapter
+  // supplied these defaults. Composition v4 makes model part of the target
+  // identity, so migration materializes the same defaults.
+  if (runtime === "codex") return "gpt-5-codex";
+  if (runtime === "gemini") return "gemini-2.5-flash";
+  return undefined;
+}
+
 // Turn one routing target into an engine-identity CompositionTarget + the effort
 // it sheds. Non-identity, non-effort fields (type, authMode, promptMode,
 // maxTurns, leanPrompt, pinned, soul, …) are preserved verbatim under `params`
@@ -123,7 +132,11 @@ export function shedTargetEffort(target: RoutingTargetRaw): ShedTarget {
   if (typeof target.runtime !== "string" || !target.runtime.length) {
     throw new Error(`routing target "${target.id}" has no runtime`);
   }
-  if (typeof target.model !== "string" || !target.model.length) {
+  const model =
+    typeof target.model === "string" && target.model.length
+      ? target.model
+      : defaultModelForRuntime(target.runtime);
+  if (!model) {
     throw new Error(`routing target "${target.id}" has no model (needed for engine identity)`);
   }
 
@@ -151,7 +164,7 @@ export function shedTargetEffort(target: RoutingTargetRaw): ShedTarget {
   const engineTarget: CompositionTarget = {
     id: engineId,
     runtime: target.runtime,
-    model: target.model,
+    model,
     ...(typeof target.provider === "string" && target.provider.length ? { provider: target.provider } : {}),
     ...(Object.keys(params).length ? { params } : {})
   };

@@ -8,7 +8,8 @@ import os from "node:os";
 import path from "node:path";
 
 export function improverDataDir() {
-  return process.env.IMPROVER_DATA || path.join(os.homedir(), ".garrison", "improver");
+  const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+  return process.env.IMPROVER_DATA || path.join(home, "improver");
 }
 function queueFile() {
   return path.join(improverDataDir(), "review-queue.json");

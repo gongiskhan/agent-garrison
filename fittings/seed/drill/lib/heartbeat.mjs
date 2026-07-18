@@ -30,6 +30,7 @@ export async function runHeartbeatSweep(dispatchFn) {
       const fresh = (await getDrillRun(record.id)) ?? record;
       markFindingsDispatched(fresh, confirmed.map((f) => f.id), card);
       fresh.dispatchedAt = new Date().toISOString();
+      fresh.dispatchedCard = { id: card.id, list: card.list ?? "code" };
       await saveDrillRun(fresh);
       results.push({ runId: record.id, dispatched: true, card });
     } catch (err) {

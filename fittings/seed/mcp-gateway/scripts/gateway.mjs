@@ -319,7 +319,7 @@ async function runStdio() {
 // ─────────────────────────────────────────── subcommand: http
 async function runHttp(argv) {
   const flags = parseFlags(argv);
-  const port = Number(flags.port ?? 9876);
+  const port = Number(flags.port ?? 29876);
   const token = flags.token ?? "";
   const host = flags.host ?? "0.0.0.0";
 

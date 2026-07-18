@@ -36,8 +36,9 @@ import { appendFile } from "node:fs/promises";
 function selectedDutyList(model) {
   const selected = Array.isArray(model?.selectedDuties) ? model.selectedDuties : [];
   const duties = model?.duties ?? {};
-  // Only duties that actually exist in the model are dispatchable.
-  return selected.filter((id) => duties[id]);
+  // Only duties that actually exist in the model are dispatchable. `dispatch`
+  // itself is the routing mechanism, never a destination for user work.
+  return selected.filter((id) => id !== "dispatch" && duties[id]);
 }
 
 function dutySpec(model, dutyId) {
@@ -233,6 +234,40 @@ export function fallbackDispatch(model, reason = "dispatch parse failed; default
   return { duty, level: defaultLevelFor(spec), confidence: "low", clarity: "clear", reason };
 }
 
+// Production-safe deterministic fallback used when the configured single-shot
+// target is unavailable or unauthenticated. It is intentionally conservative and
+// vocabulary-driven: choose only a selected duty, then clamp depth to that duty's
+// real levels. In particular, ordinary coding work prefers the composite
+// `develop` duty at its standard level, so a medium web task still enters the
+// configured end-to-end sequence instead of collapsing to legacy `other`.
+export function deterministicFallbackDispatch(model, message) {
+  const selected = selectedDutyList(model);
+  const lower = String(message ?? "").toLowerCase();
+  const has = (id) => selected.includes(id);
+  let duty = null;
+  const coding = /\b(code|implement|fix|bug|refactor|typescript|javascript|python|api|feature|test|build|change|update|repository|codebase)\b/.test(lower);
+  if (coding && has("develop")) duty = "develop";
+  else if (coding && has("code")) duty = "code";
+  else if (/\b(research|investigate|find|source|compare|learn)\b/.test(lower) && has("research")) duty = "research";
+  else if (/\b(image|photo|illustration|render)\b/.test(lower) && has("image")) duty = "image";
+  else if (/\b(video|walkthrough|recording)\b/.test(lower) && has("video")) duty = "video";
+  else if (/\b(write|draft|document|copy|email)\b/.test(lower) && has("writing")) duty = "writing";
+  else if (/\b(deploy|incident|server|cron|operations|ops)\b/.test(lower) && has("ops")) duty = "ops";
+  else duty = has("other") ? "other" : selected[0] ?? null;
+
+  const spec = dutySpec(model, duty);
+  const count = Math.max(1, Array.isArray(spec?.levels) ? spec.levels.length : 1);
+  const deep = /\b(deep|architecture|migration|security|critical|wide[- ]blast|end[- ]to[- ]end|e2e)\b/.test(lower);
+  const trivial = String(message ?? "").length < 90 && /\b(typo|rename|one[- ]line|tiny|trivial)\b/.test(lower);
+  const level = trivial ? 1 : deep && count >= 3 ? 3 : Math.min(2, count);
+  return {
+    duty,
+    level,
+    confidence: "low",
+    reason: "configured dispatch call unavailable; deterministic duty fallback"
+  };
+}
+
 // ── Human override (an explicit "run at level N" or a card field wins) ────────
 
 // Extract an explicit level instruction from the message text. Ordered patterns,
@@ -373,7 +408,11 @@ export async function dispatch(model, message, opts = {}) {
 
   const ok = !!(result && result.ok);
   const parsed = ok ? parseDispatch(result, model) : null;
-  const base = parsed ?? fallbackDispatch(model);
+  const base = parsed ?? (
+    typeof opts.fallback === "function"
+      ? opts.fallback(model, message)
+      : fallbackDispatch(model)
+  );
   const chosen = applyOverride(base, { message, cardLevel: opts.cardLevel }, model);
 
   // clarity (S3d D9b): the model's parsed verdict, then a PHRASING OVERRIDE wins

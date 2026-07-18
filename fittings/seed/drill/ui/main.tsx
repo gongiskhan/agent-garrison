@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, Camera, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Ruler } from "lucide-react";
+import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal } from "lucide-react";
 
 // ─── API ─────────────────────────────────────────────────────────────────
 // Drill's own server serves this UI, so relative paths hit the same origin.
@@ -20,6 +20,18 @@ async function apiPost(path: string, body: unknown) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `POST ${path}: ${r.status}`);
   return j;
+}
+
+function fullBrowserViewUrl(canvasUrl: string) {
+  try {
+    const url = new URL(canvasUrl, window.location.href);
+    // Preserve viewport-related query parameters added by the Browser client;
+    // only remove the chrome-suppression flag used by Drill's embed.
+    url.searchParams.delete("embed");
+    return url.toString();
+  } catch {
+    return canvasUrl;
+  }
 }
 
 interface DrillBook {
@@ -85,25 +97,91 @@ function Help({ children }: { children: React.ReactNode }) {
   return <p className="dr-help">{children}</p>;
 }
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "-";
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
+const FOCUSABLE = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
 
-// Keyboard/AT affordances for the clickable chip spans - they are styled
-// spans, not buttons, so without these they are mouse-only and invisible to
-// assistive tech.
-function chipAction(onClick: () => void) {
-  return {
-    role: "button" as const,
-    tabIndex: 0,
-    onClick,
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); }
+function DialogFrame({ labelledBy, onClose, children }: {
+  labelledBy: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const root = dialogRef.current;
+    const initial = root?.querySelector<HTMLElement>("[data-dialog-initial]")
+      ?? root?.querySelector<HTMLElement>(FOCUSABLE);
+    initial?.focus();
+    return () => {
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeRef.current();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])]
+      .filter((element) => element.getClientRects().length > 0);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   };
+
+  return (
+    <div className="dr-modal-overlay" onClick={() => closeRef.current()}>
+      <div
+        ref={dialogRef}
+        className="dr-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        onKeyDown={onKeyDown}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false
+  );
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+  return matches;
 }
 
 // ─── project selection + app-under-test lifecycle ────────────────────────
@@ -112,7 +190,26 @@ interface Project { name: string; path: string; runSkill: string | null; hasDril
 interface ProjectsInfo { projects: Project[]; active: { root: string; name: string } | null; selected: boolean; devRoot: string }
 interface AppStartJob { status: string; skill: string | null; error: string | null; url: string | null; logFile: string | null }
 interface AppStatus { root: string; url: string | null; configured: boolean; reachable: boolean; runSkill: string | null; selected?: boolean; job: AppStartJob | null }
-interface PlanJob { status: string; mode: string; brief: string | null; error: string | null; logFile: string | null; pages: number | null }
+interface PlanProgress {
+  transcriptBytes: number;
+  transcriptEvents: number;
+  lastActivityAt: string | null;
+  lastActivity: string | null;
+  drillsFilesChanged: number;
+  pagesAuthored: number;
+}
+interface PlanJob {
+  status: string;
+  mode: string;
+  brief: string | null;
+  error: string | null;
+  logFile: string | null;
+  pages: number | null;
+  startedAt: string;
+  deadlineAt: string;
+  canceledAt: string | null;
+  progress?: PlanProgress;
+}
 interface PlanStatus { root: string; pages: number; selected: boolean; job: PlanJob | null }
 
 // Make sure the app under test is serving before a run: reachable -> done;
@@ -160,10 +257,14 @@ async function ensureAppUp(onPhase: (msg: string | null) => void): Promise<AppSt
 // current status untouched - the mount path must not spawn agent sessions
 // the user never asked for.
 async function ensurePlanned(
-  { brief = null, join = false }: { brief?: string | null; join?: boolean },
-  onPhase: (msg: string | null) => void
+  { brief = null, join = false, rootHint = null }: { brief?: string | null; join?: boolean; rootHint?: string | null },
+  onPhase: (msg: string | null) => void,
+  onJob?: (job: PlanJob | null) => void
 ): Promise<PlanStatus> {
-  let st = (await apiGet("/api/plan/status")) as PlanStatus;
+  // A caller that already has a pinned project identity (e.g. BookView, once
+  // it has loaded) passes it here so even the FIRST status check follows
+  // that identity - not whatever project is live right now in another tab.
+  let st = (await apiGet(rootHint ? `/api/plan/status?root=${encodeURIComponent(rootHint)}` : "/api/plan/status")) as PlanStatus;
   const inFlight = !!st.job && st.job.status === "planning";
   if (join && !inFlight) return st;
   // Pin the root this plan is FOR (the server resolves the live selection per
@@ -182,7 +283,11 @@ async function ensurePlanned(
   const deadline = Date.now() + 1860000;
   for (;;) {
     st = (await apiGet(`/api/plan/status?root=${encodeURIComponent(root)}`)) as PlanStatus;
+    onJob?.(st.job);
     if (st.job && st.job.status === "done") { onPhase(null); return st; }
+    // A cancel is a normal, user-requested stop - not an error. Return
+    // normally so the caller can show a notice instead of an error banner.
+    if (st.job && st.job.status === "canceled") { onPhase(null); return st; }
     if (st.job && st.job.status === "failed") throw new Error(st.job.error || "planning failed");
     // The job lives in the drill server's memory - no job after we kicked one
     // means the server restarted mid-plan; bail rather than poll forever.
@@ -216,7 +321,7 @@ function ProjectBar({ info, onOpenPicker }: { info: ProjectsInfo | null; onOpenP
   return (
     <div className="dr-project">
       <span className="dr-lbl" style={{ margin: 0 }}>Project</span>
-      <select value={info.selected && info.active ? info.active.root : ""} disabled={switching} onChange={(e) => onChange(e.target.value)}>
+      <select aria-label="Project" value={info.selected && info.active ? info.active.root : ""} disabled={switching} onChange={(e) => onChange(e.target.value)}>
         {(!info.selected || !info.active) && <option value="" disabled>select project…</option>}
         {info.projects.map((p) => (
           <option key={p.path} value={p.path}>{p.name}{p.runSkill ? "" : " (no run skill)"}</option>
@@ -248,9 +353,8 @@ function ProjectPickerDialog({ info, onClose }: { info: ProjectsInfo; onClose: (
     }
   };
   return (
-    <div className="dr-modal-overlay" onClick={onClose}>
-      <div className="dr-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Select project</h2>
+    <DialogFrame labelledBy="dr-project-dialog-title" onClose={onClose}>
+        <h2 id="dr-project-dialog-title">Select project</h2>
         <p className="hint">
           The app under test. Projects are the git repos under <span className="mono">{info.devRoot}</span> (the
           same list as the Dev Env picker; change the dev root there). [drill book] marks projects that
@@ -259,6 +363,7 @@ function ProjectPickerDialog({ info, onClose }: { info: ProjectsInfo; onClose: (
         <label>
           Project
           <select
+            data-dialog-initial
             value={info.projects.find((p) => p.path === path) ? path : ""}
             onChange={(e) => { if (e.target.value) setPath(e.target.value); }}
           >
@@ -279,13 +384,12 @@ function ProjectPickerDialog({ info, onClose }: { info: ProjectsInfo; onClose: (
             onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onClose(); }}
           />
         </label>
-        {err && <div style={{ color: "var(--alarm)", fontSize: 11.5, marginBottom: 8 }}>{err}</div>}
+        {err && <div role="alert" style={{ color: "var(--alarm)", fontSize: 11.5, marginBottom: 8 }}>{err}</div>}
         <div className="row">
           <button className="btn small" onClick={onClose}>Cancel</button>
           <button className="btn primary" disabled={busy || !path.trim()} onClick={submit}>{busy ? "Selecting…" : "Select"}</button>
         </div>
-      </div>
-    </div>
+    </DialogFrame>
   );
 }
 
@@ -295,9 +399,8 @@ function ProjectPickerDialog({ info, onClose }: { info: ProjectsInfo; onClose: (
 function PlanDialog({ hasPages, onClose, onKick }: { hasPages: boolean; onClose: () => void; onKick: (brief: string | null) => void }) {
   const [brief, setBrief] = useState("");
   return (
-    <div className="dr-modal-overlay" onClick={onClose}>
-      <div className="dr-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Plan the Drill Book</h2>
+    <DialogFrame labelledBy="dr-plan-dialog-title" onClose={onClose}>
+        <h2 id="dr-plan-dialog-title">Plan the Drill Book</h2>
         <p className="hint">
           A headless agent session explores the project and authors the Book on its own judgment - pages,
           steps, and states, the works. Leave the brief empty to plan the whole app
@@ -307,6 +410,7 @@ function PlanDialog({ hasPages, onClose, onKick }: { hasPages: boolean; onClose:
         <label>
           Change brief (optional)
           <textarea
+            data-dialog-initial
             value={brief}
             rows={3}
             placeholder="e.g. the new invoices page: list, filters, CSV export"
@@ -321,8 +425,7 @@ function PlanDialog({ hasPages, onClose, onKick }: { hasPages: boolean; onClose:
             {brief.trim() ? "Plan the update" : "Plan the whole app"}
           </button>
         </div>
-      </div>
-    </div>
+    </DialogFrame>
   );
 }
 
@@ -371,22 +474,91 @@ function AppStatusChip() {
 
 // ─── shared bits ─────────────────────────────────────────────────────────
 
-function Checkbox({ on, onClick }: { on: boolean; onClick: () => void }) {
+function Checkbox({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
   return (
-    <button className={"dr-checkbox" + (on ? " on" : "")} onClick={onClick} aria-pressed={on}>
+    <button className={"dr-checkbox" + (on ? " on" : "")} onClick={onClick} aria-pressed={on} aria-label={label}>
       {on && <Check size={10} strokeWidth={3} />}
     </button>
   );
 }
 
+function SectionIntro({ title, children, aside }: {
+  title: string;
+  children: React.ReactNode;
+  aside?: React.ReactNode;
+}) {
+  return (
+    <div className="dr-intro">
+      <div>
+        <h1>{title}</h1>
+        <p>{children}</p>
+      </div>
+      {aside && <div className="dr-intro-aside">{aside}</div>}
+    </div>
+  );
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "In progress";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
+function formatDuration(startedAt: string, endedAt: string | null) {
+  if (!endedAt) return "Running";
+  const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+// Browser <img> requests emit noisy console errors for an expected stale
+// reference. Fetch first so a 404 becomes an intentional UI state, then show
+// the successful bytes through a short-lived object URL.
+function useFetchedImage(src: string | null, availabilityUrl: string | null = null) {
+  const [imageUrl, setImageUrl] = useState<string | null | undefined>(() => src ? undefined : null);
+  useEffect(() => {
+    if (!src) {
+      setImageUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setImageUrl(undefined);
+    Promise.resolve()
+      .then(async () => {
+        if (!availabilityUrl) return;
+        const status = await fetch(availabilityUrl, { cache: "no-store" });
+        if (!status.ok || !(await status.json()).available) throw new Error("image unavailable");
+      })
+      .then(async () => {
+        const response = await fetch(src, { cache: "no-store" });
+        if (!response.ok) throw new Error(`image unavailable (${response.status})`);
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (!cancelled) setImageUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setImageUrl(null);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src, availabilityUrl]);
+  return imageUrl;
+}
+
 // ─── Book view (S11 S12 S13, A1-A9) ─────────────────────────────────────
 
-function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpenPage }: {
+function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
   onRunSelected: (pageIds: string[], viewports: string[]) => void;
   projInfo: ProjectsInfo | null;
   onOpenPicker: () => void;
-  onGoAuthoring: () => void;
-  onOpenPage: (pageId: string) => void;
+  onGoAuthoring: (pageId?: string) => void;
 }) {
   const [book, setBook] = useState<DrillBook | null>(null);
   const [pages, setPages] = useState<DrillPage[]>([]);
@@ -394,12 +566,28 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
   const [planPhase, setPlanPhase] = useState<string | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
   const [planBusy, setPlanBusy] = useState(false);
+  const [planJob, setPlanJob] = useState<PlanJob | null>(null);
+  const [canceling, setCanceling] = useState(false);
+  const [canceledNotice, setCanceledNotice] = useState<string | null>(null);
+  const [planLog, setPlanLog] = useState<string | null>(null);
+  const [planLogOpen, setPlanLogOpen] = useState(false);
+  // Captured from the first load and reused on every write: a second tab
+  // switching the live project selection must not redirect THIS view's
+  // writes to the newly selected repo mid-session (see resolveMutationRoot
+  // in the server - a stale/mismatched pin is rejected there, not silently
+  // widened).
+  const pinnedRootRef = useRef<string | null>(null);
 
   const load = () => {
     Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")])
-      .then(([b, p]) => { setBook(b.book); setPages(p.pages); })
+      .then(([b, p]) => { pinnedRootRef.current = b.root ?? pinnedRootRef.current; setBook(b.book); setPages(p.pages); })
       .catch((e) => setError(e.message));
   };
+
+  // Every Book write is pinned to the root this view loaded against, not
+  // whatever project happens to be live when the request lands.
+  const patchBook = (patch: Partial<DrillBook>) =>
+    apiPatch("/api/drillbook", { ...patch, root: pinnedRootRef.current ?? undefined });
 
   // Plan the Book through the headless agent session, then reload what it
   // wrote; with thenRun, continue straight into the run the user asked for.
@@ -409,9 +597,15 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
   const runPlan = async (brief: string | null, thenRun: boolean, join = false) => {
     if (planBusy) return;
     setError(null);
+    setCanceledNotice(null);
+    setPlanJob(null);
     setPlanBusy(true);
     try {
-      const st = await ensurePlanned({ brief, join }, setPlanPhase);
+      const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      if (st.job && st.job.status === "canceled") {
+        setCanceledNotice(`Planning canceled - ${st.pages} page${st.pages === 1 ? "" : "s"} on disk. Plan book to retry.`);
+        return;
+      }
       if (join && (!st.job || st.job.status !== "done")) {
         if (st.job && st.job.status === "failed" && st.pages === 0) {
           setError(st.job.error || "planning failed");
@@ -419,6 +613,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
         return;
       }
       const [b, p] = await Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")]);
+      pinnedRootRef.current = b.root ?? pinnedRootRef.current;
       setBook(b.book);
       setPages(p.pages);
       const freshBook = b.book as DrillBook;
@@ -433,7 +628,32 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
       setError(e.message);
     } finally {
       setPlanPhase(null);
+      setPlanJob(null);
       setPlanBusy(false);
+    }
+  };
+
+  // Cancel the plan currently in flight (planJob is only ever non-null while
+  // ensurePlanned's poll loop is running). A safe stop, not an error - the
+  // notice comes from runPlan once ensurePlanned returns the "canceled" job.
+  const cancelRunningPlan = async () => {
+    if (canceling) return;
+    setCanceling(true);
+    try {
+      await apiPost("/api/plan/cancel", { root: pinnedRootRef.current ?? undefined });
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setCanceling(false);
+    }
+  };
+
+  const loadPlanLog = async () => {
+    try {
+      const r = await fetch(`/api/plan/log${pinnedRootRef.current ? `?root=${encodeURIComponent(pinnedRootRef.current)}` : ""}`);
+      setPlanLog(r.ok ? await r.text() : "(no plan log available)");
+    } catch (e: any) {
+      setPlanLog(`(could not load the plan log: ${e.message})`);
     }
   };
 
@@ -453,15 +673,15 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
     const nextPages = book.pages.some((p) => p.id === pageId)
       ? book.pages.map((p) => (p.id === pageId ? { ...p, selected: !p.selected } : p))
       : [...book.pages, { id: pageId, title: pageId, path: "/", mode: "steps" as const, selected: true }];
-    const saved = await apiPatch("/api/drillbook", { pages: nextPages });
+    const saved = await patchBook({ pages: nextPages });
     setBook(saved.book);
   };
   const toggleFullDrill = async () => {
-    const saved = await apiPatch("/api/drillbook", { fullDrill: !book.fullDrill });
+    const saved = await patchBook({ fullDrill: !book.fullDrill });
     setBook(saved.book);
   };
   const setAutonomy = async (autonomy: "gated" | "auto") => {
-    const saved = await apiPatch("/api/drillbook", { autonomy });
+    const saved = await patchBook({ autonomy });
     setBook(saved.book);
   };
   const runSelected = () => {
@@ -482,8 +702,45 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
     onRunSelected(ids, book.viewports.length ? book.viewports : ["desktop"]);
   };
 
+  // Turns the raw job/progress payload into the activity line a healthy
+  // 11-minute plan and a genuine hang used to be indistinguishable without:
+  // elapsed time, time left before the deadline, what the agent last did,
+  // and how long ago - so a stalled session actually LOOKS stalled.
+  const planActivity = (() => {
+    if (!planJob || planJob.status !== "planning") return null;
+    const fmt = (sec: number) => {
+      const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    };
+    const now = Date.now();
+    const parts: string[] = [];
+    if (planJob.startedAt) parts.push(`running ${fmt((now - Date.parse(planJob.startedAt)) / 1000)}`);
+    if (planJob.deadlineAt) {
+      const remaining = (Date.parse(planJob.deadlineAt) - now) / 1000;
+      if (remaining > 0) parts.push(`${fmt(remaining)} left before timeout`);
+    }
+    const p = planJob.progress;
+    let staleSec: number | null = null;
+    if (p?.lastActivityAt) {
+      staleSec = (now - Date.parse(p.lastActivityAt)) / 1000;
+      parts.push(p.lastActivity ? `last: ${p.lastActivity} (${fmt(Math.max(0, staleSec))} ago)` : `active ${fmt(Math.max(0, staleSec))} ago`);
+    }
+    if (p && (p.pagesAuthored > 0 || p.drillsFilesChanged > 0)) {
+      parts.push(`${p.pagesAuthored} page${p.pagesAuthored === 1 ? "" : "s"} on disk, ${p.drillsFilesChanged} file change${p.drillsFilesChanged === 1 ? "" : "s"}`);
+    }
+    const stale = staleSec !== null && staleSec > 120;
+    return { text: parts.join(" · "), stale };
+  })();
+
   return (
     <div>
+      <SectionIntro
+        title="Drill Book"
+        aside={<AppStatusChip />}
+      >
+        This is the test plan the agent maintains for the selected app. Choose what to cover, review the rules, or open a page to inspect and edit its steps beside the live preview.
+      </SectionIntro>
+
       {projInfo && !projInfo.selected && (
         <div className="dr-sec card" style={{ borderColor: "var(--brass)", borderWidth: 1.5 }}>
           <div className="dr-rowwrap" style={{ justifyContent: "space-between" }}>
@@ -506,7 +763,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
           <div className="dr-lbl">App under test</div>
           <div className="dr-rowwrap">
             <b>{book.app.name || "(not configured)"}</b>
-            {book.app.url && <span className="mono" style={{ color: "var(--mute)", fontSize: 11 }}>{book.app.url}</span>}
+            {book.app.url && <span className="mono dr-app-url">{book.app.url}</span>}
             <AppStatusChip />
           </div>
         </div>
@@ -520,26 +777,55 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
       </div>
 
       {planPhase && (
-        <div className="dr-sec" style={{ color: "var(--brass)", fontSize: 12 }}>{planPhase}</div>
+        <div className="dr-sec">
+          <div className="dr-rowwrap" style={{ justifyContent: "space-between" }}>
+            <span style={{ color: "var(--brass)", fontSize: 12 }}>{planPhase}</span>
+            <button className="btn small" onClick={cancelRunningPlan} disabled={canceling}>
+              {canceling ? "Canceling…" : "Cancel"}
+            </button>
+          </div>
+          {planActivity && (
+            <div style={{ fontSize: 11, marginTop: 4, color: planActivity.stale ? "var(--alarm)" : "var(--ink-2)" }}>
+              {planActivity.text}
+              {planActivity.stale && " · no output recently - the plan may be stuck, Cancel to stop it"}
+            </div>
+          )}
+        </div>
+      )}
+
+      {canceledNotice && (
+        <div className="dr-notice" role="status">{canceledNotice}</div>
       )}
 
       {error && (
         <div className="dr-placeholder">
           {error}
           {pages.length === 0 && (
-            <button className="btn small" style={{ marginLeft: 8 }} onClick={onGoAuthoring}>Open Authoring</button>
+            <button className="btn small" style={{ marginLeft: 8 }} onClick={() => onGoAuthoring()}>Open Authoring</button>
+          )}
+          <button
+            className="btn small"
+            style={{ marginLeft: 8 }}
+            onClick={() => { const next = !planLogOpen; setPlanLogOpen(next); if (next && planLog === null) loadPlanLog(); }}
+          >
+            {planLogOpen ? "Hide plan log" : "Show plan log"}
+          </button>
+          {planLogOpen && (
+            <pre className="mono" style={{ marginTop: 8, maxHeight: 240, overflow: "auto", fontSize: 11, whiteSpace: "pre-wrap" }}>
+              {planLog ?? "Loading…"}
+            </pre>
           )}
         </div>
       )}
 
       <div className="dr-sec dr-rowwrap">
-        <span className={"chip click ink" + (book.fullDrill ? " active" : "")} aria-pressed={book.fullDrill} {...chipAction(toggleFullDrill)}>
+        <button className={"chip click ink" + (book.fullDrill ? " active" : "")} onClick={toggleFullDrill} aria-pressed={book.fullDrill}>
           Full Drill {book.fullDrill ? "on" : "off"}
-        </span>
+        </button>
         {book.viewports.map((vp) => (
           <span key={vp} className="chip sage">{vp}</span>
         ))}
-        <select value={book.autonomy} onChange={(e) => setAutonomy(e.target.value as "gated" | "auto")}
+        <select aria-label="Run autonomy" value={book.autonomy} onChange={(e) => setAutonomy(e.target.value as "gated" | "auto")}
           style={{ fontSize: 11, padding: "6px 8px", border: "1px solid var(--rule)", background: "var(--paper-2)", color: "var(--ink)", fontFamily: "var(--sans)" }}>
           <option value="gated">Gated: approve plan before running</option>
           <option value="auto">Autonomous: plan, run, report</option>
@@ -549,10 +835,11 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
       <div className="dr-sec">
         <div className="dr-lbl">Global rules and notes</div>
         <textarea
+          aria-label="Global rules and notes"
           className="mono"
           defaultValue={book.globalRules}
           placeholder="App-specific truths that feed every plan and review (citations required, no console errors, …)"
-          onBlur={(e) => apiPatch("/api/drillbook", { globalRules: e.target.value }).then((r) => setBook(r.book))}
+          onBlur={(e) => patchBook({ globalRules: e.target.value }).then((r) => setBook(r.book))}
           style={{ width: "100%", minHeight: 64, padding: 10, border: "1px solid var(--rule)", background: "var(--paper-2)", color: "var(--ink-2)", fontSize: 12, fontFamily: "var(--sans)" }}
         />
       </div>
@@ -570,15 +857,17 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring, onOpen
             )}
             {pages.map((p) => (
               <tr key={p.id}>
-                <td><Checkbox on={book.fullDrill || selectedIds.has(p.id)} onClick={() => togglePageSelected(p.id)} /></td>
-                <td>
-                  <button className="dr-link" onClick={() => onOpenPage(p.id)} title="Open this page in Authoring">{p.title}</button>{" "}
-                  <span className="mono" style={{ color: "var(--mute-2)", fontSize: 10.5 }}>{p.path}</span>
+                <td data-label="Run"><Checkbox label={`Include ${p.title} in runs`} on={book.fullDrill || selectedIds.has(p.id)} onClick={() => togglePageSelected(p.id)} /></td>
+                <td data-label="Page">
+                  <button className="dr-page-link" onClick={() => onGoAuthoring(p.id)}>
+                    <span><b>{p.title}</b> <span className="mono">{p.path}</span></span>
+                    <span aria-hidden="true">→</span>
+                  </button>
                 </td>
-                <td>{p.mode === "steps" ? "Step by step" : <span style={{ color: "var(--brass)", fontWeight: 600 }}>Whole page vision</span>}</td>
-                <td>{p.areas.length}</td>
-                <td>{p.steps.length}</td>
-                <td>{p.states.length}</td>
+                <td data-label="Mode">{p.mode === "steps" ? "Step by step" : <span style={{ color: "var(--brass)", fontWeight: 600 }}>Whole page vision</span>}</td>
+                <td data-label="Areas">{p.areas.length}</td>
+                <td data-label="Steps">{p.steps.length}</td>
+                <td data-label="States">{p.states.length}</td>
               </tr>
             ))}
           </tbody>
@@ -609,23 +898,28 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
 }) {
   return (
     <div className="dr-step" style={{ opacity: step.enabled ? 1 : 0.5 }}>
-      <Checkbox on={step.enabled} onClick={onToggleEnabled} />
+      <Checkbox label={`${step.enabled ? "Disable" : "Enable"} check ${step.description || step.id}`} on={step.enabled} onClick={onToggleEnabled} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <textarea
           className="dr-step-desc"
+          aria-label={`Check description for ${step.id}`}
           defaultValue={step.description}
           onBlur={(e) => { if (e.target.value !== step.description) onEditDescription(e.target.value); }}
           rows={2}
         />
         <div className="dr-rowwrap" style={{ marginTop: 4 }}>
-          <button className={"dr-mode" + (step.mode === "vision" ? " vision" : " e2e")} onClick={onToggleMode}>
+          <button
+            className={"dr-mode" + (step.mode === "vision" ? " vision" : " e2e")}
+            onClick={onToggleMode}
+            aria-label={`Change ${step.description || step.id} from ${step.mode} mode`}
+          >
             {step.mode === "vision" ? <Eye size={10} /> : <FileCode2 size={10} />}
             {step.mode}
           </button>
           {step.mode === "vision" && (
-            <span className={"chip click" + (step.judgment ? " brass active" : "")} aria-pressed={!!step.judgment} {...chipAction(onToggleJudgment)} title="Needs ongoing model judgment (drillJudge), not a one-time deterministic find">
+            <button className={"chip click" + (step.judgment ? " brass active" : "")} onClick={onToggleJudgment} aria-pressed={!!step.judgment} aria-label={`Ongoing model judgment for ${step.description || step.id}`} title="Needs ongoing model judgment (drillJudge), not a one-time deterministic find">
               judgment
-            </span>
+            </button>
           )}
           {step.spec && <span className="mono" style={{ fontSize: 10, color: "var(--mute)" }}>{step.spec}</span>}
           {step.viewports.map((v) => {
@@ -634,24 +928,45 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
             return <Icon key={v} size={11} style={{ color: "var(--mute)" }} />;
           })}
           {step.ref && (
-            <span className="chip click sage" {...chipAction(() => onJumpRef(step.ref!))}>{step.ref}</span>
+            <button className="chip click sage" aria-label={`Open referenced area ${step.ref}`} onClick={() => onJumpRef(step.ref!)}>{step.ref}</button>
           )}
           {step.state !== "default" && <span className="chip brass">{step.state}</span>}
         </div>
       </div>
-      <button className="dr-xbtn" onClick={onRemove} title="Remove step"><X size={14} /></button>
+      <button className="dr-xbtn" onClick={onRemove} title="Remove step" aria-label={`Remove check ${step.description || step.id}`}><X size={14} /></button>
     </div>
   );
 }
 
-function AuthoringView() {
+function AuthoringView({ initialPageId, onPageChange }: {
+  initialPageId?: string | null;
+  onPageChange: (pageId: string) => void;
+}) {
   const [pages, setPages] = useState<DrillPage[]>([]);
   // Remember the last-authored page across reloads - resetting to the first
   // page alphabetically loses the author's place every refresh.
-  const [pageId, setPageId] = useState<string | null>(() => localStorage.getItem("drill.authoring.page"));
+  const initialAuthoringPage = initialPageId ?? localStorage.getItem("drill.authoring.page");
+  const [pageId, setPageId] = useState<string | null>(initialAuthoringPage);
+  const pageIdRef = useRef<string | null>(initialAuthoringPage);
   const [viewportId, setViewportId] = useState("desktop");
-  const [tab, setTab] = useState<{ tabId: string; canvasUrl: string; viewport: { width: number; height: number } } | null>(null);
+  const [tab, setTab] = useState<{
+    tabId: string;
+    canvasUrl: string;
+    screenshotUrl: string;
+    url: string;
+    viewport: { width: number; height: number };
+  } | null>(null);
+  const [tabError, setTabError] = useState<string | null>(null);
+  const [tabLoadRevision, setTabLoadRevision] = useState(0);
   const [pickMode, setPickMode] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const [areaResolutionRevision, setAreaResolutionRevision] = useState(0);
+  const [previewReady, setPreviewReady] = useState(false);
+  const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
+  const [targetViewport, setTargetViewport] = useState<{ width: number; height: number } | null>(null);
+  const [preparingPick, setPreparingPick] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [stateSel, setStateSel] = useState("default");
   const [error, setError] = useState<string | null>(null);
   // Tab-open / pick failures surface as an inline banner - they must never
@@ -662,178 +977,310 @@ function AuthoringView() {
   // E1/E2: on a phone-width viewport the plan is a FAB-toggled bottom sheet
   // over a full-screen canvas, not a side column - CSS (.dr-au-plan's
   // mobile breakpoint) hides/shows it off this same flag.
-  const [mobileSheetOpen, setMobileSheetOpen] = useState(true);
+  // Browser-first on narrow screens: opening Authoring must show the app, not
+  // cover it immediately with a 62vh fixed sheet. The FAB opens the plan.
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const isNarrowAuthoring = useMediaQuery("(max-width: 760px)");
   const overlayRef = useRef<HTMLDivElement>(null);
-  // The canvas column's live width drives the preview scale: the app runs at
-  // the REAL viewport size (the embed canvas resizes the tab to the iframe's
-  // layout box) and is only VISUALLY scaled down to fit the column - so
-  // breakpoints, picks, and badges are all exact at every viewport.
-  const [cvEl, setCvEl] = useState<HTMLDivElement | null>(null);
-  const [cvWidth, setCvWidth] = useState(0);
   // Manual-testing toolbar state: the live URL (polled), the editable URL
-  // draft (reverts to live on blur, like a real browser urlbar), the console
-  // buffer, and an optional custom viewport size that overrides the preset.
+  // draft (reverts to live on blur, like a real browser urlbar), and console.
   const [urlDraft, setUrlDraft] = useState("");
   const urlFocused = useRef(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleEntries, setConsoleEntries] = useState<Array<{ ts: number; level: string; text: string }>>([]);
   const consoleEndRef = useRef<HTMLDivElement>(null);
-  const [customVp, setCustomVp] = useState<{ width: number; height: number } | null>(null);
-  const [vpDraft, setVpDraft] = useState<{ w: string; h: string }>({ w: "", h: "" });
-  // Bumped after reload/navigate so area badges re-resolve against the new DOM.
-  const [resolveTick, setResolveTick] = useState(0);
-  useEffect(() => {
-    if (!cvEl) return;
-    const ro = new ResizeObserver(() => setCvWidth(cvEl.clientWidth));
-    ro.observe(cvEl);
-    setCvWidth(cvEl.clientWidth);
-    return () => ro.disconnect();
-  }, [cvEl]);
+  const planFabRef = useRef<HTMLButtonElement>(null);
+  const planCloseRef = useRef<HTMLButtonElement>(null);
+  const sheetWasOpenRef = useRef(false);
+  const pagesRef = useRef<DrillPage[]>([]);
+  const saveQueuesRef = useRef<Map<string, Promise<unknown>>>(new Map());
+  const frozenTabRef = useRef<string | null>(null);
+  const pickEpochRef = useRef(0);
+  // Captured on load and reused on every save/create/delete - a project
+  // switch in another tab must not redirect this authoring session's writes
+  // (see resolveMutationRoot server-side).
+  const pinnedRootRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const wasOpen = sheetWasOpenRef.current;
+    sheetWasOpenRef.current = mobileSheetOpen;
+    if (!isNarrowAuthoring || wasOpen === mobileSheetOpen) return;
+    const target = mobileSheetOpen ? planCloseRef.current : planFabRef.current;
+    requestAnimationFrame(() => target?.focus());
+  }, [isNarrowAuthoring, mobileSheetOpen]);
+
+  useEffect(() => {
+    pagesRef.current = pages;
+  }, [pages]);
+
+  useEffect(() => {
+    pageIdRef.current = pageId;
     if (pageId) localStorage.setItem("drill.authoring.page", pageId);
   }, [pageId]);
 
   const loadPages = () => {
-    apiGet("/api/pages").then((r) => {
+    return apiGet("/api/pages").then((r) => {
+      pinnedRootRef.current = r.root ?? pinnedRootRef.current;
       setPages(r.pages);
-      // A remembered id that no longer exists (deleted page, project switch)
-      // must fall back, or the view wedges on "Loading…" forever.
-      setPageId((prev) => (prev && r.pages.some((p: DrillPage) => p.id === prev) ? prev : (r.pages.length > 0 ? r.pages[0].id : null)));
+      const previous = pageIdRef.current;
+      const next = previous && r.pages.some((candidate: DrillPage) => candidate.id === previous)
+        ? previous
+        : (r.pages.length > 0 ? r.pages[0].id : null);
+      pageIdRef.current = next;
+      setPageId(next);
+      // Keep the parent route in sync from this async completion, never from
+      // inside a state updater (which React may execute during render).
+      if (next && next !== previous) onPageChange(next);
     }).catch((e) => setError(e.message));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only fetch; loadPages uses functional setState so it never reads stale pageId
-  useEffect(loadPages, []);
+  useEffect(() => { void loadPages(); }, []);
 
   const page = pages.find((p) => p.id === pageId) ?? null;
+  const pageStateIds = page?.states.map((state) => state.id) ?? [];
+  const pageStateKey = pageStateIds.join("\u0000");
+  const activeStateSel = stateSel === "default" || pageStateIds.includes(stateSel)
+    ? stateSel
+    : "default";
+  const activeState = page?.states.find((state) => state.id === activeStateSel) ?? null;
+  const activeStateImageSource = activeState?.screenshotPath ? `/api/states/${page?.id}/${activeStateSel}/screenshot` : null;
+  const activeStateImage = useFetchedImage(
+    activeStateImageSource,
+    activeStateImageSource ? `/api/states/${page?.id}/${activeStateSel}/screenshot-status` : null
+  );
+
+  // A named state belongs to one page. Moving to a page that does not define
+  // it must never leave Authoring apparently empty or create an invalid step.
+  useEffect(() => {
+    if (stateSel !== activeStateSel) setStateSel(activeStateSel);
+  }, [activeStateSel, page?.id, pageStateKey, stateSel]);
 
   // Open/reuse the authoring tab whenever the page or viewport changes.
   useEffect(() => {
     if (!pageId) return;
+    const previousFrozen = frozenTabRef.current;
+    pickEpochRef.current += 1;
+    frozenTabRef.current = null;
+    setPickMode(false);
+    setPreparingPick(false);
+    if (previousFrozen) {
+      apiPost("/api/authoring/freeze", { tabId: previousFrozen, frozen: false }).catch(() => {});
+    }
     setTab(null);
-    setAuthError(null);
-    apiPost("/api/authoring/tab", { pageId, viewport: viewportId })
-      .then((r) => setTab({ tabId: r.tabId, canvasUrl: r.canvasUrl, viewport: r.viewport }))
-      .catch((e) => setAuthError(`Could not open the app preview: ${e.message}`));
-  }, [pageId, viewportId]);
+    setTabError(null);
+    setPreviewReady(false);
+    setPreviewSize(null);
+    setTargetViewport(null);
+    let cancelled = false;
+    apiPost("/api/authoring/tab", { pageId, viewport: viewportId, root: pinnedRootRef.current ?? undefined })
+      .then((r) => {
+        if (cancelled) return;
+        setTab({
+          tabId: r.tabId,
+          canvasUrl: r.canvasUrl,
+          screenshotUrl: r.screenshotUrl,
+          url: r.url,
+          viewport: r.viewport
+        });
+      })
+      .catch((e) => {
+        if (!cancelled) setTabError(e.message);
+      });
+    return () => {
+      cancelled = true;
+      const frozen = frozenTabRef.current;
+      pickEpochRef.current += 1;
+      frozenTabRef.current = null;
+      if (frozen) apiPost("/api/authoring/freeze", { tabId: frozen, frozen: false }).catch(() => {});
+    };
+  }, [pageId, viewportId, tabLoadRevision]);
 
-  // Live URL + console poll: keeps the urlbar honest while the author clicks
-  // around inside the preview, and surfaces console errors (findings
-  // material) without opening devtools anywhere.
+  // Keep the embedded browser controls honest while the author navigates
+  // inside the live preview, and surface console failures without DevTools.
   useEffect(() => {
-    if (!tab) { setLiveUrl(null); setConsoleEntries([]); return; }
-    let stop = false;
+    if (!tab) {
+      setLiveUrl(null);
+      setConsoleEntries([]);
+      return;
+    }
+    let stopped = false;
     const poll = async () => {
       try {
-        const [info, con] = await Promise.all([
+        const [info, consoleResult] = await Promise.all([
           apiGet(`/api/authoring/tab-info?tabId=${encodeURIComponent(tab.tabId)}`),
           apiGet(`/api/authoring/console?tabId=${encodeURIComponent(tab.tabId)}&limit=150`)
         ]);
-        if (stop) return;
-        const u = info.tab?.url ?? null;
-        setLiveUrl(u);
-        if (!urlFocused.current && u) setUrlDraft(u);
-        setConsoleEntries(con.entries ?? []);
-      } catch { /* transient browser hiccup - keep the last known state */ }
+        if (stopped) return;
+        const nextUrl = info.tab?.url ?? tab.url;
+        setLiveUrl(nextUrl);
+        setTab((current) => current?.tabId === tab.tabId ? { ...current, url: nextUrl } : current);
+        if (!urlFocused.current) setUrlDraft(nextUrl);
+        setConsoleEntries(consoleResult.entries ?? []);
+      } catch {
+        // A transient Browser fitting hiccup should not erase the last useful
+        // URL or console buffer.
+      }
     };
-    poll();
-    const t = setInterval(poll, 2500);
-    return () => { stop = true; clearInterval(t); };
-  }, [tab]);
+    void poll();
+    const timer = setInterval(poll, 2_500);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [tab?.tabId]);
 
   useEffect(() => {
     if (consoleOpen) consoleEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [consoleOpen, consoleEntries.length]);
 
-  const doNav = async (dest: string) => {
+  const refreshPreviewAfterBrowserAction = () => {
+    setPreviewReady(false);
+    setPreviewRevision(Date.now());
+    setAreaResolutionRevision((revision) => revision + 1);
+  };
+
+  const doNav = async (destination: string) => {
     if (!tab) return;
-    const target = dest.trim();
-    if (!target) return;
+    const draft = destination.trim();
+    if (!draft) return;
     try {
-      const r = await apiPost("/api/authoring/nav", { tabId: tab.tabId, url: /^[a-z][a-z0-9+.-]*:/i.test(target) ? target : `http://${target}` });
-      if (r.ok === false && r.error) setAuthError(`Navigation failed: ${r.error}`);
-      else setAuthError(null);
-      if (r.url) { setLiveUrl(r.url); if (!urlFocused.current) setUrlDraft(r.url); }
-      setResolveTick((n) => n + 1);
+      const target = new URL(draft, liveUrl ?? tab.url).toString();
+      const response = await apiPost("/api/authoring/nav", { tabId: tab.tabId, url: target });
+      const nextUrl = response.url ?? target;
+      setLiveUrl(nextUrl);
+      setTab((current) => current?.tabId === tab.tabId ? { ...current, url: nextUrl } : current);
+      if (!urlFocused.current) setUrlDraft(nextUrl);
+      setAuthError(null);
+      refreshPreviewAfterBrowserAction();
     } catch (err: any) {
       setAuthError(`Navigation failed: ${err.message}`);
     }
   };
+
   const doTabAction = async (action: "back" | "forward" | "reload") => {
     if (!tab) return;
     try {
-      const r = await apiPost("/api/authoring/tab-action", { tabId: tab.tabId, action });
-      if (r.url) { setLiveUrl(r.url); if (!urlFocused.current) setUrlDraft(r.url); }
+      const response = await apiPost("/api/authoring/tab-action", { tabId: tab.tabId, action });
+      const nextUrl = response.url ?? liveUrl ?? tab.url;
+      setLiveUrl(nextUrl);
+      setTab((current) => current?.tabId === tab.tabId ? { ...current, url: nextUrl } : current);
+      if (!urlFocused.current) setUrlDraft(nextUrl);
       setAuthError(null);
-      setResolveTick((n) => n + 1);
+      refreshPreviewAfterBrowserAction();
     } catch (err: any) {
       setAuthError(`Could not ${action}: ${err.message}`);
     }
   };
+
   const restartTab = async () => {
     if (!pageId) return;
+    cancelHighlight();
     setTab(null);
+    setTabError(null);
     setAuthError(null);
     setConsoleEntries([]);
     try {
-      const r = await apiPost("/api/authoring/restart", { pageId, viewport: viewportId });
-      setTab({ tabId: r.tabId, canvasUrl: r.canvasUrl, viewport: r.viewport });
+      const response = await apiPost("/api/authoring/restart", {
+        pageId,
+        viewport: viewportId,
+        root: pinnedRootRef.current ?? undefined
+      });
+      setTab({
+        tabId: response.tabId,
+        canvasUrl: response.canvasUrl,
+        screenshotUrl: response.screenshotUrl ?? `/api/authoring/screenshot/${encodeURIComponent(response.tabId)}`,
+        url: response.url,
+        viewport: response.viewport
+      });
+      refreshPreviewAfterBrowserAction();
     } catch (err: any) {
+      setTabError(err.message);
       setAuthError(`Could not restart the app preview: ${err.message}`);
     }
   };
 
-  // Saves are serialized and each patch is computed against the FRESHEST page
-  // (the previous save's server response), not the caller's render-time
-  // closure. Two quick edits (add a step, then type its description and blur
-  // within the first PUT's round-trip) are otherwise two racing full-array
-  // PUTs - last write wins and the earlier edit is silently lost.
-  const saveChain = useRef(Promise.resolve());
-  const freshPage = useRef<DrillPage | null>(null);
-  freshPage.current = page ?? freshPage.current;
-  const savePage = (make: (current: DrillPage) => Partial<DrillPage>) => {
-    const id = pageId;
-    if (!id) return Promise.resolve();
-    saveChain.current = saveChain.current.then(async () => {
-      const current = freshPage.current;
-      if (!current || current.id !== id) return;
-      const r = await fetch(`/api/pages/${encodeURIComponent(id)}`, {
-        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(make(current))
+  // The preview is a viewport-exact screenshot rather than the Browser
+  // fitting's iframe UI. The iframe includes its own toolbar and resizes the
+  // inner page, which made visual click coordinates wrong in real projects.
+  useEffect(() => {
+    if (!tab || pickMode) return;
+    const timer = setInterval(() => setPreviewRevision((n) => n + 1), 2_000);
+    return () => clearInterval(timer);
+  }, [tab, pickMode]);
+
+  const mutatePage = (
+    mutation: (current: DrillPage) => Partial<DrillPage>,
+    targetPageId: string | null = pageId
+  ): Promise<DrillPage | null> => {
+    if (!targetPageId) return Promise.resolve(null);
+    const previous = saveQueuesRef.current.get(targetPageId) ?? Promise.resolve();
+    const operation = previous.catch(() => {}).then(async () => {
+      const current = pagesRef.current.find((candidate) => candidate.id === targetPageId);
+      if (!current) throw new Error(`page ${targetPageId} is no longer available`);
+      const patch = mutation(current);
+      setSaveStatus("saving");
+      const response = await fetch(`/api/pages/${encodeURIComponent(targetPageId)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...patch, root: pinnedRootRef.current ?? undefined })
       });
-      const j = await r.json();
-      freshPage.current = j.page;
-      setPages((ps) => ps.map((p) => (p.id === id ? j.page : p)));
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.page) throw new Error(body.error || `save failed (${response.status})`);
+      pagesRef.current = pagesRef.current.map((candidate) =>
+        candidate.id === targetPageId ? body.page : candidate
+      );
+      setPages(pagesRef.current);
+      setSaveStatus("saved");
+      setPickError((currentError) =>
+        currentError?.startsWith("Could not save the Drill Book:") ? null : currentError
+      );
+      return body.page as DrillPage;
+    }).catch((err) => {
+      setSaveStatus("error");
+      setPickError(`Could not save the Drill Book: ${err.message}`);
+      throw err;
     });
-    return saveChain.current;
+    // Keep a rejection-safe tail in the per-page queue while returning the
+    // original operation so callers can still handle its failure.
+    saveQueuesRef.current.set(targetPageId, operation.catch(() => null));
+    return operation;
   };
 
   const createPage = async () => {
     const id = newPageId.trim();
     if (!id) return;
     await fetch(`/api/pages/${encodeURIComponent(id)}`, {
-      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: id, path: "/" + id })
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: id, path: "/" + id, root: pinnedRootRef.current ?? undefined })
     });
     setNewPageId("");
     await loadPages();
     setPageId(id);
+    onPageChange(id);
   };
 
   const onOverlayClick: React.MouseEventHandler<HTMLDivElement> = async (e) => {
     if (!pickMode || !tab || !page) return;
+    const targetTab = tab.tabId;
+    const epoch = pickEpochRef.current;
     const box = overlayRef.current!.getBoundingClientRect();
-    const effVp = customVp ?? tab.viewport;
-    const x = ((e.clientX - box.left) / box.width) * effVp.width;
-    const y = ((e.clientY - box.top) / box.height) * effVp.height;
+    // The screenshot is always the physical device size, while a mobile page
+    // without a viewport meta tag can intentionally expose a wider CSS layout
+    // viewport (for example 980px). elementFromPoint consumes those layout
+    // coordinates, so keep them separate from the image's natural dimensions.
+    const targetSize = targetViewport ?? previewSize ?? tab.viewport;
+    const x = Math.max(0, Math.min(targetSize.width - 1, ((e.clientX - box.left) / box.width) * targetSize.width));
+    const y = Math.max(0, Math.min(targetSize.height - 1, ((e.clientY - box.top) / box.height) * targetSize.height));
     setPickMode(false);
+    setPickError(null);
     try {
-      const r = await apiPost("/api/authoring/pick", { tabId: tab.tabId, x, y });
-      if (!r.anchors) { setAuthError("No element under that point - try clicking directly on the element you want."); return; }
-      await savePage((current) => {
-        // Max+1, never count+1: after a removal the count re-collides with a
-        // surviving area's number and two areas would share a badge.
-        const n = current.areas.reduce((m, a) => Math.max(m, a.n), 0) + 1;
-        const a: Area = {
+      const r = await apiPost("/api/authoring/pick", { tabId: targetTab, x, y });
+      if (epoch !== pickEpochRef.current) return;
+      if (!r.anchors) { setPickError("Nothing was found there. Refresh the preview and try the center of the element."); return; }
+      await mutatePage((current) => {
+        const n = Math.max(0, ...current.areas.map((candidate) => candidate.n)) + 1;
+        const area: Area = {
           n,
           id: `${current.id}#${n}`,
           label: r.anchors.testId || r.anchors.ariaLabel
@@ -844,71 +1291,181 @@ function AuthoringView() {
           },
           pct: r.anchors.pct
         };
-        return { areas: [...current.areas, a] };
-      });
-      setAuthError(null);
+        return { areas: [...current.areas, area] };
+      }, page.id);
       // E2: reopen the sheet with the new area ready for steps.
       setMobileSheetOpen(true);
     } catch (err: any) {
-      setAuthError(`Pick failed: ${err.message}`);
+      setPickError(err.message);
+    } finally {
+      if (frozenTabRef.current === targetTab) frozenTabRef.current = null;
+      apiPost("/api/authoring/freeze", { tabId: targetTab, frozen: false }).catch(() => {});
     }
-  };
-
-  // Removing an area also removes its steps (they anchor to it); surviving
-  // areas keep their numbers - stable badges beat compact numbering, and
-  // cross-page step refs ("page#3") must not silently re-point.
-  const removeArea = (n: number) => {
-    savePage((current) => ({
-      areas: current.areas.filter((a) => a.n !== n),
-      steps: current.steps.filter((s) => s.area !== n)
-    }));
   };
 
   // E2: Highlight closes the sheet (full-screen canvas for picking with
   // touch), enters pick mode; the sheet reopens once a pick lands (above) or
   // the user cancels (toggling pick mode back off manually).
-  const startHighlight = () => {
+  const startHighlight = async () => {
+    // React state updates after the current event turn. The ref is updated
+    // synchronously below, so it also rejects a real double-click delivered
+    // before `preparingPick` has rendered and prevents two freeze/preload
+    // sessions from racing against one another.
+    if (!tab || preparingPick || pickMode || frozenTabRef.current) return;
+    const targetTab = tab;
+    const epoch = pickEpochRef.current + 1;
+    pickEpochRef.current = epoch;
+    frozenTabRef.current = targetTab.tabId;
+    setPreparingPick(true);
+    setPickError(null);
+    try {
+      const frozen = await apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: true });
+      if (epoch !== pickEpochRef.current) {
+        await apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: false }).catch(() => {});
+        return;
+      }
+      if (frozen.viewport?.width && frozen.viewport?.height) setTargetViewport(frozen.viewport);
+      const revision = Date.now();
+      const frozenPreview = new Image();
+      await new Promise<void>((resolve, reject) => {
+        frozenPreview.onload = () => resolve();
+        frozenPreview.onerror = () => reject(new Error("the frozen viewport preview did not load"));
+        frozenPreview.src = `${targetTab.screenshotUrl}?t=${revision}`;
+      });
+      if (epoch !== pickEpochRef.current) {
+        await apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: false }).catch(() => {});
+        return;
+      }
+      if (frozenPreview.naturalWidth && frozenPreview.naturalHeight) {
+        setPreviewSize({ width: frozenPreview.naturalWidth, height: frozenPreview.naturalHeight });
+      }
+      setPreviewReady(false);
+      setPreviewRevision(revision);
+    } catch (err: any) {
+      if (frozenTabRef.current === targetTab.tabId) frozenTabRef.current = null;
+      apiPost("/api/authoring/freeze", { tabId: targetTab.tabId, frozen: false }).catch(() => {});
+      if (epoch === pickEpochRef.current) {
+        setPickError(`Could not freeze the page for targeting: ${err.message}`);
+      }
+      return;
+    } finally {
+      if (epoch === pickEpochRef.current) setPreparingPick(false);
+    }
+    if (epoch !== pickEpochRef.current) return;
     setMobileSheetOpen(false);
     setPickMode(true);
   };
 
-  // Re-resolve every area's badge position against the LIVE tab whenever the
-  // tab (page/viewport) changes - anchors survive reload/viewport changes
-  // because they're re-resolved, not replayed from a stale stored rect (B3/B4).
+  const cancelHighlight = () => {
+    pickEpochRef.current += 1;
+    setPickMode(false);
+    setPreparingPick(false);
+    const frozen = frozenTabRef.current;
+    frozenTabRef.current = null;
+    if (frozen) apiPost("/api/authoring/freeze", { tabId: frozen, frozen: false }).catch(() => {});
+  };
+  useEffect(() => {
+    if (!pickMode) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancelHighlight();
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [pickMode, tab]);
+
+  useEffect(() => {
+    if (!isNarrowAuthoring || !mobileSheetOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMobileSheetOpen(false);
+    };
+    addEventListener("keydown", closeOnEscape);
+    return () => removeEventListener("keydown", closeOnEscape);
+  }, [isNarrowAuthoring, mobileSheetOpen]);
+
+  // Resolve every badge in one Browser eval, immediately and then at a light
+  // cadence while visible. This keeps responsive/SPAs current without the old
+  // area-count × 2-second request storm. A resolved null is authoritative:
+  // hide the badge rather than replaying a stale stored rectangle.
   const [livePct, setLivePct] = useState<Record<string, Pct | null>>({});
+  const areaAnchorKey = JSON.stringify(page?.areas.map((area) => [area.id, area.anchors]) ?? []);
   useEffect(() => {
     if (!tab || !page) { setLivePct({}); return; }
     let cancelled = false;
-    (async () => {
-      const next: Record<string, Pct | null> = {};
-      for (const a of page.areas) {
-        try {
-          const r = await apiPost("/api/authoring/resolve", { tabId: tab.tabId, anchors: a.anchors });
-          next[a.id] = r.resolved?.pct ?? a.pct ?? null;
-        } catch {
-          next[a.id] = a.pct ?? null;
-        }
+    let resolving = false;
+    const resolveAreas = async () => {
+      if (resolving || document.visibilityState === "hidden" || pickMode) return;
+      resolving = true;
+      try {
+        const r = await apiPost("/api/authoring/resolve-many", {
+          tabId: tab.tabId,
+          items: page.areas.map((area) => ({ id: area.id, anchors: area.anchors }))
+        });
+        if (!cancelled) setLivePct(r.resolved ?? {});
+      } catch {
+        // Keep the last known live positions through a transient Browser
+        // outage. A successful response containing null still hides a target
+        // that genuinely stopped resolving.
+      } finally {
+        resolving = false;
       }
-      if (!cancelled) setLivePct(next);
-    })();
-    return () => { cancelled = true; };
-    // Deliberately keyed on area COUNT, not the `page` object identity - an
-    // unrelated step edit produces a new `page` reference on every keystroke
-    // and would otherwise re-fire this network round trip needlessly.
-    // customVp/resolveTick re-resolve after a custom resize, reload, or
-    // navigation reflows the live DOM under the stored anchors.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, page?.areas.length, page?.id, customVp, resolveTick]);
+    };
+    void resolveAreas();
+    const interval = setInterval(resolveAreas, 5_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void resolveAreas();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+    // `areaAnchorKey` changes for target edits but unrelated step saves do
+    // not reset the poll. The iframe onLoad revision refreshes immediately
+    // after a real browser navigation.
+  }, [tab?.tabId, page?.id, areaAnchorKey, areaResolutionRevision, pickMode]);
 
   const addStep = (area: number) => {
-    const step: Step = { id: newStepId(), area, mode: "vision", enabled: true, viewports: [viewportId], state: stateSel, description: "", tags: [] };
-    savePage((current) => ({ steps: [...current.steps, step] }));
+    const step: Step = { id: newStepId(), area, mode: "vision", enabled: true, viewports: [viewportId], state: activeStateSel, description: "", tags: [] };
+    void mutatePage((current) => ({ steps: [...current.steps, step] }));
   };
-  const patchStep = (stepId: string, patch: Partial<Step>) => {
-    savePage((current) => ({ steps: current.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)) }));
+  const patchStep = (stepId: string, patch: Partial<Step> | ((step: Step) => Partial<Step>)) => {
+    void mutatePage((current) => ({
+      steps: current.steps.map((step) =>
+        step.id === stepId
+          ? { ...step, ...(typeof patch === "function" ? patch(step) : patch) }
+          : step
+      )
+    }));
   };
   const removeStep = (stepId: string) => {
-    savePage((current) => ({ steps: current.steps.filter((s) => s.id !== stepId) }));
+    void mutatePage((current) => ({ steps: current.steps.filter((step) => step.id !== stepId) }));
+  };
+  const renameArea = (areaId: string, label: string) => {
+    const nextLabel = label.trim();
+    if (!nextLabel) return;
+    void mutatePage((current) => ({
+      areas: current.areas.map((area) => area.id === areaId ? { ...area, label: nextLabel } : area)
+    }));
+  };
+  const removeArea = (area: Area) => {
+    const crossPageRefs = pagesRef.current.flatMap((candidate) =>
+      candidate.id === pageId
+        ? []
+        : candidate.steps.filter((step) => step.ref === area.id).map(() => candidate.title)
+    );
+    if (crossPageRefs.length > 0) {
+      setPickError(`Area ${area.n} is referenced from ${Array.from(new Set(crossPageRefs)).join(", ")}. Remove those links before deleting it.`);
+      return;
+    }
+    const scopedChecks = pagesRef.current.find((candidate) => candidate.id === pageId)?.steps.filter((step) => step.area === area.n).length ?? 0;
+    if (!confirm(`Delete “${area.label}”${scopedChecks ? ` and its ${scopedChecks} check${scopedChecks === 1 ? "" : "s"}` : ""}?`)) return;
+    void mutatePage((current) => ({
+      areas: current.areas.filter((candidate) => candidate.id !== area.id),
+      steps: current.steps.filter((step) => step.area !== area.n)
+    }));
   };
 
   if (error) return <div className="dr-placeholder">{error} <button className="btn small" onClick={() => setError(null)}>dismiss</button></div>;
@@ -917,7 +1474,7 @@ function AuthoringView() {
       <div className="dr-placeholder">
         No pages yet.
         <div className="dr-rowwrap" style={{ justifyContent: "center", marginTop: 10 }}>
-          <input value={newPageId} onChange={(e) => setNewPageId(e.target.value)} placeholder="page id, e.g. chat"
+          <input aria-label="New page id" value={newPageId} onChange={(e) => setNewPageId(e.target.value)} placeholder="page id, e.g. chat"
             style={{ fontSize: 12, padding: "6px 8px", border: "1px solid var(--rule)" }} />
           <button className="btn small" onClick={createPage}><Plus size={12} /> Add page</button>
         </div>
@@ -927,84 +1484,54 @@ function AuthoringView() {
   if (!page) return <div className="dr-placeholder">Loading…</div>;
 
   const states: string[] = ["default", ...page.states.map((s) => s.id).filter((s) => s !== "default")];
-  const pageSteps = page.steps.filter((s) => s.area === 0 && s.state === stateSel);
-  const areaSteps = (n: number) => page.steps.filter((s) => s.area === n && s.state === stateSel);
+  const pageSteps = page.steps.filter((s) => s.area === 0 && s.state === activeStateSel);
+  const areaSteps = (n: number) => page.steps.filter((s) => s.area === n && s.state === activeStateSel);
 
-  // Display scale: never upscale (a phone viewport in a wide column renders
-  // at its native 390px, centered), downscale to fit otherwise. A custom size
-  // overrides the preset - the iframe's layout box IS the real viewport (the
-  // embed canvas resizes the live tab to it), so this is all it takes.
-  const vp = customVp ?? tab?.viewport ?? null;
-  const scale = vp && cvWidth > 0 ? Math.min(1, cvWidth / vp.width) : 1;
-  const dispW = vp ? Math.round(vp.width * scale) : 0;
-  const dispH = vp ? Math.round(vp.height * scale) : 0;
   const consoleErrors = consoleEntries.filter((e) => e.level === "error").length;
 
   return (
-    <div>
-      <Help>
-        The manual authoring surface: your step plan alongside the live app (on a phone it slides up as
-        a sheet). Highlight an area, then write steps against it (or page-level steps) - plain-language
-        checks. Steps start as vision checks (a model judges the page); when a vision check passes and
-        grounds a deterministic assertion it graduates to e2e automatically. The preview is interactive -
-        click and type in it to steer the app, use the toolbar to navigate, reload, restart the tab
-        fresh, or watch the page's console while you test by hand.
-      </Help>
+    <div className="dr-au">
+      <SectionIntro title="Authoring">
+        Review one page at a time. Its checks and highlighted areas are on the left; the live, viewport-accurate page preview is on the right. Highlighting adds a stable target for focused checks.
+      </SectionIntro>
+
       {authError && (
-        <div className="dr-banner">
+        <div className="dr-banner" role="alert">
           <span style={{ flex: "1 1 240px" }}>{authError}</span>
           <button className="btn small" onClick={() => setAuthError(null)}>Dismiss</button>
         </div>
       )}
-      <div className="dr-au">
       <div className="dr-au-canvas">
-        <div className="dr-lbl">App under test</div>
-        <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
-          <select value={pageId ?? ""} onChange={(e) => setPageId(e.target.value)} style={{ fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }}>
+        <div className="dr-canvas-head">
+          <div>
+            <div className="dr-lbl">Interactive browser</div>
+            {tab?.url && <div className="mono dr-preview-url">{tab.url}</div>}
+          </div>
+          <button className="btn small" aria-label="Refresh browser preview" onClick={() => {
+            setPreviewRevision((n) => n + 1);
+            setAreaResolutionRevision((n) => n + 1);
+          }}>Refresh preview</button>
+        </div>
+        <div className="dr-author-controls">
+          <select aria-label="Authoring page" value={pageId ?? ""} onChange={(e) => {
+            cancelHighlight();
+            setPageId(e.target.value);
+            onPageChange(e.target.value);
+          }} style={{ fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }}>
             {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
           </select>
-          <div className="dr-rowwrap">
+          <div className="dr-rowwrap" role="group" aria-label="Authoring viewport">
             {VIEWPORTS.map((v) => {
               const Icon = v.icon;
-              const active = !customVp && viewportId === v.id;
               return (
-                <span key={v.id} className={"chip click" + (active ? " ink active" : " sage")} aria-pressed={active}
-                  title={`Author at the ${v.label} viewport - the app really reflows to this size`}
-                  {...chipAction(() => { setCustomVp(null); setViewportId(v.id); })}>
+                <button key={v.id} className={"chip click" + (viewportId === v.id ? " ink active" : " sage")} onClick={() => {
+                  cancelHighlight();
+                  setViewportId(v.id);
+                }} aria-pressed={viewportId === v.id}>
                   <Icon size={11} /> {v.label}
-                </span>
+                </button>
               );
             })}
-            <span className={"chip click" + (customVp ? " ink active" : " sage")} aria-pressed={!!customVp}
-              title="Author at any viewport size - type width x height"
-              {...chipAction(() => {
-                const base = customVp ?? tab?.viewport ?? { width: 1280, height: 800 };
-                setVpDraft({ w: String(base.width), h: String(base.height) });
-                setCustomVp(base);
-              })}>
-              <Ruler size={11} /> custom
-            </span>
-            {customVp && (
-              <span className="dr-vpsize">
-                <input className="dr-vpnum" type="number" min={280} max={3840} value={vpDraft.w}
-                  onChange={(e) => setVpDraft((d) => ({ ...d, w: e.target.value }))}
-                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  onBlur={() => {
-                    const width = Math.max(280, Math.min(3840, Number(vpDraft.w) || 0)) || customVp.width;
-                    setVpDraft((d) => ({ ...d, w: String(width) }));
-                    setCustomVp((c) => (c ? { ...c, width } : c));
-                  }} aria-label="viewport width" />
-                <span className="t11">x</span>
-                <input className="dr-vpnum" type="number" min={280} max={3840} value={vpDraft.h}
-                  onChange={(e) => setVpDraft((d) => ({ ...d, h: e.target.value }))}
-                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  onBlur={() => {
-                    const height = Math.max(280, Math.min(3840, Number(vpDraft.h) || 0)) || customVp.height;
-                    setVpDraft((d) => ({ ...d, h: String(height) }));
-                    setCustomVp((c) => (c ? { ...c, height } : c));
-                  }} aria-label="viewport height" />
-              </span>
-            )}
           </div>
         </div>
 
@@ -1022,7 +1549,7 @@ function AuthoringView() {
             <button className="btn small" title="Close this preview tab and reopen the page fresh (resets app state)" onClick={restartTab}>
               <RefreshCcw size={11} /> Restart
             </button>
-            <a className="btn small" href={tab.canvasUrl.replace(/\?embed=1$/, "")} target="_blank" rel="noreferrer"
+            <a className="btn small" href={fullBrowserViewUrl(tab.canvasUrl)} target="_blank" rel="noreferrer"
               title="Open this same live tab full-size in the Browser fitting">
               <ExternalLink size={11} /> Full view
             </a>
@@ -1033,85 +1560,152 @@ function AuthoringView() {
           </div>
         )}
 
-        <div className="dr-cv-outer" ref={setCvEl}>
-          {tab ? (
-            <div className="dr-cv" style={{ width: dispW, height: dispH }}>
+        {tab ? (
+          <div className={"dr-cv" + (pickMode ? " is-picking" : "")} style={{ aspectRatio: `${previewSize?.width ?? tab.viewport.width} / ${previewSize?.height ?? tab.viewport.height}` }}>
+            {!previewReady && <div className="dr-preview-loading">Loading viewport preview…</div>}
+            <img
+              key={`${tab.tabId}:${previewRevision}`}
+              alt={`${page.title} at ${viewportId} viewport`}
+              src={`${tab.screenshotUrl}?t=${previewRevision}`}
+              className="dr-cv-frame"
+              onLoad={(event) => {
+                setPreviewReady(true);
+                const image = event.currentTarget;
+                if (image.naturalWidth && image.naturalHeight) {
+                  setPreviewSize({ width: image.naturalWidth, height: image.naturalHeight });
+                }
+              }}
+              onError={() => setPreviewReady(false)}
+            />
+            {!pickMode && !preparingPick && (
               <iframe
-                title="app under test"
+                className="dr-cv-live"
                 src={tab.canvasUrl}
-                className="dr-cv-frame"
-                style={{ width: vp!.width, height: vp!.height, transform: `scale(${scale})` }}
+                title={`${page.title} interactive browser`}
+                onLoad={() => setAreaResolutionRevision((n) => n + 1)}
               />
-              <div
-                ref={overlayRef}
-                className="dr-cv-overlay"
-                style={{ cursor: pickMode ? "crosshair" : "default", pointerEvents: pickMode ? "auto" : "none" }}
-                onClick={onOverlayClick}
-              />
-              {page.areas.map((a) => {
-                const pct = livePct[a.id] ?? a.pct;
-                if (!pct) return null;
-                return (
-                  <div key={a.id} className="dr-abox" style={{ left: `${pct.leftPct}%`, top: `${pct.topPct}%`, width: `${pct.widthPct}%`, height: `${pct.heightPct}%` }}>
-                    <span className="dr-abadge">{a.n}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="dr-placeholder">{authError ? "App preview unavailable." : "Opening the app preview…"}</div>
-          )}
-        </div>
+            )}
+            <div
+              ref={overlayRef}
+              className="dr-cv-overlay"
+              style={{
+                cursor: pickMode && previewReady ? "crosshair" : "default",
+                pointerEvents: pickMode && previewReady ? "auto" : "none"
+              }}
+              onClick={onOverlayClick}
+            />
+            {pickMode && previewReady && (
+              <div className="dr-pick-instruction" aria-live="polite">
+                Click the element you want Drill to track · Esc or Cancel to stop
+              </div>
+            )}
+            {pickMode && !previewReady && (
+              <div className="dr-pick-instruction" aria-live="polite">
+                Preparing the frozen viewport…
+              </div>
+            )}
+            {pickMode && (
+              <button className="dr-pick-cancel" onClick={(event) => {
+                event.stopPropagation();
+                cancelHighlight();
+              }}>Cancel</button>
+            )}
+            {page.areas.map((a) => {
+              const pct = Object.prototype.hasOwnProperty.call(livePct, a.id) ? livePct[a.id] : a.pct;
+              if (!pct) return null;
+              return (
+                <div key={a.id} className="dr-abox" style={{ left: `${pct.leftPct}%`, top: `${pct.topPct}%`, width: `${pct.widthPct}%`, height: `${pct.heightPct}%` }}>
+                  <span className="dr-abadge">{a.n}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : tabError ? (
+          <div className="dr-placeholder dr-tab-error" role="alert">
+            <span>Could not open the browser tab: {tabError}</span>
+            <button className="btn small" onClick={() => setTabLoadRevision((n) => n + 1)}>Retry opening tab</button>
+          </div>
+        ) : (
+          <div className="dr-placeholder">Opening tab…</div>
+        )}
 
+        <div className="dr-canvas-actions">
+          <button className={"btn small" + (pickMode ? " primary" : "")} disabled={preparingPick} onClick={() => (pickMode ? cancelHighlight() : void startHighlight())}>
+            <Crosshair size={11} /> {preparingPick ? "Preparing target…" : pickMode ? "Cancel highlighting" : "Highlight an area"}
+          </button>
+          <span className="dr-help-inline">Interact with the browser normally. Highlight swaps to an exact frozen viewport so the picked element cannot move.</span>
+        </div>
         {consoleOpen && (
-          <div className="dr-console">
+          <div className="dr-console" aria-label="Browser console">
             {consoleEntries.length === 0 && <div className="dr-con-empty">No console output from the page yet.</div>}
-            {consoleEntries.slice(-80).map((e, i) => (
-              <div key={`${e.ts}-${i}`} className={"dr-con-row" + (e.level === "error" ? " err" : e.level === "warning" ? " warn" : "")}>
-                <span className="dr-con-lvl">{e.level}</span>
-                <span className="dr-con-text">{e.text}</span>
+            {consoleEntries.slice(-80).map((entry, index) => (
+              <div key={`${entry.ts}-${index}`} className={"dr-con-row" + (entry.level === "error" ? " err" : entry.level === "warning" ? " warn" : "")}>
+                <span className="dr-con-lvl">{entry.level}</span>
+                <span className="dr-con-text">{entry.text}</span>
               </div>
             ))}
             <div ref={consoleEndRef} />
           </div>
         )}
-
-        <div className="dr-rowwrap" style={{ marginTop: 8 }}>
-          <button className={"btn small" + (pickMode ? " primary" : "")} onClick={() => (pickMode ? setPickMode(false) : startHighlight())}>
-            <Crosshair size={11} /> {pickMode ? "Now click an element in the preview…" : "Highlight new area"}
-          </button>
-          {pickMode && <span style={{ fontSize: 11, color: "var(--brass)" }}>Click the element you want to check - it becomes a numbered area you can attach steps to.</span>}
-        </div>
+        {pickError && <div className="dr-inline-error" role="alert">{pickError}</div>}
 
         {/* E1: FAB - shown only at phone width (CSS) AND while the sheet is
             closed, to open it back up; toggles the plan sheet. */}
         {!pickMode && !mobileSheetOpen && (
-          <button className="dr-fab" onClick={() => setMobileSheetOpen((v) => !v)} aria-label="Toggle plan">
+          <button ref={planFabRef} className="dr-fab" onClick={() => setMobileSheetOpen(true)} aria-label="Open authoring plan">
             <NotebookPen size={18} />
           </button>
         )}
       </div>
 
-      <div className={"dr-au-plan" + (mobileSheetOpen ? " dr-sheet-open" : " dr-sheet-closed")}>
+      <aside
+        className={"dr-au-plan" + (mobileSheetOpen ? " dr-sheet-open" : " dr-sheet-closed")}
+        role={isNarrowAuthoring && mobileSheetOpen ? "dialog" : undefined}
+        aria-modal={isNarrowAuthoring && mobileSheetOpen ? "true" : undefined}
+        aria-label="Authoring checks"
+        aria-hidden={isNarrowAuthoring && !mobileSheetOpen ? true : undefined}
+        {...((isNarrowAuthoring && !mobileSheetOpen ? { inert: "" } : {}) as any)}
+      >
         <div className="dr-rowwrap" style={{ marginBottom: 10 }}>
           <b>Drill: {page.title}</b>
-          <button className="dr-sheet-close" onClick={() => setMobileSheetOpen(false)} title="Close plan sheet"><X size={16} /></button>
+          <span className={`dr-save-status ${saveStatus}`} data-testid="author-save-status" aria-live="polite">
+            {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" : saveStatus === "error" ? "Save failed" : ""}
+          </span>
+          <button ref={planCloseRef} className="dr-sheet-close" onClick={() => setMobileSheetOpen(false)} title="Close plan sheet" aria-label="Close plan sheet"><X size={16} /></button>
         </div>
 
         {/* Phone-only (CSS): a tall phone-aspect canvas pushes the canvas
             column's Highlight button under this very sheet, so the sheet
             carries its own - tapping it closes the sheet and enters pick
             mode on the full-screen canvas (E2). */}
-        <button className="btn small dr-sheet-highlight" onClick={startHighlight}>
-          <Crosshair size={11} /> Highlight new area
+        <button className="btn small dr-sheet-highlight" disabled={preparingPick} onClick={() => void startHighlight()}>
+          <Crosshair size={11} /> {preparingPick ? "Preparing target…" : "Highlight an area"}
         </button>
+
+        {activeStateSel !== "default" && (
+          <div className="dr-state-reference">
+            <div className="dr-lbl">State reference</div>
+            {activeStateImage ? (
+              <img
+                alt={`${activeStateSel} reference`}
+                src={activeStateImage}
+              />
+            ) : activeStateImage === undefined ? (
+              <div className="dr-state-reference-missing" role="status">Loading state reference…</div>
+            ) : (
+              <div className="dr-state-reference-missing" role="status">
+                {activeState?.screenshotPath ? "Recorded state reference unavailable." : "No state reference captured yet."}
+              </div>
+            )}
+          </div>
+        )}
 
         {states.length > 1 && (
           <>
             <div className="dr-lbl">State</div>
             <div className="dr-rowwrap" style={{ marginBottom: 12 }}>
               {states.map((s) => (
-                <span key={s} className={"chip click brass" + (stateSel === s ? " active" : "")} aria-pressed={stateSel === s} {...chipAction(() => setStateSel(s))}>{s}</span>
+                <button key={s} className={"chip click brass dr-label-chip" + (activeStateSel === s ? " active" : "")} onClick={() => setStateSel(s)} aria-pressed={activeStateSel === s}>{s}</button>
               ))}
             </div>
           </>
@@ -1120,12 +1714,16 @@ function AuthoringView() {
         <div className="dr-lbl">Page steps</div>
         {pageSteps.map((s) => (
           <StepRow key={s.id} step={s}
-            onToggleEnabled={() => patchStep(s.id, { enabled: !s.enabled })}
-            onToggleMode={() => patchStep(s.id, { mode: s.mode === "vision" ? "e2e" : "vision" })}
-            onToggleJudgment={() => patchStep(s.id, { judgment: !s.judgment })}
+            onToggleEnabled={() => patchStep(s.id, (current) => ({ enabled: !current.enabled }))}
+            onToggleMode={() => patchStep(s.id, (current) => ({ mode: current.mode === "vision" ? "e2e" : "vision" }))}
+            onToggleJudgment={() => patchStep(s.id, (current) => ({ judgment: !current.judgment }))}
             onRemove={() => removeStep(s.id)}
             onEditDescription={(text) => patchStep(s.id, { description: text })}
-            onJumpRef={(ref) => setPageId(ref.split("#")[0])}
+            onJumpRef={(ref) => {
+              const nextPage = ref.split("#")[0];
+              setPageId(nextPage);
+              onPageChange(nextPage);
+            }}
           />
         ))}
         <button className="btn small" onClick={() => addStep(0)}><Plus size={11} /> Page step</button>
@@ -1134,28 +1732,38 @@ function AuthoringView() {
           <div key={a.id} style={{ marginTop: 14 }}>
             <div className="dr-rowwrap" style={{ marginBottom: 4 }}>
               <span className="dr-area-n">{a.n}</span>
-              <b>{a.label}</b>
+              <input
+                className="dr-area-label"
+                aria-label={`Area ${a.n} name`}
+                defaultValue={a.label}
+                onBlur={(event) => {
+                  if (event.currentTarget.value.trim() !== a.label) renameArea(a.id, event.currentTarget.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
               <span className="mono" style={{ fontSize: 10, color: "var(--mute-2)" }}>{a.id}</span>
-              <button className="dr-xbtn" onClick={() => removeArea(a.n)}
-                title={areaSteps(a.n).length > 0 ? `Remove area ${a.n} and its ${areaSteps(a.n).length} step(s)` : `Remove area ${a.n}`}>
-                <X size={13} />
-              </button>
+              <button className="dr-xbtn dr-area-delete" aria-label={`Delete area ${a.n}`} onClick={() => removeArea(a)}><X size={14} /></button>
             </div>
             {areaSteps(a.n).map((s) => (
               <StepRow key={s.id} step={s}
-                onToggleEnabled={() => patchStep(s.id, { enabled: !s.enabled })}
-                onToggleMode={() => patchStep(s.id, { mode: s.mode === "vision" ? "e2e" : "vision" })}
-                onToggleJudgment={() => patchStep(s.id, { judgment: !s.judgment })}
+                onToggleEnabled={() => patchStep(s.id, (current) => ({ enabled: !current.enabled }))}
+                onToggleMode={() => patchStep(s.id, (current) => ({ mode: current.mode === "vision" ? "e2e" : "vision" }))}
+                onToggleJudgment={() => patchStep(s.id, (current) => ({ judgment: !current.judgment }))}
                 onRemove={() => removeStep(s.id)}
                 onEditDescription={(text) => patchStep(s.id, { description: text })}
-                onJumpRef={(ref) => setPageId(ref.split("#")[0])}
+                onJumpRef={(ref) => {
+                  const nextPage = ref.split("#")[0];
+                  setPageId(nextPage);
+                  onPageChange(nextPage);
+                }}
               />
             ))}
             <button className="btn small" onClick={() => addStep(a.n)}><Plus size={11} /> Step</button>
           </div>
         ))}
-      </div>
-      </div>
+      </aside>
     </div>
   );
 }
@@ -1165,23 +1773,203 @@ function AuthoringView() {
 interface RunPageEntry {
   pageId: string; stepId: string; viewportId: string; automationRunId: string | null; status: string; error?: string;
   infra?: boolean;
+  stateReferenceSeeded?: string;
+  stateReferenceRejected?: {
+    state: string;
+    reason: string;
+    warnings: Array<{ code: string; text: string }>;
+  };
+  terminal?: {
+    kind: "passed" | "product-failure" | "infra-failure" | "blocked" | "incomplete";
+    source: string;
+    code: string;
+    component?: string;
+    message?: string;
+    tier?: string | null;
+    evidencePath?: string;
+    durationMs?: number;
+    reasoning?: string;
+  };
   result: { stepId: string; status: string; tier?: string | null; error?: string; evidencePath?: string; durationMs?: number; result?: { passed?: boolean; reasoning?: string } } | null;
 }
-interface RunRow {
-  id: string; startedAt: string; endedAt: string | null; contextTag: string; state: string;
-  project: string | null; dispatchedAt: string | null; steps: number;
-  summary: { steps: number; failed: number; infra: number } | null;
-  findings: { proposed: number; confirmed: number; dismissed: number };
+interface Finding {
+  id: string;
+  kind: string;
+  pageId: string;
+  stepId: string | null;
+  viewportId?: string | null;
+  text: string;
+  status: "proposed" | "confirmed" | "dismissed";
+  at: string;
+  card?: { id: string; url: string | null; at: string } | null;
 }
-interface Finding { id: string; kind: string; pageId: string; stepId: string | null; text: string; status: "proposed" | "confirmed" | "dismissed"; at: string; card?: { id: string; url: string | null; at: string } | null }
+interface InfraError {
+  id: string;
+  pageId: string | null;
+  stepId: string | null;
+  text: string;
+  at: string;
+  code?: string;
+  component?: string;
+  count?: number;
+  occurrences?: Array<{ pageId: string | null; stepId: string | null; viewportId?: string | null }>;
+}
 interface Observation { id: string; text: string; at: string; convertedToStep: string | null; convertedToFinding: string | null }
 interface DrillRun {
   id: string; startedAt: string; endedAt: string | null; contextTag: string; state: string;
+  dispatch?: "manual" | "heartbeat" | "immediate";
+  dispatchedAt?: string | null;
+  dispatchedCard?: { id: string; list?: string | null } | null;
   pages: RunPageEntry[];
+  selection?: { pageIds: string[]; viewportIds: string[] };
+  plannedChecks?: number;
+  executedChecks?: number;
+  circuit?: RunCircuit | null;
   feedback: Record<string, Array<{ id: string; note: string; at: string }>>;
   overrides: Record<string, { verdict: string; note: string; at: string }>;
   observations: Observation[];
   findings: Finding[];
+  infraErrors?: InfraError[];
+}
+
+interface DrillRunSummary {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  contextTag: string;
+  state: string;
+  dispatch?: "manual" | "heartbeat" | "immediate";
+  dispatchedAt?: string | null;
+  dispatchedCard?: { id: string; list?: string | null } | null;
+  pages: RunPageEntry[];
+  selection?: { pageIds: string[]; viewportIds: string[] };
+  plannedChecks?: number;
+  executedChecks?: number;
+  circuit?: RunCircuit | null;
+  overrides: Record<string, { verdict: string; note: string; at: string }>;
+  findings: Finding[];
+  infraErrors?: InfraError[];
+}
+
+interface RunCircuit {
+  component: string;
+  code: string;
+  message: string;
+  kind: string;
+  openedAt: string;
+  afterCheck: number;
+  skippedChecks: number;
+  trigger?: { pageId: string; stepId: string; viewportId: string };
+}
+
+function legacyInfrastructureMeta(finding: Pick<Finding, "kind" | "text">) {
+  const text = String(finding.text ?? "").trim();
+  if (finding.kind === "infra-error") return { component: "drill", code: "legacy-infra" };
+  if (finding.kind !== "step-fail") return null;
+  if (/^automations unavailable(?:\b|:)/i.test(text) || /^automations fitting not running\b/i.test(text)) {
+    return { component: "automations", code: "automations-unavailable" };
+  }
+  let match = text.match(/^vision (?:HTTP )?([45]\d\d)(?::.*)?$/i);
+  if (match) return { component: "vision", code: `vision-http-${match[1]}` };
+  match = text.match(/^fixer (?:HTTP )?([45]\d\d)(?::.*)?$/i)
+    ?? text.match(/^fixer failed: fixer (?:HTTP )?([45]\d\d)(?::.*)?$/i);
+  if (match) return { component: "fixer", code: `fixer-http-${match[1]}` };
+  if (/^(?:TypeError:\s*)?fetch failed(?:$|:)/i.test(text)) {
+    return { component: "automations", code: "transport-fetch-failed" };
+  }
+  const unavailable = text.match(/^(browser|vision|fixer|gateway|orchestrator) fitting not running(?:\b|:)/i);
+  if (unavailable) return { component: unavailable[1].toLowerCase(), code: `${unavailable[1].toLowerCase()}-unavailable` };
+  return null;
+}
+
+function groupInfraErrors(items: InfraError[]) {
+  const grouped = new Map<string, InfraError>();
+  for (const item of items) {
+    const component = item.component ?? "drill";
+    const code = item.code ?? "dependency-error";
+    const text = String(item.text ?? "Infrastructure failure").trim();
+    const key = `${component}\u0000${code}\u0000${text}`;
+    const occurrences = item.occurrences?.length
+      ? item.occurrences
+      : [{ pageId: item.pageId, stepId: item.stepId }];
+    const count = Math.max(item.count ?? 0, occurrences.length, 1);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.occurrences = [...(existing.occurrences ?? []), ...occurrences];
+      existing.count = (existing.count ?? 1) + count;
+    } else {
+      grouped.set(key, { ...item, component, code, text, count, occurrences: [...occurrences] });
+    }
+  }
+  return [...grouped.values()];
+}
+
+function splitRunIssues(run: DrillRun | DrillRunSummary) {
+  const legacyInfra = (run.findings ?? []).filter((finding) => legacyInfrastructureMeta(finding));
+  const productFindings = (run.findings ?? []).filter((f) => !legacyInfra.includes(f));
+  const infraErrors = groupInfraErrors([
+    ...(run.infraErrors ?? []),
+    ...legacyInfra.map((finding) => {
+      const meta = legacyInfrastructureMeta(finding)!;
+      return {
+        id: finding.id,
+        pageId: finding.pageId,
+        stepId: finding.stepId,
+        text: finding.text,
+        at: finding.at,
+        count: 1,
+        ...meta
+      };
+    })
+  ]);
+  return { productFindings, infraErrors };
+}
+
+function overrideForEntry(
+  overrides: Record<string, { verdict: string; note: string; at: string }> | undefined,
+  entry: RunPageEntry
+) {
+  const recordKey = `${entry.pageId}:${entry.stepId}`;
+  return overrides?.[`${recordKey}:${entry.viewportId}`] ?? overrides?.[recordKey];
+}
+
+function effectiveStepPassed(
+  run: Pick<DrillRun, "overrides"> | Pick<DrillRunSummary, "overrides">,
+  entry: RunPageEntry
+) {
+  const review = overrideForEntry(run.overrides, entry);
+  return review ? review.verdict === "passed" : stepPassed(entry);
+}
+
+function activeProductFindings(run: DrillRun | DrillRunSummary, findings: Finding[]) {
+  return findings.filter((finding) => {
+    if (finding.status === "dismissed") return false;
+    if (!finding.stepId) return true;
+    const matchingEntries = run.pages.filter((entry) =>
+      entry.pageId === finding.pageId &&
+      entry.stepId === finding.stepId &&
+      (!finding.viewportId || entry.viewportId === finding.viewportId)
+    );
+    // Historical failure findings predate viewport-aware overrides. If every
+    // check the finding can refer to is now explicitly/effectively passed,
+    // it no longer keeps the run red. The record remains visible for audit.
+    return matchingEntries.length === 0 || matchingEntries.some((entry) => !effectiveStepPassed(run, entry));
+  });
+}
+
+function runVerdict(run: DrillRunSummary) {
+  if (!run.endedAt) return "Running";
+  const { productFindings, infraErrors } = splitRunIssues(run);
+  if (
+    run.circuit ||
+    infraErrors.length > 0 ||
+    run.pages.some((entry) =>
+      ["infra-failure", "blocked", "incomplete"].includes(entry.terminal?.kind ?? "") ||
+      (!entry.terminal && (entry.status === "error" || (entry.status === "failed" && !entry.result)))
+    )
+  ) return "Incomplete";
+  if (activeProductFindings(run, productFindings).length > 0) return "Findings";
+  return "Passed";
 }
 
 function tierTone(tier?: string | null) {
@@ -1191,52 +1979,110 @@ function tierTone(tier?: string | null) {
   return "paper";
 }
 
+function EvidenceImage({ src, alt, compact = false }: { src: string; alt: string; compact?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <div className="dr-evidence-missing">Evidence image unavailable</div>;
+  return (
+    <a className={"dr-evidence-link" + (compact ? " compact" : "")} href={src} target="_blank" rel="noreferrer">
+      <img className="dr-evidence-image" src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />
+      <span>Open full evidence</span>
+    </a>
+  );
+}
+
 function stepPassed(entry: RunPageEntry): boolean {
-  if (!entry.result) return false;
+  if (entry.terminal) return entry.terminal.kind === "passed";
+  // Historical result hydration depends on Automations being reachable. The
+  // Drill record's stored terminal status remains authoritative when detail
+  // lookup is temporarily unavailable; a lookup outage must not repaint a
+  // previously completed check red.
+  if (!entry.result) return entry.status === "completed" || entry.status === "passed";
   if (entry.result.status === "failed") return false;
   if (entry.result.result && entry.result.result.passed === false) return false;
   return true;
 }
 
-function ResultsView({ initialRun, onConsumeInitialRun }: {
+function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onConsumeInitialSelection, initialRunId, onRunViewed }: {
   initialRun: { pageIds: string[]; viewports: string[] } | null;
   onConsumeInitialRun: () => void;
+  initialSelection?: { pageId: string; state: string; viewportId: string } | null;
+  onConsumeInitialSelection?: () => void;
+  initialRunId?: string | null;
+  onRunViewed: (runId: string) => void;
 }) {
   const [pages, setPages] = useState<DrillPage[]>([]);
+  const [pagesLoaded, setPagesLoaded] = useState(false);
   const [book, setBook] = useState<DrillBook | null>(null);
-  const [runs, setRuns] = useState<RunRow[]>([]);
+  const [runs, setRuns] = useState<DrillRunSummary[]>([]);
+  const [runsLoaded, setRunsLoaded] = useState(false);
   const [run, setRun] = useState<DrillRun | null>(null);
-  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
-  const [selectedViewports, setSelectedViewports] = useState<Set<string>>(new Set(["desktop"]));
+  const [historyPage, setHistoryPage] = useState(0);
+  // Cross-view handoffs are already known when Results mounts. Seed the
+  // controls from them so the first page-button commit is truthful; waiting
+  // for the pages request and then applying a passive effect exposed one frame
+  // where a prepared reference run looked completely unselected.
+  const [selectedPages, setSelectedPages] = useState<Set<string>>(() => new Set(
+    initialSelection ? [initialSelection.pageId] : (initialRun?.pageIds ?? [])
+  ));
+  const [selectedViewports, setSelectedViewports] = useState<Set<string>>(() => new Set(
+    initialSelection ? [initialSelection.viewportId] : (initialRun?.viewports ?? ["desktop"])
+  ));
+  const [selectedState, setSelectedState] = useState(initialSelection?.state ?? "default");
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [obsText, setObsText] = useState("");
   const [dispatchMode, setDispatchMode] = useState<"manual" | "heartbeat" | "immediate">("manual");
   // The card minted by the last dispatch click - shown inline as a link so
   // "did my fixes reach the kanban?" is answered right here.
   const [dispatchedCard, setDispatchedCard] = useState<{ id: string; url: string | null } | null>(null);
-  const [runsPage, setRunsPage] = useState(0);
   const [deleteArm, setDeleteArm] = useState<string | null>(null);
+  const [dispatching, setDispatching] = useState(false);
   const [pendingGate, setPendingGate] = useState<{ plan: Array<{ pageId: string; viewportId: string; steps: Array<{ id: string; description: string; mode: string }> }>; resume: unknown } | null>(null);
 
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")])
       .then(([p, b, r]) => {
         setPages(p.pages);
+        setPagesLoaded(true);
         setBook(b.book);
         setRuns(r.runs);
-        if (!run && r.runs.length > 0) apiGet(`/api/runs/${r.runs[0].id}`).then((rr) => setRun(rr.run));
+        setRunsLoaded(true);
+        const desired = initialRunId && r.runs.some((item: DrillRunSummary) => item.id === initialRunId)
+          ? initialRunId
+          : r.runs[0]?.id;
+        if (!run && desired) apiGet(`/api/runs/${desired}`).then((rr) => setRun(rr.run));
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        setRunsLoaded(true);
+        setError(e.message);
+      });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only fetch
   useEffect(load, []);
 
-  const startRun = async (pageIdsArg?: string[], viewportsArg?: string[]) => {
+  const startRun = async (pageIdsArg?: string[], viewportsArg?: string[], stateArg?: string) => {
     const pageIds = pageIdsArg ?? [...selectedPages];
     const viewports = viewportsArg ?? [...selectedViewports];
     if (pageIds.length === 0 || viewports.length === 0) { setError("select at least one page and one viewport"); return; }
+    const requestedState = stateArg ?? (availableStates.includes(selectedState) ? selectedState : "default");
+    const uncovered = pageIds.flatMap((pageId) => {
+      const page = pages.find((candidate) => candidate.id === pageId);
+      return viewports
+        .filter((viewportId) => !page?.steps.some((step) =>
+          step.enabled !== false &&
+          (step.state || "default") === requestedState &&
+          (!step.viewports?.length || step.viewports.includes(viewportId))
+        ))
+        .map((viewportId) => `${page?.title || pageId} · ${viewportId}`);
+    });
+    if (uncovered.length > 0) {
+      setError(
+        `No enabled ${requestedState === "default" ? "default-state " : `${requestedState} `}checks cover ${uncovered.join(", ")}. Adjust the page, state, or viewport selection before running.`
+      );
+      return;
+    }
     setRunning(true);
     setError(null);
     setPendingGate(null);
@@ -1245,7 +2091,7 @@ function ResultsView({ initialRun, onConsumeInitialRun }: {
       // through the project's run skill" and wait, not a wall of failures.
       await ensureAppUp(setPhase);
       setPhase(null);
-      const r = await apiPost("/api/runs", { pageIds, viewports, contextTag: "drill" });
+      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill" });
       if (r.held) {
         // A5/R7/S22: gated autonomy pauses with a plan diff before running.
         setPendingGate({ plan: r.plan, resume: r.resume });
@@ -1264,13 +2110,26 @@ function ResultsView({ initialRun, onConsumeInitialRun }: {
   // The Book view's "Run selected" lands here: preselect its pages and
   // viewports and start immediately.
   useEffect(() => {
-    if (!initialRun) return;
+    if (!initialRun || pages.length === 0) return;
     setSelectedPages(new Set(initialRun.pageIds));
     setSelectedViewports(new Set(initialRun.viewports));
     onConsumeInitialRun();
-    startRun(initialRun.pageIds, initialRun.viewports);
+    startRun(initialRun.pageIds, initialRun.viewports, "default");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot handoff consume
-  }, [initialRun]);
+  }, [initialRun, pages.length]);
+
+  // States links prepare (but deliberately do not auto-start) the exact named
+  // state coverage. The user lands at meaningful controls instead of a
+  // generic Results page that forgets which missing reference they came from.
+  useEffect(() => {
+    if (!initialSelection || pages.length === 0) return;
+    if (pages.some((candidate) => candidate.id === initialSelection.pageId)) {
+      setSelectedPages(new Set([initialSelection.pageId]));
+      setSelectedViewports(new Set([initialSelection.viewportId]));
+      setSelectedState(initialSelection.state);
+    }
+    onConsumeInitialSelection?.();
+  }, [initialSelection, pages.length, onConsumeInitialSelection]);
 
   const approveGate = async () => {
     if (!pendingGate) return;
@@ -1287,165 +2146,340 @@ function ResultsView({ initialRun, onConsumeInitialRun }: {
     }
   };
 
-  const refreshRun = (r: DrillRun) => setRun(r);
+  const refreshRun = (r: DrillRun) => {
+    setRun(r);
+    // Keep the selected history row's verdict/counts in lockstep with review
+    // overrides instead of requiring a reload to reflect the new truth.
+    setRuns((current) => current.map((summary) => summary.id === r.id ? r : summary));
+  };
 
   const openRun = (id: string) => {
     setDispatchedCard(null);
-    return apiGet(`/api/runs/${encodeURIComponent(id)}`).then((r) => setRun(r.run)).catch((e) => setError(e.message));
+    return apiGet(`/api/runs/${encodeURIComponent(id)}`)
+      .then((response) => {
+        setRun(response.run);
+        onRunViewed(id);
+      })
+      .catch((e) => setError(e.message));
   };
   const deleteRun = async (id: string) => {
-    await fetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
-    setDeleteArm(null);
-    const r = await apiGet("/api/runs").catch(() => null);
-    const rows: RunRow[] = r?.runs ?? [];
-    setRuns(rows);
-    if (run?.id === id) {
-      if (rows.length > 0) void openRun(rows[0].id);
-      else setRun(null);
-    }
-  };
-
-  const giveFeedback = async (pageId: string, stepId: string, note: string) => {
-    const r = await apiPost(`/api/runs/${run!.id}/feedback`, { pageId, stepId, note });
-    refreshRun(r.run);
-  };
-  const override = async (pageId: string, stepId: string, verdict: "passed" | "failed", note = "") => {
-    const r = await apiPost(`/api/runs/${run!.id}/override`, { pageId, stepId, verdict, note });
-    refreshRun(r.run);
-  };
-  const addObs = async () => {
-    if (!obsText.trim()) return;
-    const r = await apiPost(`/api/runs/${run!.id}/observation`, { text: obsText.trim() });
-    setObsText("");
-    refreshRun(r.run);
-  };
-  const convertObsToStep = async (obsId: string, pageId: string) => {
-    const r = await apiPost(`/api/runs/${run!.id}/observation/${obsId}/convert-step`, { pageId });
-    refreshRun(r.run);
-  };
-  const convertObsToFinding = async (obsId: string, pageId: string) => {
-    const r = await apiPost(`/api/runs/${run!.id}/observation/${obsId}/convert-finding`, { pageId });
-    refreshRun(r.run);
-  };
-  const triage = async (findingId: string, status: "confirmed" | "dismissed") => {
-    const r = await fetch(`/api/runs/${run!.id}/findings/${findingId}`, {
-      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status })
-    });
-    const j = await r.json();
-    refreshRun(j.run);
-  };
-  const dispatch = async () => {
     try {
-      const j = await apiPost(`/api/runs/${run!.id}/dispatch`, { mode: dispatchMode });
-      if (j.dispatched) {
-        setError(null);
-        setDispatchedCard(j.card ? { id: j.card.id, url: j.card.url ?? null } : null);
-        if (j.run) refreshRun(j.run);
-      } else {
-        setError(`Heartbeat: ${j.pending} confirmed finding(s) queued for the next beat.`);
+      const response = await fetch(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`Delete failed (${response.status})`);
+      setDeleteArm(null);
+      const result = await apiGet("/api/runs");
+      const nextRuns = (result.runs ?? []) as DrillRunSummary[];
+      setRuns(nextRuns);
+      if (run?.id === id) {
+        if (nextRuns.length > 0) void openRun(nextRuns[0].id);
+        else setRun(null);
       }
     } catch (e: any) {
       setError(e.message);
     }
   };
 
-  const confirmedCount = run ? run.findings.filter((f) => f.status === "confirmed").length : 0;
-  // Only findings not already on a fix card can go out - the button reflects
-  // what a click would actually send.
-  const dispatchableCount = run ? run.findings.filter((f) => f.status === "confirmed" && !f.card).length : 0;
+  useEffect(() => {
+    if (run?.dispatch) setDispatchMode(run.dispatch);
+    setNotice(null);
+  }, [run?.id]);
 
-  const RUNS_PER_PAGE = 8;
-  const totalRunPages = Math.max(1, Math.ceil(runs.length / RUNS_PER_PAGE));
-  const runRows = runs.slice(runsPage * RUNS_PER_PAGE, (runsPage + 1) * RUNS_PER_PAGE);
+  const giveFeedback = async (pageId: string, stepId: string, viewportId: string, note: string) => {
+    if (!note.trim()) return false;
+    try {
+      const r = await apiPost(`/api/runs/${run!.id}/feedback`, { pageId, stepId, viewportId, note: note.trim() });
+      refreshRun(r.run);
+      return true;
+    } catch (e: any) {
+      setError(e.message);
+      return false;
+    }
+  };
+  const override = async (pageId: string, stepId: string, viewportId: string, verdict: "passed" | "failed", note = "") => {
+    try {
+      const r = await apiPost(`/api/runs/${run!.id}/override`, { pageId, stepId, viewportId, verdict, note });
+      refreshRun(r.run);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+  const addObs = async () => {
+    if (!obsText.trim()) return;
+    try {
+      const r = await apiPost(`/api/runs/${run!.id}/observation`, { text: obsText.trim() });
+      setObsText("");
+      refreshRun(r.run);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+  const convertObsToStep = async (obsId: string, pageId: string) => {
+    try {
+      const r = await apiPost(`/api/runs/${run!.id}/observation/${obsId}/convert-step`, { pageId });
+      refreshRun(r.run);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+  const convertObsToFinding = async (obsId: string, pageId: string) => {
+    try {
+      const r = await apiPost(`/api/runs/${run!.id}/observation/${obsId}/convert-finding`, { pageId });
+      refreshRun(r.run);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+  const triage = async (findingId: string, status: "confirmed" | "dismissed") => {
+    try {
+      const j = await apiPatch(`/api/runs/${run!.id}/findings/${findingId}`, { status });
+      refreshRun(j.run);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+  const dispatch = async () => {
+    if (!run || dispatching) return;
+    setDispatching(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const j = await apiPost(`/api/runs/${run.id}/dispatch`, { mode: dispatchMode });
+      if (j.run) refreshRun(j.run);
+      if (j.dispatched) {
+        setDispatchedCard(j.card ? { id: j.card.id, url: j.card.url ?? null } : null);
+        const cardId = j.card?.id ? ` ${j.card.id}` : "";
+        setNotice(`Fix card${cardId} was sent to the Code queue.`);
+      } else {
+        setNotice(`${j.pending} confirmed finding${j.pending === 1 ? "" : "s"} queued for the next heartbeat.`);
+      }
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const issues = run ? splitRunIssues(run) : { productFindings: [], infraErrors: [] };
+  const activeFindings = run ? activeProductFindings(run, issues.productFindings) : [];
+  const confirmedCount = activeFindings.filter((f) => f.status === "confirmed").length;
+  const dispatchableCount = activeFindings.filter((finding) => finding.status === "confirmed" && !finding.card).length;
+  const historyPageSize = 6;
+  const historyPages = Math.max(1, Math.ceil(runs.length / historyPageSize));
+  const visibleRuns = runs.slice(historyPage * historyPageSize, (historyPage + 1) * historyPageSize);
+  const infraOccurrenceKeys = new Set(
+    issues.infraErrors.flatMap((item) => (item.occurrences ?? []).map((occurrence) =>
+      `${occurrence.pageId ?? ""}:${occurrence.stepId ?? ""}:${occurrence.viewportId ?? ""}`
+    ))
+  );
+  const infraPageEntries = run
+    ? run.pages.filter((entry) =>
+        ["infra-failure", "blocked", "incomplete"].includes(entry.terminal?.kind ?? "") ||
+        entry.status === "error" ||
+        (!entry.terminal && entry.status === "failed" && !entry.result) ||
+        legacyInfrastructureMeta({ kind: "step-fail", text: entry.error ?? entry.result?.error ?? "" }) !== null ||
+        infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:${entry.viewportId}`) ||
+        infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:`)
+      )
+    : [];
+  const productPageEntries = run
+    ? run.pages.filter((entry) => !infraPageEntries.includes(entry))
+    : [];
+  const displayedInfra = groupInfraErrors([
+    ...issues.infraErrors,
+    ...infraPageEntries.filter((entry) =>
+      !infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:${entry.viewportId}`) &&
+      !infraOccurrenceKeys.has(`${entry.pageId}:${entry.stepId}:`)
+    ).map((entry, index) => ({
+        id: `${entry.pageId}:${entry.stepId}:${index}`,
+        pageId: entry.pageId,
+        stepId: entry.stepId,
+        text: entry.terminal?.message ?? entry.error ?? entry.result?.error ?? "Infrastructure step failed",
+        at: run?.startedAt ?? new Date().toISOString(),
+        count: 1,
+        code: entry.terminal?.code ?? "run-detail-unavailable",
+        component: entry.terminal?.component ?? "automations",
+        occurrences: [{ pageId: entry.pageId, stepId: entry.stepId, viewportId: entry.viewportId }]
+      }))
+  ]);
+  const infraOccurrenceCount = displayedInfra.reduce((total, item) => total + (item.count ?? 1), 0);
+  const circuitSkippedChecks = run?.circuit?.skippedChecks ?? 0;
+  const incompleteCoverageCount = run?.circuit?.afterCheck === 0
+    ? Math.max(infraOccurrenceCount, circuitSkippedChecks)
+    : infraOccurrenceCount + circuitSkippedChecks;
+  const selectedPageDefinitions = pages.filter((page) => selectedPages.has(page.id));
+  const commonNamedStates = selectedPageDefinitions.length === 0
+    ? []
+    : selectedPageDefinitions[0].states
+        .map((state) => state.id)
+        .filter((stateId) =>
+          stateId !== "default" &&
+          selectedPageDefinitions.every((page) => page.states.some((state) => state.id === stateId))
+        );
+  const availableStates = ["default", ...commonNamedStates];
+  const availableStateKey = availableStates.join("\u0000");
+  useEffect(() => {
+    // Before /api/pages resolves there is no state catalog to validate
+    // against. Resetting during that hydration window would erase a named
+    // state handed off from the States view.
+    if (pagesLoaded && !availableStates.includes(selectedState)) setSelectedState("default");
+    // The key represents the state IDs common to the current page selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableStateKey, pagesLoaded, selectedState]);
 
   return (
     <div>
+      <SectionIntro title="Runs & results">
+        Start a QA run, compare past runs by date, then review product findings. Harness failures are grouped separately so a broken dependency never looks like dozens of app defects.
+      </SectionIntro>
+
       <div className="dr-sec card">
-        <div className="dr-lbl">Start a run</div>
-        <Help>
-          Pick the pages and viewports to check, then Run. If the app is down it is started through the
-          project's run skill first. With gated autonomy the run pauses and shows you the exact step plan
-          before executing.
-        </Help>
-        <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
+        <div className="dr-card-heading">
+          <div>
+            <b>Start a run</b>
+            <p>Select pages and viewports. Gated mode shows the exact plan before anything executes.</p>
+          </div>
+        </div>
+        <div className="dr-rowwrap" role="group" aria-label="Pages to run" style={{ marginBottom: 8 }}>
           {pages.map((p) => (
-            <span key={p.id} className={"chip click" + (selectedPages.has(p.id) ? " ink active" : "")}
+            <button key={p.id} className={"chip click dr-label-chip" + (selectedPages.has(p.id) ? " ink active" : "")}
               aria-pressed={selectedPages.has(p.id)}
-              {...chipAction(() => setSelectedPages((s) => { const n = new Set(s); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }))}>
+              onClick={() => setSelectedPages((s) => { const n = new Set(s); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}>
               {p.title}
-            </span>
+            </button>
           ))}
         </div>
-        <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
+        {selectedPageDefinitions.length > 0 && availableStates.length > 1 && (
+          <div className="dr-run-state">
+            <label htmlFor="dr-run-state">UI state</label>
+            <select id="dr-run-state" value={selectedState} onChange={(event) => setSelectedState(event.target.value)}>
+              {availableStates.map((state) => <option key={state} value={state}>{state === "default" ? "Default page state" : state}</option>)}
+            </select>
+            <span className="dr-help-inline">
+              Named states run only checks authored for that condition. With several pages selected, only states shared by every page are offered.
+            </span>
+          </div>
+        )}
+        {selectedPageDefinitions.length > 1 && availableStates.length === 1 && (
+          <div className="dr-run-state">
+            <span className="dr-help-inline">These pages do not share a named state, so this run uses each page’s default checks.</span>
+          </div>
+        )}
+        <div className="dr-rowwrap" role="group" aria-label="Viewports to run" style={{ marginBottom: 8 }}>
           {VIEWPORTS.map((v) => (
-            <span key={v.id} className={"chip click" + (selectedViewports.has(v.id) ? " sage active" : "")}
+            <button key={v.id} className={"chip click" + (selectedViewports.has(v.id) ? " sage active" : "")}
               aria-pressed={selectedViewports.has(v.id)}
-              {...chipAction(() => setSelectedViewports((s) => { const n = new Set(s); n.has(v.id) ? n.delete(v.id) : n.add(v.id); return n; }))}>
+              onClick={() => setSelectedViewports((s) => { const n = new Set(s); n.has(v.id) ? n.delete(v.id) : n.add(v.id); return n; })}>
               {v.label}
-            </span>
+            </button>
           ))}
         </div>
-        <div className="dr-rowwrap">
-          <button className="btn primary" disabled={running} onClick={() => startRun()}>{running ? (phase ?? "Running…") : "Run"}</button>
+        <div className="dr-actions dr-run-launch-actions">
+          <button className="btn primary" disabled={running} onClick={() => startRun()}>{running ? (phase ?? "Running…") : "Run selected"}</button>
           <AppStatusChip />
         </div>
       </div>
 
-      {error && <div className="dr-banner"><span style={{ flex: "1 1 240px" }}>{error}</span><button className="btn small" onClick={() => setError(null)}>Dismiss</button></div>}
-
-      {runs.length > 0 && (
-        <div className="dr-sec">
-          <div className="dr-lbl">Past runs</div>
-          <Help>
-            Newest first - click a row to open its results below. "drill-adversarial" tags a blind
-            re-check pass. Failed counts real app failures; infra counts harness outages (vision route,
-            gateway, or browser fitting down) that say nothing about the app.
-          </Help>
-          <div className="dr-tablewrap">
-            <table className="dr-table dr-runs">
-              <thead>
-                <tr><th>Started</th><th>Tag</th><th>Steps</th><th>Failed</th><th>Infra</th><th>Findings</th><th aria-label="actions" /></tr>
-              </thead>
-              <tbody>
-                {runRows.map((r) => (
-                  <tr key={r.id} className={run?.id === r.id ? "sel" : ""} onClick={() => void openRun(r.id)}>
-                    <td style={{ whiteSpace: "nowrap" }}>{fmtDate(r.startedAt)}</td>
-                    <td><span className="chip">{r.contextTag}</span></td>
-                    <td>{r.steps}</td>
-                    <td style={{ color: r.summary && r.summary.failed > 0 ? "var(--alarm)" : "var(--mute)" }}>{r.summary ? r.summary.failed : "-"}</td>
-                    <td style={{ color: "var(--mute)" }}>{r.summary ? r.summary.infra : "-"}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      {r.findings.proposed + r.findings.confirmed === 0
-                        ? <span style={{ color: "var(--mute)" }}>none</span>
-                        : <>{r.findings.proposed > 0 && <span>{r.findings.proposed} open</span>}{r.findings.confirmed > 0 && <span style={{ color: "var(--sage)" }}>{r.findings.proposed > 0 ? " · " : ""}{r.findings.confirmed} confirmed</span>}</>}
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
-                      {deleteArm === r.id ? (
-                        <span className="dr-rowwrap" style={{ gap: 4 }}>
-                          <button className="btn small" style={{ color: "var(--alarm)", borderColor: "var(--alarm)" }} onClick={() => void deleteRun(r.id)}>Delete run</button>
-                          <button className="btn small" onClick={() => setDeleteArm(null)}>Keep</button>
-                        </span>
-                      ) : (
-                        <button className="dr-xbtn" title="Delete this run and its results" onClick={() => setDeleteArm(r.id)}><X size={13} /></button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="dr-sec card">
+        <div className="dr-card-heading">
+          <div>
+            <b>Run history</b>
+            <p>Newest first. “Incomplete” means the harness failed; it does not mean the app failed.</p>
           </div>
-          {totalRunPages > 1 && (
-            <div className="dr-rowwrap" style={{ marginTop: 8 }}>
-              <button className="btn small" disabled={runsPage === 0} onClick={() => setRunsPage((p) => p - 1)}>Newer</button>
-              <span style={{ fontSize: 11, color: "var(--mute)" }}>page {runsPage + 1} of {totalRunPages}</span>
-              <button className="btn small" disabled={runsPage >= totalRunPages - 1} onClick={() => setRunsPage((p) => p + 1)}>Older</button>
+          <span className="chip">{runs.length} run{runs.length === 1 ? "" : "s"}</span>
+        </div>
+        {!runsLoaded ? (
+          <div className="dr-empty">Loading run history…</div>
+        ) : runs.length === 0 ? (
+          <div className="dr-empty">No runs yet. Choose coverage above to create the first one.</div>
+        ) : (
+          <>
+            <div className="dr-tablewrap">
+              <table className="dr-table dr-history-table">
+                <thead>
+                  <tr><th>Date</th><th>Type</th><th>Coverage</th><th>Duration</th><th>Outcome</th><th /></tr>
+                </thead>
+                <tbody>
+                  {visibleRuns.map((summary) => {
+                    const split = splitRunIssues(summary);
+                    const summaryActiveFindings = activeProductFindings(summary, split.productFindings);
+                    const summaryInfraCount = split.infraErrors.reduce((total, item) => total + (item.count ?? 1), 0);
+                    const verdict = runVerdict(summary);
+                    const coverage = summary.selection?.pageIds.length ?? new Set(summary.pages.map((p) => p.pageId)).size;
+                    const plannedChecks = summary.plannedChecks ?? summary.pages.length;
+                    const executedChecks = summary.executedChecks ?? summary.pages.length;
+                    return (
+                      <tr key={summary.id} className={run?.id === summary.id ? "is-selected" : ""}>
+                        <td data-label="Date">
+                          <b>{formatDate(summary.startedAt)}</b>
+                          <span className="mono dr-run-id">{summary.id}</span>
+                        </td>
+                        <td data-label="Type">
+                          {summary.contextTag === "drill-adversarial" ? "Adversarial" : "Standard"}
+                          {summary.state !== "default" && <span className="dr-count">State: {summary.state}</span>}
+                        </td>
+                        <td data-label="Coverage">
+                          {coverage} page{coverage === 1 ? "" : "s"} · {executedChecks}/{plannedChecks} check{plannedChecks === 1 ? "" : "s"} executed
+                        </td>
+                        <td data-label="Duration">{formatDuration(summary.startedAt, summary.endedAt)}</td>
+                        <td data-label="Outcome">
+                          <span className={`chip ${verdict === "Passed" ? "sage" : verdict === "Findings" ? "alarm" : verdict === "Incomplete" ? "brass" : ""}`}>
+                            {verdict}
+                          </span>
+                          {summaryActiveFindings.length > 0 && <span className="dr-count">{summaryActiveFindings.length} finding{summaryActiveFindings.length === 1 ? "" : "s"}</span>}
+                          {summaryInfraCount > 0 && <span className="dr-count">{summaryInfraCount} infra-affected</span>}
+                        </td>
+                        <td data-label="">
+                          <div className="dr-actions">
+                            <button className="btn small" onClick={() => {
+                              setError(null);
+                              setNotice(null);
+                              void openRun(summary.id);
+                            }}>
+                              {run?.id === summary.id ? "Selected" : "View"}
+                            </button>
+                            {deleteArm === summary.id ? (
+                              <>
+                                <button className="btn small" style={{ color: "var(--alarm)", borderColor: "var(--alarm)" }} onClick={() => void deleteRun(summary.id)}>Delete</button>
+                                <button className="btn small" onClick={() => setDeleteArm(null)}>Keep</button>
+                              </>
+                            ) : (
+                              <button className="dr-xbtn" aria-label={`Delete run ${summary.id}`} title="Delete this run and its results" onClick={() => setDeleteArm(summary.id)}><X size={13} /></button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          )}
+            {historyPages > 1 && (
+              <div className="dr-pagination" role="navigation" aria-label="Run history pages">
+                <button className="btn small" disabled={historyPage === 0} onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}>Previous</button>
+                <span>Page {historyPage + 1} of {historyPages}</span>
+                <button className="btn small" disabled={historyPage + 1 >= historyPages} onClick={() => setHistoryPage((p) => Math.min(historyPages - 1, p + 1))}>Next</button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {error && (
+        <div className="dr-inline-error dr-results-error" role="alert">
+          <span>{error}</span>
+          <button className="btn small" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
+      {notice && (
+        <div className="dr-notice dr-results-notice" role="status">
+          <span>{notice}</span>
+          <button className="btn small" onClick={() => setNotice(null)}>Dismiss</button>
         </div>
       )}
 
       {pendingGate && (
-        <div className="dr-sec card" style={{ borderColor: "var(--brass)", borderWidth: 1.5 }}>
+          <div className="dr-sec card" role="region" aria-label="Gated run plan" style={{ borderColor: "var(--brass)", borderWidth: 1.5 }}>
           <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
             <b className="t12">Plan ready - gated, awaiting approval</b>
           </div>
@@ -1478,121 +2512,146 @@ function ResultsView({ initialRun, onConsumeInitialRun }: {
       )}
 
       {run && (() => {
-        const stepOf = (pageId: string, stepId: string) =>
-          pages.find((p) => p.id === pageId)?.steps.find((s) => s.id === stepId) ?? null;
-        const pageTitle = (pageId: string) => pages.find((p) => p.id === pageId)?.title ?? pageId;
-        const liveEntries = run.pages.filter((e) => !e.infra);
-        const infraEntries = run.pages.filter((e) => e.infra);
-        const byPage: Array<{ pageId: string; entries: RunPageEntry[] }> = [];
-        for (const e of liveEntries) {
-          const g = byPage.find((x) => x.pageId === e.pageId);
-          if (g) g.entries.push(e);
-          else byPage.push({ pageId: e.pageId, entries: [e] });
-        }
-        const renderEntry = (entry: RunPageEntry) => {
-          const passed = stepPassed(entry);
-          // overrides/feedback stay keyed page:step (a reviewer verdict
-          // covers the step, not one viewport), but the React key must
-          // include the viewport - the same step renders once per
-          // viewport and duplicate keys corrupt list reconciliation.
-          const key = `${entry.pageId}:${entry.stepId}`;
-          const override_ = run.overrides[key];
-          const notes = run.feedback[key] ?? [];
-          const desc = stepOf(entry.pageId, entry.stepId)?.description || null;
-          return (
-            <div key={`${key}:${entry.viewportId}`} className="dr-res" style={{ borderLeft: `3px solid var(${passed && !override_ ? "--sage" : "--alarm"})` }}>
-              <div className="dr-rowwrap">
-                {passed ? <Check size={14} style={{ color: "var(--sage)" }} /> : <span style={{ color: "var(--alarm)", fontWeight: 700 }}>×</span>}
-                <span style={{ flex: "1 1 260px", fontSize: 12.5, minWidth: 0, overflowWrap: "anywhere" }}>
-                  {desc ?? <span className="mono" style={{ fontSize: 11 }}>{entry.stepId}</span>}
-                </span>
-                <span className="chip">{entry.viewportId}</span>
-                {entry.result?.tier && (
-                  <span className={"chip " + tierTone(entry.result.tier)}
-                    title={entry.result.tier === "cached" ? "Checked with a deterministic assertion graduated from an earlier vision pass - fast and stable"
-                      : entry.result.tier === "vision" ? "A model judged the live page (screenshot + accessibility tree)"
-                      : entry.result.tier === "recovered" ? "The step failed and the self-healing fixer patched it mid-run"
-                      : entry.result.tier ?? ""}>
-                    {entry.result.tier}
-                  </span>
-                )}
-              </div>
-              <div className="mono" style={{ fontSize: 9.5, color: "var(--mute-2)", marginTop: 2 }}>{entry.pageId}#{entry.stepId}</div>
-              {entry.result?.evidencePath && <div className="mono dr-evidence">{entry.result.evidencePath}</div>}
-              {(entry.error || entry.result?.error) && <div style={{ color: "var(--alarm)", fontSize: 11, marginTop: 4, overflowWrap: "anywhere" }}>{entry.error || entry.result?.error}</div>}
-              {entry.result?.result?.reasoning && !passed && <div style={{ color: "var(--ink-2)", fontSize: 11, marginTop: 4 }}>{entry.result.result.reasoning}</div>}
-              {override_ && <div style={{ color: "var(--brass)", fontSize: 11, marginTop: 4 }}>Overridden -&gt; {override_.verdict} ({override_.note})</div>}
-              {notes.map((n) => <div key={n.id} className="mono" style={{ fontSize: 10.5, color: "var(--sage)", marginTop: 3 }}>{n.note}</div>)}
-              <div className="dr-rowwrap" style={{ marginTop: 6 }}>
-                <input className="dr-feedback" placeholder="Add feedback…"
-                  onKeyDown={(e) => { if (e.key === "Enter") { giveFeedback(entry.pageId, entry.stepId, (e.target as HTMLInputElement).value); (e.target as HTMLInputElement).value = ""; } }} />
-                {passed
-                  ? <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, "failed", "marked failed by reviewer")}>Mark failed</button>
-                  : <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, "passed", "marked passed by reviewer")}>Mark passed</button>}
-              </div>
-            </div>
-          );
-        };
         return (
         <>
           <div className="dr-sec">
-            <div className="dr-lbl">Results - {fmtDate(run.startedAt)}</div>
-            <div className="dr-rowwrap" style={{ marginBottom: 10 }}>
-              <span className="chip">{run.contextTag}</span>
-              {run.state !== "default" && <span className="chip brass">{run.state}</span>}
-              <span className="mono" style={{ fontSize: 10, color: "var(--mute-2)" }}>{run.id}</span>
+            <div className="dr-detail-heading">
+              <div>
+                <div className="dr-lbl">Selected run</div>
+                <h2>{formatDate(run.startedAt)}</h2>
+                <div className="mono dr-run-id">{run.id}</div>
+                <div className="dr-rowwrap dr-selected-run-meta">
+                  <span className="chip">{run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard"}</span>
+                  <span className="chip">{run.state === "default" ? "Default state" : `State: ${run.state}`}</span>
+                </div>
+              </div>
+              <div className="dr-run-summary">
+                <span><b>{productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length}</b> passed</span>
+                <span><b>{productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length}</b> failed</span>
+                <span><b>{activeFindings.length}</b> findings</span>
+                <span><b>{incompleteCoverageCount}</b> infra-affected or skipped</span>
+              </div>
             </div>
-            <Help>
-              One row per step and viewport. A red row failed: read the reasoning, then either confirm the
-              matching finding below or Mark passed if the check is wrong (that feedback tunes future runs).
-            </Help>
-            {byPage.map((g) => {
-              const passCount = g.entries.filter(stepPassed).length;
+            <div className="dr-card-heading">
+              <div>
+                <b>Check results</b>
+                <p>Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused.</p>
+              </div>
+            </div>
+            {productPageEntries.length === 0 && (
+              <div className="dr-empty">No product checks completed. Review the infrastructure section below before rerunning.</div>
+            )}
+            {productPageEntries.map((entry) => {
+              const originalPassed = stepPassed(entry);
+              const recordKey = `${entry.pageId}:${entry.stepId}`;
+              const renderKey = `${recordKey}:${entry.viewportId}`;
+              const override_ = overrideForEntry(run.overrides, entry);
+              const passed = override_ ? override_.verdict === "passed" : originalPassed;
+              const notes = [
+                ...(run.feedback[recordKey] ?? []),
+                ...(run.feedback[renderKey] ?? [])
+              ];
+              const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
+              const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
+              const deterministicWithoutScreenshot =
+                originalPassed &&
+                entry.status === "completed" &&
+                !!entry.result &&
+                !entry.result.evidencePath &&
+                !resultReasoning;
               return (
-                <div key={g.pageId} style={{ marginBottom: 16 }}>
-                  <div className="dr-rowwrap" style={{ marginBottom: 6 }}>
-                    <b style={{ fontSize: 13 }}>{pageTitle(g.pageId)}</b>
-                    <span style={{ fontSize: 11, color: passCount === g.entries.length ? "var(--sage)" : "var(--alarm)" }}>
-                      {passCount}/{g.entries.length} passed
-                    </span>
+                <div key={renderKey} className="dr-res" style={{ borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }}>
+                  <div className="dr-rowwrap">
+                    {passed ? <Check size={14} style={{ color: "var(--sage)" }} /> : <span style={{ color: "var(--alarm)", fontWeight: 700 }}>×</span>}
+                    <span className="mono" style={{ fontSize: 11, color: "var(--mute)" }}>{entry.pageId}#{entry.stepId}</span>
+                    <span className="chip">{entry.viewportId}</span>
+                    {entry.result?.tier && <span className={"chip " + tierTone(entry.result.tier)}>{entry.result.tier}</span>}
                   </div>
-                  {g.entries.map(renderEntry)}
+                  {stepDefinition?.description && <div className="dr-result-description">{stepDefinition.description}</div>}
+                  {resultReasoning && (
+                    <div className="dr-result-reason">{resultReasoning}</div>
+                  )}
+                  {entry.result?.error && <div style={{ color: "var(--alarm)", fontSize: 11, marginTop: 4 }}>{entry.result.error}</div>}
+                  {deterministicWithoutScreenshot && (
+                    <div className="dr-result-reason">Deterministic check — no screenshot was captured.</div>
+                  )}
+                  {entry.stateReferenceRejected && (
+                    <div className="dr-result-reference-warning" role="status">
+                      State reference not saved: the screenshot also contains an unexpected page error
+                      {entry.stateReferenceRejected.warnings[0]?.text
+                        ? ` (“${entry.stateReferenceRejected.warnings[0].text}”).`
+                        : "."}
+                    </div>
+                  )}
+                  {!entry.result && entry.status === "completed" && (
+                    <div className="dr-result-detail-unavailable">Passed when run · detailed evidence is temporarily unavailable</div>
+                  )}
+                  {entry.result?.evidencePath && (
+                    <EvidenceImage
+                      src={`/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`}
+                      alt={`${entry.pageId} ${stepDefinition?.description || entry.stepId} at ${entry.viewportId}`}
+                    />
+                  )}
+                  {override_ && <div style={{ color: "var(--brass)", fontSize: 11, marginTop: 4 }}>Overridden -&gt; {override_.verdict} ({override_.note})</div>}
+                  {notes.map((n) => <div key={n.id} className="mono" style={{ fontSize: 10.5, color: "var(--sage)", marginTop: 3 }}>{n.note}</div>)}
+                  <div className="dr-rowwrap" style={{ marginTop: 6 }}>
+                    <input className="dr-feedback" aria-label={`Feedback for ${entry.pageId} ${entry.stepId} at ${entry.viewportId}`} placeholder="Add feedback…"
+                      onKeyDown={async (e) => {
+                        if (e.key !== "Enter") return;
+                        const input = e.currentTarget;
+                        if (await giveFeedback(entry.pageId, entry.stepId, entry.viewportId, input.value)) input.value = "";
+                      }} />
+                    {passed
+                      ? <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, entry.viewportId, "failed", "marked failed by reviewer")}>Mark failed</button>
+                      : <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, entry.viewportId, "passed", "marked passed by reviewer")}>Mark passed</button>}
+                  </div>
                 </div>
               );
             })}
-            {liveEntries.length === 0 && infraEntries.length > 0 && (
-              <div className="dr-placeholder">
-                Every step in this run hit a harness error - the app was never actually judged. See below,
-                fix the harness (or just re-run once it is back), and consider deleting this run.
-              </div>
-            )}
-            {infraEntries.length > 0 && (
-              // Collapsed when real results exist (noise control); open when
-              // the run is NOTHING BUT harness errors - hiding the only
-              // information on screen behind a closed disclosure helps nobody.
-              <details className="dr-infra" open={liveEntries.length === 0}>
-                <summary>Harness errors ({infraEntries.length}) - infrastructure failures, not app bugs</summary>
-                <Help>
-                  The vision route, model gateway, or browser fitting was unavailable while these steps ran,
-                  so the app was not judged at all. They never pool into findings. Re-run once the harness
-                  is healthy.
-                </Help>
-                {infraEntries.map((e) => (
-                  <div key={`${e.pageId}:${e.stepId}:${e.viewportId}`} className="dr-res" style={{ borderLeft: "3px solid var(--rule-2)" }}>
-                    <div className="dr-rowwrap">
-                      <span className="mono" style={{ fontSize: 11, color: "var(--mute)" }}>{e.pageId}#{e.stepId}</span>
-                      <span className="chip">{e.viewportId}</span>
-                    </div>
-                    <div style={{ color: "var(--mute)", fontSize: 11, marginTop: 4, overflowWrap: "anywhere" }}>{e.error || e.result?.error}</div>
-                  </div>
-                ))}
-              </details>
-            )}
           </div>
 
+          {displayedInfra.length > 0 && (
+            <details className="dr-sec dr-infra">
+              <summary>
+                <span>
+                  <b>Test infrastructure problems</b>
+                  <small>{incompleteCoverageCount} affected or skipped check{incompleteCoverageCount === 1 ? "" : "s"} · grouped into {displayedInfra.length} incident{displayedInfra.length === 1 ? "" : "s"} · hidden from findings</small>
+                </span>
+                <span className="chip brass">Run incomplete</span>
+              </summary>
+              <p>
+                These errors came from Drill, Browser, Automations, Vision, or their connection. They are retained for diagnosis but cannot be confirmed or dispatched as product fixes.
+              </p>
+              {run.circuit && (
+                <div className="dr-circuit-summary">
+                  <b>Run stopped early to prevent repeated noise.</b>
+                  <span>
+                    Executed {run.executedChecks ?? run.circuit.afterCheck} of {run.plannedChecks ?? ((run.executedChecks ?? 0) + run.circuit.skippedChecks)} planned checks;
+                    {" "}{run.circuit.skippedChecks} were skipped after {run.circuit.component} reported {run.circuit.code}.
+                  </span>
+                </div>
+              )}
+              <div className="dr-infra-list">
+                {displayedInfra.map((item) => (
+                  <div key={item.id}>
+                    <span className="mono">
+                      {item.component ?? item.pageId ?? "run"}
+                      {item.stepId ? ` · ${item.stepId}` : ""}
+                      {(item.count ?? 1) > 1 ? ` · ${item.count} checks` : ""}
+                    </span>
+                    <span>{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
           <div className="dr-sec card">
-            <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
-              <b>Observations</b>
+            <div className="dr-card-heading">
+              <div>
+                <b>Observations</b>
+                <p>Record something you noticed that no existing check covered. Turn it into a future Book step or a product finding without rerunning.</p>
+              </div>
             </div>
             <Help>
               Things you noticed that no step covers - no re-run needed to record them. Convert one into a
@@ -1603,81 +2662,89 @@ function ResultsView({ initialRun, onConsumeInitialRun }: {
                 <span style={{ flex: "1 1 220px" }}>{o.text}</span>
                 {o.convertedToStep
                   ? <span className="chip sage">-&gt; step added</span>
-                  : <select onChange={(e) => e.target.value && convertObsToStep(o.id, e.target.value)} defaultValue="">
+                  : <select aria-label={`Add observation “${o.text}” as a draft step on page`} onChange={(e) => e.target.value && convertObsToStep(o.id, e.target.value)} defaultValue="">
                       <option value="" disabled>-&gt; draft step on…</option>
                       {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
                     </select>}
                 {o.convertedToFinding
                   ? <span className="chip alarm">-&gt; finding</span>
-                  : <button className="btn small" onClick={() => convertObsToFinding(o.id, pages[0]?.id ?? run.pages[0]?.pageId)}>-&gt; finding</button>}
+                  : <select aria-label={`Attribute observation “${o.text}” to a product page`} onChange={(e) => e.target.value && convertObsToFinding(o.id, e.target.value)} defaultValue="">
+                      <option value="" disabled>-&gt; finding on…</option>
+                      {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>}
               </div>
             ))}
             <div className="dr-rowwrap" style={{ marginTop: 8 }}>
-              <input className="dr-feedback" placeholder="Add an observation…" value={obsText} onChange={(e) => setObsText(e.target.value)}
+              <input className="dr-feedback" aria-label="New run observation" placeholder="Add an observation…" value={obsText} onChange={(e) => setObsText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") addObs(); }} />
               <button className="btn small" onClick={addObs}><Plus size={11} /> Add</button>
             </div>
           </div>
 
           <div className="dr-sec card" style={{ borderColor: "var(--sage-2)", borderWidth: 1.5 }}>
-            <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
-              <b>Findings - the fix report</b>
+            <div className="dr-card-heading">
+              <div>
+                <b>Product findings</b>
+                <p>Only evidence about the app belongs here. Confirm real defects, dismiss false positives, then send confirmed items as one reviewable fix card.</p>
+              </div>
+              <span className="chip">{issues.productFindings.length}</span>
             </div>
-            <Help>
-              Everything this run caught: failed steps pool here automatically as proposed, and converted
-              observations join them. Confirm what is real, Dismiss what is not - then Fix all confirmed
-              sends ONE batch fix card to the Kanban board for an agent to work through. A finding
-              already on a card shows an "on card" link and is never re-sent.
-            </Help>
-            {(() => {
-              const active = run.findings.filter((f) => f.status !== "dismissed");
-              const dismissed = run.findings.filter((f) => f.status === "dismissed");
-              const renderFinding = (f: Finding) => (
-                <div key={f.id} className="dr-finding">
-                  <span className="dr-finding-text" style={{ textDecoration: f.status === "dismissed" ? "line-through" : "none" }}>
-                    <span className="chip" style={{ marginRight: 6 }}>{f.kind}</span>
-                    <span className="mono" style={{ fontSize: 10.5, color: "var(--mute)" }}>{f.pageId}{f.stepId ? `#${f.stepId}` : ""}</span>{" "}
-                    {f.text}
+            {issues.productFindings.length === 0 && <div className="dr-empty">No product findings in this run.</div>}
+            {issues.productFindings.map((f) => (
+              <div key={f.id} className="dr-finding">
+                <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                  <span style={{ textDecoration: f.status === "dismissed" ? "line-through" : "none" }}>
+                    [{f.kind}] {f.pageId}{f.stepId ? `#${f.stepId}` : ""}{f.viewportId ? ` [${f.viewportId}]` : ""}: {f.text}
                   </span>
-                  <span className="dr-finding-actions">
-                    <span className={"chip" + (f.status === "confirmed" ? " sage active" : "")}>{f.status}</span>
-                    {f.card && (f.card.url
-                      ? <a className="chip brass" href={f.card.url} target="_blank" rel="noreferrer" title="This finding is already on a Kanban fix card - click to open it">on card</a>
-                      : <span className="chip brass" title="This finding is already on a Kanban fix card">on card</span>)}
-                    {f.status !== "confirmed" && <button className="btn small" onClick={() => triage(f.id, "confirmed")}>Confirm</button>}
-                    {f.status !== "dismissed" && !f.card && <button className="btn small" onClick={() => triage(f.id, "dismissed")}>Dismiss</button>}
-                  </span>
+                  {f.stepId && run.pages.filter((entry) =>
+                    entry.pageId === f.pageId &&
+                    entry.stepId === f.stepId &&
+                    (!f.viewportId || entry.viewportId === f.viewportId) &&
+                    !!entry.result?.evidencePath
+                  ).map((entry) => (
+                    <EvidenceImage
+                      key={`${entry.pageId}:${entry.stepId}:${entry.viewportId}`}
+                      compact
+                      src={`/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`}
+                      alt={`Evidence for ${f.text} at ${entry.viewportId}`}
+                    />
+                  ))}
                 </div>
-              );
-              return (
-                <>
-                  {active.length === 0 && (
-                    <div style={{ color: "var(--mute)", fontSize: 12 }}>
-                      {dismissed.length > 0 ? "No open findings - everything was dismissed." : "No findings - every step passed."}
-                    </div>
-                  )}
-                  {active.map(renderFinding)}
-                  {dismissed.length > 0 && (
-                    <details style={{ marginTop: 8 }}>
-                      <summary style={{ cursor: "pointer", fontSize: 11.5, color: "var(--mute)" }}>Dismissed ({dismissed.length})</summary>
-                      {dismissed.map(renderFinding)}
-                    </details>
-                  )}
-                </>
-              );
-            })()}
-            <div className="dr-rowwrap" style={{ marginTop: 10 }}>
-              <select value={dispatchMode} onChange={(e) => setDispatchMode(e.target.value as any)} style={{ fontSize: 11, padding: "5px 8px" }}
-                title="Manual: dispatch now, with this button. Heartbeat: the periodic sweep dispatches once findings are confirmed. Immediate: dispatch as soon as a run ends.">
-                <option value="manual">Dispatch: Manual</option>
-                <option value="heartbeat">Dispatch: Heartbeat (autonomous)</option>
-                <option value="immediate">Dispatch: Immediate</option>
+                <div className="dr-actions">
+                  <span className={"chip" + (f.status === "confirmed" ? " sage active" : "")}>{f.status}</span>
+                  {f.card && (f.card.url
+                    ? <a className="chip brass" href={f.card.url} target="_blank" rel="noreferrer" title="Open the Kanban fix card carrying this finding">on card</a>
+                    : <span className="chip brass" title="This finding is already on a Kanban fix card">on card</span>)}
+                  {f.status !== "confirmed" && <button className="btn small" onClick={() => triage(f.id, "confirmed")}>Confirm</button>}
+                  {f.status !== "dismissed" && !f.card && <button className="btn small" onClick={() => triage(f.id, "dismissed")}>Dismiss</button>}
+                </div>
+              </div>
+            ))}
+            <div className="dr-dispatch">
+              <select
+                aria-label="When to send confirmed findings"
+                value={dispatchMode}
+                disabled={dispatching}
+                onChange={(e) => setDispatchMode(e.target.value as any)}
+                style={{ fontSize: 11, padding: "5px 8px" }}
+              >
+                <option value="manual">Send now</option>
+                <option value="heartbeat">On the next heartbeat</option>
+                <option value="immediate">Send now (immediate)</option>
               </select>
-              <button className="btn primary" disabled={dispatchableCount === 0} onClick={dispatch}>Fix all confirmed ({dispatchableCount})</button>
-              <span style={{ fontSize: 10, color: "var(--mute)" }}>
+              <button className="btn primary" disabled={dispatchableCount === 0 || dispatching} onClick={dispatch}>
+                {dispatching
+                    ? "Sending…"
+                    : dispatchMode === "heartbeat"
+                      ? `Queue confirmed (${dispatchableCount})`
+                      : `Send confirmed to Code (${dispatchableCount})`}
+              </button>
+              <span className="dr-help-inline">
                 {confirmedCount > 0 && dispatchableCount === 0
-                  ? "every confirmed finding is already on a fix card"
-                  : "one batch card carrying the new confirmed findings"}
+                  ? "Every confirmed finding is already on a fix card."
+                  : run.dispatch === "heartbeat"
+                    ? "Queued. The next heartbeat creates one Code card carrying this reviewed report."
+                    : "Creates one Kanban card carrying the reviewed report and moves it directly into Code."}
               </span>
               {dispatchedCard && (
                 <span className="chip sage active">
@@ -1704,39 +2771,103 @@ interface DrillStateFull {
   matcher?: { assertion: unknown | null };
   reachPath?: Array<{ id: string; description: string }>;
   screenshotPath?: string | null;
+  referenceSource?: { runId: string; stepId: string; viewportId: string; at: string };
 }
-interface Snapshot { id: string; pageId: string; at: string; headingText: string; shapeSketch: string; screenshotPath: string | null }
 
-// Per-card promote form: the name input's state must live IN the card - a
-// single shared label field typed into one card mirroring into every other
-// card was one of the audit's "nothing is intuitive" moments.
-function SnapshotCard({ pageId, snap, onPromote }: { pageId: string; snap: Snapshot; onPromote: (snapshotId: string, label: string) => void }) {
-  const [label, setLabel] = useState("");
+function describeStateMatcher(state: DrillStateFull) {
+  const assertion = state.matcher?.assertion;
+  if (assertion && typeof assertion === "object") {
+    const value = assertion as Record<string, unknown>;
+    if (value.kind === "text-contains" && value.text) {
+      return `text “${String(value.text)}” is present`;
+    }
+    if (value.kind === "url-matches" && value.pattern) {
+      return `the URL matches “${String(value.pattern)}”`;
+    }
+    const target = value.testId
+      ? `the “${String(value.testId)}” element`
+      : value.role
+        ? `the ${String(value.role)}${value.name ? ` named “${String(value.name)}”` : ""}`
+        : "the selected element";
+    if (value.kind === "visible") return `${target} is visible`;
+    if (value.kind === "count" && value.value !== undefined) {
+      return `${target} count is ${String(value.op ?? "eq")} ${String(value.value)}`;
+    }
+    if (value.kind === "attribute-equals" && value.attribute) {
+      return `${target} has ${String(value.attribute)} = “${String(value.value ?? "")}”`;
+    }
+    return "a deterministic page check";
+  }
+  if (state.fingerprint) {
+    const signalCount = state.fingerprint.shapeSketch.split(",").filter(Boolean).length;
+    return `visual structure around heading “${state.fingerprint.headingText || "(none)"}” (${signalCount} signals)`;
+  }
+  return "Not configured yet";
+}
+
+function StateReferenceImage({
+  state,
+  pageId,
+  scopedSteps,
+  onPrepareRun,
+  onOpenAuthoring
+}: {
+  state: DrillStateFull;
+  pageId: string;
+  scopedSteps: Step[];
+  onPrepareRun: (pageId: string, stateId: string, viewportId: string) => void;
+  onOpenAuthoring: (pageId: string) => void;
+}) {
+  const source = state.screenshotPath ? `/api/states/${pageId}/${state.id}/screenshot` : null;
+  const imageUrl = useFetchedImage(source, source ? `/api/states/${pageId}/${state.id}/screenshot-status` : null);
+
+  if (imageUrl) {
+    return (
+      <img
+        alt={`${state.label} state reference`}
+        src={imageUrl}
+        className="dr-state-image"
+      />
+    );
+  }
+  if (imageUrl === undefined) {
+    return <div className="dr-state-image-missing" role="status">Loading recorded reference…</div>;
+  }
+
+  const stale = !!state.screenshotPath;
+  const viewportId = scopedSteps.flatMap((step) => step.viewports ?? [])[0] ?? "desktop";
   return (
-    <div className="card dr-statecard">
-      {snap.screenshotPath
-        ? <img alt={`snapshot: ${snap.headingText || snap.id}`} src={`/api/states/${encodeURIComponent(pageId)}/snapshots/${encodeURIComponent(snap.id)}/screenshot`} className="dr-stateimg" />
-        : <div className="dr-stateimg dr-noimg">no image captured</div>}
-      <div className="mono" style={{ fontSize: 10, color: "var(--mute)" }}>{fmtDate(snap.at)}</div>
-      <div style={{ fontSize: 11, margin: "4px 0" }}>{snap.headingText || "(no heading)"}</div>
-      <input placeholder="state name, e.g. logged-out" value={label} onChange={(e) => setLabel(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && label.trim()) onPromote(snap.id, label.trim()); }}
-        style={{ width: "100%", fontSize: 11, padding: "4px 6px", border: "1px solid var(--rule)", marginBottom: 4 }} />
-      <button className="btn small" style={{ width: "100%", justifyContent: "center" }} disabled={!label.trim()} onClick={() => onPromote(snap.id, label.trim())}>
-        Promote to state
-      </button>
+    <div className="dr-state-image-missing" role="status">
+      <span>
+        {stale
+          ? "The recorded reference image is no longer available. Its source metadata is kept below."
+          : "No reference image yet. The first successful named-state run will capture it automatically."}
+      </span>
+      {scopedSteps.length > 0 ? (
+        <button className="btn small" onClick={() => onPrepareRun(pageId, state.id, viewportId)}>
+          Prepare reference run
+        </button>
+      ) : (
+        <button className="btn small" onClick={() => onOpenAuthoring(pageId)}>
+          Add state checks in Authoring
+        </button>
+      )}
     </div>
   );
 }
 
-function StatesView() {
+function StatesView({
+  onViewResults,
+  onPrepareRun,
+  onOpenAuthoring
+}: {
+  onViewResults: (runId?: string | null) => void;
+  onPrepareRun: (pageId: string, stateId: string, viewportId: string) => void;
+  onOpenAuthoring: (pageId: string) => void;
+}) {
   const [pages, setPages] = useState<DrillPage[]>([]);
   const [pageId, setPageId] = useState<string | null>(null);
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // Capture/promote problems are inline banners, never a full-view swap.
-  const [stateError, setStateError] = useState<string | null>(null);
-  const [capturing, setCapturing] = useState(false);
 
   const load = () => {
     apiGet("/api/pages").then((r) => {
@@ -1747,34 +2878,7 @@ function StatesView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only fetch
   useEffect(load, []);
 
-  const loadSnapshots = (pid: string) => apiGet(`/api/states/${pid}/snapshots`).then((r) => setSnapshots(r.snapshots)).catch((e) => setStateError(e.message));
-  useEffect(() => { if (pageId) loadSnapshots(pageId); }, [pageId]);
-
   const page = pages.find((p) => p.id === pageId) ?? null;
-
-  const takeSnapshot = async () => {
-    if (!pageId || capturing) return;
-    setCapturing(true);
-    setStateError(null);
-    try {
-      await apiPost(`/api/states/${pageId}/snapshot`, { viewport: "desktop" });
-      loadSnapshots(pageId);
-    } catch (e: any) {
-      setStateError(`Capture failed: ${e.message}`);
-    } finally {
-      setCapturing(false);
-    }
-  };
-  const promote = async (snapshotId: string, label: string) => {
-    if (!pageId) return;
-    setStateError(null);
-    try {
-      await apiPost(`/api/states/${pageId}/promote`, { snapshotId, label, reachPath: [] });
-      load();
-    } catch (e: any) {
-      setStateError(`Promote failed: ${e.message}`);
-    }
-  };
 
   if (error) return <div className="dr-placeholder">{error} <button className="btn small" onClick={() => setError(null)}>dismiss</button></div>;
   if (!page) return <div className="dr-placeholder">No pages yet - plan the Book (Drill Book tab) or add a page in Authoring first.</div>;
@@ -1783,73 +2887,70 @@ function StatesView() {
 
   return (
     <div>
-      <Help>
-        A state is a distinct condition a page can be in - logged out, empty, error - that changes what
-        should be checked. Steps in Authoring can be scoped to a state, and each state records how to
-        REACH it so runs can reproduce it. States are normally authored by the planning agent (Plan book
-        on the Drill Book tab); this page is where you inspect them and hand-author extras.
-      </Help>
-      <div className="dr-sec dr-rowwrap">
-        <span className="dr-lbl" style={{ margin: 0 }}>Page</span>
-        <select value={pageId ?? ""} onChange={(e) => { setStateError(null); setPageId(e.target.value); }} style={{ fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }}>
+      <SectionIntro title="Page states">
+        States are recognizable UI conditions such as “empty”, “loading”, or “completed”. The planning agent defines and captures them; you review the reference, recognition rule, and checks that depend on each state.
+      </SectionIntro>
+
+      <div className="dr-sec dr-state-toolbar">
+        <select aria-label="Page whose states are shown" value={pageId ?? ""} onChange={(e) => setPageId(e.target.value)} style={{ fontSize: 12, padding: "5px 8px", border: "1px solid var(--rule)" }}>
           {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
         </select>
+        <span className="dr-help-inline">Showing state references for this Book page.</span>
       </div>
 
-      {stateError && (
-        <div className="dr-banner">
-          <span style={{ flex: "1 1 240px" }}>{stateError}</span>
-          <button className="btn small" onClick={() => setStateError(null)}>Dismiss</button>
-        </div>
-      )}
+      <div className="dr-sec dr-state-explainer">
+        <b>Reference images are automatic.</b>
+        <span>
+          The first successful run of a named state stores its evidence here. There is no separate snapshot step for you to operate while an agent is running.
+        </span>
+        <button className="btn small" onClick={() => onViewResults(null)}>Open runs</button>
+      </div>
 
       <div className="dr-sec">
-        <div className="dr-lbl">Named states - {page.title}</div>
-        {states.length === 0 && (
-          <div style={{ color: "var(--mute)", fontSize: 12, marginBottom: 8 }}>
-            No named states yet for this page - Plan book authors them, or promote a manual snapshot below.
+        <div className="dr-card-heading">
+          <div>
+            <b>Named states</b>
+            <p>Each state combines a visual reference, a matcher, and the path the agent follows to reach it.</p>
           </div>
-        )}
-        <div className="dr-cardrow">
-          {states.map((s) => (
-            <div key={s.id} className="card dr-statecard">
-              {s.screenshotPath
-                ? <img alt={`state: ${s.label}`} src={`/api/states/${encodeURIComponent(pageId!)}/${encodeURIComponent(s.id)}/screenshot`} className="dr-stateimg" />
-                : <div className="dr-stateimg dr-noimg">no reference image - promoting a snapshot of this condition attaches one</div>}
+          <span className="chip">{states.length}</span>
+        </div>
+        <div className="dr-state-grid">
+          {states.length === 0 && (
+            <div className="dr-empty">
+              No states have been authored for this page. This is valid for a static page; the planning agent adds states when checks depend on changing UI conditions.
+            </div>
+          )}
+          {states.map((s) => {
+            const scopedSteps = page.steps.filter((step) => step.state === s.id);
+            return (
+            <article key={s.id} className="card dr-state-card">
               <div className="dr-rowwrap" style={{ marginBottom: 6 }}>
-                <span className="chip brass active wrap">{s.label}</span>
+                <span className="chip brass active dr-label-chip">{s.label}</span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--ink-2)", overflowWrap: "anywhere" }}>
-                <b>Recognized by:</b> {s.fingerprint ? `heading "${s.fingerprint.headingText}" + page shape` : "nothing yet"}
+              <StateReferenceImage
+                key={`${pageId}:${s.id}:${s.screenshotPath ?? ""}`}
+                state={s}
+                pageId={pageId!}
+                scopedSteps={scopedSteps}
+                onPrepareRun={onPrepareRun}
+                onOpenAuthoring={onOpenAuthoring}
+              />
+              <div style={{ fontSize: 11, color: "var(--ink-2)" }}>
+                <b>Recognized by:</b> {describeStateMatcher(s)}
               </div>
-              <div style={{ fontSize: 11, color: "var(--ink-2)", overflowWrap: "anywhere" }}>
-                <b>How to reach it:</b> {s.reachPath && s.reachPath.length > 0 ? s.reachPath.map((r) => r.description).join(" -> ") : "(page entry)"}
+              <div style={{ fontSize: 11, color: "var(--ink-2)" }}>
+                <b>Agent reaches it:</b> {s.reachPath && s.reachPath.length > 0 ? s.reachPath.map((r) => r.description).join(" → ") : "At page entry"}
               </div>
               <div style={{ fontSize: 10, color: "var(--mute)", marginTop: 4 }}>
-                {(() => { const n = page.steps.filter((st) => (st as any).state === s.id).length; return `${n} step${n === 1 ? "" : "s"} scoped to this state`; })()}
+                {scopedSteps.length} scoped steps
               </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="dr-sec">
-        <div className="dr-lbl">Manual snapshots</div>
-        <Help>
-          A snapshot captures the page exactly as it renders right now. To hand-author a state: steer the
-          app into the condition you want (use the interactive preview in Authoring), capture a snapshot
-          here, then name it and promote it.
-        </Help>
-        <div className="dr-rowwrap" style={{ marginBottom: 10 }}>
-          <button className="btn small" onClick={takeSnapshot} disabled={capturing}>
-            <Camera size={11} /> {capturing ? "Capturing…" : "Capture snapshot"}
-          </button>
-        </div>
-        <div className="dr-cardrow">
-          {snapshots.length === 0 && <span style={{ color: "var(--mute)", fontSize: 12 }}>No snapshots yet.</span>}
-          {snapshots.map((s) => (
-            <SnapshotCard key={s.id} pageId={pageId!} snap={s} onPromote={promote} />
-          ))}
+              {s.referenceSource && (
+                <button className="dr-state-source" onClick={() => onViewResults(s.referenceSource!.runId)}>
+                  View source run · {formatDate(s.referenceSource.at)} · {s.referenceSource.viewportId} · {s.referenceSource.stepId}
+                </button>
+              )}
+            </article>
+          )})}
         </div>
       </div>
     </div>
@@ -1866,10 +2967,24 @@ const VIEWS: Array<{ id: string; label: string }> = [
 ];
 
 function App() {
-  const [view, setView] = useState("book");
+  const initialLocation = () => {
+    const params = new URLSearchParams(location.search);
+    const candidate = params.get("view");
+    return {
+      view: VIEWS.some((v) => v.id === candidate) ? candidate! : "book",
+      pageId: params.get("page"),
+      runId: params.get("run")
+    };
+  };
+  const initial = initialLocation();
+  const [view, setView] = useState(initial.view);
+  const [authorPageId, setAuthorPageId] = useState<string | null>(initial.pageId);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initial.runId);
   const [pendingRun, setPendingRun] = useState<{ pageIds: string[]; viewports: string[] } | null>(null);
+  const [pendingRunSelection, setPendingRunSelection] = useState<{ pageId: string; state: string; viewportId: string } | null>(null);
   const [projInfo, setProjInfo] = useState<ProjectsInfo | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   useEffect(() => {
     apiGet("/api/projects").then((r) => {
       setProjInfo(r);
@@ -1878,15 +2993,43 @@ function App() {
       if (!r.selected) setPickerOpen(true);
     }).catch(() => {});
   }, []);
+  useEffect(() => {
+    const onPop = () => {
+      const next = initialLocation();
+      setView(next.view);
+      setAuthorPageId(next.pageId);
+      setSelectedRunId(next.runId);
+    };
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
+  const navigate = (nextView: string, options: { pageId?: string | null; runId?: string | null } = {}) => {
+    const params = new URLSearchParams();
+    params.set("view", nextView);
+    const nextPage = options.pageId !== undefined ? options.pageId : (nextView === "authoring" ? authorPageId : null);
+    const nextRun = options.runId !== undefined ? options.runId : (nextView === "results" ? selectedRunId : null);
+    if (nextPage) params.set("page", nextPage);
+    if (nextRun) params.set("run", nextRun);
+    history.pushState({}, "", `${location.pathname}?${params.toString()}`);
+    setView(nextView);
+    if (options.pageId !== undefined) setAuthorPageId(options.pageId);
+    if (options.runId !== undefined) setSelectedRunId(options.runId);
+  };
   const runSelected = (pageIds: string[], viewports: string[]) => {
     setPendingRun({ pageIds, viewports });
-    setView("results");
+    navigate("results");
   };
-  // Book -> Authoring navigation: AuthoringView reads its page from
-  // localStorage at mount, so stamping it first lands on the right page.
-  const openPage = (pid: string) => {
-    try { localStorage.setItem("drill.authoring.page", pid); } catch { /* private mode */ }
-    setView("authoring");
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % VIEWS.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + VIEWS.length) % VIEWS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = VIEWS.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextView = VIEWS[nextIndex];
+    if (nextView.id !== view) navigate(nextView.id);
+    requestAnimationFrame(() => tabRefs.current[nextIndex]?.focus());
   };
   return (
     <>
@@ -1899,17 +3042,63 @@ function App() {
           <div className="spacer" />
           <ProjectBar info={projInfo} onOpenPicker={() => setPickerOpen(true)} />
         </div>
-        <div className="dr-tabs">
-          {VIEWS.map((v) => (
-            <button key={v.id} className={"dr-tab" + (view === v.id ? " on" : "")} onClick={() => setView(v.id)}>{v.label}</button>
+        <div className="dr-tabs" role="tablist" aria-label="Drill sections">
+          {VIEWS.map((v, index) => (
+            <button
+              key={v.id}
+              ref={(node) => { tabRefs.current[index] = node; }}
+              role="tab"
+              aria-selected={view === v.id}
+              tabIndex={view === v.id ? 0 : -1}
+              className={"dr-tab" + (view === v.id ? " on" : "")}
+              onClick={() => navigate(v.id)}
+              onKeyDown={(event) => onTabKeyDown(event, index)}
+            >
+              {v.label}
+            </button>
           ))}
         </div>
       </div>
       <div className="dr-body">
-        {view === "book" && <BookView onRunSelected={runSelected} projInfo={projInfo} onOpenPicker={() => setPickerOpen(true)} onGoAuthoring={() => setView("authoring")} onOpenPage={openPage} />}
-        {view === "authoring" && <AuthoringView />}
-        {view === "states" && <StatesView />}
-        {view === "results" && <ResultsView initialRun={pendingRun} onConsumeInitialRun={() => setPendingRun(null)} />}
+        {view === "book" && <BookView onRunSelected={runSelected} projInfo={projInfo} onOpenPicker={() => setPickerOpen(true)} onGoAuthoring={(pageId) => navigate("authoring", { pageId: pageId ?? null })} />}
+        {view === "authoring" && (
+          <AuthoringView
+            initialPageId={authorPageId}
+            onPageChange={(pageId) => {
+              setAuthorPageId(pageId);
+              const params = new URLSearchParams(location.search);
+              params.set("view", "authoring");
+              params.set("page", pageId);
+              history.replaceState({}, "", `${location.pathname}?${params.toString()}`);
+            }}
+          />
+        )}
+        {view === "states" && (
+          <StatesView
+            onViewResults={(runId) => navigate("results", { runId: runId ?? null })}
+            onPrepareRun={(pageId, state, viewportId) => {
+              setPendingRunSelection({ pageId, state, viewportId });
+              navigate("results", { runId: null });
+            }}
+            onOpenAuthoring={(pageId) => navigate("authoring", { pageId })}
+          />
+        )}
+        {view === "results" && (
+          <ResultsView
+            initialRun={pendingRun}
+            onConsumeInitialRun={() => setPendingRun(null)}
+            initialSelection={pendingRunSelection}
+            onConsumeInitialSelection={() => setPendingRunSelection(null)}
+            initialRunId={selectedRunId}
+            onRunViewed={(runId) => {
+              setSelectedRunId(runId);
+              const params = new URLSearchParams(location.search);
+              params.set("view", "results");
+              params.set("run", runId);
+              history.replaceState({}, "", `${location.pathname}?${params.toString()}`);
+            }}
+          />
+        )}
       </div>
       {pickerOpen && projInfo && <ProjectPickerDialog info={projInfo} onClose={() => setPickerOpen(false)} />}
     </>

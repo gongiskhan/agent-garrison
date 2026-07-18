@@ -74,6 +74,16 @@
       "target": "cc-sonnet-med"
     },
     {
+      "id": "ex-automation-vision-adversarial",
+      "when": "an internal automation vision turn requests an independent adversarial verdict",
+      "target": "cc-opus-high"
+    },
+    {
+      "id": "ex-automation-vision",
+      "when": "an internal automation vision turn must inspect a local browser screenshot",
+      "target": "cc-sonnet-med"
+    },
+    {
       "id": "ex-image",
       "when": "the prompt asks to generate, edit, or analyze an image",
       "target": "sec-gemini"
@@ -700,7 +710,7 @@
     "agent-garrison": {
       "security_sensitive": false,
       "profile": {
-        "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:7777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
+        "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:27777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
       }
     }
   },

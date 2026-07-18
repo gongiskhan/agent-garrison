@@ -91,6 +91,13 @@ describe("POST /api/authoring/tab", () => {
     expect(r1.tabId).toBeTruthy();
     expect(r1.viewport).toMatchObject({ id: "mobile", width: 390, height: 844 });
     expect(r1.canvasUrl).toContain(`${BROWSER_BASE}/canvas/`);
+    expect(new URL(r1.canvasUrl).searchParams.get("preserveViewport")).toBe("1");
+    expect(new URL(r1.canvasUrl).searchParams.get("embed")).toBe("1");
+    expect(new URL(r1.canvasUrl).searchParams.get("viewportWidth")).toBe("390");
+    expect(new URL(r1.canvasUrl).searchParams.get("viewportHeight")).toBe("844");
+    expect(r1.screenshotUrl).toContain("/api/authoring/screenshot/");
+    const screenshot = await fetch(`${DRILL_BASE}${r1.screenshotUrl}`);
+    expect(screenshot.headers.get("content-type")).toBe("image/png");
 
     const r2 = await (
       await fetch(`${DRILL_BASE}/api/authoring/tab`, {
@@ -98,6 +105,37 @@ describe("POST /api/authoring/tab", () => {
       })
     ).json();
     expect(r2.tabId).toBe(r1.tabId); // reused, not re-opened
+  }, 20000);
+});
+
+describe("POST /api/authoring/freeze", () => {
+  it("pauses page motion while targeting and reports the live viewport", async () => {
+    const html = "data:text/html," + encodeURIComponent(
+      '<meta name="viewport" content="width=device-width,initial-scale=1"><div id="moving" style="animation:slide 1s infinite">Target</div>'
+    );
+    await fetch(`${DRILL_BASE}/api/drillbook`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ app: { name: "f", url: html } })
+    });
+    await fetch(`${DRILL_BASE}/api/pages/freeze`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "" })
+    });
+    const opened = await (
+      await fetch(`${DRILL_BASE}/api/authoring/tab`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageId: "freeze", viewport: "mobile" })
+      })
+    ).json();
+    const frozen = await (
+      await fetch(`${DRILL_BASE}/api/authoring/freeze`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tabId: opened.tabId, frozen: true })
+      })
+    ).json();
+    expect(frozen).toMatchObject({ frozen: true, viewport: { width: 390, height: 844 } });
+    const thawed = await (
+      await fetch(`${DRILL_BASE}/api/authoring/freeze`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tabId: opened.tabId, frozen: false })
+      })
+    ).json();
+    expect(thawed.frozen).toBe(false);
   }, 20000);
 });
 
@@ -132,6 +170,22 @@ describe("POST /api/authoring/pick + /api/authoring/resolve", () => {
       })
     ).json();
     expect(resolveRes.resolved.matched).toBe("testId");
+
+    const manyRes = await (
+      await fetch(`${DRILL_BASE}/api/authoring/resolve-many`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tabId,
+          items: [
+            { id: "btnpage#go", anchors: picked },
+            { id: "btnpage#missing", anchors: { testId: "not-present" } }
+          ]
+        })
+      })
+    ).json();
+    expect(manyRes.resolved["btnpage#go"]).toMatchObject({ leftPct: expect.any(Number), topPct: expect.any(Number) });
+    expect(manyRes.resolved["btnpage#missing"]).toBeNull();
   }, 30000);
 });
 

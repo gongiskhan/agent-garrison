@@ -200,6 +200,11 @@ html, body, #root {
   background: var(--paper);
 }
 
+/* Drill supplies its own navigation and targeting controls. Its area boxes are
+   expressed in page-viewport percentages, so a clean embed must give the
+   screencast the entire iframe instead of inserting Browser chrome above it. */
+.canvas-page.clean-embed .urlbar { display: none; }
+
 .urlbar {
   display: flex;
   gap: 6px;

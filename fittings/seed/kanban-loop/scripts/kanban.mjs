@@ -33,9 +33,40 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // must exact-match. No per-list effort/model (the router decides); the two adversarial
 // lists are cross-model Codex passes, NOT a higher tier (the operative stays modest);
 // the architecture doc pointer is OFFERED to Implement (a convention, never required -
-// a foreign project without one is normal, D12). Goal-mode cards prepend /goal; the guard is the iteration
-// cap, not a goal hook (Decision 7).
+// a foreign project without one is normal, D12). Goal-mode cards carry a
+// runtime-neutral acceptance block; the guard is the iteration cap, not a
+// host-specific slash command or goal hook (Decision 7).
 const ARCH_DOC = "docs/architecture.md";
+
+// The immediately previous canonical Test defaults. Keep these byte-for-byte:
+// recently installed boards carry these exact values and must receive the retry-
+// safe gate contract below without treating an operator-authored variation as a
+// default.
+const PREVIOUS_CANONICAL_TEST_EXECUTE_PROMPT =
+  "Run the test phase: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice; write each card's test phase gate-status entry. " +
+  "For every card whose next-options include `done` (Test is its final executable phase), ALWAYS create `<runDir>/evidence/evidence.md` before the verdict. Record the exact verification commands you ran, their key results/output, and a concise pass/fail summary so the finished card has durable, user-openable proof.";
+const PREVIOUS_CANONICAL_TEST_ROUTER_PROMPT =
+  "For each card, use THAT card's listed next-options: emit `<cardId> <the first listed forward option>` if green (or already passing), or `<cardId> implement` only if it is genuinely failing and implement is listed. Never name a board column outside that card's next-options.";
+
+// Exact historical defaults from boards seeded before the current Test contract.
+// Reconciliation may replace only these byte-for-byte values; any operator-edited
+// prompt (even a one-character variation) remains authoritative.
+export const LEGACY_DEFAULT_PHASE_PROMPTS = {
+  test: {
+    executePrompt: [
+      PREVIOUS_CANONICAL_TEST_EXECUTE_PROMPT,
+      "Run the test phase: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice; write each card's test phase gate-status entry.",
+      "Run autothing-test: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice.",
+      "Write + run the committed correctness gate (and typecheck/lint/build)."
+    ],
+    routerPrompt: [
+      PREVIOUS_CANONICAL_TEST_ROUTER_PROMPT,
+      "For each card, emit `<cardId> adversarial-test` if green (or already passing), or `<cardId> implement` only if it is genuinely failing.",
+      "For each card, emit `<cardId> adversarial-test` if green or `<cardId> implement` if failing.",
+      "If green, choose `validate`; if failing, choose `implement`."
+    ]
+  }
+};
 
 export { migrateBoard } from "../lib/board.mjs";
 
@@ -98,8 +129,19 @@ export function seedBoard() {
         // against one test plan, one verdict per card (list MECHANICS, preserved — D9).
         beatCron: "0 */5 * * *",
         batched: true,
-        executePrompt: "Run the test phase: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice; write each card's test phase gate-status entry.",
-        routerPrompt: "For each card, emit `<cardId> adversarial-test` if green (or already passing), or `<cardId> implement` only if it is genuinely failing.",
+        // A resolved workflow may end at Test (for example develop level 2 is
+        // plan -> implement -> review -> test -> done) and therefore never visit
+        // Walkthrough. In that transition Test owns the always-on evidence report;
+        // the engine verifies the exact file before allowing Test -> Done. Longer
+        // workflows still produce their richer visual proof in Walkthrough.
+        requiresEvidenceOn: ["done"],
+        requiredEvidenceFile: "evidence.md",
+        executePrompt:
+          "Run the test phase: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice. " +
+          "For EACH card, during THIS attempt create or overwrite `<runDir>/gate-status.test.json`; a pre-existing gate record is stale input, never proof for this attempt. Before emitting the verdict, inspect the gate record you just wrote and replace any stale or invalid `next_phase` so it exactly matches one of THAT card's listed next-options. Use `done` when `done` is that card's green terminal option. " +
+          "For every card whose next-options include `done` (Test is its final executable phase), ALWAYS create or overwrite `<runDir>/evidence/evidence.md` before the verdict. Record the exact verification commands you ran, their key results/output, and a concise pass/fail summary so the finished card has durable, user-openable proof.",
+        routerPrompt:
+          "For each card, use THAT card's listed next-options. Before the verdict, verify this attempt created or overwrote that card's `<runDir>/gate-status.test.json` and that its `next_phase` exactly equals the next-list you emit; replace any stale value first. Emit `<cardId> <the first listed forward option>` if green (especially `<cardId> done` when `done` is its terminal option), or `<cardId> implement` only if it is genuinely failing and implement is listed. Never name a board column outside that card's next-options.",
         validNext: ["adversarial-test", "implement"]
       },
       {
@@ -158,6 +200,16 @@ export function phaseTemplatesFrom(board) {
     if (l.kind === "agent" || l.kind === "agent-interactive") out[l.id] = l;
   }
   return out;
+}
+
+// The single setup-time reconcile contract. Keeping the prompt-migration
+// whitelist beside the canonical seed makes the live setup path and focused
+// tests exercise the same ownership-aware merge.
+export function reconcileExistingBoard(existingBoard, model) {
+  return reconcileBoardLists(existingBoard, model, {
+    templates: phaseTemplatesFrom(seedBoard()),
+    legacyDefaultPrompts: LEGACY_DEFAULT_PHASE_PROMPTS
+  });
 }
 
 // The board to seed: DRIVEN BY the resolved model when the runner has projected
@@ -251,21 +303,21 @@ async function setup() {
     await atomicWriteJSON(boardFile, resolveSeedBoard(root));
     console.log("kanban-loop: seeded board at", boardFile);
   } else {
-    // RECONCILE an existing board's phase-list SET to the current resolved model
-    // (D15): add lists for newly-selected duties, drop lists for deselected ones,
-    // so changing selected_duties updates a LIVE board (not only a fresh seed). Card
-    // state is preserved (membership is derived from card files); any card stranded
-    // on a removed list is relocated to needs-attention. No model on disk → leave the
-    // board untouched (the default-pipeline / policy-less case is unaffected).
+    // RECONCILE an existing board's phase-list definitions to the current resolved
+    // model (D15): add/drop selected duties and refresh engine-owned mechanics even
+    // when the list set is unchanged. Operator config survives; only explicitly
+    // recognized historical default prompts migrate. Card state is preserved
+    // (membership is derived from card files); any card stranded on a removed list
+    // is relocated to needs-attention. No model on disk → leave the board untouched.
     const model = loadResolvedModel(root);
     const existing = model ? await loadBoard(root).catch(() => null) : null;
     if (model && existing) {
-      const { board, removed, added } = reconcileBoardLists(existing, model, { templates: phaseTemplatesFrom(seedBoard()) });
-      if (removed.length || added.length) {
+      const { board, removed, added, updated } = reconcileExistingBoard(existing, model);
+      if (removed.length || added.length || updated.length) {
         await atomicWriteJSON(boardFile, board);
         const moved = await relocateStrandedCards(root, board, removed);
         console.log(
-          `kanban-loop: reconciled board (+[${added.join(", ")}] -[${removed.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""}) at`,
+          `kanban-loop: reconciled board (+[${added.join(", ")}] -[${removed.join(", ")}] ~[${updated.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""}) at`,
           boardFile
         );
       } else {
@@ -310,11 +362,31 @@ export function batchGatewayRunFn(gatewayUrl) {
   // default) and died at the HTTP client's ~5-min headersTimeout — either way
   // a legitimate long batch parked its whole project group.
   const streamRunFn = gatewayRunFn(gatewayUrl);
-  return async ({ project, cards, list, classification, skill, suppressContinuations, nudge }) => {
+  return async ({
+    project,
+    cards,
+    list,
+    classification,
+    skill,
+    suppressContinuations,
+    nudge,
+    duty,
+    level,
+    phase: routedPhase,
+    stepIndex,
+    sequence
+  }) => {
+    const routeContext = { duty, level, phase: routedPhase, stepIndex, sequence };
     // A verdict NUDGE (engine backstop) replaces the roster prompt: same
     // session, ask for nothing but the per-card verdict lines.
     if (nudge) {
-      return streamRunFn({ prompt: nudge, classification, skill, suppressContinuations: suppressContinuations ?? true });
+      return streamRunFn({
+        prompt: nudge,
+        classification,
+        skill,
+        suppressContinuations: suppressContinuations ?? true,
+        ...routeContext
+      });
     }
     // D15 (S4a): each card's valid next steps come from ITS resolved (duty, level)
     // sequence (cached on the card), so a sequence-ended card is offered `done`, not
@@ -341,14 +413,20 @@ export function batchGatewayRunFn(gatewayUrl) {
       "Emit ONE verdict line per card, each on its own line, EXACTLY in the form `<cardId> <next-list>` where <next-list> is one of THAT card's own next-options listed above.",
       list.routerPrompt || ""
     ].join("\n");
-    return streamRunFn({ prompt, classification, skill, suppressContinuations: suppressContinuations ?? true });
+    return streamRunFn({
+      prompt,
+      classification,
+      skill,
+      suppressContinuations: suppressContinuations ?? true,
+      ...routeContext
+    });
   };
 }
 
 // The gateway URL the tick dispatches through: explicit env, else the conventional
-// :4777 (matching the board server + web channel). The runner injects the live URL.
+// :24777 (matching the board server + web channel). The runner injects the live URL.
 function resolveGatewayUrl() {
-  return process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`;
+  return process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`;
 }
 
 // The scheduler tick runs out-of-band (launchd) with no operative, so PING the gateway

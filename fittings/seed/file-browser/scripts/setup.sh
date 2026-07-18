@@ -8,7 +8,8 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-root="${GARRISON_FILEBROWSER_ROOT:-$HOME/.garrison/files}"
+garrison_home="${GARRISON_HOME:-$HOME/.garrison}"
+root="${GARRISON_FILEBROWSER_ROOT:-$garrison_home/files}"
 # expand a leading ~
 root="${root/#\~/$HOME}"
 mkdir -p "$root"

@@ -1,0 +1,24 @@
+id: dashboard
+title: Dashboard
+path: /
+mode: steps
+areas: []
+steps:
+  - id: ux-functional-smoke
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The dashboard presents operative status, readiness, board summary, quick
+      actions, run controls, and views clearly with no overlaps, clipping,
+      misleading status, or broken hierarchy.
+    tags:
+      - dogfood
+      - ux
+      - smoke
+    judgment: true
+states: []

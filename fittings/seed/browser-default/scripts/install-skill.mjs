@@ -13,9 +13,11 @@ const SKILL_SRC = path.resolve(HERE, "..", ".apm", "skills", "garrison-browser",
 const CLI_SRC = path.resolve(HERE, "cli.mjs");
 
 const HOME = os.homedir();
-const SKILL_DIR = path.join(HOME, ".claude", "skills", "garrison-browser");
+const CLAUDE_HOME = process.env.GARRISON_CLAUDE_HOME || path.join(HOME, ".claude");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const SKILL_DIR = path.join(CLAUDE_HOME, "skills", "garrison-browser");
 const SKILL_DST = path.join(SKILL_DIR, "SKILL.md");
-const BIN_DIR = path.join(HOME, ".garrison", "bin");
+const BIN_DIR = path.join(GARRISON_HOME, "bin");
 const BIN_DST = path.join(BIN_DIR, "garrison-browser");
 
 function lstatExists(p) { try { lstatSync(p); return true; } catch { return false; } }

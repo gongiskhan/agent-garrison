@@ -2,7 +2,7 @@
 
 Authoritative plan of record: `~/.claude/plans/brief-garrison-zippy-sparrow.md`. This file is the build's slice table + resume substrate.
 
-Dev: `npm start` → http://127.0.0.1:7777. Gates: `npm test` · `npm run typecheck` · `npm run lint` · `npm run build` · `npm run test:e2e`.
+Dev: `npm start` → http://127.0.0.1:27777. Gates: `npm test` · `npm run typecheck` · `npm run lint` · `npm run build` · `npm run test:e2e`.
 
 ## Slices
 
@@ -230,22 +230,22 @@ anywhere. E1 resolution: parser **derives** a synthetic `view` capability from
 ## DE wave — Dev Env consolidation (2026-06-11)
 
 One slice: the three retired session surfaces collapse into a single own-port
-**dev-env** Fitting on :7086 (Claude PTY + shell PTY + browser pane per
+**dev-env** Fitting on :27086 (Claude PTY + shell PTY + browser pane per
 hook-detected Claude Code session); the workspaces Fitting is deleted outright
 with no successor. dev-env takes over `~/.garrison/sessions/state.json` and the
 4 owner-tagged Claude Code hook groups; http-gateway's worktrees passthrough
-now defaults to :7086.
+now defaults to :27086.
 
 | id | title | kind | route | group | status |
 |----|-------|------|-------|-------|--------|
-| DE1-dev-env | Dev Env consolidation — terminal + worktrees + session-view collapse into the dev-env fitting; workspaces deleted | ui (own-port fitting) | (own-port :7086) | DE-serial | done (2026-06-11) |
+| DE1-dev-env | Dev Env consolidation — terminal + worktrees + session-view collapse into the dev-env fitting; workspaces deleted | ui (own-port fitting) | (own-port :27086) | DE-serial | done (2026-06-11) |
 
 ### Acceptance
 - **DE1:** `tsx scripts/validate-fitting.ts fittings/seed/dev-env` passes all
   four checks; `npm run typecheck` clean; vitest green including
   `tests/dev-env.test.ts` + `tests/dev-env-hooks-install.test.ts`; the
   http-gateway `/worktrees` passthrough round-trips (GET/POST `/worktrees`,
-  DELETE `/worktrees/:id`) against dev-env on :7086.
+  DELETE `/worktrees/:id`) against dev-env on :27086.
 
 ## MR wave — Model Router (Orchestrator) + Improver (BRIEF v2, 2026-06-13)
 
@@ -257,8 +257,8 @@ deletion, and the `spawnClaude`/`spawn-soul.mjs` PTY migration already shipped,
 so **P0 wires + finishes** the substrate rather than rebuilding it. Two-stage
 routing (gateway pre-route → act), Profile-based policy (Exceptions → Matrix →
 Continuations + per-route discipline), a compiled `{{routing}}` section in the
-orchestrator prompt, own-port view + simulator (:7087), three provider skills,
-a nightly Improver + review queue (:7088), a Workflows Quarters category.
+orchestrator prompt, own-port view + simulator (:27087), three provider skills,
+a nightly Improver + review queue (:27093), a Workflows Quarters category.
 Sentinel tokens are lifted verbatim from brief §3.
 
 | id | title | kind | route | group | status |
@@ -273,10 +273,10 @@ Sentinel tokens are lifted verbatim from brief §3.
 | MR1c-stageA | Stage A classify (warm classifier prompt + response parser) → pure-code resolve (exceptions → cell → inheritance → default → role → roleMap → target); fixtures + resolution unit tests | mixed | (gateway lib) | MR1 (serial) | passed (routing-classify 9/9 + routing-compiler 13/13 + live classify probe 3/3 valid + full suite 534✓ + typecheck/lint/build 0 — `classify-ok` `resolve-ok` `rolemap-ok`) |
 | MR1d-stageB | Stage B native model/effort switch (slash-inject) + provider/soul respawn-with-continue + multi-provider launch env | mixed | (gateway + claude-pty) | MR1 (serial) | passed (stage-b 12/12 + full suite 546✓ + MR0e live slash-inject + provider-launch env asserted + typecheck/lint/build 0; soul-switch mechanism-proven, live ephemeral probe inconclusive [upstream --continue persistence, logged] — `model-switch-ok` `provider-launch-ok` `soul-switch-ok`) |
 | MR1e-telemetry | `decisions.jsonl` at resolution time + reply `[route:]` token honored diff-check | mixed | (gateway) | MR1 (serial) | passed (telemetry 10/10 + live full-path probe decisions-log-ok + route-token-ok honored=true + full suite 556✓ + typecheck/lint/build 0 — `decisions-log-ok` `route-token-ok`) |
-| MR2-view | Own-port Model Router view (Policy/Simulator/Compiled/Telemetry panes) on :7087 owning `GET/PUT /routing`; discipline + continuations editing; Profile switch + pending-restart banner; simulator + pins; walkthrough video | ui (own-port :7087) | (own-port) | MR2 (serial, after MR1) | passed (server 8/8 + 3-viewport e2e + validate-fitting PASS + typecheck/lint/build 0 + clean design audit; `router-view-ok` `discipline-ok` `continuations-ok` `profiles-ok` `simulator-ok` `simulator-pins-ok`; walkthrough-video DEFERRED to consolidated MR-wave film [logged]) |
+| MR2-view | Own-port Model Router view (Policy/Simulator/Compiled/Telemetry panes) on :27087 owning `GET/PUT /routing`; discipline + continuations editing; Profile switch + pending-restart banner; simulator + pins; walkthrough video | ui (own-port :27087) | (own-port) | MR2 (serial, after MR1) | passed (server 8/8 + 3-viewport e2e + validate-fitting PASS + typecheck/lint/build 0 + clean design audit; `router-view-ok` `discipline-ok` `continuations-ok` `profiles-ok` `simulator-ok` `simulator-pins-ok`; walkthrough-video DEFERRED to consolidated MR-wave film [logged]) |
 | MR3-provider-skills | `provider-skills` fitting shipping gemini-cli/gemini-api/codex-cli (`.apm/skills`); stdin/temp-file spec, model allowlist, loud missing-key, artifact write, schema-validated summary, delegation log; `--probe` | mixed | (fitting + skills) | MR3 (after MR1, ∥ MR4) | pending |
 | MR4-workflows-quarters | New read-only Workflows Quarters category (`.claude/workflows` + `~/.claude/workflows`; empty-state-first; fixture-tested); workflows appear as router `workflow` targets | mixed | /quarters/workflows | MR4 (after MR1, ∥ MR3) | passed (workflows-scan 5/5 + full suite 601✓ + typecheck/lint/build 0 — `quarters-workflows-ok` `workflow-target-ok`; visible panel deferred as thin read-only follow-up [logged]) |
-| MR5a-improver | Nightly Improver runner + memory-consolidation rule (proposal diff + queue) + own-port review queue (:7088) applying via hosted APIs + reconcile; vault-locked/server-down skip | mixed | (fitting + own-port :7088) | MR5 (after MR0+MR1+MR3) | passed (improver 11/11 + scheduler list shows the job + --probe ok + validate-fitting PASS + full suite 612✓ + typecheck/lint/build 0 — `improver-proposal-ok` `improver-skip-ok` `improver-scheduled-ok`; live review-queue UI apply [improver-apply/reject/conflict] deferred [logged]) |
+| MR5a-improver | Nightly Improver runner + memory-consolidation rule (proposal diff + queue) + own-port review queue (:27093) applying via hosted APIs + reconcile; vault-locked/server-down skip | mixed | (fitting + own-port :27093) | MR5 (after MR0+MR1+MR3) | passed (improver 11/11 + scheduler list shows the job + --probe ok + validate-fitting PASS + full suite 612✓ + typecheck/lint/build 0 — `improver-proposal-ok` `improver-skip-ok` `improver-scheduled-ok`; live review-queue UI apply [improver-apply/reject/conflict] deferred [logged]) |
 | MR5b-autonomy | Autonomy promotion/demotion lifecycle (streaks; manual default; instant demotion); park tier-classifier fitting | mixed | (improver fitting) | MR5 (serial, after MR5a) | passed (autonomy state machine tests + tier-classifier PARKED [parked:true + structurally unselectable] — `autonomy-promotion-ok` `autonomy-demotion-ok` `classifier-parked-ok`) |
 
 ### BRIEF v4 reframe (2026-06-14) — roles/profiles + Runtime & Knowledge faculties
@@ -382,7 +382,7 @@ failed; typecheck/lint/build exit 0.
 ### What shipped (live, not asserted)
 - **U1** `fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs` (RoutedGateway: classify→resolve→log→planSwitch→honored, MultiRuntimePool-served) wired into `gateway-pty.mjs` (`initRouting`/`runRoutedTurn`, `GARRISON_ROUTING`, stub seam `GARRISON_GATEWAY_RUNTIME_STUB`). Committed gates + a real-claude probe (`scripts/probe-live-gateway.mjs`).
 - **U2** corrected the MCP wiring (`codegraph serve --mcp`, `serena start-mcp-server --context ide-assistant`); `scripts/lib/mcp-stdio-client.mjs` drives the real servers; `tests/knowledge-mcp-live.test.ts` (`GARRISON_LIVE_TOOLS=1`).
-- **U3** `improver/lib/apply-core.mjs` (never-clobber baselineSha → 409 → re-read+re-diff) + `review-queue.mjs` + own-port `scripts/server.mjs` (:7088) + `ui/` review view; real `reconcile('post-authoring')` runs.
+- **U3** `improver/lib/apply-core.mjs` (never-clobber baselineSha → 409 → re-read+re-diff) + `review-queue.mjs` + own-port `scripts/server.mjs` (:27093) + `ui/` review view; real `reconcile('post-authoring')` runs.
 - **U4** real round-trips, each with a CLI/runtime self-unblock: codex `--skip-git-repo-check`, gemini `--skip-trust`, `session.mjs` `providerLaunch` (preserve `ANTHROPIC_BASE_URL` so ollama is reached), and the soul-switch carryover fallback (`buildContextCarryover`). `tests/third-party-live.test.ts` (`GARRISON_LIVE_THIRDPARTY=1`).
 - **U5** `scripts/walkthrough-u-wave.sh` → `docs/autothing/evidence/u-wave-walkthrough.{cast,gif}` (all U-wave committed gates green).
 
@@ -497,19 +497,19 @@ round-trippable from the UI. Sandbox seam: `GARRISON_CLAUDE_HOME`/`GARRISON_HOME
 ## Dev-Env durable sessions (DS wave) — 2026-06-20
 
 Plan of record: `~/.claude/plans/we-need-to-find-tingly-lighthouse.md`. Makes
-dev-env (port 7086) sessions survive a computer reboot and pivots the session
+dev-env (port 27086) sessions survive a computer reboot and pivots the session
 model onto Claude Code's own `~/.claude` data (live registry + transcripts).
-Dev surface: the dev-env Fitting at http://127.0.0.1:7086 (own-port; main app
-:7777). Build on disk; restart the LIVE dev-env only at controlled points;
+Dev surface: the dev-env Fitting at http://127.0.0.1:27086 (own-port; main app
+:27777). Build on disk; restart the LIVE dev-env only at controlled points;
 **destructive reboot verification runs on a throwaway `tmux -L garrison-test`
-socket + isolated `GARRISON_STATE_PATH`/`GARRISON_CLAUDE_HOME` + a non-7086 port
+socket + isolated `GARRISON_STATE_PATH`/`GARRISON_CLAUDE_HOME` + a non-27086 port
 — NEVER the live `tmux -L garrison` that holds the user's real sessions.**
 
 | id | title | kind | route | group | status |
 |----|-------|------|-------|-------|--------|
 | DS1-reader | `claude-sessions.mjs` — `readLiveRegistry()` (live `~/.claude/sessions/*.json`, drop dead pids + internal/broad-root cwds) + `listHistory()` (transcripts → title via latest `ai-title`→first-user-msg, cheap stat+head+tail, mtime-cached) | automation | (lib) | DS-A | passed (vitest 11/11 + typecheck 0; codex approve r4 after 3 fix rounds — `live-registry-ok` `history-title-ok` `history-cache-ok`) |
-| DS2-wire | `state.mjs` registry-liveness swap (retire ps/lsof probe) + persistent open-set (`openedInDevEnv` + migration-on-read from current visibility) · `ptys.mjs` `--resume <id>` · `server.mjs` `/sessions/agents` `/sessions/history` `/sessions/open` + close→unpin | mixed | (lib + :7086 api) | DS-A | **blocked** (tests 36/36 + typecheck 0 + `open-set-ok` `resume-by-id-ok` `endpoints-ok` `reboot-restore-ok`; Codex 7 rounds all-findings-fixed but round-8 confirm blocked — **Codex out of credits**, external) |
-| DS3-ui | `main.tsx` tab-membership=open-set + lazy resume-on-click · new `session-panels.tsx` Agents + History header dropdown (grouped by project incl. worktrees) · `styles.css` | ui | :7086 | DS-B | **blocked** (bundle build 0 + typecheck 0 + UI screenshot-verified: `tabs-openset-ok` `agents-panel-ok` `history-resume-ok`; backend endpoints committed-tested 36/36; **Codex cross-model never ran — out of credits**, external) |
+| DS2-wire | `state.mjs` registry-liveness swap (retire ps/lsof probe) + persistent open-set (`openedInDevEnv` + migration-on-read from current visibility) · `ptys.mjs` `--resume <id>` · `server.mjs` `/sessions/agents` `/sessions/history` `/sessions/open` + close→unpin | mixed | (lib + :27086 api) | DS-A | **blocked** (tests 36/36 + typecheck 0 + `open-set-ok` `resume-by-id-ok` `endpoints-ok` `reboot-restore-ok`; Codex 7 rounds all-findings-fixed but round-8 confirm blocked — **Codex out of credits**, external) |
+| DS3-ui | `main.tsx` tab-membership=open-set + lazy resume-on-click · new `session-panels.tsx` Agents + History header dropdown (grouped by project incl. worktrees) · `styles.css` | ui | :27086 | DS-B | **blocked** (bundle build 0 + typecheck 0 + UI screenshot-verified: `tabs-openset-ok` `agents-panel-ok` `history-resume-ok`; backend endpoints committed-tested 36/36; **Codex cross-model never ran — out of credits**, external) |
 
 ### Parallel groups (disjoint-file reasoning — logged, not silent)
 - **DS-A (DS1 → DS2): serial chain.** DS2's `state.mjs` imports DS1's
@@ -574,7 +574,7 @@ in any repo, (2) the orchestrator session — with no per-project setup.
   "Restricted Parties" incl. Anthropic/OpenAI; "use" includes analyzing/incorporating).
   **Decision: keep it, run strictly arm's-length, never vendor/import into the MIT tree,
   never wire to Ekoa, and keep its source out of the Codex (OpenAI) gate.** FastMCP
-  HTTP server on `127.0.0.1:8765`; exposes `file_reservation_paths` (TTL≥60s, heartbeat
+  HTTP server on `127.0.0.1:28765`; exposes `file_reservation_paths` (TTL≥60s, heartbeat
   via `renew_file_reservations`, `reason`), `acquire_build_slot`, messaging, identities.
 - **Config scope = user scope.** Garrison writes MCP to `~/.claude.json` (`mcp-user.ts`,
   guarded CAS) and hooks to `~/.claude/settings.json` (`hooks-crud.ts`, only `type:command`).
@@ -593,7 +593,7 @@ in any repo, (2) the orchestrator session — with no per-project setup.
 | id | title | kind | route | group | status |
 |----|-------|------|-------|-------|--------|
 | CO1-beads | `coord-beads` Fitting — pin+install `bd`, owner-tagged user-scope SessionStart hook (fail-open, de-dup native), Garrison-core clean teardown; quiet no-op in fresh repos | automation (fitting) | (cli) | CO-serial | passed (vitest 20/20 + validate-fitting PASS + typecheck 0 + sandbox round-trip + fail-open proven; Codex r1→r2→r3 approve; asciinema evidence — `BEADS-FITTING OK`) |
-| CO2-agentmail | `coord-agentmail` own-port Fitting — clone+pin agent_mail external (license-isolated), run FastMCP `:8765`, register http MCP in `~/.claude.json`, status file + clean stop | automation (own-port :8765) | (own-port) | CO-serial | passed (vitest 7/7 incl LIVE supervisor + isolation-guard + typecheck 0 + validate-fitting PASS; Codex r1→r2 approve; asciinema — `AGENTMAIL-FITTING OK` `LICENSE-ISOLATION OK`) |
+| CO2-agentmail | `coord-agentmail` own-port Fitting — clone+pin agent_mail external (license-isolated), run FastMCP `:28765`, register http MCP in `~/.claude.json`, status file + clean stop | automation (own-port :28765) | (own-port) | CO-serial | passed (vitest 7/7 incl LIVE supervisor + isolation-guard + typecheck 0 + validate-fitting PASS; Codex r1→r2 approve; asciinema — `AGENTMAIL-FITTING OK` `LICENSE-ISOLATION OK`) |
 | CO3-plan-gate | `coord-mcp` Fitting — Garrison-owned MIT stdio MCP server: `begin_planning`/`end_planning` + read-bundle, per-repo **file mutex** w/ TTL+heartbeat (atomic wx acquire), bounded wait/escalation | mixed (fitting + lib + mcp) | (mcp) | CO-serial | passed (vitest 12/12 + typecheck 0 + validate-fitting PASS + live stdio MCP A/B/A/B sequence; Codex r1→r5 approve [5-round hardening]; asciinema — `PLAN-GATE OK`) |
 | CO4-hook | gap-fill `SessionStart`/`UserPromptSubmit` command hook — begin_planning nudge + repo-scoped digest (conflicts/awareness; lookback 3d weekday/5d Mon/7d weekend) + heartbeat log; fail-open, PTY-safe | mixed (lib + hook) | (hook) | CO-serial | passed (vitest 5/5 + typecheck 0; Codex r1 approve; PTY-safe command-only — `PTY-SAFE OK`) |
 | CO5-coord-cli | `coord` observability CLI — `status` (liveness/activity-by-repo/heartbeat/plan-lock), `status --tail`, `canary` (direct-path self-test) | mixed (cli) | (cli) | CO-serial | passed (vitest 5/5 + typecheck 0 + live 5-layer demo [Beads+agent_mail UP, holder+waiter, heartbeat]; Codex r1→r2 approve; asciinema — `COORD-OBSERVE OK` `COORD-CANARY OK`) |
@@ -620,7 +620,7 @@ in any repo, (2) the orchestrator session — with no per-project setup.
   the fitting quietly `bd init`s (or relies on the resilient exit-3) — never errors/blocks;
   uninstall removes exactly what it added → `BEADS-FITTING OK`.
 - **CO2:** the FastMCP server starts as a detached external process, writes
-  `~/.garrison/ui-fittings/coord-agentmail.json`, is reachable on `127.0.0.1:8765`,
+  `~/.garrison/ui-fittings/coord-agentmail.json`, is reachable on `127.0.0.1:28765`,
   and is registered as an http MCP server in the sandbox `~/.claude.json`; stop kills
   the pid + removes the status + MCP entry; dependency graph shows NO import of agent_mail
   into the MIT tree → `AGENTMAIL-FITTING OK`, `LICENSE-ISOLATION OK`.

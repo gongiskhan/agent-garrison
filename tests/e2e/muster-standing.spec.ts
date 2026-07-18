@@ -14,6 +14,7 @@ const FIXTURE_ID = "muster-standing-e2e";
 const FIXTURE_DIR = path.join(process.cwd(), "compositions", FIXTURE_ID);
 
 function writeFixture(): void {
+  fs.rmSync(path.join(FIXTURE_DIR, ".garrison"), { recursive: true, force: true });
   fs.mkdirSync(FIXTURE_DIR, { recursive: true });
   const manifest = {
     name: FIXTURE_ID,
@@ -26,14 +27,19 @@ function writeFixture(): void {
         id: FIXTURE_ID,
         name: "Muster Standing E2E",
         selections: {
-          gateway: [{ id: "http-gateway", config: { port: 4777, bind_host: "127.0.0.1" } }],
-          channels: [{ id: "web-channel-default", config: { port: 7083 } }],
+          gateway: [{ id: "http-gateway", config: { port: 24777, bind_host: "127.0.0.1" } }],
+          channels: [{ id: "web-channel-default", config: { port: 27083 } }],
           runtimes: [
             { id: "claude-code-runtime", config: {} },
             { id: "agent-sdk-runtime", config: {} }
           ]
         },
-        duties: [],
+        duties: ["plan", "implement", "review", "test"].map((id) => ({
+          id,
+          title: id[0].toUpperCase() + id.slice(1),
+          description: `${id} a change`,
+          levels: [{ description: "standard", cell: { effort: "medium" } }]
+        })),
         selected_duties: [],
         targets: [],
         prompt_sources: {
@@ -137,6 +143,57 @@ test("(f) config folds by default and the fitting files editor opens", async ({ 
   const editor = page.getByRole("dialog", { name: /edit files/i });
   await expect(editor).toBeVisible();
   await expect(editor.getByText("apm.yml")).toBeVisible({ timeout: 15000 });
+});
+
+test("the primary control writes the composition routing policy", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-fittings").click();
+  const primary = page.getByTestId("standing-primary-agent-sdk-runtime");
+  await expect(primary).toHaveText(/make primary/i);
+  await primary.click();
+  await expect(primary).toHaveText(/primary runtime/i);
+
+  const policy = JSON.parse(
+    fs.readFileSync(path.join(FIXTURE_DIR, ".garrison", "routing.json"), "utf8")
+  ) as { primaryRuntime?: string };
+  expect(policy.primaryRuntime).toBe("agent-sdk-runtime");
+});
+
+test("Add duty can station an unstationed composite duty fitting", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("add-duty").click();
+  const option = page.getByTestId("add-duty-option-develop");
+  await expect(option).toContainText("stations duty-develop");
+  await option.click();
+
+  await expect(page.getByTestId("duty-row-develop")).toBeVisible();
+  await page.getByTestId("duty-toggle-develop").click();
+  await expect(page.getByTestId("duty-levels-develop")).toContainText(/plan/i);
+
+  const manifest = fs.readFileSync(path.join(FIXTURE_DIR, "apm.yml"), "utf8");
+  expect(manifest).toContain("duty-develop");
+});
+
+test("Targets tray creates a full-harness Agent SDK target", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("add-target").click();
+  await expect(page.getByTestId("target-editor")).toBeVisible();
+  await page.getByTestId("target-id").fill("sdk-haiku-full");
+  await page.getByTestId("target-runtime").selectOption("agent-sdk");
+  await page.getByTestId("target-provider").fill("anthropic");
+  await page.getByTestId("target-model").fill("claude-haiku-4-5");
+  await page.getByTestId("target-prompt-mode").selectOption("full");
+  await page.getByTestId("target-max-turns").fill("8");
+  await page.getByTestId("target-submit").click();
+
+  await expect(page.getByTestId("target-editor")).toHaveCount(0);
+  await expect(page.getByTestId("target-chip-sdk-haiku-full")).toBeVisible();
+  const manifest = yaml.load(fs.readFileSync(path.join(FIXTURE_DIR, "apm.yml"), "utf8")) as {
+    "x-garrison": { composition: { targets: Array<{ id: string; params?: Record<string, unknown> }> } };
+  };
+  expect(manifest["x-garrison"].composition.targets).toContainEqual(
+    expect.objectContaining({ id: "sdk-haiku-full", params: { promptMode: "full", maxTurns: 8 } })
+  );
 });
 
 test("(e) no horizontal overflow at 390px", async ({ page }) => {

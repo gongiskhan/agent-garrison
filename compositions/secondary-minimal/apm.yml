@@ -42,7 +42,7 @@ x-garrison:
       observability:
         - id: improver
           config:
-            port: 7088
+            port: 27088
             bind_host: 127.0.0.1
             cron: 30 3 * * *
             vault_dir: ~/ObsidianVault

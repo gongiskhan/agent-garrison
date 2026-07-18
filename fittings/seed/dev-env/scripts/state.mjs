@@ -24,10 +24,11 @@ import { readLiveRegistry } from "./claude-sessions.mjs";
 const execP = promisify(exec);
 
 const HOME = os.homedir();
-const DEV_ROOT_FILE = path.join(HOME, ".garrison", "dev-root");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const DEV_ROOT_FILE = path.join(GARRISON_HOME, "dev-root");
 export const STATE_FILE = process.env.GARRISON_STATE_PATH && process.env.GARRISON_STATE_PATH.trim().length > 0
   ? process.env.GARRISON_STATE_PATH
-  : path.join(HOME, ".garrison", "sessions", "state.json");
+  : path.join(GARRISON_HOME, "sessions", "state.json");
 
 export const SESSION_STATUSES = new Set(["starting", "working", "waiting", "idle", "errored", "dead", "stale"]);
 const STARTING_TIMEOUT_MS = 60_000; // a session stuck in "starting" past this is reported as "stale"

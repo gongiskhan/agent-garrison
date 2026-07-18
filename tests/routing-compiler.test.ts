@@ -72,6 +72,24 @@ describe("routing resolver (MR1c core — pure code)", () => {
     expect(r.via).toBe("exception");
   });
 
+  it("routes internal vision to tool-capable Claude targets, with a stronger adversarial pass", () => {
+    const normal = resolveRoute(config, "balanced", {
+      taskType: "image",
+      tier: "T1-standard",
+      matchedException: "ex-automation-vision"
+    } as Classification);
+    const adversarial = resolveRoute(config, "balanced", {
+      taskType: "image",
+      tier: "T2-deep",
+      matchedException: "ex-automation-vision-adversarial"
+    } as Classification);
+
+    expect(normal.targetId).toBe("cc-sonnet-med");
+    expect(normal.ruleId).toBe("exception:ex-automation-vision");
+    expect(adversarial.targetId).toBe("cc-opus-high");
+    expect(adversarial.ruleId).toBe("exception:ex-automation-vision-adversarial");
+  });
+
   // cell → target
   it("a matrix cell resolves (code/T2 → cc-opus-high)", () => {
     const r = resolveRoute(config, "balanced", { taskType: "code", tier: "T2-deep" } as Classification);

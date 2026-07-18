@@ -270,7 +270,7 @@ describe("1. Picker: multi-anchor capture + badges survive reload/viewport chang
     // badge for the composer area visually sits over the composer element.
     const p = await browser!.newPage({ viewport: { width: 1000, height: 900 } });
     await p.goto(DRILL_BASE);
-    await p.getByRole("button", { name: "Authoring" }).click();
+    await p.getByRole("tab", { name: "Authoring" }).click();
     await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 15000 });
     const mobileChip = p.locator(".dr-au-canvas").getByText("mobile", { exact: true });
     if (await mobileChip.count()) await mobileChip.click();
@@ -698,14 +698,11 @@ describe("12. Drill's own UI at mobile width: FAB + highlight flow work under to
   it("vision-checks the mobile sheet open/close at 390px against the canonical fixture book", async () => {
     const p = await browser!.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     await p.goto(DRILL_BASE);
-    await p.getByRole("button", { name: "Authoring" }).click();
+    await p.getByRole("tab", { name: "Authoring" }).click();
     await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 15000 });
 
-    // Sheet starts open — the FAB is hidden while it's open.
-    await p.locator(".dr-au-plan.dr-sheet-open").waitFor({ state: "visible", timeout: 5000 });
-    expect(await p.locator(".dr-fab").isVisible().catch(() => false)).toBe(false);
-
-    await p.locator(".dr-sheet-close").click();
+    // Browser-first mobile authoring: the plan starts closed so the live
+    // page is immediately usable, and the FAB opens the editing sheet.
     await p.locator(".dr-au-plan.dr-sheet-closed").waitFor({ timeout: 5000 });
 
     const fab = p.locator(".dr-fab");
@@ -716,6 +713,10 @@ describe("12. Drill's own UI at mobile width: FAB + highlight flow work under to
 
     await fab.click();
     await p.locator(".dr-au-plan.dr-sheet-open").waitFor({ timeout: 5000 });
+    expect(await fab.isVisible().catch(() => false)).toBe(false);
+
+    await p.locator(".dr-sheet-close").click();
+    await p.locator(".dr-au-plan.dr-sheet-closed").waitFor({ timeout: 5000 });
 
     await p.close();
   }, 30000);

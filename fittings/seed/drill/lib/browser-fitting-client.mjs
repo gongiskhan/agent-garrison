@@ -105,11 +105,35 @@ export async function readConsole(tabId, { limit = 120, fetchImpl = globalThis.f
 // The absolute URL of browser-default's iframeable canvas for a tab (B1: Drill
 // embeds this directly rather than reimplementing the screencast WS client).
 // embed=1 renders the bare screencast (no urlbar chrome): the iframe's full
-// box IS the page viewport, which is what makes Drill's overlay math exact -
-// the canvas page resizes the live tab viewport to its own wrapper size, so
-// any chrome strip inside the iframe would skew every pick and badge.
-export function canvasUrl(tabId) {
+// box IS the page viewport, which is what makes Drill's overlay math exact.
+// The optional preserved viewport keeps Browser from replacing Drill's named
+// desktop/mobile viewport with the iframe's rendered display size.
+export function canvasUrl(tabId, viewport = null) {
   const base = browserBaseUrl();
   if (!base) return null;
-  return `${base}/canvas/${encodeURIComponent(tabId)}?embed=1`;
+  const url = new URL(`${base}/canvas/${encodeURIComponent(tabId)}`);
+  url.searchParams.set("embed", "1");
+  if (viewport?.width && viewport?.height) {
+    url.searchParams.set("preserveViewport", "1");
+    url.searchParams.set("viewportWidth", String(viewport.width));
+    url.searchParams.set("viewportHeight", String(viewport.height));
+  }
+  return url.toString();
+}
+
+// A viewport-exact PNG. Drill uses this for element targeting: the Browser
+// canvas includes its own toolbar and scaling chrome, so mapping a click on
+// that iframe directly to page CSS pixels is incorrect in real use.
+export function screenshotUrl(tabId) {
+  const base = browserBaseUrl();
+  if (!base) return null;
+  return `${base}/tabs/${encodeURIComponent(tabId)}/screenshot`;
+}
+
+export async function fetchScreenshot(tabId, { fetchImpl = globalThis.fetch } = {}) {
+  const url = screenshotUrl(tabId);
+  if (!url) throw new Error("browser fitting not running (no GARRISON_BROWSER_URL / status file)");
+  const res = await fetchImpl(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`browser ${res.status}: ${await res.text()}`);
+  return Buffer.from(await res.arrayBuffer());
 }

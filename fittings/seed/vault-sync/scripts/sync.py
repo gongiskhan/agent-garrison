@@ -13,7 +13,11 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-OUTPOST_HOST = "http://127.0.0.1:3702"
+OUTPOST_HOST = (
+    os.environ.get("GARRISON_OUTPOST_HOST_URL")
+    or os.environ.get("OUTPOST_HOST_URL")
+    or f"http://127.0.0.1:{os.environ.get('GARRISON_OUTPOST_PORT', '23702')}"
+).rstrip("/")
 MAX_WARN_BYTES = 5 * 1024 * 1024  # warn on files > 5 MB
 DEFAULT_INTERVAL_S = 60
 
@@ -215,7 +219,7 @@ def sync_outpost(outpost_name: str, source_dir: str, remote_dir: str,
 # Status file
 # ---------------------------------------------------------------------------
 
-_GARRISON_DIR = os.path.expanduser("~/.garrison")
+_GARRISON_DIR = os.path.expanduser(os.environ.get("GARRISON_HOME", "~/.garrison"))
 STATUS_PATH = os.path.join(_GARRISON_DIR, "vault-sync-status.json")
 CACHE_PATH = os.path.join(_GARRISON_DIR, "vault-sync-cache.json")
 

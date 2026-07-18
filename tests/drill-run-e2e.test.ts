@@ -219,6 +219,25 @@ describe("feedback / override / observation / triage", () => {
     expect(run.observations.find((o: any) => o.id === observation.id)).toMatchObject({ convertedToStep: stepJson.step.id, convertedToFinding: finding.id });
   });
 
+  it("requires explicit page attribution before an observation becomes a finding", async () => {
+    const addRes = await fetch(`${DRILL_BASE}/api/runs/${runId}/observation`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "This must not silently land on the first page." })
+    });
+    const { observation } = await addRes.json();
+
+    const missingPage = await fetch(`${DRILL_BASE}/api/runs/${runId}/observation/${observation.id}/convert-finding`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({})
+    });
+    expect(missingPage.status).toBe(400);
+    expect((await missingPage.json()).error).toMatch(/pageId required/i);
+
+    const unknownPage = await fetch(`${DRILL_BASE}/api/runs/${runId}/observation/${observation.id}/convert-finding`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageId: "does-not-exist" })
+    });
+    expect(unknownPage.status).toBe(404);
+  });
+
   it("triage: confirm one finding, dismiss another", async () => {
     const before = await (await fetch(`${DRILL_BASE}/api/runs/${runId}`)).json();
     const [f1, f2] = before.run.findings;

@@ -266,7 +266,11 @@ export async function listCompositions(): Promise<Composition[]> {
   // unreadable is SKIPPED - listing never creates state.
   const compositions = await Promise.all(
     entries
-      .filter((entry) => entry.isDirectory())
+      // Hidden siblings are private staging directories (for example an
+      // in-progress composition clone). Tolerant reads below also ensure a
+      // directory being deleted or only partly materialised is never scaffolded
+      // back into existence by a list request.
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
       .map(async (entry) => {
         try {
           const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(entry.name));

@@ -11,7 +11,7 @@ includes: auto
 x-garrison:
   faculty: building
   own_port: true
-  default_port: 7096
+  default_port: 27096
   component_shape: plugin
   cardinality_hint: single
   platforms:

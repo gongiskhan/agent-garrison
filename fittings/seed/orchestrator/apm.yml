@@ -18,12 +18,12 @@ x-garrison:
     byte-stably into both the routing.md injected via {{routing}} and the
     machine-readable ~/.garrison/orchestrator/policy.json (the single
     consumption interface for the run engine and every phase skill), and
-    serves the own-port composer view (default 7087) that owns GET/PUT
+    serves the own-port composer view (default 27087) that owns GET/PUT
     /routing with baseline-hash guarding.
   config_schema:
     - key: port
       type: integer
-      default: 7087
+      default: 27087
       description: HTTP port the Orchestrator view + config API binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
@@ -62,7 +62,7 @@ x-garrison:
     own model: the gateway pre-routes (Stage A: taskType + tier + execution)
     before the turn and places it on the resolved target.
     Every reply must end with `[route: <target-id> | rule: <rule-id> | profile: <name>]`.
-    Config API (own-port server, default 7087):
+    Config API (own-port server, default 27087):
       GET  /routing   → {config, baselineSha}
       PUT  /routing   → whole-document write, 409 on baselineSha mismatch,
                         422 when the policy fails to compile; recompiles
