@@ -99,20 +99,42 @@ async function dispatchBatchFixCard(record, confirmed) {
   if (!base) throw new Error("kanban-loop fitting not running (no status file)");
   const lines = confirmed.map((f) => `- [${f.kind}] ${f.pageId}${f.stepId ? "#" + f.stepId : ""}: ${f.text}`);
   const description = `Drill batch fix (report ${record.id}):\n${lines.join("\n")}`;
+  // A human-scannable title: which pages, how many findings, dispatched when.
+  // Identical "Drill batch fix (report 01KX...)" titles made the board
+  // unreadable - the ulid identifies nothing at a glance.
+  const pages = [...new Set(confirmed.map((f) => f.pageId))];
+  const when = new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const title = `Drill fix: ${pages.join(", ")} - ${confirmed.length} finding${confirmed.length === 1 ? "" : "s"} (${when})`;
   const res = await fetch(`${base}/cards`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     // The run RECORD's project, not the live selection - a heartbeat sweep or
     // a stale Results view can dispatch after the user retargeted Drill, and
     // the fix card must point at the repo the findings came from.
-    body: JSON.stringify({ description, duty: "code", level: 2, sequence: ["code"], origin: "drill", project: record.project || drillTargetRoot() })
+    body: JSON.stringify({ title, description, duty: "code", level: 2, sequence: ["code"], origin: "drill", project: record.project || drillTargetRoot() })
   });
   if (!res.ok) throw new Error(`kanban-loop ${res.status}: ${await res.text()}`);
   const card = (await res.json()).card;
+  // Enter the card at its first phase so the loop actually RUNS it - a card
+  // parked invisibly in backlog reads as "my fixes went nowhere" (observed
+  // live 2026-07-18). The engine header marks this as an engine move; a
+  // failure leaves the card in backlog rather than failing the dispatch.
+  let entered = false;
+  try {
+    const first = Array.isArray(card.sequence) && card.sequence.length > 0 ? card.sequence[0] : "code";
+    const moveRes = await fetch(`${base}/cards/${card.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-garrison-engine": "drill-dispatch" },
+      body: JSON.stringify({ list: first, rev: card.rev })
+    });
+    entered = moveRes.ok;
+  } catch {
+    /* card stays in backlog; the board's Start button remains the fallback */
+  }
   // Attach the board's card URL so the UI (and the finding's `card` stamp)
   // can link straight to it - "did my fixes reach the kanban?" should never
   // require opening the board and hunting.
-  return { ...card, url: `${base}/#/cards/${card.id}` };
+  return { ...card, url: `${base}/#/cards/${card.id}`, entered };
 }
 
 // A long-lived client flow (an app start, a plan, a gated-run approval) pins

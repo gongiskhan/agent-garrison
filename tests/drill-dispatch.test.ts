@@ -24,6 +24,7 @@ let drillSrv: ChildProcess | null = null;
 let fakeKanban: http.Server | null = null;
 let receivedBody: any = null;
 let receivedBodies: any[] = [];
+let receivedMoves: any[] = [];
 
 async function waitHealthy(base: string, ms: number) {
   const end = Date.now() + ms;
@@ -43,7 +44,22 @@ beforeAll(async () => {
         receivedBody = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
         receivedBodies.push(receivedBody);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ card: { id: `01FAKECARD${receivedBodies.length}`, list: "code", ...receivedBody } }));
+        res.end(JSON.stringify({ card: { id: `01FAKECARD${receivedBodies.length}`, list: "backlog", rev: 0, ...receivedBody } }));
+      });
+      return;
+    }
+    // The dispatch's follow-up engine move (enter the card at sequence[0]).
+    if (req.url?.startsWith("/cards/") && req.method === "PATCH") {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        receivedMoves.push({
+          url: req.url,
+          engineHeader: req.headers["x-garrison-engine"] ?? null,
+          body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
+        });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ card: { id: req.url!.split("/")[2], list: "code" } }));
       });
       return;
     }
@@ -117,6 +133,16 @@ describe("dispatch: one batch fix card carrying the report", () => {
     expect(receivedBody.description).not.toContain("focus ring contrast"); // dismissed finding excluded
     expect(receivedBody.description).toContain(runId);
     expect(receivedBody.origin).toBe("drill");
+
+    // Human-scannable title: page ids + finding count + a date, never the ulid alone.
+    expect(receivedBody.title).toMatch(/^Drill fix: chat - 1 finding \(/);
+
+    // The dispatch entered the card at its first phase with an engine move so
+    // the loop actually runs it (a backlog-only card reads as "went nowhere").
+    expect(receivedMoves.length).toBeGreaterThan(0);
+    const move = receivedMoves[receivedMoves.length - 1];
+    expect(move.engineHeader).toBe("drill-dispatch");
+    expect(move.body.list).toBe("code");
   }, 20000);
 
   it("dispatch is idempotent: re-dispatch 400s, and a later-confirmed finding goes out alone", async () => {
