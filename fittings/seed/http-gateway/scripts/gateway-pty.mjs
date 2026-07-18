@@ -126,6 +126,18 @@ function operativeSessionForTelemetry() {
   return session;
 }
 
+// The operative PTY's current rendered screen as text lines, or null when no
+// session is live (spawning, respawn wedge, torn down).
+function renderedScreenLines() {
+  const sess = operativeSessionForTelemetry();
+  if (!sess?.handle) return null;
+  try {
+    return captureLines(sess.handle);
+  } catch {
+    return null;
+  }
+}
+
 // Transcript telemetry: the compaction summary { count, last } AND the current
 // context-tokens estimate (contextTokensFrom), both off ONE cached read. Re-scans
 // only when the file grows (compaction count needs a full scan); cached by
@@ -1349,6 +1361,39 @@ const server = http.createServer(async (request, response) => {
         pty_status: ptyStatus,
         error: ptyError,
       });
+      return;
+    }
+
+    // Read-only rendered-screen surface: the operative session's live terminal
+    // screen (the xterm-headless render claude-pty already maintains), for
+    // watch surfaces like the Kanban board. GET /screen is one snapshot;
+    // /screen/stream is SSE pushing {lines} whenever the render changes.
+    // Watch only - no input path exists here.
+    if (request.method === "GET" && url.pathname === "/screen") {
+      const lines = renderedScreenLines();
+      if (!lines) return sendJson(response, 503, { error: "no live operative session" });
+      return sendJson(response, 200, { lines, at: Date.now() });
+    }
+    if (request.method === "GET" && url.pathname === "/screen/stream") {
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "text/event-stream");
+      response.setHeader("Cache-Control", "no-cache");
+      response.setHeader("Connection", "keep-alive");
+      response.flushHeaders?.();
+      const write = (event, data) => {
+        try { response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+      };
+      let last = null;
+      const pump = () => {
+        const lines = renderedScreenLines();
+        if (!lines) { write("mode", { live: false }); return; }
+        const joined = lines.join("\n");
+        if (joined !== last) { write("screen", { lines }); last = joined; }
+      };
+      write("mode", { live: !!renderedScreenLines() });
+      pump();
+      const timer = setInterval(pump, 700);
+      request.on("close", () => clearInterval(timer));
       return;
     }
 

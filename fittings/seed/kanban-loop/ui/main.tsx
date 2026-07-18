@@ -62,6 +62,23 @@ function dotClass(card: CardSummary): string {
 }
 
 // ── time + event helpers (the visibility surface) ────────────────────────────
+// A card's creation instant decoded from its ULID (Crockford base32, first 10
+// chars are the millisecond timestamp) - shown on every card face so cards
+// with similar titles are tellable apart at a glance.
+const ULID_B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+function fmtCardDate(id: string | null | undefined): string | null {
+  if (!id || id.length < 10) return null;
+  let ts = 0;
+  for (const c of id.slice(0, 10).toUpperCase()) {
+    const v = ULID_B32.indexOf(c);
+    if (v < 0) return null;
+    ts = ts * 32 + v;
+  }
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
 // A compact "3m ago" / "just now" relative time for timeline + last-activity lines.
 function fmtRelative(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -218,6 +235,7 @@ function Card({
       <div className="ct">
         <span className={dotClass(card)} aria-hidden />
         <span className="title">{card.title}</span>
+        {fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
       </div>
       <div className="cmeta">
         {card.project
@@ -1128,9 +1146,12 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
   );
 }
 
-// ── watch sheet — SSE log / static logs (never tmux) ────────────────────────
-// Tails a running card's log over SSE, or replays the linked static logs when
-// nothing is live. The interactive Discuss list does NOT use this — it has its own
+// ── watch sheet — live terminal + SSE log (never tmux) ──────────────────────
+// Two panes: TERMINAL shows the operative session's actual rendered screen
+// (the gateway's PTY render, proxied same-origin via /operative/screen) -
+// what you'd see in a real terminal, live. LOG tails the card's iteration log
+// over SSE, or replays the linked static logs when nothing is live. The
+// interactive Discuss list does NOT use this - it has its own
 // Discuss button that opens a James-mode session (see App.onDiscuss).
 function WatchSheet({
   card,
@@ -1139,10 +1160,30 @@ function WatchSheet({
   card: CardSummary;
   onClose: () => void;
 }) {
+  // Terminal is the default view for a RUNNING card (the live session is what
+  // you came to see); an idle/parked card opens on its logs.
+  const [tab, setTab] = useState<"terminal" | "log">(card.status === "running" ? "terminal" : "log");
   const [lines, setLines] = useState<string>("");
   const [live, setLive] = useState<boolean | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [screen, setScreen] = useState<string[] | null>(null);
+  const [termLive, setTermLive] = useState<boolean | null>(null);
   const scrRef = useRef<HTMLDivElement | null>(null);
+
+  // The terminal stream connects only while its tab is showing - the screen
+  // render costs a poll per client on the gateway side.
+  useEffect(() => {
+    if (tab !== "terminal") return;
+    const es = new EventSource("/operative/screen");
+    es.addEventListener("mode", (e) => {
+      try { setTermLive(JSON.parse((e as MessageEvent).data).live !== false); } catch { setTermLive(false); }
+    });
+    es.addEventListener("screen", (e) => {
+      try { setScreen(JSON.parse((e as MessageEvent).data).lines ?? null); setTermLive(true); } catch { /* ignore */ }
+    });
+    es.onerror = () => { setTermLive(false); };
+    return () => es.close();
+  }, [tab]);
 
   useEffect(() => {
     const es = new EventSource(api.watchUrl(card.id));
@@ -1168,12 +1209,18 @@ function WatchSheet({
 
   useEffect(() => {
     if (scrRef.current) scrRef.current.scrollTop = scrRef.current.scrollHeight;
-  }, [lines]);
+  }, [lines, tab]);
 
-  // Highlight the Adv-Review "CODEX CALL" line (FINDING 6).
-  const rendered = lines.split("\n").map((l, i) => (
-    <div key={i} className={/CODEX CALL/i.test(l) ? "codexline" : undefined}>{l || " "}</div>
-  ));
+  // Log formatting: markdown-ish headers, gate verdicts and the Adv-Review
+  // "CODEX CALL" line (FINDING 6) get their own styling so a phase log reads
+  // as a session, not a dump.
+  const rendered = lines.split("\n").map((l, i) => {
+    const cls = /CODEX CALL/i.test(l) ? "codexline"
+      : /^GATE [a-z-]+:/i.test(l) ? "gateline"
+      : /^#{1,3} /.test(l) ? "hline"
+      : undefined;
+    return <div key={i} className={cls}>{l || " "}</div>;
+  });
 
   return (
     <Sheet title={`Watch: ${card.title}`} onClose={onClose}>
@@ -1182,16 +1229,36 @@ function WatchSheet({
       )}
       <div className="watch">
         <div className="wbar">
-          card {card.id.slice(0, 6)} · {card.list}
-          <span className={`live${live ? "" : " off"}`}>
-            {live === null ? "connecting…" : live ? "live" : "static logs"}
+          <span className="wtabs">
+            <button className={`wtab${tab === "terminal" ? " on" : ""}`} onClick={() => setTab("terminal")}
+              title="the operative session's live terminal screen">Terminal</button>
+            <button className={`wtab${tab === "log" ? " on" : ""}`} onClick={() => setTab("log")}
+              title="this card's phase log">Log</button>
           </span>
+          card {card.id.slice(0, 6)} · {card.list}
+          {tab === "terminal" ? (
+            <span className={`live${termLive ? "" : " off"}`}>
+              {termLive === null ? "connecting…" : termLive ? "live session" : "no live session"}
+            </span>
+          ) : (
+            <span className={`live${live ? "" : " off"}`}>
+              {live === null ? "connecting…" : live ? "live" : "static logs"}
+            </span>
+          )}
         </div>
-        <div className="wscr" ref={scrRef}>
-          {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
-        </div>
+        {tab === "terminal" ? (
+          <div className="wterm">
+            {screen
+              ? <pre>{screen.join("\n")}</pre>
+              : <span className="wterm-empty">{termLive === false ? "No live operative session - start a run, or check the gateway." : "connecting to the operative session…"}</span>}
+          </div>
+        ) : (
+          <div className="wscr" ref={scrRef}>
+            {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
+          </div>
+        )}
       </div>
-      {done && (
+      {tab === "log" && done && (
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
           stream ended: {done}
         </p>

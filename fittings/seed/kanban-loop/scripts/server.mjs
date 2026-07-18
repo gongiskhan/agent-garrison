@@ -1685,6 +1685,48 @@ async function handleWatchCard(req, res, opts, id) {
   req.on("close", cleanup);
 }
 
+// GET /operative/screen - SSE proxy of the gateway's /screen/stream (the
+// operative PTY's rendered terminal). The board UI stays same-origin; a
+// gateway that is down or has no live session surfaces as mode {live:false}
+// rather than an error, so the Watch sheet can say so calmly.
+async function handleOperativeScreen(req, res, opts) {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const send = (event, data) => {
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {}
+  };
+  if (!opts.gatewayUrl) {
+    send("mode", { live: false, reason: "no gateway configured" });
+    return res.end();
+  }
+  const abort = new AbortController();
+  req.on("close", () => abort.abort());
+  let upstream;
+  try {
+    upstream = await fetch(`${opts.gatewayUrl}/screen/stream`, { signal: abort.signal });
+  } catch {
+    send("mode", { live: false, reason: "gateway unreachable" });
+    return res.end();
+  }
+  if (!upstream.ok || !upstream.body) {
+    send("mode", { live: false, reason: `gateway ${upstream.status}` });
+    return res.end();
+  }
+  try {
+    // Pipe the SSE bytes through verbatim - the gateway already speaks the
+    // event framing the board's EventSource expects.
+    for await (const chunk of upstream.body) {
+      res.write(chunk);
+    }
+  } catch {
+    /* upstream ended or client left */
+  }
+  try { res.end(); } catch {}
+}
+
 // GET /cards/:id/artifact?ref=<refToken> — read-only serve of a card's linked
 // artifact (plan / gate markers / brief / transcript / log). The client names a
 // card id + an OPAQUE ref token; the server re-derives the absolute path from the
@@ -1990,8 +2032,11 @@ async function writeStatusFile(opts) {
     url: `http://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
     pid: process.pid,
     startedAt: new Date().toISOString(),
-    route: "/board",
-    views: [{ id: "board", title: "Kanban", route: "/board" }]
+    // "/" serves the visual board UI; "/board" is the JSON API. The status
+    // file's route is what Garrison EMBEDS for the sidebar View - pointing it
+    // at /board rendered raw JSON in the Views pane (dogfood finding).
+    route: "/",
+    views: [{ id: "board", title: "Kanban", route: "/" }]
   }, null, 2));
 }
 
@@ -2063,6 +2108,10 @@ export function makeRequestHandler(opts, distDir) {
       }
       if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
       if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
+      // Same-origin SSE proxy of the gateway's live operative terminal screen
+      // (Watch's Terminal tab). Proxied rather than CORS-opened: the board
+      // deliberately serves and fetches everything on this one port.
+      if (pathname === "/operative/screen" && method === "GET") return await handleOperativeScreen(req, res, opts);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);
       if (pathname === "/cards" && method === "GET") return await handleListCards(req, res, opts, parsed.query);
 
