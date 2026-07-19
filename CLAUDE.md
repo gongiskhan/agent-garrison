@@ -305,6 +305,22 @@ offset, defined once in `src/lib/instance-profile.ts` and mirrored in
 - **HARD RULE — prod and dev never share a port, a `GARRISON_HOME`, or a
   Claude config dir.** Only prod owns the real `~/.claude`; a dev instance
   pointing there would edit the user's live Claude Code config.
+- **HARD RULE — one instance per composition working tree.** The launcher
+  isolates ports, `GARRISON_HOME` and the Claude config dir, but
+  `COMPOSITIONS_DIR` is checkout-relative, so all three profiles resolve the
+  SAME `compositions/<id>/`. A second instance's `up` would run `apm install`
+  and every setup hook inside the tree the first instance's operative is
+  executing from, overwrite its materialised `.env` from a different vault, and
+  its `down` would wipe that `.env` away. `up()` therefore claims the tree via
+  `.garrison/owner.json` (`src/lib/composition-owner.ts`) and refuses when
+  another **profile** holds it; `down()` releases. Keyed on profile, not pid, so
+  restarts and redeploys re-enter freely. If you need two instances at once,
+  point them at **different compositions**.
+- **HARD RULE — a new own-port view must be published to the tailnet.** Its port
+  needs a `tailscale serve` mapping or the embedded view is a blank pane over
+  HTTPS (a plain-HTTP frame is blocked as mixed content).
+  `npm run prod:redeploy` runs `scripts/tailnet-serve-views.mjs` for this;
+  never hand an HTTPS page an `http://` URL.
 - **HARD RULE — only prod is published to the tailnet.**
   `scripts/tailnet-serve-views.mjs` refuses to run from a non-prod shell. The
   serve-port formula aliases prod's 80xx onto dev's 70xx, so publishing dev

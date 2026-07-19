@@ -22,6 +22,7 @@ compositions/*/.garrison/decisions.jsonl
 compositions/*/.garrison/operative-session-id
 compositions/*/.garrison/orchestrator-session-id
 compositions/*/.garrison/routing.json
+compositions/*/.garrison/owner.json
 compositions/*/.garrison/routing.json.*.bak
 compositions/*/.garrison/souls/
 compositions/*/.garrison/switch-log.jsonl
