@@ -1,5 +1,13 @@
 # v1 Definition of Done
 
+> **STALE — predates the 2026-06-07 Quarters pivot.** This checklist still
+> counts 14 Faculties, six seed Fittings, a `soul` in the prompt assembly, and
+> Trello as a `data-source` (a kind dropped 2026-06-26). The *shape* of the
+> DoD — observable, verify-backed criteria — still stands; the specific counts
+> and names do not. For current state read
+> [`GARRISON_ROADMAP.md`](./GARRISON_ROADMAP.md) and
+> [`../CLAUDE.md`](../CLAUDE.md).
+
 Each item is observable. If it cannot be pointed at, it does not count.
 
 Status legend: `[x]` verified, `[~]` partially verified, `[ ]` open.

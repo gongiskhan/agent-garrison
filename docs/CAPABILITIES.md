@@ -11,10 +11,16 @@ The set grew across phases, then **shrank with the 2026-06-07 Quarters pivot**
 Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
-via the `capabilityKinds` array in `src/lib/types.ts` (15 kinds):
-`orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`,
-`runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`,
-`outpost`, `monitor`, `voice`, `view`.
+via the `capabilityKinds` array in `src/lib/types.ts` (**17 kinds**):
+`orchestrator`, `modes`, `identity`, `memory-store`, `automation-runner`,
+`connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`,
+`screen-share`, `outpost`, `monitor`, `voice`, `duty`, `view`.
+
+> **`modes` is SUPERSEDED (2026-07-13, MARATHON-V3 D7) by `identity`.** The
+> kind is still in the array so old manifests parse, but **no seed Fitting
+> provides it** — the persona Fitting is `identity-gary`, and per-duty
+> behaviour is carried by the `duty` kind. Treat the `## modes` section below
+> as history; read `## identity` and `## duty` for the live model.
 
 Dropped kinds, kept below under *Dropped kinds (historical)* for readers
 tracing old manifests (the resolver rejects them today):

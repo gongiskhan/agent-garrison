@@ -1,8 +1,11 @@
 import path from "node:path";
+import { readActiveConfig } from "./active-composition";
 import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
+import { readComposition } from "./compositions";
 import { isOwnPortFitting } from "./faculties";
+import { appPort, applyPortOffsetToConfig } from "./instance-profile";
 import { readLibrary } from "./library";
-import { startOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
+import { ownPortConfigEnv, startOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import type { LibraryEntry } from "./types";
 import { isValidInstanceId } from "./view-instances";
 import { listInstanceIds, viewStateDir } from "./view-state";
@@ -123,6 +126,43 @@ export interface EagerBootOptions {
 // to start. Eager boot can only warm the instance index (listInstanceIds);
 // the actual state restore happens in the browser when the view opens, and it
 // does so regardless of this toggle. That asymmetry is honest, not a gap.
+// The active composition's per-fitting config, profile-shifted and projected
+// into spawn env — the SAME projection startOperativeBoundFittings applies.
+//
+// Without this the detached server-boot child spawned own-port fittings with
+// vault env only, so each one fell back to its HARDCODED seed default (the
+// 27xxx codex family). On a single-instance box that merely looked odd; with
+// prod and dev running side by side it is fatal — prod's eager fittings bound
+// codex's ports and answered for the wrong instance. Best-effort: a composition
+// that cannot be read must not stop the boot, it just yields no projection.
+async function compositionEnvById(): Promise<{
+  byId: Record<string, Record<string, string>>;
+  compositionId: string | null;
+}> {
+  try {
+    const compositionId = (await readActiveConfig()).active_composition || "default";
+    const composition = await readComposition(compositionId);
+    const byId: Record<string, Record<string, string>> = {};
+    for (const items of Object.values(composition.selections)) {
+      for (const item of items ?? []) {
+        const config = applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>);
+        byId[item.id] = {
+          ...ownPortConfigEnv(item.id, config),
+          GARRISON_COMPOSITION_ID: compositionId,
+          GARRISON_COMPOSITION_DIR: composition.directory,
+          GARRISON_BASE_URL: `http://127.0.0.1:${
+            process.env.GARRISON_APP_PORT?.trim() || process.env.PORT?.trim() || String(appPort())
+          }`
+        };
+      }
+    }
+    return { byId, compositionId };
+  } catch (error) {
+    console.warn("[garrison] eager-boot: composition config projection unavailable:", error);
+    return { byId: {}, compositionId: null };
+  }
+}
+
 export async function runEagerBoot(options: EagerBootOptions = {}): Promise<EagerBootSummary> {
   const summary: EagerBootSummary = { booted: [], warmed: [], skipped: [], failed: [] };
   const prefs = await readEagerBootPrefs();
@@ -133,6 +173,11 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
   }
   const library = options.library ?? (await readLibrary());
   const byId = new Map(library.map((entry) => [entry.id, entry]));
+  // Only the server-boot path needs this: a runner-driven wave already passes
+  // the richer extraEnvById it just built, and recomputing would risk a
+  // fingerprint mismatch and a needless heal-restart.
+  const projected =
+    options.extraEnvById || options.extraEnv ? { byId: {} as Record<string, Record<string, string>> } : await compositionEnvById();
   for (const fittingId of eagerIds) {
     const entry = byId.get(fittingId);
     if (!entry) {
@@ -146,7 +191,13 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
       // child knows only the vault and must never strip a richer env from an
       // already-running fitting.
       const runnerEnv = options.extraEnvById?.[fittingId] ?? options.extraEnv;
-      const spawnEnv = { ...(await vaultEnvForEntry(entry)), ...(runnerEnv ?? {}) };
+      const spawnEnv = {
+        ...(await vaultEnvForEntry(entry)),
+        // Composition config (profile-shifted ports) for the server-boot path;
+        // empty when the runner supplied its own env.
+        ...(projected.byId[fittingId] ?? {}),
+        ...(runnerEnv ?? {})
+      };
       const result = await startOwnPortFitting(
         entry,
         spawnEnv,

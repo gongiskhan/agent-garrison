@@ -1,12 +1,19 @@
 # Agent Garrison Faculties
 
-## Current model: 9 roles (Quarters pivot, the 2026-06-18 sessions split, the 2026-06-22 modes faculty)
+## Current model: 17 faculties (9 core roles + 7 capability faculties + connectors)
 
 Faculties are now **roles only**. The flat 24-Faculty list was collapsed to six
 roles in the 2026-06-07 Quarters pivot; on 2026-06-18 the overloaded `sessions`
 role was split into three (sessions / runtimes / surfaces), bringing the total
-to eight; `modes` was added 2026-06-22 (the Gary/Joe/James identity layer),
-bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
+to eight; `modes` was added 2026-06-22, bringing the core roles to **nine**.
+On 2026-06-24 seven optional capability faculties landed (`knowledge`,
+`research`, `building`, `code-intelligence`, `design`, `browser-qa`,
+`coordination`) and on 2026-06-26 `connectors` — **17 in total**, enforced by
+`facultyIds` in `src/lib/types.ts`:
+
+> Note: the `modes` faculty's capability was superseded by `identity`
+> (2026-07-13, MARATHON-V3 D7). The faculty id remains; the Fitting that fills
+> it is `identity-gary`, not a `modes` Fitting.
 
 - **orchestrator** — the governing behaviour spine; projected to
   `~/.claude/rules/garrison-orchestrator.md` as an APM instructions primitive

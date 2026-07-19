@@ -1,1 +1,0 @@
-{"verdict":"approve","summary":"No material issues found in `compositions/default/apm.yml` for this slice. The `kanban-loop` dependency entry is well-formed, the composition remains on `http-gateway` with no `mcp-gateway` added, and the new `kanban-loop` config keys exactly match the fitting's `config_schema` (`board_dir`, `iteration_cap`, `test_beat_cron`).","findings":[]}

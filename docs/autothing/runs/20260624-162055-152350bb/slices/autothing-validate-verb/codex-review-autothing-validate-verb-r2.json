@@ -1,1 +1,0 @@
-{"verdict":"approve","summary":"Re-review found the three prior issues fixed in the shipped validator logic and covered by targeted regressions. I found no remaining material path that defensibly yields `Done` from an incomplete/garbage `gate-status.json`, and `emit()` still makes the strict verdict the final stdout line.","findings":[]}

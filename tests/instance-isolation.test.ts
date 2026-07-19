@@ -6,7 +6,38 @@ import yaml from "js-yaml";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ROOT = process.cwd();
+// The profile-driven launcher. start-codex-instance.sh is now a thin shim onto
+// `garrison-instance.sh codex`, so the substantive assertions read this file.
+const LAUNCHER = path.join(ROOT, "scripts", "garrison-instance.sh");
 const START = path.join(ROOT, "scripts", "start-codex-instance.sh");
+
+// Must match PROFILE_PORT_OFFSET in src/lib/instance-profile.ts and the case
+// block in scripts/garrison-instance.sh. The three are pinned against each
+// other below so a change to one without the others fails here.
+const PROFILE_OFFSET: Record<string, number> = { dev: 0, prod: 1000, codex: 20000 };
+
+// Run the launcher's `env` mode for a profile under a throwaway HOME, with
+// every port/home override cleared so inherited shell env cannot leak in.
+function launcherEnv(profile: string, fakeHome: string): Record<string, string> {
+  const output = execFileSync("bash", [LAUNCHER, profile, "env"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: fakeHome,
+      GARRISON_HOME: "",
+      GARRISON_HOME_OVERRIDE: "",
+      GARRISON_CLAUDE_HOME_OVERRIDE: "",
+      GARRISON_APP_PORT: "",
+      GARRISON_OUTPOST_PORT: "",
+      GARRISON_SCHEDULER_HEALTH_PORT: "",
+      GARRISON_KEYCHAIN_SERVICE: "",
+      GARRISON_KEYCHAIN_ACCOUNT: "",
+      NEXT_DIST_DIR: ""
+    }
+  });
+  return parseEnv(output);
+}
 const sandboxes: string[] = [];
 const priorEnv = new Map<string, string | undefined>();
 
@@ -45,19 +76,7 @@ describe("Codex secondary-instance isolation", () => {
   it("projects every writable control-plane/config surface into the secondary homes without starting services", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-instance-env-"));
     sandboxes.push(fakeHome);
-    const output = execFileSync("bash", [START, "env"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        HOME: fakeHome,
-        CODEX_GARRISON_HOME: "",
-        CODEX_GARRISON_CLAUDE_HOME: "",
-        GARRISON_KEYCHAIN_SERVICE: "",
-        GARRISON_KEYCHAIN_ACCOUNT: ""
-      }
-    });
-    const env = parseEnv(output);
+    const env = launcherEnv("codex", fakeHome);
     const garrison = path.join(fakeHome, ".garrison-codex");
     const claude = path.join(fakeHome, ".claude-garrison-codex");
 
@@ -106,12 +125,12 @@ describe("Codex secondary-instance isolation", () => {
     expect(env.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
     expect(env.GARRISON_APP_PORT).toBe("27777");
     expect(env.GARRISON_OUTPOST_PORT).toBe("23702");
-    expect(env.GARRISON_SCHEDULER_HEALTH_PORT).toBe("27999");
+    expect(env.GARRISON_SCHEDULER_HEALTH_PORT).toBe("27099");
     expect(env.GARRISON_SCHEDULER_SCRIPT).toBe(
       path.join(ROOT, "fittings", "seed", "scheduler", "scripts", "scheduler.mjs")
     );
 
-    const startSource = readFileSync(START, "utf8");
+    const startSource = readFileSync(LAUNCHER, "utf8");
     expect(startSource).toContain("--names next,outpost,scheduler");
     expect(startSource).toContain("--kill-others-on-fail");
     expect(startSource).toContain(
@@ -123,6 +142,104 @@ describe("Codex secondary-instance isolation", () => {
     for (const value of Object.values(env)) {
       expect(primaryRoots.some((root) => value === root || value.startsWith(`${root}${path.sep}`))).toBe(false);
     }
+  });
+
+  // HARD RULE: prod and dev are separate instances out of the SAME checkout.
+  // They must never share a port, a Garrison home, or a Claude config dir —
+  // the tailnet address is always-on prod, and a dev boot that lands on prod's
+  // ports (or scribbles on the real ~/.claude) takes it down.
+  it("keeps prod, dev and codex on disjoint ports and disjoint state roots", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-profiles-"));
+    sandboxes.push(fakeHome);
+
+    const envs = Object.fromEntries(
+      Object.keys(PROFILE_OFFSET).map((p) => [p, launcherEnv(p, fakeHome)])
+    );
+
+    // Every process-level port is the base value plus the profile's offset —
+    // one committed port map, three instances, no second table to drift.
+    for (const [profile, offset] of Object.entries(PROFILE_OFFSET)) {
+      const env = envs[profile];
+      expect(env.GARRISON_INSTANCE_ID, `${profile} identity`).toBe(profile);
+      expect(Number(env.GARRISON_PORT_OFFSET), `${profile} offset`).toBe(offset);
+      expect(Number(env.GARRISON_APP_PORT), `${profile} app port`).toBe(7777 + offset);
+      expect(Number(env.GARRISON_OUTPOST_PORT), `${profile} outpost port`).toBe(3702 + offset);
+      expect(Number(env.GARRISON_SCHEDULER_HEALTH_PORT), `${profile} scheduler port`).toBe(7099 + offset);
+      // Next reads PORT; the runner's self-URL falls back to it. Drift between
+      // the two sends every fitting's callback to the wrong instance.
+      expect(env.PORT, `${profile} PORT tracks GARRISON_APP_PORT`).toBe(env.GARRISON_APP_PORT);
+    }
+
+    // No two profiles may claim the same listener.
+    const claimed = new Map<string, string>();
+    for (const [profile, env] of Object.entries(envs)) {
+      for (const key of ["GARRISON_APP_PORT", "GARRISON_OUTPOST_PORT", "GARRISON_SCHEDULER_HEALTH_PORT"]) {
+        const port = env[key];
+        expect(claimed.has(port), `${profile}.${key} collides with ${claimed.get(port)} on ${port}`).toBe(false);
+        claimed.set(port, `${profile}.${key}`);
+      }
+    }
+
+    // Disjoint state roots. Only prod owns the real ~/.garrison and ~/.claude —
+    // that ownership IS Garrison's control plane, and a dev instance writing
+    // there would edit the user's live Claude Code config.
+    expect(envs.prod.GARRISON_HOME).toBe(path.join(fakeHome, ".garrison"));
+    expect(envs.prod.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
+    const prodRoots = [envs.prod.GARRISON_HOME, envs.prod.GARRISON_CLAUDE_HOME];
+    for (const profile of ["dev", "codex"]) {
+      for (const [key, value] of Object.entries(envs[profile])) {
+        if (!value) continue;
+        expect(
+          prodRoots.some((root) => value === root || value.startsWith(`${root}${path.sep}`)),
+          `${profile}.${key} (${value}) must stay out of prod's state roots`
+        ).toBe(false);
+      }
+    }
+
+    // Prod serves a BUILT artifact from its own dist dir, so `next build` can
+    // never clobber a running dev server's .next (and vice versa).
+    expect(envs.prod.NEXT_DIST_DIR).toBe(".next-prod");
+    expect(envs.dev.NEXT_DIST_DIR || "").toBe("");
+
+    // The host-daemon sweep is single-owner: only prod reaps.
+    expect(envs.prod.GARRISON_DISABLE_HOST_DAEMONS || "").toBe("");
+    expect(envs.dev.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
+    expect(envs.codex.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
+  });
+
+  // The launcher's offsets and the TypeScript module's offsets are two copies
+  // of one fact; pin them together or a change to one silently splits the app
+  // (which projects fitting ports) from the launcher (which binds the app).
+  it("keeps the launcher's port offsets in step with src/lib/instance-profile.ts", async () => {
+    const { PROFILE_PORT_OFFSET } = await import("@/lib/instance-profile");
+    expect(PROFILE_PORT_OFFSET).toEqual(PROFILE_OFFSET);
+
+    const launcherSource = readFileSync(LAUNCHER, "utf8");
+    for (const [profile, offset] of Object.entries(PROFILE_OFFSET)) {
+      expect(launcherSource, `${profile} offset must appear in the launcher`).toMatch(
+        new RegExp(`PORT_OFFSET=${offset}\\b`)
+      );
+    }
+  });
+
+  // Only prod is published to the tailnet. Without this the serve-port formula
+  // (8400 + port%1000) aliases prod's 80xx onto dev's 70xx and whichever
+  // instance ran the script last owns the always-on address.
+  it("refuses to publish a non-prod instance to the tailnet", () => {
+    const script = path.join(ROOT, "scripts", "tailnet-serve-views.mjs");
+    let failed = false;
+    try {
+      execFileSync("node", [script], {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: { ...process.env, GARRISON_INSTANCE_ID: "dev" },
+        stdio: "pipe"
+      });
+    } catch (error: any) {
+      failed = true;
+      expect(String(error.stderr)).toContain("only prod is served");
+    }
+    expect(failed, "publishing a dev instance to the tailnet must fail").toBe(true);
   });
 
   // Two-instance topology on the dev box: THIS checkout is the PRIMARY (main)

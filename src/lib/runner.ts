@@ -42,6 +42,7 @@ import {
   type KanbanResolvedModel
 } from "./kanban-model";
 import { garrisonDir } from "./claude-home";
+import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
@@ -614,11 +615,16 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
 // spawned without the projection posts its internal-token calls at the OTHER
 // instance, which rejects them with 403. The projection keeps every fitting
 // talking to ITS OWN instance.
+// Port resolution is profile-first: GARRISON_APP_PORT (the launcher's explicit
+// value) → PORT (what `next dev -p` sets) → the profile's app port. The old
+// `|| 3000` fallback was wrong for every profile — 3000 is an unrelated app on
+// this box — and would have handed fittings a callback URL nothing answers.
 function garrisonSelfBaseUrl(): string {
-  return (
-    process.env.GARRISON_SELF_BASE_URL ||
-    `http://127.0.0.1:${process.env.PORT || 3000}`
-  );
+  const port =
+    process.env.GARRISON_APP_PORT?.trim() ||
+    process.env.PORT?.trim() ||
+    String(appPort());
+  return process.env.GARRISON_SELF_BASE_URL || `http://127.0.0.1:${port}`;
 }
 
 // The live gateway base URL of the first RUNNING composition. Internal app
@@ -654,7 +660,13 @@ export async function startOperativeBoundFittings(
   const configById = new Map<string, Record<string, unknown>>();
   for (const items of Object.values(composition.selections)) {
     for (const item of items ?? []) {
-      configById.set(item.id, (item.config ?? {}) as Record<string, unknown>);
+      // Ports shift into THIS profile's range before projection, so the single
+      // committed port map serves prod (+1000), dev (0) and codex (+20000)
+      // without three drifting copies of apm.yml.
+      configById.set(
+        item.id,
+        applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>)
+      );
     }
   }
   // Returned so the in-up eager boot reuses the EXACT same env per fitting -
@@ -734,7 +746,12 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
     let config: Record<string, unknown> = {};
     for (const items of Object.values(composition.selections)) {
       const item = (items ?? []).find((i) => i.id === fittingId);
-      if (item) config = (item.config ?? {}) as Record<string, unknown>;
+      if (item) {
+        // Same profile shift as the up() path — an on-demand Views start must
+        // bind the same port the eager boot would have, or the fingerprint
+        // drifts and the fitting heal-restarts on every up.
+        config = applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>);
+      }
     }
     const gatewayBaseUrl = record.gateway?.baseUrl;
     return {
@@ -847,7 +864,13 @@ async function runSetupHooks(compositionId: string): Promise<void> {
   const configById = new Map<string, Record<string, unknown>>();
   for (const items of Object.values(composition.selections)) {
     for (const item of items ?? []) {
-      configById.set(item.id, (item.config ?? {}) as Record<string, unknown>);
+      // Ports shift into THIS profile's range before projection, so the single
+      // committed port map serves prod (+1000), dev (0) and codex (+20000)
+      // without three drifting copies of apm.yml.
+      configById.set(
+        item.id,
+        applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>)
+      );
     }
   }
   for (const entry of entries) {
@@ -1439,7 +1462,11 @@ async function resolveGatewayFitting(
 
     const config = (selection.config ?? {}) as Record<string, unknown>;
     const host = String(config.bind_host ?? "127.0.0.1");
-    const port = Number(config.port ?? 24777);
+    // Profile-shifted, exactly like every own-port fitting: the composition
+    // declares the base gateway port (4777) and prod/codex run it +1000/+20000.
+    // The old `?? 24777` fallback hardcoded the CODEX gateway, so a composition
+    // without an explicit port handed prod's operative to codex's gateway.
+    const port = profilePort(Number(config.port ?? BASE_GATEWAY_PORT));
 
     return {
       fittingId: entry.id,

@@ -5,10 +5,10 @@
   "license": "MIT",
   "description": "Local-first composer and runner for autonomous agent setups.",
   "scripts": {
-    "start": "bash scripts/start-codex-instance.sh start",
-    "dev": "bash scripts/start-codex-instance.sh dev",
-    "dev:next": "bash scripts/start-codex-instance.sh next",
-    "start:mobile": "bash scripts/start-codex-instance.sh mobile",
+    "start": "bash scripts/garrison-instance.sh dev start",
+    "dev": "bash scripts/garrison-instance.sh dev start",
+    "dev:next": "bash scripts/garrison-instance.sh dev next",
+    "start:mobile": "bash scripts/garrison-instance.sh dev mobile",
     "build": "next build",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -23,7 +23,11 @@
     "test:integration": "GARRISON_INTEGRATION=1 vitest run tests/orchestrator-integration.test.ts",
     "test:pty": "GARRISON_INTEGRATION=1 vitest run tests/gateway-pty.integration.test.ts",
     "kanban:v1d:walkthrough": "node scripts/kanban-v1d-walkthrough.mjs",
-    "postinstall": "node scripts/fix-node-pty-permissions.mjs"
+    "postinstall": "node scripts/fix-node-pty-permissions.mjs",
+    "prod:build": "bash scripts/garrison-instance.sh prod build",
+    "prod:start": "bash scripts/garrison-instance.sh prod start",
+    "prod:redeploy": "bash scripts/garrison-redeploy.sh",
+    "codex:start": "bash scripts/garrison-instance.sh codex start"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

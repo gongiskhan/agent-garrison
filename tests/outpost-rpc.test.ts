@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   expandHome,
   listOutposts,
+  OUTPOST_HOST,
   outpostRpc,
   parseTarget,
 } from "@/lib/outpost-rpc";
@@ -70,7 +71,7 @@ describe("outpostRpc", () => {
     );
     expect(result).toEqual({ content: "hello" });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:23702/outposts/dev/rpc",
+      `${OUTPOST_HOST}/outposts/dev/rpc`,
       expect.objectContaining({ method: "POST" })
     );
   });
@@ -97,7 +98,7 @@ describe("outpostRpc", () => {
     });
     await outpostRpc("my outpost", "fs.list", {});
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:23702/outposts/my%20outpost/rpc",
+      `${OUTPOST_HOST}/outposts/my%20outpost/rpc`,
       expect.anything()
     );
   });

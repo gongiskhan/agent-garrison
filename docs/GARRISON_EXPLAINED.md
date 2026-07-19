@@ -1,5 +1,14 @@
 # Garrison, Explained
 
+> **STALE — pre-pivot narrative.** This document still describes 21 top-level
+> Faculties, `soul` and `artifact-store` capabilities, Soul Fittings
+> (`soul-engineer`, `personal-operative`) and a live `/armory` surface. All of
+> those were removed or folded: Faculties are roles (17), `/armory` redirects
+> to `/compose`, and Quarters is the `~/.claude` control surface. Kept for the
+> long-form explanation of intent; do not treat its inventories as current.
+> Start from [`../CLAUDE.md`](../CLAUDE.md) and
+> [`architecture.md`](./architecture.md).
+
 A single-document primer covering everything Garrison is, what it does, and how every moving piece fits together. Written for developers landing on the repo who want a mental model in one read.
 
 > Looking for the spec or the live roadmap? This document is the **conceptual onboarding**. The authoritative shape is in [SPEC.md](./SPEC.md); current phase status is in [GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md).
