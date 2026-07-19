@@ -78,8 +78,22 @@ export GARRISON_SCHEDULER_HEALTH_PORT="${GARRISON_SCHEDULER_HEALTH_PORT:-$((7099
 export PORT="$GARRISON_APP_PORT"
 
 # --- writable control-plane surfaces ---------------------------------------
-export CLAUDE_CONFIG_DIR="$GARRISON_CLAUDE_HOME"
-export GARRISON_CLAUDE_JSON="$GARRISON_CLAUDE_HOME/.claude.json"
+# The Claude CLI keeps its user config at the SIBLING of its home
+# ($HOME/.claude -> $HOME/.claude.json), NOT inside it. Setting
+# CLAUDE_CONFIG_DIR to the real ~/.claude is therefore NOT a no-op: the CLI
+# switches to <dir>/.claude.json, a stub without `theme`/`hasCompletedOnboarding`,
+# and the interactive TUI boots into the "choose a text style" onboarding screen
+# — which the gateway reports as `spawn-failed: waiting on a login/setup screen`.
+# So prod (whose home IS the real ~/.claude) leaves CLAUDE_CONFIG_DIR unset and
+# uses the sibling json; only the isolated profiles redirect the CLI.
+# Mirrors the sibling rule in src/lib/claude-home.ts.
+if [ "$GARRISON_CLAUDE_HOME" = "$HOME/.claude" ]; then
+  unset CLAUDE_CONFIG_DIR
+  export GARRISON_CLAUDE_JSON="$HOME/.claude.json"
+else
+  export CLAUDE_CONFIG_DIR="$GARRISON_CLAUDE_HOME"
+  export GARRISON_CLAUDE_JSON="$GARRISON_CLAUDE_HOME/.claude.json"
+fi
 export GARRISON_CLAUDE_CONFIG_PATH="$GARRISON_CLAUDE_JSON"
 export GARRISON_CLAUDE_PROJECTS_DIR="$GARRISON_CLAUDE_HOME/projects"
 export GARRISON_CLAUDE_SESSIONS_DIR="$GARRISON_CLAUDE_HOME/sessions"
@@ -110,7 +124,13 @@ export npm_config_cache="$GARRISON_HOME/npm-cache"
 # node_modules/.bin so `next`/`concurrently` resolve when this script is run
 # directly (bash scripts/garrison-instance.sh ...), not just via an npm script
 # — systemd and the redeploy script both invoke it directly.
-export PATH="$GARRISON_HOME/bin:$UV_TOOL_BIN_DIR:$REPO_ROOT/node_modules/.bin:$PATH"
+#
+# $HOME/.local/bin and $HOME/.bun/bin carry the user-level binaries an
+# interactive shell has but systemd's minimal PATH does not — notably `claude`
+# itself. Without them the http-gateway verify hook fails its
+# `command -v claude` check and `up` aborts, which is invisible from a shell
+# where the login profile already supplied them.
+export PATH="$GARRISON_HOME/bin:$UV_TOOL_BIN_DIR:$REPO_ROOT/node_modules/.bin:$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 
 # Prod builds and serves from its own dist dir so `next build` never clobbers a
 # running dev server's .next (and vice versa).
@@ -185,7 +205,7 @@ case "$mode" in
       BASIC_MEMORY_CONFIG_DIR BASIC_MEMORY_HOME \
       XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME \
       PLAYWRIGHT_BROWSERS_PATH UV_CACHE_DIR UV_TOOL_DIR UV_TOOL_BIN_DIR \
-      npm_config_cache
+      npm_config_cache PATH
     do
       printf '%s=%s\n' "$key" "${!key-}"
     done

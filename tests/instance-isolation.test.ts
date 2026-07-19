@@ -207,6 +207,51 @@ describe("Codex secondary-instance isolation", () => {
     expect(envs.codex.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
   });
 
+  // The Claude CLI keeps its user config at the SIBLING of its home
+  // (~/.claude -> ~/.claude.json), not inside it. Setting CLAUDE_CONFIG_DIR to
+  // the real ~/.claude is NOT a no-op — the CLI switches to
+  // ~/.claude/.claude.json, a stub with no `theme`/`hasCompletedOnboarding`, so
+  // the interactive TUI boots the onboarding screen and the gateway spawn dies
+  // with "waiting on a login/setup screen". Prod must therefore leave
+  // CLAUDE_CONFIG_DIR unset; the isolated profiles must still set it.
+  it("leaves CLAUDE_CONFIG_DIR unset for prod and uses the sibling ~/.claude.json", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-claudecfg-"));
+    sandboxes.push(fakeHome);
+
+    const prod = launcherEnv("prod", fakeHome);
+    expect(prod.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
+    expect(prod.CLAUDE_CONFIG_DIR || "").toBe("");
+    expect(prod.GARRISON_CLAUDE_JSON).toBe(path.join(fakeHome, ".claude.json"));
+
+    for (const profile of ["dev", "codex"]) {
+      const env = launcherEnv(profile, fakeHome);
+      expect(env.CLAUDE_CONFIG_DIR, `${profile} must redirect the CLI`).toBe(env.GARRISON_CLAUDE_HOME);
+      expect(env.GARRISON_CLAUDE_JSON).toBe(path.join(env.GARRISON_CLAUDE_HOME, ".claude.json"));
+    }
+  });
+
+  // systemd's PATH is minimal — it lacks everything a login profile supplies.
+  // The launcher must therefore carry the user-level bin dirs itself, or the
+  // http-gateway verify hook's `command -v claude` fails and `up` aborts. This
+  // is invisible from an interactive shell, where the profile already added
+  // them, so it only ever breaks under the service.
+  it("puts the user-level bin dirs on PATH so verify hooks can find `claude`", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-path-"));
+    sandboxes.push(fakeHome);
+    for (const profile of Object.keys(PROFILE_OFFSET)) {
+      const launcherPath = launcherEnv(profile, fakeHome).PATH ?? "";
+      const entries = launcherPath.split(":");
+      for (const required of [`${fakeHome}/.local/bin`, `${fakeHome}/.bun/bin`]) {
+        expect(entries, `${profile} PATH must contain ${required}`).toContain(required);
+      }
+      // node_modules/.bin keeps `next`/`concurrently` resolvable when the
+      // launcher is invoked directly (systemd, garrison-redeploy.sh).
+      expect(entries, `${profile} PATH must contain node_modules/.bin`).toContain(
+        path.join(ROOT, "node_modules", ".bin")
+      );
+    }
+  });
+
   // The launcher's offsets and the TypeScript module's offsets are two copies
   // of one fact; pin them together or a change to one silently splits the app
   // (which projects fitting ports) from the launcher (which binds the app).

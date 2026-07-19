@@ -20,6 +20,8 @@
 
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { spawnClaudePty } from "./pty.mjs";
 import { isCommandMessage } from "./detection.mjs";
 import { claudeProjectDirForCwd } from "./paths.mjs";
@@ -126,8 +128,21 @@ export class OperativePtySession {
     await preTrustCwd(compositionDir);
 
     const launchEnv = { ...(opts.env ?? process.env) };
-    if (launchEnv.GARRISON_CLAUDE_HOME && !launchEnv.CLAUDE_CONFIG_DIR) {
-      launchEnv.CLAUDE_CONFIG_DIR = launchEnv.GARRISON_CLAUDE_HOME;
+    // Point the CLI at an isolated config dir ONLY when the Garrison home is a
+    // non-default one (dev/codex/sandbox). Setting CLAUDE_CONFIG_DIR to the
+    // user's real ~/.claude is NOT a no-op: the CLI then keeps its config at
+    // <dir>/.claude.json instead of the SIBLING ~/.claude.json it uses by
+    // default. That sibling file is the onboarded one (theme,
+    // hasCompletedOnboarding); the in-dir copy is a stub, so the interactive
+    // TUI comes up on the "choose a text style" onboarding screen and the
+    // gateway spawn fails with `spawn-failed: waiting on a login/setup screen`.
+    // Mirrors the sibling rule in src/lib/claude-home.ts.
+    const claudeHome = launchEnv.GARRISON_CLAUDE_HOME;
+    if (claudeHome && !launchEnv.CLAUDE_CONFIG_DIR) {
+      const defaultHome = path.join(os.homedir(), ".claude");
+      if (path.resolve(claudeHome) !== defaultHome) {
+        launchEnv.CLAUDE_CONFIG_DIR = claudeHome;
+      }
     }
     const handle = spawnClaudePty(claudeBinary, argv, {
       cwd: compositionDir,
