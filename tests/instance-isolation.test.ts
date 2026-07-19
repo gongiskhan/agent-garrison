@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -205,6 +214,30 @@ describe("Codex secondary-instance isolation", () => {
     expect(envs.prod.GARRISON_DISABLE_HOST_DAEMONS || "").toBe("");
     expect(envs.dev.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
     expect(envs.codex.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
+  });
+
+  // The Claude CLI binary is SHARED, never owned by one instance. Its installer
+  // writes to $XDG_DATA_HOME/claude/versions/<v> but repoints the GLOBAL
+  // ~/.local/bin/claude, so isolating XDG_DATA_HOME without pointing the claude
+  // subdir at a shared location lets whichever instance last updated capture the
+  // user's binary inside its home — resetting that home would then break every
+  // other instance and the user's own Claude Code.
+  it("points each instance's XDG claude data dir at the shared, instance-neutral location", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-claudedata-"));
+    sandboxes.push(fakeHome);
+    const shared = path.join(fakeHome, ".local", "share", "claude");
+
+    for (const profile of Object.keys(PROFILE_OFFSET)) {
+      const env = launcherEnv(profile, fakeHome);
+      const linkPath = path.join(env.XDG_DATA_HOME, "claude");
+      expect(existsSync(linkPath), `${profile}: ${linkPath} should exist`).toBe(true);
+      expect(lstatSync(linkPath).isSymbolicLink(), `${profile}: must be a symlink`).toBe(true);
+      expect(realpathSync(linkPath), `${profile}: must resolve to the shared dir`).toBe(
+        realpathSync(shared)
+      );
+      // The whole point: the resolved payload is NOT inside any Garrison home.
+      expect(realpathSync(linkPath).startsWith(env.GARRISON_HOME + path.sep)).toBe(false);
+    }
   });
 
   // The Claude CLI keeps its user config at the SIBLING of its home

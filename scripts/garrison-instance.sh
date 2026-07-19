@@ -144,6 +144,37 @@ if [ "$profile" != "prod" ]; then
   export GARRISON_DISABLE_HOST_DAEMONS=1
 fi
 
+# The Claude CLI is SHARED across instances, never owned by one.
+#
+# Its installer writes the payload to $XDG_DATA_HOME/claude/versions/<v> but
+# repoints the GLOBAL ~/.local/bin/claude at it. Because each profile isolates
+# XDG_DATA_HOME, that isolation was only half-applied: whichever instance last
+# ran an update captured the user's `claude` binary inside its own home, so
+# resetting that instance's home would break every other instance AND the
+# user's own interactive Claude Code. (Observed: the global symlink pointed
+# into ~/.garrison-codex, then into ~/.garrison after a prod boot.)
+#
+# Pointing each instance's $XDG_DATA_HOME/claude at the shared XDG default
+# makes every install land in one instance-neutral place, so the global pointer
+# stays coherent no matter which profile updates. A CLI binary is not
+# per-instance state; the per-instance CONFIG (CLAUDE_CONFIG_DIR) stays
+# isolated above, which is the part that actually matters.
+#
+# Deliberately non-destructive: an existing real directory is left alone and
+# reported, never silently replaced — migrating it is an explicit, manual step.
+SHARED_CLAUDE_DATA="$HOME/.local/share/claude"
+instance_claude_data="$XDG_DATA_HOME/claude"
+if [ -L "$instance_claude_data" ]; then
+  :
+elif [ -d "$instance_claude_data" ]; then
+  echo "[garrison] warning: $instance_claude_data is a real directory;" \
+       "claude updates run here will capture the global ~/.local/bin/claude." \
+       "Move it aside and symlink it to $SHARED_CLAUDE_DATA." >&2
+else
+  mkdir -p "$SHARED_CLAUDE_DATA" "$(dirname "$instance_claude_data")"
+  ln -sfn "$SHARED_CLAUDE_DATA" "$instance_claude_data"
+fi
+
 cd "$REPO_ROOT"
 
 scheduler_cmd="node \"$GARRISON_SCHEDULER_SCRIPT\" daemon --health-port $GARRISON_SCHEDULER_HEALTH_PORT"
