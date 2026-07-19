@@ -38,7 +38,15 @@ if ! command -v systemctl >/dev/null 2>&1 || [ -z "${XDG_RUNTIME_DIR:-}" ]; then
   exit 0
 fi
 
-USER_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+# NOT $XDG_CONFIG_HOME. The Garrison launcher projects XDG_CONFIG_HOME into the
+# per-instance home ($GARRISON_HOME/xdg/config), but the systemd USER MANAGER
+# was started by the login session and searches only its own paths — check with
+# `systemctl --user show --property=UnitPath`, which never contains the Garrison
+# home. Writing there put the units somewhere systemd ignores while
+# `systemctl --user enable` below silently acted on the stale copies already in
+# ~/.config/systemd/user, so setup reported "installed + enabled" while the
+# timers kept running the OLD unit forever. Target the manager's real path.
+USER_UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$USER_UNIT_DIR"
 
 install_unit() {

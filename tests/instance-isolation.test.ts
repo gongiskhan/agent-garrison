@@ -114,9 +114,9 @@ describe("Codex secondary-instance isolation", () => {
       "XDG_DATA_HOME",
       "XDG_CACHE_HOME",
       "PLAYWRIGHT_BROWSERS_PATH",
+      // Only the uv CACHE is per-instance; UV_TOOL_DIR/UV_TOOL_BIN_DIR are
+      // deliberately SHARED (see the shared-tooling assertion below).
       "UV_CACHE_DIR",
-      "UV_TOOL_DIR",
-      "UV_TOOL_BIN_DIR",
       "npm_config_cache",
       "CODEX_HOME",
       "GEMINI_CLI_HOME"
@@ -214,6 +214,28 @@ describe("Codex secondary-instance isolation", () => {
     expect(envs.prod.GARRISON_DISABLE_HOST_DAEMONS || "").toBe("");
     expect(envs.dev.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
     expect(envs.codex.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
+  });
+
+  // uv TOOLS are shared for the same reason the Claude CLI is: they are
+  // binaries, not per-instance state, and `uv tool install` writes a global
+  // ~/.local/bin shim regardless. Projecting them per instance only pretended
+  // to isolate them — it was inert (no instance ever populated $GARRISON_HOME/uv)
+  // and would have meant one copy per instance still fighting over one shim.
+  it("shares the uv tool dirs across instances while keeping the cache per-instance", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-uv-"));
+    sandboxes.push(fakeHome);
+
+    for (const profile of Object.keys(PROFILE_OFFSET)) {
+      const env = launcherEnv(profile, fakeHome);
+      expect(env.UV_TOOL_DIR, `${profile} uv tools shared`).toBe(
+        path.join(fakeHome, ".local", "share", "uv", "tools")
+      );
+      expect(env.UV_TOOL_BIN_DIR, `${profile} uv shims shared`).toBe(
+        path.join(fakeHome, ".local", "bin")
+      );
+      // The cache stays per-instance — it IS disposable per-instance state.
+      expect(env.UV_CACHE_DIR.startsWith(env.GARRISON_HOME + path.sep)).toBe(true);
+    }
   });
 
   // The Claude CLI binary is SHARED, never owned by one instance. Its installer

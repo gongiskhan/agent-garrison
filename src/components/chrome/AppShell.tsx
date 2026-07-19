@@ -10,6 +10,7 @@ import {
   useState
 } from "react";
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { FittingEditor } from "@/components/FittingEditor";
 import { TourEngine } from "@/components/tours/TourEngine";
@@ -78,6 +79,10 @@ export function useAppShell(): AppShellState {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  // /embed/<id> renders a Fitting's own UI full-bleed, so shell-level floating
+  // controls would overlay it. See the CompositionCreator render below.
+  const pathname = usePathname() ?? "";
+  const isEmbeddedView = pathname.startsWith("/embed/");
   const [composition, setComposition] = useState<Composition | null>(null);
   const [compositions, setCompositions] = useState<Composition[]>([]);
   const [activePointer, setActivePointer] = useState<string | null>(null);
@@ -534,11 +539,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
       ) : null}
-      <CompositionCreator
-        activeName={composition?.name ?? composition?.id ?? null}
-        disabled={switching || activeExternal || !composition}
-        onCreate={createAndSwitch}
-      />
+      {/* The creator is `position: fixed` at top-right so it needs no
+          per-route placement — but an /embed/<id> route renders a Fitting's own
+          UI full-bleed from y=0, so the floating trigger lands on top of
+          whatever that Fitting puts in ITS top-right (it was covering Drill's
+          PROJECT selector). Embedded views are the Fitting's surface, not a
+          Garrison page; composition creation stays one click away on every
+          real route. */}
+      {isEmbeddedView ? null : (
+        <CompositionCreator
+          activeName={composition?.name ?? composition?.id ?? null}
+          disabled={switching || activeExternal || !composition}
+          onCreate={createAndSwitch}
+        />
+      )}
       {editingFitting ? (
         <FittingEditor
           entry={editingFitting}

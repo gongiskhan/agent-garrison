@@ -117,9 +117,16 @@ export XDG_CONFIG_HOME="$GARRISON_HOME/xdg/config"
 export XDG_DATA_HOME="$GARRISON_HOME/xdg/data"
 export XDG_CACHE_HOME="$GARRISON_HOME/xdg/cache"
 export PLAYWRIGHT_BROWSERS_PATH="$GARRISON_HOME/playwright-browsers"
+# uv TOOLS are shared, like the Claude CLI: they are binaries, not per-instance
+# state, and `uv tool install` also writes a global ~/.local/bin shim — so
+# projecting the tool dirs per instance only pretended to isolate them. It was
+# inert in practice (no instance ever populated $GARRISON_HOME/uv; every one
+# executes the shared ~/.local/share/uv install), and had it ever taken effect
+# each instance would have needed its own copy of every tool while still
+# fighting over the same global shim. Only the CACHE is per-instance.
 export UV_CACHE_DIR="$GARRISON_HOME/uv/cache"
-export UV_TOOL_DIR="$GARRISON_HOME/uv/tools"
-export UV_TOOL_BIN_DIR="$GARRISON_HOME/uv/bin"
+export UV_TOOL_DIR="${UV_TOOL_DIR:-$HOME/.local/share/uv/tools}"
+export UV_TOOL_BIN_DIR="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}"
 export npm_config_cache="$GARRISON_HOME/npm-cache"
 # node_modules/.bin so `next`/`concurrently` resolve when this script is run
 # directly (bash scripts/garrison-instance.sh ...), not just via an npm script
